@@ -398,7 +398,9 @@ whose names contain delimiters, and deletion with the last reader and the Inbox.
 `test/imap-prefetch.test.ts` saves recent single-part bodies after synchronization
 without reading the source of a message with an attachment, opens them offline, reads
 nothing again at the next synchronization, pauses while the server cannot be reached or
-refuses the password and resumes afterwards, shares an in-flight prefetch with an
+refuses the password and resumes afterwards, preserves that refusal through an overlapping
+synchronization, protects recent bodies before prefetch starts, preserves bodies opened
+during the header preflight, shares an in-flight prefetch with an
 explicit open, and keeps no body read before a new UIDVALIDITY. The fixture dates mail
 older than any recent window unless a test dates it. Both hosts' rendered `attachments.test.tsx` journeys download,
 retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale

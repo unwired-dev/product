@@ -208,6 +208,7 @@ describe('imap recent-body prefetch', () => {
       .spyOn(imap.native, 'imapHeaders')
       .mockRejectedValueOnce(rejection('offline'));
     const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
     await inbox.load();
     // An unreachable server pauses prefetch; the Inbox stays current and nothing is saved.
     await vi.waitFor(() => {
@@ -252,6 +253,10 @@ describe('imap recent-body prefetch', () => {
         return read(...args);
       });
     const inbox = createImapInbox(imap.native);
+    onTestFinished(() => {
+      answer.resolve(undefined);
+      inbox.forget();
+    });
     await inbox.load();
     await requested.promise;
 
@@ -264,6 +269,118 @@ describe('imap recent-body prefetch', () => {
       message.mock.calls.filter(([, request]) => request.uid === uids.plain),
     ).toHaveLength(1);
     release();
+  });
+
+  it('preserves bodies opened while the header preflight was pending', async () => {
+    expect.hasAssertions();
+    const { imap, uids, ids } = recentInbox();
+    const last = imap.deliver('INBOX', {
+      subject: 'Last selected body',
+      body: 'The prefetch pass reached its end.',
+      received: now - 4 * day,
+    });
+    const requested = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    const read = imap.native.imapHeaders;
+    vi.spyOn(imap.native, 'imapHeaders').mockImplementationOnce(
+      async (...args) => {
+        const reply = await read(...args);
+        requested.resolve(undefined);
+        await held.promise;
+        return reply;
+      },
+    );
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => {
+      held.resolve(undefined);
+      inbox.forget();
+    });
+    await inbox.load();
+    await requested.promise;
+    for (const id of [ids.plain, ids.attached]) {
+      const release = inbox.retainMessage(id);
+      await inbox.readMessage(id);
+      release();
+    }
+    held.resolve(undefined);
+    await vi.waitFor(() => {
+      expect(imap.bodies.has(`7.${last}.INBOX`)).toBe(true);
+    });
+    await expect(
+      inbox.savedBodies([ids.plain, ids.attached]),
+    ).resolves.toStrictEqual(new Set([ids.plain, ids.attached]));
+    expect(
+      imap.server.reads.filter(
+        (request) => request === `message INBOX ${uids.plain}`,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('retains a prefetch authentication refusal through an overlapping synchronization', async () => {
+    expect.hasAssertions();
+    const { imap } = recentInbox();
+    const requested = Promise.withResolvers<undefined>();
+    const answer = Promise.withResolvers<unknown>();
+    vi.spyOn(imap.native, 'imapMessage').mockImplementationOnce(() => {
+      requested.resolve(undefined);
+      return answer.promise;
+    });
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    await requested.promise;
+    const synchronizing = Promise.withResolvers<undefined>();
+    const synchronized = Promise.withResolvers<undefined>();
+    const sync = imap.native.imapSynchronize;
+    vi.spyOn(imap.native, 'imapSynchronize').mockImplementationOnce(
+      async (...args) => {
+        synchronizing.resolve(undefined);
+        await synchronized.promise;
+        return sync(...args);
+      },
+    );
+    onTestFinished(() => synchronized.resolve(undefined));
+    const loading = inbox.load();
+    await synchronizing.promise;
+    answer.reject(rejection('imap-refused'));
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).status).toBe('authentication');
+    });
+    synchronized.resolve(undefined);
+    await loading;
+    expect(ready(inbox.getSnapshot()).status).toBe('authentication');
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).status).toBe('current');
+  });
+
+  it('protects the current recent bodies when reopening before prefetch starts', async () => {
+    expect.hasAssertions();
+    const { imap, inbox: previous, ids } = await prefetched();
+    previous.forget();
+    // Model native reconciliation of an over-budget directory: an unprotected readable
+    // body can be evicted, while an older eligible body supplies enough space otherwise.
+    const retain = imap.native.retainMessageBodies;
+    vi.spyOn(imap.native, 'retainMessageBodies').mockImplementation(
+      (scope, kept, protectedIds) => {
+        const eligible = [...imap.bodies.keys()].filter(
+          (id) => !protectedIds.includes(id),
+        );
+        for (const id of eligible.slice(0, 1)) {
+          imap.bodies.delete(id);
+        }
+        return retain(scope, kept, protectedIds);
+      },
+    );
+    const headerRead = vi
+      .spyOn(imap.native, 'imapHeaders')
+      .mockRejectedValue(rejection('offline'));
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    await expect(
+      inbox.savedBodies([ids.plain, ids.html]),
+    ).resolves.toStrictEqual(new Set([ids.plain, ids.html]));
+    expect(headerRead).not.toHaveBeenCalled();
   });
 
   it('keeps no body a prefetch read before the folder got a new UIDVALIDITY', async () => {
@@ -282,6 +399,10 @@ describe('imap recent-body prefetch', () => {
       },
     );
     const inbox = createImapInbox(imap.native);
+    onTestFinished(() => {
+      held.resolve(undefined);
+      inbox.forget();
+    });
     await inbox.load();
     await requested.promise;
     imap.renumber('INBOX');

@@ -661,17 +661,21 @@ export function createImapInbox(
     { bytes: number; pixels: number }
   >();
   const reading = new Map<string, Promise<void>>();
-  // The Inbox's recent working set at its last synchronization, and the prefetches in flight,
-  // which an explicit read of the same message waits for.
-  let selection: readonly string[] = [];
+  // One reference instant per synchronization, including cache admission before prefetch starts.
+  let selectionReference: DateTime.Utc | undefined = undefined;
+  const referenceInstant = Effect.suspend(() =>
+    selectionReference === undefined
+      ? DateTime.now
+      : Effect.succeed(selectionReference),
+  );
+  // An explicit read of the same message waits for its prefetch.
   const speculative = new Map<string, Deferred.Deferred<undefined>>();
-  // Open readers' bodies, then the working set's, stay protected from eviction as far as they fit.
-  const protectedBodies = () => [...new Set([...readers.keys(), ...selection])];
   // Changes made in this process and not yet saved with the cache; saving moves them to its queue.
   let queued: readonly ImapPending[] = [];
   // Undo can withdraw an intent while its first cache commit is still in flight.
   const withdrawals = new Set<string>();
   let shownStatus: Sync = 'current';
+  let authenticationRejected = false;
   // The change being dispatched; its pending move cannot be withdrawn.
   let sending: string | undefined = undefined;
   let notice: ImapNotice | undefined = undefined;
@@ -740,6 +744,15 @@ export function createImapInbox(
   };
   const cacheOf = (name: string) =>
     document?.mailboxes.find((entry) => entry.name === name)?.cache;
+  // Open readers' bodies, then the working set's, stay protected from eviction as far as they fit.
+  const protectedBodies = referenceInstant.pipe(
+    Effect.map((reference) => [
+      ...new Set([
+        ...readers.keys(),
+        ...recentWorkingSet(cacheOf(inboxFolder)?.messages ?? [], reference),
+      ]),
+    ]),
+  );
   const otherImageUsage = (key: string | symbol) => {
     let bytes = 0;
     let pixels = 0;
@@ -970,12 +983,12 @@ export function createImapInbox(
       return;
     }
     reportBlocked();
-    shownStatus = next;
+    shownStatus = authenticationRejected ? 'authentication' : next;
     state = {
       kind: 'ready',
       address: opened.address,
       messages: projected(cacheOf(inboxFolder)?.messages ?? [], changes()),
-      status: next,
+      status: shownStatus,
       folders: document.folders,
       capabilities: document.capabilities,
       pending: changes().length,
@@ -1113,8 +1126,9 @@ export function createImapInbox(
         ),
       ].map(({ id }) => id),
     );
+    const protectedIds = yield* protectedBodies;
     yield* call(() =>
-      native.retainMessageBodies(scope, [...kept], protectedBodies()),
+      native.retainMessageBodies(scope, [...kept], protectedIds),
     ).pipe(
       Effect.andThen(shared.cache.changed),
       Effect.catchIf(
@@ -1178,12 +1192,13 @@ export function createImapInbox(
       return Effect.void;
     }
     if (closesAccess(kind)) {
+      authenticationRejected = false;
       lifetime += 1;
       opened = undefined;
       document = undefined;
       folderViews.clear();
       found.clear();
-      selection = [];
+      selectionReference = undefined;
       discardAttachments();
       remoteContent.releaseAll();
       bodies.clear();
@@ -1533,6 +1548,8 @@ export function createImapInbox(
           if (forgotten) {
             return;
           }
+          authenticationRejected = false;
+          selectionReference = yield* DateTime.now;
           const verified = yield* open;
           render('syncing');
           if (!verified) {
@@ -1864,12 +1881,13 @@ export function createImapInbox(
           const text = yield* encodeBodyDocument(body).pipe(
             Effect.mapError(malformed),
           );
+          const protectedIds = yield* protectedBodies;
           yield* call(() =>
             native.commitMessageBody(scope, id, {
               document: text,
               // Opening a selected message keeps its prefetch status.
-              tier: selection.includes(id) ? 'prefetched' : 'opened',
-              protectedIds: protectedBodies(),
+              tier: protectedIds.includes(id) ? 'prefetched' : 'opened',
+              protectedIds,
             }),
           ).pipe(
             Effect.flatMap((reply) =>
@@ -1942,24 +1960,26 @@ export function createImapInbox(
       Effect.mapError(malformed),
     );
     yield* semaphore.withPermit(
-      Effect.suspend(() =>
-        current(scope) && listed(body.id)
-          ? call(() =>
-              native.commitMessageBody(scope, body.id, {
-                document: text,
-                tier: body.excluded === true ? 'excluded' : 'prefetched',
-                protectedIds: protectedBodies(),
-              }),
-            ).pipe(
-              Effect.flatMap((reply) =>
-                decodeBodyCommit(reply).pipe(Effect.mapError(malformed)),
-              ),
-              Effect.flatMap(({ admitted }) =>
-                admitted ? shared.cache.changed : Effect.void,
-              ),
-            )
-          : Effect.void,
-      ),
+      Effect.gen(function* () {
+        if (!current(scope) || !listed(body.id)) {
+          return;
+        }
+        const protectedIds = yield* protectedBodies;
+        yield* call(() =>
+          native.commitMessageBody(scope, body.id, {
+            document: text,
+            tier: body.excluded === true ? 'excluded' : 'prefetched',
+            protectedIds,
+          }),
+        ).pipe(
+          Effect.flatMap((reply) =>
+            decodeBodyCommit(reply).pipe(Effect.mapError(malformed)),
+          ),
+          Effect.flatMap(({ admitted }) =>
+            admitted ? shared.cache.changed : Effect.void,
+          ),
+        );
+      }),
     );
   });
   // A speculative read holds one of the connection's two loads and yields the device's loads to
@@ -1968,11 +1988,16 @@ export function createImapInbox(
     connectionLoads.withPermit(
       shared.loads.withPermit(read, undefined, () => Infinity),
     );
+  const prefetchPaused = (scope: Scope) =>
+    !current(scope) ||
+    shownStatus === 'authentication' ||
+    shownStatus === 'retry';
   // Only a single plain-text or HTML part is saved; any other message, or one too large or
   // unreadable, gets an exclusion marker so later selections leave it on demand.
   const prefetchBody = Effect.fnUntraced(function* (
     scope: Scope,
     message: ImapMessage,
+    fields: ReadonlyArray<Readonly<{ name: string; value: string }>>,
   ) {
     const pending = yield* Deferred.make<undefined>();
     speculative.set(message.id, pending);
@@ -1981,7 +2006,7 @@ export function createImapInbox(
       id: message.id,
       excluded: true,
     };
-    yield* speculativeLoad(sourceOf(scope, message)).pipe(
+    const download = speculativeLoad(sourceOf(scope, message)).pipe(
       Effect.flatMap((payload): Effect.Effect<BodyDocument, ImapFailure> =>
         singleReadablePart(payload)
           ? bodyDocument(message.id, payload)
@@ -2001,6 +2026,18 @@ export function createImapInbox(
         ({ kind }: Failure) => kind === 'changed' || kind === 'missing',
         () => Effect.void,
       ),
+    );
+    yield* call(() => native.listMessageBodies(scope, [message.id])).pipe(
+      Effect.flatMap((reply) =>
+        decodeStoredBodies(reply).pipe(Effect.mapError(malformed)),
+      ),
+      // An explicit open may have saved this body while the bulk preflight was pending.
+      Effect.flatMap(({ stored }) => {
+        if (stored.includes(message.id) || prefetchPaused(scope)) {
+          return Effect.void;
+        }
+        return describesReadablePart(fields) ? download : keep(scope, excluded);
+      }),
       Effect.ensuring(
         Effect.suspend(() => {
           if (speculative.get(message.id) === pending) {
@@ -2018,7 +2055,7 @@ export function createImapInbox(
     messages: readonly ImapMessage[],
   ) {
     const byId = new Map(messages.map((item) => [item.id, item]));
-    selection = recentWorkingSet(messages, yield* DateTime.now);
+    const selection = recentWorkingSet(messages, yield* referenceInstant);
     const { stored } = yield* call(() =>
       native.listMessageBodies(scope, selection),
     ).pipe(
@@ -2032,10 +2069,6 @@ export function createImapInbox(
       return message === undefined || saved.has(id) ? [] : [message];
     });
   });
-  const prefetchPaused = (scope: Scope) =>
-    !current(scope) ||
-    shownStatus === 'authentication' ||
-    shownStatus === 'retry';
   // One speculative lane: the Inbox's recent working set, newest first. A body-free read of every
   // unsaved message's Content-Type and Content-Disposition chooses which sources to read, so no
   // attachment is downloaded speculatively.
@@ -2049,6 +2082,9 @@ export function createImapInbox(
       return;
     }
     yield* shared.idle.await;
+    if (prefetchPaused(scope)) {
+      return;
+    }
     const preflight = yield* speculativeLoad(
       call(() =>
         native.imapHeaders(scope, {
@@ -2073,9 +2109,7 @@ export function createImapInbox(
       const fields = headers.get(message.uid);
       // An expunged message or one an explicit read is saving needs no prefetch.
       if (fields !== undefined && !reading.has(message.id)) {
-        yield* describesReadablePart(fields)
-          ? prefetchBody(scope, message)
-          : keep(scope, { version: 2, id: message.id, excluded: true });
+        yield* prefetchBody(scope, message, fields);
       }
     }
   });
@@ -2087,6 +2121,7 @@ export function createImapInbox(
     (scope: Scope) =>
     ({ kind, diagnostic }: Failure) => {
       if (current(scope) && changesAccess(kind)) {
+        authenticationRejected ||= kind === 'authentication';
         return loadFailed({ kind, diagnostic });
       }
       return expected(kind) || kind === 'changed' || kind === 'invalidated'
@@ -2529,7 +2564,7 @@ export function createImapInbox(
       reservations.clear();
       limited.clear();
       found.clear();
-      selection = [];
+      selectionReference = undefined;
       queued = [];
       withdrawals.clear();
       notice = undefined;
