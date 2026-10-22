@@ -99,7 +99,10 @@ removals, the ready presentation after native adoption, renewed Pending Device
 enrollment and recovery only with the latest confirmed key. The two-Profile session,
 `createTwoProfileRegistration`, connects alex@example.invalid in the Default
 Profile and other@example.invalid in a published Work Profile, for the Profile
-Switcher journeys. Native builds cannot select it yet. These controls exist only
+Switcher journeys. Native builds cannot select it yet; the native registration
+builds create a Profile through the switcher instead, and their synthetic Convex
+answers the Profile fence and atomic Profile writes as Convex does for an account
+whose devices all run this build. These controls exist only
 in the shared test fixture; hosted native tests separately prove multi-epoch
 cryptographic catch-up and reenrollment on the same Keychain installation.
 

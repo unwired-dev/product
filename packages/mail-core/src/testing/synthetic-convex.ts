@@ -211,6 +211,20 @@ const byIdentifier = Order.mapInput(
   ({ payloadIdentifier }: Readonly<{ payloadIdentifier: string }>) =>
     payloadIdentifier,
 );
+// Mail Profile changes compare and set several records together, with no other checks or deletes.
+const decodeAtomicWrites = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    checks: Schema.Tuple([]),
+    deletes: Schema.Tuple([]),
+    writes: Schema.NonEmptyArray(
+      Schema.Struct({
+        payloadIdentifier: Schema.NonEmptyString,
+        encryptedPayload: EncryptedPayload,
+        expectedUpdatedAt: Schema.optionalKey(Schema.Finite),
+      }),
+    ),
+  }),
+);
 const payloadOf = (value: unknown) =>
   Schema.decodeUnknownEffect(EncryptedPayload)(value).pipe(
     Effect.orElseSucceed(() => null),
@@ -626,6 +640,66 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         );
       });
 
+      // Several compare-and-set writes in one transaction, as Mail Profile changes make them: all
+      // commit, or none does and the stored records come back instead.
+      const putAll = Effect.fn('SyntheticConvex.putAll')(function* ({
+        args,
+        identity,
+        product,
+      }: Presented) {
+        const decoded = yield* decodeAtomicWrites(args).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        if (identity === null || decoded === null) {
+          return yield* refusal('UNAVAILABLE');
+        }
+        const parsed = decoded.writes.map((write) => ({
+          identifier: write.payloadIdentifier,
+          payload: write.encryptedPayload,
+          expected: write.expectedUpdatedAt,
+        }));
+        const account = product.productAccountId;
+        return yield* update((next) =>
+          Effect.gen(function* () {
+            if (
+              parsed.some(
+                ({ payload }) => payload.keyVersion !== epoch(account),
+              )
+            ) {
+              return yield* refuse('PRODUCT_SYNC_KEY_ROTATION_REQUIRED');
+            }
+            const records = next.records[account] ?? {};
+            const current = parsed.flatMap(({ identifier }) => {
+              const existing = records[identifier];
+              return existing === undefined ? [] : [existing];
+            });
+            if (
+              parsed.some(
+                ({ identifier, expected }) =>
+                  records[identifier]?.updatedAt !== expected,
+              )
+            ) {
+              return { committed: false, payloads: current };
+            }
+            const stored = parsed.map(({ identifier, payload }) => ({
+              payloadIdentifier: identifier,
+              encryptedPayload: payload,
+              updatedAt: (records[identifier]?.updatedAt ?? 0) + 1,
+            }));
+            next.records[account] = {
+              ...records,
+              ...Object.fromEntries(
+                stored.map((record) => [record.payloadIdentifier, record]),
+              ),
+            };
+            return { committed: true, payloads: stored };
+          }),
+        ).pipe(
+          Effect.flatMap(success),
+          Effect.catchTag('SyntheticRefusal', ({ code }) => refusal(code)),
+        );
+      });
+
       // Signing out forgets this device; signing in again makes it wait for admission.
       const unregister = ({ args, product }: Presented) =>
         changed((next) => {
@@ -809,6 +883,10 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
                 continueCursor: '',
               }),
         'productSync:putEncryptedPayloadIfUnchanged': putPayload,
+        'productSync:putEncryptedPayloadsAtomically': putAll,
+        // Every device of a synthetic account runs this build, so no older client fences Profiles.
+        'productSync:declareMailProfileCapability': () =>
+          success({ fenced: false }),
         '/product-account/delete': ({ product }) =>
           Effect.gen(function* () {
             if (!state.deleted.includes(product.productAccountId)) {
