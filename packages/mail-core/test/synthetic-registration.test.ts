@@ -384,6 +384,66 @@ describe('the synthetic backend keeps its state across launches', () => {
     ).toStrictEqual({ stored: null });
   });
 
+  it('answers the Mail Profile fence and commits atomic Profile writes only over the stored versions', async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-apple', { state: null });
+    const connected = await ask('convex.connect', {
+      identity,
+      deviceIdentifier: 'installation-1',
+    });
+    const product = decoded(Schema.Unknown, connected);
+    const call = async (
+      path: string,
+      args: Readonly<Record<string, unknown>>,
+    ) =>
+      decoded(
+        Exchange,
+        await ask('convex.call', { path, args, identity, product }),
+      ).body.value;
+    const sealed = {
+      algorithm: 'AES-GCM-256',
+      ciphertextBase64: 'AA==',
+      keyVersion: 1,
+      nonceBase64: 'AA==',
+      schemaVersion: 3,
+      tagBase64: 'AA==',
+    };
+    await call('productSync:initialize', {
+      encryptedPayload: sealed,
+      recoveryVerifier: 'verifier',
+      deviceEncryptionPublicKey: deviceKey,
+    });
+    await expect(
+      call('productSync:declareMailProfileCapability', { capabilityVersion: 1 }),
+    ).resolves.toStrictEqual({ fenced: false });
+    const write = (expectedUpdatedAt?: number) =>
+      call('productSync:putEncryptedPayloadsAtomically', {
+        checks: [],
+        deletes: [],
+        writes: [
+          {
+            payloadIdentifier: 'profile.work',
+            encryptedPayload: sealed,
+            ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+          },
+        ],
+      });
+    const stored = {
+      payloadIdentifier: 'profile.work',
+      encryptedPayload: sealed,
+      updatedAt: 1,
+    };
+    await expect(write()).resolves.toStrictEqual({
+      committed: true,
+      payloads: [stored],
+    });
+    // A write expecting no record loses to the one now stored, which comes back instead.
+    await expect(write()).resolves.toStrictEqual({
+      committed: false,
+      payloads: [stored],
+    });
+  });
+
   it('learns on relaunch that another device removed this one, which then waits as a new device', async () => {
     /* oxlint-disable vitest/max-expects -- One journey spans the removal and the new sign-in. */
     expect.hasAssertions();
