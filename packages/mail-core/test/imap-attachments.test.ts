@@ -1,9 +1,11 @@
+import type {
+  ImapInbox,
+  NativeImapMailbox,
+} from '@private-email/mail-core/imap-inbox';
+
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import * as Base64 from 'effect/encoding/Base64';
-
-import type { ImapInbox, NativeImapMailbox } from '../src/imap-inbox.ts';
-
-import { createImapInbox } from '../src/imap-inbox.ts';
-import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 
 const pdf = new TextEncoder().encode('%PDF-1.4\n');
 
