@@ -2146,9 +2146,6 @@ export function createImapInbox(
       return;
     }
     const wanted = yield* unsavedSelection(scope, inbox.messages);
-    if (wanted.length === 0) {
-      return;
-    }
     for (const chunk of Arr.chunksOf(wanted, preflightSize)) {
       if (
         (yield* yielded(scope)) ||
