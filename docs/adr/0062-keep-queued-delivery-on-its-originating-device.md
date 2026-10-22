@@ -4,6 +4,35 @@ status: accepted
 
 # Keep queued delivery on its originating device
 
+## Device-credential claim amendment — 2026-10-22
+
+For [#983](https://github.com/unwired-dev/product/issues/983), the product owner
+authorized the content-free delivery claim using the Trusted Device Credential
+alone, without Product Sign-In. Sign in with Apple cannot silently renew a
+Product Sign-In after relaunch; requiring it for every claim strands otherwise
+authorized queued mail. This exception applies only to `draftDelivery:claim`.
+Draft synchronization and other account operations retain their own sign-in
+requirements. The [Outbox guide](../outbox.md#delivery-rules) owns the observable
+contract.
+
+The mutation must verify a live, account-owned Trusted Device with a stored
+credential digest and a matching valid credential. Legacy credential-free
+fallback, Pending Devices, foreign devices and retained revocation targets grant
+no claim authority. Resolve the stored Product Account and check deletion using
+its canonical identity. Device verification, deletion checks and claim insertion
+remain in one atomic mutation. The caller's account or device identifier alone
+is never proof.
+
+Native code retains the account-owner and existing-key checks, credential/key
+custody and revoked/deleted-account purge handling. A successful claim does not
+replace fresh device verification before provider handoff. Claim identifiers
+remain opaque and fixed-length. The first claimant retains ownership, repeating
+its claim after a lost reply is idempotent, and claims are deleted with the
+Product Account. An unanswered claim grants no submission permission, and
+an uncertain provider handoff is never automatically resubmitted. This decision
+adds no cross-device takeover or alternate send path and does not qualify real
+provider delivery.
+
 ## Launch scope amendment — 2026-10-11
 
 The power-user Apple launch extends these delivery protections and required

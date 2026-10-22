@@ -3,7 +3,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
-import { v } from 'convex/values';
+import { productAccountDeletionAbortedErrorCode } from '@private-email/contracts/productAccount';
+import { ConvexError, v } from 'convex/values';
 import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Config from 'effect/Config';
@@ -131,6 +132,12 @@ function thrownDeletionError(error: DeletionFailure): unknown {
       ? 'Apple authorization revocation is temporarily unavailable'
       : error.message,
   );
+}
+
+function thrownHttpDeletionError(error: DeletionFailure): unknown {
+  return error._tag === 'AppleRejected'
+    ? new ConvexError({ code: productAccountDeletionAbortedErrorCode })
+    : thrownDeletionError(error);
 }
 
 function exchangeFailed(): AppleRejected {
@@ -651,7 +658,7 @@ export const deleteRecentlyAuthenticatedProductAccount = internalAction({
   handler: async (ctx, args): Promise<{ deleted: boolean }> =>
     runConvexProgram(
       deleteAccount(ctx, args, randomUUID()),
-      thrownDeletionError,
+      thrownHttpDeletionError,
     ),
   returns: productAccountDeletionResponseValidator,
 });

@@ -261,6 +261,12 @@ struct OutboxTests {
       identifiers.allSatisfy {
         $0.range(of: "^draft-delivery\\.[0-9a-f]{32}$", options: .regularExpression) != nil
       })
+    // #983: a Sign in with Apple relaunch has no Product Sign-In session. Drafts wait for one, but
+    // the device credential still claims, so queued mail sends.
+    store.session = nil
+    #expect(throws: RegistrationError.unavailable) { _ = try store.draftSync(owner: owner) }
+    let relaunched = try store.draftSync(owner: owner, signedIn: false)
+    #expect(try await relaunched.claimDelivery(draft: "draft-1")["claimed"] as? Bool == true)
     backend.offline = true
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await phone.claimDelivery(draft: "draft-3")

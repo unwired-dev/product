@@ -1,3 +1,4 @@
+import { productAccountDeletionAbortedErrorCode } from '@private-email/contracts/productAccount';
 import { mailProfilesUpgradeRequiredErrorCode } from '@private-email/contracts/productSync';
 import * as Effect from 'effect/Effect';
 import * as Predicate from 'effect/Predicate';
@@ -27,6 +28,7 @@ export const backendCodes: Readonly<Record<string, Code>> = {
   PENDING_DEVICE_UNAVAILABLE: 'pending-device-unavailable',
   TRUSTED_DEVICE_REVOKED: 'revoked',
   PRODUCT_ACCOUNT_DELETED: 'deleted',
+  [productAccountDeletionAbortedErrorCode]: 'deletion-aborted',
   [mailProfilesUpgradeRequiredErrorCode]: 'upgrade-required',
 };
 export const backendCode = (code: string | undefined) =>

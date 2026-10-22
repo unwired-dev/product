@@ -1,3 +1,4 @@
+import { productAccountDeletionAbortedErrorCode } from '@private-email/contracts/productAccount';
 import { httpRouter } from 'convex/server';
 import { ConvexError } from 'convex/values';
 import * as Option from 'effect/Option';
@@ -126,6 +127,11 @@ const isKeyRotationConflict = Schema.is(
 );
 const isKeyRotationInvalid = Schema.is(
   Schema.Struct({ code: Schema.Literal(keyRotationErrorCodes.invalid) }),
+);
+const isProductAccountDeletionAborted = Schema.is(
+  Schema.Struct({
+    code: Schema.Literal(productAccountDeletionAbortedErrorCode),
+  }),
 );
 
 const MicrosoftGraphNotificationSchema = Schema.Struct({
@@ -303,6 +309,15 @@ async function deleteProductAccountResponse(
       return new Response(
         'Recent Sign in with Apple authorization is required',
         { status: 409 },
+      );
+    }
+    if (
+      error instanceof ConvexError &&
+      isProductAccountDeletionAborted(error.data)
+    ) {
+      return Response.json(
+        { code: productAccountDeletionAbortedErrorCode },
+        { status: 403 },
       );
     }
     throw error;

@@ -15,7 +15,7 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 #### Authentication and authorization
 
 - A public `query`, `mutation`, `action` or `httpAction` that reads or writes account data without establishing the caller and the authorization required by that operation. Trace `convex/productAccountAuth.ts` helpers (`requireProductAccount`, `requireAuthenticatedTrustedDevice`, `requireTrustedDeviceProof`, `requireTrustedDevice`) or the owning equivalent boundary. Account bootstrap in `productAccount.connect` derives verified `ctx.auth` identity and checks deletion before creating the account; it cannot require an existing account. Provider HTTP routes use their owning verifier. Follow the handler through authentication and each ownership check before protected data is returned or changed.
-- A Product Account, token or user identifier accepted as an argument and used for authorization. Identity is derived from `ctx.auth.getUserIdentity()` and `tokenIdentifier`; never `subject` alone, and never an email address.
+- A Product Account, token or user identifier accepted as proof for an operation requiring Product Sign-In. Identity is derived from `ctx.auth.getUserIdentity()` and `tokenIdentifier`; never `subject` alone, and never an email address. The explicit `draftDelivery:claim` exception in ADR 0062 permits an account locator only with a live account-owned Trusted Device and its valid credential digest proof; the locator or a retained revocation target alone grants no authority.
 - A read or write reached by document `_id` or by an index that does not include the owning `productAccountId`, without an ownership comparison afterwards. One account must never observe another's devices, payloads, routes or requests.
 - A new path that skips the deleted-account check (`requireProductAccountNotDeleted`), the Trusted Device revocation or reconnect checks, or the Private Sync key-epoch fence (`requireCurrentProductSyncKeyEpoch`) that its sibling functions apply.
 - Credentialed-record creation or admission that relies only on an earlier identifier check. `productSyncEnrollment.complete` must recheck the account-scoped installation `deviceIdentifier` tombstone in the transaction that creates the Trusted Device and drop a refused pending record; a current approval or Recovery Key grant cannot override removal.
@@ -63,6 +63,14 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 
 #### Schema and deployed clients
 
+- A public function such as `draftDelivery:claim` adding a required argument,
+  removing an accepted argument or changing a decoded response while installed
+  builds still send or consume the earlier shape. Trace released native callers
+  and the deployment order in `docs/convex-deploy.md`; deploying the backend before
+  TestFlight does not update installed clients. Preserve a compatible request and
+  response path with the operation's required authorization, and exercise the old
+  wire shape through the public function. A documented limitation alone does not
+  prevent an outage, and compatibility must not restore credential-free admission.
 - A capability gate such as `productSyncMailProfiles.requireMailProfileCapability` relying only
   on an activation marker that new writes set, while earlier releases could store
   the protected records without it. Backfill or detect those account-scoped records

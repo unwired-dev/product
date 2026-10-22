@@ -102,8 +102,10 @@ cryptographic catch-up and reenrollment on the same Keychain installation.
 
 In `registration-removal`, the journey saves and confirms its Recovery Key, then
 signs out and relaunches with nothing kept.
-Signing in again leads to an approval request. It then deletes the account,
-relaunches, and finds signing in refused as deleted.
+Signing in again leads to an approval request. It then deletes the account, but
+the deletion's reply is lost. After relaunch, **Confirm account deletion** retries
+it and reports the account deleted. A further relaunch finds signing in refused
+as deleted.
 In `registration-draft-editor`, the journey signs in like Google registration, then
 types a new Draft into the Tiptap evaluation editor, rotates or resizes it, closes it
 and reopens it after relaunch. It is the only registration scenario whose

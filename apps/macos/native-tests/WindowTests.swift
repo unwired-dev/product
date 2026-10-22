@@ -150,10 +150,19 @@ final class WindowTests: XCTestCase {
     resumed.buttons["Delete Product Account"].click()
     XCTAssertTrue(text("cannot be undone", in: resumed).waitForExistence(timeout: 15))
     resumed.buttons["Delete permanently"].click()
-    XCTAssertTrue(text("Product Account deleted", in: resumed).waitForExistence(timeout: 15))
+    // The deletion's reply is lost (#1173). After relaunch, retrying it confirms the deletion and
+    // leaves its confirmation for Welcome.
+    XCTAssertTrue(
+      text("Deletion could not be confirmed", in: resumed).waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    let pending = app.windows["Inbox 1"]
+    XCTAssertTrue(text("Confirm account deletion", in: pending).waitForExistence(timeout: 20))
+    pending.buttons["Delete permanently"].click()
+    XCTAssertTrue(text("Product Account deleted", in: pending).waitForExistence(timeout: 15))
     // The deleted account cannot be reopened, and this device keeps nothing of it.
-    resumed.buttons["Sign in with Google"].click()
-    XCTAssertTrue(text("Product Account deleted", in: resumed).waitForExistence(timeout: 15))
+    pending.buttons["Sign in with Google"].click()
+    XCTAssertTrue(text("Product Account deleted", in: pending).waitForExistence(timeout: 15))
   }
 
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
