@@ -265,6 +265,3 @@ Deferred before release:
 - real Convex claims between two signed Trusted Devices;
 - VoiceOver qualification of Send, the Outbox rows, their live status and the
   unknown-outcome recovery actions.
-
-The packaged Mock Mail Session accepts sends in synthetic Gmail, but no native
-journey drives them yet.
