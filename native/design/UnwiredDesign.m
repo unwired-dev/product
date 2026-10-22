@@ -347,7 +347,7 @@ RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
 }
 @end
 
-// A control's menu: pull-down below it, or a pop-up whose checked item lies over it. React Native
+// A control's menu, dropping below it with any checked item marked. React Native
 // macOS's ActionSheetIOS menu has no checked or destructive items and no separators.
 @interface UnwiredMenu : NSObject <RCTBridgeModule>
 @end
@@ -368,16 +368,12 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   UnwiredMenuChoice *choice = [UnwiredMenuChoice new];
   choice.resolve = resolve;
   NSMenu *menu = UnwiredMenuOf(@"", sections, choice, [RCTConvert NSColor:destructiveColor]);
-  NSMenuItem *checked = nil;
-  for (NSMenuItem *item in menu.itemArray) {
-    if (item.state == NSControlStateValueOn) checked = item;
-  }
   NSRect bounds = view.bounds;
-  // The checked item's top lies on the control's top edge; a pull-down menu starts at its bottom.
-  CGFloat y = (checked != nil) == view.isFlipped ? NSMinY(bounds) : NSMaxY(bounds);
+  // The menu drops below its control, as the design's Mac menus do.
+  CGFloat bottom = view.isFlipped ? NSMaxY(bounds) : NSMinY(bounds);
   // Tracking returns once the menu closes, after sending a chosen item's action.
   if (view.window != nil && menu.numberOfItems > 0) {
-    [menu popUpMenuPositioningItem:checked atLocation:NSMakePoint(NSMinX(bounds), y) inView:view];
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(bounds), bottom) inView:view];
   }
   [choice answer:[NSNull null]];
 }

@@ -138,8 +138,8 @@ interface NativeMenu extends TurboModule {
   ) => Promise<unknown>;
 }
 
-// A pop-up control whose AppKit menu owns presentation, keyboard and dismissal; a menu with a
-// checked item opens over the control like a pop-up button, any other drops below it.
+// A pop-up control whose AppKit menu, dropped below it, owns presentation, keyboard and
+// dismissal.
 export function PopUp({
   label,
   accessibilityLabel,

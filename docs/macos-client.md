@@ -43,8 +43,8 @@ The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, and the Mac-only
 `UnwiredMenu` presenter. The composer's Text style, From, actions and Writing tools
 pop-ups open an AppKit `NSMenu` through it: the system owns presentation, keyboard
-navigation, Escape and click-outside dismissal. A menu with a checked item opens
-over its control, like a pop-up button; any other drops below it. Writing tools retain
+navigation, Escape and click-outside dismissal. Each menu drops below its control and
+checks the current choice. Writing tools retain
 their localized selection/body descriptions for accessibility. React Native
 macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or destructive items. Remove
 the presenter when the host provides an anchored menu with those states. Follow
