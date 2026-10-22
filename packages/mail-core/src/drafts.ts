@@ -31,7 +31,11 @@ import type {
 import type { Registration } from './registration.ts';
 import type { Asset, Selection } from './semantic-document.ts';
 
-import { rejectionCode, runLogged } from './diagnostics.ts';
+import {
+  rejectionCode,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import {
   assetsOf,
   DraftSchema,
@@ -908,6 +912,14 @@ const ownerOf = (snapshot: RegistrationSnapshot) =>
   canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
     ? snapshot.productAccountId
     : undefined;
+
+const logCreationCleanupFailure = (cleanupError: unknown) =>
+  runLogged(
+    Effect.logError(
+      'Draft creation cleanup failed:',
+      rejectionDiagnostic(cleanupError),
+    ),
+  );
 
 // The signed-in Product Account's Drafts. Every edit is in memory at once and saved in order;
 // a failed save keeps it in memory, and the next edit or `save` retries. Another Product Account
@@ -2176,23 +2188,42 @@ export function createDrafts(
         return undefined;
       }
       const created: { id?: string } = {};
-      await change((drafts, { now, id }) => {
-        created.id = id;
-        return [
-          ...drafts,
-          {
-            id,
-            connection: mailbox.id,
-            from: mailbox.address,
-            to: [],
-            cc: [],
-            bcc: [],
-            subject: '',
-            body: emptyDocument,
-            updatedAt: now,
-          },
-        ];
-      }, creating);
+      try {
+        await change((drafts, { now, id }) => {
+          created.id = id;
+          return [
+            ...drafts,
+            {
+              id,
+              connection: mailbox.id,
+              from: mailbox.address,
+              to: [],
+              cc: [],
+              bcc: [],
+              subject: '',
+              body: emptyDocument,
+              updatedAt: now,
+            },
+          ];
+        }, creating);
+      } catch (error) {
+        // A subscriber can reject after the first save, while the published Draft gains content.
+        // Remove only an empty Draft, before subscribers can reject its removal too. A rejected
+        // removal notification skips its save, so save again: storage commits before notifying.
+        await change(
+          (drafts) =>
+            drafts.filter(
+              (draft) => draft.id !== created.id || !isEmptyDraft(draft),
+            ),
+          creating,
+        )
+          .catch(async (cleanupError: unknown) => {
+            await logCreationCleanupFailure(cleanupError);
+            return runLogged(saving(creating));
+          })
+          .catch(logCreationCleanupFailure);
+        throw error;
+      }
       // A Draft started before the Product Account changed belongs to no open store now.
       return live(creating) ? created.id : undefined;
     },
