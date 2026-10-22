@@ -30,11 +30,17 @@ fields = {
 }
 
 
+def nonblank(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+# A limited answer names the capability it lacked; behavior rows carry their states instead.
 def described(row):
     required = fields.get(row.get('kind'), {})
-    text = row.get('text')
     return (all(isinstance(row.get(key), kind) for key, kind in required.items())
-            and (row.get('state') != 'ready' or (isinstance(text, str) and text.strip())))
+            and (row.get('state') != 'ready' or nonblank(row.get('text')))
+            and (row.get('result') != 'limited' or 'state' not in required
+                 or nonblank(row.get('reason'))))
 
 
 identities = {(kind, identifier) for kind, identifiers in expected.items()

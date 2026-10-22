@@ -22,8 +22,12 @@ cleanup() {
     osascript -e "quit app id \"$bundle_id\"" 2>/dev/null || true
     for _ in {1..20}; do pgrep -f "$run/Mock.app/" > /dev/null || break; sleep 1; done
     pkill -f "$run/Mock.app/" 2>/dev/null || true
-    "$run/Cleanup.app/Contents/MacOS/cleanup" "$bundle_id" || cleanup_exit=$?
-    rm -rf "$HOME/Library/Containers/$bundle_id" || cleanup_exit=1
+    # A copy that did not quit keeps its container for recovery with the retained helper.
+    if "$run/Cleanup.app/Contents/MacOS/cleanup" "$bundle_id"; then
+      rm -rf "$HOME/Library/Containers/$bundle_id" || cleanup_exit=1
+    else
+      cleanup_exit=$?
+    fi
   fi
   rm -rf "$run/Mock.app" "$run/cleanup" || cleanup_exit=1
   if (( cleanup_exit == 0 )); then

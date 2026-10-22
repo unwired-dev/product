@@ -121,21 +121,46 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
       fail: 0,
     };
     const failed = [{ ...cases[0], result: 'fail' }, ...cases.slice(1)];
-    const limited = [{ ...cases[0], result: 'limited' }, ...cases.slice(1)];
-    for (const [rows, expectedExit] of [
+    const limitedCase = {
+      ...cases[0],
+      state: 'unavailable',
+      text: undefined,
+      reason: 'unsupported-locale',
+      result: 'limited',
+    };
+    const limited = [limitedCase, ...cases.slice(1)];
+    const malformed =
+      /Incomplete or malformed assistance qualification evidence/u;
+    for (const [rows, expectedExit, reason] of [
       [[device, ...cases, complete], 0],
       [[device, ...limited, { ...complete, pass: 19, limited: 1 }], 0],
-      [[device, ...failed, { ...complete, pass: 19, fail: 1 }], 1],
-      [[device, ...cases.slice(1), { ...complete, pass: 19 }], 1],
-      [[device, cases[1], ...cases.slice(1), complete], 1],
-      [[device, ...cases, { ...complete, pass: 19 }], 1],
-      [[device, { corpusVersion: 1, kind: 'stopped' }], 1],
-      // A ready answer without its text, or a device without its description, cannot be reviewed.
+      [
+        [device, ...failed, { ...complete, pass: 19, fail: 1 }],
+        1,
+        /Assistance qualification has 1 failed checks/u,
+      ],
+      [[device, ...cases.slice(1), { ...complete, pass: 19 }], 1, malformed],
+      [[device, cases[1], ...cases.slice(1), complete], 1, malformed],
+      [[device, ...cases, { ...complete, pass: 19 }], 1, malformed],
+      [[device, { corpusVersion: 1, kind: 'stopped' }], 1, malformed],
+      // A ready answer without its text, a limited answer without its reason, or a device
+      // without its description cannot be reviewed.
       [
         [device, { ...cases[0], text: undefined }, ...cases.slice(1), complete],
         1,
+        malformed,
       ],
-      [[{ ...device, hardware: undefined }, ...cases, complete], 1],
+      [
+        [
+          device,
+          { ...limitedCase, reason: undefined },
+          ...cases.slice(1),
+          { ...complete, pass: 19, limited: 1 },
+        ],
+        1,
+        malformed,
+      ],
+      [[{ ...device, hardware: undefined }, ...cases, complete], 1, malformed],
     ]) {
       const evidence = path.join(directory, 'evidence.jsonl');
       writeFileSync(
@@ -149,6 +174,9 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
       ]);
       assert.ifError(result.error);
       assert.equal(result.status, expectedExit, result.stdout + result.stderr);
+      if (reason !== undefined) {
+        assert.match(result.stderr, reason);
+      }
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });

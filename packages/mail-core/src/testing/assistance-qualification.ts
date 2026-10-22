@@ -182,12 +182,15 @@ const outcome = (passed: boolean, state: string): Result => {
   return state === 'unavailable' || state === 'refused' ? 'limited' : 'fail';
 };
 
+const refusal = (kind: string) => (kind === 'refused' ? kind : undefined);
+
 const detail = (state: Generated | TranslationState) =>
   state.kind === 'ready'
     ? { state: state.kind, text: state.text, omitted: state.omitted }
     : {
         state: state.kind,
-        reason: 'reason' in state ? state.reason : undefined,
+        // A refusal is its own reason; other unavailable states carry theirs.
+        reason: 'reason' in state ? state.reason : refusal(state.kind),
       };
 
 const timed = async <T>(work: () => Promise<T>) => {
