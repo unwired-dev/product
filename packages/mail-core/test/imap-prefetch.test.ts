@@ -325,7 +325,7 @@ describe('imap recent-body prefetch', () => {
     ).toHaveLength(1);
   });
 
-  it('retains a prefetch authentication refusal through an overlapping synchronization', async () => {
+  it('retains a prefetch authentication refusal through an overlapping synchronization and its conflict retry', async () => {
     expect.hasAssertions();
     const { imap } = recentInbox();
     const requested = Promise.withResolvers<undefined>();
@@ -355,6 +355,8 @@ describe('imap recent-body prefetch', () => {
     await vi.waitFor(() => {
       expect(ready(inbox.getSnapshot()).status).toBe('authentication');
     });
+    // Another writer commits while this synchronization waits, requiring its bounded retry.
+    imap.cache.revision += 1;
     synchronized.resolve(undefined);
     await loading;
     expect(ready(inbox.getSnapshot()).status).toBe('authentication');

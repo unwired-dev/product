@@ -400,7 +400,8 @@ whose names contain delimiters, and deletion with the last reader and the Inbox.
 without reading the source of a message with an attachment, opens them offline, reads
 nothing again at the next synchronization, pauses while the server cannot be reached or
 refuses the password and resumes afterwards, preserves that refusal through an overlapping
-synchronization, protects recent bodies before prefetch starts, preserves bodies opened
+synchronization and its metadata-conflict retry, protects recent bodies before prefetch
+starts, preserves bodies opened
 during the header preflight, shares an in-flight prefetch with an
 explicit open, and keeps no body read before a new UIDVALIDITY, including one committed
 by another store. The fixture dates mail

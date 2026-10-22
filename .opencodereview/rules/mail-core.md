@@ -286,6 +286,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `imap-inbox.ts.load` resetting a concurrent prefetch authentication refusal
+  inside its metadata-conflict retry boundary. Clear the refusal once when a new
+  load acquires its permit, and preserve refusals raised during that load across
+  internal retries. Otherwise another writer's metadata commit hides password
+  repair and resumes speculation with the refused credential.
+
 - `createGmailInbox` admitting ranked Thread reads to a FIFO account queue before
   provider work can start. Re-evaluate priority at shared account admission while
   enforcing both account and connection limits; scroll changes must overtake all

@@ -1548,40 +1548,43 @@ export function createImapInbox(
   const load = () =>
     runLogged(
       semaphore.withPermit(
-        Effect.gen(function* () {
-          if (forgotten) {
-            return;
-          }
+        Effect.suspend(() => {
+          // Internal retries must preserve a refusal raised during this load.
           authenticationRejected = false;
-          selectionReference = yield* DateTime.now;
-          const verified = yield* open;
-          render('syncing');
-          if (!verified) {
-            render('retry');
-            return;
-          }
-          const scope = opened;
-          if (scope !== undefined) {
-            const { folders, ...capabilities } = yield* decodeFolders(
-              yield* call(() => native.imapFolders(scope)),
-            ).pipe(Effect.mapError(malformed));
-            if (document !== undefined) {
-              yield* acceptListing(document, folders, capabilities);
+          return Effect.gen(function* () {
+            if (forgotten) {
+              return;
             }
-          }
-          yield* synchronizeFolder(inboxFolder);
-          yield* drain;
-          render('current');
-          schedulePrefetch();
-        }).pipe(
-          Effect.retry({
-            times: 1,
-            while: (failure) =>
-              failure.kind === 'conflict' || failure.kind === 'invalidated',
-          }),
-          // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
-          Effect.catch(loadFailed),
-        ),
+            selectionReference = yield* DateTime.now;
+            const verified = yield* open;
+            render('syncing');
+            if (!verified) {
+              render('retry');
+              return;
+            }
+            const scope = opened;
+            if (scope !== undefined) {
+              const { folders, ...capabilities } = yield* decodeFolders(
+                yield* call(() => native.imapFolders(scope)),
+              ).pipe(Effect.mapError(malformed));
+              if (document !== undefined) {
+                yield* acceptListing(document, folders, capabilities);
+              }
+            }
+            yield* synchronizeFolder(inboxFolder);
+            yield* drain;
+            render('current');
+            schedulePrefetch();
+          }).pipe(
+            Effect.retry({
+              times: 1,
+              while: (failure) =>
+                failure.kind === 'conflict' || failure.kind === 'invalidated',
+            }),
+            // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+            Effect.catch(loadFailed),
+          );
+        }),
       ),
     );
 
