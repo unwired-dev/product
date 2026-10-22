@@ -440,8 +440,8 @@ extension PrivateInboxTests {
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list(held) }
 
     // A session open too long closes too, even with a command waiting; so does `session`.
-    store.imapSessionLimits.lifetime = .milliseconds(50)
     (held, listing, waiting) = try await holding()
+    store.imapSessionLimits.lifetime = .milliseconds(50)
     try await Task.sleep(for: .milliseconds(100))
     store.closeStaleImapSessions()
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await listing.value }
