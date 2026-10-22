@@ -94,7 +94,7 @@ Install the build under its own bundle identifier so it never replaces an
 installed Unwired Mail or reads its data:
 
 ```sh
-UNWIRED_MOCK_SCENARIO=assistance-qualification \
+UNWIRED_MOCK_SCENARIO=assistance-qualification UNWIRED_COMMIT="$(git rev-parse HEAD)" \
 mise exec -- pnpm --filter @private-email/mobile native:generate --no-install
 (cd apps/mobile/ios && pod install)
 xcodebuild build -workspace apps/mobile/ios/UnwiredMail.xcworkspace \
@@ -106,8 +106,14 @@ xcodebuild build -workspace apps/mobile/ios/UnwiredMail.xcworkspace \
 app=artifacts/assistance-qualification/DerivedData/Build/Products/Release-iphoneos/UnwiredMail.app
 xcrun devicectl list devices
 xcrun devicectl device install app --device <device> "$app"
-xcrun devicectl device process launch --device <device> dev.unwired.mock.assistance
+xcrun devicectl device process launch --terminate-existing --device <device> dev.unwired.mock.assistance
 ```
+
+The device needs Developer Mode on (Settings → Privacy & Security). A device the
+team has not registered refuses the app because its provisioning profile cannot
+be installed. Build once with
+`-destination 'platform=iOS,id=<device>' -allowProvisioningDeviceRegistration` in
+place of the generic destination to register it, then install again.
 
 Keep the app in the foreground until the run completes, then copy the evidence
 and check it, as the Mac runner does:
@@ -120,8 +126,10 @@ xcrun devicectl device copy from --device <device> \
 python3 scripts/verify-assistance-evidence.py artifacts/assistance-qualification/<hardware>.jsonl
 ```
 
-Repeat the copy until its last line is `complete`. Each launch starts a new
-evidence file, so copy it to a new destination before every relaunch. Keep the
+Repeat the copy until its last line is `complete`. Only a fresh launch runs the
+corpus; an app resumed from the background does not, so relaunch with
+`--terminate-existing`. Each run starts a new evidence file, so copy it to a new
+destination before every relaunch. Keep the
 app installed for the checks below, then remove it with its data:
 
 ```sh
@@ -136,12 +144,17 @@ On each device, in the same build after the corpus completes:
    again and **Dismiss** the result.
 2. In a reply, choose **Suggest reply** and accept it, then **Undo**; choose
    **Rewrite**, replace the text, then **Undo**. Each Undo restores the Draft
-   exactly as it was.
+   exactly as it was. The synthetic preview mailbox offers no Reply or New
+   Message, so run this check in an ordinary build signed in with an account,
+   with **Mail Assistance** turned on in that device's Settings.
 3. Translate a message and a Draft selection. A missing language is reported,
    and the app never offers to download it.
-4. Turn Apple Intelligence off in Settings and relaunch: the first evidence line
-   reports `assistance-disabled`, the reader explains why assistance is
-   unavailable and the mailbox and messages remain fully usable.
+4. Turn Apple Intelligence off in Settings and relaunch. Record what the first
+   evidence line reports. When it is `assistance-disabled`, the reader explains
+   why assistance is unavailable and the mailbox and messages remain fully
+   usable. On iOS 27.2 and iPadOS 27.0.1 the model stayed `available` with the
+   switch off ([#625](https://github.com/unwired-dev/product/issues/625)), so
+   Mail Assistance is the gate that took effect.
 5. Turn Apple Intelligence back on and wait for an available-model run, preserving
    its evidence. Then turn networking off and relaunch. Compare the saved answers
    and capability limits with that run to verify generation and translation still
