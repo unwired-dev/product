@@ -1908,8 +1908,9 @@ export function createImapInbox(
             ),
             Effect.catchIf(
               (failure) => !changesAccess(failure.kind),
+              // A metadata commit from another window since the read only skips saving.
               ({ kind, diagnostic }) =>
-                expected(kind)
+                expected(kind) || kind === 'conflict'
                   ? Effect.void
                   : Effect.logError(
                       'IMAP body cache write failed:',
