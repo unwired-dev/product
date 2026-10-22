@@ -116,7 +116,7 @@ const textStyleKinds: readonly BlockKind[] = [
 
 // One item of a control's native menu; its key names the command, so a choice runs the latest
 // callback for that key while the control is mounted, and nothing once the item is gone.
-export type PopUpItem = Readonly<{
+type PopUpItem = Readonly<{
   key: string;
   title: string;
   accessibilityLabel?: string;
