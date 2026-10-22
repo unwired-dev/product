@@ -21,7 +21,7 @@ const claimIdentifier = `draft-delivery.${'0123456789abcdef'.repeat(2)}`;
 describe('claiming a Draft for delivery', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves the claim's whole contract. */
   it('lets the first Trusted Device hold a claim with its credential alone, again after a lost reply, and refuses the others', async () => {
-    expect.assertions(10);
+    expect.assertions(11);
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(identity('apple-user-001'));
     const phone = await connectTrusted(t, asUser, {
@@ -111,6 +111,14 @@ describe('claiming a Draft for delivery', () => {
     await expect(
       claim({ ...legacy, trustedDeviceCredential: '0'.repeat(64) }),
     ).rejects.toMatchObject(reconnect);
+    // A build from before #983 sends no account; its device record names it.
+    await expect(
+      t.mutation(api.draftDelivery.claim, {
+        claimIdentifier,
+        trustedDeviceCredential: holder.trustedDeviceCredential ?? '',
+        trustedDeviceId: holder.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ claimed: true });
     // A Product Account being deleted claims nothing more.
     await t.run(async (ctx) => {
       await ctx.db.insert('productAccountDeletionTombstones', {
