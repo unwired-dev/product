@@ -335,11 +335,18 @@ capabilities and the folders with their LIST attributes, and TypeScript closes t
 session when the listing ends, whether it succeeded or failed. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
 connection's generation changes, as on removal, sign-out or a new password.
-Closing cancels a command still in flight. A connection may hold four open
+Closing invalidates the handle and requests cancellation of its command task. A connection may hold four open
 sessions. Synchronization, search, organizing, IDLE and Sent filing still run as
 single native operations until
 [#1178](https://github.com/unwired-dev/product/issues/1178)–[#1182](https://github.com/unwired-dev/product/issues/1182)
 move them to the same sessions.
+
+SwiftMail 1.16.0 queues `disconnect()` behind an active command, whose NIO response
+wait does not observe task cancellation. Closing a handle therefore does not yet
+abort an IMAP wire command; transport cleanup waits for its reply or timeout.
+Immediate wire cancellation remains required by
+[#1177](https://github.com/unwired-dev/product/issues/1177). The hosted close-cancels
+case uses a controlled `ImapSession` and does not qualify SwiftMail's cancellation.
 
 ## Validate
 
@@ -384,7 +391,7 @@ whose names contain delimiters, and deletion with the last reader and the Inbox.
 retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale
 operations, IMAP sessions (one command at a time, their connection generation, the
 per-connection limit, expiry, and closing on a new generation, sign-out and an explicit
-close that cancels a command in flight), SMTP verification before a connection is added, the SMTP password, the
+close that cancels a controlled session's command in flight), SMTP verification before a connection is added, the SMTP password, the
 envelope and Bcc removal, refused envelopes, and filing a Sent copy that keeps Bcc. The plaintext-server test exercises the real SwiftMail transport refusing
 a connection before credentials are sent.
 
