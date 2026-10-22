@@ -8,16 +8,33 @@ import {
   gmailViewRow,
   mailboxSidebar,
 } from '@private-email/mail-core/mailboxes';
+import {
+  profileMenu,
+  profileMonogram,
+  profileName,
+} from '@private-email/mail-core/profile-windows';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use, useState, useSyncExternalStore } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import type { InboxMailbox } from './private-storage.ts';
 
-import { SFSymbol } from './design.tsx';
+import { MenuButton, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
+import {
+  useAllMailboxes,
+  useMailboxes,
+  useProfile,
+  useReloadMailboxes,
+} from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -57,7 +74,111 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  switcher: {
+    minHeight: 28,
+    marginBottom: spacing.xs,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
+  switcherRow: {
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: spacing.xs,
+  },
+  monogram: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramText: { ...textStyles.subheadline, fontWeight: '600' },
+  switcherName: { ...textStyles.bodyEmphasized, flex: 1 },
 });
+
+// The window's Profile Switcher: its Mail Profile's monogram, name and chevron. Its system menu
+// switches this window's Profile or names a new one.
+function ProfileSwitcher({
+  onProfile,
+}: {
+  readonly onProfile: (profile: string) => void;
+}) {
+  const account = use(AccountContext);
+  const profile = useProfile();
+  const mailboxes = useAllMailboxes();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  if (account === undefined) {
+    return null;
+  }
+  const { profiles } = account;
+  const name = profileName(t, profile, profiles);
+  const create = async (entered: string) => {
+    const failure = await account.createProfile(entered);
+    if (failure !== undefined) {
+      Alert.alert(
+        failure === 'upgrade-required'
+          ? t('profiles.upgradeTitle')
+          : t('profiles.newTitle'),
+        failure === 'upgrade-required'
+          ? t('profiles.upgradeMessage')
+          : t('profiles.failed'),
+        [{ text: t('profiles.ok') }],
+      );
+    }
+  };
+  return (
+    <MenuButton
+      accessibilityLabel={t('profiles.switcher', { name })}
+      sections={profileMenu(t, {
+        profiles,
+        connections: account.mailboxes,
+        mailboxes,
+        current: profile,
+        onSwitch: onProfile,
+        onCreate: () => {
+          Alert.prompt(
+            t('profiles.newTitle'),
+            t('profiles.newMessage'),
+            [
+              {
+                text: t('profiles.create'),
+                onPress: (entered?: string) => {
+                  if (entered !== undefined && entered.trim() !== '') {
+                    void create(entered);
+                  }
+                },
+              },
+              { text: t('common.cancel'), style: 'cancel' },
+            ],
+            'plain-text',
+          );
+        },
+      })}
+      style={[styles.switcher, { backgroundColor: colors.fillQuiet }]}>
+      <View style={styles.switcherRow}>
+        <View
+          style={[styles.monogram, { backgroundColor: colors.textPrimary }]}>
+          <Text style={[styles.monogramText, { color: colors.surfaceContent }]}>
+            {profileMonogram(name)}
+          </Text>
+        </View>
+        <Text
+          numberOfLines={1}
+          style={[styles.switcherName, { color: colors.textPrimary }]}>
+          {name}
+        </Text>
+        <SFSymbol
+          name="chevron.down"
+          color={colors.textSecondary}
+          size={10}
+        />
+      </View>
+    </MenuButton>
+  );
+}
 
 // A sidebar item: tinted symbol, label and unread count; selection shows as fill and weight.
 function Item({
@@ -248,9 +369,12 @@ function FolderRows({
 export function Mailboxes({
   view,
   onView,
+  onProfile,
 }: {
   readonly view: MailboxView;
   readonly onView: (view: MailboxView) => void;
+  // Switches the window to another Mail Profile.
+  readonly onProfile: (profile: string) => void;
 }) {
   const mailboxes = useMailboxes();
   const account = use(AccountContext);
@@ -281,6 +405,7 @@ export function Mailboxes({
         <ScrollView
           style={styles.fill}
           contentContainerStyle={styles.list}>
+          <ProfileSwitcher onProfile={onProfile} />
           <SectionHeader label={t('mailboxes.favorites')} />
           <Item
             icon="tray.2"

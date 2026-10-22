@@ -8,6 +8,8 @@
 // UnwiredCommands.m: a window whose composer holds unsaved edits asks it before closing.
 extern "C" BOOL UnwiredCloseGuarded(NSString *identifier);
 extern "C" NSString *UnwiredGuardedWindow(void);
+// UnwiredCommands.m: the Mail Profile each Inbox window's JavaScript last reported.
+extern "C" NSString *UnwiredWindowProfile(NSString *identifier);
 
 // Shared Swift in native/private-inbox receives APNs registration and Gmail wake hints.
 @protocol UnwiredPushWakes
@@ -24,7 +26,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 + (void)start;
 @end
 
-@interface AppDelegate ()
+@interface AppDelegate () <NSWindowRestoration>
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
 @property(nonatomic, strong) NSWindowController *settingsWindow;
@@ -37,14 +39,19 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 @property(nonatomic, copy) NSString *sessionID;
 @property(nonatomic, strong) dispatch_source_t stallProbe;
 #endif
+- (NSWindow *)openWindowWithProfile:(NSString *)profile;
 @end
 
 @implementation AppDelegate
 
-// Before launch finishes, so a notification that launches the application is kept.
+// Before launch finishes, so a notification that launches the application is kept. AppKit restores
+// windows next, so React Native is ready for them.
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
 {
   [(Class<UnwiredNotifications>)NSClassFromString(@"UnwiredNotifications") start];
+  self.dependencyProvider = [RCTAppDependencyProvider new];
+  self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
+  self.inboxWindows = [NSMutableArray new];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
@@ -52,9 +59,6 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   [(Class<UnwiredErrorReporting>)NSClassFromString(@"UnwiredErrorReporting") start];
   [[NSAppleEventManager sharedAppleEventManager] setEventHandler:self
       andSelector:@selector(handleGoogleURL:reply:) forEventClass:kInternetEventClass andEventID:kAEGetURL];
-  self.dependencyProvider = [RCTAppDependencyProvider new];
-  self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
-  self.inboxWindows = [NSMutableArray new];
   [self installMenus];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateLanguage:)
       name:UnwiredLanguageDidChange object:nil];
@@ -75,13 +79,14 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   [self recordLifecycle:@"launch"];
   // Ad-hoc builds lack the APNs entitlement; registration fails there and the interval poll remains.
   [NSApp registerForRemoteNotifications];
-  // Every launch opens an Inbox window except one from a notification, which starts JavaScript
-  // without a window: Archive and Mark as Read act headless, and a tap or Reply opens one. The
-  // default-launch key would also leave a relaunch that restores saved state without a window.
+  // Every launch shows an Inbox window, the ones AppKit restored or a new one, except one from a
+  // notification, which starts JavaScript without a window: Archive and Mark as Read act headless,
+  // and a tap or Reply opens one. The default-launch key would also leave a relaunch that restores
+  // saved state without a window.
   if (notification.userInfo[NSApplicationLaunchUserNotificationKey] == nil) {
-    [self newWindow:nil];
+    if (self.inboxWindows.count == 0) [self newWindow:nil];
     [NSApp activateIgnoringOtherApps:YES];
-  } else {
+  } else if (self.inboxWindows.count == 0) {
     [self.reactFactory.rootViewFactory initializeReactHostWithLaunchOptions:nil];
   }
 }
@@ -120,7 +125,37 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 #endif
 }
 
+// AppKit reopens each Inbox window it saved with the Mail Profile it showed, following the
+// system's setting for keeping windows when quitting.
++ (void)restoreWindowWithIdentifier:(NSUserInterfaceItemIdentifier)identifier state:(NSCoder *)state
+    completionHandler:(void (^)(NSWindow *, NSError *))completionHandler
+{
+  if (![identifier hasPrefix:@"inbox-window-"]) {
+    completionHandler(nil, nil);
+    return;
+  }
+  NSString *profile = [state decodeObjectOfClass:NSString.class forKey:@"profile"];
+  completionHandler([(AppDelegate *)NSApp.delegate openWindowWithProfile:profile], nil);
+}
+
+- (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app
+{
+  return YES;
+}
+
+- (void)window:(NSWindow *)window willEncodeRestorableState:(NSCoder *)state
+{
+  NSString *profile = UnwiredWindowProfile(window.identifier);
+  if (profile != nil) [state encodeObject:profile forKey:@"profile"];
+}
+
 - (void)newWindow:(id)sender
+{
+  [self openWindowWithProfile:nil];
+}
+
+// A new window names no Mail Profile, so it opens the Startup Profile.
+- (NSWindow *)openWindowWithProfile:(NSString *)profile
 {
   self.nextWindowNumber += 1;
   NSString *windowID = [NSString stringWithFormat:@"%lu", (unsigned long)self.nextWindowNumber];
@@ -134,8 +169,11 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   window.releasedWhenClosed = NO;
   window.delegate = self;
   window.autorecalculatesKeyViewLoop = YES;
+  window.restorationClass = AppDelegate.class;
+  NSMutableDictionary *properties = [@{@"windowId": windowID} mutableCopy];
+  if (profile != nil) properties[@"profile"] = profile;
   NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredMail"
-      initialProperties:@{@"windowId": windowID}];
+      initialProperties:properties];
   rootView.frame = window.contentView.bounds;
   NSViewController *content = [NSViewController new];
   content.view = rootView;
@@ -149,6 +187,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   [window makeKeyAndOrderFront:self];
   [NSApp addWindowsItem:window title:window.title filename:NO];
   [self recordLifecycle:@"window-open"];
+  return window;
 }
 
 // Command-, and every Inbox window's Settings entry points open the one Settings window, or bring
@@ -165,6 +204,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
         backing:NSBackingStoreBuffered defer:NO];
     window.title = UnwiredNativeText(@"settingsTitle");
     window.identifier = @"settings-window";
+    window.restorable = NO;
     window.accessibilityIdentifier = window.identifier;
     window.minSize = NSMakeSize(720, 480);
     window.releasedWhenClosed = NO;

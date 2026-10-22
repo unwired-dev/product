@@ -32,7 +32,7 @@ An end-to-end encrypted workspace inside one **Product Account** that owns a dis
 _Avoid_: Product Account, provider account, shared workspace
 
 **Default Profile**:
-The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state.
+The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Connection** and existing product-owned record in place without copying, resetting, or exposing that state. The apps show it as Primary Profile.
 _Avoid_: Startup Profile, default mailbox account
 
 **Startup Profile**:

@@ -163,9 +163,30 @@ can authenticate it.
 
 Reading and search name their Profile explicitly
 ([#645](https://github.com/unwired-dev/product/issues/645)). Each Mac window and
-the iPhone/iPad window shows one Mail Profile. Native Mac windows currently open
-the Default Profile. On iPhone/iPad, a message link with a `profileId` parameter
-opens only in that Profile; an old-form link without one, from before Profiles,
+the iPhone/iPad window shows one Mail Profile
+([#1037](https://github.com/unwired-dev/product/issues/1037)). Its sidebar's
+Profile Switcher shows the Profile's monogram and name, and the Default Profile
+appears as **Primary Profile**. The switcher opens the system menu: every Profile
+with its connections' providers, a sign-in notice and its unread count, the
+window's own checked, then **New Mail Profile…**. Choosing a Profile switches only
+that window. New Mail Profile… asks for a name and creates the Profile through the
+fenced store without switching to it. When another Trusted Device's client cannot
+keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
+asks to try again.
+
+A window opens a targeted link's Profile first, then the Profile it restores, then
+the device-local Startup Profile, then the Default Profile. A restored or Startup
+Profile the account no longer lists is skipped. It returns once listed again.
+AppKit restores each Mac window with the Profile it last showed, following the
+system setting for keeping windows when quitting. A window that is not restored
+is new and opens the Startup Profile. The iPhone and iPad app has one window,
+which restores the Profile a link or the switcher last chose. Settings will offer
+the Startup Profile choice
+([#1038](https://github.com/unwired-dev/product/issues/1038)); until then none is
+saved, and new windows open the Default Profile.
+
+On iPhone/iPad, a message link with a `profileId` parameter opens only in that
+Profile; an old-form message or Thread link without one, from before Profiles,
 opens in the Default Profile. Closing a targeted reader returns to the same
 Profile's Inbox. Malformed Profile selectors, including repeated link parameters,
 remain unavailable.

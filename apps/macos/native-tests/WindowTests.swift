@@ -611,6 +611,8 @@ final class WindowTests: XCTestCase {
     let appURL = URL(
       fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"]))
     let app = XCUIApplication(url: appURL)
+    // Every launch starts from one new window, whatever AppKit saved at the previous quit.
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let first = app.windows["Inbox 1"]
@@ -692,6 +694,8 @@ final class WindowTests: XCTestCase {
       }
     }
     let app = XCUIApplication(url: appURL)
+    // Every launch starts from one new window, whatever AppKit saved at the previous quit.
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
@@ -834,6 +838,8 @@ final class WindowTests: XCTestCase {
     let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
     let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
     let app = XCUIApplication(url: appURL)
+    // Every launch starts from one new window, whatever AppKit saved at the previous quit.
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
     app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }

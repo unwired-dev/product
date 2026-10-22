@@ -1107,5 +1107,20 @@
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",
     "noMailboxes": "Notifications are available for Gmail mailboxes.",
     "changeFailed": "Notifications could not be changed. Try again later."
+  },
+  "profiles": {
+    "primary": "Primary Profile",
+    "switcher": "Mail Profile, {{name}}",
+    "new": "New Mail Profile…",
+    "noMailboxes": "No mailboxes",
+    "needsSignIn": "Needs sign-in",
+    "newTitle": "New Mail Profile",
+    "newMessage": "Name a Mail Profile to keep a set of mailboxes apart from your other mail.",
+    "name": "Name",
+    "create": "Create",
+    "upgradeTitle": "Update Your Other Devices",
+    "upgradeMessage": "Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then create the Mail Profile again.",
+    "failed": "The Mail Profile could not be created. Try again.",
+    "ok": "OK"
   }
 }

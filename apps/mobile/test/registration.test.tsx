@@ -121,6 +121,7 @@ function Shell(props: Omit<Parameters<typeof Inbox>[0], 'view' | 'onView'>) {
       <Mailboxes
         view={view}
         onView={setView}
+        onProfile={() => undefined}
       />
       <Inbox
         {...props}

@@ -10,6 +10,10 @@ import {
   readingProfile,
   savedMessageBodies,
 } from '@private-email/mail-core/mailboxes';
+import {
+  createProfileChoices,
+  windowProfile,
+} from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import {
   createContext,
@@ -32,6 +36,7 @@ import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
   drafts as defaultDrafts,
+  native,
   outbox as defaultOutbox,
 } from './registration.ts';
 
@@ -147,13 +152,59 @@ export function useProfile() {
   return use(ProfileContext);
 }
 
+// The window's last shown and Startup Profiles, saved on this device.
+const profileChoices = createProfileChoices({
+  preference: (key) => native().preference(key),
+  setPreference: (key, value) => native().setPreference(key, value),
+});
+
+// Scopes the window to its Mail Profile: a targeted link's, which every navigation after a switch
+// also names, then the Profile it last showed, the Startup Profile and the Default Profile. Only a
+// Profile a link chose is saved, so an unlisted saved Profile returns once it is listed again.
+export function WindowProfileScope({
+  link,
+  children,
+}: {
+  readonly link: unknown;
+  readonly children: ReactNode;
+}) {
+  const profiles = use(AccountContext)?.profiles;
+  const choices = useSyncExternalStore(
+    profileChoices.subscribe,
+    profileChoices.getSnapshot,
+  );
+  useEffect(() => {
+    void profileChoices.load();
+  }, []);
+  const profile = windowProfile({
+    link,
+    restored: choices?.restored,
+    startup: choices?.startup,
+    profiles: profiles ?? [],
+  });
+  useEffect(() => {
+    if (link !== undefined && profile !== '') {
+      void profileChoices.restore(profile);
+    }
+  }, [link, profile]);
+  // Until the saved choices are read, a window without a link shows no Profile yet.
+  return choices === undefined && link === undefined ? null : (
+    <ProfileScope profile={profile}>{children}</ProfileScope>
+  );
+}
+
 // Every mailbox of the scoped Profile the Inbox shows, in the order the connections were added.
 // Another Profile's mailboxes never appear, so readers and searches cannot reach them.
 export function useMailboxes() {
-  const mailboxes = use(MailboxesContext);
   const profile = use(ProfileContext);
-  const all = useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
+  const all = useAllMailboxes();
   return useMemo(() => profileMailboxes(all, profile), [all, profile]);
+}
+
+// Every Profile's mailboxes, which only the Profile Menu's unread counts read.
+export function useAllMailboxes() {
+  const mailboxes = use(MailboxesContext);
+  return useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
 }
 
 export function useReloadMailboxes() {

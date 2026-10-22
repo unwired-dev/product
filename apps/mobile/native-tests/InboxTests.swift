@@ -245,14 +245,70 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(contact.exists)
     app.buttons["Open Inbox"].tap()
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    profileSwitcherJourney(app)
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "Apple registration with Microsoft mail and Gmail"
+    shot.name = "Apple registration with Microsoft mail and Gmail""
     shot.lifetime = .keepAlways
     add(shot)
     sendJourney(app)
+  }
+
+  // #1037: the Mailboxes Profile Switcher opens its system menu, names a new Mail Profile without
+  // leaving the window's Profile, switches the window to it, and back to the Primary Profile's
+  // unified Inbox.
+  private func profileSwitcherJourney(_ app: XCUIApplication) {
+    // The switcher sits in the Mailboxes column; on iPhone that column is one Back away, and
+    // choosing a Profile there opens its Inbox.
+    @discardableResult func switcher(_ label: String) -> XCUIElement {
+      let button = app.buttons[label]
+      if !button.waitForExistence(timeout: 5) || !button.isHittable {
+        if UIDevice.current.userInterfaceIdiom == .phone {
+          app.buttons["Back to Mailboxes"].tap()
+        } else {
+          app.navigationBars.buttons.firstMatch.tap()
+        }
+      }
+      XCTAssertTrue(button.waitForExistence(timeout: 10))
+      return button
+    }
+    switcher("Mail Profile, Primary Profile").tap()
+    let create = app.buttons["New Mail Profile…"]
+    XCTAssertTrue(create.waitForExistence(timeout: 10))
+    let menu = XCTAttachment(screenshot: app.screenshot())
+    menu.name = "Profile Menu with the Primary Profile"
+    menu.lifetime = .keepAlways
+    add(menu)
+    create.tap()
+    let prompt = app.alerts["New Mail Profile"]
+    XCTAssertTrue(prompt.waitForExistence(timeout: 10))
+    let name = prompt.textFields.firstMatch
+    name.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    for character in "Work" { name.typeText(String(character)) }
+    prompt.buttons["Create"].tap()
+    XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
+    // Creating a Profile keeps the window on its own.
+    switcher("Mail Profile, Primary Profile").tap()
+    let work = app.buttons["Work"]
+    XCTAssertTrue(work.waitForExistence(timeout: 15))
+    work.tap()
+    let switched = switcher("Mail Profile, Work")
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Window switched to the new Work Profile"
+    shot.lifetime = .keepAlways
+    add(shot)
+    switched.tap()
+    let primary = app.buttons["Primary Profile"]
+    XCTAssertTrue(primary.waitForExistence(timeout: 10))
+    primary.tap()
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      switcher("Mail Profile, Primary Profile")
+      app.buttons["All inboxes"].tap()
+    }
   }
 
   // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged

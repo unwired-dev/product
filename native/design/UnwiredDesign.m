@@ -185,39 +185,50 @@ RCT_EXPORT_VIEW_PROPERTY(onPop, RCTDirectEventBlock)
 @end
 
 #if TARGET_OS_OSX
-@implementation UnwiredContextMenuView
-- (NSMenu *)menuForEvent:(NSEvent *)event
-{
-  if (self.sections.count == 0) return [super menuForEvent:event];
-  NSMenu *menu = [NSMenu new];
-  for (NSDictionary *section in self.sections) {
-    if (menu.numberOfItems > 0) [menu addItem:[NSMenuItem separatorItem]];
-    for (NSDictionary *item in section[@"items"]) [menu addItem:[self menuItem:item]];
-  }
-  return menu;
-}
-
-- (NSMenuItem *)menuItem:(NSDictionary *)item
+// A menu item for each entry: an action reporting its `id` to `target`'s `select:`, or a submenu.
+// An optional `subtitle` shows beneath the title and `checked` adds a checkmark.
+static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destructiveColor)
 {
   NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:item[@"title"] action:nil keyEquivalent:@""];
-  NSImage *image = [NSImage imageWithSystemSymbolName:item[@"symbol"] accessibilityDescription:nil];
+  NSString *symbol = item[@"symbol"];
+  NSImage *image = symbol.length > 0 ? [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] : nil;
   if ([item[@"destructive"] boolValue]) {
     menuItem.attributedTitle = [[NSAttributedString alloc] initWithString:item[@"title"]
-        attributes:@{NSForegroundColorAttributeName: self.destructiveColor}];
+        attributes:@{NSForegroundColorAttributeName: destructiveColor}];
     image = [image imageWithSymbolConfiguration:
-        [NSImageSymbolConfiguration configurationWithHierarchicalColor:self.destructiveColor]];
+        [NSImageSymbolConfiguration configurationWithHierarchicalColor:destructiveColor]];
   }
   menuItem.image = image;
+  NSString *subtitle = item[@"subtitle"];
+  if (subtitle.length > 0) menuItem.subtitle = subtitle;
+  if ([item[@"checked"] boolValue]) menuItem.state = NSControlStateValueOn;
   NSArray<NSDictionary *> *items = item[@"items"];
   if (items != nil) {
     menuItem.submenu = [[NSMenu alloc] initWithTitle:item[@"title"]];
-    for (NSDictionary *child in items) [menuItem.submenu addItem:[self menuItem:child]];
+    for (NSDictionary *child in items) [menuItem.submenu addItem:UnwiredMenuItem(child, target, destructiveColor)];
   } else {
-    menuItem.target = self;
+    menuItem.target = target;
     menuItem.action = @selector(select:);
     menuItem.representedObject = item[@"id"];
   }
   return menuItem;
+}
+
+static NSMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor)
+{
+  NSMenu *menu = [NSMenu new];
+  for (NSDictionary *section in sections) {
+    if (menu.numberOfItems > 0) [menu addItem:[NSMenuItem separatorItem]];
+    for (NSDictionary *item in section[@"items"]) [menu addItem:UnwiredMenuItem(item, target, destructiveColor)];
+  }
+  return menu;
+}
+
+@implementation UnwiredContextMenuView
+- (NSMenu *)menuForEvent:(NSEvent *)event
+{
+  if (self.sections.count == 0) return [super menuForEvent:event];
+  return UnwiredMenu(self.sections, self, self.destructiveColor);
 }
 
 - (void)select:(NSMenuItem *)sender
@@ -226,6 +237,40 @@ RCT_EXPORT_VIEW_PROPERTY(onPop, RCTDirectEventBlock)
 }
 @end
 #else
+static UIMenuElement *UnwiredMenuElement(NSDictionary *item, void (^select)(NSString *identifier))
+{
+  NSString *symbol = item[@"symbol"];
+  UIImage *image = symbol.length > 0 ? [UIImage systemImageNamed:symbol] : nil;
+  NSArray<NSDictionary *> *items = item[@"items"];
+  if (items != nil) {
+    NSMutableArray<UIMenuElement *> *children = [NSMutableArray new];
+    for (NSDictionary *child in items) [children addObject:UnwiredMenuElement(child, select)];
+    return [UIMenu menuWithTitle:item[@"title"] image:image identifier:nil options:0 children:children];
+  }
+  NSString *identifier = item[@"id"];
+  UIAction *action = [UIAction actionWithTitle:item[@"title"] image:image identifier:nil
+      handler:^(__unused UIAction *action) { select(identifier); }];
+  if ([item[@"destructive"] boolValue]) action.attributes = UIMenuElementAttributesDestructive;
+  NSString *subtitle = item[@"subtitle"];
+  if (subtitle.length > 0) action.subtitle = subtitle;
+  if ([item[@"checked"] boolValue]) action.state = UIMenuElementStateOn;
+  return action;
+}
+
+static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSString *identifier))
+{
+  NSMutableArray<UIMenuElement *> *groups = [NSMutableArray new];
+  for (NSDictionary *section in sections) {
+    NSMutableArray<UIMenuElement *> *elements = [NSMutableArray new];
+    for (NSDictionary *item in section[@"items"]) [elements addObject:UnwiredMenuElement(item, select)];
+    UIMenu *group = [UIMenu menuWithTitle:@"" image:nil identifier:nil
+                                  options:UIMenuOptionsDisplayInline children:elements];
+    if ([section[@"palette"] boolValue]) group.preferredElementSize = UIMenuElementSizeMedium;
+    [groups addObject:group];
+  }
+  return [UIMenu menuWithChildren:groups];
+}
+
 @interface UnwiredContextMenuView () <UIContextMenuInteractionDelegate>
 @end
 
@@ -245,16 +290,9 @@ RCT_EXPORT_VIEW_PROPERTY(onPop, RCTDirectEventBlock)
   __weak UnwiredContextMenuView *weakSelf = self;
   return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
       actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
-        NSMutableArray<UIMenuElement *> *sections = [NSMutableArray new];
-        for (NSDictionary *section in weakSelf.sections) {
-          NSMutableArray<UIMenuElement *> *elements = [NSMutableArray new];
-          for (NSDictionary *item in section[@"items"]) [elements addObject:[weakSelf element:item]];
-          UIMenu *group = [UIMenu menuWithTitle:@"" image:nil identifier:nil
-                                        options:UIMenuOptionsDisplayInline children:elements];
-          if ([section[@"palette"] boolValue]) group.preferredElementSize = UIMenuElementSizeMedium;
-          [sections addObject:group];
-        }
-        return [UIMenu menuWithChildren:sections];
+        return UnwiredMenu(weakSelf.sections, ^(NSString *identifier) {
+          if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
+        });
       }];
 }
 
@@ -280,25 +318,6 @@ RCT_EXPORT_VIEW_PROPERTY(onPop, RCTDirectEventBlock)
 {
   return [self preview];
 }
-
-- (UIMenuElement *)element:(NSDictionary *)item
-{
-  UIImage *image = [UIImage systemImageNamed:item[@"symbol"]];
-  NSArray<NSDictionary *> *items = item[@"items"];
-  if (items != nil) {
-    NSMutableArray<UIMenuElement *> *children = [NSMutableArray new];
-    for (NSDictionary *child in items) [children addObject:[self element:child]];
-    return [UIMenu menuWithTitle:item[@"title"] image:image identifier:nil options:0 children:children];
-  }
-  NSString *identifier = item[@"id"];
-  __weak UnwiredContextMenuView *weakSelf = self;
-  UIAction *action = [UIAction actionWithTitle:item[@"title"] image:image identifier:nil
-      handler:^(__unused UIAction *action) {
-        if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
-      }];
-  if ([item[@"destructive"] boolValue]) action.attributes = UIMenuElementAttributesDestructive;
-  return action;
-}
 @end
 #endif
 
@@ -316,6 +335,88 @@ RCT_EXPORT_VIEW_PROPERTY(previewColor, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
 #endif
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
+@end
+
+// A pull-down button whose system menu opens on tap or click, with the same items as the context
+// menu. Its React content draws the label and passes touches to the button: UIButton's primary
+// action menu on iPhone and iPad, and a menu below the view on the Mac, also from the keyboard
+// and VoiceOver.
+#if TARGET_OS_OSX
+@interface UnwiredMenuButtonView : RCTView
+@property (nonatomic, copy) NSArray<NSDictionary *> *sections;
+@property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@end
+
+@implementation UnwiredMenuButtonView
+- (void)showMenu
+{
+  if (self.sections.count == 0) return;
+  NSMenu *menu = UnwiredMenu(self.sections, self, NSColor.systemRedColor);
+  [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSHeight(self.bounds) + 4) inView:self];
+}
+
+- (void)mouseDown:(NSEvent *)event { [self showMenu]; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
+- (NSRect)focusRingMaskBounds { return self.bounds; }
+- (void)drawFocusRingMask { NSRectFill(self.bounds); }
+
+- (void)keyDown:(NSEvent *)event
+{
+  if ([event.charactersIgnoringModifiers isEqualToString:@" "] || [event.charactersIgnoringModifiers isEqualToString:@"\r"]) {
+    [self showMenu];
+  } else {
+    [super keyDown:event];
+  }
+}
+
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityPopUpButtonRole; }
+- (BOOL)accessibilityPerformPress
+{
+  [self showMenu];
+  return YES;
+}
+
+- (void)select:(NSMenuItem *)sender
+{
+  if (self.onSelect) self.onSelect(@{@"id": sender.representedObject});
+}
+@end
+#else
+@interface UnwiredMenuButtonView : UIButton
+@property (nonatomic, copy) NSArray<NSDictionary *> *sections;
+@property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@end
+
+@implementation UnwiredMenuButtonView
+- (instancetype)initWithFrame:(CGRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    self.showsMenuAsPrimaryAction = YES;
+  }
+  return self;
+}
+
+- (void)setSections:(NSArray<NSDictionary *> *)sections
+{
+  _sections = [sections copy];
+  __weak UnwiredMenuButtonView *weakSelf = self;
+  self.menu = UnwiredMenu(_sections, ^(NSString *identifier) {
+    if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
+  });
+}
+@end
+#endif
+
+@interface UnwiredMenuButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredMenuButtonManager
+RCT_EXPORT_MODULE(UnwiredMenuButton)
+RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredMenuButtonView new]; }
 @end
 
 // A decorative symbol: its control carries the accessible label.

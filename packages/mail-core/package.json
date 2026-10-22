@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./persistent-inbox": "./src/persistent-inbox.ts",
+    "./profile-windows": "./src/profile-windows.ts",
     "./gmail-inbox": "./src/gmail-inbox.ts",
     "./gmail-actions": "./src/gmail-actions.ts",
     "./imap-inbox": "./src/imap-inbox.ts",

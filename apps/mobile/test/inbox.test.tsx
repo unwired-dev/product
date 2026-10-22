@@ -872,6 +872,7 @@ async function renderConnected(
             <Mailboxes
               view={view}
               onView={setView}
+              onProfile={() => undefined}
             />
             <Inbox
               onClose={() => {

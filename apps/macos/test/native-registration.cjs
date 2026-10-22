@@ -5,6 +5,8 @@ const { TurboModuleRegistry } = require('react-native');
 const unwiredRegistration = {
   getConstants: () => ({}),
   mailAssistance: () => Promise.resolve({ owner: null, profiles: [] }),
+  preference: () => Promise.resolve({ value: null }),
+  setPreference: () => Promise.resolve({}),
 };
 const { getEnforcing } = TurboModuleRegistry;
 TurboModuleRegistry.getEnforcing = (name) =>

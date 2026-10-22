@@ -5,10 +5,10 @@ import {
   runWhenOffered,
 } from '@private-email/mail-core/commands';
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
-import { defaultProfile } from '@private-email/mail-core/registration';
+import { windowProfile } from '@private-email/mail-core/profile-windows';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
@@ -26,6 +26,7 @@ import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
 import {
   InboxProvider,
+  profileChoices,
   ProfileScope,
   useMailboxes,
   useProfile,
@@ -33,9 +34,13 @@ import {
 } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
-import { RegistrationGate, SettingsGate } from './registration-gate.tsx';
+import {
+  AccountContext,
+  RegistrationGate,
+  SettingsGate,
+} from './registration-gate.tsx';
 import { native, registration } from './registration.ts';
-import { settingsHost } from './settings-window-client.ts';
+import { settingsHost, windowHost } from './settings-window-client.ts';
 import { useSettingsRequest } from './settings-window.ts';
 import { Mailboxes } from './sidebar.tsx';
 import { usePalette } from './theme.ts';
@@ -97,15 +102,11 @@ const styles = StyleSheet.create({
 
 type WindowProps = Readonly<{
   windowId: string;
-  // The window's Mail Profile. Native windows name none and show the Default Profile until #647
-  // lets the person open another.
+  // The Mail Profile AppKit restored with the window; a new window names none.
   profile?: string;
 }>;
 
-export function PreviewWindow({
-  windowId,
-  profile = defaultProfile,
-}: WindowProps) {
+export function PreviewWindow({ windowId, profile }: WindowProps) {
   return (
     <CommandPaletteProvider windowId={windowId}>
       <ProfileWindow
@@ -116,22 +117,56 @@ export function PreviewWindow({
   );
 }
 
+// The window's Mail Profile: the one its switcher or a tapped notification chose, then the one
+// AppKit restored, then the Startup Profile, then the Default Profile. AppKit saves the chosen or
+// restored Profile with the window, so an unlisted restored Profile returns once it is listed.
 function ProfileWindow({
   windowId,
-  profile,
+  profile: restored,
 }: {
   readonly windowId: string;
-  readonly profile: string;
+  readonly profile: string | undefined;
 }) {
   const [opened, setOpened] =
     useState<NonNullable<ReturnType<typeof openedTarget>>>();
+  const [chosen, setChosen] = useState<string>();
+  const profiles = use(AccountContext)?.profiles;
+  const choices = useSyncExternalStore(
+    profileChoices.subscribe,
+    profileChoices.getSnapshot,
+  );
+  useEffect(() => {
+    void profileChoices.load();
+  }, []);
+  const link = chosen ?? opened?.profile;
+  const profile = windowProfile({
+    link,
+    restored,
+    startup: choices?.startup,
+    profiles: profiles ?? [],
+  });
+  const kept = link ?? restored ?? profile;
+  useEffect(() => {
+    windowHost()?.setWindowProfile(`inbox-window-${windowId}`, kept);
+  }, [windowId, kept]);
+  // A new window waits for the saved Startup Profile.
+  if (choices === undefined && link === undefined && restored === undefined) {
+    return null;
+  }
   return (
     <InboxProvider>
-      <ProfileScope profile={opened?.profile ?? profile}>
+      <ProfileScope profile={profile}>
         <WindowContents
           windowId={windowId}
           initialSelection={opened}
-          onOpenProfile={setOpened}
+          onOpenProfile={(target) => {
+            setChosen(undefined);
+            setOpened(target);
+          }}
+          onProfile={(next) => {
+            setOpened(undefined);
+            setChosen(next);
+          }}
         />
       </ProfileScope>
     </InboxProvider>
@@ -180,12 +215,15 @@ function WindowContents({
   windowId,
   initialSelection,
   onOpenProfile,
+  onProfile,
 }: {
   readonly windowId: string;
   readonly initialSelection: Selection | undefined;
   readonly onOpenProfile: (
     target: NonNullable<ReturnType<typeof openedTarget>>,
   ) => void;
+  // Switches only this window to another Mail Profile.
+  readonly onProfile: (profile: string) => void;
 }) {
   const [selected, setSelected] = useState<Selection | undefined>(
     initialSelection,
@@ -273,6 +311,7 @@ function WindowContents({
                 <Mailboxes
                   view={view}
                   onView={setView}
+                  onProfile={onProfile}
                 />
               </GlassGroup>
             ) : null}
@@ -377,10 +416,7 @@ function WindowContents({
   );
 }
 
-export function InboxWindow({
-  windowId,
-  profile = defaultProfile,
-}: WindowProps) {
+export function InboxWindow({ windowId, profile }: WindowProps) {
   // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
     <CommandPaletteProvider windowId={windowId}>

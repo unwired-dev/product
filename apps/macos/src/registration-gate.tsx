@@ -4,6 +4,8 @@ import type { ErrorReporting } from '@private-email/mail-core/error-reporting';
 import type {
   InboxChoice,
   MailboxConnection,
+  MailProfile,
+  ProfileFailure,
   Registration,
   RegistrationScreen,
 } from '@private-email/mail-core/registration';
@@ -11,7 +13,10 @@ import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
-import { registrationScreen } from '@private-email/mail-core/registration';
+import {
+  profilesOf,
+  registrationScreen,
+} from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
   Fragment,
@@ -75,6 +80,10 @@ export const AccountContext = createContext<
       openAccount: (destination?: SettingsDestination) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
+      // The Mail Profiles besides the Default Profile.
+      profiles: readonly MailProfile[];
+      // Names a new Mail Profile; resolves why it was refused, if it was.
+      createProfile: (name: string) => Promise<ProfileFailure | undefined>;
     }>
   | undefined
 >(undefined);
@@ -165,6 +174,10 @@ function RegistrationGateContent({
     mailAssistance,
     preview,
   );
+  const profiles = useMemo(
+    () => profilesOf(registrationState.snapshot),
+    [registrationState.snapshot],
+  );
   const actions = useMemo(
     () => ({
       mailboxes: screen.mailboxes,
@@ -175,8 +188,13 @@ function RegistrationGateContent({
       },
       authorizeMailbox: store.authorizeMailbox,
       refreshInbox: store.refreshInbox,
+      profiles,
+      createProfile: async (name: string) => {
+        await store.createProfile(name);
+        return store.getSnapshot().profileFailure;
+      },
     }),
-    [store, screen.mailboxes, choices],
+    [store, screen.mailboxes, choices, profiles],
   );
   useRegistrationActivation(store, preview);
   // The preview Inbox has no Product Account; its Mock Mail Session answers assistance.

@@ -6,6 +6,11 @@ import type { NativeRegistrationVault } from '../registration-vault.ts';
 import type { SyntheticAddress } from './registration-device.ts';
 
 import { createRegistrationFlow } from '../registration-flow.ts';
+import {
+  createRegistration,
+  mailboxesOf,
+  profilesOf,
+} from '../registration.ts';
 import { configuredBackend } from './registration-product-sync-state.ts';
 import {
   createSyntheticDevice,
@@ -293,3 +298,33 @@ function installScenario(
   };
 }
 export type SyntheticRegistrationScenario = ReturnType<typeof installScenario>;
+
+// The two-Profile Mock Mail Session: a connected registration store whose Default Profile owns
+// alex@example.invalid and whose published Work Profile owns other@example.invalid.
+export async function createTwoProfileRegistration(
+  shared: SyntheticDevice = createSyntheticDevice(),
+) {
+  const synthetic = await createRegistrationScenario(
+    'registration-success',
+    shared,
+  );
+  const registration = createRegistration(synthetic.vault);
+  await registration.register('google');
+  await registration.addMailbox();
+  await registration.confirmRecoveryKey(
+    // oxlint-disable-next-line node/no-sync -- The synthetic device's Product Sync items, not a sync API.
+    synthetic.device.productSync.vault?.recoveryKey?.slice(-4) ?? '',
+  );
+  await registration.addMailbox('gmail', true);
+  await registration.createProfile('Work');
+  const { snapshot } = registration.getSnapshot();
+  const work = profilesOf(snapshot).find(({ name }) => name === 'Work')?.id;
+  const other = mailboxesOf(snapshot).find(
+    ({ address }) => address === 'other@example.invalid',
+  )?.id;
+  if (work === undefined || other === undefined) {
+    throw new Error('Two-Profile scenario setup failed');
+  }
+  await registration.moveMailbox(other, work);
+  return { ...synthetic, registration, work };
+}

@@ -256,6 +256,8 @@ function App({
           openAccount,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
+          profiles: [],
+          createProfile: () => Promise.resolve(undefined),
         }}>
         <InboxProvider
           drafts={drafts}
@@ -264,6 +266,7 @@ function App({
             <Mailboxes
               view={view}
               onView={setView}
+              onProfile={() => undefined}
             />
             <Inbox
               composing={composing}
@@ -2916,6 +2919,8 @@ function ReaderApp({
         openAccount: ignore,
         authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
+        profiles: [],
+        createProfile: () => Promise.resolve(undefined),
       }}>
       <InboxProvider
         drafts={drafts}
@@ -3955,6 +3960,8 @@ describe('replying to and forwarding from the reader', () => {
             openAccount: ignore,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
+            profiles: [],
+            createProfile: () => Promise.resolve(undefined),
           }}>
           <InboxProvider
             drafts={drafts}

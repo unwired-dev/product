@@ -1,3 +1,6 @@
+import { ok } from 'node:assert/strict';
+
+import type { ReactNode } from 'react';
 import type { AppStateStatus, TurboModule } from 'react-native';
 
 import { createDrafts } from '@private-email/mail-core/drafts';
@@ -29,6 +32,7 @@ import {
 } from '@testing-library/react-native';
 import {
   AccessibilityInfo,
+  Alert,
   AppState,
   DeviceEventEmitter,
   ScrollView,
@@ -208,6 +212,8 @@ describe('mac window selection with the shared mock mailbox', () => {
           openAccount: () => undefined,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
+          profiles: [],
+          createProfile: () => Promise.resolve(undefined),
         }}>
         <InboxWindow windowId="compose" />
       </AccountContext>,
@@ -861,11 +867,13 @@ describe('mac windows over a connected Gmail mailbox', () => {
         removeListeners: () => void;
         saveFocus: ReturnType<typeof jest.fn>;
         restoreFocus: () => void;
+        setWindowProfile: () => void;
       }> = {
       addListener: () => undefined,
       removeListeners: () => undefined,
       saveFocus: jest.fn(),
       restoreFocus: () => undefined,
+      setWindowProfile: () => undefined,
     };
     const module = commandModule(menu);
     try {
@@ -1340,6 +1348,23 @@ describe('mac windows over a connected Gmail mailbox', () => {
 });
 
 describe('mac windows of different Mail Profiles', () => {
+  // The account lists the Work Profile, so a window AppKit restored with it keeps it.
+  function WithWork({ children }: { readonly children: ReactNode }) {
+    return (
+      <AccountContext
+        value={{
+          mailboxes: [],
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+          profiles: [{ id: 'work', name: 'Work' }],
+          createProfile: () => Promise.resolve(undefined),
+        }}>
+        {children}
+      </AccountContext>
+    );
+  }
+
   it('clears selection and search when a reused window leaves and returns to its Profile', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -1348,7 +1373,11 @@ describe('mac windows of different Mail Profiles', () => {
       content: { text: 'Synthetic garden body.' },
     });
     showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
-    const app = await render(<InboxWindow windowId="same" />);
+    const app = await render(
+      <WithWork>
+        <InboxWindow windowId="same" />
+      </WithWork>,
+    );
     await fireEvent.press(
       await app.findByRole('button', { name: /Garden plan/u }),
     );
@@ -1360,13 +1389,19 @@ describe('mac windows of different Mail Profiles', () => {
       'personal search',
     );
     await app.rerender(
-      <InboxWindow
-        windowId="same"
-        profile="work"
-      />,
+      <WithWork>
+        <InboxWindow
+          windowId="same"
+          profile="work"
+        />
+      </WithWork>,
     );
     expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
-    await app.rerender(<InboxWindow windowId="same" />);
+    await app.rerender(
+      <WithWork>
+        <InboxWindow windowId="same" />
+      </WithWork>,
+    );
     await expect(
       app.findByLabelText('Search senders and subjects'),
     ).resolves.toHaveProp('value', '');
@@ -1374,6 +1409,159 @@ describe('mac windows of different Mail Profiles', () => {
       app.findByRole('button', { name: /Garden plan/u }),
     ).resolves.toBeVisible();
     expect(app.queryByText('Synthetic garden body.')).toBeNull();
+  });
+
+  /* oxlint-disable vitest/max-expects -- One journey proves both windows after one switch. */
+  it('switches only the window whose Profile Switcher was used, and saves it with that window', async () => {
+    expect.hasAssertions();
+    const host: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        setWindowProfile: ReturnType<typeof jest.fn>;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      setWindowProfile: jest.fn(),
+    };
+    const module = commandModule(host);
+    try {
+      const gmail = createSyntheticGmail();
+      gmail.deliver({ subject: 'Garden plan' });
+      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      const app = await render(
+        <WithWork>
+          <Windows
+            first
+            second
+          />
+        </WithWork>,
+      );
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await first.findByRole('button', { name: /Garden plan/u });
+      await fireEvent(
+        first.getByLabelText('Mail Profile, Primary Profile'),
+        'select',
+        { nativeEvent: { id: 'profile\nwork' } },
+      );
+      // The switched window remounts its contents for the new Profile.
+      const switched = within(app.getByTestId('inbox-window-first'));
+      await expect(
+        switched.findByLabelText('Mail Profile, Work'),
+      ).resolves.toBeVisible();
+      expect(
+        switched.queryByRole('button', { name: /Garden plan/u }),
+      ).toBeNull();
+      expect(
+        second.getByRole('button', { name: /Garden plan/u }),
+      ).toBeVisible();
+      expect(
+        second.getByLabelText('Mail Profile, Primary Profile'),
+      ).toBeVisible();
+      expect(host.setWindowProfile).toHaveBeenLastCalledWith(
+        'inbox-window-first',
+        'work',
+      );
+      expect(host.setWindowProfile).toHaveBeenCalledWith(
+        'inbox-window-second',
+        defaultProfile,
+      );
+    } finally {
+      module.mockRestore();
+    }
+  }); /* oxlint-enable vitest/max-expects */
+
+  it('opens a new window in the Startup Profile and a restored window in its own', async () => {
+    expect.hasAssertions();
+    const nativeRegistration = TurboModuleRegistry.getEnforcing<
+      TurboModule & { preference: (key: string) => Promise<unknown> }
+    >('UnwiredRegistration');
+    const preference = jest
+      .spyOn(nativeRegistration, 'preference')
+      .mockImplementation((key) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the Startup Profile is saved.
+        Promise.resolve({ value: key === 'startup-profile' ? 'work' : null }),
+      );
+    try {
+      const gmail = createSyntheticGmail();
+      gmail.deliver({ subject: 'Garden plan' });
+      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      const app = await render(
+        <WithWork>
+          <View>
+            <InboxWindow windowId="new" />
+            <InboxWindow
+              windowId="restored"
+              profile={defaultProfile}
+            />
+          </View>
+        </WithWork>,
+      );
+      const opened = within(app.getByTestId('inbox-window-new'));
+      const restored = within(app.getByTestId('inbox-window-restored'));
+      await expect(
+        opened.findByLabelText('Mail Profile, Work'),
+      ).resolves.toBeVisible();
+      expect(opened.queryByRole('button', { name: /Garden plan/u })).toBeNull();
+      await expect(
+        restored.findByRole('button', { name: /Garden plan/u }),
+      ).resolves.toBeVisible();
+    } finally {
+      preference.mockRestore();
+    }
+  });
+
+  it('names a new Mail Profile and explains a failed creation', async () => {
+    expect.hasAssertions();
+    const prompt = jest.spyOn(Alert, 'prompt').mockReturnValue(undefined);
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    const createProfile = jest.fn((_name: string) =>
+      Promise.resolve('failed' as const),
+    );
+    try {
+      const inbox = createGmailInbox(createSyntheticGmail().native);
+      showMailboxes(singleMailbox(inbox, alex));
+      const app = await render(
+        <AccountContext
+          value={{
+            mailboxes: [],
+            openAccount: () => undefined,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+            profiles: [],
+            createProfile,
+          }}>
+          <InboxWindow windowId="create" />
+        </AccountContext>,
+      );
+      await fireEvent(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'select',
+        { nativeEvent: { id: 'profile\nnew' } },
+      );
+      const buttons = prompt.mock.lastCall?.[2];
+      ok(Array.isArray(buttons));
+      await act(async () => {
+        // A plain-text prompt hands its button the entered text.
+        const create = buttons.find(({ text }) => text === 'Create')
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
+          ?.onPress as ((value: string) => void) | undefined;
+        create?.('Family');
+        await Promise.resolve();
+      });
+      expect(createProfile.mock.calls).toStrictEqual([['Family']]);
+      await waitFor(() => {
+        expect(alert).toHaveBeenCalledWith(
+          'New Mail Profile',
+          'The Mail Profile could not be created. Try again.',
+          [{ text: 'OK' }],
+        );
+      });
+    } finally {
+      prompt.mockRestore();
+      alert.mockRestore();
+    }
   });
 
   it('shows each window only its own Profile’s mail from the shared mailbox list', async () => {
@@ -1386,13 +1574,15 @@ describe('mac windows of different Mail Profiles', () => {
     // A Mailbox Connection listed before Profiles belongs to the Default Profile.
     showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
     const app = await render(
-      <View>
-        <InboxWindow windowId="default" />
-        <InboxWindow
-          profile="work"
-          windowId="work"
-        />
-      </View>,
+      <WithWork>
+        <View>
+          <InboxWindow windowId="default" />
+          <InboxWindow
+            profile="work"
+            windowId="work"
+          />
+        </View>
+      </WithWork>,
     );
     const shown = within(app.getByTestId('inbox-window-default'));
     const work = within(app.getByTestId('inbox-window-work'));

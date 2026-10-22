@@ -281,6 +281,46 @@ export function ContextMenu({
   );
 }
 
+const NativeMenuButton = requireNativeComponent<
+  ViewProps & {
+    readonly sections: ReadonlyArray<
+      Readonly<{
+        palette?: boolean | undefined;
+        items: readonly NativeMenuItem[];
+      }>
+    >;
+    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  }
+>('UnwiredMenuButton');
+
+// A pull-down button whose system menu opens on tap or click. Its children only draw the label:
+// the native button receives every touch and carries the accessibility label.
+export function MenuButton({
+  sections,
+  children,
+  style,
+  ...props
+}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+  const menu = menuState(sections);
+  return (
+    <NativeMenuButton
+      {...props}
+      accessibilityRole="button"
+      sections={menu.sections}
+      onSelect={({ nativeEvent }) => {
+        void menu.runs.get(nativeEvent.id)?.();
+      }}
+      style={style}>
+      <View
+        collapsable={false}
+        pointerEvents="none"
+        style={styles.menuContent}>
+        {children}
+      </View>
+    </NativeMenuButton>
+  );
+}
+
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({
   children,

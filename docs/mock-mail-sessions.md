@@ -96,7 +96,10 @@ the same scenarios as presets of the synthetic native vault
 (`packages/mail-core/src/testing/registration-scenarios.ts`). Its controls add a second
 removable device and lose this installation's encryption key. They cover successive
 removals, the ready presentation after native adoption, renewed Pending Device
-enrollment and recovery only with the latest confirmed key. These controls exist only
+enrollment and recovery only with the latest confirmed key. The two-Profile session,
+`createTwoProfileRegistration`, connects alex@example.invalid in the Default
+Profile and other@example.invalid in a published Work Profile, for the Profile
+Switcher journeys. Native builds cannot select it yet. These controls exist only
 in the shared test fixture; hosted native tests separately prove multi-epoch
 cryptographic catch-up and reenrollment on the same Keychain installation.
 

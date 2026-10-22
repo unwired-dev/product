@@ -14,6 +14,9 @@ export type MenuItem = Readonly<{
   title: string;
   symbol: string;
   destructive?: boolean;
+  // A second line beneath the title, and a checkmark for the chosen item.
+  subtitle?: string;
+  checked?: boolean;
 }> &
   (
     | Readonly<{ key: string; run: MenuAction }>
@@ -31,6 +34,8 @@ export type NativeMenuItem = Readonly<{
   title: string;
   symbol: string;
   destructive?: boolean | undefined;
+  subtitle?: string | undefined;
+  checked?: boolean | undefined;
   items?: readonly NativeMenuItem[];
 }>;
 
@@ -41,7 +46,8 @@ export const menuState = (sections: readonly MenuSection[]) => {
     const { title, symbol, destructive } = item;
     if ('run' in item) {
       runs.set(item.key, item.run);
-      return { id: item.key, title, symbol, destructive };
+      const { subtitle, checked } = item;
+      return { id: item.key, title, symbol, destructive, subtitle, checked };
     }
     return { id: '', title, symbol, items: item.items.map(native) };
   };

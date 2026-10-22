@@ -21,6 +21,20 @@ BOOL UnwiredCloseGuarded(NSString *identifier)
   return identifier != nil && [guardedWindows() containsObject:identifier];
 }
 
+// Each Inbox window's Mail Profile, which AppKit saves with its restorable state.
+static NSMutableDictionary<NSString *, NSString *> *windowProfiles(void)
+{
+  static NSMutableDictionary<NSString *, NSString *> *profiles;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ profiles = [NSMutableDictionary dictionary]; });
+  return profiles;
+}
+
+NSString *UnwiredWindowProfile(NSString *identifier)
+{
+  return identifier == nil ? nil : windowProfiles()[identifier];
+}
+
 NSString *UnwiredGuardedWindow(void)
 {
   for (NSWindow *window in NSApp.windows) {
@@ -142,6 +156,12 @@ RCT_EXPORT_METHOD(closeSettings)
 RCT_EXPORT_METHOD(focusInbox)
 {
   [NSApp sendAction:NSSelectorFromString(@"focusInbox:") to:NSApp.delegate from:nil];
+}
+
+RCT_EXPORT_METHOD(setWindowProfile:(NSString *)identifier profile:(NSString *)profile)
+{
+  windowProfiles()[identifier] = profile;
+  [windowNamed(identifier) invalidateRestorableState];
 }
 
 RCT_EXPORT_METHOD(restoreFocus:(NSString *)identifier)

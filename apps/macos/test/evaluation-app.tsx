@@ -69,6 +69,8 @@ export function App({
         openAccount: () => undefined,
         authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
+        profiles: [],
+        createProfile: () => Promise.resolve(undefined),
       }}>
       <InboxProvider
         drafts={drafts}

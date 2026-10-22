@@ -488,7 +488,10 @@ form accessories, keyboards, status bar).
   turns that off.
 - **Profile Switcher / Profile Menu:** monogram, Mail Profile name and chevron.
   The menu lists Mail Profiles with their Mailbox Connections, unread counts and
-  a checkmark, then New Mail Profile… and Manage Mail Profiles….
+  a checkmark, then New Mail Profile… and Manage Mail Profiles…. It is the system
+  menu, so each Profile's connections and unread count share its subtitle and the
+  checkmark leads; the reference frames' monograms and trailing counts are not
+  drawn. The Default Profile is named Primary Profile.
 - **Mail View Chip (Figma: Category Chip):** the `category-chip` token recipes
   style each header chip with an icon, label and unread-Thread count badge capped
   at 99+. Selected chips are graphite with an emphasized label; others use the quiet fill.
