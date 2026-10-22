@@ -359,7 +359,8 @@ with Gmail readers. `test/imap-attachments.test.ts` lists an attachment without 
 read, downloads its exact bytes from the message source, opens and shares it, and covers
 an unreachable server, a refused password, locked storage, an expunged message,
 cancellation, a new UIDVALIDITY with a download in flight, including for a folder that
-had left the cache, and deletion with the last reader and the Inbox. Both hosts' rendered `attachments.test.tsx` journeys download,
+had left the cache, a body arriving after that change, isolation between folders
+whose names contain delimiters, and deletion with the last reader and the Inbox. Both hosts' rendered `attachments.test.tsx` journeys download,
 retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale
 operations, SMTP verification before a connection is added, the SMTP password, the
 envelope and Bcc removal, refused envelopes, and filing a Sent copy that keeps Bcc. The plaintext-server test exercises the real SwiftMail transport refusing

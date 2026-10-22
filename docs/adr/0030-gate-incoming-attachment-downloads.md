@@ -4,6 +4,25 @@ status: accepted
 
 # Gate incoming attachment downloads in message presentation
 
+## Replacement IMAP reader amendment — 2026-10-22
+
+The maintained replacement reader's [#1020](https://github.com/unwired-dev/product/issues/1020)
+slice uses the existing #629 bounded message-source read for both body-derived
+descriptors and explicit attachment downloads. A download rereads the source at
+the message's folder, UIDVALIDITY and UID and revalidates the descriptor before
+saving bytes. This replaces the BODYSTRUCTURE and exact-section mechanism below
+for this replacement slice; it does not change the retained Swift prototype.
+
+The existing native read refuses source literals over 40 MiB before buffering;
+decoded attachments retain Gmail's 25 MiB limit and protected connection-owned
+storage. Reading a body can therefore receive attachment bytes in its bounded
+source, while its encrypted body cache retains descriptors only. Downloaded bytes
+remain device-local, outside the body cache and Private Sync. Credential custody,
+explicit download, descriptor validation and cleanup boundaries remain unchanged.
+Provider and native-host qualification remain separate release requirements.
+See the [replacement IMAP companion](../architecture/imap-mailboxes.md#cache-identity-and-presentation)
+and [operational contract](../imap-mailboxes.md#reading).
+
 ## Launch scope amendment — 2026-10-11
 
 The power-user Apple launch permits explicit device-local Keep Offline requests

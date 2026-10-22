@@ -74,8 +74,12 @@ release remote work; a failed rich presentation withdraws that reader's interest
 Issue #1020 reuses Gmail's attachment download lifecycle and native storage/presenters.
 Descriptors come from the parsed message source; explicit downloads reread that source
 at the message's UIDVALIDITY and revalidate the descriptor before saving its bytes.
-A new UIDVALIDITY retires the folder's saved attachments and fences pending downloads,
-including readers retained after the folder's metadata checkpoint was evicted.
+Successful cache adoption of a new UIDVALIDITY retires the folder's saved attachments
+and fences pending downloads, including readers retained after the folder's metadata
+checkpoint was evicted. Late body replies reconcile their descriptors against that
+committed identity too. Search replies, refused source reads and failed cache commits
+do not retire other attachments before a later successful synchronization adopts the
+new identity; a refused source read still reports its own attachment as missing.
 The [operational guide](../imap-mailboxes.md#reading) owns limits, actions and cleanup.
 Prefetch and reader responses remain follow-up work under #882.
 
