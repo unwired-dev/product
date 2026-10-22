@@ -495,15 +495,15 @@ final class WindowTests: XCTestCase {
     waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered list"].isSelected }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
       window.webViews.staticTexts.firstMatch.doubleClick()
-      self.writingTool("Rewrite", in: window, of: app).click()
+      self.writingTool("Rewrite the selected text", in: window, of: app).click()
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: false) {
       window.webViews.textViews["Message body"].click()
-      self.writingTool("Rewrite", in: window, of: app).click()
+      self.writingTool("Rewrite the message body", in: window, of: app).click()
     }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
       window.webViews.staticTexts.firstMatch.doubleClick()
-      self.writingTool("Translate", in: window, of: app).click()
+      self.writingTool("Translate the selected text", in: window, of: app).click()
       window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Translate into German"))
         .firstMatch.click()
     }
@@ -517,7 +517,7 @@ final class WindowTests: XCTestCase {
       app, result: "Synthetic reply to local mail.", apply: "Replace your reply with this suggestion",
       draft: "Garden plans for spring", numbered: false, boldAfterApply: false
     ) {
-      self.writingTool("Suggest reply", in: window, of: app).click()
+      self.writingTool("Suggest a reply to the quoted message", in: window, of: app).click()
     }
   }
 

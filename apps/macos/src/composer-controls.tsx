@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import type { StyleProp, TextStyle, TurboModule } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import {
   findNodeHandle,
   Pressable,
@@ -19,6 +19,7 @@ import {
 
 import { SFSymbol, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
+import { isMenuChoice } from './native-menu.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -118,6 +119,7 @@ const textStyleKinds: readonly BlockKind[] = [
 export type PopUpItem = Readonly<{
   key: string;
   title: string;
+  accessibilityLabel?: string;
   checked?: boolean;
   disabled?: boolean;
   destructive?: boolean;
@@ -133,7 +135,7 @@ interface NativeMenu extends TurboModule {
       >;
     }>,
     destructiveColor: ReturnType<typeof processColor>,
-  ) => Promise<string | null>;
+  ) => Promise<unknown>;
 }
 
 // A pop-up control whose AppKit menu owns presentation, keyboard and dismissal; a menu with a
@@ -161,8 +163,8 @@ export function PopUp({
   const colors = usePalette();
   const anchor = useRef<View>(null);
   const latest = useRef(items);
-  useEffect(() => {
-    latest.current = items;
+  useLayoutEffect(() => {
+    latest.current = disabled ? [] : items;
     return () => {
       latest.current = [];
     };
@@ -186,9 +188,11 @@ export function PopUp({
       ],
       processColor(colors.statusDestructive),
     );
-    latest.current
-      .find((item) => item.key === chosen && item.disabled !== true)
-      ?.run();
+    if (isMenuChoice(chosen)) {
+      latest.current
+        .find((item) => item.key === chosen && item.disabled !== true)
+        ?.run();
+    }
   };
   return (
     <Pressable

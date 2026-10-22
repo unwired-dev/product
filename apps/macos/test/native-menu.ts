@@ -3,6 +3,7 @@ import { act } from '@testing-library/react-native';
 interface Item {
   readonly id: string;
   readonly title: string;
+  readonly accessibilityLabel?: string;
   readonly checked?: boolean;
   readonly disabled?: boolean;
   readonly destructive?: boolean;

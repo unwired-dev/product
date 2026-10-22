@@ -1183,7 +1183,7 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   );
 }
 
-const rewriteLabel = (at: Selection) =>
+export const rewriteLabel = (at: Selection) =>
   at.start === at.end
     ? 'assistance.rewriteDraftLabel'
     : 'assistance.rewriteSelectionLabel';

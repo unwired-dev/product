@@ -34,7 +34,7 @@ import {
   press,
   simulatedPage,
 } from './evaluation-page.ts';
-import { chooseMenuItem } from './native-menu.ts';
+import { chooseMenuItem, menuItems } from './native-menu.ts';
 import { injectedScripts } from './webview.tsx';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
@@ -463,6 +463,14 @@ describe('the Tiptap evaluation composer', () => {
     // Rewrite without a selection captures the whole body; the result replaces it in the page,
     // for the body revision it was captured from.
     await press('Writing tools');
+    expect(menuItems()).toStrictEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Rewrite',
+          accessibilityLabel: 'Rewrite the message body',
+        }),
+      ]),
+    );
     await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
     await press('Replace your text with this rewrite');
@@ -478,6 +486,18 @@ describe('the Tiptap evaluation composer', () => {
     // An edit retires a pending capture: its result is never offered.
     await report({ selection: { start: 9, end: 13 } });
     await press('Writing tools');
+    expect(menuItems()).toStrictEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Rewrite',
+          accessibilityLabel: 'Rewrite the selected text',
+        }),
+        expect.objectContaining({
+          title: 'Translate',
+          accessibilityLabel: 'Translate the selected text',
+        }),
+      ]),
+    );
     await chooseMenuItem('Translate');
     await fireEvent.press(
       await screen.findByRole('radio', { name: 'Translate into German' }),

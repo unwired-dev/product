@@ -246,6 +246,21 @@ describe('categorization spike page', () => {
     expect(screen.queryByText('RESULT · ORDERS AND FLIGHTS')).toBeNull();
   });
 
+  it('keeps the running selection when an already-open menu answers after its control is disabled', async () => {
+    expect.hasAssertions();
+    const { module, pending } = scriptedSpike();
+    await renderWith(module);
+    const precision = screen.getByRole('button', { name: 'Precision' });
+    await fireEvent.press(precision);
+    await fireEvent.press(screen.getByText('Classify'));
+    expect(precision).toBeDisabled();
+    await chooseMenuItem('INT8');
+    expect(precision).toHaveTextContent('FP16');
+    await settle(pending, requestAt(pending, 0), classified);
+    expect(screen.getByText('RESULT · ORDERS AND FLIGHTS')).toBeVisible();
+    expect(precision).toHaveTextContent('FP16');
+  });
+
   it('rejects a result that won the native race with Cancel', async () => {
     expect.hasAssertions();
     const { module, pending } = scriptedSpike();

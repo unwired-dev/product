@@ -17,7 +17,12 @@ import { use, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { FormatBar, PopUp } from './composer-controls.tsx';
-import { Action, composerStyles, Recipients } from './composer.tsx';
+import {
+  Action,
+  composerStyles,
+  Recipients,
+  rewriteLabel,
+} from './composer.tsx';
 import {
   Button,
   GlassPanel,
@@ -113,6 +118,7 @@ export function PageFormatBar({
                   {
                     key: 'rewrite',
                     title: t('assistance.rewrite'),
+                    accessibilityLabel: t(rewriteLabel(page.selection)),
                     disabled: !canRewrite(draft.body, page.selection),
                     run: () => {
                       onCapture('rewrite');
@@ -125,6 +131,9 @@ export function PageFormatBar({
                   {
                     key: 'translate',
                     title: t('translation.translate'),
+                    accessibilityLabel: t(
+                      'translation.translateSelectionLabel',
+                    ),
                     disabled: !hasTranslatableText(
                       selectedText(
                         draft.body,
@@ -142,6 +151,7 @@ export function PageFormatBar({
                   {
                     key: 'reply',
                     title: t('assistance.suggestReply'),
+                    accessibilityLabel: t('assistance.suggestReplyLabel'),
                     run: () => {
                       onCapture('reply');
                     },

@@ -64,6 +64,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   its target despite passing component tests. Record unavailable native
   execution separately from static or predicate-only evidence.
 
+- A checked-item assertion in `WindowTests.composerMenuJourney` or another
+  AppKit menu journey reading a checkmark string from `value`. Check the native
+  accessibility property: XCUITest exposes checked menu items as `isSelected`.
+  Otherwise a valid selection can fail its journey, or an unrelated value can
+  falsely qualify the checked state. Keep native execution separate from the
+  JavaScript menu fake's `checked` field.
+
 - A native keyboard-visibility check such as `InboxTests.appleRegistrationJourney`
   comparing only a result's bounds with the keyboard. Require the complete result
   inside its scroller's visible rectangle and enough viewport height for a full
