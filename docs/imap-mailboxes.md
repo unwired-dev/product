@@ -341,10 +341,8 @@ single native operations until
 [#1178](https://github.com/unwired-dev/product/issues/1178)–[#1182](https://github.com/unwired-dev/product/issues/1182)
 move them to the same sessions.
 
-SwiftMail 1.16.0 queues `disconnect()` behind an active command, whose NIO response
-wait does not observe task cancellation. The connection of a closed session
-therefore ends only when that command answers or reaches SwiftMail's command
-timeout; aborting it on the wire is
+The connection of a closed session ends only when its active command answers or
+times out. Aborting it on the wire is
 [#1184](https://github.com/unwired-dev/product/issues/1184). The hosted
 close-answers-at-once case uses a controlled `ImapSession`.
 
