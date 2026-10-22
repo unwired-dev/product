@@ -159,6 +159,18 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A software-keyboard journey such as `InboxTests.sendJourney` using burst
+  `typeText` or an unconfirmed character loop when the field can drop keystrokes
+  during keyboard presentation or rerendering. Reuse `InboxTests.type(_:into:)`
+  or equivalent per-character value confirmation for that field, including
+  recipient input after the keyboard appears. Otherwise the journey can fail
+  before admission for malformed input instead of testing delivery, as in #970.
+- A journey such as `InboxTests.sendJourney` spending a short-lived state's
+  budget on an optional-element timeout or fixed delay before asserting that
+  state. Trace the whole path from Send to the Undo Send assertion, including
+  composer dismissal and navigation; wait for the actual alternate outcomes and
+  continue as soon as either occurs. Otherwise the default 10-second window can
+  expire before the test observes it, despite correct product behavior.
 - A fake-clock store journey such as
   `packages/mail-core/test/error-reporting-delivery.test.ts` freezing the real
   async runner's continuation scheduler before awaiting `load` or `refresh`. Trace

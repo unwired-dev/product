@@ -39,7 +39,7 @@ export { outboxCopy } from './outbox-copy.ts';
 export interface NativeDeliveryClaim {
   // Claims Draft `id` for delivery from this Trusted Device. Resolves `{ owner, claimed }`, false
   // when another Trusted Device holds the claim; asking again after holding it keeps it. Rejects
-  // with 'unavailable' without Product Sync keys, a session or a connection, when the claim may or
+  // with 'unavailable' without Product Sync keys, device proof or a connection, when the claim may or
   // may not have been taken.
   readonly claimDraftDelivery: (owner: string, id: string) => Promise<unknown>;
 }

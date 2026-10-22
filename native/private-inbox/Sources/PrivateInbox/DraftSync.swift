@@ -18,17 +18,24 @@ struct DraftRecord: Codable, Equatable {
   static let chunkSize = 512 * 1024
   static let chunkSchemaVersion = 1
   let backend: ProductSyncBackend
-  let session: ProductSignInIdentity
+  // Nil only for a delivery claim, which the device credential proves alone: Sign in with Apple
+  // cannot renew a Product Sign-In after a relaunch, and queued mail must still send.
+  let session: ProductSignInIdentity?
   let product: ProductRegistrationReceipt
   let ring: ProductSyncKeyRing
   var owner: String { product.productAccountId }
 
   func identifier(draft id: String) throws -> String { try ring.identifier("draft", id) }
 
+  private func signedIn() throws -> ProductSignInIdentity {
+    guard let session else { throw RegistrationError.unavailable }
+    return session
+  }
+
   // This device's claim to send Draft `id`, under an identifier that tells Convex nothing about it.
   func claimDelivery(draft id: String) async throws -> [String: Any] {
     let claimed = try await backend.claimDelivery(
-      session, product, try ring.identifier("draft-delivery", id))
+      product, try ring.identifier("draft-delivery", id))
     return ["owner": owner, "claimed": claimed]
   }
 
@@ -46,7 +53,7 @@ struct DraftRecord: Codable, Equatable {
       try known.map { (try identifier(draft: $0), $0) }, uniquingKeysWith: { first, _ in first })
     var records: [[String: Any]] = []
     var unreadable: [String] = []
-    for stored in try await backend.list(session, product, "draft.") {
+    for stored in try await backend.list(try signedIn(), product, "draft.") {
       let record = try? JSONDecoder().decode(
         DraftRecord.self,
         from: ring.open(
@@ -75,7 +82,7 @@ struct DraftRecord: Codable, Equatable {
       account: owner, identifier: identifier, schemaVersion: DraftRecord.schemaVersion)
     let stored: StoredPayload
     do {
-      stored = try await backend.put(session, product, identifier, sealed, expected)
+      stored = try await backend.put(try signedIn(), product, identifier, sealed, expected)
     } catch {
       if error as? RegistrationError == .revoked || error as? RegistrationError == .deleted {
         throw error
@@ -83,7 +90,7 @@ struct DraftRecord: Codable, Equatable {
       // Convex refuses a compare-and-set against a record that was deleted meanwhile: that is a
       // conflict for the next pull. Any other failure is reported.
       guard error as? ProductSyncWriteFailure == .payloadChanged, expected != nil,
-        (try? await backend.get(session, product, identifier)) == .some(nil)
+        (try? await backend.get(try signedIn(), product, identifier)) == .some(nil)
       else { throw error }
       return ["owner": owner, "committed": false]
     }
@@ -104,7 +111,7 @@ struct DraftRecord: Codable, Equatable {
       let sealed = try ring.seal(
         record: Data(chunk), account: owner, identifier: identifier,
         schemaVersion: Self.chunkSchemaVersion)
-      let stored = try await backend.put(session, product, identifier, sealed, nil)
+      let stored = try await backend.put(try signedIn(), product, identifier, sealed, nil)
       guard stored.payloadIdentifier == identifier,
         let opened = try? ring.open(
           record: stored.encryptedPayload, account: owner, identifier: identifier,
@@ -119,7 +126,7 @@ struct DraftRecord: Codable, Equatable {
     guard size <= PrivateInboxStore.draftAssetLimit else { throw PrivateInboxError.tooLarge }
     var bytes = Data()
     for identifier in try identifiers(asset: id, digest: digest, size: size) {
-      guard let stored = try await backend.get(session, product, identifier),
+      guard let stored = try await backend.get(try signedIn(), product, identifier),
         let chunk = try? ring.open(
           record: stored.encryptedPayload, account: owner, identifier: identifier,
           schemaVersion: Self.chunkSchemaVersion),
@@ -137,10 +144,11 @@ struct DraftRecord: Codable, Equatable {
 }
 
 extension RegistrationStore {
-  // Only a Trusted Device holding the account's published keys and a Product Sign-In session
-  // synchronizes Drafts, and only for the account signed in now.
-  func draftSync(owner: String) throws -> DraftSync {
-    guard let backend = productSync, let session, let saved = try load(),
+  // Only a Trusted Device holding the account's published keys and, unless `signedIn` is false for
+  // a delivery claim, a Product Sign-In session synchronizes Drafts, and only for the account
+  // signed in now.
+  func draftSync(owner: String, signedIn: Bool = true) throws -> DraftSync {
+    guard let backend = productSync, !signedIn || session != nil, let saved = try load(),
       saved.accountRemoval == nil, let product = saved.product, product.pending != true,
       let vault = try loadVault(product.productAccountId), vault.published
     else { throw RegistrationError.unavailable }
@@ -150,8 +158,8 @@ extension RegistrationStore {
   }
 
   // Credential-only revocation runs before using a cached session or key ring.
-  func prepareDraftSync(owner: String) async throws -> DraftSync {
-    let sync = try draftSync(owner: owner)
+  func prepareDraftSync(owner: String, signedIn: Bool = true) async throws -> DraftSync {
+    let sync = try draftSync(owner: owner, signedIn: signedIn)
     do {
       try await requireNotRevoked(sync.product)
     } catch {
