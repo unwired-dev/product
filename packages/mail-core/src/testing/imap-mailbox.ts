@@ -6,6 +6,7 @@ import * as Order from 'effect/Order';
 import type { NativeImapMailbox } from '../imap-inbox.ts';
 
 import { createSyntheticRemoteContent } from './remote-content.ts';
+import { createSyntheticAttachments } from './saved-attachments.ts';
 
 // A controlled IMAP server behind one connection, with the encrypted cache native code keeps for
 // it. Synchronization answers as the native engine does: without a checkpoint at the folder's
@@ -119,6 +120,10 @@ export function createSyntheticImap({
     commits: 0,
   };
   const bodies = new Map<string, string>();
+  // Downloaded Attachments native code saved for the connection.
+  const files = createSyntheticAttachments(
+    (owner) => owner.generation === cache.generation,
+  );
 
   const folder = (name: string) => {
     const found = folders.get(name);
@@ -460,6 +465,7 @@ export function createSyntheticImap({
         stored: ids.filter((id) => bodies.has(id)),
         excluded: [],
       }),
+    ...files.native,
     // Removes every body not named, only at the cache revision the caller read.
     retainMessageBodies: (mailbox, ids) => {
       if (mailbox.revision !== cache.revision) {
@@ -481,6 +487,7 @@ export function createSyntheticImap({
     smtp,
     cache,
     bodies,
+    files,
     ...remote.controls,
     // Ends every IDLE wait, as a change to the watched folder or the wait's bound would.
     notify: (changed = true) => {

@@ -254,7 +254,8 @@ const boundImap = (
   connection: string,
 ): NativeImapMailbox => {
   const scope = scopeOf(connection);
-  // The encrypted cache and Remote Message Content are reached as for Gmail.
+  // The encrypted cache, Remote Message Content and Downloaded Attachments are reached as for
+  // Gmail.
   const cache = bound(native, connection);
   return {
     imapFolders: (mailbox) => native.imapFolders(scope(mailbox)),
@@ -277,6 +278,9 @@ const boundImap = (
     commitMessageBody: cache.commitMessageBody,
     listMessageBodies: cache.listMessageBodies,
     retainMessageBodies: cache.retainMessageBodies,
+    saveAttachment: cache.saveAttachment,
+    discardAttachment: cache.discardAttachment,
+    presentAttachment: cache.presentAttachment,
     openRemoteContent: cache.openRemoteContent,
     touchRemoteContent: cache.touchRemoteContent,
     fetchRemoteContent: cache.fetchRemoteContent,

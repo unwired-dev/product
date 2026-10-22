@@ -584,7 +584,16 @@ describe('connecting IMAP mailboxes', () => {
       new Set([id]),
     );
     const body = readyBody(inbox.messageBody(id));
-    expect(body.attachments).toBe(1);
+    // Listing the attachment reads nothing more from the server.
+    expect(inbox.messageAttachments(id)).toStrictEqual([
+      {
+        locator: '0.1',
+        name: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: 9,
+        state: { kind: 'available' },
+      },
+    ]);
     expect(body.presentation.rich?.document).toContain('Café');
     expect(body.presentation.rich?.document).toContain(
       'data:image/png;base64,',

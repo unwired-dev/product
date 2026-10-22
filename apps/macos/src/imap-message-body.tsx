@@ -17,6 +17,7 @@ import { styles } from './message-body-styles.ts';
 import {
   LinkConfirmationContext,
   Presentation,
+  ReceivedAttachments,
   withoutLinkFrom,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
@@ -25,8 +26,8 @@ import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
 // An IMAP message's body, downloaded once and then read from this device. Remote Message Content
-// follows the connection's policy as for Gmail mail, and attachments are only counted; links open
-// only after the person confirms the destination shown here.
+// follows the connection's policy and attachments download on request, as for Gmail mail; links
+// open only after the person confirms the destination shown here.
 export function ImapMessageBody({
   inbox,
   id,
@@ -147,11 +148,12 @@ export function ImapMessageBody({
           }
         }}
       />
-      {body.attachments === 0 ? null : (
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t('messageBody.imap-attachments', { count: body.attachments })}
-        </Text>
-      )}
+      <ReceivedAttachments
+        inbox={inbox}
+        id={id}
+        current={current}
+        provider={undefined}
+      />
     </View>
   );
 }

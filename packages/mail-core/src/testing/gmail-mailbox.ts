@@ -2,12 +2,12 @@ import { createSinglebyteEncoder } from '@exodus/bytes/single-byte.js';
 import * as Arr from 'effect/Array';
 import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Order from 'effect/Order';
-import * as Result from 'effect/Result';
 
 import type { NativeGmailMailbox, OutgoingSend } from '../gmail-inbox.ts';
 
 import { base64Lines } from '../outgoing-message.ts';
 import { createSyntheticRemoteContent } from './remote-content.ts';
+import { createSyntheticAttachments } from './saved-attachments.ts';
 
 export { syntheticConnections } from './mailbox-connections.ts';
 
@@ -208,13 +208,6 @@ export function createSyntheticGmail({
   const excludedBodies = new Set<string>();
   const bodyFailures: string[] = [];
   const retainFailures: string[] = [];
-  // Downloaded Attachments native code holds for this connection, by opaque file name, and the
-  // system presentations requested for them.
-  const savedFiles = new Map<string, { name: string; bytes: Uint8Array }>();
-  const presentations: Array<{ name: string; action: string }> = [];
-  let nextFile = 0;
-  const saveFailures: string[] = [];
-  const presentFailures: string[] = [];
   // Each body commit's tier and protected working set, as native admission receives them.
   const bodyCommits: Array<{
     id: string;
@@ -645,6 +638,7 @@ export function createSyntheticGmail({
   const current = (owner: Readonly<{ address: string; generation: string }>) =>
     owner.address === address && owner.generation === String(generation);
   const remote = createSyntheticRemoteContent(current, () => address);
+  const attachments = createSyntheticAttachments(current);
   const native = {
     gmailRequest: (path, query, owner) => {
       if (owner.signal?.aborted === true) {
@@ -805,43 +799,7 @@ export function createSyntheticGmail({
       }
       return Promise.resolve(null);
     },
-    // Native code decodes the data again and refuses bytes that differ from the declared size.
-    saveAttachment: (owner, { name, data, size }) => {
-      const code = saveFailures.shift();
-      if (code !== undefined) {
-        return rejection(code);
-      }
-      if (!current(owner)) {
-        return rejection('mailbox-invalidated');
-      }
-      const bytes = Base64Url.decode(data);
-      if (Result.isFailure(bytes) || bytes.success.length !== size) {
-        return rejection('unavailable');
-      }
-      nextFile += 1;
-      const file = `00000000-0000-4000-8000-${String(nextFile).padStart(12, '0')}`;
-      savedFiles.set(file, { name, bytes: bytes.success });
-      return Promise.resolve({ file });
-    },
-    discardAttachment: (_owner, file) => {
-      savedFiles.delete(file);
-      return Promise.resolve(null);
-    },
-    presentAttachment: (owner, file, action) => {
-      const saved = savedFiles.get(file);
-      if (!current(owner)) {
-        return rejection('mailbox-invalidated');
-      }
-      if (saved === undefined) {
-        return rejection('attachment-missing');
-      }
-      const code = presentFailures.shift();
-      if (code !== undefined) {
-        return rejection(code);
-      }
-      presentations.push({ name: saved.name, action });
-      return Promise.resolve(null);
-    },
+    ...attachments.native,
     ...remote.native,
   } satisfies NativeGmailMailbox;
 
@@ -889,16 +847,10 @@ export function createSyntheticGmail({
     bodyCommits,
     bodyRetains,
     ...remote.controls,
-    // Attachment files saved for this connection, with the name and bytes each was saved with.
-    savedFiles,
-    presentations,
-    failSave: (code: string) => {
-      saveFailures.push(code);
-    },
-    // The system cannot show the next presentation, as without a window or presenter.
-    failPresent: (code: string) => {
-      presentFailures.push(code);
-    },
+    savedFiles: attachments.savedFiles,
+    presentations: attachments.presentations,
+    failSave: attachments.failSave,
+    failPresent: attachments.failPresent,
     // Native admission refuses this message's body, as when it cannot fit.
     refuseBody: (id: string) => {
       refusedBodies.add(id);
@@ -918,7 +870,7 @@ export function createSyntheticGmail({
       cache = null;
       bodies.clear();
       // Native code removes the previous connection's files with its cache.
-      savedFiles.clear();
+      attachments.savedFiles.clear();
       excludedBodies.clear();
       messages.clear();
       userLabels.clear();
