@@ -1186,6 +1186,9 @@ final class InboxTests: XCTestCase {
     committed.lifetime = .keepAlways
     add(committed)
     app.terminate()
+    // Larger text from here on: the preview message's few commands otherwise fit above the
+    // keyboard, and the palette check below needs a list that reaches beneath it (#982).
+    app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
     app.launch()
     let restored = app.buttons["Oliver Park. Saturday, by the river?"]
     XCTAssertTrue(restored.waitForExistence(timeout: 20))
@@ -1196,6 +1199,46 @@ final class InboxTests: XCTestCase {
     recovered.name = "Read state after relaunch"
     recovered.lifetime = .keepAlways
     add(recovered)
+    verifyPaletteAboveKeyboard(app, header: app.staticTexts["Saturday, by the river?"].firstMatch)
+  }
+
+  // #982: with the software keyboard up and larger text, the Command Palette's final command
+  // scrolls fully above the keyboard, and tapping it runs the command and closes the palette.
+  private func verifyPaletteAboveKeyboard(_ app: XCUIApplication, header: XCUIElement) {
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.buttons["Open Command Palette"].firstMatch.tap()
+    } else {
+      XCTAssertTrue(header.waitForExistence(timeout: 10))
+      let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)))
+    }
+    let query = app.textFields["Type a command"]
+    XCTAssertTrue(query.waitForExistence(timeout: 10))
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    let palette = app.descendants(matching: .any).matching(identifier: "command-palette").firstMatch
+    let account = palette.buttons["Account"]
+    let last = account.exists ? account : palette.buttons["Inbox"]
+    XCTAssertTrue(last.exists)
+    // Scroll to the list's end, dragging in its top part, which the keyboard never covers.
+    let list = palette.scrollViews.firstMatch
+    let from = list.coordinate(withNormalizedOffset: .zero)
+      .withOffset(CGVector(dx: list.frame.width / 2, dy: 150))
+    for _ in 0..<3 {
+      // Holding before release leaves no momentum to settle.
+      from.press(
+        forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -130)),
+        withVelocity: .slow, thenHoldForDuration: 0.3)
+    }
+    XCTAssertTrue(query.isHittable)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Command Palette scrolled above the keyboard"
+    shot.lifetime = .keepAlways
+    add(shot)
+    // The keyboard element starts below its suggestion bar, so its frame cannot show the overlap.
+    // Tap low on the row instead: a row the keyboard still covers there leaves the palette open.
+    last.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).tap()
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
   }
 
   // #979: a pull on the list, unlike the iPhone heading's swipe, leaves the Command Palette closed,

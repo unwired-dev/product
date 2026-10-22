@@ -732,8 +732,6 @@
     "writingTools": "Writing tools",
     "status": "Draft · {{status}}",
     "save": {
-      "saved": "Saved on this device",
-      "saving": "Saving…",
       "failed": "Not saved. Your changes are kept here until saving succeeds.",
       "locked": "Not saved while private storage is locked. Unlock your device."
     },

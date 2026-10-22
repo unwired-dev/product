@@ -37,6 +37,7 @@ import {
 } from '@private-email/mail-core/assistance';
 import {
   addRecipients,
+  draftSaveProblem,
   draftOf,
   entryOf,
   isEmptyDraft,
@@ -1412,6 +1413,9 @@ function Editor({
   const selectionNow = useRef(selection);
   // The wrapper calls onChange before onChangeText for the same native edit.
   const changedSelection = useRef<Selection | undefined>(undefined);
+  // The body text the field reported last, until the editor changes the Draft itself. The field
+  // keeps showing it when a render reaches it after further typing.
+  const shownBody = useRef<string | undefined>(undefined);
   // Where the editor must place the caret after a change it did not type itself.
   const [placed, setPlaced] = useState<Selection>();
   // Marks toggled at a caret apply to the text typed there next.
@@ -1451,7 +1455,7 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
-  const save = state.kind === 'ready' ? state.save : 'failed';
+  const unsaved = draftSaveProblem(state);
 
   // Holds saving during discard; a failed discard restores edits accepted while it waited.
   const discarded = useRef(false);
@@ -1472,6 +1476,7 @@ function Editor({
         setCaptured(undefined);
       }
       authored.current = bound;
+      shownBody.current = undefined;
       if (!discarded.current) {
         setRefused(undefined);
         void store.update(bound, previous, rebind);
@@ -1606,14 +1611,16 @@ function Editor({
     const result = applyText(latest.body, text, {
       marks: typingNow.current,
       selection: at,
+      shown: shownBody.current,
       ...(forward ? { deletion: 'forward' } : {}),
     });
-    // One character added after the caret continues a typing step until a word ends.
-    const added = text.length === textBefore.length + 1;
-    const word = added && !/\s/u.test(text[at.start] ?? ' ');
-    caret.current = at.end + text.length - textBefore.length;
+    // Native selection still uses the field's reported text if it dropped our display.
+    caret.current =
+      after?.start ??
+      result.selection?.start ??
+      at.end + text.length - textBefore.length;
     if (result.literal === undefined) {
-      change({ ...latest, body: result.document }, word, 'body');
+      change({ ...latest, body: result.document }, result.typing, 'body');
     } else {
       // The literal marker is its own step, so one Undo restores it.
       const { literal } = result;
@@ -1627,8 +1634,8 @@ function Editor({
       );
       update({ ...latest, body: result.document });
     }
+    shownBody.current = text;
     if (result.selection !== undefined) {
-      caret.current = result.selection.start;
       selectionNow.current = result.selection;
       setPlaced(result.selection);
     }
@@ -2091,11 +2098,13 @@ function Editor({
           contentContainerStyle={styles.content}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled">
-          <Text
-            accessibilityLiveRegion="polite"
-            style={[styles.status, { color: colors.textSecondary }]}>
-            {t('drafts.status', { status: t(`drafts.save.${save}`) })}
-          </Text>
+          {unsaved === undefined ? null : (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={[styles.status, { color: colors.textSecondary }]}>
+              {t('drafts.status', { status: t(`drafts.save.${unsaved}`) })}
+            </Text>
+          )}
           <ComposerNotices
             closing={closing}
             draft={draft}
