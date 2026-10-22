@@ -1210,6 +1210,7 @@ final class InboxTests: XCTestCase {
     verifyStableSearchEdits(app, search: search, maya: maya)
     search.typeText("\n")
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
+    verifyCompactSwipeBackToResults(app, search: search, row: maya)
     app.buttons["Close Search"].tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     // Close also empties the field, which is not controlled by the query (#970).
@@ -1263,6 +1264,10 @@ final class InboxTests: XCTestCase {
     app.launch()
     let restored = app.buttons["Oliver Park. Saturday, by the river?"]
     XCTAssertTrue(restored.waitForExistence(timeout: 20))
+    verifyCompactSwipeBackKeepsScroll(app)
+    for _ in 0..<5 where !restored.isHittable {
+      app.swipeDown()
+    }
     XCTAssertFalse(restored.label.hasPrefix("Unread."))
     restored.tap()
     XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
@@ -1376,22 +1381,13 @@ final class InboxTests: XCTestCase {
     _ app: XCUIApplication, reader: XCUIElement, row: XCUIElement
   ) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-    let window = app.windows.firstMatch
-    // A held release leaves the position to decide, so the early swipe holds. A completed swipe is
-    // released while moving: on CI's Xcode 27.0 a pop held at 0.9 snapped back, unlike on 27.1.
-    func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity, hold: TimeInterval) {
-      window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
-        forDuration: 0.05,
-        thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)),
-        withVelocity: velocity, thenHoldForDuration: hold)
-    }
     let back = app.buttons["Back to Mailboxes"]
     app.swipeUp(velocity: .slow)
-    swipe(to: 0.25, velocity: .slow, hold: 0.3)
+    edgeSwipe(app, completing: false)
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { reader.isHittable && !back.exists }
     for round in 1...2 {
-      swipe(to: 0.9, velocity: .fast, hold: 0)
+      edgeSwipe(app, completing: true)
       XCTAssertTrue(back.waitForExistence(timeout: 10))
       // The swipe leaves the message's route as Back does, so the Inbox no longer selects it.
       waitUntil { row.isHittable && !row.isSelected && !reader.exists }
@@ -1420,6 +1416,60 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(
       zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
       "The bar \(colors[0]) differs from the reader surface \(colors[1])")
+  }
+
+  // A leading-edge swipe across the iPhone window. A held release leaves the position to decide, so
+  // an early swipe holds. A completed swipe is released while moving: on CI's Xcode 27.0 a pop held
+  // at 0.9 snapped back, unlike on 27.1.
+  private func edgeSwipe(_ app: XCUIApplication, completing: Bool) {
+    let window = app.windows.firstMatch
+    window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
+      forDuration: 0.05,
+      thenDragTo: window.coordinate(
+        withNormalizedOffset: CGVector(dx: completing ? 0.9 : 0.25, dy: 0.5)),
+      withVelocity: completing ? .fast : .slow, thenHoldForDuration: completing ? 0 : 0.3)
+  }
+
+  // #1066: an iPhone edge swipe from a reader opened in search results returns to those results
+  // with the query intact. What shows beneath the page during the drag needs a recording.
+  private func verifyCompactSwipeBackToResults(
+    _ app: XCUIApplication, search: XCUIElement, row: XCUIElement
+  ) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    row.tap()
+    let reader = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    edgeSwipe(app, completing: true)
+    waitUntil { row.isHittable && !reader.exists }
+    XCTAssertEqual(search.value as? String, "Maya")
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
+        .firstMatch.exists)
+  }
+
+  // #1066: a completed iPhone edge swipe returns to the same Inbox, scrolled where it was. Larger
+  // text makes the preview list taller than the screen.
+  private func verifyCompactSwipeBackKeepsScroll(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let footer = app.staticTexts["Sample messages · Encrypted on this device"].firstMatch
+    XCTAssertTrue(footer.waitForExistence(timeout: 10))
+    let top = footer.frame
+    var placed = top
+    for _ in 0..<5 {
+      app.swipeUp()
+      if footer.frame == placed { break }
+      placed = footer.frame
+    }
+    XCTAssertLessThan(placed.minY, top.minY - 20, "The list did not scroll")
+    let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "North House"))
+      .firstMatch
+    XCTAssertTrue(row.isHittable)
+    row.tap()
+    let reader = app.staticTexts.matching(identifier: "hello@example.com").firstMatch
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    edgeSwipe(app, completing: true)
+    waitUntil { row.isHittable && !reader.exists }
+    waitUntil { abs(footer.frame.minY - placed.minY) <= 2 }
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
