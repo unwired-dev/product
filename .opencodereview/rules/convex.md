@@ -63,6 +63,14 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 
 #### Schema and deployed clients
 
+- A public function such as `draftDelivery:claim` adding a required argument,
+  removing an accepted argument or changing a decoded response while installed
+  builds still send or consume the earlier shape. Trace released native callers
+  and the deployment order in `docs/convex-deploy.md`; deploying the backend before
+  TestFlight does not update installed clients. Preserve a compatible request and
+  response path with the operation's required authorization, and exercise the old
+  wire shape through the public function. A documented limitation alone does not
+  prevent an outage, and compatibility must not restore credential-free admission.
 - A capability gate such as `productSyncMailProfiles.requireMailProfileCapability` relying only
   on an activation marker that new writes set, while earlier releases could store
   the protected records without it. Backfill or detect those account-scoped records
