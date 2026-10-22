@@ -453,6 +453,42 @@ final class InboxTests: XCTestCase {
     top.name = "Thread scrolled to its newest message"
     top.lifetime = .keepAlways
     add(top)
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    // The cold-opened Thread view has no Inbox beneath it to swipe back to; its Back shows one. The
+    // Inbox opens the Thread's newest message in the reader, then the field guide's HTML.
+    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+    let thread = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail maintenance"))
+      .firstMatch
+    XCTAssertTrue(thread.waitForExistence(timeout: 10))
+    thread.tap()
+    verifyScrolledSwipeBack(app, row: thread, text: app.staticTexts["Crew 6, note 20."].firstMatch)
+    let guide = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
+      .firstMatch
+    guide.tap()
+    verifyScrolledSwipeBack(
+      app, row: guide, text: app.staticTexts["Field guide, section 20."].firstMatch)
+    let back = app.buttons["Back to Mailboxes"]
+    // Settings covers the mail on iPhone. From a destination, a swipe released early keeps it, a
+    // completed one returns to the list of destinations, and another to the Mailboxes beneath.
+    back.tap()
+    let account = app.buttons["Account"]
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
+    let settings = app.buttons["Account & Devices"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.tap()
+    let destination = app.buttons["Back to Settings"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    edgeSwipe(app, completing: false)
+    waitUntil { destination.isHittable }
+    edgeSwipe(app, completing: true)
+    waitUntil { settings.isHittable && !destination.exists }
+    edgeSwipe(app, completing: true)
+    waitUntil { account.isHittable && !settings.exists }
+    let mailboxes = XCTAttachment(screenshot: app.screenshot())
+    mailboxes.name = "Mailboxes after swiping back from Settings"
+    mailboxes.lifetime = .keepAlways
+    add(mailboxes)
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -1373,22 +1409,13 @@ final class InboxTests: XCTestCase {
     _ app: XCUIApplication, reader: XCUIElement, row: XCUIElement
   ) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-    let window = app.windows.firstMatch
-    // A held release leaves the position to decide, so the early swipe holds. A completed swipe is
-    // released while moving: on CI's Xcode 27.0 a pop held at 0.9 snapped back, unlike on 27.1.
-    func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity, hold: TimeInterval) {
-      window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
-        forDuration: 0.05,
-        thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)),
-        withVelocity: velocity, thenHoldForDuration: hold)
-    }
     let back = app.buttons["Back to Mailboxes"]
     app.swipeUp(velocity: .slow)
-    swipe(to: 0.25, velocity: .slow, hold: 0.3)
+    edgeSwipe(app, completing: false)
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { reader.isHittable && !back.exists }
     for round in 1...2 {
-      swipe(to: 0.9, velocity: .fast, hold: 0)
+      edgeSwipe(app, completing: true)
       XCTAssertTrue(back.waitForExistence(timeout: 10))
       // The swipe leaves the message's route as Back does, so the Inbox no longer selects it.
       waitUntil { row.isHittable && !row.isSelected && !reader.exists }
@@ -1401,6 +1428,52 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(reader.waitForExistence(timeout: 10))
       waitUntil { reader.isHittable }
     }
+  }
+
+  // A leading-edge swipe across the iPhone window. A held release leaves the position to decide, so
+  // an early swipe holds. A completed swipe is released while moving: on CI's Xcode 27.0 a pop held
+  // at 0.9 snapped back, unlike on 27.1.
+  private func edgeSwipe(_ app: XCUIApplication, completing: Bool) {
+    let window = app.windows.firstMatch
+    window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
+      forDuration: 0.05,
+      thenDragTo: window.coordinate(
+        withNormalizedOffset: CGVector(dx: completing ? 0.9 : 0.25, dy: 0.5)),
+      withVelocity: completing ? .fast : .slow, thenHoldForDuration: completing ? 0 : 0.3)
+  }
+
+  // #976: after scrolling a body taller than the screen until `text` shows, an iPhone edge swipe
+  // released early keeps the reading position, and a completed one returns to an Inbox that no
+  // longer selects `row`.
+  private func verifyScrolledSwipeBack(
+    _ app: XCUIApplication, row: XCUIElement, text: XCUIElement
+  ) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let window = app.windows.firstMatch.frame
+    let onScreen = { text.exists && window.contains(CGPoint(x: text.frame.midX, y: text.frame.midY)) }
+    XCTAssertTrue(text.waitForExistence(timeout: 20))
+    XCTAssertFalse(onScreen(), "The body fits on the screen")
+    for _ in 0..<10 where !onScreen() {
+      app.swipeUp(velocity: .slow)
+    }
+    XCTAssertTrue(onScreen())
+    // Settled once two polls see the same frame, after any scrolling momentum.
+    var settled = text.frame
+    waitUntil {
+      defer { settled = text.frame }
+      return text.frame == settled
+    }
+    let back = app.buttons["Back to Mailboxes"]
+    edgeSwipe(app, completing: false)
+    waitUntil { onScreen() && !back.exists }
+    XCTAssertEqual(text.frame.minY, settled.minY, accuracy: 2)
+    edgeSwipe(app, completing: true)
+    XCTAssertTrue(back.waitForExistence(timeout: 10))
+    waitUntil { row.isHittable && !row.isSelected && !text.exists }
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Inbox after swiping back from a scrolled body"
+    shot.lifetime = .keepAlways
+    add(shot)
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
