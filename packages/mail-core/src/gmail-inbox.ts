@@ -166,6 +166,8 @@ export interface NativeGmailMailbox
       document: string;
       tier: BodyTier;
       protectedIds: readonly string[];
+      // When supplied, admission requires this metadata revision inside the storage transaction.
+      expectedRevision?: number;
     }>,
   ) => Promise<unknown>;
   // Resolves `{ stored, excluded }`: which of these messages have a cached body or exclusion
