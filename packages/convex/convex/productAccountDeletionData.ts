@@ -14,9 +14,6 @@ import {
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
 
-export const productAccountDeletionAbortedErrorCode =
-  'PRODUCT_ACCOUNT_DELETION_ABORTED';
-
 const deletionBatchSize = 50;
 const encryptedPayloadDeletionBatchSize = 4;
 const deletionAttemptLeaseMilliseconds = 60_000;

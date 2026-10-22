@@ -1,3 +1,4 @@
+import { productAccountDeletionAbortedErrorCode } from '@private-email/contracts/productAccount';
 import { httpRouter } from 'convex/server';
 import { ConvexError } from 'convex/values';
 import * as Option from 'effect/Option';
@@ -15,7 +16,6 @@ import {
   trustedDeviceReconnectRequiredErrorCode,
   trustedDeviceRevokedErrorCode,
 } from './productAccountAuth.js';
-import { productAccountDeletionAbortedErrorCode } from './productAccountDeletionData.js';
 import { enqueueGmailWakeupsFromMetadata } from './pushRelay.js';
 import { signInLinkErrorCodes } from './signInLinks.js';
 

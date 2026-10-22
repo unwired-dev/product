@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
+import { productAccountDeletionAbortedErrorCode } from '@private-email/contracts/productAccount';
 import { ConvexError, v } from 'convex/values';
 import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
@@ -29,7 +30,6 @@ import { internal } from './_generated/api.js';
 import { action, internalAction } from './_generated/server.js';
 import { call, failureDiagnostic, runConvexProgram } from './effectRuntime.js';
 import { trustedDeviceCredentialArgs } from './productAccountAuth.js';
-import { productAccountDeletionAbortedErrorCode } from './productAccountDeletionData.js';
 
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;

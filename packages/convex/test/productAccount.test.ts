@@ -5,6 +5,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 
 import type { TestConvex } from 'convex-test';
 
+import { productAccountDeletionAbortedErrorFixture } from '@private-email/contracts/productAccount';
 import { convexTest } from 'convex-test';
 import * as Schema from 'effect/Schema';
 
@@ -2869,7 +2870,7 @@ describe('gmail operational connection registration', () => {
     await expect(
       Promise.all([refused.json(), storedAccountData(t)]),
     ).resolves.toMatchObject([
-      { code: 'PRODUCT_ACCOUNT_DELETION_ABORTED' },
+      productAccountDeletionAbortedErrorFixture,
       { accounts: 1, tombstones: 0 },
     ]);
     expect(refused.status).toBe(403);

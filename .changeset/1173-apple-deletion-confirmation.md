@@ -1,5 +1,6 @@
 ---
 '@private-email/convex': patch
+'@private-email/contracts': patch
 '@private-email/mail-core': patch
 '@private-email/mobile': patch
 '@private-email/macos': patch

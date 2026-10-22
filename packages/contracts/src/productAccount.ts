@@ -2,6 +2,13 @@ import type { Infer } from 'convex/values';
 
 import { v } from 'convex/values';
 
+// Convex aborted the owning deletion attempt before fencing or deleting the account.
+export const productAccountDeletionAbortedErrorCode =
+  'PRODUCT_ACCOUNT_DELETION_ABORTED';
+export const productAccountDeletionAbortedErrorFixture = {
+  code: productAccountDeletionAbortedErrorCode,
+} as const;
+
 export const signInProviderValidator = v.union(
   v.literal('apple'),
   v.literal('google'),
