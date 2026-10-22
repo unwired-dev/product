@@ -203,7 +203,8 @@ static UIImage *UnwiredCountDisk(NSString *count)
   NSArray<UIViewController *> *screens = self.stack.viewControllers;
   NSUInteger index = [screens indexOfObject:self.navigation];
   if (self.backLabel == nil || self.window == nil || index == NSNotFound || index == 0) return;
-  self.screen.view.backgroundColor = self.surface;
+  // React Native owns the screen's own background; its column's view lies behind the bar too.
+  self.navigation.view.backgroundColor = self.surface;
   UIBarButtonItem *back = self.backCount.length == 0
       ? [[UIBarButtonItem alloc] initWithTitle:@"" style:UIBarButtonItemStylePlain target:nil action:nil]
       : [[UIBarButtonItem alloc] initWithImage:UnwiredCountDisk(self.backCount)

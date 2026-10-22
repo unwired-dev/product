@@ -1408,12 +1408,18 @@ final class InboxTests: XCTestCase {
   }
 
   // #1051: the compact reader's only Back is the navigation bar's system Back, which UIKit's edge
-  // swipe needs; no custom Back pill is drawn beside it.
+  // swipe needs; no custom Back pill is drawn beside it, and the reader's surface fills the bar.
   private func verifyCompactReaderBack(_ app: XCUIApplication) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let back = NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
     XCTAssertEqual(app.buttons.matching(back).count, 1)
     XCTAssertEqual(app.navigationBars.buttons.matching(back).count, 1)
+    let bar = app.navigationBars.firstMatch.frame
+    let x = app.windows.firstMatch.frame.maxX - 8
+    let colors = pixels(app, at: [CGPoint(x: x, y: bar.midY), CGPoint(x: x, y: bar.maxY + 150)])
+    XCTAssertTrue(
+      zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+      "The bar \(colors[0]) differs from the reader surface \(colors[1])")
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
