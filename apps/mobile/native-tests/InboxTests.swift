@@ -1263,19 +1263,21 @@ final class InboxTests: XCTestCase {
   ) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let window = app.windows.firstMatch
-    func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity) {
+    // A held release leaves the position to decide, so the early swipe holds. A completed swipe is
+    // released while moving: on CI's Xcode 27.0 a pop held at 0.9 snapped back, unlike on 27.1.
+    func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity, hold: TimeInterval) {
       window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
         forDuration: 0.05,
         thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)),
-        withVelocity: velocity, thenHoldForDuration: 0.3)
+        withVelocity: velocity, thenHoldForDuration: hold)
     }
     let back = app.buttons["Back to Mailboxes"]
     app.swipeUp(velocity: .slow)
-    swipe(to: 0.25, velocity: .slow)
+    swipe(to: 0.25, velocity: .slow, hold: 0.3)
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { reader.isHittable && !back.exists }
     for round in 1...2 {
-      swipe(to: 0.9, velocity: .fast)
+      swipe(to: 0.9, velocity: .fast, hold: 0)
       XCTAssertTrue(back.waitForExistence(timeout: 10))
       // The swipe leaves the message's route as Back does, so the Inbox no longer selects it.
       waitUntil { row.isHittable && !row.isSelected && !reader.exists }
