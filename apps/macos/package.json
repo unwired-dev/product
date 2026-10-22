@@ -13,6 +13,7 @@
     "native:build": "node --env-file-if-exists=../../.env.local scripts/build-native.mjs",
     "native:generate": "ruby scripts/create-project.rb",
     "native:pods": "cd macos && pod install",
+    "qualify:assistance": "zsh scripts/qualify-assistance.zsh",
     "test": "jest --runInBand",
     "test:native": "zsh scripts/test-native.zsh",
     "verify:bundle": "node scripts/verify-bundle.ts && node scripts/verify-native.ts"

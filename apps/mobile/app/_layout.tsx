@@ -1,5 +1,10 @@
+import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type { NativeQualification } from '@private-email/mail-core/assistance-qualification';
+import type { NativeTranslation } from '@private-email/mail-core/translation';
+import type { TurboModule } from 'react-native';
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
+import { startAssistanceQualification } from '@private-email/mail-core/assistance-qualification';
 import {
   commandTarget,
   runWhenOffered,
@@ -16,6 +21,7 @@ import {
   Keyboard,
   Platform,
   StyleSheet,
+  TurboModuleRegistry,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -74,6 +80,19 @@ if (!previewInbox) {
 }
 void scheduleGmailFreshness();
 pollGmailWhileActive();
+
+interface AssistanceModule
+  extends TurboModule, NativeAssistance, NativeTranslation {}
+interface QualificationModule extends TurboModule, NativeQualification {}
+
+// Only the assistance qualification build runs its synthetic corpus, once per interactive launch.
+startAssistanceQualification(() => ({
+  assistance:
+    TurboModuleRegistry.getEnforcing<AssistanceModule>('UnwiredAssistance'),
+  qualification: TurboModuleRegistry.getEnforcing<QualificationModule>(
+    'UnwiredAssistanceQualification',
+  ),
+}));
 
 // A tapped New Mail Notification opens its message once Registration admits the shell; its Reply
 // then starts a reply as soon as the message's reader offers one.

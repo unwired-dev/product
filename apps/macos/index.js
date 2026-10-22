@@ -1,7 +1,8 @@
 import 'fast-text-encoding';
 import './src/reporting-bootstrap.js';
+import { startAssistanceQualification } from '@private-email/mail-core/assistance-qualification';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
-import { AppRegistry } from 'react-native';
+import { AppRegistry, TurboModuleRegistry } from 'react-native';
 
 import './src/delivery.ts';
 import { keepGmailFresh } from './src/freshness.ts';
@@ -18,3 +19,10 @@ if (!previewInbox) {
   followNotificationActions();
 }
 keepGmailFresh();
+// Only the assistance qualification build runs its synthetic corpus, once per launch.
+startAssistanceQualification(() => ({
+  assistance: TurboModuleRegistry.getEnforcing('UnwiredAssistance'),
+  qualification: TurboModuleRegistry.getEnforcing(
+    'UnwiredAssistanceQualification',
+  ),
+}));

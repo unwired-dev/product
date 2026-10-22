@@ -122,7 +122,8 @@ actual source revision and exact root lockfile:
 
 Keep #623 incomplete while its required native evidence is unavailable. Feature
 implementation may continue under the existing deferral. Before release, also
-qualify hardware-keyboard and VoiceOver behavior, physical-device AI availability,
+qualify hardware-keyboard and VoiceOver behavior, physical-device AI availability
+([assistance qualification](../assistance-qualification.md)),
 and separate iPhone/iPad and Mac App Store archives and TestFlight artifacts under
 the [distribution procedure](../testflight.md). Mock journeys do not establish
 real provider authentication or transport; retain the owning feature guides'

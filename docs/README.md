@@ -25,6 +25,7 @@ maintenance route. Publication of a plan does not prove implementation or releas
 - [Catch Up, the planned chat-style Inbox, and background summaries](catch-up.md)
 - [On-device translation](message-translation.md)
 - [On-device Draft rewrites and reply suggestions](draft-assistance.md)
+- [On-device assistance qualification on physical hardware](assistance-qualification.md)
 - [Local rich-text Drafts and the composer](drafts.md)
 - [Tiptap Draft editor evaluation on iPhone, iPad and Mac](draft-editor-evaluation.md)
 - [DeBERTa categorization spike in the native Mac host](categorization-spike.md)

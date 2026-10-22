@@ -46,7 +46,9 @@ info['UnwiredMockScenario'] = scenario if scenario
 Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.testing.plist')
 private_inbox = project.main_group.new_group('PrivateInbox', '../../../native/private-inbox')
 # Only registration Mock Mail Session projects compile the synthetic relay and providers.
+# Only the assistance qualification project records its corpus evidence.
 folders = scenario&.start_with?('registration-') ? 'Sources/PrivateInbox,bridge,synthetic' : 'Sources/PrivateInbox,bridge'
+folders += ',qualification' if scenario == 'assistance-qualification'
 Dir.glob("../../../native/private-inbox/{#{folders}}/*.{swift,m}").each do |file|
   name = file.delete_prefix('../../../native/private-inbox/')
   target.add_file_references([private_inbox.new_file(name)])
@@ -113,7 +115,8 @@ target.build_configurations.each do |configuration|
     'HEADER_SEARCH_PATHS' => ['$(inherited)', '$(SRCROOT)/../../../native/localization'],
     'SWIFT_VERSION' => '5.0',
     'SWIFT_ACTIVE_COMPILATION_CONDITIONS' => ['$(inherited)',
-      configuration.name == 'Testing' && scenario ? 'UNWIRED_ASSISTANCE_MOCK' : '',
+      # The assistance qualification build runs Apple's model on its synthetic corpus.
+      configuration.name == 'Testing' && scenario ? (scenario == 'assistance-qualification' ? 'UNWIRED_ASSISTANCE_QUALIFICATION' : 'UNWIRED_ASSISTANCE_MOCK') : '',
       configuration.name == 'Testing' && scenario&.start_with?('registration-') ? 'UNWIRED_REGISTRATION_MOCK' : ''],
     'MACOSX_DEPLOYMENT_TARGET' => '27.0',
     'ENABLE_HARDENED_RUNTIME' => configuration.name == 'Release' ? 'YES' : 'NO',

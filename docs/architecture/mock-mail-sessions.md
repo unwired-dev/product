@@ -12,8 +12,8 @@ replacement requirements or release qualification.
 Preview mail comes from the existing synthetic Inbox fixture. Registration
 journeys use three synthetic Inbox messages over two pages, an archived label
 message and a trashed message through the Gmail adapter and its real encrypted
-cache. Assistance
-returns fixed summary, rewrite, reply and translation text with a synthetic language list.
+cache. Except for the [assistance qualification build](../assistance-qualification.md),
+assistance returns fixed summary, rewrite, reply and translation text with a synthetic language list.
 
 Metro resolves the normal seed module to the selected
 test module at build time.

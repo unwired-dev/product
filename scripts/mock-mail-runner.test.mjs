@@ -71,6 +71,139 @@ test('preparation refuses production builds before copying or signing', () => {
   }
 });
 
+test('assistance evidence admits complete pass/limited runs and rejects failed or incomplete matrices', () => {
+  const directory = workspace();
+  try {
+    const answer = { state: 'ready', ms: 900, text: 'Synthetic answer.' };
+    const cases = [
+      ...[
+        'lease-deadline',
+        'instruction-in-body',
+        'long-newsletter',
+        'committee-meeting',
+        'delivery-address',
+      ].map((id) => ({ kind: 'summary', id, ...answer, facts: [] })),
+      ...['rough-note', 'long-draft', 'czech-note'].map((id) => ({
+        kind: 'rewrite',
+        id,
+        ...answer,
+        facts: [],
+      })),
+      ...['confirm-meeting', 'long-quoted-message', 'answer-in-german'].map(
+        (id) => ({ kind: 'reply', id, ...answer, facts: [] }),
+      ),
+      ...[
+        'german-to-english',
+        'czech-to-english',
+        'english-to-german',
+        'same-language',
+        'unidentified-language',
+      ].map((id) => ({ kind: 'translation', id, ...answer })),
+      { kind: 'native-cancel', code: 'cancelled', ms: 7 },
+      { kind: 'summary-cancel', shown: 'cancelled', after: 'cancelled' },
+      {
+        kind: 'stale-result',
+        stale: 'idle',
+        current: 'ready',
+        nativeStarts: 2,
+        inFlight: true,
+      },
+      { kind: 'translation-cancel', shown: 'cancelled', after: 'cancelled' },
+    ].map((entry) => ({ ...entry, corpusVersion: 3, result: 'pass' }));
+    const device = {
+      corpusVersion: 3,
+      kind: 'device',
+      hardware: 'Mac16,10',
+      system: 'Version 27.0.1 (Build 26A434)',
+      locale: 'en_US',
+      languages: ['en-US'],
+      availability: 'available',
+    };
+    const complete = {
+      corpusVersion: 3,
+      kind: 'complete',
+      pass: 20,
+      limited: 0,
+      fail: 0,
+    };
+    const failed = [{ ...cases[0], result: 'fail' }, ...cases.slice(1)];
+    const limitedCase = {
+      ...cases[0],
+      state: 'unavailable',
+      text: undefined,
+      reason: 'unsupported-locale',
+      result: 'limited',
+    };
+    const limited = [limitedCase, ...cases.slice(1)];
+    const malformed =
+      /Incomplete or malformed assistance qualification evidence/u;
+    for (const [rows, expectedExit, reason] of [
+      [[device, ...cases, complete], 0],
+      [[device, ...limited, { ...complete, pass: 19, limited: 1 }], 0],
+      [
+        [device, ...failed, { ...complete, pass: 19, fail: 1 }],
+        1,
+        /Assistance qualification has 1 failed checks/u,
+      ],
+      [[device, ...cases.slice(1), { ...complete, pass: 19 }], 1, malformed],
+      [[device, cases[1], ...cases.slice(1), complete], 1, malformed],
+      [[device, ...cases, { ...complete, pass: 19 }], 1, malformed],
+      [[device, { corpusVersion: 3, kind: 'stopped' }], 1, malformed],
+      [
+        [device, ...cases, complete].map((row) => ({
+          ...row,
+          corpusVersion: 2,
+        })),
+        1,
+        malformed,
+      ],
+      [
+        [device, ...cases, complete].map((row) =>
+          row.kind === 'stale-result' ? { ...row, inFlight: undefined } : row,
+        ),
+        1,
+        malformed,
+      ],
+      // A ready answer without its text, a limited answer without its reason, or a device
+      // without its description cannot be reviewed.
+      [
+        [device, { ...cases[0], text: undefined }, ...cases.slice(1), complete],
+        1,
+        malformed,
+      ],
+      [
+        [
+          device,
+          { ...limitedCase, reason: undefined },
+          ...cases.slice(1),
+          { ...complete, pass: 19, limited: 1 },
+        ],
+        1,
+        malformed,
+      ],
+      [[{ ...device, hardware: undefined }, ...cases, complete], 1, malformed],
+    ]) {
+      const evidence = path.join(directory, 'evidence.jsonl');
+      writeFileSync(
+        evidence,
+        rows.map((row) => JSON.stringify(row)).join('\n'),
+      );
+      const result = run(directory, [
+        'python3',
+        path.join(root, 'scripts/verify-assistance-evidence.py'),
+        evidence,
+      ]);
+      assert.ifError(result.error);
+      assert.equal(result.status, expectedExit, result.stdout + result.stderr);
+      if (reason !== undefined) {
+        assert.match(result.stderr, reason);
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 const successLog = 'Executed 1 test, with 0 failures';
 const macScenarios = [
   ['success', 0, 0, successLog, 0, false],
@@ -251,7 +384,18 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-draft-editor', 'normal'],
     ['registration-thread', 'normal'],
     ['categorization-spike', 'sourceFile'],
+    ['assistance-qualification', 'sourceFile'],
   ]);
+  // Only the assistance qualification substitutes its corpus run for the empty default.
+  expectResolutions(
+    '@private-email/mail-core/assistance-qualification',
+    'ios',
+    [
+      ['', 'normal'],
+      ['open-read-relaunch', 'normal'],
+      ['assistance-qualification', 'sourceFile'],
+    ],
+  );
   // Only the evaluation scenario substitutes the packaged Tiptap page for the empty default.
   expectResolutions('@private-email/draft-editor/page', 'ios', [
     ['', 'normal'],

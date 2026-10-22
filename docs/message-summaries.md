@@ -124,8 +124,8 @@ allow-listed native code or decode path, never mail or summary text.
   cancelled during reader replacement and unmount, before passive cleanup, and
   that the store remains usable after StrictMode replay.
 - [Mock Mail Sessions](mock-mail-sessions.md#boundaries-and-scenarios) supply fixed
-  assistance outcomes, and every selected native mock build answers with the
-  same fixed synthetic summary instead of running the model.
+  assistance outcomes. Native mock builds use the same fixed synthetic summary,
+  except the [assistance qualification build](assistance-qualification.md).
 
 - `packages/mail-core/test/assistance-enablement.test.ts` covers the default, the
   Product Account and Profile scope, persistence, immediate turn-off, removal by
@@ -147,11 +147,19 @@ allow-listed native code or decode path, never mail or summary text.
 These are mocked journeys. They do not show that Apple's model runs or what it
 writes.
 
-## Deferred native checks
+## Native qualification and deferred checks
 
-Running the binding on iOS, iPadOS and macOS 27 with Apple Intelligence enabled
-on eligible hardware is deferred until that environment is available, together
-with each unavailable reason on real devices. It remains required before release.
-Compilation of the bridge in both host builds is not evidence of model behavior.
+[Assistance qualification](assistance-qualification.md) has exercised the real
+binding on the nominated Mac mini M4, iPhone 17 Pro Max and iPad Pro M4 with a
+versioned synthetic corpus, including long input. Czech and German messages
+produced English summaries on all three, tracked in
+[#1164](https://github.com/unwired-dev/product/issues/1164).
+The [owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
+accept the iPhone/iPad manual checks and waive the Mac manual checks. On the
+tested iOS 27.2 and iPadOS 27.0.1 builds, the model still reported `available`
+and Summarize worked with Apple Intelligence switched off; the owner accepted
+this with no follow-up. Mail Assistance Enablement remains required.
+Each unobserved unavailable reason on real devices remains a release check.
+Compilation alone is not evidence of model behavior.
 Turning Mail Assistance Enablement on and off, and its removal by sign-out, on
-signed iOS, iPadOS and Mac builds with a real Product Account is deferred with them.
+signed iOS, iPadOS and Mac builds with a real Product Account remains deferred.

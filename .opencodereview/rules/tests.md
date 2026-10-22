@@ -25,6 +25,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- Negative subprocess cases such as the evidence-validator matrix in
+  `scripts/mock-mail-runner.test.mjs` asserting only a nonzero exit. Require the
+  owning rejection diagnostic as well, distinguishing failed checks from malformed
+  evidence; otherwise a syntax error, missing dependency or unrelated crash can
+  satisfy every rejection case without exercising the intended guard.
+
 - A layout regression journey such as `InboxTests.verifyCompactInboxHeader`
   checking only the title against Back when the reported header also includes a
   subtitle. Assert the required geometry for every named part at entry and after

@@ -37,7 +37,8 @@ rendered reader tests use them for the summary and translation journeys. Identit
 coverage, not a sign-in UI journey. Later feature slices extend these contracts
 when their application paths exist. Native builds for every selected mock scenario
 compile a synthetic assistance answer with the same fixed summary, rewrite,
-reply, translation and language list instead of running Apple's model or Translation. The open, mark-read and relaunch journey also explicitly
+reply, translation and language list instead of running Apple's model or Translation,
+except the assistance qualification build below. The open, mark-read and relaunch journey also explicitly
 summarizes a message through this synthetic native binding.
 
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
@@ -119,6 +120,10 @@ The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbo
 adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
 reader. It has no native journey; its evidence comes from the page and the Swift
 package's golden tests.
+The `assistance-qualification` build also reuses the `open-read-relaunch` mailbox, but
+compiles Apple's model and Translation into its native binding and runs the
+[assistance qualification](assistance-qualification.md) corpus at launch. It has no
+native journey; its evidence is the corpus run's JSON lines.
 
 The native runners reject builds without a supported test marker. Selection is never
 an app route, URL scheme, runtime setting, control server or reset operation.

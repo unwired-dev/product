@@ -223,6 +223,11 @@ ${anchor}`,
     },
   ]);
   const scenarioSetting = JSON.stringify(scenario ?? '');
+  // The assistance qualification build runs Apple's model on its synthetic corpus.
+  const assistance =
+    scenario === 'assistance-qualification'
+      ? 'UNWIRED_ASSISTANCE_QUALIFICATION'
+      : 'UNWIRED_ASSISTANCE_MOCK';
   return withXcodeProject(withResolvedPackages, (result) => {
     const project = result.modResults;
     const target = project.getFirstTarget().uuid;
@@ -238,12 +243,13 @@ ${anchor}`,
           .replaceAll('"', '')
           .replaceAll('UNWIRED_REGISTRATION_MOCK', '')
           .replaceAll('UNWIRED_ASSISTANCE_MOCK', '')
+          .replaceAll('UNWIRED_ASSISTANCE_QUALIFICATION', '')
           .trim();
         configuration.buildSettings.SWIFT_ACTIVE_COMPILATION_CONDITIONS =
           JSON.stringify(
             [
               current,
-              scenario ? 'UNWIRED_ASSISTANCE_MOCK' : '',
+              scenario ? assistance : '',
               scenario?.startsWith('registration-')
                 ? 'UNWIRED_REGISTRATION_MOCK'
                 : '',
@@ -285,10 +291,18 @@ ${anchor}`,
         remove(name);
       }
     }
+    // Only the assistance qualification build records its corpus evidence.
+    const qualification = scenario === 'assistance-qualification';
+    if (!qualification) {
+      for (const name of fs.readdirSync(path.join(source, 'qualification'))) {
+        remove(name);
+      }
+    }
     for (const folder of [
       'Sources/PrivateInbox',
       'bridge',
       ...(registration ? ['synthetic'] : []),
+      ...(qualification ? ['qualification'] : []),
     ]) {
       for (const name of fs.readdirSync(path.join(source, folder))) {
         fs.copyFileSync(
