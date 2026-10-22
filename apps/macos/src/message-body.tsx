@@ -784,7 +784,7 @@ export const fileSize = (
 const attachmentStatus = (
   t: Translate,
   state: ReceivedAttachment['state'],
-  provider: string,
+  provider: string | undefined,
 ) => {
   if (state.kind === 'downloading') {
     return t('attachment.downloading');
@@ -792,14 +792,28 @@ const attachmentStatus = (
   if (state.kind === 'oversized') {
     return t('attachment.oversized');
   }
+  // An IMAP connection's copy names its mail server, not a provider.
   return state.kind === 'unavailable'
-    ? t(`attachment.${state.reason}`, { provider })
+    ? t(
+        `attachment.${state.reason}`,
+        provider === undefined ? { context: 'imap' } : { provider },
+      )
     : undefined;
 };
 
 // A Downloaded Attachment as a Draft can copy it, through its mailbox's current generation.
 export type SavedAttachment = NonNullable<
   ReturnType<GmailInbox['attachmentFile']>
+>;
+// The Gmail, Microsoft or IMAP Inbox whose received attachments a reader shows.
+type AttachmentSource = Pick<
+  GmailInbox,
+  | 'subscribe'
+  | 'messageAttachments'
+  | 'downloadAttachment'
+  | 'cancelAttachment'
+  | 'presentAttachment'
+  | 'attachmentFile'
 >;
 // Starts a new message with a Downloaded Attachment, where the reader can open a composer.
 export const AttachContext = createContext<
@@ -814,11 +828,11 @@ function AttachmentRow({
   current,
   provider,
 }: {
-  readonly inbox: GmailInbox;
+  readonly inbox: AttachmentSource;
   readonly id: string;
   readonly attachment: ReceivedAttachment;
-  // The mailbox provider's name, which status copy refers to.
-  readonly provider: string;
+  // The mailbox provider's name, which status copy refers to; an IMAP mail server has none.
+  readonly provider: string | undefined;
   // False once native input from a previous reader arrives after the message changed.
   readonly current: () => boolean;
 }) {
@@ -969,16 +983,16 @@ const attachmentBatch = 20;
 
 // The opened message's received attachments. Listing them downloads nothing; each downloads
 // only when asked, and opens or shares through the system.
-function ReceivedAttachments({
+export function ReceivedAttachments({
   inbox,
   id,
   current,
   provider,
 }: {
-  readonly inbox: GmailInbox;
+  readonly inbox: AttachmentSource;
   readonly id: string;
   readonly current: () => boolean;
-  readonly provider: string;
+  readonly provider: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();

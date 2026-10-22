@@ -192,11 +192,31 @@ Remote Content Cache, tracking-pixel blocking and shared display budget as
 connection and the message's UIDVALIDITY and UID, so a folder with a new UIDVALIDITY
 restores none of them. Closing a message's last reader, or its Inbox, ends its remote loads.
 
-The current reader also supports:
+[#1020](https://github.com/unwired-dev/product/issues/1020) lists the opened message's
+received attachments below its body, with the same rows, limits, encrypted
+storage and **Download**, **Cancel**, **Open**, **Share** and **Attach to New Message**
+actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
 
-- Received attachments are counted, not listed or downloadable.
-- There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail; a new
-  message can be sent from an IMAP connection, as [Sending](#sending) describes.
+- **Listing.** The list comes from the message source read to open the body, is kept
+  with the saved body and makes no further server request.
+- **Download.** **Download** reads the message's source again at its folder's
+  UIDVALIDITY and saves the attachment only if its position, name, type and size are
+  unchanged and its bytes decode to that size. Attachments over 25 MiB are listed as
+  **Too large to download on this device.**
+- **Failure.** The row says why and offers **Try again**: **The mail server could not
+  be reached to download this attachment.**, **The mail server needs your password
+  again to download this attachment.** (the Inbox also asks for the password),
+  **This attachment could not be saved on this device.** or the locked-storage
+  message. **This attachment is no longer in this folder on the mail server.** has no
+  **Try again**.
+- **Removal.** A saved file is deleted when the message's last reader closes, the
+  Inbox closes, and with the connection, sign-out, account deletion, device removal
+  and relaunch. A folder read that finds a new UIDVALIDITY deletes the saved files
+  of its earlier messages and drops their downloads in flight, even while a reader
+  still shows one; their rows then say the attachment is no longer in the folder.
+
+There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail; a new
+message can be sent from an IMAP connection, as [Sending](#sending) describes.
 
 A message whose UID no longer exists under the folder's UIDVALIDITY reads as **This
 message is no longer in this folder on the mail server**.
@@ -302,7 +322,7 @@ sources without Swift packages and gets an engine stub instead.
 From the workspace root:
 
 ```sh
-mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts test/imap-remote-content.test.ts
+mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts test/imap-remote-content.test.ts test/imap-attachments.test.ts
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
@@ -331,7 +351,12 @@ verified on its own with its own password and that each form builds its reviewed
 endpoint. `test/imap-remote-content.test.ts` checks that remote images load only once a
 presentation authorizes them, cache restoration and Never, loads ending with the last
 reader and the Inbox, a new UIDVALIDITY restoring nothing, and the display budget shared
-with Gmail readers. The native suite checks password custody, Gmail isolation and stale
+with Gmail readers. `test/imap-attachments.test.ts` lists an attachment without a server
+read, downloads its exact bytes from the message source, opens and shares it, and covers
+an unreachable server, a refused password, locked storage, an expunged message,
+cancellation, a new UIDVALIDITY with a download in flight, and deletion with the last
+reader and the Inbox. Both hosts' rendered `attachments.test.tsx` journeys download,
+retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale
 operations, SMTP verification before a connection is added, the SMTP password, the
 envelope and Bcc removal, refused envelopes, and filing a Sent copy that keeps Bcc. The plaintext-server test exercises the real SwiftMail transport refusing
 a connection before credentials are sent.

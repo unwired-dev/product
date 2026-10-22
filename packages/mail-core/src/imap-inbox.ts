@@ -10,6 +10,7 @@ import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { AttachmentFailure } from './attachment-downloads.ts';
 import type { DeliveryProblem } from './draft-model.ts';
 import type {
   NativeGmailMailbox,
@@ -32,12 +33,20 @@ import type {
 import type { NativeRemoteContentCache } from './remote-content-loader.ts';
 
 import {
+  createAttachmentDownloads,
+  sameAttachment,
+} from './attachment-downloads.ts';
+import {
   decodeDiagnostic,
   rejectionCode,
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
-import { createBodyLoads, sendRejection } from './gmail-inbox.ts';
+import {
+  createBodyLoads,
+  downloadFailure,
+  sendRejection,
+} from './gmail-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import {
@@ -59,9 +68,11 @@ import {
   listedMessage,
   messageId,
   newestFirst,
+  ofGeneration,
   window,
 } from './imap-model.ts';
 import { inlineImageLimits } from './inline-images.ts';
+import { SyncFailure } from './mailbox-read.ts';
 import {
   bodyParts,
   contentIdsOf,
@@ -93,7 +104,8 @@ export type {
 // Native code logs in with the connection's password and keeps the cache encrypted; this module
 // chooses what to read and owns the cached document. Messages are read without setting \Seen.
 export interface NativeImapMailbox
-  // The connection's encrypted cache and Authorized Remote Content Cache, as for Gmail.
+  // The connection's encrypted cache, Authorized Remote Content Cache and Downloaded Attachments,
+  // as for Gmail.
   extends
     Pick<
       NativeGmailMailbox,
@@ -103,6 +115,9 @@ export interface NativeImapMailbox
       | 'commitMessageBody'
       | 'listMessageBodies'
       | 'retainMessageBodies'
+      | 'saveAttachment'
+      | 'discardAttachment'
+      | 'presentAttachment'
     >,
     NativeRemoteContentCache {
   // Resolves `{ folders: [{ name, roles, selectable, delimiter? }] }`.
@@ -277,8 +292,6 @@ export type ImapBodyState =
   | {
       readonly kind: 'ready';
       readonly presentation: MessagePresentation;
-      // Received attachments this reader cannot open yet.
-      readonly attachments: number;
     }
   | {
       readonly kind: 'unavailable';
@@ -519,6 +532,17 @@ const unavailable = ({ kind }: Failure): ImapBodyState => ({
   kind: 'unavailable',
   reason: bodyFailures[kind] ?? 'failed',
 });
+// Why an attachment could not be downloaded, as its row explains it.
+const attachmentFailures: Partial<
+  Record<ImapFailure['kind'], AttachmentFailure>
+> = {
+  authentication: 'authentication',
+  retry: 'download',
+  interrupted: 'download',
+  changed: 'missing',
+  missing: 'missing',
+  locked: 'locked',
+};
 
 // A readable part's text in its declared charset.
 const textOf = (part: GmailPart) =>
@@ -770,7 +794,6 @@ export function createImapInbox(
     return {
       kind: 'ready',
       presentation: presentation(body, images, remote.admitted),
-      attachments: body.attachments?.length ?? 0,
     };
   };
   // Presents every reader of the message again with its loaded Remote Message Content; true when
@@ -1069,6 +1092,24 @@ export function createImapInbox(
     );
   });
 
+  // A new UIDVALIDITY ends the folder's earlier messages, and their attachments with them, even
+  // while a reader still shows one.
+  const retireGeneration = (
+    name: string,
+    previous: number | undefined,
+    next: number,
+  ) => {
+    if (previous === undefined || previous === next) {
+      return;
+    }
+    for (const id of documents.keys()) {
+      if (ofGeneration(id, name, previous)) {
+        discardAttachments(id, 'missing');
+      }
+    }
+    notify();
+  };
+
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -1107,6 +1148,7 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
+    retireGeneration(name, cached?.uidValidity, entry.cache.uidValidity);
     yield* pruneBodies;
   });
 
@@ -1122,6 +1164,7 @@ export function createImapInbox(
       document = undefined;
       folderViews.clear();
       found.clear();
+      discardAttachments();
       remoteContent.releaseAll();
       bodies.clear();
       documents.clear();
@@ -1587,8 +1630,10 @@ export function createImapInbox(
   // The message's raw source from the server, as the body the reader presents.
   // Two concurrent body downloads for this connection, within the device-wide four.
   const connectionLoads = Semaphore.makeUnsafe(2);
-  const bodyOf = Effect.fnUntraced(function* (message: ImapMessage) {
-    const scope = opened;
+  const sourceOf = Effect.fnUntraced(function* (
+    scope: Scope | undefined,
+    message: ImapMessage,
+  ) {
     if (scope === undefined) {
       return yield* new ImapFailure({
         kind: 'retry',
@@ -1616,8 +1661,78 @@ export function createImapInbox(
         diagnostic: 'unreadable message',
       });
     }
-    return yield* bodyDocument(message.id, payload);
+    return payload;
   });
+  const bodyOf = (message: ImapMessage) =>
+    sourceOf(opened, message).pipe(
+      Effect.flatMap((payload) => bodyDocument(message.id, payload)),
+    );
+  // Downloads share the device's body loads: four at a time across connections, two for this one,
+  // and speculative prefetch elsewhere waits while an explicit read runs.
+  const explicitLoad = <A>(read: Effect.Effect<A, ImapFailure>) =>
+    Effect.acquireUseRelease(
+      shared.begin,
+      () => connectionLoads.withPermit(shared.loads.withPermit(read)),
+      () => shared.end,
+    );
+
+  // Each opened message's attachment downloads. Download reads the message's source again at its
+  // folder's UIDVALIDITY and keeps the attachment only while its descriptor is unchanged; a saved
+  // file is deleted when the message's last reader closes.
+  const attachments = createAttachmentDownloads(native, {
+    scope: () => opened,
+    owner: () => lifetime,
+    readable: (id) => visibleRow(id),
+    listed: (id) => documents.get(id)?.attachments,
+    fetch: (scope, id, listedAttachment) =>
+      explicitLoad(
+        Effect.gen(function* () {
+          const message = messageOf(id);
+          const descriptor =
+            message === undefined
+              ? undefined
+              : receivedAttachments(yield* sourceOf(scope, message)).find(
+                  (candidate) => sameAttachment(candidate, listedAttachment),
+                );
+          if (descriptor?.part.body === undefined) {
+            return yield* new ImapFailure({
+              kind: 'missing',
+              cause: 'attachment',
+              diagnostic: 'attachment changed',
+            });
+          }
+          return {
+            data: descriptor.part.body.data ?? '',
+            size: descriptor.part.body.size,
+          };
+        }),
+      ).pipe(
+        Effect.tapError((failure) =>
+          current(scope) && changesAccess(failure.kind)
+            ? loadFailed(failure)
+            : Effect.void,
+        ),
+      ),
+    failed: (failure) => {
+      if (failure.kind === 'invalidated') {
+        return Effect.succeed('stale');
+      }
+      const reason =
+        failure instanceof SyncFailure
+          ? downloadFailure(failure.kind)
+          : (attachmentFailures[failure.kind] ?? 'failed');
+      return (
+        reason === 'failed'
+          ? Effect.logError('Attachment download failed:', failure.diagnostic)
+          : Effect.void
+      ).pipe(Effect.as(reason));
+    },
+    notify,
+  });
+  // Callers above drop downloads through this, declared once the downloads exist.
+  function discardAttachments(id?: string, reason?: AttachmentFailure) {
+    attachments.discard(id, reason);
+  }
 
   // Which of these cached messages have a body saved on this device, read without the server and
   // without touching what the cache keeps. A reply for an Inbox that closed or changed meanwhile
@@ -1683,16 +1798,7 @@ export function createImapInbox(
         if (Option.isSome(saved)) {
           return saved.value;
         }
-        // Downloads share the device's body loads: four at a time across connections, two for this
-        // one, and speculative prefetch elsewhere waits while an explicit read runs.
-        const body = yield* Effect.acquireUseRelease(
-          shared.begin,
-          () =>
-            connectionLoads.withPermit(
-              shared.loads.withPermit(bodyOf(message)),
-            ),
-          () => shared.end,
-        );
+        const body = yield* explicitLoad(bodyOf(message));
         // Bodies are stored only for listed messages of the open cache; a full cache keeps none.
         if (listed(id) && current(scope)) {
           const text = yield* encodeBodyDocument(body).pipe(
@@ -1744,11 +1850,7 @@ export function createImapInbox(
             }
             const count = legacyReaders.get(id) ?? 0;
             return count === 0
-              ? {
-                  kind: 'ready',
-                  presentation: presentation(body, []),
-                  attachments: body.attachments?.length ?? 0,
-                }
+              ? { kind: 'ready', presentation: presentation(body, []) }
               : present(id, body, count);
           },
         }),
@@ -2102,6 +2204,7 @@ export function createImapInbox(
         const count = (readers.get(id) ?? 1) - 1;
         if (count === 0) {
           readers.delete(id);
+          attachments.discard(id);
           remoteContent.release(id);
           bodies.delete(id);
           documents.delete(id);
@@ -2116,6 +2219,12 @@ export function createImapInbox(
         shared.released(imageOwner);
       };
     },
+    // An opened message's received attachments, downloaded, opened and shared as for Gmail.
+    messageAttachments: attachments.messageAttachments,
+    downloadAttachment: attachments.downloadAttachment,
+    cancelAttachment: attachments.cancelAttachment,
+    presentAttachment: attachments.presentAttachment,
+    attachmentFile: attachments.attachmentFile,
     // Loads an opened message's Remote Message Content, as for Gmail: from the Authorized Remote
     // Content Cache, and with `network` also through the isolated native fetch.
     loadRemoteImages: remoteContent.load,
@@ -2156,6 +2265,7 @@ export function createImapInbox(
     // Forgets the mail held in memory when the connection or its account leaves the Inbox.
     forget: () => {
       forgotten = true;
+      attachments.discard();
       remoteContent.releaseAll();
       opened = undefined;
       document = undefined;
