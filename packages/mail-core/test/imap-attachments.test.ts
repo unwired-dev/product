@@ -223,6 +223,34 @@ describe('imap received attachments', () => {
     expect(imap.files.savedFiles.size).toBe(0);
   });
 
+  it('keeps the load of a cancelled download until its source read settles', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, open, hold, release } = await setup();
+    const { id } = await open('Report');
+    imap.server.reads.length = 0;
+    const started = hold();
+    const downloads = [inbox.downloadAttachment(id, '0.1')];
+    await started;
+    // The connection reads two sources at a time; cancelled reads still count until they end.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      inbox.cancelAttachment(id, '0.1');
+      downloads.push(inbox.downloadAttachment(id, '0.1'));
+      await Promise.resolve();
+    }
+    // oxlint-disable-next-line promise/avoid-new -- Let any further source read start.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    expect(imap.server.reads).toStrictEqual([
+      'message INBOX 1',
+      'message INBOX 1',
+    ]);
+    release();
+    await Promise.all(downloads);
+    expect(stateOf(inbox, id)).toStrictEqual({ kind: 'downloaded' });
+    expect(imap.files.savedFiles.size).toBe(1);
+  });
+
   it('a new UIDVALIDITY deletes saved attachments and drops downloads in flight', async () => {
     expect.hasAssertions();
     const { imap, inbox, open, hold, release } = await setup();

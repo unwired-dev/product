@@ -1624,13 +1624,18 @@ export function createImapInbox(
         diagnostic: 'Inbox closed',
       });
     }
+    // shortcut: native IMAP reads have no cancel handle, so a cancelled download keeps its load
+    // permits until the read settles and cancel and retry cannot stack reads; upgrade once native
+    // IMAP reads accept cancellation.
     const raw = yield* decodeRaw(
-      yield* call(() =>
-        native.imapMessage(scope, {
-          folder: message.folder,
-          uidValidity: message.uidValidity,
-          uid: message.uid,
-        }),
+      yield* Effect.uninterruptible(
+        call(() =>
+          native.imapMessage(scope, {
+            folder: message.folder,
+            uidValidity: message.uidValidity,
+            uid: message.uid,
+          }),
+        ),
       ),
     ).pipe(Effect.mapError(malformed));
     const bytes = Base64.decode(raw.data);
