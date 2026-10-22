@@ -208,6 +208,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Evidence is labelled honestly
 
+- A native journey assertion such as `InboxTests.inboxJourney`'s search-value
+  check added or changed without evidence from the workflow's selected Xcode
+  and runtime at the final head. Inspect the affected iPhone and iPad job results
+  after the last journey or host edit; an earlier head or a different local Xcode
+  does not establish CI compatibility. Record missing execution as deferred and
+  an assertion failure as failed, even when the check is absent from branch
+  protection. Otherwise a reviewed journey can break CI after passing local
+  checks while automatic merge still permits delivery.
+
 - A Thread anchoring journey recording its baseline only after above-viewport
   bodies have resolved. For `registration-thread`, record a visible text position
   after dragging while an above-body response is held, release it externally,

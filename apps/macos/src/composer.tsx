@@ -41,6 +41,7 @@ import {
 } from '@private-email/mail-core/assistance';
 import {
   addRecipients,
+  draftSaveProblem,
   draftOf,
   entryOf,
   isEmptyDraft,
@@ -1495,7 +1496,7 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
-  const save = state.kind === 'ready' ? state.save : 'failed';
+  const unsaved = draftSaveProblem(state);
 
   // Holds saving during discard; a failed discard restores edits accepted while it waited.
   const discarded = useRef(false);
@@ -2094,11 +2095,13 @@ function Editor({
         />
       </FormatBar>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.bar}>
-          <Notice style={[styles.status, { color: colors.textSecondary }]}>
-            {t('drafts.status', { status: t(`drafts.save.${save}`) })}
-          </Notice>
-        </View>
+        {unsaved === undefined ? null : (
+          <View style={styles.bar}>
+            <Notice style={[styles.status, { color: colors.textSecondary }]}>
+              {t('drafts.status', { status: t(`drafts.save.${unsaved}`) })}
+            </Notice>
+          </View>
+        )}
         <ComposerNotices
           closing={closing}
           draft={draft}

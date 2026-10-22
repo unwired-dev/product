@@ -407,11 +407,17 @@ final class InboxTests: XCTestCase {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
 
-  // Types into a controlled field one character at a time, confirming each reached it before the
-  // next: the software keyboard drops characters typed while the field re-renders.
   private func enter(_ value: String, into field: XCUIElement, in app: XCUIApplication) {
     field.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type(value, into: field)
+    field.typeText("\n")
+  }
+
+  // Types one character at a time, confirming each reached the field before the next: the software
+  // keyboard drops characters typed in a burst while the field re-renders or, on CI's Xcode 27.0,
+  // just after the keyboard first appears (#970).
+  private func type(_ value: String, into field: XCUIElement) {
     var confirmation = ""
     for character in value {
       field.typeText(String(character))
@@ -422,7 +428,6 @@ final class InboxTests: XCTestCase {
           for: [XCTNSPredicateExpectation(predicate: entered, object: field)], timeout: 5),
         .completed)
     }
-    field.typeText("\n")
   }
 
   // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns to the list of
@@ -1127,8 +1132,7 @@ final class InboxTests: XCTestCase {
         for: [XCTNSPredicateExpectation(predicate: aboveKeyboard, object: nil)], timeout: 10),
       .completed)
     // Search lists matches under Top Results until Close returns to the Inbox.
-    search.typeText("Maya")
-    waitUntil { search.value as? String == "Maya" }
+    type("Maya", into: search)
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
         .firstMatch.waitForExistence(timeout: 10))
@@ -1186,6 +1190,9 @@ final class InboxTests: XCTestCase {
     committed.lifetime = .keepAlways
     add(committed)
     app.terminate()
+    // Larger text from here on: the preview message's few commands otherwise fit above the
+    // keyboard, and the palette check below needs a list that reaches beneath it (#982).
+    app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
     app.launch()
     let restored = app.buttons["Oliver Park. Saturday, by the river?"]
     XCTAssertTrue(restored.waitForExistence(timeout: 20))
@@ -1196,6 +1203,46 @@ final class InboxTests: XCTestCase {
     recovered.name = "Read state after relaunch"
     recovered.lifetime = .keepAlways
     add(recovered)
+    verifyPaletteAboveKeyboard(app, header: app.staticTexts["Saturday, by the river?"].firstMatch)
+  }
+
+  // #982: with the software keyboard up and larger text, the Command Palette's final command
+  // scrolls fully above the keyboard, and tapping it runs the command and closes the palette.
+  private func verifyPaletteAboveKeyboard(_ app: XCUIApplication, header: XCUIElement) {
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.buttons["Open Command Palette"].firstMatch.tap()
+    } else {
+      XCTAssertTrue(header.waitForExistence(timeout: 10))
+      let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)))
+    }
+    let query = app.textFields["Type a command"]
+    XCTAssertTrue(query.waitForExistence(timeout: 10))
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    let palette = app.descendants(matching: .any).matching(identifier: "command-palette").firstMatch
+    let account = palette.buttons["Account"]
+    let last = account.exists ? account : palette.buttons["Inbox"]
+    XCTAssertTrue(last.exists)
+    // Scroll to the list's end, dragging in its top part, which the keyboard never covers.
+    let list = palette.scrollViews.firstMatch
+    let from = list.coordinate(withNormalizedOffset: .zero)
+      .withOffset(CGVector(dx: list.frame.width / 2, dy: 150))
+    for _ in 0..<3 {
+      // Holding before release leaves no momentum to settle.
+      from.press(
+        forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -130)),
+        withVelocity: .slow, thenHoldForDuration: 0.3)
+    }
+    XCTAssertTrue(query.isHittable)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Command Palette scrolled above the keyboard"
+    shot.lifetime = .keepAlways
+    add(shot)
+    // The keyboard element starts below its suggestion bar, so its frame cannot show the overlap.
+    // Tap low on the row instead: a row the keyboard still covers there leaves the palette open.
+    last.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).tap()
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
   }
 
   // #979: a pull on the list, unlike the iPhone heading's swipe, leaves the Command Palette closed,
@@ -1263,19 +1310,21 @@ final class InboxTests: XCTestCase {
   ) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let window = app.windows.firstMatch
-    func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity) {
+    // A held release leaves the position to decide, so the early swipe holds. A completed swipe is
+    // released while moving: on CI's Xcode 27.0 a pop held at 0.9 snapped back, unlike on 27.1.
+    func swipe(to fraction: CGFloat, velocity: XCUIGestureVelocity, hold: TimeInterval) {
       window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
         forDuration: 0.05,
         thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)),
-        withVelocity: velocity, thenHoldForDuration: 0.3)
+        withVelocity: velocity, thenHoldForDuration: hold)
     }
     let back = app.buttons["Back to Mailboxes"]
     app.swipeUp(velocity: .slow)
-    swipe(to: 0.25, velocity: .slow)
+    swipe(to: 0.25, velocity: .slow, hold: 0.3)
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { reader.isHittable && !back.exists }
     for round in 1...2 {
-      swipe(to: 0.9, velocity: .fast)
+      swipe(to: 0.9, velocity: .fast, hold: 0)
       XCTAssertTrue(back.waitForExistence(timeout: 10))
       // The swipe leaves the message's route as Back does, so the Inbox no longer selects it.
       waitUntil { row.isHittable && !row.isSelected && !reader.exists }
