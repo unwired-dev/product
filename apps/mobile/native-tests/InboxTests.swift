@@ -76,7 +76,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Star"].waitForExistence(timeout: 5))
     bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     XCTAssertTrue(app.buttons["Star"].waitForNonExistence(timeout: 5))
-    XCTAssertFalse(app.staticTexts["Open this link in your browser?"].exists)
+    XCTAssertFalse(
+      app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 5))
     // Organizing goes through the packaged native Gmail modify: a star from the More panel, then
     // an archive and Undo.
     app.buttons["More"].tap()
