@@ -113,7 +113,10 @@ export function createSyntheticImap({
     loseReply: false,
     // Changes the server applied, in order.
     changes: [] as string[],
+    // Sessions opened and not yet closed.
+    sessions: new Set<string>(),
   };
+  let sessionCount = 0;
   // The connection's SMTP server: what it accepted, and the code its next submission rejects
   // with, such as `smtp-refused`, `smtp-rejected`, `offline` or `delivery-unknown`. `lost`
   // accepts the next submission and loses its reply, as a dropped connection would; `stopped`
@@ -150,6 +153,9 @@ export function createSyntheticImap({
   };
   const reach = () =>
     server.failure === undefined ? undefined : rejection(server.failure);
+  // A command on a session that is not open is refused, as native code refuses a closed handle.
+  const inSession = (session: string) =>
+    server.sessions.has(session) ? reach() : rejection('mailbox-invalidated');
   // The folder a message read names at its UIDVALIDITY, or the server's rejection.
   const examined = (
     request: Readonly<{ folder: string; uidValidity: number }>,
@@ -313,20 +319,48 @@ export function createSyntheticImap({
             .length ?? 0,
       });
     },
-    imapFolders: () => {
+    imapOpen: () => {
+      server.reads.push('login');
+      const failed = reach();
+      if (failed !== undefined) {
+        return failed;
+      }
+      sessionCount += 1;
+      const session = `session-${sessionCount}`;
+      server.sessions.add(session);
+      return Promise.resolve({ session });
+    },
+    imapCapabilities: (_mailbox, { session }) =>
+      inSession(session) ??
+      Promise.resolve({
+        capabilities: [
+          'IMAP4rev1',
+          ...(server.capabilities.moves ? ['MOVE', 'UIDPLUS'] : []),
+          ...(server.capabilities.idle ? ['IDLE'] : []),
+        ],
+      }),
+    imapListFolders: (_mailbox, { session }) => {
       server.reads.push('folders');
       return (
-        reach() ??
+        inSession(session) ??
         Promise.resolve({
           folders: [...folders.values()].map(({ name, roles, selectable }) => ({
             name,
-            roles,
-            selectable,
+            // The special-use attributes the roles come from, as LIST reports them.
+            attributes: [
+              ...roles.map(
+                (role) => `\\${role.charAt(0).toUpperCase()}${role.slice(1)}`,
+              ),
+              ...(selectable ? [] : [String.raw`\Noselect`]),
+            ],
             delimiter: '/',
           })),
-          ...server.capabilities,
         })
       );
+    },
+    imapClose: (_mailbox, { session }) => {
+      server.sessions.delete(session);
+      return Promise.resolve({});
     },
     imapModify: (_mailbox, change) => {
       server.reads.push(`modify ${change.folder} ${change.uid}`);

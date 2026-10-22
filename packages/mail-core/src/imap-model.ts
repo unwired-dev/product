@@ -114,12 +114,62 @@ export const decodeCache = Schema.decodeUnknownEffect(CacheSchema);
 export const decodeCommit = Schema.decodeUnknownEffect(
   Schema.Struct({ revision: Schema.Int }),
 );
-export const decodeFolders = Schema.decodeUnknownEffect(
-  Schema.Struct({
-    folders: Schema.Array(FolderSchema),
-    ...Capabilities.fields,
-  }),
+// An open native IMAP session, named by an opaque handle.
+export const decodeSession = Schema.decodeUnknownEffect(
+  Schema.Struct({ session: Schema.NonEmptyString }),
 );
+export const decodeCapabilities = Schema.decodeUnknownEffect(
+  Schema.Struct({ capabilities: Schema.Array(Schema.String) }),
+);
+// Each folder as the server lists it: its name, LIST attributes such as `\Sent` or `\Noselect`,
+// and its hierarchy delimiter.
+const ListedFolderSchema = Schema.Struct({
+  name: Schema.NonEmptyString,
+  attributes: Schema.Array(Schema.String),
+  delimiter: Schema.optionalKey(Schema.NonEmptyString),
+});
+export const decodeListedFolders = Schema.decodeUnknownEffect(
+  Schema.Struct({ folders: Schema.Array(ListedFolderSchema) }),
+);
+
+// Special-use attributes (RFC 6154) and the role each gives its folder.
+const specialUse = [
+  [String.raw`\Archive`, 'archive'],
+  [String.raw`\Drafts`, 'drafts'],
+  [String.raw`\Junk`, 'junk'],
+  [String.raw`\Sent`, 'sent'],
+  [String.raw`\Trash`, 'trash'],
+  [String.raw`\All`, 'all'],
+  [String.raw`\Flagged`, 'flagged'],
+] as const;
+
+// The folder list and capabilities as the cache keeps them. Only ASCII INBOX case variants name
+// the Inbox, which shares a cache and message-ID namespace; a folder marked `\Inbox` is one too.
+export const folderListing = (
+  listed: ReadonlyArray<typeof ListedFolderSchema.Type>,
+  capabilities: readonly string[],
+): Readonly<{ folders: ImapFolder[] } & ImapCapabilities> => {
+  const advertised = new Set(capabilities.map((name) => name.toUpperCase()));
+  return {
+    folders: listed.map(({ name, attributes, delimiter }) => {
+      const named = name.toLowerCase() === 'inbox';
+      const inbox = named || attributes.includes(String.raw`\Inbox`);
+      return {
+        name: named ? inboxFolder : name,
+        roles: [
+          ...(inbox ? ['inbox'] : []),
+          ...specialUse
+            .filter(([attribute]) => attributes.includes(attribute))
+            .map(([, role]) => role),
+        ],
+        selectable: !attributes.includes(String.raw`\Noselect`),
+        ...(delimiter === undefined ? {} : { delimiter }),
+      };
+    }),
+    moves: advertised.has('MOVE') || advertised.has('UIDPLUS'),
+    idle: advertised.has('IDLE'),
+  };
+};
 // A change's outcome: applied, moved (to a known UID when the server reported it), or the folder
 // no longer holds the UID.
 export const decodeModify = Schema.decodeUnknownEffect(

@@ -49,23 +49,6 @@ enum ImapFailure: Error, Equatable {
   case interrupted
 }
 
-struct ImapFolder: Sendable, Equatable {
-  let name: String
-  // Special-use roles the server declares, such as `sent`; `inbox` for the Inbox.
-  let roles: [String]
-  let selectable: Bool
-  // The server's hierarchy delimiter, such as `/`, which nests one folder name under another.
-  let delimiter: String?
-}
-
-// The folder list, and what the server lets this client do beyond reading: move a message without
-// expunging others (MOVE, or COPY with UIDPLUS's UID EXPUNGE), and wait for changes (IDLE).
-struct ImapListing: Sendable, Equatable {
-  let folders: [ImapFolder]
-  let moves: Bool
-  let idle: Bool
-}
-
 // One change to one identified message: its read state, or a move to `destination`.
 struct ImapChange: Sendable, Equatable {
   let folder: String
@@ -152,7 +135,8 @@ struct ImapCheckpoint: Sendable, Equatable {
 
 protocol ImapProvider: Sendable {
   func verify(_ account: ImapAccount, password: String) async throws
-  func folders(_ account: ImapAccount, password: String) async throws -> ImapListing
+  // Logs in and keeps the session open until it is closed.
+  func open(_ account: ImapAccount, password: String) async throws -> any ImapSession
   func synchronize(
     _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?, window: Int
   ) async throws -> ImapFolderState
@@ -191,15 +175,14 @@ protocol ImapProvider: Sendable {
 // shortcut: one login per operation, IDLE included; keep a session per connection when frequent
 // reads need it.
 struct SwiftMailImap: ImapProvider {
-  private static let folderLimit = 1_000
   // SwiftMail logs hosts, folder names and server replies; none of them leaves this process.
   static let quiet: Void = LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
 
-  private func session<Value: Sendable>(
+  // Connects and logs in; a failure closes the connection.
+  private func connected(
     _ account: ImapAccount, _ password: String,
-    literalLimit: Int = RegistrationStore.imapMessageLimit,
-    _ work: @Sendable (IMAPServer) async throws -> Value
-  ) async throws -> Value {
+    literalLimit: Int = RegistrationStore.imapMessageLimit
+  ) async throws -> IMAPServer {
     _ = Self.quiet
     let server = IMAPServer(
       host: account.host, port: account.port, transportSecurity: .implicitTLS,
@@ -217,6 +200,20 @@ struct SwiftMailImap: ImapProvider {
         default: throw error
         }
       }
+      return server
+    } catch {
+      try? await server.disconnect()
+      throw Self.failure(error)
+    }
+  }
+
+  private func session<Value: Sendable>(
+    _ account: ImapAccount, _ password: String,
+    literalLimit: Int = RegistrationStore.imapMessageLimit,
+    _ work: @Sendable (IMAPServer) async throws -> Value
+  ) async throws -> Value {
+    let server = try await connected(account, password, literalLimit: literalLimit)
+    do {
       let value = try await work(server)
       try? await server.logout()
       try? await server.disconnect()
@@ -225,6 +222,10 @@ struct SwiftMailImap: ImapProvider {
       try? await server.disconnect()
       throw Self.failure(error)
     }
+  }
+
+  func open(_ account: ImapAccount, password: String) async throws -> any ImapSession {
+    SwiftMailImapSession(server: try await connected(account, password))
   }
 
   // Classifies by type name: SwiftMail rethrows NIO's own errors, whose modules this target does
@@ -258,40 +259,6 @@ struct SwiftMailImap: ImapProvider {
     // SwiftMail defaults to zero when EXAMINE omits UIDVALIDITY. No UID is safe to reuse then.
     guard selection.uidValidity.value > 0 else { throw ImapFailure.changed }
     return selection
-  }
-
-  func folders(_ account: ImapAccount, password: String) async throws -> ImapListing {
-    try await session(account, password) { server in
-      // SwiftMail ignores namespace discovery failures at login; retirement needs the full list.
-      if await server.namespaces == nil {
-        let capabilities = try await server.fetchCapabilities()
-        if capabilities.contains(where: { String($0) == "NAMESPACE" }) {
-          _ = try await server.fetchNamespaces()
-        }
-      }
-      let listed = try await server.listMailboxes()
-      guard listed.count <= Self.folderLimit else { throw RegistrationError.unavailable }
-      let advertised = try await server.fetchCapabilities().map { String($0).uppercased() }
-      let folders = listed.map { info in
-        let roles: [(Mailbox.Info.Attributes, String)] = [
-          (.archive, "archive"), (.drafts, "drafts"), (.junk, "junk"), (.sent, "sent"),
-          (.trash, "trash"), (.all, "all"), (.flagged, "flagged"),
-        ]
-        // Only ASCII INBOX case variants share a cache and message-ID namespace.
-        let named = info.name.lowercased() == "inbox"
-        let inbox = named || info.attributes.contains(.inbox)
-        return ImapFolder(
-          name: named ? "INBOX" : info.name,
-          roles: (inbox ? ["inbox"] : [])
-            + roles.filter { info.attributes.contains($0.0) }.map(\.1),
-          selectable: info.isSelectable,
-          delimiter: info.hierarchyDelimiter)
-      }
-      return ImapListing(
-        folders: folders,
-        moves: advertised.contains("MOVE") || advertised.contains("UIDPLUS"),
-        idle: advertised.contains("IDLE"))
-    }
   }
 
   func synchronize(
@@ -610,6 +577,7 @@ struct SwiftMailImap: ImapProvider {
       address: from?.address ?? "", subject: info.subject ?? "")
   }
 }
+
 #else
   // The synthetic metadata check compiles these sources without Swift packages; every host and
   // the storage probe link SwiftMail.
@@ -617,7 +585,7 @@ struct SwiftMailImap: ImapProvider {
     func verify(_ account: ImapAccount, password: String) async throws {
       throw ImapFailure.offline
     }
-    func folders(_ account: ImapAccount, password: String) async throws -> ImapListing {
+    func open(_ account: ImapAccount, password: String) async throws -> any ImapSession {
       throw ImapFailure.offline
     }
     func synchronize(
@@ -741,22 +709,6 @@ extension RegistrationStore {
       (try? imapConnection(id))?.2.receipt.subject == connection.receipt.subject
     else { throw PrivateInboxError.mailboxInvalidated }
     return value
-  }
-
-  func imapFolders(connection: String, address: String, generation: String) async throws
-    -> [String: Any]
-  {
-    let listing = try await imapWork(connection: connection, address: address, generation: generation) {
-      try await imap.folders($0, password: $1)
-    }
-    return [
-      "folders": listing.folders.map {
-        var folder: [String: Any] = ["name": $0.name, "roles": $0.roles, "selectable": $0.selectable]
-        folder["delimiter"] = $0.delimiter
-        return folder
-      },
-      "moves": listing.moves, "idle": listing.idle,
-    ]
   }
 
   func imapSynchronize(

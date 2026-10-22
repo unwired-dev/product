@@ -27,9 +27,27 @@ existing URL pins and restores app product and Frameworks references idempotentl
 
 ## Ownership and transport
 
-`SwiftMailImap` opens one authenticated session for each operation, performs
-`EXAMINE` for reads and `SELECT` for explicit mutations, uses `BODY.PEEK` and
-closes success and failure paths. TLS starts before
+The folder listing runs in TypeScript over a short-lived native session handle
+(#1177). Native `SwiftMailImapSession` exposes capabilities and complete LIST
+results with attributes; TypeScript assigns roles, normalizes ASCII INBOX names
+and derives MOVE, UIDPLUS and IDLE support. `RegistrationStore` binds each handle
+to its connection, address, generation and receipt subject, admits one command
+at a time, and owns expiry, limits and invalidation cleanup. TypeScript's
+`acquireUseRelease` closes the handle on success and failure. The operational
+[IMAP guide](../imap-mailboxes.md#engine-and-dependencies) owns the limits and
+observable close contract.
+
+Closing removes the handle and answers its in-flight caller once with
+`mailbox-invalidated`; the command's later result cannot resume that caller.
+SwiftMail 1.16.0 queues `disconnect()` behind an active command, whose NIO response
+wait does not observe task cancellation. The connection therefore closes only
+when that command answers or times out. Wire-level abort remains #1184, and the
+TypeScript interruption test remains with the first interruptible caller, IDLE
+(#1181).
+
+The remaining operations still open one authenticated session each through
+`SwiftMailImap`, perform `EXAMINE` for reads and `SELECT` for explicit mutations,
+use `BODY.PEEK` and close success and failure paths. TLS starts before
 authentication, uses full certificate verification and requires TLS 1.2 or newer.
 No plaintext/STARTTLS fallback or production trust override exists. The parser
 rejects body literals over 40 MB before buffering payload, and bounds response
