@@ -257,11 +257,13 @@ final class WindowTests: XCTestCase {
       XCTAssertTrue(style.waitForExistence(timeout: 15))
       return style
     }
-    func checked(_ title: String) -> Bool {
-      let item = app.menuItems[title]
-      return item.waitForExistence(timeout: 5) && item.isSelected
+    // XCUITest does not expose an AppKit menu's checkmark (isSelected is the pointer highlight),
+    // so each pop-up reports its current choice as its accessibility value.
+    func shows(_ control: XCUIElement, _ choice: String) {
+      waitUntil { (control.value as? String) == choice }
     }
     let style = compose(in: first)
+    shows(style, "Body")
     style.click()
     let heading = app.menuItems["Heading 1"]
     XCTAssertTrue(heading.waitForExistence(timeout: 5))
@@ -269,22 +271,21 @@ final class WindowTests: XCTestCase {
     first.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
     style.click()
-    XCTAssertTrue(checked("Body"))
+    XCTAssertTrue(heading.waitForExistence(timeout: 5))
     first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01)).click()
     XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
+    shows(style, "Body")
     style.click()
     heading.click()
     XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
-    style.click()
-    XCTAssertTrue(checked("Heading 1"))
-    first.typeKey(.escape, modifierFlags: [])
-    // The sender menu lists the Profile's mailboxes with the Draft's own checked.
+    shows(style, "Heading 1")
+    // The sender menu lists the Profile's mailboxes.
     let from = first.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send from"))
       .firstMatch
     XCTAssertTrue(from.waitForExistence(timeout: 5))
     let sender = from.label.replacingOccurrences(of: "Send from ", with: "")
     from.click()
-    XCTAssertTrue(checked(sender))
+    XCTAssertTrue(app.menuItems[sender].waitForExistence(timeout: 5))
     first.typeKey(.escape, modifierFlags: [])
     // A second window's Draft keeps its own text style.
     app.typeKey("n", modifierFlags: .command)
@@ -293,17 +294,13 @@ final class WindowTests: XCTestCase {
     if second.buttons["Open Inbox"].waitForExistence(timeout: 10) { second.buttons["Open Inbox"].click() }
     XCTAssertTrue(second.buttons["New Message"].waitForExistence(timeout: 15))
     let secondStyle = compose(in: second)
+    shows(secondStyle, "Body")
     secondStyle.click()
-    XCTAssertTrue(checked("Body"))
     app.menuItems["Quote"].click()
-    secondStyle.click()
-    XCTAssertTrue(checked("Quote"))
-    second.typeKey(.escape, modifierFlags: [])
-    first.click()
-    style.click()
-    XCTAssertTrue(checked("Heading 1"))
-    first.typeKey(.escape, modifierFlags: [])
+    shows(secondStyle, "Quote")
+    shows(style, "Heading 1")
     // Discard is the destructive action and asks before removing the Draft.
+    first.click()
     first.buttons["Compose actions"].click()
     let discard = app.menuItems["Discard"]
     XCTAssertTrue(discard.waitForExistence(timeout: 5))
@@ -314,6 +311,7 @@ final class WindowTests: XCTestCase {
     // Closing a composer crashes the host (#1174), so the journey ends with both still open.
     app.terminate()
   }
+
 
   // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
   // the encrypted Draft store, and reopened after relaunch. Focus, resize and teardown are recorded.

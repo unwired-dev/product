@@ -201,6 +201,7 @@ export function PopUp({
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ disabled, selected }}
+      accessibilityValue={label === undefined ? undefined : { text: label }}
       disabled={disabled}
       onPress={() => {
         void show();
