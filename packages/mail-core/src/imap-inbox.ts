@@ -744,14 +744,18 @@ export function createImapInbox(
   };
   const cacheOf = (name: string) =>
     document?.mailboxes.find((entry) => entry.name === name)?.cache;
-  // Open readers' bodies, then the working set's, stay protected from eviction as far as they fit.
-  const protectedBodies = referenceInstant.pipe(
-    Effect.map((reference) => [
-      ...new Set([
-        ...readers.keys(),
-        ...recentWorkingSet(cacheOf(inboxFolder)?.messages ?? [], reference),
-      ]),
-    ]),
+  // Working-set membership sets the tier; open readers also receive temporary eviction protection.
+  const bodyProtection = referenceInstant.pipe(
+    Effect.map((reference) => {
+      const selected = recentWorkingSet(
+        cacheOf(inboxFolder)?.messages ?? [],
+        reference,
+      );
+      return {
+        selected,
+        protectedIds: [...new Set([...readers.keys(), ...selected])],
+      };
+    }),
   );
   const otherImageUsage = (key: string | symbol) => {
     let bytes = 0;
@@ -1126,7 +1130,7 @@ export function createImapInbox(
         ),
       ].map(({ id }) => id),
     );
-    const protectedIds = yield* protectedBodies;
+    const { protectedIds } = yield* bodyProtection;
     yield* call(() =>
       native.retainMessageBodies(scope, [...kept], protectedIds),
     ).pipe(
@@ -1882,12 +1886,12 @@ export function createImapInbox(
           const text = yield* encodeBodyDocument(body).pipe(
             Effect.mapError(malformed),
           );
-          const protectedIds = yield* protectedBodies;
+          const { selected, protectedIds } = yield* bodyProtection;
           yield* call(() =>
             native.commitMessageBody(scope, id, {
               document: text,
               // Opening a selected message keeps its prefetch status.
-              tier: protectedIds.includes(id) ? 'prefetched' : 'opened',
+              tier: selected.includes(id) ? 'prefetched' : 'opened',
               protectedIds,
               expectedRevision: cache.revision,
             }),
@@ -1967,7 +1971,7 @@ export function createImapInbox(
         if (cache === undefined || !current(scope) || !listed(body.id)) {
           return;
         }
-        const protectedIds = yield* protectedBodies;
+        const { protectedIds } = yield* bodyProtection;
         yield* call(() =>
           native.commitMessageBody(scope, body.id, {
             document: text,

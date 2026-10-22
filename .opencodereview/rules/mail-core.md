@@ -1356,6 +1356,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   alongside active speculative selection; otherwise an opened body can evict recent
   offline bodies during delayed synchronization. Preserve ordered native retention
   and refusal under the hard budget.
+- Body admission in `imap-inbox.ts` deriving the persistent eviction tier from a
+  protected set that also includes active readers. Keep current recent-working-set
+  membership separate from temporary reader protection: opening an older on-demand
+  message must keep the opened tier, while selected messages keep the prefetched
+  tier. Otherwise closing the reader leaves older bodies in the prefetched tier,
+  changing eviction order under the shared budget. Verify both through the public
+  Inbox store and preserve reader-first protection during admission and pruning.
 - `createGmailInbox.store` waiting for an entire synchronization while holding a
   body-load permit, blocking explicit opens or speculative progress behind provider
   listing. Serialize body membership checks and admission against each page's

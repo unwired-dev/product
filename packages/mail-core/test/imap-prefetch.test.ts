@@ -199,6 +199,15 @@ describe('imap recent-body prefetch', () => {
       imap.tiers.get(ids.attached),
     ]).toStrictEqual(['ready', 'prefetched']);
     release();
+
+    // An older on-demand body is protected while open, but retains the opened eviction tier.
+    const releaseOld = inbox.retainMessage(ids.old);
+    await inbox.readMessage(ids.old);
+    expect([
+      inbox.messageBody(ids.old)?.kind,
+      imap.tiers.get(ids.old),
+    ]).toStrictEqual(['ready', 'opened']);
+    releaseOld();
   });
 
   it('pauses while the server cannot be reached or refuses the password, and resumes at the next synchronization', async () => {
