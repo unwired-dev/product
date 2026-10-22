@@ -315,7 +315,7 @@ const answerFetch = (socket, session, { tag, command }) => {
       /ENVELOPE|RFC822|BODYSTRUCTURE|BODY\.PEEK\[\]/u,
     );
     if (command.startsWith('UID FETCH 12 ')) {
-      // Fields declared beyond the per-message bound, with no bytes: the native parser must
+      // A header literal declared beyond its bound, with no bytes: the native parser must
       // refuse before buffering them; a timeout is a regression.
       operations.add('oversized-headers');
       socket.write(

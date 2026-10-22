@@ -452,7 +452,7 @@ extension PrivateInboxTests {
       _ = try await provider.headers(
         account, password: "synthetic-password", folder: "INBOX", uidValidity: 8, uids: [11])
     }
-    // The server declares header fields beyond the per-message bound and sends none of them: the
+    // The server declares a header literal beyond its bound and sends none of it: the
     // read is refused before buffering, without waiting for SwiftMail's command timeout.
     await #expect(throws: ImapFailure.tooLarge) {
       _ = try await provider.headers(
