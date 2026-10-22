@@ -251,12 +251,13 @@ The hosted iOS 27 suite adds `OutboxTests`:
 
 The `registration-apple` [Mock Mail Session](mock-mail-sessions.md) native journey
 ends by sending a new message after a relaunch: the row says **Sending soon**, and
-the synthetic provider's acceptance removes it from the Outbox. CI does not run
+the synthetic provider's acceptance removes it from the Outbox, on iPhone and
+iPad. CI does not run
 this scenario; it is local native evidence.
 
 Deferred before release:
 
-- native iPad and Mac send journeys;
+- native Mac send journeys;
 - real Gmail delivery qualification against Apple Mail, Gmail and Outlook,
   including threading, inline images and large attachments;
 - confirming against real Gmail that a Sent copy keeps the message's MIME boundary,
