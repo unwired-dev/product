@@ -1652,7 +1652,10 @@ describe('storing Drafts', () => {
     );
     await expect(drafts.create(alex)).rejects.toBe(creationFailure);
     retried();
-    expect(logged).toHaveBeenCalled();
+    // The removal's failure is logged even though the retried save succeeds.
+    expect(JSON.stringify(logged.mock.calls)).toContain(
+      'Draft creation cleanup failed:',
+    );
     const subscriber = vi
       .fn<() => void>(() => {
         throw removalFailure;
