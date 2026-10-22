@@ -28,6 +28,8 @@ This is partial evidence for [#626](https://github.com/unwired-dev/product/issue
 using the [Mac performance journey](../agents/native-validation.md#mac-performance-journey).
 It does not complete #626 or establish a passing Mac performance baseline.
 
+### Round-one evidence
+
 The independent reviewer rebuilt runtime source
 `7680f6eb796d652d1a767ac16312dc81dd469322` with root lockfile SHA-256
 `98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
@@ -56,7 +58,11 @@ The fixture connects synthetic Microsoft and Gmail mailboxes with 126 and 128
 Inbox Threads, respectively, including 125 added Threads per mailbox with
 distinct previews and bodies. All inboxes aggregates 254 Threads. Five bodies
 per mailbox are opened before measurement to populate the encrypted cache;
-body samples cover disk-cache and subsequent in-memory opens.
+body samples reopen those messages. Changing selection releases
+the previous reader's in-memory body, so neither cycle qualifies an in-memory-only path.
+This first run did not record provider-body requests, so its second opens alone
+do not prove that the encrypted cache, rather than a provider refetch, served
+them. The round-two evidence below supersedes that cache-path claim.
 
 The rebuilt app passed one selected journey with zero XCTest failures in
 189.5 seconds. Evidence is retained in `artifacts/macos-inbox/journey.moRKcM/`:
@@ -96,13 +102,65 @@ is the first composer after relaunch, and the warm case opens a saved Draft.
 The 189.5-second journey exceeds the two-minute focused-feedback target. This
 optional local qualification run does not establish a CI feedback-time p95.
 
-Physical iPhone/iPad performance, next-frame typing and formatting, hardware
+Mail View switching, physical iPhone/iPad performance, next-frame typing and formatting, hardware
 keyboard, screen-reader and adaptive-layout journeys remain deferred under
 #626, including the owner-operated VoiceOver/dictation session in
 [#1106](https://github.com/unwired-dev/product/issues/1106).
 Real provider/network latency and authentication, separate real storage/privacy
 qualification and distribution checks remain required; synthetic provider
 responses do not establish them. No legacy coverage is retired.
+
+### Round-two evidence
+
+After PR feedback, the independent reviewer rebuilt runtime source
+`7fec1a11d5cf4b77321c44654f30d852c784d42d` using the same commands, reference Mac,
+toolchain, root lockfile and fixture above. The signed Testing build passed in
+approximately 48 seconds including setup, recorded separately in the checkout's
+Git-directory `ocr-review/build-round2.log`. Subsequent reviewer edits change only
+review rules, documentation and the test's cache-tier comment.
+
+The rebuilt app passed one selected journey with zero XCTest failures in
+187.880 seconds. Evidence is retained at `artifacts/macos-inbox/journey.c5DjRJ/`,
+including `xcodebuild.log`, `lifecycle.jsonl`, `WindowProbe.xcresult` and
+`qualification-review.json`. The metadata records source, lockfile, executable
+and JavaScript bundle hashes. The reviewer verified removal of this run's app,
+cleanup helper, container and app process.
+
+| Interaction                         | Samples | p50 ms | p95 ms | Maximum ms | Budget ms | Within budget |
+| ----------------------------------- | ------: | -----: | -----: | ---------: | --------: | ------------- |
+| Launch to first list                |      10 |  881.5 |  975.4 |      975.4 |      1000 | Yes           |
+| Cached mailbox / All inboxes switch |      21 |  204.4 |  280.4 |      280.9 |       200 | Not proven    |
+| Cached Microsoft body               |      10 |  320.0 |  370.8 |      370.8 |       200 | Not proven    |
+| Cached Gmail body                   |      10 |  354.8 |  487.7 |      487.7 |       200 | Not proven    |
+| Empty composer                      |      10 |  350.1 |  401.7 |      401.7 |       300 | Not proven    |
+| Saved Draft composer                |      10 |  148.4 |  152.9 |      152.9 |       200 | Yes           |
+
+The synthetic relay recorded ten provider-body requests, all during priming
+before the first measured relaunch, and none in the cached-body sample windows.
+This validates provider-read detection and rules out provider refetches in those
+samples. Both cycles reopen encrypted cached bodies; reader cleanup releases the
+previous in-memory body when selection changes. The journey now terminates the
+app after measuring query overhead and before reading the probe file, avoiding
+concurrent appends while decoding it.
+
+Query overhead was 36.3 ms and synthetic press duration 150.2 ms at the median.
+No queue delay of 100 ms or longer was recorded anywhere in this session. The
+probe's sampling and startup limits above still prevent an absolute-stall-cap
+pass. Launch and saved Draft satisfy their timing budgets in this run; the other
+upper bounds remain unqualified. The 187.880-second journey still exceeds the
+two-minute focused-feedback target. No speedup or consistent baseline is claimed.
+
+The earlier round-two simplicity run at `artifacts/macos-inbox/journey.QRUwXV/`
+passed in 187.750 seconds with ten provider-body reads during priming and none in
+samples. Its launch p95 was 952.7 ms and saved Draft p95 was 155.2 ms; these are
+additional run observations, not substitutes for the independently rebuilt run.
+
+Mail View switching and the other deferred qualification above remain required.
+The relay is also compiled into mobile registration Mock Mail Sessions. The new
+timing code uses shared Foundation APIs and is inactive without the evidence
+path, but no affected iOS build was run in this review. That cross-host compile
+check remains deferred to the Expo native CI build after push; Mac compilation
+and static inspection do not establish iOS compilation.
 
 ## On-device assistance qualification, 2026-10-22
 

@@ -885,7 +885,7 @@ final class WindowTests: XCTestCase {
         ? (start, until(row(shown), from: start, and: row(required)))
         : (start, until(row(shown), from: start, without: row(required)))
     }
-    // Each message's first open in this process reads the encrypted cache; the second, memory.
+    // Changing selection releases the previous reader's body; each open reads the encrypted cache.
     for (address, messages, other) in samples {
       show(address, messages, without: other)
       measure("cached-body \(address)", budget: 200, count: 10) { index in
