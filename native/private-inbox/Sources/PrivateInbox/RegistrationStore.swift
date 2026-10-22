@@ -350,9 +350,14 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   let mailCache: PrivateInboxStore?
   // Per connection, invalidates suspended mailbox work without treating concurrent token renewal
   // as a change of mailbox. Clearing it invalidates every connection's work.
-  var mailboxGenerations: [String: UUID] = [:]
+  // Changing either closes the IMAP sessions they no longer authorize.
+  var mailboxGenerations: [String: UUID] = [:] { didSet { closeStaleImapSessions() } }
   // Connections whose Gmail access verified in this process, and those open from cache only.
-  var verifiedMailboxes: Set<String> = []
+  var verifiedMailboxes: Set<String> = [] { didSet { closeStaleImapSessions() } }
+  // Open IMAP sessions by their opaque handle, and the task closing abandoned ones.
+  var imapHandles: [String: ImapHandle] = [:]
+  var imapSessionLimits = ImapSessionLimits()
+  var imapSweep: Task<Void, Never>?
   // Token callbacks must not restart watches between the shared flow's removal steps.
   var pushRoutingPaused = false
   // A native callback purged custody; the shared flow still needs to present its removal notice.

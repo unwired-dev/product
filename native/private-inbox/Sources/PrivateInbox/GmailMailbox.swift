@@ -565,12 +565,21 @@ extension RegistrationStore {
       let tier = (admission["tier"] as? String).flatMap(PrivateInboxStore.BodyTier.init(rawName:)),
       let protectedIds = admission["protectedIds"] as? [String]
     else { throw RegistrationError.unavailable }
+    let expectedRevision: Int?
+    if let value = admission["expectedRevision"] {
+      guard let number = value as? Double, let revision = Int(exactly: number), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      expectedRevision = revision
+    } else {
+      expectedRevision = nil
+    }
     let admitted = try await bodyWork(
       connection: connection, address: address, generation: generation, verified: true
     ) {
       try $0.commitMessageBody(
         connection: connection, address: address, subject: $1, id: id, document: document,
-        tier: tier, protectedIds: protectedIds)
+        tier: tier, protectedIds: protectedIds, expectedRevision: expectedRevision)
     }
     return ["admitted": admitted]
   }

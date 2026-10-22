@@ -85,6 +85,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   readback; otherwise later saves retain the initial snapshot or failed writes
   appear committed until relaunch.
 
+- `imap-model.ts.folderListing` exposing case variants of the reserved ASCII INBOX
+  name as separate identities, or folding a distinct Unicode name or an
+  attribute-only inbox folder into it. Canonicalize only the reserved name and
+  preserve other names and roles. Exercise the mapping through the shared Inbox
+  with raw LIST replies, alongside the native controlled TLS fixture's raw-name
+  coverage. Otherwise folder selection creates duplicate cache namespaces or
+  reads a different mailbox under the same message identity.
+
 - `imap-inbox.ts.acceptListing` preserving cached mailboxes or retained evicted
   views for folders a complete listing no longer offers as selectable, or deleting
   views before that listing commits. Retire both only after successful cache
@@ -285,6 +293,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   authorization notice waits for an unrelated synchronization.
 
 #### Running programs and shared state
+
+- `imap-inbox.ts.load` resetting a concurrent prefetch authentication refusal
+  inside its metadata-conflict retry boundary. Clear the refusal once when a new
+  load acquires its permit, and preserve refusals raised during that load across
+  internal retries. Otherwise another writer's metadata commit hides password
+  repair and resumes speculation with the refused credential.
 
 - `createGmailInbox` admitting ranked Thread reads to a FIFO account queue before
   provider work can start. Re-evaluate priority at shared account admission while
@@ -1356,6 +1370,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   alongside active speculative selection; otherwise an opened body can evict recent
   offline bodies during delayed synchronization. Preserve ordered native retention
   and refusal under the hard budget.
+- Body admission in `imap-inbox.ts` deriving the persistent eviction tier from a
+  protected set that also includes active readers. Keep current recent-working-set
+  membership separate from temporary reader protection: opening an older on-demand
+  message must keep the opened tier, while selected messages keep the prefetched
+  tier. Otherwise closing the reader leaves older bodies in the prefetched tier,
+  changing eviction order under the shared budget. Verify both through the public
+  Inbox store and preserve reader-first protection during admission and pruning.
 - `createGmailInbox.store` waiting for an entire synchronization while holding a
   body-load permit, blocking explicit opens or speculative progress behind provider
   listing. Serialize body membership checks and admission against each page's

@@ -152,14 +152,12 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     Vitest.assert.isDefined(namePart);
     const imap = createSyntheticImap({ address: icloud.address });
     const other = createSyntheticImap({ address: icloud.address });
-    const folders = vi.fn<typeof imap.native.imapFolders>(
-      imap.native.imapFolders,
-    );
+    const opened = vi.fn<typeof imap.native.imapOpen>(imap.native.imapOpen);
     const mailboxes = createMailboxes(
       syntheticConnections(
         {},
         {
-          [connection.id]: { ...imap.native, imapFolders: folders },
+          [connection.id]: { ...imap.native, imapOpen: opened },
           [namePart.id]: other.native,
         },
       ),
@@ -187,7 +185,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
         ],
       });
     });
-    expect(folders).toHaveBeenLastCalledWith(
+    expect(opened).toHaveBeenLastCalledWith(
       expect.objectContaining({ generation: 'generation-2' }),
     );
     expect(mailboxesOf(store.getSnapshot().snapshot)).toHaveLength(2);

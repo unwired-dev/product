@@ -66,27 +66,42 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
-- `SwiftMailImap.folders` returning a truncated LIST as successful, or accepting
+- `RegistrationStore.imapOpen` or another bounded credentialed acquisition
+  checking capacity only after authentication. Refuse an already-full owner
+  before opening or logging in, and trace production callers across suspension:
+  preserve serialization or reserve capacity when concurrent admission requires
+  it. Recheck retained capacity after awaited acquisition and close a refused
+  result; otherwise refused work still authenticates or concurrent opens exceed
+  the owner's handle bound. Verify refusal creates no additional authenticated
+  session through the controlled provider.
+
+- `SwiftMailImapSession.folders` returning a truncated LIST as successful, or accepting
   wildcard fallback after an advertised namespace lookup fails. Preserve complete
   namespace coverage and reject overflow or unresolved discovery through the
   existing failure boundary before publishing a listing used for retirement.
   Exercise overflow and failed discovery through the controlled TLS fixture;
   otherwise still-existing folders and their saved bodies can be deleted.
 
-- `SwiftMailImap.folders` exposing case variants of the reserved ASCII INBOX
-  name as separate identities, or folding a distinct Unicode name or an
-  attribute-only inbox folder into it. Canonicalize only the reserved name,
-  preserve other names and roles, and exercise both through the controlled TLS
-  fixture. Otherwise folder selection creates duplicate cache namespaces or
-  reads a different mailbox under the same message identity.
-
-- `SwiftMailImap.folders` claiming a response-count bound from a prefix applied
+- `SwiftMailImapSession.folders` claiming a response-count bound from a prefix applied
   after SwiftMail's LIST handler collects all responses. Trace admission in the
   pinned upstream handler and parser; per-response byte limits do not bound the
   accumulated collection. Require a receive-time count limit and controlled TLS
   flood evidence when the upstream API supports it. SwiftMail 1.16.0's missing
   public bound remains tracked in #888; a smaller returned array does not resolve
   that native-memory risk.
+
+- `SwiftMailImap.headers` claiming an aggregate receive bound from the requested
+  UID count or TypeScript chunk size. Trace the pinned FETCH handler's collection
+  of unsolicited and repeated replies as well as requested messages. SwiftMail
+  1.16.0's aggregate receive gap is an owner-accepted residual risk for PR #1185,
+  tracked in #1187, not a delivery blocker for that PR. When implementing #1187,
+  bound retained response count and bytes before the bulk result materializes;
+  per-FETCH literal limits, parser working-buffer limits and post-return filtering
+  do not bound the command's accumulated results. Exercise extra replies through
+  the controlled TLS fixture, including multiple individually legal sections in
+  one response. Verify real wire refusal and its fixed bridge error, rather than
+  inferring protection from a parser option or synthetic handler events; otherwise
+  automatic prefetch can exhaust native memory before any exclusion marker is stored.
 
 - `SwiftMailImap.synchronize` estimating arrivals from the whole folder minus
   cached flags alone, or from the UIDNEXT gap alone. Bound extant arrivals by
@@ -438,6 +453,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   valid files and reads can return the older body. A failed replacement may leave
   a refetchable cache miss. Cache-only reads must not update access times
   or delete corrupt bodies; otherwise presentation-only access mutates storage.
+- `PrivateInboxStore.commitMessageBody` accepting an IMAP body or exclusion marker
+  without checking its metadata revision inside the same file-locked transaction,
+  before eviction or replacement. Trace `imap-inbox.ts` admission and every adapter's
+  forwarding of `expectedRevision`; a store-local semaphore and `listed` check cannot
+  observe another store's committed UIDVALIDITY reset or expunge. Otherwise a late
+  prefetch recreates bodies the newer synchronization already pruned. Keep omitted
+  revisions compatible with existing callers, but reject malformed supplied values.
 - `PrivateInboxStore.retainMessageBodies` losing ordered `protectedIds` between
   host adapters, the Swift/Objective-C bridge and storage, or pruning bodies that
   received cache-fitting protection. Keep revision/generation checks and select
