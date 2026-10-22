@@ -120,6 +120,8 @@ it.
   or handoff from the stored state, and a claim is never assumed: one whose reply
   never arrived is asked for again, and Convex keeps it for this device. A message
   stored as handed to Gmail is unknown and is only reconciled, never resubmitted.
+  A Sign in with Apple device sends after a relaunch without signing in again,
+  although its Drafts wait for the next interactive sign-in to synchronize.
 
 ## Delivery rules
 
@@ -133,6 +135,10 @@ it.
   response never grants permission to submit.
 - Claims contain no message content. Another device cannot take over delivery;
   an uncertain provider outcome never causes automatic resubmission.
+- A claim is proven by this Trusted Device's own credential, without a Product
+  Sign-In, which Sign in with Apple cannot renew after a relaunch. Convex refuses
+  a missing or wrong credential, a device that predates device credentials, a
+  device of another account, a removed device and a Product Account being deleted.
 - When storage refuses to record Gmail's answer, the app saves it again with the
   next retry while it keeps running, so a message Gmail never received stays
   retryable rather than reading as unknown.
@@ -214,9 +220,11 @@ real-provider qualification.
 `outgoing-message.test.ts` checks header folding, encoding and injection, the
 exact message size, and the HTML and plain-text block structure.
 
-`packages/convex/test/draftDelivery.test.ts` covers concurrent claims, repeating
-a held claim, other accounts, malformed identifiers and revoked devices, including
-sign-out retaining a content-free claim that prevents another device taking over. The account
+`packages/convex/test/draftDelivery.test.ts` covers concurrent claims proven by
+the device credential alone, repeating a held claim, other accounts, malformed
+identifiers, another device's credential, devices without credentials, account
+deletion and revoked devices, including sign-out retaining a content-free claim
+that prevents another device taking over. The account
 deletion test removes claims.
 
 The host journeys in `apps/*/test/send.test.tsx` send from the composer, use
@@ -238,11 +246,17 @@ The hosted iOS 27 suite adds `OutboxTests`:
   before any handoff;
 - already-revoked Gmail and Graph sends purging local registration without
   refreshing credentials;
-- opaque claim identifiers held by one device.
+- opaque claim identifiers held by one device, also claimed without a Product
+  Sign-In session, as after a Sign in with Apple relaunch.
+
+The `registration-apple` [Mock Mail Session](mock-mail-sessions.md) native journey
+ends by sending a new message after a relaunch: the row says **Sending soon**, and
+the synthetic provider's acceptance removes it from the Outbox. CI does not run
+this scenario; it is local native evidence.
 
 Deferred before release:
 
-- native iPhone, iPad and Mac send journeys;
+- native iPad and Mac send journeys;
 - real Gmail delivery qualification against Apple Mail, Gmail and Outlook,
   including threading, inline images and large attachments;
 - confirming against real Gmail that a Sent copy keeps the message's MIME boundary,

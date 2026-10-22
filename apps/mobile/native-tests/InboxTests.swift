@@ -252,6 +252,45 @@ final class InboxTests: XCTestCase {
     shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
     add(shot)
+    sendJourney(app)
+  }
+
+  // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged
+  // delivery claims it and hands it to the synthetic provider, which removes it from the Outbox.
+  private func sendJourney(_ app: XCUIApplication) {
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    for character in "maya@example.invalid" { to.typeText(String(character)) }
+    app.buttons["Send"].tap()
+    // #918: the admitted Draft can unmount its editor before Send closes the composer.
+    if app.staticTexts["This Draft is not available."].firstMatch.waitForExistence(timeout: 5) {
+      app.buttons["Close"].tap()
+    }
+    let row = { (status: String) in
+      app.descendants(matching: .any).matching(
+        NSPredicate(format: "label ENDSWITH %@", ". " + status)
+      ).firstMatch
+    }
+    // iPhone returns from Send to the reader; the Outbox heads its Inbox.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+    }
+    XCTAssertTrue(row("Sending soon").waitForExistence(timeout: 10))
+    let queued = XCTAttachment(screenshot: app.screenshot())
+    queued.name = "Outbox during the Undo Send Window"
+    queued.lifetime = .keepAlways
+    add(queued)
+    let outbox = app.staticTexts["Outbox"].firstMatch
+    if !outbox.waitForNonExistence(timeout: 40) {
+      let stuck = XCTAttachment(screenshot: app.screenshot())
+      stuck.name = "Outbox after the Undo Send Window"
+      stuck.lifetime = .keepAlways
+      add(stuck)
+      XCTFail("The sent message stayed in the Outbox")
+    }
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.

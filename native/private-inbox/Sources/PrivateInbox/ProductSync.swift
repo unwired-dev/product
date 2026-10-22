@@ -39,9 +39,10 @@ struct ProductSyncBackend {
   var get: (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> StoredPayload? =
     { _, _, _ in throw RegistrationError.unavailable }
   // Claims an opaque Draft delivery identifier for this Trusted Device: true when it holds the
-  // claim, the first to ask or asking again, false when another device holds it.
-  var claimDelivery: (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> Bool =
-    { _, _, _ in throw RegistrationError.unavailable }
+  // claim, the first to ask or asking again, false when another device holds it. The device
+  // credential alone proves it, without a Product Sign-In.
+  var claimDelivery: (ProductRegistrationReceipt, String) async throws -> Bool =
+    { _, _ in throw RegistrationError.unavailable }
 }
 
 // Everything one removal sends, kept unchanged so a repeat after a lost reply is the same proposal.

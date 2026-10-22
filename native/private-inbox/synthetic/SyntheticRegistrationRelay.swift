@@ -315,10 +315,10 @@
               "productSync.get",
               try caller(identity, product).merging(["identifier": identifier]) { $1 }))
         },
-        claimDelivery: { identity, product, identifier in
+        claimDelivery: { product, identifier in
           try await ask(
             "productSync.claimDelivery",
-            try caller(identity, product).merging(["identifier": identifier]) { $1 })["claimed"]
+            try caller(nil, product).merging(["identifier": identifier]) { $1 })["claimed"]
             as? Bool ?? false
         }),
       deviceRevoked: { product in
