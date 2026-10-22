@@ -574,7 +574,7 @@ const textOf = (part: GmailPart) =>
   );
 
 type HeaderFields = ReadonlyArray<Readonly<{ name: string; value: string }>>;
-// Messages per header preflight: the native read bounds each one's fields to 256 KiB.
+// UIDs per header preflight; native limits each literal to 256 KiB, not aggregate receive (#1187).
 const preflightSize = 20;
 // Whether a message's Content-Type and Content-Disposition fields describe one plain-text or HTML
 // part, parsed as its full source would be.
@@ -2010,8 +2010,7 @@ export function createImapInbox(
   const yielded = (scope: Scope) =>
     shared.idle.await.pipe(Effect.map(() => prefetchPaused(scope)));
   // The Content-Type and Content-Disposition fields of up to `preflightSize` still-present messages,
-  // read without any body. Fields beyond the native per-message bound leave every message of the
-  // read without fields.
+  // requested without any body. A native size refusal leaves every message of the read without fields.
   const preflight = (
     scope: Scope,
     uidValidity: number,

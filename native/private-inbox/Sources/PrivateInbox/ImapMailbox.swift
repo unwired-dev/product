@@ -367,11 +367,11 @@ struct SwiftMailImap: ImapProvider {
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
   ) async throws -> [ImapHeaders] {
     // Each header literal has the MIME header budget; larger declarations refuse the read.
-    // shortcut: SwiftMail still accumulates extra FETCH replies; add a receive-time aggregate bound.
+    // shortcut: Aggregate receive is unbounded, accepted for #1185; add the upstream bound in #1187.
     try await session(account, password, literalLimit: RegistrationStore.imapHeaderLimit) { server in
       let selection = try await Self.examine(server, folder: folder)
       guard selection.uidValidity.value == uidValidity else { throw ImapFailure.changed }
-      // BODY.PEEK[HEADER.FIELDS (...)] alone: no body part is requested or received.
+      // Request only BODY.PEEK[HEADER.FIELDS (...)], without any body part.
       let infos: [MessageInfo]
       do {
         infos = try await server.fetchMessageInfosBulk(
@@ -669,7 +669,7 @@ struct SwiftMailImap: ImapProvider {
 extension RegistrationStore {
   // Bounds a message read: the same per-message limit as Gmail's received mail.
   nonisolated static let imapMessageLimit = 40 * 1024 * 1024
-  // Bounds a prefetch header preflight: the MIME header budget per message, 20 messages per read.
+  // Prefetch requests at most 20 UIDs, with the MIME header budget per literal; see #1187.
   nonisolated static let imapHeaderLimit = 256 * 1024
   nonisolated static let imapHeaderMessages = 20
 

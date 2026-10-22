@@ -90,8 +90,10 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 - `SwiftMailImap.headers` claiming an aggregate receive bound from the requested
   UID count or TypeScript chunk size. Trace the pinned FETCH handler's collection
-  of unsolicited and repeated replies as well as requested messages. Bound retained
-  response count and bytes while receiving, before the bulk result materializes;
+  of unsolicited and repeated replies as well as requested messages. SwiftMail
+  1.16.0's aggregate receive gap is an owner-accepted residual risk for PR #1185,
+  tracked in #1187, not a delivery blocker for that PR. When implementing #1187,
+  bound retained response count and bytes before the bulk result materializes;
   per-FETCH literal limits, parser working-buffer limits and post-return filtering
   do not bound the command's accumulated results. Exercise extra replies through
   the controlled TLS fixture, including multiple individually legal sections in

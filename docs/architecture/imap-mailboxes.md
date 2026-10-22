@@ -108,8 +108,10 @@ repeated responses, before returning. Neither the UID request cap nor the parser
 working-buffer limit bounds that collection. Its public stream wraps the same
 buffered command, and command execution and handlers are internal. A receive-time
 aggregate/count bound needs an upstream capability or an explicitly authorized
-dependency/adapter change. This remains an unresolved prefetch safety requirement;
-the separate LIST-response limitation tracked by #888 does not qualify FETCH.
+dependency/adapter change. On 2026-10-22, the owner accepted this residual risk for
+[PR #1185](https://github.com/unwired-dev/product/pull/1185) and assigned the
+receive-time bound to [#1187](https://github.com/unwired-dev/product/issues/1187),
+separately from the LIST-response limitation tracked by #888.
 A controlled TLS probe also returned success for two individually legal header
 sections totaling over 256 KiB in one FETCH. The pinned engine's intended
 response-wide guard and its error mapping therefore require wire-level validation;

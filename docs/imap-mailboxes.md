@@ -238,8 +238,8 @@ before they are opened, under Gmail's
   first. Other folders and messages already saved or marked are not read.
 - **Preflight.** Reads of the selected messages' Content-Type and Content-Disposition
   fields, 20 messages at a time and without any body, decide which sources to read.
-  Each message's fields are bounded to 256 KiB, the MIME header budget; a read the
-  server answers beyond that keeps its messages on demand with exclusion markers. Only a
+  Each header literal is bounded to 256 KiB, the MIME header budget; refusal of a
+  larger literal keeps the read's messages on demand with exclusion markers. Only a
   message that is a single plain-text or HTML part, with well-formed MIME fields within
   their budgets, is read and saved; the source is checked again before saving. Any
   other message, one over 40 MB or one that cannot be read, gets an encrypted
@@ -259,10 +259,12 @@ before they are opened, under Gmail's
 
 Local search reports a prefetched body as saved on this device.
 
-The 20-message request limit and 256 KiB per-literal limit do not yet bound
-aggregate memory when a server sends extra or repeated replies. Receive-time
-aggregate refusal remains unresolved; prefetch must not be described as qualified
-against that server behavior.
+The 20-UID request limit and 256 KiB per-literal limit do not bound aggregate
+memory when a server sends extra or repeated replies, or several individually
+legal literals per message. The owner accepted this residual SwiftMail 1.16.0 risk
+for [PR #1185](https://github.com/unwired-dev/product/pull/1185), with receive-time
+aggregate refusal tracked in [#1187](https://github.com/unwired-dev/product/issues/1187).
+Prefetch is not qualified against that server behavior.
 
 A message whose UID no longer exists under the folder's UIDVALIDITY reads as **This
 message is no longer in this folder on the mail server**.
