@@ -417,6 +417,7 @@ export function createAttachmentDownloads<S extends Scope, E>(
           drop(key);
         }
       }
+      views.delete(id);
     },
   };
 }
