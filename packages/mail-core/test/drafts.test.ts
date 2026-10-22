@@ -1667,6 +1667,28 @@ describe('storing Drafts', () => {
     ).toStrictEqual([kept]);
   });
 
+  it('stores the removal of a saved blank Draft when every later notification throws', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const failure = new Error('subscriber failed after saving');
+    // Accepts the creation's first notification, so the blank Draft is stored before it throws.
+    drafts.subscribe(
+      vi
+        .fn<() => void>(() => {
+          throw failure;
+        })
+        .mockReturnValueOnce(undefined),
+    );
+    await expect(drafts.create(alex)).rejects.toBe(failure);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([]);
+  });
+
   it('keeps content authored before a subscriber rejects the first save', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

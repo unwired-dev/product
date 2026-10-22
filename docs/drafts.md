@@ -410,7 +410,8 @@ selected through locked creation and cleanup, then use **Save Drafts** and reope
 the store to verify that the abandoned blank Draft was not saved.
 A shared regression rejects Draft creation through a subscriber that throws once
 and one that keeps throwing, then reopens storage after the next save to verify
-that no blank Draft was kept. It also preserves content added before a subscriber
+that no blank Draft was kept, including one already stored before every later
+notification throws. It also preserves content added before a subscriber
 rejects the first save, and checks that cleanup failures log no private content.
 
 The hosted iOS 27 storage suite checks the Draft document with the real

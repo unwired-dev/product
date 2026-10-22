@@ -2200,21 +2200,24 @@ export function createDrafts(
         }, creating);
       } catch (error) {
         // A subscriber can reject after the first save, while the published Draft gains content.
-        // Remove only an empty Draft, before subscribers can reject its removal too.
+        // Remove only an empty Draft, before subscribers can reject its removal too. A rejected
+        // removal notification skips its save, so save again: storage commits before notifying.
         await change(
           (drafts) =>
             drafts.filter(
               (draft) => draft.id !== created.id || !isEmptyDraft(draft),
             ),
           creating,
-        ).catch((cleanupError: unknown) =>
-          runLogged(
-            Effect.logError(
-              'Draft creation cleanup failed:',
-              rejectionDiagnostic(cleanupError),
+        )
+          .catch(() => runLogged(saving(creating)))
+          .catch((cleanupError: unknown) =>
+            runLogged(
+              Effect.logError(
+                'Draft creation cleanup failed:',
+                rejectionDiagnostic(cleanupError),
+              ),
             ),
-          ),
-        );
+          );
         throw error;
       }
       // A Draft started before the Product Account changed belongs to no open store now.
