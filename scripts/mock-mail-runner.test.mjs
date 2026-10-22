@@ -106,11 +106,12 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
         stale: 'idle',
         current: 'ready',
         nativeStarts: 2,
+        inFlight: true,
       },
       { kind: 'translation-cancel', shown: 'cancelled', after: 'cancelled' },
-    ].map((entry) => ({ ...entry, corpusVersion: 2, result: 'pass' }));
+    ].map((entry) => ({ ...entry, corpusVersion: 3, result: 'pass' }));
     const device = {
-      corpusVersion: 2,
+      corpusVersion: 3,
       kind: 'device',
       hardware: 'Mac16,10',
       system: 'Version 27.0.1 (Build 26A434)',
@@ -119,7 +120,7 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
       availability: 'available',
     };
     const complete = {
-      corpusVersion: 2,
+      corpusVersion: 3,
       kind: 'complete',
       pass: 20,
       limited: 0,
@@ -147,7 +148,22 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
       [[device, ...cases.slice(1), { ...complete, pass: 19 }], 1, malformed],
       [[device, cases[1], ...cases.slice(1), complete], 1, malformed],
       [[device, ...cases, { ...complete, pass: 19 }], 1, malformed],
-      [[device, { corpusVersion: 2, kind: 'stopped' }], 1, malformed],
+      [[device, { corpusVersion: 3, kind: 'stopped' }], 1, malformed],
+      [
+        [device, ...cases, complete].map((row) => ({
+          ...row,
+          corpusVersion: 2,
+        })),
+        1,
+        malformed,
+      ],
+      [
+        [device, ...cases, complete].map((row) =>
+          row.kind === 'stale-result' ? { ...row, inFlight: undefined } : row,
+        ),
+        1,
+        malformed,
+      ],
       // A ready answer without its text, a limited answer without its reason, or a device
       // without its description cannot be reviewed.
       [

@@ -1,4 +1,4 @@
-"""Refuse incomplete or failed corpus-v2 qualification while retaining its evidence."""
+"""Refuse incomplete or failed corpus-v3 qualification while retaining its evidence."""
 import json
 from pathlib import Path
 import sys
@@ -25,7 +25,7 @@ fields = {
     'translation': {'state': str, 'ms': int},
     'native-cancel': {'code': str, 'ms': int},
     'summary-cancel': {'shown': str, 'after': str},
-    'stale-result': {'stale': str, 'current': str, 'nativeStarts': int},
+    'stale-result': {'stale': str, 'current': str, 'nativeStarts': int, 'inFlight': bool},
     'translation-cancel': {'shown': str, 'after': str},
 }
 
@@ -50,11 +50,11 @@ cases = rows[1:-1]
 counts = {result: sum(row.get('result') == result for row in cases)
           for result in ('pass', 'limited', 'fail')}
 if (not rows or rows[0].get('kind') != 'device'
-        or any(row.get('corpusVersion') != 2 for row in rows)
+        or any(row.get('corpusVersion') != 3 for row in rows)
         or len(cases) != len(identities)
         or {(row.get('kind'), row.get('id')) for row in cases} != identities
         or sum(counts.values()) != len(cases)
-        or rows[-1] != {'corpusVersion': 2, 'kind': 'complete', **counts}
+        or rows[-1] != {'corpusVersion': 3, 'kind': 'complete', **counts}
         or not all(described(row) for row in rows[:-1])):
     raise SystemExit('Incomplete or malformed assistance qualification evidence')
 if counts['fail']:

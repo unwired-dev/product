@@ -22,7 +22,7 @@ import {
 // The synthetic corpus the assistance qualification build runs through Apple's on-device model
 // and Translation (#625). Raise the version with any change to its cases, so runs on different
 // corpora are never compared as one. It contains no real mail.
-export const corpusVersion = 2;
+export const corpusVersion = 3;
 
 const longBody = Array.from(
   { length: 80 },
@@ -373,8 +373,8 @@ async function qualifyCancellation(assistance: Native, record: Recorder) {
     result: outcome(shown === 'cancelled' && after === 'cancelled', after),
   });
 
-  // A newer request replaces an older one already generating: the older result is never shown
-  // for the other input. Counting native starts shows both generations reached the model.
+  // A pending summary may still be checking availability; count native starts as well before
+  // replacing the older request and checking that its result is never shown for the other input.
   let nativeStarts = 0;
   const replaced = createMessageSummary({
     ...assistance,
@@ -385,6 +385,8 @@ async function qualifyCancellation(assistance: Native, record: Recorder) {
   });
   const older = replaced.summarize(long);
   await pause(300);
+  const inFlight =
+    nativeStarts === 1 && replaced.getSnapshot(long).kind === 'summarizing';
   await Promise.all([older, replaced.summarize(short)]);
   const stale = replaced.getSnapshot(long).kind;
   const current = replaced.getSnapshot(short).kind;
@@ -392,8 +394,10 @@ async function qualifyCancellation(assistance: Native, record: Recorder) {
     stale,
     current,
     nativeStarts,
+    inFlight,
     result:
-      stale === 'idle' && (nativeStarts === 2 || current !== 'ready')
+      stale === 'idle' &&
+      ((inFlight && nativeStarts === 2) || current !== 'ready')
         ? outcome(current === 'ready', current)
         : 'fail',
   });

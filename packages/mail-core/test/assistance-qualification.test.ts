@@ -109,7 +109,7 @@ describe('assistance qualification corpus run', () => {
 
     expect(complete).toMatchObject({ pass: 20, limited: 0, fail: 0 });
     expect(byKind('device')[0]).toMatchObject({
-      corpusVersion: 2,
+      corpusVersion: 3,
       hardware: 'Mac16,10',
       availability: 'available',
       translationLanguages: ['en', 'de'],
@@ -124,11 +124,12 @@ describe('assistance qualification corpus run', () => {
       }),
     );
     expect(byKind('native-cancel')[0]).toMatchObject({ code: 'cancelled' });
-    // Both generations reached the model before the newer one replaced the older one.
+    // The older native request was pending when replaced, and both reached the binding.
     expect(byKind('stale-result')[0]).toMatchObject({
       stale: 'idle',
       current: 'ready',
       nativeStarts: 2,
+      inFlight: true,
     });
   });
 
@@ -144,6 +145,22 @@ describe('assistance qualification corpus run', () => {
     });
     expect(byKind('summary-cancel')[0]).toMatchObject({ result: 'pass' });
     expect(complete).toMatchObject({ pass: 19, fail: 1 });
+  });
+
+  it('an older summary completed before replacement does not qualify in-flight rejection', async () => {
+    expect.hasAssertions();
+
+    const native = binding();
+    native.assistance.summarize = () => Promise.resolve('A completed summary.');
+    const { byKind } = await run(native);
+
+    expect(byKind('stale-result')[0]).toMatchObject({
+      stale: 'idle',
+      current: 'ready',
+      nativeStarts: 2,
+      inFlight: false,
+      result: 'fail',
+    });
   });
 
   it('an unavailable model is a limitation that leaves Translation qualified', async () => {

@@ -28,7 +28,7 @@ contacts no provider. Only this build contains the corpus run and its evidence
 recorder; `verify:bundle` rejects the run in any other bundle, and TestFlight
 uploads refuse mock builds.
 
-Each interactive launch runs version 2 of the synthetic corpus once, through the
+Each interactive launch runs version 3 of the synthetic corpus once, through the
 same shared stores the reader and composer use and the real native module:
 
 - summaries of English, Czech and German messages, a message that tells the model
@@ -170,10 +170,13 @@ Copy the evidence after each relaunch in steps 4 and 5. On the Mac, set
 open, prints where each relaunch writes its evidence, and removes the copy only
 after you press Return.
 
-The `stale-result` check replaces the older request after its native generation
-has started and records `nativeStarts`; it passes only when both generations reached
-the model and the older result is never shown. Corpus v1 replaced the older request
-before it reached the model, so v1 results do not qualify that in-flight replacement.
+The `stale-result` check records `nativeStarts` and `inFlight`. A pass requires
+the older request to have reached the native binding and still be summarizing
+immediately before replacement, both requests to reach the binding, and only the
+newer result to remain ready. Corpus v1 replaced the older request before it
+reached the binding. Corpus v2 counted both starts but did not check whether the
+older request had already finished. Those results do not establish the v3
+in-flight precondition; physical v3 reruns remain required.
 
 ## Record the results
 

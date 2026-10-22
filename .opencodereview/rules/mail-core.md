@@ -1208,6 +1208,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Tests in the same change
 
+- `testing/assistance-qualification.ts` treating a delay and two native starts
+  as proof of in-flight replacement. Require the older request to be pending
+  after its native start immediately before replacement, and reject a run whose
+  older response finished during the delay; otherwise ordinary sequential
+  completions can pass as stale-result rejection.
+
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
 
 - New or changed store behavior with no test through the store's public interface in `packages/mail-core/test`, covering the failure and recovery path the change introduces. State it as a finding only after reading the existing tests.
