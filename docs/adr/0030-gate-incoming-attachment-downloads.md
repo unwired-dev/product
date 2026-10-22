@@ -20,6 +20,16 @@ source, while its encrypted body cache retains descriptors only. Downloaded byte
 remain device-local, outside the body cache and Private Sync. Credential custody,
 explicit download, descriptor validation and cleanup boundaries remain unchanged.
 Provider and native-host qualification remain separate release requirements.
+
+Cancellation in this replacement slice drops the attachment attempt immediately,
+but the existing native source read has no cancellation handle and finishes in the
+background. Keep that native call uninterruptible so the connection and device
+load permits remain held until it settles; late cancelled results cannot retain
+a saved attachment or restore its row. This applies to Cancel and last-reader
+cleanup, and prevents cancel/retry from exceeding the shared load limits. Native transfer
+cancellation remains [#1172](https://github.com/unwired-dev/product/issues/1172).
+This interim limitation changes neither the retained prototype's cancellation
+contract nor the credential, size, storage, consent and cleanup boundaries above.
 See the [replacement IMAP companion](../architecture/imap-mailboxes.md#cache-identity-and-presentation)
 and [operational contract](../imap-mailboxes.md#reading).
 

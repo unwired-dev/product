@@ -304,6 +304,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   windows/connections multiply native sessions and MIME allocations, while Gmail
   speculation competes with explicit IMAP downloads.
 
+- `imap-inbox.ts.sourceOf` releasing `explicitLoad`'s connection/device permits
+  when an Effect is interrupted but the native `imapMessage` transfer continues.
+  Trace cancellation through the actual bridge task, including Cancel, last-reader
+  cleanup and retry. Until native reads acknowledge cancellation, keep the native
+  call uninterruptible so its permits and interactive ownership remain held until
+  settlement; retain the cancelled attempt's result/save fences. Otherwise repeated
+  cancellation admits more native source reads than the shared load limits allow.
+
 - `createMailboxes` retaining a ready/authentication IMAP Inbox after successful
   password repair without reopening its native generation, or inferring repair
   from every newly published registration snapshot. Send a success-only,

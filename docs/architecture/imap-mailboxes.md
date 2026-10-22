@@ -80,6 +80,12 @@ checkpoint was evicted. Late body replies reconcile their descriptors against th
 committed identity too. Search replies, refused source reads and failed cache commits
 do not retire other attachments before a later successful synchronization adopts the
 new identity; a refused source read still reports its own attachment as missing.
+The native `imapMessage` task has no cancellation handle. Cancel and last-reader
+cleanup remove download ownership immediately, but `sourceOf` keeps its native
+call uninterruptible until settlement. `explicitLoad` therefore holds the
+connection and device permits and interactive ownership for the actual transfer;
+cancelled results cannot retain a saved attachment or restore its row. Ending the
+native transfer itself remains [#1172](https://github.com/unwired-dev/product/issues/1172).
 The [operational guide](../imap-mailboxes.md#reading) owns limits, actions and cleanup.
 Prefetch and reader responses remain follow-up work under #882.
 

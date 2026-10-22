@@ -203,9 +203,11 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   UIDVALIDITY and saves the attachment only if its position, name, type and size are
   unchanged and its bytes decode to that size. Attachments over 25 MiB are listed as
   **Too large to download on this device.**
-- **Cancel.** **Cancel** stops the download at once. The mail server's read of the
-  source still finishes in the background and counts against the connection's
-  concurrent reads until it ends; ending the transfer itself is
+- **Cancel.** **Cancel** returns the attachment row to **Download** at once and
+  discards the cancelled result. The mail server's read of the source still finishes
+  in the background and counts against the connection's and device's concurrent
+  reads until it ends. Closing the last reader has the same transfer limitation;
+  ending the transfer itself is
   [#1172](https://github.com/unwired-dev/product/issues/1172).
 - **Failure.** The row says why and offers **Try again**: **The mail server could not
   be reached to download this attachment.**, **The mail server needs your password
