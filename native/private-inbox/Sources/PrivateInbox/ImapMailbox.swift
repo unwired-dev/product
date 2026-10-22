@@ -197,6 +197,7 @@ struct SwiftMailImap: ImapProvider {
 
   private func session<Value: Sendable>(
     _ account: ImapAccount, _ password: String,
+    literalLimit: Int = RegistrationStore.imapMessageLimit,
     _ work: @Sendable (IMAPServer) async throws -> Value
   ) async throws -> Value {
     _ = Self.quiet
@@ -205,7 +206,7 @@ struct SwiftMailImap: ImapProvider {
       certificateVerificationPolicy: .fullVerification, minimumTLSVersion: .tlsv12,
       // Bound the wire declaration before SwiftMail buffers bytes, even when RFC822.SIZE lies.
       parserLimits: IMAPParserLimits(
-        bodySizeLimit: UInt64(RegistrationStore.imapMessageLimit), messageAttributeLimit: 64))
+        bodySizeLimit: UInt64(literalLimit), messageAttributeLimit: 64))
     do {
       try await server.connect()
       do {
@@ -365,13 +366,20 @@ struct SwiftMailImap: ImapProvider {
   func headers(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
   ) async throws -> [ImapHeaders] {
-    try await session(account, password) { server in
+    // Each message's fields are bounded like the MIME header budget, so at most
+    // `imapHeaderMessages` of them are buffered; a larger declaration refuses the whole read.
+    try await session(account, password, literalLimit: RegistrationStore.imapHeaderLimit) { server in
       let selection = try await Self.examine(server, folder: folder)
       guard selection.uidValidity.value == uidValidity else { throw ImapFailure.changed }
       // BODY.PEEK[HEADER.FIELDS (...)] alone: no body part is requested or received.
-      let infos = try await server.fetchMessageInfosBulk(
-        using: UIDSet(uids.map(UID.init)), options: [],
-        headerFields: ["Content-Type", "Content-Disposition"])
+      let infos: [MessageInfo]
+      do {
+        infos = try await server.fetchMessageInfosBulk(
+          using: UIDSet(uids.map(UID.init)), options: [],
+          headerFields: ["Content-Type", "Content-Disposition"])
+      } catch where String(reflecting: Swift.type(of: error)).hasSuffix("IMAPDecoderError") {
+        throw ImapFailure.tooLarge
+      }
       return infos.compactMap { info in
         info.uid.map { uid in
           ImapHeaders(
@@ -661,6 +669,9 @@ struct SwiftMailImap: ImapProvider {
 extension RegistrationStore {
   // Bounds a message read: the same per-message limit as Gmail's received mail.
   nonisolated static let imapMessageLimit = 40 * 1024 * 1024
+  // Bounds a prefetch header preflight: the MIME header budget per message, 20 messages per read.
+  nonisolated static let imapHeaderLimit = 256 * 1024
+  nonisolated static let imapHeaderMessages = 20
 
   // The connection's IMAP account and password, while it is connected and still this account.
   func imapConnection(_ id: String) throws -> (ImapAccount, String, MailboxConnection) {
@@ -849,12 +860,13 @@ extension RegistrationStore {
     return ["data": raw.base64EncodedString()]
   }
 
-  // The Content-Type and Content-Disposition fields of up to 500 messages, without their bodies.
+  // The Content-Type and Content-Disposition fields of up to 20 messages, without their bodies.
   func imapHeaders(
     connection: String, address: String, generation: String, folder: String, uidValidity: UInt32,
     uids: [UInt32]
   ) async throws -> [String: Any] {
-    guard Self.imapFolderName(folder), uidValidity > 0, (1...500).contains(uids.count),
+    guard Self.imapFolderName(folder), uidValidity > 0,
+      (1...Self.imapHeaderMessages).contains(uids.count),
       uids.allSatisfy({ $0 > 0 })
     else { throw RegistrationError.unavailable }
     let found = try await imapWork(connection: connection, address: address, generation: generation) {

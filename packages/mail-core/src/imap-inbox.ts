@@ -573,11 +573,12 @@ const textOf = (part: GmailPart) =>
     ),
   );
 
+type HeaderFields = ReadonlyArray<Readonly<{ name: string; value: string }>>;
+// Messages per header preflight: the native read bounds each one's fields to 256 KiB.
+const preflightSize = 20;
 // Whether a message's Content-Type and Content-Disposition fields describe one plain-text or HTML
 // part, parsed as its full source would be.
-const describesReadablePart = (
-  fields: ReadonlyArray<Readonly<{ name: string; value: string }>>,
-) => {
+const describesReadablePart = (fields: HeaderFields) => {
   const described = parseMime(
     new TextEncoder().encode(
       `${fields.map(({ name, value }) => `${name}: ${value}\r\n`).join('')}\r\n`,
@@ -2005,10 +2006,46 @@ export function createImapInbox(
     shownStatus === 'retry';
   // Only a single plain-text or HTML part is saved; any other message, or one too large or
   // unreadable, gets an exclusion marker so later selections leave it on demand.
+  // Waits while an explicit read waits or runs anywhere on the device; true once prefetch pauses.
+  const yielded = (scope: Scope) =>
+    shared.idle.await.pipe(Effect.map(() => prefetchPaused(scope)));
+  // The Content-Type and Content-Disposition fields of up to `preflightSize` still-present messages,
+  // read without any body. Fields beyond the native per-message bound leave every message of the
+  // read without fields.
+  const preflight = (
+    scope: Scope,
+    uidValidity: number,
+    messages: readonly ImapMessage[],
+  ) =>
+    speculativeLoad(
+      call(() =>
+        native.imapHeaders(scope, {
+          folder: inboxFolder,
+          uidValidity,
+          uids: messages.map(({ uid }) => uid),
+        }),
+      ),
+    ).pipe(
+      Effect.flatMap((reply) =>
+        decodeHeaders(reply).pipe(Effect.mapError(malformed)),
+      ),
+      Effect.map(
+        (reply): ReadonlyMap<number, HeaderFields | undefined> =>
+          new Map(reply.messages.map(({ uid, headers }) => [uid, headers])),
+      ),
+      Effect.catchIf(
+        ({ kind }: Failure) => kind === 'too-large',
+        () =>
+          Effect.succeed(
+            new Map(messages.map(({ uid }) => [uid, undefined] as const)),
+          ),
+      ),
+    );
+  // Without fields, the message's header fields were too large to read and it stays on demand.
   const prefetchBody = Effect.fnUntraced(function* (
     scope: Scope,
     message: ImapMessage,
-    fields: ReadonlyArray<Readonly<{ name: string; value: string }>>,
+    fields: HeaderFields | undefined,
   ) {
     const pending = yield* Deferred.make<undefined>();
     speculative.set(message.id, pending);
@@ -2047,7 +2084,9 @@ export function createImapInbox(
         if (stored.includes(message.id) || prefetchPaused(scope)) {
           return Effect.void;
         }
-        return describesReadablePart(fields) ? download : keep(scope, excluded);
+        return fields !== undefined && describesReadablePart(fields)
+          ? download
+          : keep(scope, excluded);
       }),
       Effect.ensuring(
         Effect.suspend(() => {
@@ -2080,6 +2119,24 @@ export function createImapInbox(
       return message === undefined || saved.has(id) ? [] : [message];
     });
   });
+  // Prefetches one preflight's messages in order; false once prefetch pauses.
+  const prefetchChunk = Effect.fnUntraced(function* (
+    scope: Scope,
+    uidValidity: number,
+    chunk: readonly ImapMessage[],
+  ) {
+    const headers = yield* preflight(scope, uidValidity, chunk);
+    for (const message of chunk) {
+      if (yield* yielded(scope)) {
+        return false;
+      }
+      // An expunged message or one an explicit read is saving needs no prefetch.
+      if (headers.has(message.uid) && !reading.has(message.id)) {
+        yield* prefetchBody(scope, message, headers.get(message.uid));
+      }
+    }
+    return true;
+  });
   // One speculative lane: the Inbox's recent working set, newest first. A body-free read of every
   // unsaved message's Content-Type and Content-Disposition chooses which sources to read, so no
   // attachment is downloaded speculatively.
@@ -2092,35 +2149,12 @@ export function createImapInbox(
     if (wanted.length === 0) {
       return;
     }
-    yield* shared.idle.await;
-    if (prefetchPaused(scope)) {
-      return;
-    }
-    const preflight = yield* speculativeLoad(
-      call(() =>
-        native.imapHeaders(scope, {
-          folder: inboxFolder,
-          uidValidity: inbox.uidValidity,
-          uids: wanted.map(({ uid }) => uid),
-        }),
-      ),
-    ).pipe(
-      Effect.flatMap((reply) =>
-        decodeHeaders(reply).pipe(Effect.mapError(malformed)),
-      ),
-    );
-    const headers = new Map(
-      preflight.messages.map(({ uid, headers: fields }) => [uid, fields]),
-    );
-    for (const message of wanted) {
-      yield* shared.idle.await;
-      if (prefetchPaused(scope)) {
+    for (const chunk of Arr.chunksOf(wanted, preflightSize)) {
+      if (
+        (yield* yielded(scope)) ||
+        !(yield* prefetchChunk(scope, inbox.uidValidity, chunk))
+      ) {
         return;
-      }
-      const fields = headers.get(message.uid);
-      // An expunged message or one an explicit read is saving needs no prefetch.
-      if (fields !== undefined && !reading.has(message.id)) {
-        yield* prefetchBody(scope, message, fields);
       }
     }
   });

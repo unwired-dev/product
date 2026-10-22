@@ -248,6 +248,27 @@ describe('imap recent-body prefetch', () => {
     });
   });
 
+  it('keeps messages on demand without reading their sources when their header fields are too large to read', async () => {
+    expect.hasAssertions();
+    const { imap, ids } = recentInbox();
+    vi.spyOn(imap.native, 'imapHeaders').mockRejectedValueOnce(
+      rejection('too-large'),
+    );
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect([...imap.tiers]).toStrictEqual([
+        [ids.plain, 'excluded'],
+        [ids.html, 'excluded'],
+        [ids.attached, 'excluded'],
+      ]);
+    });
+    expect(
+      imap.server.reads.filter((read) => read.startsWith('message ')),
+    ).toStrictEqual([]);
+  });
+
   it('shares an in-flight prefetch with an explicit open of the same message', async () => {
     expect.hasAssertions();
     const { imap, uids, ids } = recentInbox();

@@ -221,8 +221,8 @@ extension PrivateInboxTests {
       (headers["messages"] as? [[String: Any]])?.first?["headers"] as? [[String: String]] == [
         ["name": "content-type", "value": "text/plain"]
       ])
-    // A preflight names between one and 500 messages.
-    for uids in [[], [UInt32](repeating: 11, count: 501), [0]] {
+    // A preflight names between one and 20 messages.
+    for uids in [[], [UInt32](repeating: 11, count: 21), [0]] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.imapHeaders(
           connection: id, address: "alex@example.invalid", generation: generation,
@@ -451,6 +451,12 @@ extension PrivateInboxTests {
     await #expect(throws: ImapFailure.changed) {
       _ = try await provider.headers(
         account, password: "synthetic-password", folder: "INBOX", uidValidity: 8, uids: [11])
+    }
+    // The server declares header fields beyond the per-message bound and sends none of them: the
+    // read is refused before buffering, without waiting for SwiftMail's command timeout.
+    await #expect(throws: ImapFailure.tooLarge) {
+      _ = try await provider.headers(
+        account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uids: [12])
     }
     await #expect(throws: ImapFailure.changed) {
       _ = try await provider.message(

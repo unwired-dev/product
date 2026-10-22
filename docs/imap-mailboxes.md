@@ -236,8 +236,10 @@ before they are opened, under Gmail's
 - **Selection.** After each successful Inbox synchronization, the cached newest 200
   Inbox messages received in the 30 days up to that synchronization are read newest
   first. Other folders and messages already saved or marked are not read.
-- **Preflight.** One read of the selected messages' Content-Type and
-  Content-Disposition fields, without any body, decides which sources to read. Only a
+- **Preflight.** Reads of the selected messages' Content-Type and Content-Disposition
+  fields, 20 messages at a time and without any body, decide which sources to read.
+  Each message's fields are bounded to 256 KiB, the MIME header budget; a read the
+  server answers beyond that keeps its messages on demand with exclusion markers. Only a
   message that is a single plain-text or HTML part, with well-formed MIME fields within
   their budgets, is read and saved; the source is checked again before saving. Any
   other message, one over 40 MB or one that cannot be read, gets an encrypted

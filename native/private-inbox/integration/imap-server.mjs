@@ -309,12 +309,21 @@ const answerFetch = (socket, session, { tag, command }) => {
   if (section !== undefined) {
     // Prefetch's preflight names only MIME header fields: no body, size or structure.
     operations.add('mime-headers');
-    assert.match(command, /^UID FETCH 11 /u);
     assert.match(section, /CONTENT-TYPE/iu);
     assert.doesNotMatch(
       command,
       /ENVELOPE|RFC822|BODYSTRUCTURE|BODY\.PEEK\[\]/u,
     );
+    if (command.startsWith('UID FETCH 12 ')) {
+      // Fields declared beyond the per-message bound, with no bytes: the native parser must
+      // refuse before buffering them; a timeout is a regression.
+      operations.add('oversized-headers');
+      socket.write(
+        `* 1 FETCH (UID 12 BODY[${section}] {${256 * 1024 + 1}}\r\n`,
+      );
+      return;
+    }
+    assert.match(command, /^UID FETCH 11 /u);
     const fields = 'Content-Type: text/plain;\r\n charset=utf-8\r\n\r\n';
     socket.write(
       `* 1 FETCH (UID 11 BODY[${section}] {${fields.length}}\r\n${fields})\r\n${tag} OK Read\r\n`,
@@ -504,6 +513,7 @@ process.on('SIGTERM', () => {
       'namespace',
       'namespace-refused',
       'oversized',
+      'oversized-headers',
       'refused',
       'search',
       'select',
