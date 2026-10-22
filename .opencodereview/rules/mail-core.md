@@ -304,6 +304,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   windows/connections multiply native sessions and MIME allocations, while Gmail
   speculation competes with explicit IMAP downloads.
 
+- `imap-inbox.ts.sourceOf` releasing `explicitLoad`'s connection/device permits
+  when an Effect is interrupted but the native `imapMessage` transfer continues.
+  Trace cancellation through the actual bridge task, including Cancel, last-reader
+  cleanup and retry. Until native reads acknowledge cancellation, keep the native
+  call uninterruptible so its permits and interactive ownership remain held until
+  settlement; retain the cancelled attempt's result/save fences. Otherwise repeated
+  cancellation admits more native source reads than the shared load limits allow.
+
 - `createMailboxes` retaining a ready/authentication IMAP Inbox after successful
   password repair without reopening its native generation, or inferring repair
   from every newly published registration snapshot. Send a success-only,
@@ -1155,6 +1163,22 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   downloads. Trace `downloadAttachment`'s late-save fence and `presentAttachment`
   after refresh; otherwise a replacement at the same position appears downloaded
   and Open/Share serves the previous file, or a cancelled save restores stale bytes.
+- `imap-inbox.ts.retireSuperseded` relying on a prior cached folder checkpoint to
+  invalidate received attachments. Readers and online search can retain messages
+  after that checkpoint is evicted or without one ever being cached. After successful
+  cache adoption, compare retained messages' exact folder and UIDVALIDITY with the
+  committed identity and retire saved and in-flight downloads from other generations.
+  Apply the same identity check when a pending body later installs its descriptors,
+  or a superseded row can offer a Download that permanently refuses to run. Preserve
+  unchanged generations and distinct folders with overlapping names. Search replies,
+  refused source reads and failed cache commits do not retire other attachments;
+  their identity follows the committed cache, as saved bodies do. Otherwise private
+  files and late saves survive a committed UIDVALIDITY reset.
+- `attachment-downloads.ts` using an unescaped delimiter prefix to identify a
+  message's downloads during discard or descriptor reconciliation. IMAP message IDs
+  contain server-controlled folder names, including delimiters. Preserve exact
+  message ownership in composite keys; otherwise closing one reader deletes another
+  message's saved files while its cached rows still claim they are downloaded.
 - `mailbox-matching.ts.folded` implementing case-insensitive sender/subject search with
   lowercasing alone or ordering normalization, accent removal and case mapping so equivalent
   text gets different search keys. Check sharp S in both cases, dotted/dotless I,

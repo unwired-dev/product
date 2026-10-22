@@ -394,18 +394,20 @@
     "imap-download": "This message is not saved on this device, and the mail server could not be reached to download it.",
     "imap-authentication": "The mail server needs your password again to download this message.",
     "imap-missing": "This message is no longer in this folder on the mail server.",
-    "too-large": "This message is too large to open on this device.",
-    "imap-attachments_one": "This message has {{count}} attachment. Attachments from IMAP mailboxes cannot be opened here yet.",
-    "imap-attachments_other": "This message has {{count}} attachments. Attachments from IMAP mailboxes cannot be opened here yet."
+    "too-large": "This message is too large to open on this device."
   },
   "attachment": {
     "oversized": "Too large to download on this device.",
     "download": "{{provider}} could not be reached to download this attachment.",
+    "download_imap": "The mail server could not be reached to download this attachment.",
     "authentication": "{{provider}} needs your permission again to download this attachment.",
+    "authentication_imap": "The mail server needs your password again to download this attachment.",
     "missing": "This attachment is no longer in {{provider}}.",
+    "missing_imap": "This attachment is no longer in this folder on the mail server.",
     "locked": "Private storage is locked. Unlock your device and try again.",
     "failed": "This attachment could not be saved on this device.",
     "damaged": "{{provider}} sent an incomplete or damaged copy of this attachment.",
+    "damaged_imap": "The mail server sent an incomplete or damaged copy of this attachment.",
     "bytes_one": "{{size}} byte",
     "bytes_other": "{{size}} bytes",
     "kilobytes": "{{size}} KB",

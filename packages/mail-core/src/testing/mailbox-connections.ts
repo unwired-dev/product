@@ -90,12 +90,21 @@ export function syntheticConnections(
         server(mailbox.connection) ?? of(mailbox.connection)
       )?.retainMessageBodies(mailbox, ids, protectedIds) ?? missing(),
     saveAttachment: (mailbox, attachment) =>
-      of(mailbox.connection)?.saveAttachment(mailbox, attachment) ?? missing(),
+      (server(mailbox.connection) ?? of(mailbox.connection))?.saveAttachment(
+        mailbox,
+        attachment,
+      ) ?? missing(),
     discardAttachment: (mailbox, file) =>
-      of(mailbox.connection)?.discardAttachment(mailbox, file) ?? missing(),
+      (server(mailbox.connection) ?? of(mailbox.connection))?.discardAttachment(
+        mailbox,
+        file,
+      ) ?? missing(),
     presentAttachment: (mailbox, file, action) =>
-      of(mailbox.connection)?.presentAttachment(mailbox, file, action) ??
-      missing(),
+      (server(mailbox.connection) ?? of(mailbox.connection))?.presentAttachment(
+        mailbox,
+        file,
+        action,
+      ) ?? missing(),
     openRemoteContent: (mailbox, resource) =>
       of(mailbox.connection)?.openRemoteContent(mailbox, resource) ?? missing(),
     touchRemoteContent: (mailbox, resource) =>
