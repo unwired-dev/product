@@ -220,7 +220,9 @@ Records contain only lifecycle event names, process/session identity, window
 counts and tick counts. With that path, the probe also records each primary mouse
 press and release and observed main-queue delays of 100 ms or longer, with their uptime
 and duration, for the
-[performance journey](agents/native-validation.md#mac-performance-journey). Release compiles out the probe and timer. Ordinary local
+[performance journey](agents/native-validation.md#mac-performance-journey). In
+registration Mock Mail Sessions, the synthetic relay also appends the uptime of
+each provider body request, with no URL or message content. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
 
 The lifecycle JSONL is an XCTest attachment and remains in the runner's evidence directory.

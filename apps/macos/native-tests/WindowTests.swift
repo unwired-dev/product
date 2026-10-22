@@ -1027,6 +1027,9 @@ final class WindowTests: XCTestCase {
     }
     let presses = try times("mouse-down")
     let releases = try times("mouse-up")
+    // Body requests the synthetic providers answered; priming the cache must have made some.
+    let providerBodies = try times("provider-body")
+    XCTAssertFalse(providerBodies.isEmpty, "The probe recorded no provider body request")
     let stalls = try records.filter { $0.event == "stall" }.map {
       (uptime: try XCTUnwrap($0.uptime), milliseconds: try XCTUnwrap($0.milliseconds))
     }
@@ -1044,6 +1047,12 @@ final class WindowTests: XCTestCase {
           "Missing mouse release for \(group.name)")
         pressToRelease.append(release - press)
         return (release, window.end)
+      }
+      // A cached body is read from the encrypted cache, never from the provider.
+      if group.name.hasPrefix("cached-body") {
+        XCTAssertFalse(
+          providerBodies.contains { body in group.windows.contains { $0.start...$0.end ~= body } },
+          "\(group.name) requested a provider body")
       }
       let samples = windows.map { $0.end - $0.start }.sorted()
       // Nearest-rank percentiles.

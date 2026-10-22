@@ -31,12 +31,26 @@
 
     // One synthetic provider or backend answer: the JSON value JavaScript replied with.
     @MainActor static func ask(_ operation: String, _ payload: [String: Any]) async throws -> Any {
-      try await withCheckedThrowingContinuation { answer in
+      recordBodyRead(payload)
+      return try await withCheckedThrowingContinuation { answer in
         let id = UUID().uuidString
         waiting[id] = answer
         queued.append(["id": id, "operation": operation, "payload": payload])
         flush()
       }
+    }
+    // Mac timing journeys prove cached-body samples read no provider body: with the runner's
+    // lifecycle path, each Gmail or Graph body request appends its uptime there, nothing else.
+    @MainActor private static func recordBodyRead(_ payload: [String: Any]) {
+      guard let path = ProcessInfo.processInfo.environment["UNWIRED_LIFECYCLE_PATH"],
+        let url = payload["url"] as? String,
+        url.contains("format=full") || url.contains("$select=body"),
+        let handle = FileHandle(forWritingAtPath: path)
+      else { return }
+      let uptime = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e6
+      handle.seekToEndOfFile()
+      handle.write(Data("{\"event\":\"provider-body\",\"uptime\":\(uptime)}\n".utf8))
+      try? handle.close()
     }
     @MainActor private static func flush() {
       guard let listener else { return }

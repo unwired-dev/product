@@ -78,7 +78,8 @@ the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md)
 ### Mac performance journey
 
 On the Mac, the `testWarmCachePerformance` journey measures the budgets above
-except typing and formatting feedback. Build the `Testing` configuration, which
+except Mail View switching and typing and formatting feedback, which remain
+deferred. Build the `Testing` configuration, which
 is Release-optimized with packaged JavaScript plus the test-only probes, with
 `UNWIRED_MOCK_SCENARIO=registration-performance`, then run it with the
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
@@ -96,7 +97,9 @@ lists, 21 switches between both Inboxes and All inboxes, 10 body openings per
 mailbox and 10 openings each of an empty composer and a saved Draft. Closing a
 composer currently crashes the Mac host
 ([#1174](https://github.com/unwired-dev/product/issues/1174)), so each composer
-sample is the first composer of a relaunched process.
+sample is the first composer of a relaunched process. The synthetic relay
+records each provider body request in the probe evidence; the journey fails if a
+cached-body sample requested one, or if priming recorded none.
 
 A click sample runs from the mouse release, recorded by the app on the same
 uptime clock, until an accessibility query finds the rendered result. A launch
@@ -114,8 +117,8 @@ The journey writes one `PERFORMANCE` JSON line per interaction to
 `xcodebuild.log` and the same lines as an XCTest attachment. Each line has the
 samples, p50, p95, maximum, budget and stalls. The final line has the
 query overhead, the synthetic press duration and every session stall. It
-measures neither typing nor formatting feedback, keyboard or accessibility
-journeys, nor the iPhone and iPad references.
+measures neither Mail View switching, typing nor formatting feedback, keyboard or
+accessibility journeys, nor the iPhone and iPad references.
 
 ## Report what the evidence proves
 
