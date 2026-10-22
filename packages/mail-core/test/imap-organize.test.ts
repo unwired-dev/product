@@ -596,11 +596,11 @@ describe('searching IMAP mail at the server', () => {
     const imap = organizedServer();
     imap.deliver('INBOX', {
       subject: 'Invoice in Inbox',
-      received: Date.UTC(2026, 9, 1),
+      received: Date.UTC(2020, 0, 2),
     });
     imap.deliver('Archive', {
       subject: 'Archived invoice',
-      received: Date.UTC(2026, 9, 2),
+      received: Date.UTC(2020, 0, 3),
     });
     imap.deliver('Deleted Messages', { subject: 'Deleted invoice' });
     for (let index = 0; index < 50; index += 1) {
