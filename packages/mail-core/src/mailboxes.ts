@@ -152,6 +152,10 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
     message: Parameters<NativeImapMailbox['imapMessage']>[1],
   ) => Promise<unknown>;
+  readonly imapHeaders: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapHeaders']>[1],
+  ) => Promise<unknown>;
   readonly imapModify: (
     mailbox: Scope,
     change: Parameters<NativeImapMailbox['imapModify']>[1],
@@ -263,6 +267,8 @@ const boundImap = (
       native.imapSynchronize(scope(mailbox), request),
     imapMessage: (mailbox, message) =>
       native.imapMessage(scope(mailbox), message),
+    imapHeaders: (mailbox, request) =>
+      native.imapHeaders(scope(mailbox), request),
     imapModify: (mailbox, change) => native.imapModify(scope(mailbox), change),
     imapSearch: (mailbox, request) =>
       native.imapSearch(scope(mailbox), request),

@@ -1269,6 +1269,26 @@ extension UnwiredRegistration {
     }
   }
 
+  // `request` names `{ folder, uidValidity, uids }`; a changed UIDVALIDITY reads nothing.
+  @objc(imapHeaders:request:resolver:rejecter:)
+  func imapHeaders(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapHeaders", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let validity = (request["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
+        let requested = request["uids"] as? [Double]
+      else { throw RegistrationError.unavailable }
+      let uids = requested.compactMap { UInt32(exactly: $0) }
+      guard uids.count == requested.count else { throw RegistrationError.unavailable }
+      return try await $0.imapHeaders(
+        connection: connection, address: address, generation: generation, folder: folder,
+        uidValidity: validity, uids: uids)
+    }
+  }
+
   // `change` names `{ folder, uidValidity, uid }` and exactly one of `read` or `destination`.
   @objc(imapModify:change:resolver:rejecter:)
   func imapModify(

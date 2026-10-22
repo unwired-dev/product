@@ -122,6 +122,17 @@ struct ImapEnvelope: Sendable, Equatable {
   let subject: String
 }
 
+// A message's Content-Type and Content-Disposition fields, unfolded, read without its body.
+struct ImapHeaders: Sendable, Equatable {
+  let uid: UInt32
+  let fields: [ImapHeaderField]
+}
+
+struct ImapHeaderField: Sendable, Equatable {
+  let name: String
+  let value: String
+}
+
 // What a folder synchronization read: its identity, new or listed messages, and the flags of the
 // already-known messages that remain. `reset` lists the newest messages afresh.
 struct ImapFolderState: Sendable, Equatable {
@@ -150,6 +161,10 @@ protocol ImapProvider: Sendable {
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uid: UInt32,
     limit: Int
   ) async throws -> Data
+  // The MIME header fields of each message still in the folder, read without any body.
+  func headers(
+    _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
+  ) async throws -> [ImapHeaders]
   // Applies one change; a UIDVALIDITY that no longer matches changes nothing.
   func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
     -> ImapOutcome
@@ -344,6 +359,28 @@ struct SwiftMailImap: ImapProvider {
       let raw = try await server.fetchRawMessage(identifier: UID(uid))
       guard raw.count <= limit else { throw ImapFailure.tooLarge }
       return raw
+    }
+  }
+
+  func headers(
+    _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
+  ) async throws -> [ImapHeaders] {
+    try await session(account, password) { server in
+      let selection = try await Self.examine(server, folder: folder)
+      guard selection.uidValidity.value == uidValidity else { throw ImapFailure.changed }
+      // BODY.PEEK[HEADER.FIELDS (...)] alone: no body part is requested or received.
+      let infos = try await server.fetchMessageInfosBulk(
+        using: UIDSet(uids.map(UID.init)), options: [],
+        headerFields: ["Content-Type", "Content-Disposition"])
+      return infos.compactMap { info in
+        info.uid.map { uid in
+          ImapHeaders(
+            uid: uid.value,
+            fields: (info.additionalHeaderFields ?? []).map {
+              ImapHeaderField(name: $0.name, value: $0.value)
+            })
+        }
+      }
     }
   }
 
@@ -587,6 +624,12 @@ struct SwiftMailImap: ImapProvider {
     ) async throws -> Data {
       throw ImapFailure.offline
     }
+    func headers(
+      _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32,
+      uids: [UInt32]
+    ) async throws -> [ImapHeaders] {
+      throw ImapFailure.offline
+    }
     func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
       -> ImapOutcome
     {
@@ -804,5 +847,27 @@ extension RegistrationStore {
         limit: Self.imapMessageLimit)
     }
     return ["data": raw.base64EncodedString()]
+  }
+
+  // The Content-Type and Content-Disposition fields of up to 500 messages, without their bodies.
+  func imapHeaders(
+    connection: String, address: String, generation: String, folder: String, uidValidity: UInt32,
+    uids: [UInt32]
+  ) async throws -> [String: Any] {
+    guard Self.imapFolderName(folder), uidValidity > 0, (1...500).contains(uids.count),
+      uids.allSatisfy({ $0 > 0 })
+    else { throw RegistrationError.unavailable }
+    let found = try await imapWork(connection: connection, address: address, generation: generation) {
+      try await imap.headers(
+        $0, password: $1, folder: folder, uidValidity: uidValidity, uids: uids)
+    }
+    return [
+      "messages": found.map { message in
+        [
+          "uid": Double(message.uid),
+          "headers": message.fields.map { ["name": $0.name, "value": $0.value] },
+        ] as [String: Any]
+      }
+    ]
   }
 }

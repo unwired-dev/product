@@ -185,6 +185,19 @@ export const decodeFolderRead = Schema.decodeUnknownEffect(FolderReadSchema);
 export const decodeRaw = Schema.decodeUnknownEffect(
   Schema.Struct({ data: Schema.String }),
 );
+// Each still-present message's Content-Type and Content-Disposition fields, unfolded.
+export const decodeHeaders = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    messages: Schema.Array(
+      Schema.Struct({
+        uid: Uid,
+        headers: Schema.Array(
+          Schema.Struct({ name: Schema.String, value: Schema.String }),
+        ),
+      }),
+    ),
+  }),
+);
 export const decodeBodyCommit = Schema.decodeUnknownEffect(
   Schema.Struct({ admitted: Schema.Boolean }),
 );

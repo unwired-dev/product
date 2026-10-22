@@ -42,6 +42,20 @@ const envelope = ({ raw, ...message }: Readonly<ServerMessage>) => ({
   size: raw.length,
 });
 
+// The message's Content-Type and Content-Disposition fields, unfolded, as a header-only FETCH
+// reports them.
+const mimeHeaders = (raw: string) =>
+  (raw.split(/\r\n\r\n/u)[0] ?? '')
+    .replaceAll(/\r\n[ \t]+/gu, ' ')
+    .split('\r\n')
+    .flatMap((line) => {
+      const match =
+        /^(?<name>content-(?:type|disposition)):\s*(?<value>.*)$/iu.exec(line);
+      return match?.groups === undefined
+        ? []
+        : [{ name: match.groups.name ?? '', value: match.groups.value ?? '' }];
+    });
+
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error(`Synthetic ${code}`), { code }));
 
@@ -120,6 +134,8 @@ export function createSyntheticImap({
     commits: 0,
   };
   const bodies = new Map<string, string>();
+  // Each saved body's eviction tier: opened, prefetched, or an exclusion marker.
+  const tiers = new Map<string, string>();
   // Downloaded Attachments native code saved for the connection.
   const files = createSyntheticAttachments(
     (owner) => owner.generation === cache.generation,
@@ -134,6 +150,19 @@ export function createSyntheticImap({
   };
   const reach = () =>
     server.failure === undefined ? undefined : rejection(server.failure);
+  // The folder a message read names at its UIDVALIDITY, or the server's rejection.
+  const examined = (
+    request: Readonly<{ folder: string; uidValidity: number }>,
+  ) => {
+    const failed = reach();
+    if (failed !== undefined) {
+      return failed;
+    }
+    const current = folder(request.folder);
+    return current.uidValidity === request.uidValidity
+      ? current
+      : rejection('imap-changed');
+  };
 
   // Applies or loses a change's reply, as the connection would.
   const answer = (reply: unknown) => {
@@ -417,13 +446,9 @@ export function createSyntheticImap({
     },
     imapMessage: (_mailbox, request) => {
       server.reads.push(`message ${request.folder} ${request.uid}`);
-      const failed = reach();
-      if (failed !== undefined) {
-        return failed;
-      }
-      const current = folder(request.folder);
-      if (current.uidValidity !== request.uidValidity) {
-        return rejection('imap-changed');
+      const current = examined(request);
+      if (current instanceof Promise) {
+        return current;
       }
       const message = current.messages.find(({ uid }) => uid === request.uid);
       return message === undefined
@@ -431,6 +456,19 @@ export function createSyntheticImap({
         : Promise.resolve({
             data: Base64.encode(new TextEncoder().encode(message.raw)),
           });
+    },
+    imapHeaders: (_mailbox, request) => {
+      server.reads.push(`headers ${request.folder} ${request.uids.join(',')}`);
+      const current = examined(request);
+      if (current instanceof Promise) {
+        return current;
+      }
+      const wanted = new Set(request.uids);
+      return Promise.resolve({
+        messages: current.messages
+          .filter(({ uid }) => wanted.has(uid))
+          .map(({ uid, raw }) => ({ uid, headers: mimeHeaders(raw) })),
+      });
     },
     openMailbox: () =>
       Promise.resolve({
@@ -458,12 +496,15 @@ export function createSyntheticImap({
       Promise.resolve({ document: bodies.get(id) ?? null }),
     commitMessageBody: (_mailbox, id, admission) => {
       bodies.set(id, admission.document);
+      tiers.set(id, admission.tier);
       return Promise.resolve({ admitted: true });
     },
     listMessageBodies: (_mailbox, ids) =>
       Promise.resolve({
         stored: ids.filter((id) => bodies.has(id)),
-        excluded: [],
+        excluded: ids.filter(
+          (id) => bodies.has(id) && tiers.get(id) === 'excluded',
+        ),
       }),
     ...files.native,
     // Removes every body not named, only at the cache revision the caller read.
@@ -487,6 +528,7 @@ export function createSyntheticImap({
     smtp,
     cache,
     bodies,
+    tiers,
     files,
     ...remote.controls,
     // Ends every IDLE wait, as a change to the watched folder or the wait's bound would.
@@ -513,7 +555,8 @@ export function createSyntheticImap({
       current.messages.push({
         uid,
         flags: message.flags ?? [],
-        received: message.received ?? Date.UTC(2026, 9, 1, 9, uid),
+        // Older than any recent working set, so only mail a test dates is prefetched.
+        received: message.received ?? Date.UTC(2020, 0, 1, 9, uid),
         sender: 'Synthetic Sender',
         address: 'sender@example.invalid',
         subject: message.subject,

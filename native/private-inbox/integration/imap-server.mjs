@@ -295,6 +295,56 @@ const answerChange = (socket, session, { tag, command }) => {
   }
   return true;
 };
+// Answers a FETCH: prefetch's MIME header fields, a message body, or metadata.
+// fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
+const answerFetch = (socket, session, { tag, command }) => {
+  assert.ok(
+    session.identified,
+    'An unidentified folder must not fetch messages',
+  );
+  assert.ok(!command.includes('BODY['), 'Body reads must use PEEK');
+  const section = /BODY\.PEEK\[(?<fields>HEADER\.FIELDS \([^)]*\))\]/u.exec(
+    command,
+  )?.groups?.fields;
+  if (section !== undefined) {
+    // Prefetch's preflight names only MIME header fields: no body, size or structure.
+    operations.add('mime-headers');
+    assert.match(command, /^UID FETCH 11 /u);
+    assert.match(section, /CONTENT-TYPE/iu);
+    assert.doesNotMatch(
+      command,
+      /ENVELOPE|RFC822|BODYSTRUCTURE|BODY\.PEEK\[\]/u,
+    );
+    const fields = 'Content-Type: text/plain;\r\n charset=utf-8\r\n\r\n';
+    socket.write(
+      `* 1 FETCH (UID 11 BODY[${section}] {${fields.length}}\r\n${fields})\r\n${tag} OK Read\r\n`,
+    );
+  } else if (command.includes('BODY.PEEK[]')) {
+    operations.add('body');
+    if (command.startsWith('UID FETCH 12 ')) {
+      operations.add('oversized');
+      // Send only the hostile declaration. The native parser must refuse before waiting
+      // for or retaining payload; a timeout is a regression, not a passing refusal.
+      socket.write(`* 1 FETCH (UID 12 BODY[] {${40 * 1024 * 1024 + 1}}\r\n`);
+    } else {
+      assert.match(command, /^UID FETCH 11 /u);
+      socket.write(`* 1 FETCH (UID 11 BODY[] {${raw.length}}\r\n`);
+      socket.write(raw);
+      socket.write(`)\r\n${tag} OK Read\r\n`);
+    }
+  } else {
+    assertResumed(command, session);
+    operations.add(command.includes('ENVELOPE') ? 'metadata' : 'flags-or-size');
+    const named = command.startsWith('UID FETCH 12 ') ? 12 : 11;
+    const fields = metadataFields(command, session.large ? 511 : named);
+    socket.write(
+      `* ${session.large ? 500 : 1} FETCH (${fields.join(' ')})\r\n`,
+    );
+    socket.write(`${tag} OK Completed
+`);
+  }
+};
+
 const sockets = new Set();
 let connected = 0;
 let closed = 0;
@@ -384,38 +434,7 @@ const server = tls.createServer(
         listFolders(socket, command, overflowing);
         ok();
       } else if (/^(?:UID )?FETCH /u.test(command)) {
-        assert.ok(
-          session.identified,
-          'An unidentified folder must not fetch messages',
-        );
-        assert.ok(!command.includes('BODY['), 'Body reads must use PEEK');
-        if (command.includes('BODY.PEEK[]')) {
-          operations.add('body');
-          if (command.startsWith('UID FETCH 12 ')) {
-            operations.add('oversized');
-            // Send only the hostile declaration. The native parser must refuse before waiting
-            // for or retaining payload; a timeout is a regression, not a passing refusal.
-            socket.write(
-              `* 1 FETCH (UID 12 BODY[] {${40 * 1024 * 1024 + 1}}\r\n`,
-            );
-          } else {
-            assert.match(command, /^UID FETCH 11 /u);
-            socket.write(`* 1 FETCH (UID 11 BODY[] {${raw.length}}\r\n`);
-            socket.write(raw);
-            socket.write(`)\r\n${tag} OK Read\r\n`);
-          }
-        } else {
-          assertResumed(command, session);
-          operations.add(
-            command.includes('ENVELOPE') ? 'metadata' : 'flags-or-size',
-          );
-          const named = command.startsWith('UID FETCH 12 ') ? 12 : 11;
-          const fields = metadataFields(command, session.large ? 511 : named);
-          socket.write(
-            `* ${session.large ? 500 : 1} FETCH (${fields.join(' ')})\r\n`,
-          );
-          ok();
-        }
+        answerFetch(socket, session, { tag, command });
       } else if (command === 'LOGOUT') {
         operations.add('logout');
         socket.end(`* BYE Logging out\r\n${tag} OK Logout\r\n`);
@@ -479,6 +498,7 @@ process.on('SIGTERM', () => {
       'list',
       'logout',
       'metadata',
+      'mime-headers',
       'move',
       'move-dropped',
       'move-partial',

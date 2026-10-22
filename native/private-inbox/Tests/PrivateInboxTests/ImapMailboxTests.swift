@@ -50,6 +50,14 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
     try record("message \(folder) \(uidValidity) \(uid)", password)
     return Data("Subject: Synthetic\r\n\r\nBody".utf8)
   }
+  func headers(
+    _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
+  ) async throws -> [ImapHeaders] {
+    try record("headers \(folder) \(uidValidity) \(uids)", password)
+    return uids.map {
+      ImapHeaders(uid: $0, fields: [ImapHeaderField(name: "content-type", value: "text/plain")])
+    }
+  }
   func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
     -> ImapOutcome
   {
@@ -206,6 +214,21 @@ extension PrivateInboxTests {
       connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
       uidValidity: 7, uid: 11)
     #expect(message["data"] as? String == Data("Subject: Synthetic\r\n\r\nBody".utf8).base64EncodedString())
+    let headers = try await store.imapHeaders(
+      connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
+      uidValidity: 7, uids: [11])
+    #expect(
+      (headers["messages"] as? [[String: Any]])?.first?["headers"] as? [[String: String]] == [
+        ["name": "content-type", "value": "text/plain"]
+      ])
+    // A preflight names between one and 500 messages.
+    for uids in [[], [UInt32](repeating: 11, count: 501), [0]] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.imapHeaders(
+          connection: id, address: "alex@example.invalid", generation: generation,
+          folder: "INBOX", uidValidity: 7, uids: uids)
+      }
+    }
     #expect(folders["moves"] as? Bool == true && folders["idle"] as? Bool == false)
 
     // Organizing changes one identified message; a move reports where the server put it.
@@ -416,6 +439,19 @@ extension PrivateInboxTests {
       account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uid: 11,
       limit: RegistrationStore.imapMessageLimit)
     #expect(String(decoding: raw, as: UTF8.self).hasSuffix("Controlled body\r\n"))
+    // Prefetch's preflight reads only the MIME header fields, unfolded, and no body.
+    let described = try await provider.headers(
+      account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uids: [11])
+    #expect(
+      described == [
+        ImapHeaders(
+          uid: 11,
+          fields: [ImapHeaderField(name: "content-type", value: "text/plain; charset=utf-8")])
+      ])
+    await #expect(throws: ImapFailure.changed) {
+      _ = try await provider.headers(
+        account, password: "synthetic-password", folder: "INBOX", uidValidity: 8, uids: [11])
+    }
     await #expect(throws: ImapFailure.changed) {
       _ = try await provider.message(
         account, password: "synthetic-password", folder: "INBOX", uidValidity: 8, uid: 11,

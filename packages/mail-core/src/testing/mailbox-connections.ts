@@ -30,6 +30,8 @@ export function syntheticConnections(
       missing(),
     imapMessage: (mailbox, message) =>
       server(mailbox.connection)?.imapMessage(mailbox, message) ?? missing(),
+    imapHeaders: (mailbox, request) =>
+      server(mailbox.connection)?.imapHeaders(mailbox, request) ?? missing(),
     imapModify: (mailbox, change) =>
       server(mailbox.connection)?.imapModify(mailbox, change) ?? missing(),
     imapSearch: (mailbox, request) =>

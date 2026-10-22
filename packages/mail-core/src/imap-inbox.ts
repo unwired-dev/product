@@ -1,4 +1,6 @@
 import * as Arr from 'effect/Array';
+import * as DateTime from 'effect/DateTime';
+import * as Deferred from 'effect/Deferred';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Base64 from 'effect/encoding/Base64';
@@ -59,6 +61,7 @@ import {
   decodeFolderRead,
   decodeFolders,
   decodeCount,
+  decodeHeaders,
   decodeIdle,
   decodeModify,
   decodeRaw,
@@ -84,6 +87,8 @@ import {
   partText,
   presentation,
   receivedAttachments,
+  recentWorkingSet,
+  singleReadablePart,
 } from './message-body.ts';
 import { parseMime } from './mime.ts';
 import { withoutBcc } from './outgoing-message.ts';
@@ -142,6 +147,17 @@ export interface NativeImapMailbox
   readonly imapMessage: (
     mailbox: Readonly<{ address: string; generation: string }>,
     message: Readonly<{ folder: string; uidValidity: number; uid: number }>,
+  ) => Promise<unknown>;
+  // Resolves `{ messages: [{ uid, headers: [{ name, value }] }] }`: the Content-Type and
+  // Content-Disposition fields of each message still present, without reading any body. Rejects
+  // with `imap-changed` when the folder's UIDVALIDITY no longer matches.
+  readonly imapHeaders: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{
+      folder: string;
+      uidValidity: number;
+      uids: readonly number[];
+    }>,
   ) => Promise<unknown>;
   // Marks the message read or unread, or moves it to `destination`. Resolves `{ outcome }`:
   // `stored`, `moved` with the new `uidValidity` and `uid` when the server reported them, or
@@ -557,6 +573,19 @@ const textOf = (part: GmailPart) =>
     ),
   );
 
+// Whether a message's Content-Type and Content-Disposition fields describe one plain-text or HTML
+// part, parsed as its full source would be.
+const describesReadablePart = (
+  fields: ReadonlyArray<Readonly<{ name: string; value: string }>>,
+) => {
+  const described = parseMime(
+    new TextEncoder().encode(
+      `${fields.map(({ name, value }) => `${name}: ${value}\r\n`).join('')}\r\n`,
+    ),
+  );
+  return described !== undefined && singleReadablePart(described);
+};
+
 // The body the reader presents: the readable alternatives, received attachments' metadata, and the
 // inline images the HTML names within the per-message bounds. Remote content is never fetched.
 const bodyDocument = Effect.fnUntraced(function* (
@@ -632,6 +661,12 @@ export function createImapInbox(
     { bytes: number; pixels: number }
   >();
   const reading = new Map<string, Promise<void>>();
+  // The Inbox's recent working set at its last synchronization, and the prefetches in flight,
+  // which an explicit read of the same message waits for.
+  let selection: readonly string[] = [];
+  const speculative = new Map<string, Deferred.Deferred<undefined>>();
+  // Open readers' bodies, then the working set's, stay protected from eviction as far as they fit.
+  const protectedBodies = () => [...new Set([...readers.keys(), ...selection])];
   // Changes made in this process and not yet saved with the cache; saving moves them to its queue.
   let queued: readonly ImapPending[] = [];
   // Undo can withdraw an intent while its first cache commit is still in flight.
@@ -1060,8 +1095,9 @@ export function createImapInbox(
   });
 
   // Bodies of messages that no cached folder lists and no view still shows leave the device, so
-  // expunged or reset mail never crowds out bodies that stay listed. Open readers' bodies stay
-  // protected as far as they fit. A skipped prune happens after the next folder read.
+  // expunged or reset mail never crowds out bodies that stay listed. Open readers' and the recent
+  // working set's bodies stay protected as far as they fit. A skipped prune happens after the
+  // next folder read.
   const pruneBodies = Effect.gen(function* () {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -1078,7 +1114,7 @@ export function createImapInbox(
       ].map(({ id }) => id),
     );
     yield* call(() =>
-      native.retainMessageBodies(scope, [...kept], [...readers.keys()]),
+      native.retainMessageBodies(scope, [...kept], protectedBodies()),
     ).pipe(
       Effect.andThen(shared.cache.changed),
       Effect.catchIf(
@@ -1147,6 +1183,7 @@ export function createImapInbox(
       document = undefined;
       folderViews.clear();
       found.clear();
+      selection = [];
       discardAttachments();
       remoteContent.releaseAll();
       bodies.clear();
@@ -1514,6 +1551,7 @@ export function createImapInbox(
           yield* synchronizeFolder(inboxFolder);
           yield* drain;
           render('current');
+          schedulePrefetch();
         }).pipe(
           Effect.retry({
             times: 1,
@@ -1806,12 +1844,16 @@ export function createImapInbox(
     }
     const read = runLogged(
       Effect.gen(function* () {
+        const prefetching = speculative.get(id);
+        if (prefetching !== undefined) {
+          yield* Deferred.await(prefetching);
+        }
         const cached = yield* decodeCachedBody(
           yield* call(() => native.openMessageBody(scope, id)),
         ).pipe(Effect.mapError(malformed));
         const saved = Option.fromNullishOr(cached.document).pipe(
           Option.flatMap(decodeBodyDocument),
-          Option.filter((body) => body.id === id),
+          Option.filter((body) => body.id === id && body.excluded !== true),
         );
         if (Option.isSome(saved)) {
           return saved.value;
@@ -1825,8 +1867,9 @@ export function createImapInbox(
           yield* call(() =>
             native.commitMessageBody(scope, id, {
               document: text,
-              tier: 'opened',
-              protectedIds: [...readers.keys()],
+              // Opening a selected message keeps its prefetch status.
+              tier: selection.includes(id) ? 'prefetched' : 'opened',
+              protectedIds: protectedBodies(),
             }),
           ).pipe(
             Effect.flatMap((reply) =>
@@ -1890,6 +1933,192 @@ export function createImapInbox(
     reading.set(id, read);
     return read;
   };
+
+  // Saves a prefetched body or exclusion marker under the working set's protection. Synchronization
+  // commits and prunes under the same permit, so a message a new UIDVALIDITY or expunge removed
+  // from the cache stores nothing.
+  const keep = Effect.fnUntraced(function* (scope: Scope, body: BodyDocument) {
+    const text = yield* encodeBodyDocument(body).pipe(
+      Effect.mapError(malformed),
+    );
+    yield* semaphore.withPermit(
+      Effect.suspend(() =>
+        current(scope) && listed(body.id)
+          ? call(() =>
+              native.commitMessageBody(scope, body.id, {
+                document: text,
+                tier: body.excluded === true ? 'excluded' : 'prefetched',
+                protectedIds: protectedBodies(),
+              }),
+            ).pipe(
+              Effect.flatMap((reply) =>
+                decodeBodyCommit(reply).pipe(Effect.mapError(malformed)),
+              ),
+              Effect.flatMap(({ admitted }) =>
+                admitted ? shared.cache.changed : Effect.void,
+              ),
+            )
+          : Effect.void,
+      ),
+    );
+  });
+  // A speculative read holds one of the connection's two loads and yields the device's loads to
+  // every explicit read.
+  const speculativeLoad = <A>(read: Effect.Effect<A, ImapFailure>) =>
+    connectionLoads.withPermit(
+      shared.loads.withPermit(read, undefined, () => Infinity),
+    );
+  // Only a single plain-text or HTML part is saved; any other message, or one too large or
+  // unreadable, gets an exclusion marker so later selections leave it on demand.
+  const prefetchBody = Effect.fnUntraced(function* (
+    scope: Scope,
+    message: ImapMessage,
+  ) {
+    const pending = yield* Deferred.make<undefined>();
+    speculative.set(message.id, pending);
+    const excluded: BodyDocument = {
+      version: 2,
+      id: message.id,
+      excluded: true,
+    };
+    yield* speculativeLoad(sourceOf(scope, message)).pipe(
+      Effect.flatMap((payload): Effect.Effect<BodyDocument, ImapFailure> =>
+        singleReadablePart(payload)
+          ? bodyDocument(message.id, payload)
+          : Effect.succeed(excluded),
+      ),
+      Effect.catchIf(
+        ({ kind }: Failure) => kind === 'too-large' || kind === 'failed',
+        ({ kind, diagnostic }) =>
+          (kind === 'failed'
+            ? Effect.logError('IMAP body prefetch failed:', diagnostic)
+            : Effect.void
+          ).pipe(Effect.as(excluded)),
+      ),
+      Effect.flatMap((body) => keep(scope, body)),
+      // An expunged message or a new UIDVALIDITY leaves the cache at the next synchronization.
+      Effect.catchIf(
+        ({ kind }: Failure) => kind === 'changed' || kind === 'missing',
+        () => Effect.void,
+      ),
+      Effect.ensuring(
+        Effect.suspend(() => {
+          if (speculative.get(message.id) === pending) {
+            speculative.delete(message.id);
+          }
+          return Deferred.succeed(pending, undefined);
+        }),
+      ),
+    );
+  });
+  // Selects the Inbox's recent working set, newest first, and returns its messages that have
+  // neither a saved body nor an exclusion marker.
+  const unsavedSelection = Effect.fnUntraced(function* (
+    scope: Scope,
+    messages: readonly ImapMessage[],
+  ) {
+    const byId = new Map(messages.map((item) => [item.id, item]));
+    selection = recentWorkingSet(messages, yield* DateTime.now);
+    const { stored } = yield* call(() =>
+      native.listMessageBodies(scope, selection),
+    ).pipe(
+      Effect.flatMap((reply) =>
+        decodeStoredBodies(reply).pipe(Effect.mapError(malformed)),
+      ),
+    );
+    const saved = new Set(stored);
+    return selection.flatMap((id) => {
+      const message = byId.get(id);
+      return message === undefined || saved.has(id) ? [] : [message];
+    });
+  });
+  const prefetchPaused = (scope: Scope) =>
+    !current(scope) ||
+    shownStatus === 'authentication' ||
+    shownStatus === 'retry';
+  // One speculative lane: the Inbox's recent working set, newest first. A body-free read of every
+  // unsaved message's Content-Type and Content-Disposition chooses which sources to read, so no
+  // attachment is downloaded speculatively.
+  const prefetch = Effect.fnUntraced(function* (scope: Scope) {
+    const inbox = cacheOf(inboxFolder);
+    if (inbox === undefined || prefetchPaused(scope)) {
+      return;
+    }
+    const wanted = yield* unsavedSelection(scope, inbox.messages);
+    if (wanted.length === 0) {
+      return;
+    }
+    yield* shared.idle.await;
+    const preflight = yield* speculativeLoad(
+      call(() =>
+        native.imapHeaders(scope, {
+          folder: inboxFolder,
+          uidValidity: inbox.uidValidity,
+          uids: wanted.map(({ uid }) => uid),
+        }),
+      ),
+    ).pipe(
+      Effect.flatMap((reply) =>
+        decodeHeaders(reply).pipe(Effect.mapError(malformed)),
+      ),
+    );
+    const headers = new Map(
+      preflight.messages.map(({ uid, headers: fields }) => [uid, fields]),
+    );
+    for (const message of wanted) {
+      yield* shared.idle.await;
+      if (prefetchPaused(scope)) {
+        return;
+      }
+      const fields = headers.get(message.uid);
+      // An expunged message or one an explicit read is saving needs no prefetch.
+      if (fields !== undefined && !reading.has(message.id)) {
+        yield* describesReadablePart(fields)
+          ? prefetchBody(scope, message)
+          : keep(scope, { version: 2, id: message.id, excluded: true });
+      }
+    }
+  });
+  let prefetching = false;
+  let prefetchAgain = false;
+  // A refused password asks for it again; offline and server failures, and a folder that changed
+  // since its synchronization, pause prefetch until the next synchronization.
+  const prefetchFailed =
+    (scope: Scope) =>
+    ({ kind, diagnostic }: Failure) => {
+      if (current(scope) && changesAccess(kind)) {
+        return loadFailed({ kind, diagnostic });
+      }
+      return expected(kind) || kind === 'changed' || kind === 'invalidated'
+        ? Effect.void
+        : Effect.logError('IMAP body prefetch failed:', diagnostic);
+    };
+  // Starts the lane after an Inbox synchronization, or asks a running one to select again once its
+  // pass ends. Declared here, after what it runs; synchronization above starts it.
+  function schedulePrefetch() {
+    if (prefetching) {
+      prefetchAgain = true;
+      return;
+    }
+    prefetching = true;
+    void runLogged(
+      Effect.gen(function* () {
+        do {
+          prefetchAgain = false;
+          const scope = opened;
+          if (scope !== undefined) {
+            yield* prefetch(scope).pipe(Effect.catch(prefetchFailed(scope)));
+          }
+        } while (prefetchAgain);
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            prefetching = false;
+          }),
+        ),
+      ),
+    );
+  }
 
   // The server's own search of the Inbox and the connection's other folders, newest first. Results
   // stay readable until the Inbox closes and are never saved.
@@ -2300,6 +2529,7 @@ export function createImapInbox(
       reservations.clear();
       limited.clear();
       found.clear();
+      selection = [];
       queued = [];
       withdrawals.clear();
       notice = undefined;
