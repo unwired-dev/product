@@ -966,10 +966,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   rejects creation, or removing it by identifier without rechecking its current
   content. Keep cleanup within the initiating account generation, preserve content
   authored before rejection, and retain the removal even if its notification also
-  throws. Rethrow the original failure and log cleanup failures with allow-listed
-  diagnostics, without changing other actions' subscriber contract. Verify repeated
-  rejection and reopened storage after the next save; otherwise failed New Message
-  attempts accumulate blank Drafts or cleanup deletes another editor's work.
+  throws. If creation stored the blank Draft before rejection, persist its removal
+  without depending on a cleanup notification that can throw before saving runs.
+  Rethrow the original failure and log every cleanup failure with allow-listed
+  diagnostics, including a failure followed by a successful retry, without changing
+  other actions' subscriber contract. Verify repeated rejection and reopened storage
+  after the next save, and without another save for an already-stored blank Draft;
+  otherwise failed New Message attempts survive relaunch or cleanup deletes
+  another editor's work.
 
 - `createDrafts.create` accepting a sender captured before the open composer
   finishes without rechecking its current connection ID, address and sending
