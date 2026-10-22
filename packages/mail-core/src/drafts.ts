@@ -31,7 +31,11 @@ import type {
 import type { Registration } from './registration.ts';
 import type { Asset, Selection } from './semantic-document.ts';
 
-import { rejectionCode, runLogged } from './diagnostics.ts';
+import {
+  rejectionCode,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import {
   assetsOf,
   DraftSchema,
@@ -2195,12 +2199,22 @@ export function createDrafts(
           ];
         }, creating);
       } catch (error) {
-        // The caller never learns a rejected Draft's ID, so the empty Draft goes again. Its removal
-        // takes effect before subscribers hear of it, even when one keeps throwing.
+        // A subscriber can reject after the first save, while the published Draft gains content.
+        // Remove only an empty Draft, before subscribers can reject its removal too.
         await change(
-          (drafts) => drafts.filter((draft) => draft.id !== created.id),
+          (drafts) =>
+            drafts.filter(
+              (draft) => draft.id !== created.id || !isEmptyDraft(draft),
+            ),
           creating,
-        ).catch(() => false);
+        ).catch((cleanupError: unknown) =>
+          runLogged(
+            Effect.logError(
+              'Draft creation cleanup failed:',
+              rejectionDiagnostic(cleanupError),
+            ),
+          ),
+        );
         throw error;
       }
       // A Draft started before the Product Account changed belongs to no open store now.

@@ -1626,6 +1626,7 @@ describe('storing Drafts', () => {
 
   it('leaves no blank Draft behind when a subscriber rejects its creation', async () => {
     expect.hasAssertions();
+    const logged = vi.spyOn(console, 'error').mockReturnValue(undefined);
     const session = account(connected('account-a'));
     const storage = createSyntheticDrafts(session.productAccount);
     const drafts = createDrafts(storage.native, session.registration);
@@ -1636,13 +1637,25 @@ describe('storing Drafts', () => {
       throw new Error('subscriber failed');
     });
     await expect(drafts.create(alex)).rejects.toThrow('subscriber failed');
-    // A subscriber that keeps throwing rejects each removal too.
-    const unsubscribe = drafts.subscribe(() => {
-      throw new Error('subscriber failed');
-    });
-    await expect(drafts.create(alex)).rejects.toThrow('subscriber failed');
-    await expect(drafts.create(other)).rejects.toThrow('subscriber failed');
+    // Cleanup must preserve the original rejection and log only safe diagnostics.
+    const creationFailure = new Error('private creation content');
+    const removalFailure = new Error('private removal content');
+    const subscriber = vi
+      .fn<() => void>(() => {
+        throw removalFailure;
+      })
+      .mockImplementationOnce(() => {
+        throw creationFailure;
+      });
+    const unsubscribe = drafts.subscribe(subscriber);
+    await expect(drafts.create(alex)).rejects.toBe(creationFailure);
+    await expect(drafts.create(other)).rejects.toBe(removalFailure);
     unsubscribe();
+    expect(logged).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(logged.mock.calls)).toContain(
+      'Draft creation cleanup failed:',
+    );
+    expect(JSON.stringify(logged.mock.calls)).not.toContain('private');
     expect(
       ready(drafts.getSnapshot()).drafts.map(({ id }) => id),
     ).toStrictEqual([kept]);
@@ -1652,6 +1665,35 @@ describe('storing Drafts', () => {
     expect(
       ready(reopened.getSnapshot()).drafts.map(({ id }) => id),
     ).toStrictEqual([kept]);
+  });
+
+  it('keeps content authored before a subscriber rejects the first save', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    storage.hold();
+    const creating = drafts.create(alex);
+    const empty = present(draftsOf(drafts.getSnapshot())[0], 'new Draft');
+    const editing = drafts.update(
+      { ...empty, subject: 'Typed meanwhile' },
+      empty,
+    );
+    const failure = new Error('subscriber failed after saving');
+    const unsubscribe = drafts.subscribe(() => {
+      unsubscribe();
+      throw failure;
+    });
+    storage.release();
+    await expect(creating).rejects.toBe(failure);
+    await editing;
+    await expect(drafts.save()).resolves.toBe(true);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([
+      expect.objectContaining({ id: empty.id, subject: 'Typed meanwhile' }),
+    ]);
   });
 
   it('keeps a late authored edit after abandoning an unsaved empty Draft', async () => {
