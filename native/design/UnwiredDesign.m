@@ -192,15 +192,8 @@ static UIImage *UnwiredCountDisk(NSString *count)
   [self updateBack];
 }
 
-- (void)setBackLabel:(NSString *)backLabel
+- (void)didSetProps:(NSArray<NSString *> *)changedProps
 {
-  _backLabel = [backLabel copy];
-  [self updateBack];
-}
-
-- (void)setBackCount:(NSString *)backCount
-{
-  _backCount = [backCount copy];
   [self updateBack];
 }
 

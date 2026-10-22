@@ -1,9 +1,14 @@
 import type { ViewProps } from 'react-native';
 
-import { spacing } from '@private-email/mail-core/theme';
+import { palette, spacing } from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
 import { createContext, use } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import {
+  DynamicColorIOS as dynamicColorIOS,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { usePaletteHeader } from './command-palette.tsx';
 import { ContextMenu, Monogram, NavigationChrome } from './design.tsx';
@@ -86,7 +91,10 @@ export function ReaderHeader({
             : t('message.backUnread', { count: unread })
         }
         backCount={unread === 0 ? '' : count}
-        surface={colors.surfaceContent}
+        surface={dynamicColorIOS({
+          light: palette.light.surfaceContent,
+          dark: palette.dark.surfaceContent,
+        })}
       />
       <Text
         accessibilityRole="header"
