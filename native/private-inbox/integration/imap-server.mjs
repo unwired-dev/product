@@ -338,10 +338,8 @@ const answerFetch = (socket, session, { tag, command }) => {
     const named = command.startsWith('UID FETCH 12 ') ? 12 : 11;
     const fields = metadataFields(command, session.large ? 511 : named);
     socket.write(
-      `* ${session.large ? 500 : 1} FETCH (${fields.join(' ')})\r\n`,
+      `* ${session.large ? 500 : 1} FETCH (${fields.join(' ')})\r\n${tag} OK Completed\r\n`,
     );
-    socket.write(`${tag} OK Completed
-`);
   }
 };
 

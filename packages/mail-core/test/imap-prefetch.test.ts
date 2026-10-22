@@ -1,7 +1,9 @@
-import type { ImapInboxState } from '../src/imap-inbox.ts';
+import type { ImapInboxState } from '@private-email/mail-core/imap-inbox';
 
-import { createImapInbox } from '../src/imap-inbox.ts';
-import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createMailboxes } from '@private-email/mail-core/mailboxes';
+import { syntheticConnections } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 
 const now = Date.UTC(2026, 9, 20, 12);
 const day = 24 * 60 * 60 * 1000;
@@ -105,8 +107,45 @@ const recentInbox = () => {
 // Loads the Inbox and waits for its first prefetch pass to save both bodies and the marker.
 const prefetched = async () => {
   const setup = recentInbox();
-  const inbox = createImapInbox(setup.imap.native);
-  await inbox.load();
+  const mailboxes = createMailboxes(
+    syntheticConnections({}, { 'imap-connection': setup.imap.native }),
+    {
+      getSnapshot: () => ({
+        busy: false,
+        failed: false,
+        snapshot: {
+          kind: 'connected' as const,
+          productAccountId: 'account',
+          signInProvider: 'apple' as const,
+          mailboxes: JSON.stringify([
+            {
+              id: 'imap-connection',
+              address: 'alex@example.invalid',
+              provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'alex',
+              },
+              state: 'connected',
+            },
+          ]),
+        },
+      }),
+      subscribe: () => () => undefined,
+    },
+  );
+  onTestFinished(() => {
+    for (const { inbox } of mailboxes.getConnections()) {
+      inbox.forget();
+    }
+  });
+  await mailboxes.load();
+  const [mailbox] = mailboxes.getConnections();
+  if (mailbox?.provider !== 'imap') {
+    throw new Error('Expected an IMAP connection');
+  }
+  const { inbox } = mailbox;
   await vi.waitFor(() => {
     expect([...setup.imap.tiers]).toStrictEqual([
       [setup.ids.plain, 'prefetched'],

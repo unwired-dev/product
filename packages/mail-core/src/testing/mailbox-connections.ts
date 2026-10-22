@@ -69,19 +69,12 @@ export function syntheticConnections(
         mailbox,
         id,
       ) ?? missing(),
-    commitMessageBody: (mailbox, id, admission) => {
-      const imapServer = server(mailbox.connection);
-      return (
-        (admission.tier === 'opened'
-          ? imapServer?.commitMessageBody(mailbox, id, {
-              ...admission,
-              tier: 'opened',
-            })
-          : undefined) ??
-        of(mailbox.connection)?.commitMessageBody(mailbox, id, admission) ??
-        missing()
-      );
-    },
+    commitMessageBody: (mailbox, id, admission) =>
+      (server(mailbox.connection) ?? of(mailbox.connection))?.commitMessageBody(
+        mailbox,
+        id,
+        admission,
+      ) ?? missing(),
     listMessageBodies: (mailbox, ids) =>
       (server(mailbox.connection) ?? of(mailbox.connection))?.listMessageBodies(
         mailbox,
