@@ -151,9 +151,38 @@ The corpus-v1 `stale-result` case replaces the older request while availability
 is pending; the shared store prevents that request from starting native
 generation. Its passing `idle`/`ready` snapshots cover that request ordering,
 not rejection of an older in-flight native result. Replacement after native
-generation starts remains deferred and required before release under the
-[qualification procedure](../assistance-qualification.md#checks-the-corpus-does-not-automate).
-The owner acceptance above does not establish execution of that missing check.
+generation starts was therefore deferred in the earlier review. Corpus v2 at
+`0d91ac2c5` counted both native starts after a 300 ms head start, but did not
+establish that the older request was still pending at replacement. Its results
+do not establish the v3 in-flight precondition.
+
+### Corpus v3 in-flight replacement
+
+The [physical v3 rerun report](https://github.com/unwired-dev/product/issues/625#issuecomment-6337498114)
+and retained JSONL supersede v1 and v2 for this check. All three evidence files
+stamp source commit `45aa8ad9761580f2b2a158925f01c047fb1f2abd` and corpus
+version 3. The root lockfile SHA-256 remains
+`98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The reviewer inspected each file and reran the current evidence checker, which
+exited 0 for each. These are retained physical-device results, not new device
+runs performed during review.
+
+| Evidence under `artifacts/assistance-qualification/` | Device       | OS and build             | Pass | Limited | Fail |
+| ---------------------------------------------------- | ------------ | ------------------------ | ---- | ------- | ---- |
+| `mac-v3.jsonl`                                       | `Mac16,10`   | macOS 27.0.1 (`26A434`)  | 19   | 1       | 0    |
+| `ipad-v3.jsonl`                                      | `iPad16,5`   | iPadOS 27.0.1 (`24A446`) | 19   | 1       | 0    |
+| `iphone-v3.jsonl`                                    | `iPhone18,2` | iOS 27.2 (`24B115`)      | 19   | 1       | 0    |
+
+Each records model availability `available`, locale `en_US@rg=czzzzz`, preferred
+languages `en-US`/`cs-CZ`, and one limitation, Czech-to-English translation with
+`unsupported-pair`. Each `stale-result` row passes with `nativeStarts: 2` and
+`inFlight: true`: the older summary reached the native binding and remained
+pending immediately before replacement; both requests settled, the older input
+was `idle`, and only the newer input was `ready`. In-flight replacement is now
+qualified on all three nominated configurations and is no longer a deferred
+release check. The separate unavailable-capability, uninstalled-language and
+signed-in lifecycle checks above remain required; the manual-check waiver and
+tracked output/UI limitations are unchanged.
 
 ## Native host qualification refresh, 2026-10-20
 

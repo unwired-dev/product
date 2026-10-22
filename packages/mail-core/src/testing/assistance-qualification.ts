@@ -1,7 +1,7 @@
 import * as Schema from 'effect/Schema';
 
 import type { QualificationModules } from '../assistance-qualification.ts';
-import type { AssistanceState } from '../assistance.ts';
+import type { AssistanceState, SummaryInput } from '../assistance.ts';
 import type { TranslationState } from '../translation.ts';
 
 import {
@@ -325,6 +325,41 @@ async function qualifyTranslations(assistance: Native, record: Recorder) {
   }
 }
 
+async function qualifyReplacement(
+  assistance: Native,
+  record: Recorder,
+  { long, short }: Readonly<{ long: SummaryInput; short: SummaryInput }>,
+) {
+  // A pending summary may still be checking availability; count native starts as well before
+  // replacing the older request and checking that its result is never shown for the other input.
+  let nativeStarts = 0;
+  const replaced = createMessageSummary({
+    ...assistance,
+    summarize: (request, input) => {
+      nativeStarts += 1;
+      return assistance.summarize(request, input);
+    },
+  });
+  const older = replaced.summarize(long);
+  await pause(300);
+  const inFlight =
+    nativeStarts === 1 && replaced.getSnapshot(long).kind === 'summarizing';
+  await Promise.all([older, replaced.summarize(short)]);
+  const stale = replaced.getSnapshot(long).kind;
+  const current = replaced.getSnapshot(short).kind;
+  await record('stale-result', {
+    stale,
+    current,
+    nativeStarts,
+    inFlight,
+    result:
+      stale === 'idle' &&
+      ((inFlight && nativeStarts === 2) || current !== 'ready')
+        ? outcome(current === 'ready', current)
+        : 'fail',
+  });
+}
+
 async function qualifyCancellation(assistance: Native, record: Recorder) {
   const long = summaryInput({ subject: 'Garden rota', body: longBody });
   const short = summaryInput(summaries[0]);
@@ -373,34 +408,7 @@ async function qualifyCancellation(assistance: Native, record: Recorder) {
     result: outcome(shown === 'cancelled' && after === 'cancelled', after),
   });
 
-  // A pending summary may still be checking availability; count native starts as well before
-  // replacing the older request and checking that its result is never shown for the other input.
-  let nativeStarts = 0;
-  const replaced = createMessageSummary({
-    ...assistance,
-    summarize: (request, input) => {
-      nativeStarts += 1;
-      return assistance.summarize(request, input);
-    },
-  });
-  const older = replaced.summarize(long);
-  await pause(300);
-  const inFlight =
-    nativeStarts === 1 && replaced.getSnapshot(long).kind === 'summarizing';
-  await Promise.all([older, replaced.summarize(short)]);
-  const stale = replaced.getSnapshot(long).kind;
-  const current = replaced.getSnapshot(short).kind;
-  await record('stale-result', {
-    stale,
-    current,
-    nativeStarts,
-    inFlight,
-    result:
-      stale === 'idle' &&
-      ((inFlight && nativeStarts === 2) || current !== 'ready')
-        ? outcome(current === 'ready', current)
-        : 'fail',
-  });
+  await qualifyReplacement(assistance, record, { long, short });
 
   const english = draftTranslationInput(longBody.slice(0, 2000), 'de');
   if (english !== undefined) {

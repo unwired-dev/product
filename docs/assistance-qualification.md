@@ -176,7 +176,9 @@ immediately before replacement, both requests to reach the binding, and only the
 newer result to remain ready. Corpus v1 replaced the older request before it
 reached the binding. Corpus v2 counted both starts but did not check whether the
 older request had already finished. Those results do not establish the v3
-in-flight precondition; physical v3 reruns remain required.
+in-flight precondition. The [physical v3 reruns on all three nominated devices](https://github.com/unwired-dev/product/issues/625#issuecomment-6337498114)
+passed with `nativeStarts: 2` and `inFlight: true`, so in-flight replacement is
+qualified for those configurations.
 
 ## Record the results
 
