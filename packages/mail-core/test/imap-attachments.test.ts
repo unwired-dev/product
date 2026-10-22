@@ -85,6 +85,7 @@ const setup = async () => {
   return {
     imap,
     inbox,
+    idOf,
     open,
     hold: () => {
       gate.held = true;
@@ -263,6 +264,59 @@ describe('imap received attachments', () => {
     await inbox.downloadAttachment(id, '0.1');
     expect(imap.files.savedFiles.size).toBe(1);
     inbox.forget();
+    expect(imap.files.savedFiles.size).toBe(0);
+  });
+
+  it('marks attachments missing when an old body arrives after a committed UIDVALIDITY change', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, idOf, hold, release } = await setup();
+    const id = idOf('Report', 'INBOX');
+    const close = inbox.retainMessage(id, Symbol('reader'));
+    const held = hold();
+    const body = inbox.readMessage(id);
+    await held;
+
+    imap.renumber('INBOX');
+    await inbox.load();
+    release();
+    await body;
+
+    expect(stateOf(inbox, id)).toStrictEqual({
+      kind: 'unavailable',
+      reason: 'missing',
+    });
+    imap.server.reads.length = 0;
+    await inbox.downloadAttachment(id, '0.1');
+    expect(imap.server.reads).toStrictEqual([]);
+    expect(imap.files.savedFiles.size).toBe(0);
+    close();
+  });
+
+  it('closing a reader preserves another folder whose name contains the download key delimiter', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, open } = await setup();
+    for (const folder of ['Reports', 'Reports\n0.1']) {
+      imap.addFolder(folder);
+      imap.deliver(folder, {
+        subject: folder,
+        raw: withAttachment('Report', 'report.pdf'),
+      });
+      await inbox.openFolder(folder);
+    }
+    const report = await open('Reports', 'Reports');
+    const separate = await open('Reports\n0.1', 'Reports\n0.1');
+    await inbox.downloadAttachment(report.id, '0.1');
+    await inbox.downloadAttachment(separate.id, '0.1');
+    expect(imap.files.savedFiles.size).toBe(2);
+
+    report.release();
+    expect(imap.files.savedFiles.size).toBe(1);
+    expect(stateOf(inbox, separate.id)).toStrictEqual({ kind: 'downloaded' });
+    await inbox.presentAttachment(separate.id, '0.1', 'open');
+    expect(imap.files.presentations).toStrictEqual([
+      { name: 'report.pdf', action: 'open' },
+    ]);
+    separate.release();
     expect(imap.files.savedFiles.size).toBe(0);
   });
 

@@ -1856,6 +1856,9 @@ export function createImapInbox(
               return { kind: 'loading' };
             }
             documents.set(id, body);
+            if (superseded(id)) {
+              attachments.discard(id, 'missing');
+            }
             for (const [reader, shownId] of viewReaders) {
               if (shownId === id) {
                 viewBodies.set(reader, present(reader, body));

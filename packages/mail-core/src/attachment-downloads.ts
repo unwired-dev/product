@@ -88,9 +88,11 @@ export const sameAttachment = (left: Descriptor, right: Descriptor) =>
   left.mimeType === right.mimeType &&
   left.size === right.size;
 
-const attachmentKey = (id: string, locator: string) => `${id}\n${locator}`;
+// Folder-derived message IDs can contain any delimiter, so prefix them with their length.
+const attachmentKey = (id: string, locator: string) =>
+  `${id.length}:${id}${locator}`;
 
-// Each opened message's attachment downloads by `id\nlocator`, for one mailbox's Inbox. A saved
+// Each opened message's attachment downloads by message and locator, for one mailbox's Inbox. A saved
 // file belongs to the mailbox scope it was saved in; the Inbox discards it when its message
 // leaves memory. `fetch` reads the listed attachment's base64url bytes again from the provider,
 // and `failed` says what the row shows for a failed fetch or save: a reason, or 'stale' to offer
@@ -384,8 +386,9 @@ export function createAttachmentDownloads<S extends Scope, E>(
     // Drops the downloads of one message, or of every message, deleting their saved files. With
     // a reason, their rows say why they cannot be downloaded again.
     discard: (id?: string, reason?: AttachmentFailure) => {
+      const prefix = id === undefined ? undefined : attachmentKey(id, '');
       for (const key of downloads.keys()) {
-        if (id === undefined || key.startsWith(`${id}\n`)) {
+        if (prefix === undefined || key.startsWith(prefix)) {
           drop(key);
         }
       }
@@ -412,8 +415,9 @@ export function createAttachmentDownloads<S extends Scope, E>(
           )
           .map(({ locator }) => locator),
       );
+      const prefix = attachmentKey(id, '');
       for (const key of downloads.keys()) {
-        if (key.startsWith(`${id}\n`) && !kept.has(key.slice(id.length + 1))) {
+        if (key.startsWith(prefix) && !kept.has(key.slice(prefix.length))) {
           drop(key);
         }
       }
