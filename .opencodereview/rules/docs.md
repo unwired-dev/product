@@ -4,6 +4,13 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- A performance-coverage claim such as `docs/agents/native-validation.md`'s Mac
+  journey saying it measures a budget without an action and rendered-result
+  assertion for that interaction. Map each claimed budget to its measured
+  operation; mailbox switching does not establish Mail View switching. Name
+  unexercised interactions as deferred, or release qualification can accept
+  missing measurements behind a broader coverage claim.
+
 - Qualification procedures such as `docs/assistance-qualification.md` removing
   the app, credentials or evidence before later manual checks need them. Walk
   the whole procedure in order, including runner cleanup, hold options and

@@ -226,6 +226,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Evidence is labelled honestly
 
+- A cached-performance journey such as `WindowTests.testWarmCachePerformance`
+  leaving its synthetic providers reachable and treating a second open as proof
+  of a cache hit. Require provider unavailability or body-request evidence that
+  rejects provider reads in each measured window, and verify the evidence source
+  observed the priming reads. Trace reader cleanup before claiming repeated opens
+  exercise memory rather than disk. Otherwise a provider refetch or a different
+  cache tier qualifies without exercising the claimed path.
+
+- A native evidence report such as `WindowTests.reportPerformance` reading an
+  append-only probe file while the app or another writer can still append.
+  Stop and await the writers or establish a complete snapshot before decoding,
+  including records from the final overhead queries. Otherwise a partial JSONL
+  record can fail the journey intermittently or omit late evidence.
+
 - A native journey assertion such as `InboxTests.inboxJourney`'s search-value
   check added or changed without evidence from the workflow's selected Xcode
   and runtime at the final head. Inspect the affected iPhone and iPad job results
