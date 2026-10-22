@@ -194,6 +194,20 @@ const seen = String.raw`\seen`;
 export const messageId = (folder: string, uidValidity: number, uid: number) =>
   `${uidValidity}.${uid}.${folder}`;
 
+// Whether `id` names a message of this folder at another UIDVALIDITY.
+export const ofOtherGeneration = (
+  id: string,
+  folder: string,
+  uidValidity: number,
+) => {
+  const suffix = `.${folder}`;
+  return (
+    !id.startsWith(`${uidValidity}.`) &&
+    id.endsWith(suffix) &&
+    /^\d+\.\d+$/u.test(id.slice(0, id.length - suffix.length))
+  );
+};
+
 const unreadOf = (flags: readonly string[]) =>
   !flags.some((flag) => flag.toLowerCase() === seen);
 

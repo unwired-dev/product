@@ -1,8 +1,11 @@
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
 
+import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
 import { GmailMessageBody } from '../src/message-body.tsx';
@@ -335,5 +338,88 @@ describe('received attachments in the reader', () => {
     } finally {
       await app.unmount();
     }
+  });
+});
+
+// The IMAP Inbox's only listed message.
+const imapMessageId = (inbox: ReturnType<typeof createImapInbox>) => {
+  const state = inbox.getSnapshot();
+  const id = state.kind === 'ready' ? state.messages[0]?.id : undefined;
+  if (id === undefined) {
+    throw new Error('Expected the delivered IMAP message');
+  }
+  return id;
+};
+
+// The IMAP reader lists the same rows from the message source it downloaded.
+describe('received attachments in IMAP mail', () => {
+  it('downloads, opens and shares an IMAP attachment, and says when the mail server cannot be reached', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', {
+      subject: 'Report',
+      raw: [
+        'From: Synthetic Sender <sender@example.invalid>',
+        'To: alex@example.invalid',
+        'Subject: Report',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="mixed"',
+        '',
+        '--mixed',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        'Report attached.',
+        '--mixed',
+        'Content-Type: application/pdf; name="report.pdf"',
+        'Content-Disposition: attachment; filename="report.pdf"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        Buffer.from('%PDF-1.7 synthetic').toString('base64'),
+        '--mixed--',
+      ].join('\r\n'),
+    });
+    const inbox = createImapInbox(imap.native, { connection: 'imap-a' });
+    await inbox.load();
+    const id = imapMessageId(inbox);
+    const app = await render(
+      <ImapMessageBody
+        inbox={inbox}
+        id={id}
+      />,
+    );
+    try {
+      await expect(
+        screen.findByText('1 attachment'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByText('18 bytes')).toBeOnTheScreen();
+
+      imap.server.failure = 'offline';
+      await fireEvent.press(screen.getByLabelText('Download report.pdf'));
+      await expect(
+        screen.findByText(
+          'The mail server could not be reached to download this attachment.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      imap.server.failure = undefined;
+      await fireEvent.press(
+        screen.getByLabelText('Try downloading report.pdf again'),
+      );
+      await fireEvent.press(await screen.findByLabelText('Open report.pdf'));
+      await fireEvent.press(screen.getByLabelText('Share report.pdf'));
+      expect({
+        saved: [...imap.files.savedFiles.values()].map(({ name }) => name),
+        presentations: imap.files.presentations,
+      }).toStrictEqual({
+        saved: ['report.pdf'],
+        presentations: [
+          { name: 'report.pdf', action: 'open' },
+          { name: 'report.pdf', action: 'share' },
+        ],
+      });
+    } finally {
+      await app.unmount();
+    }
+    // Closing the reader deletes the Downloaded Attachment.
+    expect(imap.files.savedFiles.size).toBe(0);
   });
 });

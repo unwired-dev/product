@@ -70,8 +70,24 @@ the old identity's authorization. Still-shown old rows remain readable until the
 view is replaced. Loaded remote images share the display budget with inline images
 and other readers. Last-reader closure, Inbox closure and access-closing failures
 release remote work; a failed rich presentation withdraws that reader's interest.
-Attachments remain counted only, and prefetch and reader responses remain follow-up
-work under #882.
+
+Issue #1020 reuses Gmail's attachment download lifecycle and native storage/presenters.
+Descriptors come from the parsed message source; explicit downloads reread that source
+at the message's UIDVALIDITY and revalidate the descriptor before saving its bytes.
+Successful cache adoption of a new UIDVALIDITY retires the folder's saved attachments
+and fences pending downloads, including readers retained after the folder's metadata
+checkpoint was evicted. Late body replies reconcile their descriptors against that
+committed identity too. Search replies, refused source reads and failed cache commits
+do not retire other attachments before a later successful synchronization adopts the
+new identity; a refused source read still reports its own attachment as missing.
+The native `imapMessage` task has no cancellation handle. Cancel and last-reader
+cleanup remove download ownership immediately, but `sourceOf` keeps its native
+call uninterruptible until settlement. `explicitLoad` therefore holds the
+connection and device permits and interactive ownership for the actual transfer;
+cancelled results cannot retain a saved attachment or restore its row. Ending the
+native transfer itself remains [#1172](https://github.com/unwired-dev/product/issues/1172).
+The [operational guide](../imap-mailboxes.md#reading) owns limits, actions and cleanup.
+Prefetch and reader responses remain follow-up work under #882.
 
 Private Sync descriptors carry `provider: imap`. The native receipt's subject is
 `host:port:username`; its provider-scoped account, `imap:host:port:username`, supplies

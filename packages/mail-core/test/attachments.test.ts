@@ -430,6 +430,9 @@ describe('received attachments', () => {
     await inbox.downloadAttachment(id, notes);
     await inbox.downloadAttachment(id, pdf);
     expect(gmail.savedFiles.size).toBe(2);
+    expect(stateOf(inbox, id, 'report.pdf')).toStrictEqual({
+      kind: 'downloaded',
+    });
 
     // The refreshed body names another file at the report's position.
     await gmail.native.commitMessageBody(
