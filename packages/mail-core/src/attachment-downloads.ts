@@ -266,7 +266,7 @@ export function createAttachmentDownloads<S extends Scope, E>(
         }),
       ),
     );
-    // Cancelling ends the download as soon as its uninterruptible save, if any, completes.
+    // The row cancels immediately; the Promise waits for any uninterruptible provider read or save.
     const cancelled = Effect.callback<unknown>((resume) => {
       if (abort.signal.aborted) {
         resume(Effect.void);

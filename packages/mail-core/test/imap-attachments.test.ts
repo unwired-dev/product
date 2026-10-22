@@ -212,8 +212,9 @@ describe('imap received attachments', () => {
     expect.hasAssertions();
     const { imap, inbox, open, hold, release } = await setup();
     const { id } = await open('Report');
-    hold();
+    const started = hold();
     const download = inbox.downloadAttachment(id, '0.1');
+    await started;
     expect(stateOf(inbox, id)).toStrictEqual({ kind: 'downloading' });
     inbox.cancelAttachment(id, '0.1');
     expect(stateOf(inbox, id)).toStrictEqual({ kind: 'available' });
