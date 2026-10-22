@@ -42,9 +42,13 @@ export UNWIRED_TEST_SCENARIO=$(python3 -c 'import json,sys; print(json.load(open
 cp native-tests/{WindowTests.swift,create-project.rb} "$probe_dir/"
 builtin cd -q "$probe_dir"
 "${RUBY:-ruby}" create-project.rb
-xcodebuild test "-only-testing:WindowProbe/WindowTests/${2:-testIndependentWindowsCloseReopenAndQuit}" -project WindowProbe.xcodeproj -scheme WindowProbe \
+journey=${2:-testIndependentWindowsCloseReopenAndQuit}
+# The performance journey relaunches the app for each of its many samples.
+allowance=120
+[[ "$journey" == testWarmCachePerformance ]] && allowance=1200
+xcodebuild test "-only-testing:WindowProbe/WindowTests/$journey" -project WindowProbe.xcodeproj -scheme WindowProbe \
   -destination 'platform=macOS' -test-timeouts-enabled YES \
-  -maximum-test-execution-time-allowance 120 -derivedDataPath "$probe_dir/DerivedData" \
+  -maximum-test-execution-time-allowance "$allowance" -derivedDataPath "$probe_dir/DerivedData" \
   -resultBundlePath "$UNWIRED_TEST_ARTIFACTS/WindowProbe.xcresult" CODE_SIGN_IDENTITY=- ARCHS=arm64 \
   | tee "$UNWIRED_TEST_ARTIFACTS/xcodebuild.log"
 # A successful build with no executed journey is not test evidence.
