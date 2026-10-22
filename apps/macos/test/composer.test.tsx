@@ -45,6 +45,7 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
 
 // The shared CI runner takes seconds to warm up the first composer journey.
 jest.setTimeout(30_000);
@@ -457,7 +458,6 @@ describe('composing Drafts', () => {
       screen.findByRole('button', { name: 'Send from other@example.invalid' }),
     ).resolves.toHaveProp(
       'accessibilityState',
-      // The From pop-up also reports whether its menu is open.
       expect.objectContaining({ selected: true, disabled: false }),
     );
     expect(
@@ -534,7 +534,10 @@ describe('composing Drafts', () => {
     await press('New Message');
     await screen.findByLabelText('Message body');
     await press('Compose actions');
-    await press('Discard');
+    expect(menuItems()).toMatchObject([
+      { title: 'Discard', destructive: true, disabled: false },
+    ]);
+    await chooseMenuItem('Discard');
     await press('Discard Draft');
     await expect(
       screen.findByRole('button', { name: 'New Message' }),
@@ -735,7 +738,6 @@ describe('composing Drafts', () => {
       }),
     ).resolves.toHaveProp(
       'accessibilityState',
-      // The From pop-up also reports whether its menu is open.
       expect.objectContaining({ selected: true, disabled: false }),
     );
 
@@ -810,10 +812,16 @@ describe('composing Drafts', () => {
       nativeEvent: { key: 'z', metaKey: true },
     });
     // The new pop-up edits the same semantic document and history as keyboard formatting.
+    // A list is no text style, so the menu checks none.
     await press('Text style');
-    await press('Heading 1');
+    expect(menuItems().filter(({ checked }) => checked)).toStrictEqual([]);
+    await chooseMenuItem('Heading 1');
     expect(drafts()[0]?.body[0]?.kind).toBe('heading1');
-    expect(screen.queryByRole('button', { name: 'Heading 1' })).toBeNull();
+    await press('Text style');
+    expect(menuItems().filter(({ checked }) => checked)).toMatchObject([
+      { title: 'Heading 1' },
+    ]);
+    await dismissMenu();
     await press('Undo');
     expect(drafts()[0]?.body[0]?.kind).toBe('bulleted');
     await savedQuietly(current);
@@ -873,15 +881,16 @@ describe('composing Drafts', () => {
     ).toBeOnTheScreen();
     // The From menu lists the mailbox under its current address.
     await press('alex@example.invalid, cannot send');
-    expect(
-      screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: false, disabled: false });
+    expect(menuItems()).toMatchObject([
+      { title: 'renamed@example.invalid', checked: false, disabled: false },
+    ]);
+    await dismissMenu();
     await press('Close');
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From alex@example.invalid',
     );
     await press('alex@example.invalid, cannot send');
-    await press('Send from renamed@example.invalid');
+    await chooseMenuItem('renamed@example.invalid');
     expect(
       screen.queryByLabelText('alex@example.invalid, cannot send'),
     ).not.toBeOnTheScreen();
@@ -907,7 +916,7 @@ describe('composing Drafts', () => {
       ),
     ).toBeOnTheScreen();
     await press('renamed@example.invalid, cannot send');
-    await press('Send from other@example.invalid');
+    await chooseMenuItem('other@example.invalid');
     expect(
       screen.getByRole('button', { name: 'Send from other@example.invalid' }),
     ).toHaveProp(
@@ -932,8 +941,8 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Subject'),
       'Before Close',
     );
+    // The open actions menu answers only after Close begins.
     await press('Compose actions');
-    const queuedDiscard = queuedPress('Discard');
     const queuedClose = queuedPress('Close');
     storage.hold();
     try {
@@ -945,9 +954,7 @@ describe('composing Drafts', () => {
       expect(
         screen.getByRole('button', { name: 'Compose actions' }),
       ).toBeDisabled();
-      await act(() => {
-        queuedDiscard();
-      });
+      await chooseMenuItem('Discard');
       expect(
         screen.queryByRole('button', { name: 'Discard Draft' }),
       ).toBeNull();
@@ -1025,7 +1032,7 @@ describe('composing Drafts', () => {
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
     await press('Compose actions');
-    await press('Discard');
+    await chooseMenuItem('Discard');
     storage.failNextCommit('locked');
     await press('Discard Draft');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Discard me');
@@ -1471,9 +1478,7 @@ describe('composing Drafts', () => {
         second.getByRole('button', { name: 'Compose actions' }),
       );
     });
-    await act(async () => {
-      await fireEvent.press(second.getByRole('button', { name: 'Discard' }));
-    });
+    await chooseMenuItem('Discard');
     await act(async () => {
       await fireEvent.press(
         second.getByRole('button', { name: 'Discard Draft' }),
@@ -1602,7 +1607,7 @@ describe('composing Drafts', () => {
       );
       await savedQuietly(drafts);
       await press('Compose actions');
-      await press('Discard');
+      await chooseMenuItem('Discard');
       await press('Keep Editing');
       await fireEvent.changeText(
         screen.getByLabelText('Message body'),
@@ -1610,7 +1615,7 @@ describe('composing Drafts', () => {
       );
       await savedQuietly(drafts);
       await press('Compose actions');
-      await press('Discard');
+      await chooseMenuItem('Discard');
       storage.hold();
       storage.failNextCommit('locked');
       await press('Discard Draft');
@@ -1647,7 +1652,7 @@ describe('composing Drafts', () => {
       // A callback already queued by this editor cannot recreate its completed discard.
       const queuedSubject = screen.getByLabelText('Subject');
       await press('Compose actions');
-      await press('Discard');
+      await chooseMenuItem('Discard');
       await press('Discard Draft');
       await act(async () => {
         queuedSubject.props.onChangeText('After completed discard');
@@ -1682,7 +1687,7 @@ describe('composing Drafts', () => {
       'Before discard',
     );
     await press('Compose actions');
-    await press('Discard');
+    await chooseMenuItem('Discard');
     await press('Discard Draft');
     // This accepted native event changes the editor while its autosave is suppressed.
     await fireEvent.changeText(
@@ -1738,7 +1743,7 @@ describe('composing Drafts', () => {
     storage.hold();
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
     await press('Compose actions');
-    await press('Discard');
+    await chooseMenuItem('Discard');
     await press('Discard Draft');
     refusing = true;
     // A native text event accepted while Discard waits.
@@ -1789,7 +1794,7 @@ describe('composing Drafts', () => {
     storage.hold();
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
     await press('Compose actions');
-    await press('Discard');
+    await chooseMenuItem('Discard');
     await press('Discard Draft');
     // A native window close destroys the composer independently of its pending Discard.
     await window.unmount();

@@ -185,39 +185,51 @@ RCT_EXPORT_VIEW_PROPERTY(onPop, RCTDirectEventBlock)
 @end
 
 #if TARGET_OS_OSX
-@implementation UnwiredContextMenuView
-- (NSMenu *)menuForEvent:(NSEvent *)event
-{
-  if (self.sections.count == 0) return [super menuForEvent:event];
-  NSMenu *menu = [NSMenu new];
-  for (NSDictionary *section in self.sections) {
-    if (menu.numberOfItems > 0) [menu addItem:[NSMenuItem separatorItem]];
-    for (NSDictionary *item in section[@"items"]) [menu addItem:[self menuItem:item]];
-  }
-  return menu;
-}
+static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor);
 
-- (NSMenuItem *)menuItem:(NSDictionary *)item
+// An item sends `select:` to `target` with its `id`; `symbol`, `checked` and `disabled` are optional.
+static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destructiveColor)
 {
   NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:item[@"title"] action:nil keyEquivalent:@""];
-  NSImage *image = [NSImage imageWithSystemSymbolName:item[@"symbol"] accessibilityDescription:nil];
+  NSString *symbol = item[@"symbol"];
+  NSImage *image = symbol == nil ? nil : [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
   if ([item[@"destructive"] boolValue]) {
     menuItem.attributedTitle = [[NSAttributedString alloc] initWithString:item[@"title"]
-        attributes:@{NSForegroundColorAttributeName: self.destructiveColor}];
+        attributes:@{NSForegroundColorAttributeName: destructiveColor}];
     image = [image imageWithSymbolConfiguration:
-        [NSImageSymbolConfiguration configurationWithHierarchicalColor:self.destructiveColor]];
+        [NSImageSymbolConfiguration configurationWithHierarchicalColor:destructiveColor]];
   }
   menuItem.image = image;
+  menuItem.state = [item[@"checked"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+  menuItem.enabled = ![item[@"disabled"] boolValue];
   NSArray<NSDictionary *> *items = item[@"items"];
   if (items != nil) {
-    menuItem.submenu = [[NSMenu alloc] initWithTitle:item[@"title"]];
-    for (NSDictionary *child in items) [menuItem.submenu addItem:[self menuItem:child]];
+    menuItem.submenu = UnwiredMenuOf(item[@"title"], @[@{@"items": items}], target, destructiveColor);
   } else {
-    menuItem.target = self;
+    menuItem.target = target;
     menuItem.action = @selector(select:);
     menuItem.representedObject = item[@"id"];
   }
   return menuItem;
+}
+
+// Sections of items, set apart by separators.
+static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor)
+{
+  NSMenu *menu = [[NSMenu alloc] initWithTitle:title];
+  menu.autoenablesItems = NO;
+  for (NSDictionary *section in sections) {
+    if (menu.numberOfItems > 0) [menu addItem:[NSMenuItem separatorItem]];
+    for (NSDictionary *item in section[@"items"]) [menu addItem:UnwiredMenuItem(item, target, destructiveColor)];
+  }
+  return menu;
+}
+
+@implementation UnwiredContextMenuView
+- (NSMenu *)menuForEvent:(NSEvent *)event
+{
+  if (self.sections.count == 0) return [super menuForEvent:event];
+  return UnwiredMenuOf(@"", self.sections, self, self.destructiveColor);
 }
 
 - (void)select:(NSMenuItem *)sender
@@ -317,6 +329,59 @@ RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
 #endif
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
 @end
+
+#if TARGET_OS_OSX
+// Answers one pop-up menu with its chosen item's id, or null when nothing was chosen.
+@interface UnwiredMenuChoice : NSObject
+@property (nonatomic, copy) RCTPromiseResolveBlock resolve;
+@end
+
+@implementation UnwiredMenuChoice
+- (void)select:(NSMenuItem *)sender { [self answer:sender.representedObject]; }
+
+- (void)answer:(id)value
+{
+  if (self.resolve) self.resolve(value);
+  self.resolve = nil;
+}
+@end
+
+// A control's menu: pull-down below it, or a pop-up whose checked item lies over it. React Native
+// macOS's ActionSheetIOS menu has no checked or destructive items and no separators.
+@interface UnwiredMenu : NSObject <RCTBridgeModule>
+@end
+
+@implementation UnwiredMenu
+@synthesize viewRegistry_DEPRECATED = _viewRegistry_DEPRECATED;
+RCT_EXPORT_MODULE()
+
+- (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
+
+RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
+                  sections:(NSArray<NSDictionary *> *)sections
+                  destructiveColor:(id)destructiveColor
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  NSView *view = [self.viewRegistry_DEPRECATED viewForReactTag:anchor];
+  UnwiredMenuChoice *choice = [UnwiredMenuChoice new];
+  choice.resolve = resolve;
+  NSMenu *menu = UnwiredMenuOf(@"", sections, choice, [RCTConvert NSColor:destructiveColor]);
+  NSMenuItem *checked = nil;
+  for (NSMenuItem *item in menu.itemArray) {
+    if (item.state == NSControlStateValueOn) checked = item;
+  }
+  NSRect bounds = view.bounds;
+  // The checked item's top lies on the control's top edge; a pull-down menu starts at its bottom.
+  CGFloat y = (checked != nil) == view.isFlipped ? NSMinY(bounds) : NSMaxY(bounds);
+  // Tracking returns once the menu closes, after sending a chosen item's action.
+  if (view.window != nil && menu.numberOfItems > 0) {
+    [menu popUpMenuPositioningItem:checked atLocation:NSMakePoint(NSMinX(bounds), y) inView:view];
+  }
+  [choice answer:[NSNull null]];
+}
+@end
+#endif
 
 // A decorative symbol: its control carries the accessible label.
 @interface UnwiredSymbolManager : RCTViewManager

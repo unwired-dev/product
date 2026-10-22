@@ -458,16 +458,7 @@ describe('evaluation composer lifetime', () => {
       await press('Close');
       expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
       await press('Cancel');
-      await press('Writing tools');
       await press('Close', false);
-      expectRetiringControl('Rewrite the message body');
-      await motion.finish();
-      expect(
-        screen.queryByRole('button', {
-          name: 'Rewrite the message body',
-          includeHiddenElements: true,
-        }),
-      ).toBeNull();
       await page.report({ frozen: true });
       expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
     } finally {

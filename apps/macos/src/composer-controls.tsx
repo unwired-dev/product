@@ -3,18 +3,21 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
-import type { StyleProp, TextStyle } from 'react-native';
+import type { StyleProp, TextStyle, TurboModule } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-
+import { useEffect, useRef } from 'react';
 import {
-  MenuPresence,
-  NativeGlass,
-  SFSymbol,
-  ToolbarButton,
-} from './design.tsx';
+  findNodeHandle,
+  Pressable,
+  processColor,
+  StyleSheet,
+  Text,
+  TurboModuleRegistry,
+  View,
+} from 'react-native';
+
+import { SFSymbol, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -30,8 +33,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
-  // Keeps an open menu above the content that follows it.
-  menuAnchor: { zIndex: 1 },
   popUp: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -48,28 +49,7 @@ const styles = StyleSheet.create({
     paddingLeft: 0,
     paddingRight: 0,
   },
-  menuTrailing: { left: 'auto', right: 0 },
   popUpText: { ...textStyles.body, flexShrink: 1 },
-  menu: {
-    position: 'absolute',
-    left: 0,
-    minWidth: 220,
-    padding: 6,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  menuBelow: { top: '100%', marginTop: spacing.xs },
-  menuAbove: { bottom: '100%', marginBottom: spacing.xs },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s,
-    minHeight: 28,
-    paddingHorizontal: 10,
-    borderRadius: radius.control,
-  },
-  menuItemText: { ...textStyles.body, flex: 1 },
 });
 
 type MarkName = `drafts.marks.${Mark}`;
@@ -133,9 +113,31 @@ const textStyleKinds: readonly BlockKind[] = [
   'code',
 ];
 
-// A pop-up control whose menu opens in flow beside it; the menu lists its children.
-// shortcut: the menu closes only from its control or an item, not from a click elsewhere;
-// replace with a native menu once the hosts expose one.
+// One item of a control's native menu; its key names the command, so a choice runs the latest
+// callback for that key while the control is mounted, and nothing once the item is gone.
+export type PopUpItem = Readonly<{
+  key: string;
+  title: string;
+  checked?: boolean;
+  disabled?: boolean;
+  destructive?: boolean;
+  run: () => void;
+}>;
+
+interface NativeMenu extends TurboModule {
+  readonly show: (
+    anchor: number,
+    sections: ReadonlyArray<{
+      readonly items: ReadonlyArray<
+        Omit<PopUpItem, 'key' | 'run'> & { id: string }
+      >;
+    }>,
+    destructiveColor: ReturnType<typeof processColor>,
+  ) => Promise<string | null>;
+}
+
+// A pop-up control whose AppKit menu owns presentation, keyboard and dismissal; a menu with a
+// checked item opens over the control like a pop-up button, any other drops below it.
 export function PopUp({
   label,
   accessibilityLabel,
@@ -144,10 +146,7 @@ export function PopUp({
   quiet = false,
   disabled = false,
   selected = false,
-  above = false,
-  open,
-  onToggle,
-  children,
+  items,
 }: {
   readonly label?: string;
   readonly accessibilityLabel: string;
@@ -157,122 +156,81 @@ export function PopUp({
   readonly disabled?: boolean;
   // Whether the shown choice is in effect, as a chosen sender is and a retained one is not.
   readonly selected?: boolean;
-  readonly above?: boolean;
-  readonly open: boolean;
-  readonly onToggle: () => void;
-  readonly children: ReactNode;
+  readonly items: readonly PopUpItem[];
 }) {
   const colors = usePalette();
-  return (
-    <View style={styles.menuAnchor}>
-      <Pressable
-        accessibilityLabel={accessibilityLabel}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open, disabled, selected }}
-        disabled={disabled}
-        onPress={onToggle}
-        style={[
-          styles.popUp,
-          label === undefined ? styles.iconPopUp : null,
-          { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
-        ]}>
-        {icon === undefined ? null : (
-          <SFSymbol
-            name={icon}
-            color={colors.textPrimary}
-          />
-        )}
-        {prefix === undefined ? null : (
-          <Text style={[styles.popUpText, { color: colors.textSecondary }]}>
-            {prefix}
-          </Text>
-        )}
-        {label === undefined ? null : (
-          <>
-            <Text
-              numberOfLines={1}
-              style={[styles.popUpText, { color: colors.textPrimary }]}>
-              {label}
-            </Text>
-            <SFSymbol
-              name="chevron.up.chevron.down"
-              size={12}
-              color={colors.textSecondary}
-            />
-          </>
-        )}
-      </Pressable>
-      <MenuPresence
-        accessibilityRole="menu"
-        open={open}
-        origin={`${above ? 'bottom' : 'top'} ${label === undefined ? 'right' : 'left'}`}
-        style={[
-          styles.menu,
-          label === undefined ? styles.menuTrailing : null,
-          above ? styles.menuAbove : styles.menuBelow,
-          {
-            borderColor: colors.separator,
-            boxShadow: colors.menuShadow,
-          },
-        ]}>
-        <NativeGlass
-          cornerRadius={radius.card}
-          style={StyleSheet.absoluteFill}
-        />
-        {children}
-      </MenuPresence>
-    </View>
-  );
-}
-
-export function MenuItem({
-  label,
-  accessibilityLabel,
-  selected,
-  disabled = false,
-  destructive = false,
-  onPress,
-}: {
-  readonly label: string;
-  readonly accessibilityLabel?: string;
-  readonly selected: boolean;
-  readonly disabled?: boolean;
-  readonly destructive?: boolean;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
+  const anchor = useRef<View>(null);
+  const latest = useRef(items);
+  useEffect(() => {
+    latest.current = items;
+    return () => {
+      latest.current = [];
+    };
+  });
+  const show = async () => {
+    const tag = findNodeHandle(anchor.current);
+    if (tag === null) {
+      return;
+    }
+    const chosen = await TurboModuleRegistry.getEnforcing<NativeMenu>(
+      'UnwiredMenu',
+    ).show(
+      tag,
+      [
+        {
+          items: items.map(({ key, run: _run, ...item }) => ({
+            ...item,
+            id: key,
+          })),
+        },
+      ],
+      processColor(colors.statusDestructive),
+    );
+    latest.current
+      .find((item) => item.key === chosen && item.disabled !== true)
+      ?.run();
+  };
   return (
     <Pressable
-      accessibilityLabel={accessibilityLabel ?? label}
+      ref={anchor}
+      collapsable={false}
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ selected, disabled }}
+      accessibilityState={{ disabled, selected }}
       disabled={disabled}
-      onPress={onPress}
+      onPress={() => {
+        void show();
+      }}
       style={[
-        styles.menuItem,
-        {
-          backgroundColor: selected
-            ? colors.accentSelectionSubtle
-            : 'transparent',
-        },
+        styles.popUp,
+        label === undefined ? styles.iconPopUp : null,
+        { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
       ]}>
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.menuItemText,
-          {
-            color: destructive ? colors.statusDestructive : colors.textPrimary,
-          },
-        ]}>
-        {label}
-      </Text>
-      {selected ? (
+      {icon === undefined ? null : (
         <SFSymbol
-          name="checkmark"
-          size={12}
+          name={icon}
           color={colors.textPrimary}
         />
-      ) : null}
+      )}
+      {prefix === undefined ? null : (
+        <Text style={[styles.popUpText, { color: colors.textSecondary }]}>
+          {prefix}
+        </Text>
+      )}
+      {label === undefined ? null : (
+        <>
+          <Text
+            numberOfLines={1}
+            style={[styles.popUpText, { color: colors.textPrimary }]}>
+            {label}
+          </Text>
+          <SFSymbol
+            name="chevron.up.chevron.down"
+            size={12}
+            color={colors.textSecondary}
+          />
+        </>
+      )}
     </Pressable>
   );
 }
@@ -286,27 +244,21 @@ export function ComposerActions({
   readonly onDiscard: () => void;
 }) {
   const { t } = useLocalization();
-  const [open, setOpen] = useState(false);
   return (
     <PopUp
       accessibilityLabel={t('drafts.actions')}
       icon="ellipsis"
       disabled={disabled}
-      open={open}
-      onToggle={() => {
-        setOpen((current) => !current);
-      }}>
-      <MenuItem
-        destructive
-        disabled={disabled}
-        label={t('drafts.discard')}
-        selected={false}
-        onPress={() => {
-          setOpen(false);
-          onDiscard();
-        }}
-      />
-    </PopUp>
+      items={[
+        {
+          key: 'discard',
+          title: t('drafts.discard'),
+          destructive: true,
+          disabled,
+          run: onDiscard,
+        },
+      ]}
+    />
   );
 }
 
@@ -327,7 +279,6 @@ export function FormatBar({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [styleMenu, setStyleMenu] = useState(false);
   return (
     <View
       accessibilityLabel={t('drafts.formatting')}
@@ -338,23 +289,16 @@ export function FormatBar({
         disabled={disabled}
         icon="textformat"
         label={t(blockNames[kind])}
-        open={styleMenu}
-        onToggle={() => {
-          setStyleMenu((current) => !current);
-        }}>
-        {textStyleKinds.map((value) => (
-          <MenuItem
-            key={value}
-            disabled={disabled}
-            label={t(blockNames[value])}
-            selected={kind === value}
-            onPress={() => {
-              setStyleMenu(false);
-              onBlock(value);
-            }}
-          />
-        ))}
-      </PopUp>
+        items={textStyleKinds.map((value) => ({
+          key: value,
+          title: t(blockNames[value]),
+          checked: kind === value,
+          disabled,
+          run: () => {
+            onBlock(value);
+          },
+        }))}
+      />
       <View style={[styles.divider, { backgroundColor: colors.separator }]} />
       {markControls.map(([mark, , name]) => (
         <ToolbarButton
