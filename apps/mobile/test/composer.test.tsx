@@ -1751,6 +1751,89 @@ describe('composing Drafts', () => {
     );
   });
 
+  // #980: the native field drops a render that reaches it after further typing, so each keystroke
+  // arrives on the literal marker and the previous line instead of the shown bullets.
+  it.each([
+    { end: 16, kind: 'paragraph' },
+    { end: 14, kind: 'bulleted' },
+  ])(
+    'keeps a typed list when the field types ahead of its render (selection end: $end)',
+    async ({ end, kind }) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      const body = await screen.findByLabelText('Message body');
+      await press('Bold');
+      for (const text of [
+        '-',
+        '- ',
+        '- O',
+        '- On',
+        '- One',
+        '- One\n',
+        '- One\nT',
+        '- One\nTw',
+        '- One\nTwo',
+      ]) {
+        const selection = { start: text.length, end: text.length };
+        await act(async () => {
+          await fireEvent(body, 'change', { nativeEvent: { text, selection } });
+          await fireEvent.changeText(body, text);
+          await fireEvent(body, 'selectionChange', {
+            nativeEvent: { selection },
+          });
+        });
+      }
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+        { kind: 'bulleted', spans: [{ text: 'One', marks: ['bold'] }] },
+        { kind: 'bulleted', spans: [{ text: 'Two', marks: ['bold'] }] },
+      ]);
+      // Rebased keystrokes still form one word-sized Undo step.
+      await press('Undo');
+      expect(draftsOf(drafts.getSnapshot())[0]?.body[1]).toStrictEqual({
+        kind: 'bulleted',
+        spans: [],
+      });
+      await press('Redo');
+      // Once the field shows the bullets again, typing continues the item.
+      await fireEvent.changeText(body, '• One\n• Two!');
+      expect(draftsOf(drafts.getSnapshot())[0]?.body[1]).toStrictEqual({
+        kind: 'bulleted',
+        spans: [{ text: 'Two!', marks: ['bold'] }],
+      });
+      // A later Return can race the render again after the field caught up.
+      await fireEvent.changeText(body, '• One\n• Two!\n');
+      await fireEvent.changeText(body, '• One\n• Two!\nT');
+      expect(draftsOf(drafts.getSnapshot())[0]?.body[2]).toStrictEqual({
+        kind: 'bulleted',
+        spans: [{ text: 'T' }],
+      });
+      // A caught-up selection includes the marker; a selection in the stale field replaces only T.
+      await fireEvent(body, 'selectionChange', {
+        nativeEvent: { selection: { start: 13, end } },
+      });
+      await fireEvent.changeText(body, '• One\n• Two!\n-');
+      expect(draftsOf(drafts.getSnapshot())[0]?.body[2]).toStrictEqual({
+        kind,
+        spans: [{ text: '-' }],
+      });
+      await press('Close');
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual(
+        draftsOf(drafts.getSnapshot())[0]?.body,
+      );
+    },
+  );
+
   it("applies an edit at the caret moved just before it, with that character's marks", async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

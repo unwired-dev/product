@@ -904,6 +904,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   synchronizes another mailbox. Cover membership revealed during verification, not
   only connections already open before it.
 
+- `semantic-document.ts.applyText` preferring a smaller diff against stale native
+  text over an exact selected replacement in the current display. Check selected
+  edits both before and after the field catches up with dropped renders; a moved
+  selection alone does not acknowledge rendered text. Preserve the pending text
+  baseline until the edit establishes which text it replaced, or replacing a
+  list marker can retain it and replacing only item text can remove it. Exercise
+  both native text sequences through the real Draft store and durable reopen.
+
 - `semantic-document.ts` expanding every block into per-code-unit editor objects
   on each keystroke, rebuilding unaffected blocks, or retaining expanded arrays
   for every history-held Block in an identity cache. Check typing, formatting,
