@@ -92,6 +92,7 @@ const refusals: ReadonlySet<Code> = new Set([
   'removal-refused',
   'apple-authorization-required',
   'pending-device-unavailable',
+  'deletion-aborted',
 ]);
 // Why an IMAP connection could not be added, as the setup reason a relaunch resumes with.
 const imapSetupReasons: Partial<Record<Code, SetupReason>> = {
@@ -784,13 +785,15 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     yield* pushStep(vault.stopMailboxWatches);
     yield* step(() => vault.recordRemoval('deletion'));
     yield* deletion.pipe(
-      // This attempt was refused before fencing anything. A refusal cannot settle an earlier
-      // unanswered deletion; keep its intent and report uncertainty until cleanup is acknowledged.
+      // This attempt was refused before fencing anything. Only Convex's answer that it kept the
+      // account settles an earlier unanswered deletion; otherwise keep its intent and report
+      // uncertainty until cleanup is acknowledged.
       Effect.catchIf(
         ({ code }) => refusals.has(code),
         (error) =>
           Effect.gen(function* () {
-            if (!wasPending) {
+            const settled = !wasPending || error.code === 'deletion-aborted';
+            if (settled) {
               yield* step(() => vault.recordRemoval(null));
             }
             if (error.code === 'apple-authorization-required') {
@@ -805,7 +808,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
                 ),
               );
             }
-            return yield* failWith(wasPending ? 'unavailable' : error.code);
+            return yield* failWith(settled ? error.code : 'unavailable');
           }),
       ),
     );

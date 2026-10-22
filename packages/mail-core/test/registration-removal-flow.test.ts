@@ -143,6 +143,34 @@ describe('registration removal flow', () => {
     },
   );
 
+  it.each(['google', 'apple'] as const)(
+    'settles a pending %s deletion once Convex answers that it kept the account',
+    async (provider) => {
+      expect.hasAssertions();
+      const { flow, relaunch, device, backend } = launch();
+      await flow.signIn(provider);
+      // The first attempt never reaches Convex, so its outcome stays unknown here.
+      backend.offline = true;
+      await expect(flow.deleteProductAccount()).rejects.toMatchObject({
+        code: 'unavailable',
+      });
+      backend.offline = false;
+      await expect(relaunch().restore()).resolves.toMatchObject({
+        removalPending: 'deletion',
+      });
+      // Apple refused the retry's authorization, so Convex aborted it and kept the account.
+      backend.deletionStatus = 403;
+      backend.deletionCode = 'PRODUCT_ACCOUNT_DELETION_ABORTED';
+      await expect(relaunch().deleteProductAccount()).rejects.toMatchObject({
+        code: 'removal-refused',
+      });
+      expect(device.record?.removal).toBeUndefined();
+      await expect(relaunch().restore()).resolves.not.toHaveProperty(
+        'removalPending',
+      );
+    },
+  );
+
   // Replaces AccountRemovalTests.signingOutUnregistersFirstAndAnotherAccountSeesNothingOfTheLast.
   it('signs out only after unregistering and never before the Recovery Key is backed up', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the backup gate, retry and both device kinds. */
@@ -322,6 +350,7 @@ describe('registration removal flow', () => {
       [401, undefined, 'stale-authentication'],
       [400, undefined, 'removal-refused'],
       [403, 'PENDING_DEVICE_UNAVAILABLE', 'unavailable'],
+      [403, 'PRODUCT_ACCOUNT_DELETION_ABORTED', 'removal-refused'],
     ] as const) {
       backend.deletionStatus = status;
       backend.deletionCode = code;
