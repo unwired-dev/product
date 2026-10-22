@@ -79,15 +79,19 @@ extension RegistrationStore {
     -> [String: Any]
   {
     closeStaleImapSessions()
+    func full() -> Bool {
+      imapHandles.values.filter { $0.connection == connection }.count
+        >= imapSessionLimits.perConnection
+    }
+    // A full connection logs in no further. The registration gate serializes opens from
+    // TypeScript; the check after login covers concurrent callers outside it.
+    guard !full() else { throw RegistrationError.unavailable }
     var opened: (any ImapSession)?
     do {
       try await imapWork(connection: connection, address: address, generation: generation) {
         opened = try await imap.open($0, password: $1)
       }
-      guard let session = opened,
-        imapHandles.values.filter({ $0.connection == connection }).count
-          < imapSessionLimits.perConnection
-      else { throw RegistrationError.unavailable }
+      guard let session = opened, !full() else { throw RegistrationError.unavailable }
       let id = UUID().uuidString
       imapHandles[id] = ImapHandle(
         connection: connection, address: address, generation: mailboxGeneration(connection),

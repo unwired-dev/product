@@ -451,7 +451,9 @@ extension PrivateInboxTests {
 
     // At most four per connection; a new connection generation closes them all.
     for _ in 0..<4 { _ = try await open() }
+    let logins = imap.sessions().count
     await #expect(throws: RegistrationError.unavailable) { _ = try await open() }
+    #expect(imap.sessions().count == logins)
     _ = try await store.connectImap(
       address: address, account: account, password: "app-password", smtp: smtp, smtpPassword: nil)
     #expect(store.imapHandles.isEmpty)
