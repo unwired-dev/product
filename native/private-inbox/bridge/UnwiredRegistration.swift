@@ -1256,10 +1256,15 @@ extension UnwiredRegistration {
     _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    ungatedMailbox("imapClose", resolve, reject: reject) {
-      let (connection, _, _) = try Self.scope(scope)
-      $0.imapClose(connection: connection, session: try Self.imapSession(request))
-      return [:]
+    DispatchQueue.main.async {
+      do {
+        let (connection, _, _) = try Self.scope(scope)
+        let session = try Self.imapSession(request)
+        Self.sharedStore?.imapClose(connection: connection, session: session)
+        resolve([:])
+      } catch {
+        Self.rejectMailbox("imapClose", error, reject)
+      }
     }
   }
 
