@@ -785,13 +785,28 @@ extension RegistrationStore {
       id, connection: connection, address: address, generation: generation)
     guard handle.command == nil else { throw RegistrationError.unavailable }
     let session = handle.session
-    let command = Task { try await work(session) }
-    handle.command = { command.cancel() }
     defer {
       handle.command = nil
       handle.used = .now
     }
-    let value = try await command.value
+    // Closing answers the caller at once. SwiftMail 1.16 cannot abort a command on the wire, so
+    // the connection closes once that command answers or times out.
+    let value: Value = try await withCheckedThrowingContinuation {
+      (continuation: CheckedContinuation<Value, any Error>) in
+      let reply = ImapReply<Value>(continuation)
+      let command = Task { @MainActor in
+        do {
+          let value = try await work(session)
+          reply.resume(.success(value))
+        } catch {
+          reply.resume(.failure(error))
+        }
+      }
+      handle.command = {
+        command.cancel()
+        reply.resume(.failure(PrivateInboxError.mailboxInvalidated))
+      }
+    }
     _ = try currentImapHandle(id, connection: connection, address: address, generation: generation)
     return value
   }
@@ -967,6 +982,16 @@ extension RegistrationStore {
     self.generation = generation
     self.subject = subject
     self.session = session
+  }
+}
+
+// A command's caller, answered once: by the command, or by its session closing first.
+@MainActor private final class ImapReply<Value: Sendable> {
+  private var continuation: CheckedContinuation<Value, any Error>?
+  init(_ continuation: CheckedContinuation<Value, any Error>) { self.continuation = continuation }
+  func resume(_ result: Result<Value, any Error>) {
+    continuation?.resume(with: result)
+    continuation = nil
   }
 }
 

@@ -139,8 +139,8 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
-  // Ends the session, cancelling any command still in flight; an unknown or closed session is
-  // ignored.
+  // Ends the session; a command still in flight rejects at once with `mailbox-invalidated`. An
+  // unknown or closed session is ignored.
   readonly imapClose: (
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,

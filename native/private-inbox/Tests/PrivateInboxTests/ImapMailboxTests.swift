@@ -89,32 +89,31 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
   }
 }
 
-// A controlled session: it lists the Inbox, and records its close, which fails a held listing.
+// A controlled session: it lists the Inbox and records its close. With `hold`, a listing waits for
+// `release()`, as SwiftMail's command waits for the server's reply even after the session closes.
 final class ControlledImapSession: ImapSession, @unchecked Sendable {
   private let lock = NSLock()
   private let hold: Bool
-  private var held: CheckedContinuation<Void, any Error>?
+  private var held: CheckedContinuation<Void, Never>?
   private var ended = false
   init(hold: Bool) { self.hold = hold }
 
   var waiting: Bool { lock.withLock { held != nil } }
   var closed: Bool { lock.withLock { ended } }
-  func capabilities() async throws -> [String] { ["IMAP4rev1", "MOVE"] }
-  func folders() async throws -> [ImapListedFolder] {
-    if hold {
-      try await withCheckedThrowingContinuation { continuation in
-        lock.withLock { held = continuation }
-      }
-    }
-    return [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")]
-  }
-  func close() async {
+  func release() {
     lock.withLock {
-      ended = true
-      held?.resume(throwing: ImapFailure.offline)
+      held?.resume()
       held = nil
     }
   }
+  func capabilities() async throws -> [String] { ["IMAP4rev1", "MOVE"] }
+  func folders() async throws -> [ImapListedFolder] {
+    if hold {
+      await withCheckedContinuation { continuation in lock.withLock { held = continuation } }
+    }
+    return [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")]
+  }
+  func close() async { lock.withLock { ended = true } }
 }
 
 // A controlled SMTP server: logins and submissions answer as configured, and each names the
@@ -399,6 +398,14 @@ extension PrivateInboxTests {
       #expect(closed)
     }
 
+    // An unused session closes by itself.
+    store.imapSessionLimits.idle = .milliseconds(30)
+    _ = try await open()
+    for _ in 0..<100 where !store.imapHandles.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(store.imapHandles.isEmpty)
+    try await settled(imap.sessions())
+    store.imapSessionLimits.idle = .seconds(60)
+
     let session = try await open()
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       try await list(session, connection: "another-connection")
@@ -408,25 +415,42 @@ extension PrivateInboxTests {
     }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list("unknown") }
 
-    // One command at a time: another is refused while the first is in flight, and closing the
-    // session ends the one in flight.
-    imap.holdFolders = true
-    let held = try await open()
-    let listing = Task { try await list(held) }
-    let waiting = try #require(imap.sessions().last)
-    for _ in 0..<100 where !waiting.waiting { try await Task.sleep(for: .milliseconds(10)) }
+    // One command at a time: another is refused while the first waits for the server. Closing the
+    // session answers the waiting command at once, before the server replies.
+    func holding() async throws -> (String, Task<Void, any Error>, ControlledImapSession) {
+      imap.holdFolders = true
+      defer { imap.holdFolders = false }
+      let held = try await open()
+      let listing = Task { try await list(held) }
+      let waiting = try #require(imap.sessions().last)
+      for _ in 0..<100 where !waiting.waiting { try await Task.sleep(for: .milliseconds(10)) }
+      #expect(waiting.waiting)
+      return (held, listing, waiting)
+    }
+    var (held, listing, waiting) = try await holding()
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.imapCapabilities(
         connection: id, address: address, generation: generation, session: held)
     }
     store.imapClose(connection: id, session: held)
-    await #expect(throws: (any Error).self) { try await listing.value }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await listing.value }
+    #expect(waiting.waiting)
+    waiting.release()
     try await settled([waiting])
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list(held) }
-    imap.holdFolders = false
+
+    // A session open too long closes too, even with a command waiting; so does `session`.
+    store.imapSessionLimits.lifetime = .milliseconds(50)
+    (held, listing, waiting) = try await holding()
+    try await Task.sleep(for: .milliseconds(100))
+    store.closeStaleImapSessions()
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await listing.value }
+    waiting.release()
+    try await settled([waiting])
+    store.imapSessionLimits.lifetime = .seconds(900)
 
     // At most four per connection; a new connection generation closes them all.
-    for _ in 0..<3 { _ = try await open() }
+    for _ in 0..<4 { _ = try await open() }
     await #expect(throws: RegistrationError.unavailable) { _ = try await open() }
     _ = try await store.connectImap(
       address: address, account: account, password: "app-password", smtp: smtp, smtpPassword: nil)
@@ -435,15 +459,14 @@ extension PrivateInboxTests {
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list(session) }
     generation = store.mailboxGeneration(id).uuidString
 
-    // An unused session expires; signing out of mailbox access closes the rest.
-    store.imapSessionLimits.idle = .milliseconds(20)
-    let unused = try await open()
-    try await Task.sleep(for: .milliseconds(60))
-    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list(unused) }
-    store.imapSessionLimits.idle = .seconds(60)
-    let remaining = try await open()
-    try await list(remaining)
+    // Signing out of mailbox access closes sessions, and so does removing the connection.
+    try await list(try await open())
     store.forgetMailboxAccess()
+    #expect(store.imapHandles.isEmpty)
+    try await store.verifyImap(id)
+    generation = store.mailboxGeneration(id).uuidString
+    _ = try await open()
+    try await store.forgetConnection(id)
     #expect(store.imapHandles.isEmpty)
     try await settled(imap.sessions())
   }
