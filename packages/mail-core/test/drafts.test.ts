@@ -1640,6 +1640,19 @@ describe('storing Drafts', () => {
     // Cleanup must preserve the original rejection and log only safe diagnostics.
     const creationFailure = new Error('private creation content');
     const removalFailure = new Error('private removal content');
+    const retried = drafts.subscribe(
+      vi
+        .fn<() => void>()
+        .mockImplementationOnce(() => {
+          throw creationFailure;
+        })
+        .mockImplementationOnce(() => {
+          throw removalFailure;
+        }),
+    );
+    await expect(drafts.create(alex)).rejects.toBe(creationFailure);
+    retried();
+    expect(logged).toHaveBeenCalled();
     const subscriber = vi
       .fn<() => void>(() => {
         throw removalFailure;
@@ -1651,7 +1664,7 @@ describe('storing Drafts', () => {
     await expect(drafts.create(alex)).rejects.toBe(creationFailure);
     await expect(drafts.create(other)).rejects.toBe(removalFailure);
     unsubscribe();
-    expect(logged).toHaveBeenCalledTimes(2);
+    expect(logged).toHaveBeenCalledTimes(5);
     expect(JSON.stringify(logged.mock.calls)).toContain(
       'Draft creation cleanup failed:',
     );

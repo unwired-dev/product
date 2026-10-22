@@ -913,6 +913,14 @@ const ownerOf = (snapshot: RegistrationSnapshot) =>
     ? snapshot.productAccountId
     : undefined;
 
+const logCreationCleanupFailure = (cleanupError: unknown) =>
+  runLogged(
+    Effect.logError(
+      'Draft creation cleanup failed:',
+      rejectionDiagnostic(cleanupError),
+    ),
+  );
+
 // The signed-in Product Account's Drafts. Every edit is in memory at once and saved in order;
 // a failed save keeps it in memory, and the next edit or `save` retries. Another Product Account
 // never sees these Drafts: a change of account forgets them and opens that account's own.
@@ -2209,15 +2217,11 @@ export function createDrafts(
             ),
           creating,
         )
-          .catch(() => runLogged(saving(creating)))
-          .catch((cleanupError: unknown) =>
-            runLogged(
-              Effect.logError(
-                'Draft creation cleanup failed:',
-                rejectionDiagnostic(cleanupError),
-              ),
-            ),
-          );
+          .catch(async (cleanupError: unknown) => {
+            await logCreationCleanupFailure(cleanupError);
+            return runLogged(saving(creating));
+          })
+          .catch(logCreationCleanupFailure);
         throw error;
       }
       // A Draft started before the Product Account changed belongs to no open store now.
