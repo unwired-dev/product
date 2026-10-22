@@ -15,6 +15,7 @@
     "registration-removal",
     "registration-draft-editor",
     "registration-thread",
+    "registration-performance",
     "categorization-spike",
     "assistance-qualification"
   ],
@@ -32,6 +33,7 @@
     "registration-revoked",
     "registration-removal",
     "registration-draft-editor",
-    "registration-thread"
+    "registration-thread",
+    "registration-performance"
   ]
 }

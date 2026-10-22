@@ -35,6 +35,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 @property(nonatomic, strong) NSTimer *workTimer;
 @property(nonatomic) NSUInteger workTicks;
 @property(nonatomic, copy) NSString *sessionID;
+@property(nonatomic, strong) dispatch_source_t stallProbe;
 #endif
 @end
 
@@ -69,6 +70,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
     owner.workTicks += 1;
     [owner recordLifecycle:@"work"];
   }];
+  [self watchMainThread];
 #endif
   [self recordLifecycle:@"launch"];
   // Ad-hoc builds lack the APNs entitlement; registration fails there and the interval poll remains.
@@ -294,6 +296,7 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 {
 #if UNWIRED_NATIVE_TESTING
   [self.workTimer invalidate];
+  if (self.stallProbe) dispatch_source_cancel(self.stallProbe);
 #endif
   [self recordLifecycle:@"quit"];
 }
@@ -363,7 +366,47 @@ extern "C" NSString *UnwiredGuardedWindow(void);
   NSApp.windowsMenu = windows;
 }
 
+#if UNWIRED_NATIVE_TESTING
+// Records each main-thread stall of 100 ms or longer: a background clock asks the main queue every
+// 10 ms and measures how long the answer took. `uptime` is when it asked, on CLOCK_UPTIME_RAW.
+// Also records each primary mouse press and release.
+- (void)watchMainThread
+{
+  if (NSProcessInfo.processInfo.environment[@"UNWIRED_LIFECYCLE_PATH"].length == 0) return;
+  dispatch_queue_t queue = dispatch_queue_create("dev.unwired.stall-probe", DISPATCH_QUEUE_SERIAL);
+  self.stallProbe = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+  dispatch_source_set_timer(self.stallProbe, DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC, NSEC_PER_MSEC);
+  __block BOOL asking = NO;
+  __weak AppDelegate *weakSelf = self;
+  dispatch_source_set_event_handler(self.stallProbe, ^{
+    if (asking) return;
+    asking = YES;
+    uint64_t asked = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      double waited = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - asked) / 1e6;
+      if (waited >= 100) {
+        [weakSelf recordLifecycle:@"stall" extra:@{@"milliseconds": @(waited), @"uptime": @(asked / 1e6)}];
+      }
+      dispatch_async(queue, ^{ asking = NO; });
+    });
+  });
+  dispatch_resume(self.stallProbe);
+  // Timing journeys measure from the input itself; the event's timestamp is on the same clock.
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp
+      handler:^NSEvent *(NSEvent *event) {
+    [weakSelf recordLifecycle:event.type == NSEventTypeLeftMouseDown ? @"mouse-down" : @"mouse-up"
+        extra:@{@"uptime": @(event.timestamp * 1000)}];
+    return event;
+  }];
+}
+#endif
+
 - (void)recordLifecycle:(NSString *)event
+{
+  [self recordLifecycle:event extra:nil];
+}
+
+- (void)recordLifecycle:(NSString *)event extra:(NSDictionary *)extra
 {
   if (![event isEqualToString:@"work"]) {
     os_log_info(OS_LOG_DEFAULT, "Mac lifecycle %{public}@ windows=%lu", event, (unsigned long)self.inboxWindows.count);
@@ -371,8 +414,9 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 #if UNWIRED_NATIVE_TESTING
   NSString *path = NSProcessInfo.processInfo.environment[@"UNWIRED_LIFECYCLE_PATH"];
   if (path.length == 0) return;
-  NSDictionary *record = @{@"event": event, @"pid": @(NSProcessInfo.processInfo.processIdentifier),
-      @"session": self.sessionID ?: @"starting", @"windows": @(self.inboxWindows.count), @"workTicks": @(self.workTicks)};
+  NSMutableDictionary *record = [@{@"event": event, @"pid": @(NSProcessInfo.processInfo.processIdentifier),
+      @"session": self.sessionID ?: @"starting", @"windows": @(self.inboxWindows.count), @"workTicks": @(self.workTicks)} mutableCopy];
+  [record addEntriesFromDictionary:extra ?: @{}];
   NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
   NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
   if (handle == nil) return;

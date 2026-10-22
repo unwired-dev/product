@@ -44,13 +44,14 @@ summarizes a message through this synthetic native binding.
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the thirteen registration scenarios
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the fourteen registration scenarios
 described in [Google registration](google-registration.md#deterministic-evidence),
 [Apple registration](apple-registration.md#deterministic-evidence),
 [linked sign-in](linked-sign-in.md#deterministic-evidence),
 [sign-out and deletion](account-removal.md#deterministic-evidence), the
-[Tiptap Draft editor evaluation](draft-editor-evaluation.md) and the
-[Thread view](catch-up.md#thread-view).
+[Tiptap Draft editor evaluation](draft-editor-evaluation.md), the
+[Thread view](catch-up.md#thread-view) and the
+[Mac performance journey](agents/native-validation.md#mac-performance-journey).
 The registration journeys use the real native vault, Keychain and encrypted Inbox store.
 At each provider and backend seam, the vault asks a relay compiled only into the
 selected registration build (`native/private-inbox/synthetic/`). The synthetic Effect
@@ -118,6 +119,11 @@ into its text while Crew 4's body reply is held. Releasing that reply must retai
 the visible text position. It also checks that Crew 6's body unmounts once it lies
 more than a screen away, and that scrolling back to Crew 6 mounts it again. CI
 does not run this scenario; it is local native evidence.
+In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
+also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and
+Outlook update 001 to 125, each with its own body. Every other Gmail body is HTML.
+The Mac [performance journey](agents/native-validation.md#mac-performance-journey)
+connects both mailboxes and times its interactions over them. CI does not run it.
 The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
 adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
 reader. It has no native journey; its evidence comes from the page and the Swift
