@@ -138,15 +138,17 @@ xcrun devicectl device uninstall app --device <device> dev.unwired.mock.assistan
 
 ## Checks the corpus does not automate
 
-On each device, in the same build after the corpus completes:
+On each device, use the qualification build after the corpus completes for the
+reader and evidence checks. For check 2 and the Draft selection in check 3, use an
+ordinary build signed in with an account, with **Mail Assistance** turned on in
+that device's Settings. The synthetic preview mailbox offers no Reply or New
+Message.
 
 1. Open a message, choose **Summarize**, then **Cancel** while it works; summarize
    again and **Dismiss** the result.
 2. In a reply, choose **Suggest reply** and accept it, then **Undo**; choose
    **Rewrite**, replace the text, then **Undo**. Each Undo restores the Draft
-   exactly as it was. The synthetic preview mailbox offers no Reply or New
-   Message, so run this check in an ordinary build signed in with an account,
-   with **Mail Assistance** turned on in that device's Settings.
+   exactly as it was.
 3. Translate a message and a Draft selection. A missing language is reported,
    and the app never offers to download it.
 4. Turn Apple Intelligence off in Settings and relaunch. Record what the first
