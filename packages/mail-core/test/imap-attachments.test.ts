@@ -229,25 +229,29 @@ describe('imap received attachments', () => {
     const { imap, inbox, open, hold, release } = await setup();
     const { id } = await open('Report');
     imap.server.reads.length = 0;
-    const started = hold();
-    const downloads = [inbox.downloadAttachment(id, '0.1')];
-    await started;
-    // The connection reads two sources at a time; cancelled reads still count until they end.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      inbox.cancelAttachment(id, '0.1');
+    const downloads: Array<Promise<void>> = [];
+    // Control Effect's continuation scheduler without freezing setup or the held provider replies.
+    vi.useFakeTimers({ toFake: ['setImmediate', 'clearImmediate'] });
+    try {
+      const started = hold();
       downloads.push(inbox.downloadAttachment(id, '0.1'));
-      await Promise.resolve();
+      await vi.runAllTimersAsync();
+      await started;
+      // Drain every runnable continuation; a third read must wait for a held read to settle.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        inbox.cancelAttachment(id, '0.1');
+        downloads.push(inbox.downloadAttachment(id, '0.1'));
+        await vi.runAllTimersAsync();
+      }
+      expect(imap.server.reads).toStrictEqual([
+        'message INBOX 1',
+        'message INBOX 1',
+      ]);
+    } finally {
+      release();
+      vi.useRealTimers();
+      await Promise.all(downloads);
     }
-    // oxlint-disable-next-line promise/avoid-new -- Let any further source read start.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 10);
-    });
-    expect(imap.server.reads).toStrictEqual([
-      'message INBOX 1',
-      'message INBOX 1',
-    ]);
-    release();
-    await Promise.all(downloads);
     expect(stateOf(inbox, id)).toStrictEqual({ kind: 'downloaded' });
     expect(imap.files.savedFiles.size).toBe(1);
   });
