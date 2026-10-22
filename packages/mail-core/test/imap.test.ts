@@ -512,7 +512,19 @@ describe('connecting IMAP mailboxes', () => {
     });
     expect(imap.server.sessions.size).toBe(0);
 
-    listed.mockRejectedValueOnce({ code: 'offline' });
+    listed.mockRestore();
+    imap.addFolder('Primary', ['inbox']);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).folders).toContainEqual({
+      name: 'Primary',
+      roles: ['inbox'],
+      selectable: true,
+      delimiter: '/',
+    });
+
+    vi.spyOn(imap.native, 'imapListFolders').mockRejectedValueOnce({
+      code: 'offline',
+    });
     await inbox.load();
     expect(ready(inbox.getSnapshot()).status).toBe('retry');
     expect(imap.server.sessions.size).toBe(0);

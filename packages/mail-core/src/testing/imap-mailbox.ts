@@ -319,11 +319,9 @@ export function createSyntheticImap({
             name,
             // The special-use attributes the roles come from, as LIST reports them.
             attributes: [
-              ...roles
-                .filter((role) => role !== 'inbox')
-                .map(
-                  (role) => `\\${role.charAt(0).toUpperCase()}${role.slice(1)}`,
-                ),
+              ...roles.map(
+                (role) => `\\${role.charAt(0).toUpperCase()}${role.slice(1)}`,
+              ),
               ...(selectable ? [] : [String.raw`\Noselect`]),
             ],
             delimiter: '/',
