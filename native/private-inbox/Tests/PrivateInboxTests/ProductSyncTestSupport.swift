@@ -217,7 +217,7 @@ import Foundation
         try trusted(product)
         return records[product.productAccountId]?[identifier]
       },
-      claimDelivery: { [self] _, product, identifier in
+      claimDelivery: { [self] product, identifier in
         try trusted(product)
         let holder =
           claims[product.productAccountId]?[identifier] ?? product.trustedDeviceId

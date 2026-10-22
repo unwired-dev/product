@@ -918,7 +918,8 @@ extension UnwiredRegistration {
   // Reads the Draft sync keys and session under the registration gate, then works on the network
   // without holding it, so a large upload never stalls saving Drafts or reading Gmail.
   private func syncDrafts(
-    _ name: String, owner: String, _ resolve: @escaping RCTPromiseResolveBlock,
+    _ name: String, owner: String, signedIn: Bool = true,
+    _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
     operation: @escaping @MainActor (RegistrationStore, DraftSync) async throws -> [String: Any]
   ) {
@@ -927,11 +928,13 @@ extension UnwiredRegistration {
         do {
           let (store, sync) = try await Self.operations.perform {
             let store = try await self.store()
-            return (store, try await store.prepareDraftSync(owner: owner))
+            return (store, try await store.prepareDraftSync(owner: owner, signedIn: signedIn))
           }
           do {
             let result = try await operation(store, sync)
-            _ = try await Self.operations.perform { try store.draftSync(owner: owner) }
+            _ = try await Self.operations.perform {
+              try store.draftSync(owner: owner, signedIn: signedIn)
+            }
             resolve(result)
           } catch {
             try await Self.operations.perform {
@@ -1022,7 +1025,8 @@ extension UnwiredRegistration {
     _ owner: String, id: String,
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    syncDrafts("claimDraftDelivery", owner: owner, resolve, reject: reject) { _, sync in
+    syncDrafts("claimDraftDelivery", owner: owner, signedIn: false, resolve, reject: reject) {
+      _, sync in
       guard !id.isEmpty, id.count <= 200 else { throw RegistrationError.unavailable }
       return try await sync.claimDelivery(draft: id)
     }
@@ -1941,11 +1945,13 @@ extension UnwiredRegistration {
           args: payloadProof(product).merging(["payloadIdentifier": identifier]) { $1 },
           function: "query")
       },
-      claimDelivery: { identity, product, identifier in
+      claimDelivery: { product, identifier in
         struct Response: Decodable { let claimed: Bool }
         let response: Response = try await mutation(
-          base: base, identity: identity, path: "draftDelivery:claim",
-          args: RegistrationStore.proof(product).merging(["claimIdentifier": identifier]) { $1 })
+          base: base, identity: nil, path: "draftDelivery:claim",
+          args: RegistrationStore.proof(product).merging([
+            "productAccountId": product.productAccountId, "claimIdentifier": identifier,
+          ]) { $1 })
         return response.claimed
       })
   }

@@ -21,6 +21,8 @@ const CodeSchema = Schema.Literals([
   // Distinguished by the flow only; hosts see them as other codes.
   'apple-authorization-required',
   'pending-device-unavailable',
+  // Convex abandoned a deletion attempt and kept the Product Account.
+  'deletion-aborted',
   // A Mail Profile or its ownership changed on another device meanwhile.
   'profile-changed',
   // A Mail Profile still owns a Mailbox Connection.
@@ -42,6 +44,7 @@ export const hostCodes: Partial<Record<Code, Code>> = {
   revoked: 'unavailable',
   deleted: 'unavailable',
   'apple-authorization-required': 'removal-refused',
+  'deletion-aborted': 'removal-refused',
 };
 
 // The fixed texts hosts have always received with each code.

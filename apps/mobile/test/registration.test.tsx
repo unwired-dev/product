@@ -3365,5 +3365,64 @@ describe('product registration', () => {
     ).toBeVisible();
   });
 
+  // #1173: an Apple deletion whose reply was lost must not strand the person on its confirmation.
+  it.each([
+    {
+      outcome: 'deleted',
+      // Convex deleted the account, but its reply was lost; the retry learns it is complete.
+      lost: { loseReply: true },
+      retry: {},
+      shown: ['header', 'Product Account deleted'] as const,
+      // Welcome offers sign-in again.
+      onward: 'Sign in with Apple',
+    },
+    {
+      outcome: 'kept',
+      // The deletion never reached Convex; Apple then refuses the retry, so Convex keeps the account.
+      lost: { offline: true },
+      retry: {
+        deletionStatus: 403,
+        deletionCode: 'PRODUCT_ACCOUNT_DELETION_ABORTED',
+      },
+      shown: ['alert', english('accountRemoval.deletion-refused')] as const,
+      // The account is usable again, including signing out.
+      onward: english('accountRemoval.signOut'),
+    },
+  ])(
+    'leaves Confirm account deletion once an Apple retry learns the account was $outcome',
+    async ({ lost, retry, shown: [role, name], onward }) => {
+      expect.hasAssertions();
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      const setup = createRegistration(synthetic.vault);
+      await setup.register('apple');
+      Object.assign(synthetic.backend, lost);
+      await setup.deleteProductAccount();
+      Object.assign(synthetic.backend, { loseReply: false, offline: false });
+      await render(
+        <RegistrationGate
+          store={started(createRegistration(synthetic.relaunch()))}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+      const pending = { name: 'Confirm account deletion' };
+      await expect(screen.findByRole('header', pending)).resolves.toBeVisible();
+      expect(screen.getByText('Signed in with Apple.')).toBeVisible();
+      Object.assign(synthetic.backend, retry);
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: english('accountRemoval.deletePermanently'),
+          }),
+        );
+      });
+      await expect(screen.findByRole(role, { name })).resolves.toBeVisible();
+      expect(screen.getByRole('button', { name: onward })).toBeVisible();
+      expect(screen.queryByRole('header', pending)).toBeNull();
+    },
+  );
+
   /* oxlint-enable vitest/max-expects */
 });

@@ -562,11 +562,12 @@ export const abortDeletion = internalMutation({
   handler: async (ctx, args) => {
     const request = await ownedDeletionRequest(ctx, args.requestId);
     if (
-      request.phase === 'revocation-pending' &&
-      request.activeAttemptId === args.attemptId
+      request.phase !== 'revocation-pending' ||
+      request.activeAttemptId !== args.attemptId
     ) {
-      await ctx.db.delete('productAccountDeletionRequests', args.requestId);
+      throw new Error('Product Account deletion attempt superseded');
     }
+    await ctx.db.delete('productAccountDeletionRequests', args.requestId);
     return null;
   },
   returns: v.null(),

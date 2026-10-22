@@ -252,6 +252,49 @@ final class InboxTests: XCTestCase {
     shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
     add(shot)
+    sendJourney(app)
+  }
+
+  // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged
+  // delivery claims it and hands it to the synthetic provider, which removes it from the Outbox.
+  private func sendJourney(_ app: XCUIApplication) {
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("maya@example.invalid", into: to)
+    app.buttons["Send"].tap()
+    // #918: the admitted Draft can unmount its editor before Send closes the composer. Wait only
+    // until either outcome, so the Undo Send Window remains for the Outbox checks.
+    let unavailable = app.staticTexts["This Draft is not available."].firstMatch
+    let composer = app.otherElements["composer-overlay"]
+    waitUntil({ !composer.exists || unavailable.exists }, timeout: 10)
+    if unavailable.exists {
+      app.buttons["Close"].tap()
+    }
+    let row = { (status: String) in
+      app.descendants(matching: .any).matching(
+        NSPredicate(format: "label ENDSWITH %@", ". " + status)
+      ).firstMatch
+    }
+    // iPhone returns from Send to the reader; the Outbox heads its Inbox.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+    }
+    XCTAssertTrue(row("Sending soon").waitForExistence(timeout: 10))
+    let queued = XCTAttachment(screenshot: app.screenshot())
+    queued.name = "Outbox during the Undo Send Window"
+    queued.lifetime = .keepAlways
+    add(queued)
+    let outbox = app.staticTexts["Outbox"].firstMatch
+    if !outbox.waitForNonExistence(timeout: 40) {
+      let stuck = XCTAttachment(screenshot: app.screenshot())
+      stuck.name = "Outbox after the Undo Send Window"
+      stuck.lifetime = .keepAlways
+      add(stuck)
+      XCTFail("The sent message stayed in the Outbox")
+    }
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
@@ -554,6 +597,13 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     app.buttons["Delete Product Account"].tap()
     XCTAssertTrue(text("cannot be undone", in: app).waitForExistence(timeout: 15))
+    app.buttons["Delete permanently"].tap()
+    // The deletion's reply is lost (#1173). After relaunch, retrying it confirms the deletion and
+    // leaves its confirmation for Welcome.
+    XCTAssertTrue(text("Deletion could not be confirmed", in: app).waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Confirm account deletion"].waitForExistence(timeout: 20))
     app.buttons["Delete permanently"].tap()
     XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
     app.terminate()
