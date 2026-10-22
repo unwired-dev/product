@@ -1142,6 +1142,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   downloads. Trace `downloadAttachment`'s late-save fence and `presentAttachment`
   after refresh; otherwise a replacement at the same position appears downloaded
   and Open/Share serves the previous file, or a cancelled save restores stale bytes.
+- `imap-inbox.ts.retireGeneration` relying on a prior cached folder checkpoint to
+  invalidate received attachments. Readers and online search can retain messages
+  after that checkpoint is evicted or without one ever being cached. Compare every
+  retained message's exact folder and UIDVALIDITY with the new identity, retire
+  saved and in-flight downloads from other generations, and preserve unchanged
+  generations and distinct folders with overlapping names. Otherwise old private
+  files and late saves survive a known UIDVALIDITY reset.
 - `mailbox-matching.ts.folded` implementing case-insensitive sender/subject search with
   lowercasing alone or ordering normalization, accent removal and case mapping so equivalent
   text gets different search keys. Check sharp S in both cases, dotted/dotless I,

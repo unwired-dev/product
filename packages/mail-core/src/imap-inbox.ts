@@ -68,7 +68,7 @@ import {
   listedMessage,
   messageId,
   newestFirst,
-  ofGeneration,
+  ofOtherGeneration,
   window,
 } from './imap-model.ts';
 import { inlineImageLimits } from './inline-images.ts';
@@ -1094,16 +1094,9 @@ export function createImapInbox(
 
   // A new UIDVALIDITY ends the folder's earlier messages, and their attachments with them, even
   // while a reader still shows one.
-  const retireGeneration = (
-    name: string,
-    previous: number | undefined,
-    next: number,
-  ) => {
-    if (previous === undefined || previous === next) {
-      return;
-    }
+  const retireGeneration = (name: string, next: number) => {
     for (const id of documents.keys()) {
-      if (ofGeneration(id, name, previous)) {
+      if (ofOtherGeneration(id, name, next)) {
         discardAttachments(id, 'missing');
       }
     }
@@ -1148,7 +1141,7 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
-    retireGeneration(name, cached?.uidValidity, entry.cache.uidValidity);
+    retireGeneration(name, entry.cache.uidValidity);
     yield* pruneBodies;
   });
 

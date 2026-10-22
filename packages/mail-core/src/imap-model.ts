@@ -194,18 +194,17 @@ const seen = String.raw`\seen`;
 export const messageId = (folder: string, uidValidity: number, uid: number) =>
   `${uidValidity}.${uid}.${folder}`;
 
-// Whether `id` names a message of the folder at that UIDVALIDITY.
-export const ofGeneration = (
+// Whether `id` names a message of this folder at another UIDVALIDITY.
+export const ofOtherGeneration = (
   id: string,
   folder: string,
   uidValidity: number,
 ) => {
-  const prefix = `${uidValidity}.`;
   const suffix = `.${folder}`;
   return (
-    id.startsWith(prefix) &&
+    !id.startsWith(`${uidValidity}.`) &&
     id.endsWith(suffix) &&
-    /^\d+$/u.test(id.slice(prefix.length, id.length - suffix.length))
+    /^\d+\.\d+$/u.test(id.slice(0, id.length - suffix.length))
   );
 };
 

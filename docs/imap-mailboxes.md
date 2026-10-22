@@ -213,7 +213,8 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   Inbox closes, and with the connection, sign-out, account deletion, device removal
   and relaunch. A folder read that finds a new UIDVALIDITY deletes the saved files
   of its earlier messages and drops their downloads in flight, even while a reader
-  still shows one; their rows then say the attachment is no longer in the folder.
+  still shows one and the folder's checkpoint has left the metadata cache; their
+  rows then say the attachment is no longer in the folder.
 
 There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail; a new
 message can be sent from an IMAP connection, as [Sending](#sending) describes.
