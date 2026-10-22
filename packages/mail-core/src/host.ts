@@ -315,6 +315,7 @@ export function createHost(
           native().imapSynchronize(mailbox, request),
         ),
       imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),
+      imapHeaders: (mailbox, request) => native().imapHeaders(mailbox, request),
       imapModify: (mailbox, change) => native().imapModify(mailbox, change),
       imapSearch: (mailbox, request) => native().imapSearch(mailbox, request),
       imapIdle: (mailbox, request) => native().imapIdle(mailbox, request),

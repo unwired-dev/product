@@ -561,10 +561,22 @@ extension PrivateInboxTests {
     let body = "Private synthetic body"
     _ = try await store.commitMessageBody(
       connection: first, address: google.address, generation: generation, id: "a",
-      admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
+      admission: ["document": body, "tier": "opened", "protectedIds": [String](), "expectedRevision": 1.0])
     _ = try await store.commitMessageBody(
       connection: first, address: google.address, generation: generation, id: "b",
       admission: ["document": body + " b", "tier": "opened", "protectedIds": [String]()])
+    // Another store's metadata commit must fence a late body or exclusion marker atomically,
+    // preserving the current body before eviction or replacement can begin.
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.commitMessageBody(
+        connection: first, address: google.address, generation: generation, id: "a",
+        admission: ["document": "stale marker", "tier": "excluded", "protectedIds": [String](), "expectedRevision": 0.0])
+    }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.commitMessageBody(
+        connection: first, address: google.address, generation: generation, id: "a",
+        admission: ["document": "malformed", "tier": "excluded", "protectedIds": [String](), "expectedRevision": "invalid"])
+    }
     #expect(
       try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "a")[
         "document"] as? String == body)

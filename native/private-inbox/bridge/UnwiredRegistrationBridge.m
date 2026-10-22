@@ -76,6 +76,7 @@ RCT_EXTERN_METHOD(imapListFolders:(NSDictionary *)mailbox request:(NSDictionary 
 RCT_EXTERN_METHOD(imapClose:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapSynchronize:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapMessage:(NSDictionary *)mailbox message:(NSDictionary *)message resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(imapHeaders:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapModify:(NSDictionary *)mailbox change:(NSDictionary *)change resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapSearch:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapIdle:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

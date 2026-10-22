@@ -225,8 +225,46 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   is no longer in the folder. A search result or a refused read changes no other
   attachment until that synchronization.
 
-There is no recent-body prefetch, Reply, Reply All or Forward for IMAP mail; a new
-message can be sent from an IMAP connection, as [Sending](#sending) describes.
+There is no Reply, Reply All or Forward for IMAP mail; a new message can be sent from
+an IMAP connection, as [Sending](#sending) describes.
+
+[#1021](https://github.com/unwired-dev/product/issues/1021) saves recent Inbox bodies
+before they are opened, under Gmail's
+[recent-body prefetch](gmail-inbox.md#recent-body-prefetch) and
+[cache admission](gmail-inbox.md#cache-admission-and-eviction) rules:
+
+- **Selection.** After each successful Inbox synchronization, the cached newest 200
+  Inbox messages received in the 30 days up to that synchronization are read newest
+  first. Other folders and messages already saved or marked are not read.
+- **Preflight.** Reads of the selected messages' Content-Type and Content-Disposition
+  fields, 20 messages at a time and without any body, decide which sources to read.
+  Each header literal is bounded to 256 KiB, the MIME header budget; refusal of a
+  larger literal keeps the read's messages on demand with exclusion markers. Only a
+  message that is a single plain-text or HTML part, with well-formed MIME fields within
+  their budgets, is read and saved; the source is checked again before saving. Any
+  other message, one over 40 MB or one that cannot be read, gets an encrypted
+  exclusion marker and stays on demand, so prefetch never downloads an attachment.
+- **Loads and pauses.** Prefetch is one lane per connection. It holds at most one of
+  the connection's two body loads and yields the device's four to every explicit
+  read; an open of a message being prefetched waits for that read. An unreachable
+  server stops it until the next synchronization; a refused password stops it and
+  asks for the password again. Cache-only registration and a closed Inbox start none.
+- **Identity.** A prefetched body follows the folder's committed UIDVALIDITY like an
+  opened one: a read still in flight when a synchronization records a new UIDVALIDITY
+  or drops the message saves nothing, including when another store commits that change,
+  and pruning removes earlier bodies.
+- **Protection.** Open readers' and then the selected messages' saved bodies are
+  protected from budget eviction as far as they fit. Prefetched bodies use the
+  prefetched eviction tier, and opening one keeps that tier.
+
+Local search reports a prefetched body as saved on this device.
+
+The 20-UID request limit and 256 KiB per-literal limit do not bound aggregate
+memory when a server sends extra or repeated replies, or several individually
+legal literals per message. The owner accepted this residual SwiftMail 1.16.0 risk
+for [PR #1185](https://github.com/unwired-dev/product/pull/1185), with receive-time
+aggregate refusal tracked in [#1187](https://github.com/unwired-dev/product/issues/1187).
+Prefetch is not qualified against that server behavior.
 
 A message whose UID no longer exists under the folder's UIDVALIDITY reads as **This
 message is no longer in this folder on the mail server**.
@@ -351,7 +389,7 @@ close-answers-at-once case uses a controlled `ImapSession`.
 From the workspace root:
 
 ```sh
-mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts test/imap-remote-content.test.ts test/imap-attachments.test.ts
+mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts test/imap-remote-content.test.ts test/imap-attachments.test.ts test/imap-prefetch.test.ts
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
@@ -385,7 +423,17 @@ read, downloads its exact bytes from the message source, opens and shares it, an
 an unreachable server, a refused password, locked storage, an expunged message,
 cancellation, a new UIDVALIDITY with a download in flight, including for a folder that
 had left the cache, a body arriving after that change, isolation between folders
-whose names contain delimiters, and deletion with the last reader and the Inbox. Both hosts' rendered `attachments.test.tsx` journeys download,
+whose names contain delimiters, and deletion with the last reader and the Inbox.
+`test/imap-prefetch.test.ts` saves recent single-part bodies after synchronization
+without reading the source of a message with an attachment, opens them offline, reads
+nothing again at the next synchronization, pauses while the server cannot be reached or
+refuses the password and resumes afterwards, preserves that refusal through an overlapping
+synchronization and its metadata-conflict retry, protects recent bodies before prefetch
+starts, preserves bodies opened
+during the header preflight, shares an in-flight prefetch with an
+explicit open, and keeps no body read before a new UIDVALIDITY, including one committed
+by another store. The fixture dates mail
+older than any recent window unless a test dates it. Both hosts' rendered `attachments.test.tsx` journeys download,
 retry, open and share an IMAP attachment and delete it when the reader closes. The native suite checks password custody, Gmail isolation and stale
 operations, IMAP sessions (one command at a time, their connection generation, the
 per-connection limit, expiry, and closing on a new generation, sign-out and an explicit
@@ -395,7 +443,8 @@ a connection before credentials are sent.
 
 The hosted iOS runner owns a TLS IMAP protocol fixture, its synthetic certificate,
 port and disposable simulator. It installs trust only on that simulator and checks
-real engine authentication, folders, incremental UID reads, raw body reads,
+real engine authentication, folders, incremental UID reads, raw body reads, the
+prefetch preflight's header-only read of unfolded MIME fields,
 UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also checks
 `\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,
 refusal without MOVE or UIDPLUS, a refused destination, a connection dropped after MOVE,
