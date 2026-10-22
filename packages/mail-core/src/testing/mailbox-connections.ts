@@ -23,13 +23,23 @@ export function syntheticConnections(
   const server = (connection: string) =>
     Object.hasOwn(imap, connection) ? imap[connection] : undefined;
   return {
-    imapFolders: (mailbox) =>
-      server(mailbox.connection)?.imapFolders(mailbox) ?? missing(),
+    imapOpen: (mailbox) =>
+      server(mailbox.connection)?.imapOpen(mailbox) ?? missing(),
+    imapCapabilities: (mailbox, session) =>
+      server(mailbox.connection)?.imapCapabilities(mailbox, session) ??
+      missing(),
+    imapListFolders: (mailbox, session) =>
+      server(mailbox.connection)?.imapListFolders(mailbox, session) ??
+      missing(),
+    imapClose: (mailbox, session) =>
+      server(mailbox.connection)?.imapClose(mailbox, session) ?? missing(),
     imapSynchronize: (mailbox, request) =>
       server(mailbox.connection)?.imapSynchronize(mailbox, request) ??
       missing(),
     imapMessage: (mailbox, message) =>
       server(mailbox.connection)?.imapMessage(mailbox, message) ?? missing(),
+    imapHeaders: (mailbox, request) =>
+      server(mailbox.connection)?.imapHeaders(mailbox, request) ?? missing(),
     imapModify: (mailbox, change) =>
       server(mailbox.connection)?.imapModify(mailbox, change) ?? missing(),
     imapSearch: (mailbox, request) =>
@@ -67,19 +77,12 @@ export function syntheticConnections(
         mailbox,
         id,
       ) ?? missing(),
-    commitMessageBody: (mailbox, id, admission) => {
-      const imapServer = server(mailbox.connection);
-      return (
-        (admission.tier === 'opened'
-          ? imapServer?.commitMessageBody(mailbox, id, {
-              ...admission,
-              tier: 'opened',
-            })
-          : undefined) ??
-        of(mailbox.connection)?.commitMessageBody(mailbox, id, admission) ??
-        missing()
-      );
-    },
+    commitMessageBody: (mailbox, id, admission) =>
+      (server(mailbox.connection) ?? of(mailbox.connection))?.commitMessageBody(
+        mailbox,
+        id,
+        admission,
+      ) ?? missing(),
     listMessageBodies: (mailbox, ids) =>
       (server(mailbox.connection) ?? of(mailbox.connection))?.listMessageBodies(
         mailbox,

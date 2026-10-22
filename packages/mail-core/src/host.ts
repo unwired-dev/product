@@ -304,12 +304,18 @@ export function createHost(
           native().graphSend(message, mailbox),
         ),
       openMailbox: (connection) => native().openMailbox(connection),
-      imapFolders: (mailbox) => native().imapFolders(mailbox),
+      imapOpen: (mailbox) => native().imapOpen(mailbox),
+      imapCapabilities: (mailbox, session) =>
+        native().imapCapabilities(mailbox, session),
+      imapListFolders: (mailbox, session) =>
+        native().imapListFolders(mailbox, session),
+      imapClose: (mailbox, session) => native().imapClose(mailbox, session),
       imapSynchronize: (mailbox, request) =>
         observe('sync', 'sync-failed', () =>
           native().imapSynchronize(mailbox, request),
         ),
       imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),
+      imapHeaders: (mailbox, request) => native().imapHeaders(mailbox, request),
       imapModify: (mailbox, change) => native().imapModify(mailbox, change),
       imapSearch: (mailbox, request) => native().imapSearch(mailbox, request),
       imapIdle: (mailbox, request) => native().imapIdle(mailbox, request),

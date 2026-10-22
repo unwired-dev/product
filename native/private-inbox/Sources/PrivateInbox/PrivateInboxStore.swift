@@ -646,9 +646,13 @@ public final class PrivateInboxStore: @unchecked Sendable {
   // false, storing nothing, when it cannot fit.
   public func commitMessageBody(
     connection: String, address: String, subject: String, id: String, document: String,
-    tier: BodyTier, protectedIds: [String]
+    tier: BodyTier, protectedIds: [String], expectedRevision: Int? = nil
   ) throws -> Bool {
     try transaction {
+      if let expectedRevision {
+        let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
+        guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
+      }
       let (name, identity) = bodyName(address: address, subject: subject, id: id)
       let protected = Set(protectedIds.map { bodyName(address: address, subject: subject, id: $0).0 })
       let plaintext = Data(document.utf8)

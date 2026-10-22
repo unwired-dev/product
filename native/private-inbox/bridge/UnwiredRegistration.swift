@@ -1215,16 +1215,68 @@ extension UnwiredRegistration {
     }
   }
 
-  @objc(imapFolders:resolver:rejecter:)
-  func imapFolders(
+  @objc(imapOpen:resolver:rejecter:)
+  func imapOpen(
     _ scope: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    mailbox("imapFolders", resolve, reject: reject) {
+    mailbox("imapOpen", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
-      return try await $0.imapFolders(
-        connection: connection, address: address, generation: generation)
+      return try await $0.imapOpen(connection: connection, address: address, generation: generation)
     }
+  }
+
+  // `request` names the open `session`.
+  @objc(imapCapabilities:request:resolver:rejecter:)
+  func imapCapabilities(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapCapabilities", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.imapCapabilities(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request))
+    }
+  }
+
+  // `request` names the open `session`.
+  @objc(imapListFolders:request:resolver:rejecter:)
+  func imapListFolders(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapListFolders", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.imapListFolders(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request))
+    }
+  }
+
+  // Outside the registration gate, so it can cancel a command that holds it.
+  @objc(imapClose:request:resolver:rejecter:)
+  func imapClose(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      do {
+        let (connection, _, _) = try Self.scope(scope)
+        let session = try Self.imapSession(request)
+        Self.sharedStore?.imapClose(connection: connection, session: session)
+        resolve([:])
+      } catch {
+        Self.rejectMailbox("imapClose", error, reject)
+      }
+    }
+  }
+
+  private static func imapSession(_ request: [String: Any]) throws -> String {
+    guard let session = request["session"] as? String, !session.isEmpty, session.count <= 64 else {
+      throw RegistrationError.unavailable
+    }
+    return session
   }
 
   // `request` names the folder, how many of its newest messages to keep, and optionally the
@@ -1270,6 +1322,26 @@ extension UnwiredRegistration {
       return try await $0.imapMessage(
         connection: connection, address: address, generation: generation, folder: folder,
         uidValidity: validity, uid: uid)
+    }
+  }
+
+  // `request` names `{ folder, uidValidity, uids }`; a changed UIDVALIDITY reads nothing.
+  @objc(imapHeaders:request:resolver:rejecter:)
+  func imapHeaders(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapHeaders", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let validity = (request["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
+        let requested = request["uids"] as? [Double]
+      else { throw RegistrationError.unavailable }
+      let uids = requested.compactMap { UInt32(exactly: $0) }
+      guard uids.count == requested.count else { throw RegistrationError.unavailable }
+      return try await $0.imapHeaders(
+        connection: connection, address: address, generation: generation, folder: folder,
+        uidValidity: validity, uids: uids)
     }
   }
 
