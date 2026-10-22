@@ -1624,6 +1624,36 @@ describe('storing Drafts', () => {
     ]);
   });
 
+  it('leaves no blank Draft behind when a subscriber rejects its creation', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const kept = present(await drafts.create(alex), 'kept Draft');
+    const once = drafts.subscribe(() => {
+      once();
+      throw new Error('subscriber failed');
+    });
+    await expect(drafts.create(alex)).rejects.toThrow('subscriber failed');
+    // A subscriber that keeps throwing rejects each removal too.
+    const unsubscribe = drafts.subscribe(() => {
+      throw new Error('subscriber failed');
+    });
+    await expect(drafts.create(alex)).rejects.toThrow('subscriber failed');
+    await expect(drafts.create(other)).rejects.toThrow('subscriber failed');
+    unsubscribe();
+    expect(
+      ready(drafts.getSnapshot()).drafts.map(({ id }) => id),
+    ).toStrictEqual([kept]);
+    await expect(drafts.save()).resolves.toBe(true);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(
+      ready(reopened.getSnapshot()).drafts.map(({ id }) => id),
+    ).toStrictEqual([kept]);
+  });
+
   it('keeps a late authored edit after abandoning an unsaved empty Draft', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

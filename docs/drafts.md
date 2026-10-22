@@ -32,6 +32,8 @@ Trusted Devices through Private Sync.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. If its mailbox stops being able to send, or the Product
   Account changes, while the open composer is saving, no Draft starts. Refused navigation leaves it available to try again.
+  When starting the Draft fails unexpectedly, for example because a Draft subscriber
+  throws, New Message stays available and no blank Draft stays behind.
   A destination chosen while creation waits stays selected. An abandoned empty
   Draft disappears from the list immediately; when storage refuses saving, the
   next successful save makes its removal durable. Selecting the new Draft's row
@@ -405,6 +407,9 @@ Shared regressions preserve late authored edits and concurrent storage edits
 after abandoning an empty New Message. Both host journeys keep a later destination
 selected through locked creation and cleanup, then use **Save Drafts** and reopen
 the store to verify that the abandoned blank Draft was not saved.
+A shared regression rejects Draft creation through a subscriber that throws once
+and one that keeps throwing, then reopens storage after the next save to verify
+that no blank Draft was kept.
 
 The hosted iOS 27 storage suite checks the Draft document with the real
 filesystem, CryptoKit and Simulator Keychain: ciphertext without its plaintext,

@@ -2176,23 +2176,33 @@ export function createDrafts(
         return undefined;
       }
       const created: { id?: string } = {};
-      await change((drafts, { now, id }) => {
-        created.id = id;
-        return [
-          ...drafts,
-          {
-            id,
-            connection: mailbox.id,
-            from: mailbox.address,
-            to: [],
-            cc: [],
-            bcc: [],
-            subject: '',
-            body: emptyDocument,
-            updatedAt: now,
-          },
-        ];
-      }, creating);
+      try {
+        await change((drafts, { now, id }) => {
+          created.id = id;
+          return [
+            ...drafts,
+            {
+              id,
+              connection: mailbox.id,
+              from: mailbox.address,
+              to: [],
+              cc: [],
+              bcc: [],
+              subject: '',
+              body: emptyDocument,
+              updatedAt: now,
+            },
+          ];
+        }, creating);
+      } catch (error) {
+        // The caller never learns a rejected Draft's ID, so the empty Draft goes again. Its removal
+        // takes effect before subscribers hear of it, even when one keeps throwing.
+        await change(
+          (drafts) => drafts.filter((draft) => draft.id !== created.id),
+          creating,
+        ).catch(() => false);
+        throw error;
+      }
       // A Draft started before the Product Account changed belongs to no open store now.
       return live(creating) ? created.id : undefined;
     },
