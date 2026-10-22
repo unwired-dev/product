@@ -66,6 +66,15 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `RegistrationStore.imapOpen` or another bounded credentialed acquisition
+  checking capacity only after authentication. Refuse an already-full owner
+  before opening or logging in, and trace production callers across suspension:
+  preserve serialization or reserve capacity when concurrent admission requires
+  it. Recheck retained capacity after awaited acquisition and close a refused
+  result; otherwise refused work still authenticates or concurrent opens exceed
+  the owner's handle bound. Verify refusal creates no additional authenticated
+  session through the controlled provider.
+
 - `SwiftMailImapSession.folders` returning a truncated LIST as successful, or accepting
   wildcard fallback after an advertised namespace lookup fails. Preserve complete
   namespace coverage and reject overflow or unresolved discovery through the

@@ -25,6 +25,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- An expiry test such as `ImapMailboxTests.imapSessionsStayWithTheirConnectionGeneration`
+  shortening a session's lifetime before establishing the held command it intends
+  to expire. Open the session and observe the command waiting before shortening
+  the lifetime or advancing a controlled clock; otherwise suspension during setup
+  can expire the handle before command admission and fail without exercising
+  in-flight expiry.
+
 - Negative subprocess cases such as the evidence-validator matrix in
   `scripts/mock-mail-runner.test.mjs` asserting only a nonzero exit. Require the
   owning rejection diagnostic as well, distinguishing failed checks from malformed
