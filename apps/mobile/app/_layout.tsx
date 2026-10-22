@@ -161,6 +161,8 @@ function MailShell() {
     if (!listening) {
       return undefined;
     }
+    // React Native reports the frame in the key window's coordinates despite `screenY`'s name, so it
+    // compares with the window-filling shell even in an iPad window below the top of the screen.
     const docked = (frame: { width: number; screenY: number }) =>
       frame.width < width ? undefined : frame.screenY;
     const subscriptions = [
