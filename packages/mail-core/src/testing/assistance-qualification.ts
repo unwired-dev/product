@@ -22,7 +22,7 @@ import {
 // The synthetic corpus the assistance qualification build runs through Apple's on-device model
 // and Translation (#625). Raise the version with any change to its cases, so runs on different
 // corpora are never compared as one. It contains no real mail.
-export const corpusVersion = 1;
+export const corpusVersion = 2;
 
 const longBody = Array.from(
   { length: 80 },
@@ -373,15 +373,29 @@ async function qualifyCancellation(assistance: Native, record: Recorder) {
     result: outcome(shown === 'cancelled' && after === 'cancelled', after),
   });
 
-  // A newer request replaces an older one: its result is never shown for the other input.
-  const replaced = createMessageSummary(assistance);
-  await Promise.all([replaced.summarize(long), replaced.summarize(short)]);
+  // A newer request replaces an older one already generating: the older result is never shown
+  // for the other input. Counting native starts shows both generations reached the model.
+  let nativeStarts = 0;
+  const replaced = createMessageSummary({
+    ...assistance,
+    summarize: (request, input) => {
+      nativeStarts += 1;
+      return assistance.summarize(request, input);
+    },
+  });
+  const older = replaced.summarize(long);
+  await pause(300);
+  await Promise.all([older, replaced.summarize(short)]);
   const stale = replaced.getSnapshot(long).kind;
   const current = replaced.getSnapshot(short).kind;
   await record('stale-result', {
     stale,
     current,
-    result: stale === 'idle' ? outcome(current === 'ready', current) : 'fail',
+    nativeStarts,
+    result:
+      stale === 'idle' && (nativeStarts === 2 || current !== 'ready')
+        ? outcome(current === 'ready', current)
+        : 'fail',
   });
 
   const english = draftTranslationInput(longBody.slice(0, 2000), 'de');

@@ -28,7 +28,7 @@ contacts no provider. Only this build contains the corpus run and its evidence
 recorder; `verify:bundle` rejects the run in any other bundle, and TestFlight
 uploads refuse mock builds.
 
-Each interactive launch runs version 1 of the synthetic corpus once, through the
+Each interactive launch runs version 2 of the synthetic corpus once, through the
 same shared stores the reader and composer use and the real native module:
 
 - summaries of English, Czech and German messages, a message that tells the model
@@ -41,7 +41,7 @@ same shared stores the reader and composer use and the real native module:
   and unidentified-language refusals;
 - cancellation of a native generation, of a summary preview and of a translation
   preview, each with its late result, and a newer request replacing an older one
-  while its availability check is pending.
+  that is already generating.
 
 The corpus contains no real mail. Change `corpusVersion` in
 `packages/mail-core/src/testing/assistance-qualification.ts` with any change to
@@ -170,11 +170,10 @@ Copy the evidence after each relaunch in steps 4 and 5. On the Mac, set
 open, prints where each relaunch writes its evidence, and removes the copy only
 after you press Return.
 
-The corpus's `stale-result` check rejects the older request before it reaches
-native generation. Replacement after native generation has started remains a
-required release check: observe the older native call starting, replace its input,
-then let both requests settle and verify that only the current input's result is
-shown. The existing corpus results do not qualify that in-flight replacement.
+The `stale-result` check replaces the older request after its native generation
+has started and records `nativeStarts`; it passes only when both generations reached
+the model and the older result is never shown. Corpus v1 replaced the older request
+before it reached the model, so v1 results do not qualify that in-flight replacement.
 
 ## Record the results
 

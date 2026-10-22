@@ -109,7 +109,7 @@ describe('assistance qualification corpus run', () => {
 
     expect(complete).toMatchObject({ pass: 20, limited: 0, fail: 0 });
     expect(byKind('device')[0]).toMatchObject({
-      corpusVersion: 1,
+      corpusVersion: 2,
       hardware: 'Mac16,10',
       availability: 'available',
       translationLanguages: ['en', 'de'],
@@ -124,9 +124,11 @@ describe('assistance qualification corpus run', () => {
       }),
     );
     expect(byKind('native-cancel')[0]).toMatchObject({ code: 'cancelled' });
+    // Both generations reached the model before the newer one replaced the older one.
     expect(byKind('stale-result')[0]).toMatchObject({
       stale: 'idle',
       current: 'ready',
+      nativeStarts: 2,
     });
   });
 
