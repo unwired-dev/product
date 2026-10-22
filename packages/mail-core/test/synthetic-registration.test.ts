@@ -598,3 +598,61 @@ describe('the synthetic backend keeps its state across launches', () => {
     ).resolves.toMatchObject({ reply: expect.any(String) });
   });
 });
+
+describe('the performance mailboxes', () => {
+  it('list 125 more Inbox Threads in Gmail and in Microsoft, each with its own body', async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-performance', { state: null });
+    // A provider reply: its status and its JSON body.
+    const exchange = <
+      S extends Schema.Top & { readonly DecodingServices: never },
+    >(
+      body: S,
+    ) => Schema.Struct({ status: Schema.Finite, body });
+    const gmailPage = async (query: string) =>
+      decoded(
+        exchange(Page),
+        await ask('google.gmail', {
+          subject: 'synthetic-alternate-mailbox',
+          url: `https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX${query}`,
+          body: null,
+        }),
+      ).body;
+    const first = await gmailPage('');
+    const rest = await gmailPage('&pageToken=2');
+    expect(first.messages.length + rest.messages.length).toBe(128);
+    expect(rest.nextPageToken).toBeUndefined();
+    const graph = async (url: string) =>
+      ask('microsoft.graph', {
+        url: `https://graph.microsoft.com/v1.0/me/${url}`,
+        method: 'GET',
+        body: null,
+        contentType: 'application/json',
+      });
+    const Listed = Schema.fromJsonString(
+      Schema.Struct({
+        value: Schema.Array(Schema.Struct({ conversationId: Schema.String })),
+      }),
+    );
+    for (const url of [
+      'mailFolders/inbox/messages/delta?$select=id',
+      'mailFolders/inbox/messages?$select=id&$top=200',
+    ]) {
+      const { value } = decoded(exchange(Listed), await graph(url)).body;
+      expect(
+        new Set(value.map(({ conversationId }) => conversationId)).size,
+      ).toBe(126);
+    }
+    const Body = Schema.fromJsonString(
+      Schema.Struct({ body: Schema.Struct({ content: Schema.String }) }),
+    );
+    expect(
+      decoded(
+        exchange(Body),
+        await graph(
+          'messages/AAMkAGI2-synthetic-performance-125=?$select=body',
+        ),
+      ).body.body.content,
+    ).toBe('Outlook update 125 body. Nothing here came from a real mailbox.');
+  });
+});

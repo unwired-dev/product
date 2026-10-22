@@ -75,6 +75,44 @@ relax a device budget. Record the device, fixture, build, command and measuremen
 evidence; these targets do not claim a passing measurement. The reviewer verifies
 the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md).
 
+### Mac performance journey
+
+On the Mac, the `testWarmCachePerformance` journey measures the budgets above
+except typing and formatting feedback. Build the `Testing` configuration, which
+is Release-optimized with packaged JavaScript plus the test-only probes, with
+`UNWIRED_MOCK_SCENARIO=registration-performance`, then run it with the
+[Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testWarmCachePerformance
+```
+
+The journey signs in with Apple and connects the synthetic Microsoft and Gmail
+mailboxes, 126 and 128 Inbox Threads. It opens five messages of each once so
+their bodies are cached, then measures 10 relaunches until the unified Inbox
+lists, 21 switches between both Inboxes and All inboxes, 10 body openings per
+mailbox and 10 openings each of an empty composer and a saved Draft. Closing a
+composer currently crashes the Mac host
+([#1174](https://github.com/unwired-dev/product/issues/1174)), so each composer
+sample is the first composer of a relaunched process.
+
+A click sample runs from the mouse release, recorded by the app on the same
+uptime clock, until an accessibility query finds the rendered result. A launch
+sample runs from the launch request. Every sample includes XCUITest's event
+completion and queries, about 35–45 ms each, so it is an upper bound: a sample
+within budget passes, but an overrun only shows that the budget is not proven.
+The app records each main-thread stall of 100 ms or longer; the report names
+stalls inside sample windows and in the whole session.
+
+The journey writes one `PERFORMANCE` JSON line per interaction to
+`xcodebuild.log` and the same lines as an XCTest attachment. Each line has the
+samples, p50, p95, maximum, budget and stalls. The final line has the
+query overhead, the synthetic press duration and every session stall. It
+measures neither typing nor formatting feedback, keyboard or accessibility
+journeys, nor the iPhone and iPad references.
+
 ## Report what the evidence proves
 
 A production Hermes export verifies the JavaScript bundle. A native build proves

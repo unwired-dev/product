@@ -809,4 +809,272 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(app.windows["Inbox 1"].buttons["Mark as unread"].waitForExistence(timeout: 10))
 
   }
+
+  // #626: warm encrypted-cache timings on this Mac for the local-mail budgets, over the
+  // registration-performance build's Gmail and Microsoft Inboxes and their 250 added Threads.
+  // A click sample runs from the release the app recorded to the first accessibility query that
+  // finds the rendered result; a launch sample from the launch request. Both include XCUITest's
+  // queries, so they are upper bounds. The app also records each main-thread stall of 100 ms or
+  // longer, which the samples' windows attribute.
+  // swiftlint:disable:next function_body_length
+  func testWarmCachePerformance() throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 1200
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
+    let app = XCUIApplication(url: appURL)
+    app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func row(_ subject: String) -> XCUIElement {
+      window.buttons.matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+    }
+    func inbox(_ address: String) -> XCUIElement { window.buttons["Inbox. In \(address)"] }
+    // Each mailbox's Inbox, its own messages the window shows, and the other mailbox's.
+    let samples = [
+      ("casey@example.invalid", "Outlook", "Gmail"), ("other@example.invalid", "Gmail", "Outlook"),
+    ]
+      .map { address, own, other in
+        (address, (1...5).map { String(format: "\(own) update %03d", $0) }, "\(other) update")
+      }
+    func show(_ address: String, _ messages: [String], without other: String) {
+      inbox(address).click()
+      _ = until(row(messages[0]), from: uptime(), without: row(other))
+    }
+    // Opening each sample message once saves its body in the encrypted cache.
+    for (address, messages, other) in samples {
+      show(address, messages, without: other)
+      for message in messages {
+        row(message).click()
+        XCTAssertTrue(body("\(message) body.", in: window).waitForExistence(timeout: 15))
+      }
+    }
+    window.buttons["All inboxes"].click()
+
+    var groups: [PerformanceGroup] = []
+    func measure(
+      _ name: String, budget: Double, count: Int = 20, _ sample: (Int) -> (Double, Double)
+    ) {
+      let before = firstQueryResults
+      let windows = (0..<count).map(sample)
+      groups.append((name, budget, windows, firstQueryResults - before))
+    }
+    // Each relaunch reopens the encrypted cache of both mailboxes.
+    measure("launch-to-first-list", budget: 1000, count: 10) { _ in
+      app.terminate()
+      let start = uptime()
+      app.launch()
+      return (start, until(row("Jordan Lee"), from: start, and: window.buttons["All inboxes"]))
+    }
+    // All inboxes aggregates every listed Thread of both mailboxes.
+    let views = [
+      (inbox("casey@example.invalid"), "Outlook update 001", "Gmail update 001"),
+      (inbox("other@example.invalid"), "Gmail update 001", "Outlook update 001"),
+      (window.buttons["All inboxes"], "Outlook update 001", "Rowan Hale"),
+    ]
+    measure("cached-mailbox-switch", budget: 200, count: 21) { index in
+      let (view, shown, required) = views[index % views.count]
+      let start = uptime()
+      view.click()
+      // A mailbox's own Inbox no longer shows the other mailbox; All inboxes shows both.
+      return index % views.count == 2
+        ? (start, until(row(shown), from: start, and: row(required)))
+        : (start, until(row(shown), from: start, without: row(required)))
+    }
+    // Each message's first open in this process reads the encrypted cache; the second, memory.
+    for (address, messages, other) in samples {
+      show(address, messages, without: other)
+      measure("cached-body \(address)", budget: 200, count: 10) { index in
+        let message = messages[index % messages.count]
+        let start = uptime()
+        row(message).click()
+        return (start, until(body("\(message) body.", in: window), from: start))
+      }
+    }
+    // Closing a composer crashes this host (#1174), so each composer sample ends with a relaunch:
+    // every sample is the first composer of its process.
+    let subject = window.textFields["Subject"]
+    func relaunch() {
+      app.terminate()
+      app.launch()
+      XCTAssertTrue(row("Jordan Lee").waitForExistence(timeout: 30))
+    }
+    measure("empty-composer", budget: 300, count: 10) { _ in
+      let start = uptime()
+      window.buttons["New Message"].click()
+      let end = until(subject, from: start)
+      relaunch()
+      return (start, end)
+    }
+    window.buttons["New Message"].click()
+    XCTAssertTrue(subject.waitForExistence(timeout: 10))
+    subject.click()
+    subject.typeText("Warm composer")
+    // The Inbox lists the Draft once its edit is saved.
+    XCTAssertTrue(row("Draft. Warm composer").waitForExistence(timeout: 10))
+    relaunch()
+    measure("warm-composer", budget: 200, count: 10) { _ in
+      let start = uptime()
+      row("Warm composer").click()
+      let end = until(
+        window.textFields.matching(NSPredicate(format: "value == %@", "Warm composer")).firstMatch,
+        from: start)
+      relaunch()
+      return (start, end)
+    }
+    reportPerformance(
+      groups, evidence: evidence, overhead: queryOverhead(window.buttons["New Message"]))
+  }
+
+  // Signs in with Apple and connects the synthetic Microsoft mailbox, confirms the Recovery Key,
+  // which opens the Inbox, then adds the synthetic Gmail mailbox in Settings.
+  private func performanceSetup(_ app: XCUIApplication, window: XCUIElement) {
+    XCTAssertTrue(window.buttons["Continue"].waitForExistence(timeout: 30))
+    window.buttons["Continue"].click()
+    XCTAssertTrue(window.buttons["Sign in with Apple"].waitForExistence(timeout: 20))
+    window.buttons["Sign in with Apple"].click()
+    XCTAssertTrue(window.buttons["Microsoft 365 and Outlook"].waitForExistence(timeout: 15))
+    window.buttons["Microsoft 365 and Outlook"].click()
+    XCTAssertTrue(
+      text("casey@example.invalid is connected", in: window).waitForExistence(timeout: 15))
+    let presented = recoveryKey(in: window).value as? String ?? ""
+    let entry = window.textFields["Last four characters"]
+    entry.click()
+    entry.typeText(String(presented.suffix(4)))
+    window.buttons["Confirm Recovery Key"].click()
+    XCTAssertTrue(window.buttons["Inbox. In casey@example.invalid"].waitForExistence(timeout: 15))
+    app.typeKey(",", modifierFlags: .command)
+    let settings = app.windows["settings-window"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Email Accounts"].click()
+    XCTAssertTrue(settings.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
+    settings.buttons["Add another Gmail mailbox"].click()
+    XCTAssertTrue(text("other@example.invalid", in: settings).waitForExistence(timeout: 15))
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(window.buttons["Inbox. In other@example.invalid"].waitForExistence(timeout: 30))
+    XCTAssertTrue(
+      window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001"))
+        .firstMatch.waitForExistence(timeout: 60))
+  }
+
+  // A reader's body text: a selectable text view for plain text, static text inside the isolated
+  // WebKit view for HTML.
+  private func body(_ marker: String, in window: XCUIElement) -> XCUIElement {
+    window.descendants(matching: .any).matching(
+      NSPredicate(
+        format: "(elementType == %d OR elementType == %d) AND value CONTAINS %@",
+        XCUIElement.ElementType.textView.rawValue, XCUIElement.ElementType.staticText.rawValue,
+        marker)
+    ).firstMatch
+  }
+
+  // Samples whose result had rendered before XCUITest's first query: bounded by XCUITest itself.
+  private var firstQueryResults = 0
+
+  private func uptime() -> Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e6 }
+
+  // When `shown` exists, every `also` exists and `without` does not, querying as fast as XCUITest
+  // answers; a result missing after 10 s fails the journey.
+  private func until(
+    _ shown: XCUIElement, from start: Double, and also: XCUIElement? = nil,
+    without hidden: XCUIElement? = nil
+  ) -> Double {
+    var queries = 1
+    defer { if queries == 1 { firstQueryResults += 1 } }
+    while !(shown.exists && also?.exists != false && hidden?.exists != true) {
+      queries += 1
+      if uptime() - start > 10_000 {
+        XCTFail("No rendered result within 10 s: \(shown)")
+        break
+      }
+    }
+    return uptime()
+  }
+
+  // The median time one accessibility query takes, which every sample includes at least once.
+  private func queryOverhead(_ element: XCUIElement) -> Double {
+    let durations = (0..<20).map { _ in
+      let start = uptime()
+      _ = element.exists
+      return uptime() - start
+    }.sorted()
+    return durations[durations.count / 2]
+  }
+
+  private typealias PerformanceGroup = (
+    name: String, budget: Double, windows: [(start: Double, end: Double)], firstQuery: Int
+  )
+
+  private func reportPerformance(
+    _ groups: [PerformanceGroup],
+    evidence: URL, overhead: Double
+  ) {
+    struct Record: Decodable {
+      let event: String
+      let milliseconds: Double?
+      let uptime: Double?
+    }
+    let records = ((try? String(contentsOf: evidence, encoding: .utf8)) ?? "")
+      .split(separator: "\n")
+      .compactMap { try? JSONDecoder().decode(Record.self, from: Data($0.utf8)) }
+    func times(_ event: String) -> [Double] {
+      records.filter { $0.event == event }.compactMap(\.uptime)
+    }
+    let presses = times("mouse-down")
+    let releases = times("mouse-up")
+    let stalls = records.filter { $0.event == "stall" }
+    var lines: [String] = []
+    var pressToRelease: [Double] = []
+    for group in groups {
+      // A click selects on release: its sample starts at the release of its last press.
+      let windows = group.windows.map { window -> (start: Double, end: Double) in
+        guard let press = presses.last(where: { $0 >= window.start && $0 <= window.end }),
+          let release = releases.first(where: { $0 >= press && $0 <= window.end })
+        else { return window }
+        pressToRelease.append(release - press)
+        return (release, window.end)
+      }
+      let samples = windows.map { $0.end - $0.start }.sorted()
+      // Nearest-rank percentiles.
+      func percentile(_ rank: Double) -> Double {
+        samples[max(0, Int((rank * Double(samples.count)).rounded(.up)) - 1)]
+      }
+      let during = stalls.filter { stall in
+        windows.contains { stall.uptime ?? 0 >= $0.start && stall.uptime ?? 0 <= $0.end }
+      }.compactMap(\.milliseconds)
+      let record: [String: Any] = [
+        "interaction": group.name, "budgetMs": group.budget, "samplesMs": samples,
+        "p50Ms": percentile(0.5), "p95Ms": percentile(0.95), "maxMs": samples.last ?? 0,
+        "withinBudget": percentile(0.95) <= group.budget, "stallsMs": during,
+        "resultsOnFirstQuery": group.firstQuery,
+      ]
+      lines.append(json(record))
+    }
+    pressToRelease.sort()
+    lines.append(
+      json([
+        "queryOverheadMs": overhead,
+        "pressToReleaseMedianMs": pressToRelease.isEmpty
+          ? 0 : pressToRelease[pressToRelease.count / 2],
+        "sessionStallsMs": stalls.compactMap(\.milliseconds),
+      ]))
+    print(lines.map { "PERFORMANCE \($0)" }.joined(separator: "\n"))
+    let attachment = XCTAttachment(
+      data: Data((lines.joined(separator: "\n") + "\n").utf8), uniformTypeIdentifier: "public.json")
+    attachment.name = "Warm-cache performance"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  private func json(_ object: [String: Any]) -> String {
+    // swiftlint:disable:next force_try
+    String(
+      decoding: try! JSONSerialization.data(withJSONObject: object, options: .sortedKeys),
+      as: UTF8.self)
+  }
 }

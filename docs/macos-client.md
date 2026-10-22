@@ -198,7 +198,8 @@ component, bundle and runner contracts remain available.
 
 The runner selects one XCTest journey: the mailbox lifecycle journey by default,
 or the journey named after the app path, such as the
-[language journey](localization.md#verify). The lifecycle journey opens two windows, selects different messages, focuses a
+[language journey](localization.md#verify) or the
+[performance journey](agents/native-validation.md#mac-performance-journey). The lifecycle journey opens two windows, selects different messages, focuses a
 window through its menu, closes both, checks continued application work, reopens
 through Launch Services, reads another message, and chooses the native Quit menu.
 Command-Q is checked separately through direct native UI automation because
@@ -216,7 +217,10 @@ Only `Testing` compiles the synthetic application-scoped work timer and JSONL
 probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the test supplies `UNWIRED_LIFECYCLE_PATH`;
 the application never creates a test-control server or accepts reset commands.
 Records contain only lifecycle event names, process/session identity, window
-counts and tick counts. Release compiles out the probe and timer. Ordinary local
+counts and tick counts. With that path, the probe also records each primary mouse
+press and release and each main-thread stall of 100 ms or longer, with its uptime
+and duration, for the
+[performance journey](agents/native-validation.md#mac-performance-journey). Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
 
 The lifecycle JSONL is an XCTest attachment and remains in the runner's evidence directory.

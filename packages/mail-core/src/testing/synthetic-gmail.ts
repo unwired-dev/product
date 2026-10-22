@@ -103,6 +103,29 @@ const syntheticThread: Readonly<Record<string, SyntheticGmailMessage>> =
     ]),
   );
 
+// The `registration-performance` mailbox adds 125 older Inbox Threads of one message each, every
+// other one HTML, for the warm-cache performance journey; Gmail update 001 is the newest.
+export const syntheticPerformanceCount = 125;
+const syntheticPerformance: Readonly<Record<string, SyntheticGmailMessage>> =
+  Object.fromEntries(
+    Array.from({ length: syntheticPerformanceCount }, (_, index) => {
+      const number = String(index + 1).padStart(3, '0');
+      const text = `Gmail update ${number} body. Nothing here came from a real mailbox.`;
+      const snippet = `Gmail update ${number} preview.`;
+      return [
+        `19a0c0ffee${(0x10_00_00 + index).toString(16)}`,
+        {
+          from: `Sender ${number} <sender${number}@example.invalid>`,
+          subject: `Gmail update ${number}`,
+          snippet,
+          internalDate: String(1_758_000_000_000 - index * 7_200_000),
+          labelIds: ['INBOX'],
+          ...(index % 2 === 0 ? { text } : { html: `<p>${text}</p>` }),
+        },
+      ];
+    }),
+  );
+
 const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
 const mailbox = 'synthetic-alternate-mailbox';
 const LabelChange = Schema.fromJsonString(
@@ -196,6 +219,9 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
       const messages = {
         ...(yield* SyntheticGmailMessages),
         ...(scenario === 'registration-thread' ? syntheticThread : {}),
+        ...(scenario === 'registration-performance'
+          ? syntheticPerformance
+          : {}),
       };
       const threadOf = (id: string) =>
         (Object.hasOwn(messages, id) ? messages[id]?.threadId : undefined) ??

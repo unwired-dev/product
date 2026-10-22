@@ -5,7 +5,13 @@ import * as Schema from 'effect/Schema';
 
 import type { Reply, RequestURL } from './synthetic-relay.ts';
 
-import { refuse, reply, requestURL } from './synthetic-relay.ts';
+import { syntheticPerformanceCount } from './synthetic-gmail.ts';
+import {
+  SyntheticScenario,
+  refuse,
+  reply,
+  requestURL,
+} from './synthetic-relay.ts';
 
 const message = 'AAMkAGI2-synthetic-outlook=';
 const projects = 'AQMkAGI2-synthetic-projects=';
@@ -26,13 +32,52 @@ const Change = Schema.fromJsonString(
 const folderID = (name: string) =>
   name === projects ? name : `AQMkAGI2-synthetic-${name}=`;
 
+// The `registration-performance` mailbox adds older Inbox messages, each its own conversation and
+// never written to, for the warm-cache performance journey; Outlook update 001 is the newest.
+const performance = new Map(
+  Array.from({ length: syntheticPerformanceCount }, (_, index) => {
+    const number = String(index + 1).padStart(3, '0');
+    const id = `AAMkAGI2-synthetic-performance-${number}=`;
+    const text = `Outlook update ${number} body. Nothing here came from a real mailbox.`;
+    return [
+      id,
+      {
+        listed: {
+          id,
+          conversationId: `synthetic-performance-conversation-${number}`,
+          // An hour after each Gmail update, so the unified Inbox alternates them.
+          receivedDateTime: new Date(
+            1_758_000_000_000 - index * 7_200_000 - 3_600_000,
+          ).toISOString(),
+          subject: `Outlook update ${number}`,
+          bodyPreview: `Outlook update ${number} preview.`,
+          isRead: true,
+          from: {
+            emailAddress: {
+              name: `Colleague ${number}`,
+              address: `colleague${number}@example.invalid`,
+            },
+          },
+        },
+        text,
+      },
+    ] as const;
+  }),
+);
+
 // A synthetic Microsoft mailbox read, organized and sent from through Graph: one message, in the
 // Inbox until a write moves it, a delta round that reports each later change, its text body, the
 // mailbox's folders and search. sendMail accepts every message and keeps no Sent Items copy.
 export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
   '@private-email/mail-core/testing/SyntheticMicrosoft',
   {
-    make: Effect.sync(() => {
+    make: Effect.gen(function* () {
+      const { scenario } = yield* SyntheticScenario;
+      const extra = new Map(
+        scenario === 'registration-performance' ? performance : [],
+      );
+      const extraListed = () =>
+        [...extra.values()].map(({ listed: item }) => item);
       // The message's well-known folder name or folder ID, its read state, and how many writes
       // changed it; a delta link names the count it was issued at.
       let folder = 'inbox';
@@ -71,14 +116,16 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
         const inbox = folder === 'inbox';
         const changed = since < 0 || since < changes;
         return reply(200, {
-          value:
-            changed && (inbox || since >= 0)
+          value: [
+            ...(changed && (inbox || since >= 0)
               ? [
                   inbox
                     ? listed()
                     : { id: message, '@removed': { reason: 'changed' } },
                 ]
-              : [],
+              : []),
+            ...(since < 0 ? extraListed() : []),
+          ],
           '@odata.deltaLink': `${delta}?$deltatoken=${changes}`,
         });
       };
@@ -127,6 +174,28 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
             }),
         },
         {
+          matches: (path) =>
+            path.startsWith('/v1.0/me/messages/') &&
+            extra.has(path.split('/').at(-1) ?? ''),
+          answer: ({ search, segments }) => {
+            const id = segments.at(-1) ?? '';
+            return reply(
+              200,
+              search.includes('parentFolderId')
+                ? { id, parentFolderId: folderID('inbox'), isRead: true }
+                : {
+                    id,
+                    hasAttachments: false,
+                    body: { contentType: 'text', content: extra.get(id)?.text },
+                    from: extra.get(id)?.listed.from,
+                    toRecipients: [
+                      { emailAddress: { address: 'casey@example.invalid' } },
+                    ],
+                  },
+            );
+          },
+        },
+        {
           matches: (path) => path.startsWith('/v1.0/me/messages/'),
           answer: ({ search }) =>
             reply(
@@ -155,10 +224,15 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
         {
           matches: (_, lower) =>
             lower.startsWith('/v1.0/me/mailfolders/inbox/messages/'),
-          answer: () =>
-            folder === 'inbox'
+          answer: ({ segments }) => {
+            const found = extra.get(segments.at(-1) ?? '')?.listed;
+            if (found !== undefined) {
+              return reply(200, found);
+            }
+            return folder === 'inbox'
               ? reply(200, listed())
-              : reply(404, { error: { code: 'ErrorItemNotFound' } }),
+              : reply(404, { error: { code: 'ErrorItemNotFound' } });
+          },
         },
       ];
       // One Graph request: a read, or with a body a write by its method. HTTP failures are
@@ -185,7 +259,16 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
           matches(request.path, request.path.toLowerCase()),
         );
         return yield* route === undefined
-          ? reply(200, { value: folder === 'inbox' ? [listed()] : [] })
+          ? reply(200, {
+              value: [
+                ...(folder === 'inbox' ? [listed()] : []),
+                // Only the Inbox listing holds the added messages.
+                ...(request.path.toLowerCase() ===
+                '/v1.0/me/mailfolders/inbox/messages'
+                  ? extraListed()
+                  : []),
+              ],
+            })
           : route.answer(request);
       });
 
