@@ -1,5 +1,8 @@
 import { v } from 'convex/values';
 
+import type { Id } from './_generated/dataModel.js';
+import type { MutationCtx } from './_generated/server.js';
+
 import { mutation } from './_generated/server.js';
 import {
   productAccountDeletedError,
@@ -12,6 +15,35 @@ import {
 // Native code derives the identifier from the Draft's identifier with the account's Product Sync
 // keys, so the claim names no message, recipient or content.
 const claimIdentifierPattern = /^draft-delivery\.[\da-f]{32}$/u;
+
+// The Trusted Device's own credential, without a Product Sign-In, for an account not being deleted.
+// A device without a credential digest, as one that predates device credentials, must reconnect.
+async function requireDeviceCredential(
+  ctx: MutationCtx,
+  {
+    productAccountId,
+    trustedDeviceCredential,
+    trustedDeviceId,
+  }: Readonly<{
+    productAccountId: Id<'productAccounts'>;
+    trustedDeviceCredential: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<void> {
+  await requireTrustedDevice(ctx, productAccountId, trustedDeviceId);
+  const trustedDevice = await ctx.db.get('trustedDevices', trustedDeviceId);
+  if (
+    trustedDevice?.credentialDigest !==
+    (await trustedDeviceCredentialDigest(trustedDeviceCredential))
+  ) {
+    throwTrustedDeviceReconnectRequired();
+  }
+  const account = await ctx.db.get('productAccounts', productAccountId);
+  if (account === null) {
+    throw productAccountDeletedError();
+  }
+  await requireProductAccountNotDeleted(ctx, account.tokenIdentifier);
+}
 
 // Permission for one Trusted Device to hand a Draft to its mail provider. The first device to claim
 // a Draft holds the claim for good, and asking again from it keeps it, so a device that lost the
@@ -27,21 +59,7 @@ export const claim = mutation({
   },
   handler: async (ctx, args) => {
     const { productAccountId, trustedDeviceId } = args;
-    await requireTrustedDevice(ctx, productAccountId, trustedDeviceId);
-    const trustedDevice = await ctx.db.get('trustedDevices', trustedDeviceId);
-    if (
-      trustedDevice?.credentialDigest === undefined ||
-      !/^[0-9a-f]{64}$/u.test(args.trustedDeviceCredential) ||
-      (await trustedDeviceCredentialDigest(args.trustedDeviceCredential)) !==
-        trustedDevice.credentialDigest
-    ) {
-      throwTrustedDeviceReconnectRequired();
-    }
-    const account = await ctx.db.get('productAccounts', productAccountId);
-    if (account === null) {
-      throw productAccountDeletedError();
-    }
-    await requireProductAccountNotDeleted(ctx, account.tokenIdentifier);
+    await requireDeviceCredential(ctx, args);
     if (!claimIdentifierPattern.test(args.claimIdentifier)) {
       throw new Error('Invalid delivery claim');
     }
