@@ -414,18 +414,17 @@ describe('the synthetic backend keeps its state across launches', () => {
       deviceEncryptionPublicKey: deviceKey,
     });
     await expect(
-      call('productSync:declareMailProfileCapability', { capabilityVersion: 1 }),
+      call('productSync:declareMailProfileCapability', {
+        capabilityVersion: 1,
+      }),
     ).resolves.toStrictEqual({ fenced: false });
-    const write = (expectedUpdatedAt?: number) =>
+    // A write expecting no stored record.
+    const write = () =>
       call('productSync:putEncryptedPayloadsAtomically', {
         checks: [],
         deletes: [],
         writes: [
-          {
-            payloadIdentifier: 'profile.work',
-            encryptedPayload: sealed,
-            ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
-          },
+          { payloadIdentifier: 'profile.work', encryptedPayload: sealed },
         ],
       });
     const stored = {
