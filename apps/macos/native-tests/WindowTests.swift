@@ -926,8 +926,10 @@ final class WindowTests: XCTestCase {
       relaunch()
       return (start, end)
     }
-    try reportPerformance(
-      groups, evidence: evidence, overhead: queryOverhead(window.buttons["New Message"]))
+    let overhead = queryOverhead(window.buttons["New Message"])
+    // The running app keeps appending probe records; read them only after it quits.
+    app.terminate()
+    try reportPerformance(groups, evidence: evidence, overhead: overhead)
   }
 
   // Signs in with Apple and connects the synthetic Microsoft mailbox, confirms the Recovery Key,
