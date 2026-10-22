@@ -102,10 +102,10 @@ moves or changes. The Default Profile retains deployed Product Account-scoped
 storage identifiers; a new Profile receives a distinct opaque namespace that
 cannot collide with that existing data. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
-another Profile stays unavailable in the apps until
-[#647](https://github.com/unwired-dev/product/issues/647) enables it. Its last
-slice, [#922](https://github.com/unwired-dev/product/issues/922), adds the apps'
-Profile management and switching.
+another Profile and switching to it are exposed by
+[#1037](https://github.com/unwired-dev/product/issues/1037), part of
+[#922](https://github.com/unwired-dev/product/issues/922). Further Profile
+management belongs to [#1038](https://github.com/unwired-dev/product/issues/1038).
 
 [#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
 definitions and ownership through [Private Sync](private-product-sync.md); the shared
@@ -179,9 +179,12 @@ the device-local Startup Profile, then the Default Profile. A restored or Startu
 Profile the account no longer lists is skipped. It returns once listed again.
 AppKit restores each Mac window with the Profile it last showed, following the
 system setting for keeping windows when quitting. A window that is not restored
-is new and opens the Startup Profile. The iPhone and iPad app has one window,
-which restores the Profile a link or the switcher last chose. Settings will offer
-the Startup Profile choice
+is new and opens the Startup Profile. The current iPhone and iPad implementation
+restores one window's choice from a shared device-local preference. It does not
+implement #1037's required independent iPad scenes: each scene must retain its own
+Profile and routing, and restoring or switching one must leave the others alone.
+This remains an implementation gap, separate from deferred native qualification.
+Settings will offer the Startup Profile choice
 ([#1038](https://github.com/unwired-dev/product/issues/1038)); until then none is
 saved, and new windows open the Default Profile.
 

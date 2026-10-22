@@ -911,6 +911,15 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
+- `mailbox.tsx.WindowProfileScope` claiming per-scene restoration while using one
+  device-wide choice or process-wide router. Trace scene identity from the native
+  scene delegate through route dispatch and saved preferences, and check that the
+  installed host actually supports multiple scenes. Exercise two scenes with
+  different Profiles through switching, targeted links and relaunch; enabling the
+  UIKit scene lifecycle alone does not provide independent windows. Otherwise
+  one window redirects or restores another, or the required second window cannot
+  open. Record missing implementation separately from unavailable native evidence.
+
 - `registration-gate.tsx.SettingsCover`, `app/_layout.tsx.MailShell` or another
   native container changing when the split view joins its window or receives
   child controllers. Trace the installed native lifecycle, including first

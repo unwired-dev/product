@@ -7,9 +7,9 @@ The review agent owns the separate [architecture companion](../architecture/prod
 
 Product Account identity and device trust apply to the replacement. Optional
 Mail Profiles are required by the [power-user launch scope](../product/power-user-launch.md).
-The replacement has the [Default Profile](../private-inbox-storage.md#mail-profiles) only;
-multiple Profiles stay disabled until their migration completes. Profile Record
-Scope also describes prototype migration behavior.
+The [Mail Profiles guide](../private-inbox-storage.md#mail-profiles) records the
+replacement's current creation, switching and restoration support and its remaining
+gaps. Profile Record Scope also describes prototype migration behavior.
 
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and
