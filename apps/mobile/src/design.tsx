@@ -58,16 +58,26 @@ export function Glass({
   );
 }
 
+interface NavigationChromeProps extends Pick<ViewProps, 'testID'> {
+  readonly onPop?: (() => void) | undefined;
+  // A screen that names its Back keeps the system navigation bar instead of hiding it.
+  readonly backLabel?: string | undefined;
+  // Shown on a disk beside the Back chevron; empty shows the chevron alone.
+  readonly backCount?: string | undefined;
+  // Fills the screen behind the bar.
+  readonly surface?: ColorValue | undefined;
+}
+
 const NativeNavigationChrome = requireNativeComponent<
-  ViewProps & { readonly onPop?: (() => void) | undefined }
+  ViewProps & NavigationChromeProps
 >('UnwiredNavigationChrome');
 
-// Hides the native navigation bar while a compact screen shows its own Back pill; the edge swipe
-// still pops the screen, and onPop lets its Back follow.
-export function NavigationChrome({ onPop }: { readonly onPop?: () => void }) {
+// Hides the native navigation bar while a compact screen shows its own header, unless the screen
+// names its system Back. Back or the edge swipe pops the screen, and onPop lets its route follow.
+export function NavigationChrome(props: NavigationChromeProps) {
   return (
     <NativeNavigationChrome
-      onPop={onPop}
+      {...props}
       style={{ position: 'absolute', width: 0, height: 0 }}
     />
   );

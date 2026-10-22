@@ -2,17 +2,11 @@ import type { ViewProps } from 'react-native';
 
 import { spacing } from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
-import { createContext, use, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { createContext, use } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { usePaletteHeader } from './command-palette.tsx';
-import {
-  ContextMenu,
-  Glass,
-  Monogram,
-  NavigationChrome,
-  SFSymbol,
-} from './design.tsx';
+import { ContextMenu, Monogram, NavigationChrome } from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { useInbox } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -43,29 +37,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
+    minHeight: 40,
     paddingHorizontal: spacing.l,
     paddingVertical: spacing.xs,
   },
   headerTitle: { ...textStyles.headline, flex: 1, textAlign: 'center' },
-  backGlass: { borderRadius: 22 },
-  back: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s,
-    minHeight: 44,
-    minWidth: 44,
-    paddingLeft: 14,
-    paddingRight: 10,
-  },
-  badge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeText: { ...textStyles.subheadline, fontWeight: '600' },
   countRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -79,7 +55,8 @@ const styles = StyleSheet.create({
   secondary: { ...textStyles.footnote },
 });
 
-// The compact reader's header: Back with the mailbox's unread count, and the subject.
+// The compact reader's header: the subject beneath the navigation bar, whose system Back shows the
+// mailbox's unread count.
 export function ReaderHeader({
   subject,
   onClose,
@@ -91,64 +68,26 @@ export function ReaderHeader({
   const header = usePaletteHeader();
   const colors = usePalette();
   const { t } = useLocalization();
-  const [backWidth, setBackWidth] = useState(72);
-  const [focused, setFocused] = useState(false);
   const unread =
     state.kind === 'ready'
       ? state.messages.filter((message) => message.unread).length
       : 0;
+  const count = unread > 99 ? '99+' : String(unread);
   return (
     <View
       style={styles.header}
       {...header.swipe}>
-      <NavigationChrome onPop={onClose} />
-      <View style={[styles.backGlass, { boxShadow: colors.smallGlassShadow }]}>
-        <Glass
-          cornerRadius={22}
-          style={StyleSheet.absoluteFill}
-        />
-        <Pressable
-          focusable
-          onLayout={(event) => {
-            setBackWidth(event.nativeEvent.layout.width);
-          }}
-          onFocus={() => {
-            setFocused(true);
-          }}
-          onBlur={() => {
-            setFocused(false);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={
-            unread === 0
-              ? t('message.back')
-              : t('message.backUnread', { count: unread })
-          }
-          onPress={onClose}
-          style={[
-            styles.back,
-            {
-              borderWidth: 2,
-              borderColor: focused ? colors.accentInk : 'transparent',
-              borderRadius: 22,
-            },
-          ]}>
-          <SFSymbol
-            name="chevron.left"
-            size={16}
-            color={colors.textPrimary}
-          />
-          {unread === 0 ? null : (
-            <View
-              style={[styles.badge, { backgroundColor: colors.textPrimary }]}>
-              <Text
-                style={[styles.badgeText, { color: colors.surfaceContent }]}>
-                {unread > 99 ? '99+' : String(unread)}
-              </Text>
-            </View>
-          )}
-        </Pressable>
-      </View>
+      <NavigationChrome
+        testID="system-back"
+        onPop={onClose}
+        backLabel={
+          unread === 0
+            ? t('message.back')
+            : t('message.backUnread', { count: unread })
+        }
+        backCount={unread === 0 ? '' : count}
+        surface={colors.surfaceContent}
+      />
       <Text
         accessibilityRole="header"
         numberOfLines={1}
@@ -156,7 +95,6 @@ export function ReaderHeader({
         {...header.action}>
         {subject}
       </Text>
-      <View style={{ width: backWidth }} />
     </View>
   );
 }

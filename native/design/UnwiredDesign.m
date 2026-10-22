@@ -110,23 +110,55 @@ typedef UIView UnwiredPlatformView;
 #endif
 
 #if !TARGET_OS_OSX
-// The compact Inbox and reader supply their own Back pill; restore native chrome when they leave.
-// A screen popped by the edge swipe reports onPop, so its own Back can follow.
+// The compact Inbox supplies its own Back pill; restore native chrome when it leaves. The compact
+// reader keeps the system bar, whose Back is named backLabel and shows backCount beside the
+// chevron, with surface behind the bar. A screen popped by Back or the edge swipe reports onPop,
+// so its own route can follow.
 @interface UnwiredNavigationChromeView : UIView
 @property (nonatomic, weak) UINavigationController *navigation;
 @property (nonatomic, weak) UINavigationController *stack;
 @property (nonatomic, weak) UIViewController *screen;
 @property (nonatomic) BOOL previousHidden;
 @property (nonatomic, copy) RCTDirectEventBlock onPop;
+@property (nonatomic, copy) NSString *backLabel;
+@property (nonatomic, copy) NSString *backCount;
+@property (nonatomic, strong) UIColor *surface;
 @end
+
+// The count on a disk, as Mail's Back shows unread mail; the template image takes the bar's tint
+// and the number shows the glass through it.
+static UIImage *UnwiredCountDisk(NSString *count)
+{
+  NSDictionary *attributes = @{
+    NSFontAttributeName : [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightSemibold]
+  };
+  CGSize text = [count sizeWithAttributes:attributes];
+  CGFloat height = 22;
+  CGFloat width = MAX(height, ceil(text.width) + 10);
+  UIImage *image = [[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(width, height)]
+      imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [UIColor.blackColor setFill];
+        [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, width, height)
+                                    cornerRadius:height / 2] fill];
+        CGContextSetBlendMode(context.CGContext, kCGBlendModeClear);
+        [count drawAtPoint:CGPointMake((width - text.width) / 2, (height - text.height) / 2)
+            withAttributes:attributes];
+      }];
+  return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+}
 
 @implementation UnwiredNavigationChromeView
 - (void)didMoveToWindow
 {
   [super didMoveToWindow];
   if (self.window == nil) {
-    [self.navigation setNavigationBarHidden:self.previousHidden animated:NO];
-    self.navigation = nil;
+    // A collapsed split view's nested stacks share its outer bar, so a screen covered by another
+    // keeps its bar state until it returns; restoring it would set the covering screen's bar.
+    if (![self.stack.viewControllers containsObject:self.navigation]
+        || self.stack.topViewController == self.navigation) {
+      [self.navigation setNavigationBarHidden:self.previousHidden animated:NO];
+      self.navigation = nil;
+    }
     // A covered screen stays in the stack that showed it; a popped one has left it while the
     // stack is still shown.
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -154,8 +186,39 @@ typedef UIView UnwiredPlatformView;
   if (navigation != nil && navigation != self.navigation) {
     self.navigation = navigation;
     self.previousHidden = navigation.navigationBarHidden;
-    [navigation setNavigationBarHidden:YES animated:NO];
+    // UIKit pops a collapsed split view's screen by the edge swipe only while its bar shows.
+    [navigation setNavigationBarHidden:self.backLabel == nil || stack == navigation animated:NO];
   }
+  [self updateBack];
+}
+
+- (void)setBackLabel:(NSString *)backLabel
+{
+  _backLabel = [backLabel copy];
+  [self updateBack];
+}
+
+- (void)setBackCount:(NSString *)backCount
+{
+  _backCount = [backCount copy];
+  [self updateBack];
+}
+
+// The Back to the screen beneath is that screen's backBarButtonItem.
+- (void)updateBack
+{
+  NSArray<UIViewController *> *screens = self.stack.viewControllers;
+  NSUInteger index = [screens indexOfObject:self.navigation];
+  if (self.backLabel == nil || self.window == nil || index == NSNotFound || index == 0) return;
+  self.screen.view.backgroundColor = self.surface;
+  UIBarButtonItem *back = self.backCount.length == 0
+      ? [[UIBarButtonItem alloc] initWithTitle:@"" style:UIBarButtonItemStylePlain target:nil action:nil]
+      : [[UIBarButtonItem alloc] initWithImage:UnwiredCountDisk(self.backCount)
+                                         style:UIBarButtonItemStylePlain
+                                        target:nil
+                                        action:nil];
+  back.accessibilityLabel = self.backLabel;
+  screens[index - 1].navigationItem.backBarButtonItem = back;
 }
 @end
 
@@ -165,6 +228,9 @@ typedef UIView UnwiredPlatformView;
 @implementation UnwiredNavigationChromeManager
 RCT_EXPORT_MODULE(UnwiredNavigationChrome)
 RCT_EXPORT_VIEW_PROPERTY(onPop, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(backLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(backCount, NSString)
+RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 - (UIView *)view { return [UnwiredNavigationChromeView new]; }
 @end
 #endif
