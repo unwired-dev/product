@@ -40,7 +40,8 @@ same shared stores the reader and composer use and the real native module:
 - translations between installed or missing language pairs, and the same-language
   and unidentified-language refusals;
 - cancellation of a native generation, of a summary preview and of a translation
-  preview, each with its late result, and a newer request replacing an older one.
+  preview, each with its late result, and a newer request replacing an older one
+  while its availability check is pending.
 
 The corpus contains no real mail. Change `corpusVersion` in
 `packages/mail-core/src/testing/assistance-qualification.ts` with any change to
@@ -168,6 +169,12 @@ Copy the evidence after each relaunch in steps 4 and 5. On the Mac, set
 `UNWIRED_QUALIFICATION_HOLD=1` for `qualify:assistance`: it keeps the checked copy
 open, prints where each relaunch writes its evidence, and removes the copy only
 after you press Return.
+
+The corpus's `stale-result` check rejects the older request before it reaches
+native generation. Replacement after native generation has started remains a
+required release check: observe the older native call starting, replace its input,
+then let both requests settle and verify that only the current input's result is
+shown. The existing corpus results do not qualify that in-flight replacement.
 
 ## Record the results
 

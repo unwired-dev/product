@@ -147,6 +147,14 @@ supported-but-uninstalled Translation pairs, or the separately deferred signed-i
 enablement/sign-out checks. Those release checks remain required. This slice
 retires no legacy tests.
 
+The corpus-v1 `stale-result` case replaces the older request while availability
+is pending; the shared store prevents that request from starting native
+generation. Its passing `idle`/`ready` snapshots cover that request ordering,
+not rejection of an older in-flight native result. Replacement after native
+generation starts remains deferred and required before release under the
+[qualification procedure](../assistance-qualification.md#checks-the-corpus-does-not-automate).
+The owner acceptance above does not establish execution of that missing check.
+
 ## Native host qualification refresh, 2026-10-20
 
 Issue [#623](https://github.com/unwired-dev/product/issues/623) remains incomplete.
