@@ -143,7 +143,19 @@ export interface NativeGmailMailboxes {
     admission: Parameters<NativeGmailMailbox['commitRemoteContent']>[2],
   ) => Promise<unknown>;
   // A Standards-Based Mailbox Connection's server reads.
-  readonly imapFolders: (mailbox: Scope) => Promise<unknown>;
+  readonly imapOpen: (mailbox: Scope) => Promise<unknown>;
+  readonly imapCapabilities: (
+    mailbox: Scope,
+    session: Parameters<NativeImapMailbox['imapCapabilities']>[1],
+  ) => Promise<unknown>;
+  readonly imapListFolders: (
+    mailbox: Scope,
+    session: Parameters<NativeImapMailbox['imapListFolders']>[1],
+  ) => Promise<unknown>;
+  readonly imapClose: (
+    mailbox: Scope,
+    session: Parameters<NativeImapMailbox['imapClose']>[1],
+  ) => Promise<unknown>;
   readonly imapSynchronize: (
     mailbox: Scope,
     request: Parameters<NativeImapMailbox['imapSynchronize']>[1],
@@ -262,7 +274,12 @@ const boundImap = (
   // Gmail.
   const cache = bound(native, connection);
   return {
-    imapFolders: (mailbox) => native.imapFolders(scope(mailbox)),
+    imapOpen: (mailbox) => native.imapOpen(scope(mailbox)),
+    imapCapabilities: (mailbox, session) =>
+      native.imapCapabilities(scope(mailbox), session),
+    imapListFolders: (mailbox, session) =>
+      native.imapListFolders(scope(mailbox), session),
+    imapClose: (mailbox, session) => native.imapClose(scope(mailbox), session),
     imapSynchronize: (mailbox, request) =>
       native.imapSynchronize(scope(mailbox), request),
     imapMessage: (mailbox, message) =>

@@ -23,13 +23,13 @@ describe('imap body-cache pruning', () => {
   it.each([
     {
       reason: 'deleted',
-      folders: [{ name: 'INBOX', roles: ['inbox'], selectable: true }],
+      folders: [{ name: 'INBOX', attributes: [] }],
     },
     {
       reason: 'non-selectable',
       folders: [
-        { name: 'INBOX', roles: ['inbox'], selectable: true },
-        { name: 'Archive', roles: [], selectable: false },
+        { name: 'INBOX', attributes: [] },
+        { name: 'Archive', attributes: [String.raw`\Noselect`] },
       ],
     },
   ])(
@@ -48,10 +48,7 @@ describe('imap body-cache pruning', () => {
       release();
       expect(imap.bodies.has(archived.id)).toBe(true);
       imap.removeFolder('Archive');
-      vi.spyOn(imap.native, 'imapFolders').mockResolvedValue({
-        folders,
-        ...imap.server.capabilities,
-      });
+      vi.spyOn(imap.native, 'imapListFolders').mockResolvedValue({ folders });
       await inbox.load();
       expect(inbox.message(archived.id)).toBeUndefined();
       expect(imap.bodies.has(archived.id)).toBe(false);
@@ -63,7 +60,7 @@ describe('imap body-cache pruning', () => {
   it.each([
     { operation: 'commitMailbox', code: 'unavailable' },
     { operation: 'commitMailbox', code: 'conflict' },
-    { operation: 'imapFolders', code: 'offline' },
+    { operation: 'imapListFolders', code: 'offline' },
   ] as const)(
     'keeps an evicted folder view when $operation fails with $code',
     async ({ operation, code }) => {

@@ -31,11 +31,15 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
     try record("verify", password)
   }
   var outcome = ImapOutcome.moved(uidValidity: 9, uid: 4)
-  func folders(_ account: ImapAccount, password: String) async throws -> ImapListing {
-    try record("folders", password)
-    return ImapListing(
-      folders: [ImapFolder(name: "INBOX", roles: ["inbox"], selectable: true, delimiter: "/")], moves: true,
-      idle: false)
+  // Sessions opened, in order; with `holdFolders`, a session's folder listing waits for its close.
+  var holdFolders = false
+  private var opened: [ControlledImapSession] = []
+  func sessions() -> [ControlledImapSession] { lock.withLock { opened } }
+  func open(_ account: ImapAccount, password: String) async throws -> any ImapSession {
+    try record("open", password)
+    let session = ControlledImapSession(hold: holdFolders)
+    lock.withLock { opened.append(session) }
+    return session
   }
   func synchronize(
     _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?, window: Int
@@ -93,6 +97,33 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
   }
 }
 
+// A controlled session: it lists the Inbox and records its close. With `hold`, a listing waits for
+// `release()`, as SwiftMail's command waits for the server's reply even after the session closes.
+final class ControlledImapSession: ImapSession, @unchecked Sendable {
+  private let lock = NSLock()
+  private let hold: Bool
+  private var held: CheckedContinuation<Void, Never>?
+  private var ended = false
+  init(hold: Bool) { self.hold = hold }
+
+  var waiting: Bool { lock.withLock { held != nil } }
+  var closed: Bool { lock.withLock { ended } }
+  func release() {
+    lock.withLock {
+      held?.resume()
+      held = nil
+    }
+  }
+  func capabilities() async throws -> [String] { ["IMAP4rev1", "MOVE"] }
+  func folders() async throws -> [ImapListedFolder] {
+    if hold {
+      await withCheckedContinuation { continuation in lock.withLock { held = continuation } }
+    }
+    return [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")]
+  }
+  func close() async { lock.withLock { ended = true } }
+}
+
 // A controlled SMTP server: logins and submissions answer as configured, and each names the
 // endpoint and password it presented.
 final class ControlledSmtp: SmtpProvider, @unchecked Sendable {
@@ -131,19 +162,13 @@ final class ControlledSmtp: SmtpProvider, @unchecked Sendable {
 extension PrivateInboxTests {
   // An IMAP connection keeps its password in the device record only, never reaches Google, and its
   // reads stay with the connection generation that verified it.
-  @Test @MainActor func imapConnectionKeepsItsPasswordAndGeneration() async throws {
+  // A signed-in store over a controlled IMAP server; `cleanup` removes its device records.
+  @MainActor private func imapStore(_ imap: ControlledImap, google: SyntheticGoogleRegistrationProvider)
+    async throws -> (store: RegistrationStore, cleanup: () -> Void)
+  {
     let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let keys = DeviceKeychain(service: service)
-    defer {
-      try? keys.remove("registration")
-      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
-      try? FileManager.default.removeItem(at: directory)
-    }
-    let google = SyntheticGoogleRegistrationProvider()
-    let imap = ControlledImap()
-    let smtp = try SmtpAccount(
-      host: "smtp.example.invalid", port: 465, startTLS: false, username: "alex")
     let store = RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, imap: imap, smtp: ControlledSmtp(),
@@ -154,6 +179,23 @@ extension PrivateInboxTests {
           trustedDeviceCredential: String(repeating: "a", count: 64))
       })
     _ = try await store.signIn()
+    return (
+      store,
+      {
+        try? keys.remove("registration")
+        try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+        try? FileManager.default.removeItem(at: directory)
+      }
+    )
+  }
+
+  @Test @MainActor func imapConnectionKeepsItsPasswordAndGeneration() async throws {
+    let google = SyntheticGoogleRegistrationProvider()
+    let imap = ControlledImap()
+    let smtp = try SmtpAccount(
+      host: "smtp.example.invalid", port: 465, startTLS: false, username: "alex")
+    let (store, cleanup) = try await imapStore(imap, google: google)
+    defer { cleanup() }
     let account = try ImapAccount(host: "IMAP.Example.Invalid", port: 993, username: "alex")
     #expect(account.host == "imap.example.invalid")
     for (host, port, username) in [
@@ -202,9 +244,19 @@ extension PrivateInboxTests {
     }
     #expect(google.gmailRequests.isEmpty && google.refreshes == 0)
 
-    let folders = try await store.imapFolders(
-      connection: id, address: "alex@example.invalid", generation: generation)
-    #expect((folders["folders"] as? [[String: Any]])?.first?["name"] as? String == "INBOX")
+    let session = try #require(
+      try await store.imapOpen(
+        connection: id, address: "alex@example.invalid", generation: generation)["session"]
+        as? String)
+    let folders = try await store.imapListFolders(
+      connection: id, address: "alex@example.invalid", generation: generation, session: session)
+    let folder = try #require((folders["folders"] as? [[String: Any]])?.first)
+    #expect(folder["name"] as? String == "INBOX" && folder["delimiter"] as? String == "/")
+    #expect(folder["attributes"] as? [String] == ["\\HasNoChildren"])
+    let capabilities = try await store.imapCapabilities(
+      connection: id, address: "alex@example.invalid", generation: generation, session: session)
+    #expect(capabilities["capabilities"] as? [String] == ["IMAP4rev1", "MOVE"])
+    store.imapClose(connection: id, session: session)
     let synchronized = try await store.imapSynchronize(
       connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
       from: nil, window: 200)
@@ -229,7 +281,6 @@ extension PrivateInboxTests {
           folder: "INBOX", uidValidity: 7, uids: uids)
       }
     }
-    #expect(folders["moves"] as? Bool == true && folders["idle"] as? Bool == false)
 
     // Organizing changes one identified message; a move reports where the server put it.
     let moved = try await store.imapModify(
@@ -302,24 +353,24 @@ extension PrivateInboxTests {
 
     // Work from before a removal or another verification is discarded.
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try await store.imapFolders(
+      _ = try await store.imapOpen(
         connection: id, address: "alex@example.invalid", generation: UUID().uuidString)
     }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try await store.imapFolders(
+      _ = try await store.imapOpen(
         connection: id, address: "other@example.invalid", generation: generation)
     }
     // A refused password asks for it again instead of reading as a transient failure.
     imap.failure = .authentication
     await #expect(throws: RegistrationError.gmailUnavailable) {
-      _ = try await store.imapFolders(
+      _ = try await store.imapOpen(
         connection: id, address: "alex@example.invalid", generation: generation)
     }
     imap.failure = nil
     // A connection waiting for its password reaches no server, as a refused Gmail grant does.
     try store.markMailbox(id, access: "authorization")
     await #expect(throws: RegistrationError.gmailUnavailable) {
-      _ = try await store.imapFolders(
+      _ = try await store.imapOpen(
         connection: id, address: "alex@example.invalid", generation: generation)
     }
     try await store.verifyImap(id)
@@ -333,6 +384,116 @@ extension PrivateInboxTests {
     #expect(try store.saved().connections.count == 1)
     #expect(try store.saved().connection(id)?.credential == Data("new-password".utf8))
     #expect(try store.saved().connection(id)?.receipt.account == "imap:imap.example.invalid:993:alex")
+  }
+
+  // A session answers one command at a time, only for the connection generation that opened it, and
+  // closes when that generation changes, when it stays unused, or when TypeScript closes it.
+  @Test @MainActor func imapSessionsStayWithTheirConnectionGeneration() async throws {
+    let imap = ControlledImap()
+    let (store, cleanup) = try await imapStore(imap, google: SyntheticGoogleRegistrationProvider())
+    defer { cleanup() }
+    let address = "alex@example.invalid"
+    let account = try ImapAccount(host: "imap.example.invalid", port: 993, username: "alex")
+    let smtp = try SmtpAccount(
+      host: "smtp.example.invalid", port: 465, startTLS: false, username: "alex")
+    let id = try #require(
+      try await store.connectImap(
+        address: address, account: account, password: "app-password", smtp: smtp,
+        smtpPassword: nil)["connection"] as? String)
+    var generation = store.mailboxGeneration(id).uuidString
+    func open() async throws -> String {
+      try #require(
+        try await store.imapOpen(connection: id, address: address, generation: generation)["session"]
+          as? String)
+    }
+    func list(_ session: String, connection: String? = nil, address other: String? = nil)
+      async throws
+    {
+      _ = try await store.imapListFolders(
+        connection: connection ?? id, address: other ?? address, generation: generation,
+        session: session)
+    }
+    func settled(_ sessions: [ControlledImapSession]) async throws {
+      for _ in 0..<100 where !sessions.allSatisfy(\.closed) {
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      let closed = sessions.allSatisfy(\.closed)
+      #expect(closed)
+    }
+
+    // An unused session closes by itself.
+    store.imapSessionLimits.idle = .milliseconds(30)
+    _ = try await open()
+    for _ in 0..<100 where !store.imapHandles.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(store.imapHandles.isEmpty)
+    try await settled(imap.sessions())
+    store.imapSessionLimits.idle = .seconds(60)
+
+    let session = try await open()
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      try await list(session, connection: "another-connection")
+    }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      try await list(session, address: "other@example.invalid")
+    }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list("unknown") }
+
+    // One command at a time: another is refused while the first waits for the server. Closing the
+    // session answers the waiting command at once, before the server replies.
+    func holding() async throws -> (String, Task<Void, any Error>, ControlledImapSession) {
+      imap.holdFolders = true
+      defer { imap.holdFolders = false }
+      let held = try await open()
+      let listing = Task { try await list(held) }
+      let waiting = try #require(imap.sessions().last)
+      for _ in 0..<100 where !waiting.waiting { try await Task.sleep(for: .milliseconds(10)) }
+      #expect(waiting.waiting)
+      return (held, listing, waiting)
+    }
+    var (held, listing, waiting) = try await holding()
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.imapCapabilities(
+        connection: id, address: address, generation: generation, session: held)
+    }
+    store.imapClose(connection: id, session: held)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await listing.value }
+    #expect(waiting.waiting)
+    waiting.release()
+    try await settled([waiting])
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list(held) }
+
+    // A session open too long closes too, even with a command waiting; so does `session`.
+    (held, listing, waiting) = try await holding()
+    store.imapSessionLimits.lifetime = .milliseconds(50)
+    try await Task.sleep(for: .milliseconds(100))
+    store.closeStaleImapSessions()
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await listing.value }
+    waiting.release()
+    try await settled([waiting])
+    store.imapSessionLimits.lifetime = .seconds(900)
+
+    // At most four per connection; a new connection generation closes them all.
+    for _ in 0..<4 { _ = try await open() }
+    let logins = imap.sessions().count
+    await #expect(throws: RegistrationError.unavailable) { _ = try await open() }
+    #expect(imap.sessions().count == logins)
+    _ = try await store.connectImap(
+      address: address, account: account, password: "app-password", smtp: smtp, smtpPassword: nil)
+    #expect(store.imapHandles.isEmpty)
+    try await settled(imap.sessions())
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list(session) }
+    generation = store.mailboxGeneration(id).uuidString
+
+    // Signing out of mailbox access closes sessions, and so does removing the connection.
+    try await list(try await open())
+    store.forgetMailboxAccess()
+    #expect(store.imapHandles.isEmpty)
+    try await store.verifyImap(id)
+    generation = store.mailboxGeneration(id).uuidString
+    _ = try await open()
+    try await store.forgetConnection(id)
+    #expect(store.imapHandles.isEmpty)
+    try await settled(imap.sessions())
   }
 
   // Secure Mail Transport: a server that answers in plaintext on the IMAPS port is never logged in
@@ -391,28 +552,42 @@ extension PrivateInboxTests {
       try await provider.verify(account, password: "refused")
     }
     try await provider.verify(account, password: "synthetic-password")
-    let listing = try await provider.folders(account, password: "synthetic-password")
-    #expect(listing.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
-    #expect(listing.folders.map(\.roles) == [["inbox"], ["archive"], [], ["inbox"]])
-    #expect(listing.moves && listing.idle)
+    // One session lists every folder with its LIST attributes, and the server's capabilities.
+    func listed(_ account: ImapAccount) async throws -> ([ImapListedFolder], [String]) {
+      let session = try await provider.open(account, password: "synthetic-password")
+      do {
+        let result = (try await session.folders(), try await session.capabilities())
+        await session.close()
+        return result
+      } catch {
+        await session.close()
+        throw error
+      }
+    }
+    let (folders, capabilities) = try await listed(account)
+    // swift-nio-imap reports any ASCII case of INBOX as `INBOX`.
+    #expect(folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
+    #expect(
+      folders.map(\.attributes) == [
+        ["\\HasNoChildren"], ["\\HasNoChildren", "\\Archive"], ["\\HasNoChildren"],
+        ["\\HasNoChildren", "\\Inbox"],
+      ])
+    #expect(folders.allSatisfy { $0.delimiter == "/" })
+    #expect(Set(capabilities.map { $0.uppercased() }).isSuperset(of: ["MOVE", "UIDPLUS", "IDLE"]))
     let overflowing = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"many-folders"}"#.utf8))
-    await #expect(throws: RegistrationError.unavailable) {
-      _ = try await provider.folders(overflowing, password: "synthetic-password")
-    }
+    await #expect(throws: RegistrationError.unavailable) { _ = try await listed(overflowing) }
     let undiscovered = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespace-failure"}"#.utf8))
-    await #expect(throws: (any Error).self) {
-      _ = try await provider.folders(undiscovered, password: "synthetic-password")
-    }
+    await #expect(throws: (any Error).self) { _ = try await listed(undiscovered) }
     let namespaced = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespaced"}"#.utf8))
-    let shared = try await provider.folders(namespaced, password: "synthetic-password")
-    #expect(shared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
-    #expect(!shared.moves && !shared.idle)
+    let (shared, sharedCapabilities) = try await listed(namespaced)
+    #expect(shared.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
+    #expect(Set(sharedCapabilities.map { $0.uppercased() }).isDisjoint(with: ["MOVE", "UIDPLUS", "IDLE"]))
     let initial = try await provider.synchronize(
       account, password: "synthetic-password", folder: "INBOX", from: nil, window: 200)
     #expect(initial.reset && initial.uidValidity == 7 && initial.uidNext == 12)

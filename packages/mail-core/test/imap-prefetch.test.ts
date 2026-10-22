@@ -162,6 +162,7 @@ describe('imap recent-body prefetch', () => {
     const { imap, inbox, uids, ids } = await prefetched();
     // One body-free read chooses the sources; mail outside the 30 days is not read.
     expect(imap.server.reads).toStrictEqual([
+      'login',
       'folders',
       'synchronize INBOX',
       `headers INBOX ${uids.plain},${uids.html},${uids.attached}`,
@@ -191,7 +192,11 @@ describe('imap recent-body prefetch', () => {
     imap.server.failure = undefined;
     imap.server.reads.length = 0;
     await inbox.load();
-    expect(imap.server.reads).toStrictEqual(['folders', 'synchronize INBOX']);
+    expect(imap.server.reads).toStrictEqual([
+      'login',
+      'folders',
+      'synchronize INBOX',
+    ]);
     const release = inbox.retainMessage(ids.attached);
     await inbox.readMessage(ids.attached);
     expect([

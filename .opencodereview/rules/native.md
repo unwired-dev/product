@@ -66,21 +66,23 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
-- `SwiftMailImap.folders` returning a truncated LIST as successful, or accepting
+- `RegistrationStore.imapOpen` or another bounded credentialed acquisition
+  checking capacity only after authentication. Refuse an already-full owner
+  before opening or logging in, and trace production callers across suspension:
+  preserve serialization or reserve capacity when concurrent admission requires
+  it. Recheck retained capacity after awaited acquisition and close a refused
+  result; otherwise refused work still authenticates or concurrent opens exceed
+  the owner's handle bound. Verify refusal creates no additional authenticated
+  session through the controlled provider.
+
+- `SwiftMailImapSession.folders` returning a truncated LIST as successful, or accepting
   wildcard fallback after an advertised namespace lookup fails. Preserve complete
   namespace coverage and reject overflow or unresolved discovery through the
   existing failure boundary before publishing a listing used for retirement.
   Exercise overflow and failed discovery through the controlled TLS fixture;
   otherwise still-existing folders and their saved bodies can be deleted.
 
-- `SwiftMailImap.folders` exposing case variants of the reserved ASCII INBOX
-  name as separate identities, or folding a distinct Unicode name or an
-  attribute-only inbox folder into it. Canonicalize only the reserved name,
-  preserve other names and roles, and exercise both through the controlled TLS
-  fixture. Otherwise folder selection creates duplicate cache namespaces or
-  reads a different mailbox under the same message identity.
-
-- `SwiftMailImap.folders` claiming a response-count bound from a prefix applied
+- `SwiftMailImapSession.folders` claiming a response-count bound from a prefix applied
   after SwiftMail's LIST handler collects all responses. Trace admission in the
   pinned upstream handler and parser; per-response byte limits do not bound the
   accumulated collection. Require a receive-time count limit and controlled TLS

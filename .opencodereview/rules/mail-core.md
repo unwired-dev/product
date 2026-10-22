@@ -85,6 +85,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   readback; otherwise later saves retain the initial snapshot or failed writes
   appear committed until relaunch.
 
+- `imap-model.ts.folderListing` exposing case variants of the reserved ASCII INBOX
+  name as separate identities, or folding a distinct Unicode name or an
+  attribute-only inbox folder into it. Canonicalize only the reserved name and
+  preserve other names and roles. Exercise the mapping through the shared Inbox
+  with raw LIST replies, alongside the native controlled TLS fixture's raw-name
+  coverage. Otherwise folder selection creates duplicate cache namespaces or
+  reads a different mailbox under the same message identity.
+
 - `imap-inbox.ts.acceptListing` preserving cached mailboxes or retained evicted
   views for folders a complete listing no longer offers as selectable, or deleting
   views before that listing commits. Retire both only after successful cache

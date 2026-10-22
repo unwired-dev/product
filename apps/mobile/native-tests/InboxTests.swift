@@ -1244,6 +1244,7 @@ final class InboxTests: XCTestCase {
     verifyStableSearchEdits(app, search: search, maya: maya)
     search.typeText("\n")
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
+    verifyCompactSwipeBackToResults(app, search: search, row: maya)
     app.buttons["Close Search"].tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     // Close also empties the field, which is not controlled by the query (#970).
@@ -1296,6 +1297,10 @@ final class InboxTests: XCTestCase {
     app.launch()
     let restored = app.buttons["Oliver Park. Saturday, by the river?"]
     XCTAssertTrue(restored.waitForExistence(timeout: 20))
+    verifyCompactSwipeBackKeepsScroll(app)
+    for _ in 0..<5 where !restored.isHittable {
+      app.swipeDown()
+    }
     XCTAssertFalse(restored.label.hasPrefix("Unread."))
     restored.tap()
     XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
@@ -1481,6 +1486,48 @@ final class InboxTests: XCTestCase {
       return frame == previous
     }
     return previous
+  }
+
+  // #1066: an iPhone edge swipe from a reader opened in search results returns to those results
+  // with the query intact. What shows beneath the page during the drag needs a recording.
+  private func verifyCompactSwipeBackToResults(
+    _ app: XCUIApplication, search: XCUIElement, row: XCUIElement
+  ) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    row.tap()
+    let reader = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    edgeSwipe(app, completing: true)
+    waitUntil { row.isHittable && !reader.exists }
+    XCTAssertEqual(search.value as? String, "Maya")
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
+        .firstMatch.exists)
+  }
+
+  // #1066: a completed iPhone edge swipe returns to the same Inbox, scrolled where it was. Larger
+  // text makes the preview list taller than the screen.
+  private func verifyCompactSwipeBackKeepsScroll(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let footer = app.staticTexts["Sample messages · Encrypted on this device"].firstMatch
+    XCTAssertTrue(footer.waitForExistence(timeout: 10))
+    let top = footer.frame
+    var placed = top
+    for _ in 0..<5 {
+      app.swipeUp()
+      if footer.frame == placed { break }
+      placed = footer.frame
+    }
+    XCTAssertLessThan(placed.minY, top.minY - 20, "The list did not scroll")
+    let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "North House"))
+      .firstMatch
+    XCTAssertTrue(row.isHittable)
+    row.tap()
+    let reader = app.staticTexts.matching(identifier: "hello@example.com").firstMatch
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    edgeSwipe(app, completing: true)
+    waitUntil { row.isHittable && !reader.exists }
+    waitUntil { abs(footer.frame.minY - placed.minY) <= 2 }
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at

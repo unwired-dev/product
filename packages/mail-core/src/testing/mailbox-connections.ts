@@ -23,8 +23,16 @@ export function syntheticConnections(
   const server = (connection: string) =>
     Object.hasOwn(imap, connection) ? imap[connection] : undefined;
   return {
-    imapFolders: (mailbox) =>
-      server(mailbox.connection)?.imapFolders(mailbox) ?? missing(),
+    imapOpen: (mailbox) =>
+      server(mailbox.connection)?.imapOpen(mailbox) ?? missing(),
+    imapCapabilities: (mailbox, session) =>
+      server(mailbox.connection)?.imapCapabilities(mailbox, session) ??
+      missing(),
+    imapListFolders: (mailbox, session) =>
+      server(mailbox.connection)?.imapListFolders(mailbox, session) ??
+      missing(),
+    imapClose: (mailbox, session) =>
+      server(mailbox.connection)?.imapClose(mailbox, session) ?? missing(),
     imapSynchronize: (mailbox, request) =>
       server(mailbox.connection)?.imapSynchronize(mailbox, request) ??
       missing(),
