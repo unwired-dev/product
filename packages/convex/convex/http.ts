@@ -15,10 +15,7 @@ import {
   trustedDeviceReconnectRequiredErrorCode,
   trustedDeviceRevokedErrorCode,
 } from './productAccountAuth.js';
-import {
-  abortedDeletionMessages,
-  productAccountDeletionAbortedErrorCode,
-} from './productAccountDeletionData.js';
+import { productAccountDeletionAbortedErrorCode } from './productAccountDeletionData.js';
 import { enqueueGmailWakeupsFromMetadata } from './pushRelay.js';
 import { signInLinkErrorCodes } from './signInLinks.js';
 
@@ -130,6 +127,11 @@ const isKeyRotationConflict = Schema.is(
 );
 const isKeyRotationInvalid = Schema.is(
   Schema.Struct({ code: Schema.Literal(keyRotationErrorCodes.invalid) }),
+);
+const isProductAccountDeletionAborted = Schema.is(
+  Schema.Struct({
+    code: Schema.Literal(productAccountDeletionAbortedErrorCode),
+  }),
 );
 
 const MicrosoftGraphNotificationSchema = Schema.Struct({
@@ -310,8 +312,8 @@ async function deleteProductAccountResponse(
       );
     }
     if (
-      error instanceof Error &&
-      abortedDeletionMessages.some((message) => error.message.includes(message))
+      error instanceof ConvexError &&
+      isProductAccountDeletionAborted(error.data)
     ) {
       return Response.json(
         { code: productAccountDeletionAbortedErrorCode },

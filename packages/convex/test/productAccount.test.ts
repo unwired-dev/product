@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import { ok } from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 
 import type { TestConvex } from 'convex-test';
@@ -2883,6 +2884,54 @@ describe('gmail operational connection registration', () => {
     expect(repeated.status).toBe(200);
   });
 
+  it('does not report a superseded Apple deletion as keeping the account', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asApple = t.withIdentity(appleIdentity);
+    const device = await connectTrusted(t, asApple, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const proof = {
+      authorizationCode: 'recent-apple-authorization-code',
+      trustedDeviceId: device.trustedDeviceId,
+    };
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      // While Apple's answer is outstanding, the lease expires and another attempt takes over.
+      await t.run(async (ctx) => {
+        const request = await ctx.db
+          .query('productAccountDeletionRequests')
+          .unique();
+        ok(request, 'Deletion request required');
+        await ctx.db.patch('productAccountDeletionRequests', request._id, {
+          updatedAt: Date.now() - 60_001,
+        });
+      });
+      await asApple.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          ...proof,
+          attemptId: 'newer-attempt',
+        },
+      );
+      return Response.json({ error: 'invalid_grant' }, { status: 400 });
+    });
+
+    await expect(
+      deleteRecentlyAuthenticated(asApple, proof, { identity: appleIdentity }),
+    ).rejects.toThrow('Product Account deletion attempt superseded');
+    await expect(storedAccountData(t)).resolves.toMatchObject({
+      accounts: 1,
+      tombstones: 0,
+    });
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('productAccountDeletionRequests').collect(),
+      ),
+    ).resolves.toMatchObject([{ activeAttemptId: 'newer-attempt' }]);
+  });
+
   it('rejects an Apple exchange without a recoverable refresh token', async () => {
     expect.assertions(3);
 
@@ -3525,7 +3574,7 @@ describe('gmail operational connection registration', () => {
   });
 
   it('does not let a superseded revocation attempt cancel deletion', async () => {
-    expect.assertions(3);
+    expect.assertions(4);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -3556,10 +3605,12 @@ describe('gmail operational connection registration', () => {
       },
     );
     expect(second).toMatchObject({ state: 'pending' });
-    await asUser.mutation(internal.productAccountDeletionData.abortDeletion, {
-      attemptId: 'deletion-attempt-001',
-      requestId,
-    });
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.abortDeletion, {
+        attemptId: 'deletion-attempt-001',
+        requestId,
+      }),
+    ).rejects.toThrow('Product Account deletion attempt superseded');
     await expect(
       t.run(async (ctx) =>
         ctx.db.query('productAccountDeletionRequests').collect(),

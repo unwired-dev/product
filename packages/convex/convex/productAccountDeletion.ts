@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Config from 'effect/Config';
@@ -29,7 +29,7 @@ import { internal } from './_generated/api.js';
 import { action, internalAction } from './_generated/server.js';
 import { call, failureDiagnostic, runConvexProgram } from './effectRuntime.js';
 import { trustedDeviceCredentialArgs } from './productAccountAuth.js';
-import { abortedDeletionMessages } from './productAccountDeletionData.js';
+import { productAccountDeletionAbortedErrorCode } from './productAccountDeletionData.js';
 
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
@@ -86,7 +86,11 @@ class AppleUnavailable extends Schema.TaggedError<AppleUnavailable>()(
 class AppleRejected extends Schema.TaggedError<AppleRejected>()(
   'AppleRejected',
   {
-    message: Schema.Literals(abortedDeletionMessages),
+    message: Schema.Literals([
+      'Apple authorization exchange failed',
+      'Apple authorization revocation failed',
+      'Recent authentication must match the Product Account',
+    ]),
   },
 ) {}
 
@@ -128,6 +132,12 @@ function thrownDeletionError(error: DeletionFailure): unknown {
       ? 'Apple authorization revocation is temporarily unavailable'
       : error.message,
   );
+}
+
+function thrownHttpDeletionError(error: DeletionFailure): unknown {
+  return error._tag === 'AppleRejected'
+    ? new ConvexError({ code: productAccountDeletionAbortedErrorCode })
+    : thrownDeletionError(error);
 }
 
 function exchangeFailed(): AppleRejected {
@@ -648,7 +658,7 @@ export const deleteRecentlyAuthenticatedProductAccount = internalAction({
   handler: async (ctx, args): Promise<{ deleted: boolean }> =>
     runConvexProgram(
       deleteAccount(ctx, args, randomUUID()),
-      thrownDeletionError,
+      thrownHttpDeletionError,
     ),
   returns: productAccountDeletionResponseValidator,
 });

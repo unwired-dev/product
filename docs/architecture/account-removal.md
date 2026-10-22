@@ -48,6 +48,12 @@ revocation and deletion rejections still purge. An Apple-required refusal also
 adds Apple to the saved provider list, so the next deletion signs in through Apple
 even when this device had not observed the link.
 
+An Apple authorization refusal settles earlier uncertainty only after Convex
+successfully aborts the owning revocation-pending attempt. The internal action
+then carries `PRODUCT_ACCOUNT_DELETION_ABORTED` in `ConvexError.data` to the HTTP
+route, which returns 403. A superseded attempt cannot establish that the account
+was kept; abort rejects it, preserving the client's pending removal instead.
+
 `purge` durably records acknowledgement before attempting dependent Keychain
 removals, attempts every known account item, and deletes registration last. A crash
 or failed dependent removal therefore leaves a locator and acknowledged cleanup

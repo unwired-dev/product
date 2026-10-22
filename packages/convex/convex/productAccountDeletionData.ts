@@ -14,13 +14,6 @@ import {
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
 
-// Apple refused the authorization of a deletion attempt, which is then aborted before anything is
-// fenced; the Product Account stays open.
-export const abortedDeletionMessages = [
-  'Apple authorization exchange failed',
-  'Apple authorization revocation failed',
-  'Recent authentication must match the Product Account',
-] as const;
 export const productAccountDeletionAbortedErrorCode =
   'PRODUCT_ACCOUNT_DELETION_ABORTED';
 
@@ -572,11 +565,12 @@ export const abortDeletion = internalMutation({
   handler: async (ctx, args) => {
     const request = await ownedDeletionRequest(ctx, args.requestId);
     if (
-      request.phase === 'revocation-pending' &&
-      request.activeAttemptId === args.attemptId
+      request.phase !== 'revocation-pending' ||
+      request.activeAttemptId !== args.attemptId
     ) {
-      await ctx.db.delete('productAccountDeletionRequests', args.requestId);
+      throw new Error('Product Account deletion attempt superseded');
     }
+    await ctx.db.delete('productAccountDeletionRequests', args.requestId);
     return null;
   },
   returns: v.null(),
