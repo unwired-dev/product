@@ -70,6 +70,13 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(
       app.staticTexts["Open this link in your browser?"].waitForNonExistence(timeout: 10))
     verifyRichBodyCanvas(app)
+    // #966: a tap on the body closes the open More panel without following the link; More reopens
+    // with its actions.
+    app.buttons["More"].tap()
+    XCTAssertTrue(app.buttons["Star"].waitForExistence(timeout: 5))
+    bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    XCTAssertTrue(app.buttons["Star"].waitForNonExistence(timeout: 5))
+    XCTAssertFalse(app.staticTexts["Open this link in your browser?"].exists)
     // Organizing goes through the packaged native Gmail modify: a star from the More panel, then
     // an archive and Undo.
     app.buttons["More"].tap()
@@ -77,6 +84,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
     XCTAssertTrue(app.buttons["Remove star"].exists)
+    // The starred row names its flag.
+    let starred = app.buttons["Unread. Rowan Hale. Garden plans for spring. Flagged"]
     if UIDevice.current.userInterfaceIdiom == .phone {
       // #972: iPhone's Reply sheet replaces the More panel still open after Star, so closing it
       // reveals no stale menu.
@@ -97,11 +106,11 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
     XCTAssertTrue(app.buttons["Undo"].exists)
-    XCTAssertFalse(rowan.exists)
+    XCTAssertFalse(starred.exists)
     app.buttons["Undo"].tap()
-    XCTAssertTrue(rowan.waitForExistence(timeout: 15))
+    XCTAssertTrue(starred.waitForExistence(timeout: 15))
     assertGmailActionsSettled(app)
-    XCTAssertTrue(rowan.exists)
+    XCTAssertTrue(starred.exists)
     let inbox = XCTAttachment(screenshot: app.screenshot())
     inbox.name = "Synchronized Gmail Inbox"
     inbox.lifetime = .keepAlways
@@ -109,8 +118,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
-    XCTAssertTrue(
-      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    XCTAssertTrue(starred.waitForExistence(timeout: 20))
     // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
     let account = app.buttons["Account"]
     if !account.waitForExistence(timeout: 5) || !account.isHittable {
@@ -594,6 +602,10 @@ final class InboxTests: XCTestCase {
     assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
     app.buttons["Open Inbox"].tap()
+    // iPhone returns to the Mailboxes column that Account was opened from.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons["Inbox. In other@example.invalid"].tap()
+    }
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
     let body = app.webViews.textViews["Message body"]
@@ -615,7 +627,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(typed.waitForExistence(timeout: 20))
     // Open Settings through the composer's palette without finishing this Draft.
     if UIDevice.current.userInterfaceIdiom == .pad {
-      app.buttons["Open Command Palette"].tap()
+      // The Inbox beneath the composer keeps its own Open Command Palette button.
+      app.otherElements["composer-overlay"].buttons["Open Command Palette"].tap()
     } else {
       let heading = app.staticTexts["New Message"].firstMatch
       XCTAssertTrue(heading.exists)

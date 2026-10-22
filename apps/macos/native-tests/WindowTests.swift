@@ -193,9 +193,7 @@ final class WindowTests: XCTestCase {
       resumed.buttons["test@example.invalid. Welcome to your synthetic Inbox"].waitForExistence(
         timeout: 15))
     resumed.buttons[rowan].click()
-    XCTAssertTrue(
-      resumed.textViews.matching(NSPredicate(format: "value == %@", "rowan@example.invalid"))
-        .firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(text("rowan@example.invalid", in: resumed).waitForExistence(timeout: 10))
     // The opened body arrives from Gmail as text; its image is not loaded.
     XCTAssertTrue(
       text("Images in this message are not loaded.", in: resumed).waitForExistence(timeout: 15))
@@ -208,22 +206,24 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Remove star"].exists)
+    // The starred row names its flag.
+    let starred = rowan + ". Flagged"
     resumed.buttons["Archive"].click()
     XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Undo"].exists)
-    XCTAssertFalse(resumed.buttons[rowan].exists)
+    XCTAssertFalse(resumed.buttons[starred].exists)
     resumed.buttons["Undo"].click()
-    XCTAssertTrue(resumed.buttons[rowan].waitForExistence(timeout: 15))
+    XCTAssertTrue(resumed.buttons[starred].waitForExistence(timeout: 15))
     assertGmailActionsSettled(resumed)
-    XCTAssertTrue(resumed.buttons[rowan].exists)
+    XCTAssertTrue(resumed.buttons[starred].exists)
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
     app.launch()
     // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
     let relaunched = app.windows["Inbox 1"]
-    XCTAssertTrue(relaunched.buttons[rowan].waitForExistence(timeout: 20))
-    relaunched.buttons[rowan].click()
+    XCTAssertTrue(relaunched.buttons[starred].waitForExistence(timeout: 20))
+    relaunched.buttons[starred].click()
     relaunched.buttons["Account"].click()
     let settings = app.windows["settings-window"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
@@ -234,10 +234,8 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(app.windows.matching(identifier: "settings-window").count, 1)
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
-    XCTAssertTrue(relaunched.buttons[rowan].exists)
-    XCTAssertTrue(
-      relaunched.textViews.matching(NSPredicate(format: "value == %@", "rowan@example.invalid"))
-        .firstMatch.exists)
+    XCTAssertTrue(relaunched.buttons[starred].exists)
+    XCTAssertTrue(text("rowan@example.invalid", in: relaunched).exists)
   }
 
   // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
