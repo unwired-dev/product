@@ -56,20 +56,7 @@ const acknowledgeFinish = async () => {
     includeHiddenElements: true,
   });
   if (page !== null) {
-    await fireEvent(page, 'message', {
-      nativeEvent: {
-        data: JSON.stringify({
-          type: 'update',
-          frozen: true,
-          revision: revisions.get(page) ?? 0,
-          selection: { start: 0, end: 0 },
-          marks: [],
-          kind: 'paragraph',
-          undo: false,
-          redo: false,
-        }),
-      },
-    });
+    await simulatedPage(() => page).report({ frozen: true, undo: false });
   }
 };
 
@@ -78,7 +65,7 @@ export const press = async (name: string | Readonly<RegExp>, flush = true) => {
   await act(async () => {
     await fireEvent.press(button);
     if (flush) {
-      void acknowledgeFinish();
+      await acknowledgeFinish();
     }
   });
 };
@@ -108,6 +95,7 @@ export function simulatedPage(
       selection?: Readonly<{ start: number; end: number }>;
       marks?: readonly string[];
       kind?: string;
+      undo?: boolean;
     }>,
   ) => {
     const page = target();
