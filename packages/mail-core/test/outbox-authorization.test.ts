@@ -31,6 +31,7 @@ async function offlineSender() {
   const synthetic = createSyntheticVault();
   const gmail = createSyntheticGmail();
   const requests = { opens: 0, claims: 0, submissions: 0 };
+  const verification = { unavailable: false };
   let verified = false;
   let beforeVerification: (() => Promise<void>) | undefined = undefined;
   const registration = createRegistration({
@@ -39,6 +40,15 @@ async function offlineSender() {
       verified = false;
       return synthetic.vault.forgetMailboxAccess();
     },
+    // Native cleanup can refuse its saved-registration read before provider verification.
+    retryMailboxCleanup: () =>
+      verification.unavailable
+        ? Promise.reject(
+            Object.assign(new Error('Synthetic verification unavailable'), {
+              code: 'unavailable',
+            }),
+          )
+        : synthetic.vault.retryMailboxCleanup(),
     renewIdentity: async () => {
       const before = beforeVerification;
       beforeVerification = undefined;
@@ -143,6 +153,7 @@ async function offlineSender() {
     gmail,
     registration,
     requests,
+    verification,
     server,
     storage,
     claims,
@@ -173,11 +184,21 @@ describe('outbox cache-only authorization recovery', () => {
   });
 
   it.each([
-    { failure: 'unavailable', failed: true },
-    { failure: 'offline', failed: false },
+    {
+      failure: 'unavailable',
+      failed: true,
+      nativeUnavailable: true,
+      refreshFailure: undefined,
+    },
+    {
+      failure: 'offline',
+      failed: false,
+      nativeUnavailable: false,
+      refreshFailure: 'offline',
+    },
   ])(
     'keeps resolved $failure verification queued before claims or handoff through reopening',
-    async ({ failure, failed }) => {
+    async ({ failed, nativeUnavailable, refreshFailure }) => {
       expect.hasAssertions();
       const phone = await offlineSender();
       let reopened: Outbox | undefined = undefined;
@@ -188,7 +209,8 @@ describe('outbox cache-only authorization recovery', () => {
       try {
         // Only native verification fails; Product claims and durable storage remain reachable.
         phone.setOnline(true);
-        phone.synthetic.google.refreshFailure = failure;
+        phone.verification.unavailable = nativeUnavailable;
+        phone.synthetic.google.refreshFailure = refreshFailure;
         await expect(phone.registration.resume()).resolves.toBeUndefined();
         expect(phone.registration.getSnapshot().failed).toBe(failed);
         expect(
@@ -248,6 +270,7 @@ describe('outbox cache-only authorization recovery', () => {
         });
         expect(phone.gmail.requests).toHaveLength(reads);
 
+        phone.verification.unavailable = false;
         phone.synthetic.google.refreshFailure = undefined;
         await vi.advanceTimersByTimeAsync(29_999);
         expect(phone.requests.claims).toBe(0);
@@ -456,7 +479,7 @@ describe('outbox cache-only authorization recovery', () => {
         const before = sentLists();
         expect(before).toBe(1);
         phone.setOnline(true);
-        phone.synthetic.google.refreshFailure = 'unavailable';
+        phone.verification.unavailable = true;
         await expect(phone.registration.resume()).resolves.toBeUndefined();
         expect(phone.registration.getSnapshot().failed).toBe(true);
         expect(
@@ -482,7 +505,7 @@ describe('outbox cache-only authorization recovery', () => {
         expect(phone.synthetic.google.refreshes).toBe(refreshes);
         expect(sentLists()).toBe(before);
         expect(phone.requests.submissions).toBe(1);
-        phone.synthetic.google.refreshFailure = undefined;
+        phone.verification.unavailable = false;
         let rejections = 0;
         unsubscribe = phone.registration.subscribe(() => {
           rejections += 1;
