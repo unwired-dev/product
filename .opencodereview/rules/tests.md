@@ -25,6 +25,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A native journey spanning size classes, such as
+  `InboxTests.keyboardAndAccessibilityJourney`, waiting for a column's heading
+  after returning from Settings. Check which split-view columns the host exposes
+  in that state; portrait iPad can show an empty reader with the list behind Show
+  Sidebar. Use an anchor available in every exercised layout when proving only
+  navigation completion, then assert the next action's observable result. If
+  column visibility is the contract, reveal and assert that column explicitly;
+  otherwise a correct collapsed layout fails an unrelated keyboard journey.
+
 - A state-transition wait such as the landscape loop in
   `InboxTests.verifyCompactMailboxesFillScreen` accepting a predicate already true
   in the preceding state or for stale child geometry after the window changes.
@@ -54,6 +63,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Keep unmatched issues failing and print every classified issue. A wider
   exception needs evidence that the defect affects every element it admits;
   otherwise new unrelated accessibility regressions silently pass as known gaps.
+  When the audit supplies no element, as in `InboxTests.knownAccessibilityGap`,
+  require an owning issue, scope the exception to the observed hosts, screens, audit
+  type and exact observed issue description, and retain captures for investigation.
+  Audit type plus a nil element can describe unrelated findings; otherwise a new
+  unlocated defect passes under an existing issue. A suspected decorative source is
+  not evidence that the finding is harmless; otherwise unlocated app defects can
+  be dismissed without an owner or a way to narrow the exception.
 
 - An expiry test such as `ImapMailboxTests.imapSessionsStayWithTheirConnectionGeneration`
   shortening a session's lifetime before establishing the held command it intends
@@ -81,6 +97,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   well as its consequences; a helper callback or spy alone proves no state
   change. Otherwise an untriggered move can leave ordinary delivery passing
   while the claimed ownership-change regression is untested.
+  For authorization races such as `outbox-authorization.test.ts`, trace the real
+  Registration action's serialization and drop behavior before claiming an owner
+  change during a held verification. An overlapping action dropped by
+  `withPermitsIfAvailable` changes no authority. Exercise a reachable transition
+  through public actions, substituting only an external native/provider boundary,
+  and assert the resulting public snapshot and delivery consequence; otherwise
+  an impossible account switch can appear to prove stale-owner fencing.
 
 - A native journey locator such as `WindowTests.key(groups:in:)` retaining a
   text pattern after its host changes displayed grouping, whitespace, copy or

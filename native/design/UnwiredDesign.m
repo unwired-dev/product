@@ -436,6 +436,58 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   [choice answer:[NSNull null]];
 }
 @end
+
+// A question in a sheet on its anchor's window, answering the chosen button's index. React Native
+// macOS's Alert asks over the key window and cannot withdraw a question its asker no longer owns.
+@interface UnwiredAlert : NSObject <RCTBridgeModule>
+@property (nonatomic, readonly) NSMutableDictionary<NSNumber *, NSAlert *> *shown;
+@end
+
+@implementation UnwiredAlert
+@synthesize viewRegistry_DEPRECATED = _viewRegistry_DEPRECATED;
+RCT_EXPORT_MODULE()
+
+- (instancetype)init
+{
+  if ((self = [super init])) _shown = [NSMutableDictionary dictionary];
+  return self;
+}
+
+- (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
+
+// The first button is the default and the last, Cancel, answers Escape.
+RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
+                  request:(nonnull NSNumber *)request
+                  question:(NSDictionary *)question
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  NSWindow *window = [self.viewRegistry_DEPRECATED viewForReactTag:anchor].window;
+  if (window == nil) {
+    resolve([NSNull null]);
+    return;
+  }
+  NSArray<NSString *> *buttons = [RCTConvert NSStringArray:question[@"buttons"]];
+  NSAlert *alert = [NSAlert new];
+  alert.messageText = [RCTConvert NSString:question[@"title"]];
+  alert.informativeText = [RCTConvert NSString:question[@"detail"]];
+  for (NSString *button in buttons) [alert addButtonWithTitle:button];
+  alert.buttons.lastObject.keyEquivalent = @"\033";
+  self.shown[request] = alert;
+  [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
+    [self.shown removeObjectForKey:request];
+    NSInteger index = response - NSAlertFirstButtonReturn;
+    resolve(index >= 0 && index < (NSInteger)buttons.count ? @(index) : [NSNull null]);
+  }];
+}
+
+// Withdraws a question whose asker has moved on; it answers nothing.
+RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
+{
+  NSWindow *sheet = self.shown[request].window;
+  [sheet.sheetParent endSheet:sheet returnCode:NSModalResponseAbort];
+}
+@end
 #endif
 
 #if !TARGET_OS_OSX

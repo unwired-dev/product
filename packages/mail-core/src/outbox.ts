@@ -158,7 +158,7 @@ export function createOutbox({
     | 'subscribe'
   >;
   mailboxes: Pick<Mailboxes, 'getConnections' | 'subscribe'>;
-  registration: Pick<Registration, 'getSnapshot' | 'subscribe'>;
+  registration: Pick<Registration, 'getSnapshot' | 'subscribe' | 'resume'>;
   claims: NativeDeliveryClaim | undefined;
 }>) {
   // When each pending message may try again; one without an entry uses its Send deadline.
@@ -438,18 +438,43 @@ export function createOutbox({
 
   // Delivery owns opening its sender even when no Inbox view has loaded it.
   const openSender = async (draft: Draft) => {
+    const cached = mailboxesOf(registration.getSnapshot().snapshot).some(
+      (mailbox) =>
+        mailbox.id === draft.connection && mailbox.state === 'cached',
+    );
+    if (cached) {
+      try {
+        await registration.resume();
+      } catch (error) {
+        await runLogged(
+          Effect.logError(
+            'Mailbox verification failed:',
+            rejectionDiagnostic(error),
+          ),
+        );
+        return false;
+      }
+      if (
+        mailboxesOf(registration.getSnapshot().snapshot).some(
+          (mailbox) =>
+            mailbox.id === draft.connection && mailbox.state === 'cached',
+        )
+      ) {
+        return false;
+      }
+    }
     const mailbox = connectionOf(draft.connection);
-    if (mailbox !== undefined && mailbox.state.kind !== 'ready') {
+    if (mailbox !== undefined && (cached || mailbox.state.kind !== 'ready')) {
       await mailbox.inbox.load();
     }
+    return true;
   };
 
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
   const file = async (entry: OutboxEntry, current: () => boolean) => {
-    await openSender(entry.draft);
-    if (!current()) {
+    if (!(await openSender(entry.draft)) || !current()) {
       return;
     }
     const mailbox = connectionOf(entry.draft.connection);
@@ -561,8 +586,17 @@ export function createOutbox({
     entry: OutboxEntry,
     current: () => boolean,
   ) => {
-    await openSender(entry.draft);
+    const opened = await openSender(entry.draft);
     if (!current()) {
+      return;
+    }
+    if (!opened) {
+      await drafts.deliver(
+        entry.id,
+        step('queued', (each) =>
+          current() ? withState(each, 'queued', 'offline') : undefined,
+        ),
+      );
       return;
     }
     const check = handoffCheck(entry.draft);
@@ -576,7 +610,7 @@ export function createOutbox({
       );
       return;
     }
-    if ((await holdClaim(account, entry, current)) && current()) {
+    if (await holdClaim(account, entry, current)) {
       await handOff(entry.id, current);
       const accepted = entryOf(entry.id);
       if (current() && accepted?.state === 'filing') {
@@ -688,7 +722,15 @@ export function createOutbox({
   let passing: Promise<void> | undefined = undefined;
   let requested = false;
   // A single Sent lookup owns its deduplication markers until the provider settles.
-  const checkSent = async (id: string) => {
+  const checkSent = async (id: string, deferred: boolean) => {
+    if (deferred) {
+      // No lookup ran; retire its request and let a later opportunity retry.
+      checks.delete(id);
+      queuedChecks.delete(id);
+      asked.delete(id);
+      publish();
+      return;
+    }
     if (!running()) {
       return;
     }
@@ -717,15 +759,20 @@ export function createOutbox({
   const hasUnknown = () =>
     drafts.getOutbox().some((entry) => entry.state === 'unknown');
   const pass = async () => {
+    const deferred = new Set<string>();
     // Recovery also owns opening its mailbox after a launch with no Inbox.
     for (const entry of drafts.getOutbox()) {
-      if (running() && entry.state === 'unknown') {
-        await openSender(entry.draft);
+      if (
+        running() &&
+        entry.state === 'unknown' &&
+        !(await openSender(entry.draft))
+      ) {
+        deferred.add(entry.id);
       }
     }
     checkUnknown(false);
     for (const id of checks) {
-      await checkSent(id);
+      await checkSent(id, deferred.has(id));
     }
     const now = Date.now();
     for (const entry of drafts.getOutbox()) {
@@ -883,7 +930,8 @@ export function createOutbox({
       return drafts.restore(id);
     },
     // Looks for an unknown message in Gmail's Sent mailbox now, publishing 'checking' at once and
-    // 'unconfirmed' when it stays unknown. Resolves whether it left the Outbox as sent.
+    // 'unconfirmed' when it stays unknown after a lookup, or idle when preparation deferred it.
+    // Resolves whether it left the Outbox as sent.
     check: async (id: string) => {
       const entry = entryOf(id);
       const request: CheckRequest | undefined =

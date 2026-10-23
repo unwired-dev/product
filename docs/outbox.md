@@ -86,6 +86,13 @@ it.
   If a native session renewal invalidates a Gmail or Graph handoff before it
   starts, the app reopens that mailbox for the next retry. Delivery does not
   require opening Settings or returning to the Inbox.
+  After an offline launch, retries also reverify a cache-only sending mailbox
+  and reopen its Inbox. Reconnecting while the app stays active does not require
+  switching apps or waiting for the five-minute Inbox poll. Verification finishes
+  before the message is recorded as handed off, and pausing the app still prevents
+  a new submission. If verification rejects or leaves the selected mailbox
+  cache-only, the message keeps waiting for the next retry without claiming or
+  handing it off, or blocking later messages in the Outbox.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
   - the mailbox needs Gmail access again, is no longer connected, or changed its
@@ -107,6 +114,11 @@ it.
   unknown; after **Check Again**, the row says Gmail did not confirm it. Every Mac
   window showing the message shows the same check in progress and the same answer,
   and pressing **Check Again** again while it runs starts no second lookup.
+  If mailbox verification rejects or leaves that mailbox cache-only before the
+  lookup, the message stays unknown and **Check Again** returns to idle without a
+  no-confirmation notice. A later activation, mailbox-ready event or **Check Again**
+  can retry verification and the Sent check; the app never resubmits the message
+  automatically.
   If the check finds locked storage, the Inbox hides its mail; device removal
   closes it, and refused Gmail access asks for authorization again, including
   after an offline retry. The delivery outcome remains unknown.
@@ -136,6 +148,9 @@ it.
 - Before provider submission, the device must durably record both a confirmed
   Convex claim and the handoff state. A failed, interrupted or unreadable claim
   response never grants permission to submit.
+- Cache-only mailbox access must verify before claiming queued delivery, filing
+  an accepted message's Sent copy or checking Sent for an unknown outcome. A
+  completed verification action alone is not proof of verified access.
 - Claims contain no message content. Another device cannot take over delivery;
   an uncertain provider outcome never causes automatic resubmission.
 - A claim is proven by this Trusted Device's own credential, without a Product
@@ -164,8 +179,8 @@ mise exec -- pnpm --filter @private-email/macos test
 mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
-Shared journeys in `packages/mail-core/test/outbox.test.ts` and
-`outbox-recovery.test.ts` use the real Draft
+Shared journeys in `packages/mail-core/test/outbox.test.ts`,
+`outbox-recovery.test.ts` and `outbox-authorization.test.ts` use the real Draft
 store, Gmail Inbox and Outbox with synthetic Draft storage, Gmail and Convex
 claims. They send a formatted reply with an inline image and an attachment once
 after the Undo Send Window, and parse it with an independent MIME parser. They also
@@ -205,6 +220,17 @@ cover:
   waits, without Inbox navigation or a duplicate provider copy;
 - preserving definite pre-handoff non-delivery as queued through reopening while
   mailbox recovery is still reading from the provider;
+- revalidating cache-only authorization after connectivity returns without an
+  activation, keeping the message queued if the app pauses during verification,
+  backing off rejected verification without blocking later entries, and preventing
+  submission when native device removal is reported during held verification;
+- keeping normally resolved but still cache-only verification queued through
+  reopening, with Product claims and storage reachable, no claim or handoff, and
+  one later submission after verification recovers;
+- deferring automatic unknown recovery and **Check Again** after rejected or
+  normally resolved but still cache-only verification, even with a ready cached
+  Inbox, then checking Sent successfully without another submission once
+  verification recovers;
 - each refusal at Send.
 
 `outbox-lifecycle.test.ts` exercises pause/resume across Undo Send, claims,

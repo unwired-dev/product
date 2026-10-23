@@ -731,6 +731,27 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   await settles. Verify one immediate handoff from the fresh opportunity without
   advancing the clock and without duplicate submission; otherwise stale work
   reinstates a delay that activation already cleared.
+- `outbox.ts.openSender` treating a resolved `Registration.resume` as verified
+  mailbox access, or failing to handle its rejection, including an Effect defect
+  from a subscription listener. Typed failures can resolve through the store's
+  recovery while the selected connection remains cached. Reread that connection's
+  public Registration state after preparation; stop still-cached access before
+  explicit Inbox loading, a delivery claim, durable handoff, provider submission,
+  accepted filing or Sent lookup. Preserve existing removal, authorization,
+  password and account/execution-change outcomes rather than waiting on every
+  non-connected state, and retain the original cached decision for the successful
+  Inbox reload. Check verification failure independently of reachable Product
+  claims and storage; a later native refusal cannot undo durable handoff before
+  a process exit. Retain allow-listed diagnostics and let queued/filing entries
+  reach their existing per-entry backoff while later entries continue. Trace all
+  callers and later dispatch loops: failed unknown preparation must suppress both
+  prequeued explicit and automatically queued Sent lookups, even with a ready
+  cached Inbox. Settle Check Again without claiming an unperformed lookup and
+  preserve eligibility for a later authorized opportunity, without immediate retry,
+  automatic resubmission or a new unknown retry policy. An outer process catch
+  alone skips per-entry scheduling and later work; logging and continuing can
+  submit after failed verification, while an immediately due queued entry can
+  spin without backoff.
 - `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
   interrupted by generation renewal, closure or owner invalidation as a completed
   automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence

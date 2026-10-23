@@ -41,8 +41,8 @@ reviewed Swift packages, SwiftMail and swift-log, at the revisions
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, and the Mac-only
-`UnwiredMenu` presenter. The composer's Text style, From, actions and Writing tools
-pop-ups open an AppKit `NSMenu` through it: the system owns presentation, keyboard
+`UnwiredMenu` and `UnwiredAlert` presenters. The composer's Text style, From, actions
+and Writing tools pop-ups open an AppKit `NSMenu` through `UnwiredMenu`: the system owns presentation, keyboard
 navigation, Escape and click-outside dismissal. Each menu drops below its control and
 checks the current choice. Writing tools retain
 their localized selection/body descriptions for accessibility. React Native
@@ -52,6 +52,11 @@ the presenter when the host provides an anchored menu with those states. Follow
 React Native macOS/AppKit controls and presenters over custom equivalents, and
 retain a minimal native adapter only for a documented host API gap. Expo UI
 availability on mobile does not establish Mac compatibility.
+`UnwiredAlert` asks the evaluation editor's save question in an `NSAlert` sheet on
+the asking view's own window and withdraws it by request when its asker goes away.
+React Native macOS 0.81.9's `Alert` asks over the key window and cannot withdraw a
+question. Remove the presenter when the host's alert can target a window and be
+dismissed.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar

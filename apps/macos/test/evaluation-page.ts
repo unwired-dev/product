@@ -10,6 +10,7 @@ import { AssetSchema } from '@private-email/mail-core/semantic-document';
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 
+import { chooseSheetButton } from './native-alert.ts';
 import { injectedScripts } from './webview.tsx';
 
 // The command the host last sent its page.
@@ -46,36 +47,37 @@ export const lastAdded = () => {
 // Each open page's body revision, which only grows until the page closes.
 const revisions = new WeakMap<object, number>();
 
+// The native WebView boundary acknowledges a finishing command after queued edits.
+const acknowledgeFinish = async () => {
+  if (lastCommand() !== commandScript({ type: 'editable', editable: false })) {
+    return;
+  }
+  const page = screen.queryByTestId('message-webview', {
+    includeHiddenElements: true,
+  });
+  if (page !== null) {
+    await simulatedPage(() => page).report({ frozen: true, undo: false });
+  }
+};
+
 export const press = async (name: string | Readonly<RegExp>, flush = true) => {
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
-    // The native WebView boundary acknowledges a finishing command after queued edits.
-    if (
-      flush &&
-      lastCommand() === commandScript({ type: 'editable', editable: false })
-    ) {
-      const page = screen.queryByTestId('message-webview', {
-        includeHiddenElements: true,
-      });
-      if (page !== null) {
-        void fireEvent(page, 'message', {
-          nativeEvent: {
-            data: JSON.stringify({
-              type: 'update',
-              frozen: true,
-              revision: revisions.get(page) ?? 0,
-              selection: { start: 0, end: 0 },
-              marks: [],
-              kind: 'paragraph',
-              undo: false,
-              redo: false,
-            }),
-          },
-        });
-      }
+    if (flush) {
+      await acknowledgeFinish();
     }
   });
+};
+
+// Answers the open save sheet, as `press` does a button.
+export const answer = async (title: string, flush = true) => {
+  await act(async () => {
+    chooseSheetButton(title);
+  });
+  if (flush) {
+    await act(acknowledgeFinish);
+  }
 };
 
 // The packaged page, as the host sees it: after each edit or selection change it reports its
@@ -93,6 +95,7 @@ export function simulatedPage(
       selection?: Readonly<{ start: number; end: number }>;
       marks?: readonly string[];
       kind?: string;
+      undo?: boolean;
     }>,
   ) => {
     const page = target();

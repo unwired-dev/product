@@ -4,7 +4,6 @@ import type { TurboModule } from 'react-native';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
-import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import {
   act,
   fireEvent,
@@ -13,12 +12,8 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import {
-  Animated,
-  DeviceEventEmitter,
-  TurboModuleRegistry,
-  View,
-} from 'react-native';
+import { act as commit, useLayoutEffect, useState } from 'react';
+import { DeviceEventEmitter, TurboModuleRegistry, View } from 'react-native';
 
 import type { useComposerNavigation } from '../src/mailbox.tsx';
 
@@ -26,70 +21,15 @@ import {
   CommandPaletteProvider,
   useCloseGuard,
 } from '../src/command-palette.tsx';
-import { AssistanceContext } from '../src/message-summary.tsx';
 import { App, alex, registration } from './evaluation-app.tsx';
-import { press, simulatedPage } from './evaluation-page.ts';
+import { answer, press, simulatedPage } from './evaluation-page.ts';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('@private-email/draft-editor/page', () => ({
   editorPage: '<!doctype html><title>Tiptap evaluation page</title>',
 }));
-
-// Hold animation completion so dismissal can be checked before its visual exit ends.
-function holdMenuMotion() {
-  const completions = new Set<
-    NonNullable<Parameters<ReturnType<typeof Animated.timing>['start']>[0]>
-  >();
-  const timing = jest.spyOn(Animated, 'timing').mockImplementation(() => {
-    let finish: Parameters<ReturnType<typeof Animated.timing>['start']>[0] =
-      undefined;
-    return {
-      start: (complete) => {
-        finish = complete;
-        if (complete !== undefined) {
-          completions.add(complete);
-        }
-      },
-      stop: () => {
-        if (finish !== undefined) {
-          completions.delete(finish);
-          finish({ finished: false });
-        }
-      },
-      reset: () => undefined,
-    };
-  });
-  return {
-    restore: () => timing.mockRestore(),
-    finish: async () => {
-      await act(() => {
-        for (const complete of completions) {
-          complete({ finished: true });
-        }
-        completions.clear();
-      });
-    },
-  };
-}
-
-// The closing panel still paints, but native input and accessibility no longer reach it.
-function expectRetiringControl(name: string) {
-  expect(screen.queryByRole('button', { name })).toBeNull();
-  const retained = screen.getByRole('button', {
-    name,
-    includeHiddenElements: true,
-  });
-  expect(retained).toBeOnTheScreen();
-  let boundary = retained.parent;
-  while (
-    boundary !== null &&
-    boundary.props.accessibilityElementsHidden !== true
-  ) {
-    boundary = boundary.parent;
-  }
-  expect(boundary?.props.pointerEvents).toBe('none');
-}
 
 // Substitute only the native menu boundary; other native lookups keep their host behavior.
 const commandModule = (menu: TurboModule) => {
@@ -108,6 +48,22 @@ function CloseGuardProbe({
 }) {
   useCloseGuard(leave);
   return null;
+}
+
+function RetiringApp({
+  drafts,
+  onReady,
+}: {
+  readonly drafts: ReturnType<typeof createDrafts>;
+  readonly onReady: (retire: () => void) => void;
+}) {
+  const [present, setPresent] = useState(true);
+  useLayoutEffect(() => {
+    onReady(() => {
+      setPresent(false);
+    });
+  }, [onReady]);
+  return present ? <App drafts={drafts} /> : null;
 }
 
 describe('evaluation composer lifetime', () => {
@@ -233,7 +189,7 @@ describe('evaluation composer lifetime', () => {
     });
     expect(allowed).toBeUndefined();
     await simulatedPage().report({ frozen: true });
-    await press('Cancel');
+    await answer('Cancel');
     await waitFor(() => {
       expect({ allowed }).toStrictEqual({ allowed: false });
     });
@@ -245,7 +201,7 @@ describe('evaluation composer lifetime', () => {
       });
     });
     await simulatedPage().report({ frozen: true });
-    await press('Save');
+    await answer('Save');
     await waitFor(() => {
       expect(allowed).toBe(true);
     });
@@ -266,13 +222,13 @@ describe('evaluation composer lifetime', () => {
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
     storage.setLocked(true);
     await press('Close');
-    await press('Save');
+    await answer('Save');
     await screen.findByText(/This Draft could not be saved/u);
     storage.setLocked(false);
     await other.update({ ...before, subject: 'Other writer' }, before);
     storage.hold();
     await press('Close');
-    await press('Don’t Save');
+    await answer('Don’t Save');
     await app.unmount();
     await act(async () => {
       storage.release();
@@ -319,7 +275,7 @@ describe('evaluation composer lifetime', () => {
       await drafts.load();
     });
     await press('Close');
-    await press('Save');
+    await answer('Save');
     // The editor's version belongs to neither account's storage now.
     expect(screen.queryByTestId('message-webview')).toBeNull();
     const next = createDrafts(storage.native, session);
@@ -330,6 +286,41 @@ describe('evaluation composer lifetime', () => {
     await previous.load();
     expect(draftsOf(previous.getSnapshot())).toStrictEqual([created]);
   });
+
+  it.each(['Save', 'Don’t Save'])(
+    'ignores %s when its editor retires after the native answer is decoded',
+    async (choice) => {
+      expect.hasAssertions();
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      let retire: () => void = () => undefined;
+      await render(
+        <RetiringApp
+          drafts={drafts}
+          onReady={(remove) => {
+            retire = remove;
+          }}
+        />,
+      );
+      await press('New Message');
+      const [created] = draftsOf(drafts.getSnapshot());
+      ok(created, 'Expected the created Draft');
+      // No page-ready report: the native Subject can be edited before WebKit loads.
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Unsaved subject',
+      );
+      await press('Close');
+      chooseSheetButton(choice);
+      // The bridge helper decodes first; retire before the effect consumes that result.
+      await Promise.resolve();
+      await commit(retire);
+      await drafts.save();
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(draftsOf(reopened.getSnapshot())).toStrictEqual([created]);
+    },
+  );
 
   const later = [
     { kind: 'paragraph', spans: [{ text: 'Window B, later' }] },
@@ -376,17 +367,19 @@ describe('evaluation composer lifetime', () => {
       const inWindow = (name: string) => within(screen.getByTestId(name));
       const pageOf = (name: string) =>
         simulatedPage(() => inWindow(name).getByTestId('message-webview'));
-      // Each finishing choice waits for that window's page to acknowledge its last edit.
-      const finish = async (name: string, ...buttons: readonly string[]) => {
-        for (const button of buttons) {
-          const control = await inWindow(name).findByRole('button', {
-            name: button,
-          });
-          await act(async () => {
-            await fireEvent.press(control);
-          });
-          await pageOf(name).report({ frozen: true });
-        }
+      // Close and the sheet's choice each wait for that window's page to acknowledge its last edit.
+      const finish = async (name: string, choice: string) => {
+        const close = await inWindow(name).findByRole('button', {
+          name: 'Close',
+        });
+        await act(async () => {
+          await fireEvent.press(close);
+        });
+        await pageOf(name).report({ frozen: true });
+        await act(async () => {
+          chooseSheetButton(choice);
+        });
+        await pageOf(name).report({ frozen: true });
       };
       for (const name of ['window-a', 'window-b']) {
         const row = await inWindow(name).findByRole('button', {
@@ -397,14 +390,14 @@ describe('evaluation composer lifetime', () => {
         });
       }
       await pageOf('window-a').typed('Window A');
-      await finish('window-a', 'Close', 'Save');
+      await finish('window-a', 'Save');
       expect(inWindow('window-a').queryByTestId('message-webview')).toBeNull();
       // Window B still edits the version it opened; its save keeps it as a conflicting copy.
       const stale = pageOf('window-b');
       await stale.typed('Window B');
       const page = inWindow('window-b').getByTestId('message-webview');
       storage.setLocked(true);
-      await finish('window-b', 'Close', 'Save');
+      await finish('window-b', 'Save');
       await inWindow('window-b').findByText(/This Draft could not be saved/u);
       const copy = draftsOf(drafts.getSnapshot()).find(
         (draft) => draft.id !== id,
@@ -418,7 +411,7 @@ describe('evaluation composer lifetime', () => {
       expect(inWindow('window-b').getByTestId('message-webview')).toBe(page);
       await stale.report({ document: later });
       storage.setLocked(false);
-      await finish('window-b', 'Close', choice);
+      await finish('window-b', choice);
       expect(inWindow('window-b').queryByTestId('message-webview')).toBeNull();
       const reopened = createDrafts(storage.native, registration);
       await reopened.load();
@@ -430,40 +423,27 @@ describe('evaluation composer lifetime', () => {
     },
   );
 
-  it('keeps a cancelled save sheet hidden and untouchable until its exit ends', async () => {
+  it('asks again on Close after Cancel, including Close while the page finishes', async () => {
     expect.hasAssertions();
-    const motion = holdMenuMotion();
-    try {
-      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-      const mock = createMockMailSession('open-read-relaunch');
-      await render(
-        <AssistanceContext value={mock.assistance}>
-          <App drafts={createDrafts(storage.native, registration)} />
-        </AssistanceContext>,
-      );
-      await press('New Message');
-      const page = simulatedPage();
-      await page.typed('A changed message');
-      await press('Close');
-      await press('Cancel');
-      expect(screen.getByRole('button', { name: 'Send' })).toBeOnTheScreen();
-      expectRetiringControl('Save');
-      await motion.finish();
-      expect(
-        screen.queryByRole('button', {
-          name: 'Save',
-          includeHiddenElements: true,
-        }),
-      ).toBeNull();
-      await press('Close');
-      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
-      await press('Cancel');
-      await press('Close', false);
-      await page.report({ frozen: true });
-      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
-    } finally {
-      motion.restore();
-    }
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(<App drafts={createDrafts(storage.native, registration)} />);
+    await press('New Message');
+    const page = simulatedPage();
+    await page.typed('A changed message');
+    await press('Close');
+    await answer('Cancel');
+    expect(sheetShown()).toBeUndefined();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeOnTheScreen();
+    await press('Close');
+    expect(sheetShown()?.buttons).toStrictEqual([
+      'Save',
+      'Don’t Save',
+      'Cancel',
+    ]);
+    await answer('Cancel');
+    await press('Close', false);
+    await page.report({ frozen: true });
+    expect(sheetShown()).toBeDefined();
   });
 
   it('asks before Command-W closes a window with unsaved edits', async () => {
@@ -506,16 +486,16 @@ describe('evaluation composer lifetime', () => {
         });
       });
       expect({
-        save: screen.queryByRole('button', { name: 'Save' }),
+        sheet: sheetShown(),
         answers: menu.finishClose.mock.calls,
-      }).toStrictEqual({ save: null, answers: [] });
+      }).toStrictEqual({ sheet: undefined, answers: [] });
       // The window stays open while the save question is answered.
       await closeWindow();
       await simulatedPage().report({ frozen: true });
       // A repeated native request (including Quit during Command-W) keeps the same choice.
       await closeWindow();
       expect(menu.finishClose).not.toHaveBeenCalled();
-      await press('Cancel');
+      await answer('Cancel');
       await waitFor(() => {
         expect(menu.finishClose).toHaveBeenLastCalledWith(
           'inbox-window-',
@@ -526,7 +506,7 @@ describe('evaluation composer lifetime', () => {
       await closeWindow();
       await simulatedPage().report({ frozen: true });
       storage.setLocked(true);
-      await press('Save');
+      await answer('Save');
       await waitFor(() => {
         expect(menu.finishClose).toHaveBeenLastCalledWith(
           'inbox-window-',
@@ -537,7 +517,7 @@ describe('evaluation composer lifetime', () => {
       menu.finishClose.mockClear();
       await closeWindow();
       await simulatedPage().report({ frozen: true });
-      await press('Save');
+      await answer('Save');
       await waitFor(() => {
         expect(menu.finishClose).toHaveBeenCalledWith('inbox-window-', true);
       });
