@@ -196,7 +196,9 @@ its connections' providers, and marks the Startup Profile
 creates one as New Mail Profile… does. Selecting a Profile shows its name, which
 can be edited for every Profile except the Primary Profile; an empty or unchanged
 name changes nothing, and a refused rename restores the listed name and asks to
-try again. The **Startup Profile** pop-up under This Device saves the choice only
+try again. Creation and renaming wait for active registration work; a queued edit
+is retired if that Product Account leaves before it can run.
+The **Startup Profile** pop-up under This Device saves the choice only
 on this device; with none saved, or once its Profile is no longer listed, it shows
 and opens the Primary Profile. Changing it leaves every open window in its
 current Profile; the new choice applies when a new window opens.

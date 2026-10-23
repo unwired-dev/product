@@ -524,6 +524,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `registration.ts.createProfile` or `renameProfile` dropping an editing or
+  prompt completion while foreground verification holds the operation permit.
+  Keep committed Profile edits until admission and recheck their Product Account
+  before running them. Exercise a held activation followed by rename and create,
+  including removal or replacement of the account before admission; otherwise
+  Settings displays unsaved names, silently loses creation or applies old intent
+  to another account.
+
 - `notifications.ts.createNotifications.arrived` capturing mutable Mail Profile
   ownership before awaiting device settings. Resolve the connection's current
   Profile after that wait, alongside the account/incarnation/eligibility recheck,

@@ -377,11 +377,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
     }),
     {
       foreground = false,
+      queued = false,
       accountChange,
       mailboxLoading = 'automatic',
       imapSetup,
     }: Readonly<{
       foreground?: boolean;
+      queued?: boolean;
       accountChange?: 'sign-in' | 'removal';
       mailboxLoading?: MailboxLoading;
       imapSetup?: ImapSetup;
@@ -492,7 +494,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
         (program) =>
-          foreground
+          foreground || queued
             ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
             : program.pipe(
                 Semaphore.withPermitsIfAvailable(semaphore, 1),
@@ -500,6 +502,23 @@ export function createRegistration(vault: NativeRegistrationVault) {
               ),
       ),
     );
+  // Editing completion and prompt submission may arrive during foreground verification.
+  // Keep the intent until admitted, but never apply it to a replacement Product Account.
+  const changeProfile = (operation: Parameters<typeof execute>[0]) => {
+    const previous = state.snapshot;
+    const owner =
+      previous.kind === 'signed-out' ? undefined : previous.productAccountId;
+    return execute(
+      Effect.suspend(() => {
+        const current = state.snapshot;
+        const currentOwner =
+          current.kind === 'signed-out' ? undefined : current.productAccountId;
+        return currentOwner === owner ? operation : Effect.succeed(current);
+      }),
+      profileRefusal,
+      { queued: true },
+    );
+  };
   const restoredAccount = request(native.restore()).pipe(
     Effect.map((snapshot) =>
       snapshot.kind === 'signed-out' &&
@@ -622,9 +641,9 @@ export function createRegistration(vault: NativeRegistrationVault) {
     removeMailbox: (connection: string) =>
       execute(request(native.removeMailbox(connection))),
     createProfile: (name: string) =>
-      execute(request(native.createProfile(name)), profileRefusal),
+      changeProfile(request(native.createProfile(name))),
     renameProfile: (profile: string, name: string) =>
-      execute(request(native.renameProfile(profile, name)), profileRefusal),
+      changeProfile(request(native.renameProfile(profile, name))),
     removeProfile: (profile: string) =>
       execute(request(native.removeProfile(profile)), profileRefusal),
     moveMailbox: (connection: string, profile: string) =>

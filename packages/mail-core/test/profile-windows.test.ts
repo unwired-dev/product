@@ -8,6 +8,7 @@ import {
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
 import {
+  createRegistration,
   defaultProfile,
   mailboxesOf,
   profilesOf,
@@ -240,6 +241,57 @@ describe('window Profiles', () => {
       startup: defaultProfile,
     });
   });
+
+  it.each([
+    ['keeps', false, ['Office', 'Family']],
+    ['retires', true, []],
+  ] as const)(
+    '%s queued Profile edits when activation finishes or the account leaves',
+    async (_action, retire, names) => {
+      expect.hasAssertions();
+      const { vault, work: workId } = await createTwoProfileRegistration();
+      let beforeRead: (() => Promise<void>) | undefined = undefined;
+      const store = createRegistration({
+        ...vault,
+        registration: async () => {
+          const hook = beforeRead;
+          beforeRead = undefined;
+          await hook?.();
+          return vault.registration();
+        },
+      });
+      await store.restore();
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      beforeRead = async () => {
+        entered.resolve(undefined);
+        await release.promise;
+      };
+      const resuming = store.resume();
+      await entered.promise;
+      try {
+        const renaming = store.renameProfile(workId, 'Office');
+        const creating = store.createProfile('Family');
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- The second fixed case removes the account during the held activation.
+        if (retire) {
+          await vault.purge('revoked');
+        }
+        release.resolve(undefined);
+        await Promise.all([resuming, renaming, creating]);
+        expect(
+          profilesOf(store.getSnapshot().snapshot).map(({ name }) => name),
+        ).toStrictEqual(names);
+        expect(store.getSnapshot().profileFailure).toBeUndefined();
+        expect(store.getSnapshot()).toMatchObject({
+          busy: false,
+          failed: false,
+        });
+      } finally {
+        release.resolve(undefined);
+        await resuming;
+      }
+    },
+  );
 
   it('reads a malformed saved choice as none', async () => {
     expect.hasAssertions();
