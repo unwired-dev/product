@@ -619,6 +619,26 @@ final class InboxTests: XCTestCase {
     mailboxes.name = "Mailboxes after swiping back from Settings"
     mailboxes.lifetime = .keepAlways
     add(mailboxes)
+    // #1069: Open Inbox from a pushed destination shows the kept list rather than Mailboxes, and
+    // Settings reopens on its list of destinations, not the one left open.
+    account.tap()
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.tap()
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    destination.buttons["Open Inbox"].tap()
+    waitUntil { back.isHittable && !account.isHittable && !destination.exists }
+    XCTAssertTrue(thread.exists)
+    let inbox = XCTAttachment(screenshot: app.screenshot())
+    inbox.name = "Kept Inbox after Open Inbox from Settings"
+    inbox.lifetime = .keepAlways
+    add(inbox)
+    back.tap()
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    XCTAssertFalse(destination.exists)
+    edgeSwipe(app, completing: true)
+    waitUntil { account.isHittable && !settings.exists }
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -819,10 +839,6 @@ final class InboxTests: XCTestCase {
     assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
     app.buttons["Open Inbox"].tap()
-    // iPhone returns to the Mailboxes column that Account was opened from.
-    if UIDevice.current.userInterfaceIdiom == .phone {
-      app.buttons["Inbox. In other@example.invalid"].tap()
-    }
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
     let body = app.webViews.textViews["Message body"]

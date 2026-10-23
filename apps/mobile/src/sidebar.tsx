@@ -514,7 +514,10 @@ export function Mailboxes({
               icon="gearshape"
               label={t('inbox.account')}
               onPress={() => {
-                account.openAccount();
+                // Back returns to Mailboxes; Open Inbox shows the kept list, as choosing it would.
+                account.openAccount(undefined, () => {
+                  onView(view);
+                });
               }}
             />
           </View>

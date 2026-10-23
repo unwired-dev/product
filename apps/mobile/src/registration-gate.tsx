@@ -85,8 +85,12 @@ export const AccountContext = createContext<
   | Readonly<{
       // Every Mailbox Connection, including those waiting for authorization again.
       mailboxes: readonly MailboxConnection[];
-      // Settings opens on the given destination, such as Email Accounts for a password.
-      openAccount: (destination?: SettingsDestination) => void;
+      // Settings opens on the given destination, such as Email Accounts for a password. Its Open
+      // Inbox then calls `onInbox`, which shows the kept Inbox when Settings opened from elsewhere.
+      openAccount: (
+        destination?: SettingsDestination,
+        onInbox?: () => void,
+      ) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
       // The signed-in Product Account, whose Mail Profiles a window's choices belong to.
@@ -104,6 +108,7 @@ export const AccountContext = createContext<
 type SettingsRequest = Readonly<{
   account: string;
   destination: SettingsDestination | undefined;
+  onInbox: (() => void) | undefined;
 }>;
 
 // Settings stays open only over the Inbox of the Product Account it opened for, so sign-out,
@@ -186,11 +191,14 @@ function RegistrationGateContent({
   const actions = useMemo(
     () => ({
       mailboxes: screen.mailboxes,
-      openAccount: (destination?: SettingsDestination) => {
+      openAccount: (
+        destination?: SettingsDestination,
+        onInbox?: () => void,
+      ) => {
         if (choices !== undefined) {
           // A field beneath Settings keeps its text but not the keyboard.
           Keyboard.dismiss();
-          setSettings({ account: choices.inbox.account, destination });
+          setSettings({ account: choices.inbox.account, destination, onInbox });
         }
       },
       authorizeMailbox: store.authorizeMailbox,
@@ -248,6 +256,7 @@ function RegistrationGateContent({
                   store={store}
                   onInbox={() => {
                     setSettings(undefined);
+                    shownSettings.onInbox?.();
                   }}
                 />
               )
