@@ -53,8 +53,10 @@ signs in to an existing account waits as a [Pending Device](#approving-a-new-dev
 A Trusted Device that lost its local keys shows **Unlock private data on this
 device** under **Account & Devices** and offers
 [Recovery Key entry](#recovering-with-the-recovery-key), or signing out and in again
-so another device can approve it. Nothing is reset. Its saved mail still opens at
-launch; an unanswered removal's replacement Recovery Key opens the account page first.
+so another device can approve it. Nothing is reset. When that entry is the only
+setup waiting, its saved mail still opens at launch. Recovery Key confirmation, an
+unanswered removal's replacement Recovery Key, a device approval or a mailbox not yet
+saved to private sync opens the account page first.
 
 If the device loses its encryption key before the initial Recovery Key was
 confirmed, that Recovery Key stays visible and must be confirmed before fresh
