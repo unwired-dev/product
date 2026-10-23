@@ -139,7 +139,7 @@ focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
 the pop-up shows the choice. It closes Settings with Command-W. It then opens the Gmail
-message **Garden plans for spring** and asks about its links through their keyboard controls.
+message **Garden plans for spring** with the pointer and clicks each link's keyboard control.
 Each link's AppKit alert sheet shows its title and full destination. Command-P stays closed
 behind the sheet, and Escape and Cancel close it. The flagged link's sheet closes with Escape
 and with Return, its default Cancel. The journey never opens or copies a link. Afterwards
