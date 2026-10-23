@@ -257,8 +257,8 @@ interface NativeAlert extends TurboModule {
 let alertRequests = 0;
 
 // Asks in an AppKit alert sheet on `anchor`'s window. `answer` resolves the chosen button's index;
-// the first button is the default and the last, Cancel, answers Escape. After `retire` the sheet
-// closes and answers null, even for a choice already made.
+// the first button is the default and the last, Cancel, answers Escape. `retire` closes the sheet
+// and ignores later native results. The caller must still check its lifetime after awaiting `answer`.
 export function askInSheet(anchor: View | null, question: SheetQuestion) {
   const alert = TurboModuleRegistry.getEnforcing<NativeAlert>('UnwiredAlert');
   const tag = findNodeHandle(anchor);

@@ -537,6 +537,7 @@ function EvaluationEditor({
     if (open !== 'save') {
       return undefined;
     }
+    let current = true;
     const question = askInSheet(root.current, {
       title: t('drafts.saveQuestion'),
       detail: t('drafts.saveQuestionDetail'),
@@ -548,12 +549,15 @@ function EvaluationEditor({
     });
     const answer = async () => {
       const choice = await question.answer;
-      if (choice !== null) {
+      if (current && mounted.current && choice !== null) {
         answerSave.current?.(choice);
       }
     };
     void answer();
-    return question.retire;
+    return () => {
+      current = false;
+      question.retire();
+    };
   }, [open, t]);
   useEffect(() => {
     if (open === 'save') {

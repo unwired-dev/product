@@ -1058,10 +1058,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
   excluded by the Mac renderer; preserve the AppKit background wrapper's
   accessibility-children and hit-test suppression rather than relying on props
-  that rendered tests recognize but the native host ignores. Apply the same native
-  suppression to `evaluation-composer.tsx`'s background while `SaveSheet` is open;
-  keep its choices keyboard-owned and pause the page, or background edits and
-  Send remain reachable during the save decision.
+  that rendered tests recognize but the native host ignores. While
+  `evaluation-composer.tsx` asks its Save question, verify the native presenter
+  owns background input and accessibility, and pause the page. A retained custom
+  overlay must supply the equivalent suppression and keyboard ownership, or
+  background edits and Send remain reachable during the save decision.
 - `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
   expanded. Trace its `organize.tsx` callers through opening and closing the
   panel, preserving the visual open state and omitting disclosure state for

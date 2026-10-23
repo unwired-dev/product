@@ -12,6 +12,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import { act as commit, useLayoutEffect, useState } from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry, View } from 'react-native';
 
 import type { useComposerNavigation } from '../src/mailbox.tsx';
@@ -47,6 +48,22 @@ function CloseGuardProbe({
 }) {
   useCloseGuard(leave);
   return null;
+}
+
+function RetiringApp({
+  drafts,
+  onReady,
+}: {
+  readonly drafts: ReturnType<typeof createDrafts>;
+  readonly onReady: (retire: () => void) => void;
+}) {
+  const [present, setPresent] = useState(true);
+  useLayoutEffect(() => {
+    onReady(() => {
+      setPresent(false);
+    });
+  }, [onReady]);
+  return present ? <App drafts={drafts} /> : null;
 }
 
 describe('evaluation composer lifetime', () => {
@@ -269,6 +286,41 @@ describe('evaluation composer lifetime', () => {
     await previous.load();
     expect(draftsOf(previous.getSnapshot())).toStrictEqual([created]);
   });
+
+  it.each(['Save', 'Don’t Save'])(
+    'ignores %s when its editor retires after the native answer is decoded',
+    async (choice) => {
+      expect.hasAssertions();
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      let retire: () => void = () => undefined;
+      await render(
+        <RetiringApp
+          drafts={drafts}
+          onReady={(remove) => {
+            retire = remove;
+          }}
+        />,
+      );
+      await press('New Message');
+      const [created] = draftsOf(drafts.getSnapshot());
+      ok(created, 'Expected the created Draft');
+      // No page-ready report: the native Subject can be edited before WebKit loads.
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Unsaved subject',
+      );
+      await press('Close');
+      chooseSheetButton(choice);
+      // The bridge helper decodes first; retire before the effect consumes that result.
+      await Promise.resolve();
+      await commit(retire);
+      await drafts.save();
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(draftsOf(reopened.getSnapshot())).toStrictEqual([created]);
+    },
+  );
 
   const later = [
     { kind: 'paragraph', spans: [{ text: 'Window B, later' }] },
