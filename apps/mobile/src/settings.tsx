@@ -430,6 +430,10 @@ export function SettingsWorkspace({
   // own glass. The bar's title takes no palette swipe, which stays on the list's title.
   const bar = (title: string) => ({
     title,
+    backgroundColor: colors.surfaceContent,
+    color: colors.textPrimary,
+    titleColor: colors.textPrimary,
+    hideShadow: true,
     backButtonDisplayMode: 'minimal' as const,
     children:
       accessory === undefined ? undefined : (

@@ -298,6 +298,7 @@ export function PrivacyAccess({
   readonly onClose: () => void;
 }) {
   const { t } = useLocalization();
+  const colors = usePalette();
   const page = (
     <AccountPage onInbox={onClose}>
       <SettingsWorkspace
@@ -334,6 +335,10 @@ export function PrivacyAccess({
           // The system bar owns Back and its edge swipe; Welcome offers no palette.
           headerConfig={{
             title: t('settings.destinations.privacy'),
+            backgroundColor: colors.surfaceContent,
+            color: colors.textPrimary,
+            titleColor: colors.textPrimary,
+            hideShadow: true,
             backButtonDisplayMode: 'minimal',
           }}
           gestureEnabled

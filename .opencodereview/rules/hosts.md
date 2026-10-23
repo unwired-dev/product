@@ -927,6 +927,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 #### Platform behavior
 
 - `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
+  migrated native header relying on the presenter's default appearance without
+  comparing settled Light and Dark captures with DESIGN.md and the frames.
+  Check its supported surface, title, tint and separator properties; opaque
+  defaults can introduce a black band or divider while navigation tests pass.
+  Keep the system controls and their intrinsic metrics when applying the tokens.
+
+- `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
   native stack moving a React Native header gesture into a system navigation
   bar's custom title view without proving native event delivery. Check the
   installed presenter and exercise the gesture on the supported host before
