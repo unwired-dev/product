@@ -2850,6 +2850,46 @@ describe('product registration', () => {
     });
   });
 
+  it('shows nothing until launch reads a configured installation, then its Inbox (#1070)', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const vault = synthetic.relaunch();
+    let answer: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold launch's registration read until checked.
+    const read = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    await render(
+      <RegistrationGate
+        store={started(
+          createRegistration({
+            ...vault,
+            registration: async () => {
+              await read;
+              return vault.registration();
+            },
+          }),
+        )}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    // Neither Welcome nor any other page shows before the read answers.
+    expect([
+      screen.queryByText('Your mail,\non your devices.'),
+      screen.queryByRole('header'),
+      screen.queryByRole('button'),
+    ]).toStrictEqual([null, null, null]);
+    await act(async () => {
+      answer();
+      await read;
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Account' }),
+    ).resolves.toBeVisible();
+  });
+
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {
     expect.hasAssertions();
     const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock

@@ -33,7 +33,7 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(presented.count, 64)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
+    waitWithoutWelcome(for: app.staticTexts["Connect your mail"], in: app)
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
@@ -119,7 +119,7 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
-    XCTAssertTrue(starred.waitForExistence(timeout: 20))
+    waitWithoutWelcome(for: starred, in: app)
     // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
     let account = app.buttons["Account"]
     if !account.waitForExistence(timeout: 5) || !account.isHittable {
@@ -904,6 +904,17 @@ final class InboxTests: XCTestCase {
     shot.name = "Search results after replacing the query"
     shot.lifetime = .keepAlways
     add(shot)
+  }
+
+  // #1070: a launch with a saved account shows no Welcome before `settled`. Queries run back to
+  // back, since an expectation's 1-second polling would miss a brief flash.
+  private func waitWithoutWelcome(for settled: XCUIElement, in app: XCUIApplication) {
+    let welcome = app.staticTexts["Your mail,\non your devices."]
+    let deadline = Date().addingTimeInterval(20)
+    while !settled.exists && Date() < deadline {
+      XCTAssertFalse(welcome.exists, "Welcome showed before the saved account's page")
+    }
+    XCTAssertTrue(settled.exists)
   }
 
   private func waitUntil(_ condition: @escaping () -> Bool, timeout: TimeInterval = 20) {

@@ -64,7 +64,9 @@ label with an archived message, and a trashed message, listing each view as Gmai
 does, each with a synthetic HTML or plain-text body for the reader, applying label
 changes for the rest of the launch. Journeys that confirm setup with a connected
 mailbox open that synchronized Inbox, open a message, star, archive and undo,
-relaunch from its encrypted cache and return to the account page. A synthetic
+relaunch from its encrypted cache and return to the account page. The shared
+registration journey's two relaunches, during setup and with a connected mailbox,
+also fail if Welcome shows before the saved account's page. A synthetic
 Microsoft mailbox answers the [Microsoft mail](microsoft-mail.md) Graph requests
 with one message, its folders and search, applying read-state changes and moves
 for the rest of the launch; `registration-apple` connects it before adding Gmail.

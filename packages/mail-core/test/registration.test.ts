@@ -500,6 +500,19 @@ describe('product registration', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  it('shows no page until launch reads saved registration, also when an activation reads it first (#1070)', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
+    const destination = () =>
+      registrationScreen(english, store.getSnapshot(), undefined).destination;
+    expect(destination()).toBe('restoring');
+    // The activation finds no saved account, as the placeholder already says; launch restore skips.
+    await Promise.all([store.resume(), store.restoreOnce()]);
+    expect(store.getSnapshot()).toStrictEqual(settled({ kind: 'signed-out' }));
+    expect(destination()).toBe('account');
+  });
+
   it('verifies once per activation however many Mac windows report it', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-success');
@@ -627,10 +640,12 @@ describe('product registration', () => {
     });
     const registration = store.register('google');
     await store.addMailbox('gmail', true);
+    // Nothing has read saved registration yet.
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: { kind: 'signed-out' },
       busy: true,
       failed: false,
+      restoring: true,
     });
     gate.resolve(undefined);
     await registration;

@@ -2631,6 +2631,58 @@ describe('product registration', () => {
     expect(screen.queryByRole('button', { name: 'Open Inbox' })).toBeNull();
   });
 
+  it.each([
+    [
+      'configured',
+      async () => {
+        const { synthetic } = await connectedAccount();
+        return synthetic;
+      },
+      { role: 'button', name: 'Account' },
+    ],
+    [
+      'new',
+      () => createRegistrationScenario('registration-success'),
+      { role: 'header', name: 'Your mail,\non your devices.' },
+    ],
+  ] as const)(
+    'shows nothing until launch reads a %s installation, then its destination (#1070)',
+    async (_installation, installation, destination) => {
+      expect.hasAssertions();
+      const synthetic = await installation();
+      const vault = synthetic.relaunch();
+      const read = Promise.withResolvers<undefined>();
+      await render(
+        <RegistrationGate
+          store={started(
+            createRegistration({
+              ...vault,
+              registration: async () => {
+                await read.promise;
+                return vault.registration();
+              },
+            }),
+          )}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>,
+      );
+      // Neither Welcome nor any other page shows before the read answers.
+      expect([
+        screen.queryByText('Your mail,\non your devices.'),
+        screen.queryByRole('header'),
+        screen.queryByRole('button'),
+      ]).toStrictEqual([null, null, null]);
+      await act(async () => {
+        read.resolve(undefined);
+        await read.promise;
+      });
+      await expect(
+        screen.findByRole(destination.role, { name: destination.name }),
+      ).resolves.toBeVisible();
+    },
+  );
+
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {
     expect.hasAssertions();
     const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock

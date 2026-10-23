@@ -119,6 +119,8 @@ export type RegistrationState = Readonly<{
   failed: boolean;
   // Saved registration cannot be read until the device is unlocked; the snapshot is not its status.
   locked?: true;
+  // Launch has not read saved registration yet; the signed-out snapshot is not its status (#1070).
+  restoring?: true;
   // A failed link leaves the Product Account and its sign-ins unchanged.
   linkFailure?: LinkFailure;
   // Why an IMAP mailbox could not be added beside others; nothing changed.
@@ -154,6 +156,20 @@ const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
   snapshot,
   busy: false,
   failed: false,
+});
+
+// A retry keeps the locked state rather than revealing a snapshot it could not read, and an
+// unanswered launch read keeps its placeholder.
+const working = ({
+  snapshot,
+  locked,
+  restoring,
+}: RegistrationState): RegistrationState => ({
+  snapshot,
+  busy: true,
+  failed: false,
+  ...(locked && { locked }),
+  ...(restoring && { restoring }),
 });
 
 // A refused Mail Profile change leaves the snapshot as it was, with the reason.
@@ -310,6 +326,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
     snapshot: { kind: 'signed-out' },
     busy: true,
     failed: false,
+    restoring: true,
   };
   let restored = false;
   // The verification queued for the activation currently being reported, if any.
@@ -376,20 +393,10 @@ export function createRegistration(vault: NativeRegistrationVault) {
           accountIntent = { removing: accountChange === 'removal' };
         }
         const previous = state;
-        // A retry keeps the locked state rather than revealing a snapshot it could not read.
         if (foreground) {
           publish({ ...state, busy: true }, mailboxLoading);
         } else {
-          publish(
-            state.locked
-              ? {
-                  snapshot: state.snapshot,
-                  busy: true,
-                  failed: false,
-                  locked: true,
-                }
-              : { snapshot: state.snapshot, busy: true, failed: false },
-          );
+          publish(working(state));
         }
         let repairedImap: string | undefined = undefined;
         const next = yield* operation.pipe(
@@ -472,6 +479,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
         // Returning from an authorization sheet must not erase unchanged setup feedback.
         publish(
           foreground &&
+            !previous.restoring &&
             !previous.locked &&
             !next.locked &&
             !next.failed &&
@@ -1172,9 +1180,16 @@ export function registrationScreen(
   const { mailboxes, choices } = landingValuesOf(snapshot);
   const actions = registrationActions(snapshot, failed);
   const signedIn = snapshot.kind === 'signed-out' ? undefined : snapshot;
+  // Locked storage hides the snapshot, whatever it says; launch shows nothing until it is read.
+  let destination: 'locked' | 'restoring' | InboxChoice['destination'] =
+    landing.destination;
+  if (state.locked === true) {
+    destination = 'locked';
+  } else if (state.restoring === true) {
+    destination = 'restoring';
+  }
   return {
-    // Locked storage hides the snapshot, whatever it says.
-    destination: state.locked === true ? 'locked' : landing.destination,
+    destination,
     choice: landing.valid ? choice : undefined,
     choices,
     // Account setup is waiting for the person before the Inbox.

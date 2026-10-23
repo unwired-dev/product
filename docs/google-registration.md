@@ -24,9 +24,11 @@ evidence below describe the current Gmail path.
 ## Current Gmail implementation
 
 [#596](https://github.com/unwired-dev/product/issues/596) adds the replacement
-registration path to both native hosts. Signed out, the app opens on Welcome; its
-**Continue** leads to Sign In with **Sign in with Apple** and **Sign in with Google**,
-and iPhone returns to Welcome with **Back**. A removed-device or deleted-account
+registration path to both native hosts. Until launch has read the saved registration,
+the app shows only its background, so an installation with a Product Account never
+shows Welcome first ([#1070](https://github.com/unwired-dev/product/issues/1070)).
+Signed out, the app opens on Welcome; its **Continue** leads to Sign In with
+**Sign in with Apple** and **Sign in with Google**, and iPhone returns to Welcome with **Back**. A removed-device or deleted-account
 notice opens Sign In directly with that notice. Product Sign-In creates or reconnects the
 Product Account through Convex and then offers the first mailbox: the **Gmail** row
 with the original account, **Choose another Google mailbox**, **Microsoft 365 and

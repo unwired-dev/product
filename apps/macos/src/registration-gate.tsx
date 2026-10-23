@@ -222,6 +222,12 @@ function RegistrationGateContent({
       </RemoteContentContext>
     );
   }
+  // Until launch reads saved registration, a configured app must not flash Welcome (#1070).
+  if (screen.destination === 'restoring') {
+    return (
+      <View style={[styles.page, { backgroundColor: colors.surfaceContent }]} />
+    );
+  }
   return (
     <ScrollView
       contentContainerStyle={styles.scroll}
