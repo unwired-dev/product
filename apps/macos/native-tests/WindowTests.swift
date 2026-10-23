@@ -1002,15 +1002,19 @@ final class WindowTests: XCTestCase {
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(command.waitForNonExistence(timeout: 10))
     waitForFocus(search)
-    // Down and Up move through the enabled commands: New Message, Search Mail, Inbox, then
-    // Account, which Return runs.
+    // Down reaches Account, then two Up presses return to the interior Search Mail command.
+    // If Up does nothing, Return opens Settings instead, so focus cannot return to search.
     app.typeKey("p", modifierFlags: .command)
     waitForFocus(command)
-    for key in [XCUIKeyboardKey.downArrow, .downArrow, .downArrow, .upArrow, .downArrow] {
+    for key in [XCUIKeyboardKey.downArrow, .downArrow, .downArrow, .upArrow, .upArrow] {
       app.typeKey(key, modifierFlags: [])
     }
     app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(command.waitForNonExistence(timeout: 10))
+    waitForFocus(search)
     let settings = app.windows["settings-window"]
+    XCTAssertFalse(settings.exists)
+    runCommand("Account", in: app)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     try audit(app, "Settings")
     app.typeKey("w", modifierFlags: .command)

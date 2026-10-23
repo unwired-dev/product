@@ -25,6 +25,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A keyboard journey such as `WindowTests.testKeyboardAndAccessibility` proving
+  both arrow directions only by running the list's final command. Trace the
+  clamped selection with each direction disabled: an extra Down can reach the
+  same endpoint even when Up does nothing. Require an observable command result
+  that depends on returning to an interior row, or broken native Up delivery
+  passes the claimed keyboard check.
+
 - An accessibility audit classifier such as `WindowTests.knownAccessibilityGap`
   suppressing an entire issue category or element type for a narrower tracked
   defect. Match each exception to the owning issue and observed elements, keep

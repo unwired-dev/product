@@ -134,8 +134,9 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 By keyboard, it runs Search Mail from the Command Palette and types a query. It
 then cuts and pastes that query through the Edit menu. It closes the palette with
 Escape and checks that focus returns to the search field. It moves through the
-palette's commands with Down and Up and runs Account with Return, which opens
-Settings, then closes Settings with Command-W. It runs Reply from the palette,
+palette's commands with Down and Up and runs Search Mail with Return, checking
+focus returns to search and Settings stays closed. It then runs Account from the
+palette, which opens Settings, and closes Settings with Command-W. It runs Reply from the palette,
 types into the reply and pastes into it. After relaunch, it checks that the
 saved Draft reopens with that text. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
