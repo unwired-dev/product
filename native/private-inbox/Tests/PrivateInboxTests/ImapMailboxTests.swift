@@ -299,9 +299,15 @@ extension PrivateInboxTests {
       connection: id, address: "alex@example.invalid", generation: generation,
       change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: nil))
     #expect(absent as? [String: String] == ["outcome": "absent"])
-    // A change names exactly one of read state and a different destination folder.
+    let flagged = try await store.imapModify(
+      connection: id, address: "alex@example.invalid", generation: generation,
+      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, flagged: true, destination: nil))
+    #expect(flagged as? [String: String] == ["outcome": "absent"])
+    // A change names exactly one of read state, the star and a different destination folder.
     for change in [
       ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: "Archive"),
+      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, flagged: false, destination: nil),
+      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, flagged: true, destination: "Archive"),
       ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: nil),
       ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "INBOX"),
       ImapChange(
@@ -680,14 +686,16 @@ extension PrivateInboxTests {
     let password = "synthetic-password"
     func change(
       folder: String = "INBOX", uidValidity: UInt32 = 7, uid: UInt32 = 11, read: Bool? = nil,
-      to destination: String? = nil, copied: ImapCopy? = nil
+      flagged: Bool? = nil, to destination: String? = nil, copied: ImapCopy? = nil
     ) -> ImapChange {
       ImapChange(
-        folder: folder, uidValidity: uidValidity, uid: uid, read: read, destination: destination,
-        copied: copied)
+        folder: folder, uidValidity: uidValidity, uid: uid, read: read, flagged: flagged,
+        destination: destination, copied: copied)
     }
     #expect(try await provider.modify(synthetic, password: password, change: change(read: true)) == .stored)
     #expect(try await provider.modify(synthetic, password: password, change: change(read: false)) == .stored)
+    #expect(try await provider.modify(synthetic, password: password, change: change(flagged: true)) == .stored)
+    #expect(try await provider.modify(synthetic, password: password, change: change(flagged: false)) == .stored)
     #expect(
       try await provider.modify(synthetic, password: password, change: change(to: "Archive"))
         == .moved(uidValidity: 9, uid: 21))

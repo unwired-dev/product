@@ -76,6 +76,7 @@ import {
   newestFirst,
   ofOtherGeneration,
   window,
+  withFlag,
 } from './imap-model.ts';
 import { inlineImageLimits } from './inline-images.ts';
 import { SyncFailure } from './mailbox-read.ts';
@@ -180,11 +181,11 @@ export interface NativeImapMailbox
       uids: readonly number[];
     }>,
   ) => Promise<unknown>;
-  // Marks the message read or unread, or moves it to `destination`. Resolves `{ outcome }`:
-  // `stored`, `moved` with the new `uidValidity` and `uid` when the server reported them, or
-  // `absent` when the folder no longer holds the UID. Rejects with `imap-changed` for another
-  // UIDVALIDITY, `imap-rejected` when the server refuses the change, and `imap-unsupported`
-  // without MOVE or UIDPLUS.
+  // Marks the message read or unread, sets or clears its \Flagged flag (`flagged`), or moves it
+  // to `destination`. Resolves `{ outcome }`: `stored`, `moved` with the new `uidValidity` and
+  // `uid` when the server reported them, or `absent` when the folder no longer holds the UID.
+  // Rejects with `imap-changed` for another UIDVALIDITY, `imap-rejected` when the server refuses
+  // the change, and `imap-unsupported` without MOVE or UIDPLUS.
   readonly imapModify: (
     mailbox: Readonly<{ address: string; generation: string }>,
     change: Readonly<{
@@ -192,6 +193,7 @@ export interface NativeImapMailbox
       uidValidity: number;
       uid: number;
       read?: boolean;
+      flagged?: boolean;
       destination?: string;
       copied?: Readonly<{ uidValidity: number; uid: number }>;
     }>,
@@ -429,6 +431,14 @@ const moves = (
 ): action is Extract<ImapAction, { destination: string }> =>
   'destination' in action;
 
+// What native code stores for each flag change: \Seen for read state, \Flagged for the star.
+const flagChanges = {
+  read: { read: true },
+  unread: { read: false },
+  star: { flagged: true },
+  unstar: { flagged: false },
+} as const;
+
 const roleChanged = (change: ImapPending, folders: readonly ImapFolder[]) => {
   const role = change.action.kind === 'spam' ? 'junk' : change.action.kind;
   return (
@@ -481,8 +491,8 @@ const movedTo = (
       }
     : undefined;
 
-// Listings with the changes the server has not applied yet: read state shows at once, and a moved
-// message leaves the folder it was in.
+// Listings with the changes the server has not applied yet: read state and the star show at once,
+// and a moved message leaves the folder it was in.
 const projected = (
   messages: readonly ImapMessage[],
   changes: readonly ImapPending[],
@@ -492,9 +502,7 @@ const projected = (
       moves(action)
         ? shown.filter(({ id }) => id !== message.id)
         : shown.map((item) =>
-            item.id === message.id
-              ? { ...item, unread: action.kind === 'unread' }
-              : item,
+            item.id === message.id ? withFlag(item, action) : item,
           ),
     messages,
   );
@@ -508,8 +516,10 @@ const settledMessages = (
   answer.outcome === 'moved' || answer.outcome === 'absent'
     ? messages.filter(({ id }) => id !== change.message.id)
     : messages.map((item) =>
-        item.id === change.message.id && answer.outcome === 'stored'
-          ? { ...item, unread: change.action.kind === 'unread' }
+        item.id === change.message.id &&
+        answer.outcome === 'stored' &&
+        !moves(change.action)
+          ? withFlag(item, change.action)
           : item,
       );
 
@@ -768,13 +778,13 @@ export function createImapInbox(
     if (memo?.changes === current) {
       return memo.message;
     }
-    const read = Arr.reverse(current).find(
-      (change) => change.message.id === message.id && !moves(change.action),
+    const next = current.reduce(
+      (shown, { action, message: changed }) =>
+        changed.id === message.id && !moves(action)
+          ? withFlag(shown, action)
+          : shown,
+      message,
     );
-    const next =
-      read === undefined
-        ? message
-        : { ...message, unread: read.action.kind === 'unread' };
     projectedMessages.set(message, { changes: current, message: next });
     return next;
   };
@@ -1318,7 +1328,7 @@ export function createImapInbox(
                 destination: action.destination,
                 ...(head.copied === undefined ? {} : { copied: head.copied }),
               }
-            : { read: action.kind === 'read' }),
+            : flagChanges[action.kind]),
         }),
       ).pipe(
         Effect.flatMap((reply) =>

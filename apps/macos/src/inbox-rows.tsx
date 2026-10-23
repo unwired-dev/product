@@ -52,11 +52,13 @@ export function MessageRow({
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
   const [focused, setFocused] = useState(false);
-  // Gmail's star is the list's flag; other providers list none yet.
+  // Gmail's star and IMAP's \Flagged are the list's flag; Microsoft mail lists none yet.
   const flagged =
-    'labels' in message &&
-    message.labels !== undefined &&
-    message.labels.includes('STARRED');
+    'flagged' in message
+      ? message.flagged
+      : 'labels' in message &&
+        message.labels !== undefined &&
+        message.labels.includes('STARRED');
   const label = t('inbox.rowLabel', {
     context: [
       flagged ? 'flagged' : undefined,

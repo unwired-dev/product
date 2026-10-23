@@ -178,18 +178,25 @@ export function createSyntheticImap({
     }
     return Promise.resolve(reply);
   };
-  const storeRead = (
-    change: Readonly<{ folder: string; uid: number; read?: boolean }>,
+  // STORE of \Seen for `read`, or of \Flagged for `flagged`.
+  const storeFlag = (
+    change: Readonly<{
+      folder: string;
+      uid: number;
+      read?: boolean;
+      flagged?: boolean;
+    }>,
     message: ServerMessage,
   ) => {
-    const seen = String.raw`\Seen`;
+    const [flag, set, named] =
+      change.flagged === undefined
+        ? [String.raw`\Seen`, change.read === true, ['unread', 'read']]
+        : [String.raw`\Flagged`, change.flagged, ['unflag', 'flag']];
     message.flags = [
-      ...message.flags.filter((flag) => flag !== seen),
-      ...(change.read === true ? [seen] : []),
+      ...message.flags.filter((each) => each !== flag),
+      ...(set ? [flag] : []),
     ];
-    server.changes.push(
-      `${change.read === true ? 'read' : 'unread'} ${change.folder} ${change.uid}`,
-    );
+    server.changes.push(`${named[set ? 1 : 0]} ${change.folder} ${change.uid}`);
     return { outcome: 'stored' };
   };
   // MOVE, with the new UID the server reports.
@@ -383,7 +390,7 @@ export function createSyntheticImap({
         return Promise.resolve({ outcome: 'absent' });
       }
       return change.destination === undefined
-        ? answer(storeRead(change, message))
+        ? answer(storeFlag(change, message))
         : moveTo({
             name: change.destination,
             source,
