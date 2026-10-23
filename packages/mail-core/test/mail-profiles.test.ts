@@ -1123,6 +1123,39 @@ describe('mail profile capability fence', () => {
 });
 
 describe('removing a Mail Profile with its mailboxes', () => {
+  it('publishes completed mailbox removals when a later removal fails, so retry can finish', async () => {
+    expect.hasAssertions();
+    const context = await connected();
+    const store = createRegistration(context.vault);
+    await store.createProfile('Work');
+    const work = profileNamed(store.getSnapshot().snapshot, 'Work').id;
+    const mailbox = await context.mailboxId();
+    await store.moveMailbox(mailbox, work);
+    await store.createProfile('Family');
+    const family = profileNamed(store.getSnapshot().snapshot, 'Family').id;
+    // A local read can fail after the confirmed connection has already been removed.
+    const failing = createRegistration({
+      ...context.vault,
+      removeMailbox: async (id) => {
+        await context.vault.removeMailbox(id);
+        throw new Error('Synthetic lost removal reply');
+      },
+    });
+    await failing.restore();
+    await failing.removeProfile(work, [mailbox]);
+    expect(failing.getSnapshot().profileFailure).toBe('failed');
+    expect(mailboxesOf(failing.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(listed(failing.getSnapshot().snapshot)).toContainEqual({
+      id: work,
+      name: 'Work',
+    });
+    await failing.removeProfile(work, [mailbox]);
+    expect(failing.getSnapshot().profileFailure).toBeUndefined();
+    expect(listed(failing.getSnapshot().snapshot)).toStrictEqual([
+      { id: family, name: 'Family' },
+    ]);
+  });
+
   it('removes the confirmed mailboxes, then the Profile, and keeps one moved away meanwhile', async () => {
     expect.hasAssertions();
     const context = await connected();

@@ -148,7 +148,9 @@ registration store already offers these operations:
   ownership or connection descriptions leave removal unavailable, as does a missing
   description for a connection the Profile owns. Removing a Profile
   still pending on this device also prevents a delayed first publication from
-  bringing it back.
+  bringing it back. Removal proceeds one mailbox at a time. If a later step fails,
+  completed mailbox removals stay removed and the list shows the current state;
+  retry finishes the remaining removal without restoring already removed mailboxes.
 
 A record older than one this device already confirmed cannot revive a removed
 Profile or move a connection back. Synchronization keeps the last confirmed state

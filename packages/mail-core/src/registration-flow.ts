@@ -922,7 +922,17 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       ),
     // Removing a Profile and moving a connection need Product Sync.
     removeProfile: (id: string) =>
-      program(productSyncFlow.removeProfile(id).pipe(Effect.andThen(current))),
+      program(
+        Effect.gen(function* () {
+          // A mailbox removal may have committed before its reply was lost. Finish its pending
+          // tombstone before checking whether the Profile still owns a live connection.
+          if ((yield* saved).mailboxRemovalPending) {
+            yield* synchronize;
+          }
+          yield* productSyncFlow.removeProfile(id);
+          return yield* current;
+        }),
+      ),
     moveMailbox: (connection: string, profile: string) =>
       program(
         saved.pipe(

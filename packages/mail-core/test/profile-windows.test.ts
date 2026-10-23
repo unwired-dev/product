@@ -373,6 +373,61 @@ describe('window Profiles', () => {
     },
   );
 
+  it.each([
+    [false, ['alex@example.invalid', 'other@example.invalid']],
+    [true, []],
+  ] as const)(
+    'keeps confirmed moves and removals through activation and retires them on account loss (%s)',
+    async (retire, addresses) => {
+      expect.hasAssertions();
+      const { vault, work: workId } = await createTwoProfileRegistration();
+      let beforeRead: (() => Promise<void>) | undefined = undefined;
+      const store = createRegistration({
+        ...vault,
+        registration: async () => {
+          const hook = beforeRead;
+          beforeRead = undefined;
+          await hook?.();
+          return vault.registration();
+        },
+      });
+      await store.restore();
+      const confirmed = mailboxesOf(store.getSnapshot().snapshot)
+        .filter(({ profile }) => profile === workId)
+        .map(({ id }) => id);
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      beforeRead = async () => {
+        entered.resolve(undefined);
+        await release.promise;
+      };
+      const resuming = store.resume();
+      await entered.promise;
+      try {
+        const moving = confirmed.map((id) =>
+          store.moveMailbox(id, defaultProfile),
+        );
+        const removing = store.removeProfile(workId, confirmed);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- The second case loses the account while foreground verification is held.
+        if (retire) {
+          await vault.purge('revoked');
+        }
+        release.resolve(undefined);
+        await Promise.all([resuming, ...moving, removing]);
+        expect(profilesOf(store.getSnapshot().snapshot)).toStrictEqual([]);
+        expect(
+          mailboxesOf(store.getSnapshot().snapshot).map(
+            ({ address }) => address,
+          ),
+        ).toStrictEqual(addresses);
+        expect(store.getSnapshot().profileFailure).toBeUndefined();
+      } finally {
+        release.resolve(undefined);
+        await resuming;
+      }
+    },
+  );
+
   it('reads a malformed saved choice as none', async () => {
     expect.hasAssertions();
     const choices = createProfileChoices({

@@ -106,7 +106,7 @@ export const profileRemoval = (
   };
 };
 
-// Why a Mail Profile change was refused; nothing changed.
+// Why a Mail Profile change did not complete.
 export const profileRefusalText = (
   t: Translate,
   change: 'new' | 'rename' | 'move' | 'remove',
