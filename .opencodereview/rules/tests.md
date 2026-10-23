@@ -25,6 +25,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A native journey spanning size classes, such as
+  `InboxTests.keyboardAndAccessibilityJourney`, waiting for a column's heading
+  after returning from Settings. Check which split-view columns the host exposes
+  in that state; portrait iPad can show an empty reader with the list behind Show
+  Sidebar. Use an anchor available in every exercised layout when proving only
+  navigation completion, then assert the next action's observable result. If
+  column visibility is the contract, reveal and assert that column explicitly;
+  otherwise a correct collapsed layout fails an unrelated keyboard journey.
+
 - A state-transition wait such as the landscape loop in
   `InboxTests.verifyCompactMailboxesFillScreen` accepting a predicate already true
   in the preceding state or for stale child geometry after the window changes.
