@@ -703,6 +703,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   unmatched native edit. Preserve modifier-specific deletion, composed characters,
   selection state and marked-text handling when intercepting editing keys.
 
+- Mac `command-palette.tsx.Palette` handling cancellation only in `onKeyDown`.
+  Trace the installed TextInput's cancellation delegate as well as ordinary key
+  dispatch: Fabric's single-line input emits Escape through `onKeyPress` from
+  `textInputDidCancel`, then ends editing. Check dismissal, picker Back and focus
+  return against that event ordering; directly firing `keyDown` in a component
+  test can pass while Escape leaves the palette open. Keep native interaction
+  evidence distinct from callback tests.
+
 - Mac composer shortcut registration or `Editor.keyDown` comparisons that assume
   letter keys stay lowercase with Shift. Match both layers against the installed
   emitter's reported key and modifier flags: `RCTViewKeyboardEvent` uses AppKit's
