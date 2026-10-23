@@ -30,6 +30,7 @@ import { present } from './draft-sync-fixture.ts';
 async function offlineSender() {
   const synthetic = createSyntheticVault();
   const gmail = createSyntheticGmail();
+  const requests = { opens: 0, claims: 0, submissions: 0 };
   let verified = false;
   let beforeVerification: (() => Promise<void>) | undefined = undefined;
   const registration = createRegistration({
@@ -66,18 +67,23 @@ async function offlineSender() {
       [connection.id]: {
         native: {
           ...gmail.native,
-          openMailbox: async () => ({
-            ...(await gmail.native.openMailbox()),
-            ...(verified ? {} : { availability: 'retry' }),
-          }),
-          gmailSend: (message, scope) =>
-            verified
+          openMailbox: async () => {
+            requests.opens += 1;
+            return {
+              ...(await gmail.native.openMailbox()),
+              ...(verified ? {} : { availability: 'retry' }),
+            };
+          },
+          gmailSend: (message, scope) => {
+            requests.submissions += 1;
+            return verified
               ? gmail.native.gmailSend(message, scope)
               : Promise.reject(
                   Object.assign(new Error('Synthetic unverified mailbox'), {
                     code: 'unavailable',
                   }),
-                ),
+                );
+          },
         },
       },
     }),
@@ -91,11 +97,18 @@ async function offlineSender() {
   );
   const drafts = createDrafts(storage.native, registration);
   await drafts.load();
+  const delivery = present(storage.delivery, 'delivery adapter');
+  const claims = {
+    claimDraftDelivery: (owner: string, id: string) => {
+      requests.claims += 1;
+      return delivery.claimDraftDelivery(owner, id);
+    },
+  };
   const outbox = createOutbox({
     drafts,
     mailboxes,
     registration,
-    claims: storage.delivery,
+    claims,
   });
   const setOnline = (online: boolean) => {
     synthetic.backend.offline = !online;
@@ -129,6 +142,10 @@ async function offlineSender() {
     outbox,
     gmail,
     registration,
+    requests,
+    server,
+    storage,
+    claims,
     setOnline,
     holdNextVerification: () => {
       const started = Promise.withResolvers<undefined>();
@@ -154,6 +171,107 @@ describe('outbox cache-only authorization recovery', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each([
+    { failure: 'unavailable', failed: true },
+    { failure: 'offline', failed: false },
+  ])(
+    'keeps resolved $failure verification queued before claims or handoff through reopening',
+    async ({ failure, failed }) => {
+      expect.hasAssertions();
+      const phone = await offlineSender();
+      let reopened: Outbox | undefined = undefined;
+      const states: string[] = [];
+      const unsubscribe = phone.drafts.subscribe(() => {
+        states.push(...phone.drafts.getOutbox().map(({ state }) => state));
+      });
+      try {
+        // Only native verification fails; Product claims and durable storage remain reachable.
+        phone.setOnline(true);
+        phone.synthetic.google.refreshFailure = failure;
+        await expect(phone.registration.resume()).resolves.toBeUndefined();
+        expect(phone.registration.getSnapshot().failed).toBe(failed);
+        expect(
+          mailboxesOf(phone.registration.getSnapshot().snapshot),
+        ).toMatchObject([{ state: 'cached' }]);
+        expect(phone.synthetic.backend.offline).toBe(false);
+        expect(phone.server.reach()).toBeUndefined();
+        const opens = phone.requests.opens;
+        const reads = phone.gmail.requests.length;
+
+        vi.setSystemTime(Date.now() + undoSendWindow);
+        await phone.outbox.process();
+
+        expect(phone.requests).toStrictEqual({
+          opens,
+          claims: 0,
+          submissions: 0,
+        });
+        expect(phone.gmail.requests).toHaveLength(reads);
+        expect(phone.gmail.sends).toHaveLength(0);
+        expect(states).not.toContain('sending');
+        expect(phone.drafts.getOutbox()).toMatchObject([
+          { id: phone.id, state: 'queued', problem: 'offline' },
+        ]);
+        expect(
+          present(phone.drafts.getOutbox()[0], 'queued message').claim,
+        ).toBeUndefined();
+        expect(
+          outboxCopy(
+            english,
+            present(phone.outbox.getSnapshot()[0], 'waiting message'),
+            'gmail',
+          ).status,
+        ).toBe(
+          'Waiting to send. It sends when this device can reach Gmail and your Unwired Mail account.',
+        );
+
+        phone.outbox.dispose();
+        phone.storage.relaunch();
+        const drafts = createDrafts(phone.storage.native, phone.registration);
+        await drafts.load();
+        expect(drafts.getOutbox()).toStrictEqual(phone.drafts.getOutbox());
+        reopened = createOutbox({
+          drafts,
+          registration: phone.registration,
+          mailboxes: phone.mailboxes,
+          claims: phone.claims,
+        });
+        await reopened.process();
+        expect(drafts.getOutbox()).toMatchObject([
+          { id: phone.id, state: 'queued', problem: 'offline' },
+        ]);
+        expect(phone.requests).toStrictEqual({
+          opens,
+          claims: 0,
+          submissions: 0,
+        });
+        expect(phone.gmail.requests).toHaveLength(reads);
+
+        phone.synthetic.google.refreshFailure = undefined;
+        await vi.advanceTimersByTimeAsync(29_999);
+        expect(phone.requests.claims).toBe(0);
+        expect(phone.requests.submissions).toBe(0);
+        expect(drafts.getOutbox()).toMatchObject([
+          { id: phone.id, state: 'queued', problem: 'offline' },
+        ]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(phone.requests.claims).toBe(1);
+        expect(phone.requests.submissions).toBe(1);
+        expect(phone.gmail.sends).toHaveLength(1);
+        expect(drafts.getOutbox()).toStrictEqual([]);
+        expect(
+          mailboxesOf(phone.registration.getSnapshot().snapshot),
+        ).toMatchObject([{ state: 'connected' }]);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(phone.gmail.sends).toHaveLength(1);
+      } finally {
+        unsubscribe();
+        phone.outbox.dispose();
+        reopened?.dispose();
+      }
+    },
+  );
 
   it('reverifies an offline mailbox and sends once after reconnecting without activation or navigation', async () => {
     expect.hasAssertions();
@@ -290,7 +408,7 @@ describe('outbox cache-only authorization recovery', () => {
       recover: (outbox: Outbox, id: string) => outbox.check(id),
     },
   ])(
-    'defers $name after verification rejects and later checks Sent without resubmission',
+    'defers $name while verification is unavailable or rejects and later checks Sent without resubmission',
     async ({ recover }) => {
       expect.hasAssertions();
       const phone = await offlineSender();
@@ -337,6 +455,34 @@ describe('outbox cache-only authorization recovery', () => {
           ).length;
         const before = sentLists();
         expect(before).toBe(1);
+        phone.setOnline(true);
+        phone.synthetic.google.refreshFailure = 'unavailable';
+        await expect(phone.registration.resume()).resolves.toBeUndefined();
+        expect(phone.registration.getSnapshot().failed).toBe(true);
+        expect(
+          mailboxesOf(phone.registration.getSnapshot().snapshot),
+        ).toMatchObject([{ state: 'cached' }]);
+        const opens = phone.requests.opens;
+        await recover(phone.outbox, phone.id);
+        expect(phone.requests.opens).toBe(opens);
+        expect(sentLists()).toBe(before);
+        expect(phone.drafts.getOutbox()).toStrictEqual([unknown]);
+        expect(phone.outbox.getSnapshot()).toMatchObject([
+          { id: phone.id, state: 'unknown', check: 'idle' },
+        ]);
+        expect(
+          outboxCopy(
+            english,
+            present(phone.outbox.getSnapshot()[0], 'deferred message'),
+            'gmail',
+          ).unconfirmed,
+        ).toBeUndefined();
+        const refreshes = phone.synthetic.google.refreshes;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(phone.synthetic.google.refreshes).toBe(refreshes);
+        expect(sentLists()).toBe(before);
+        expect(phone.requests.submissions).toBe(1);
+        phone.synthetic.google.refreshFailure = undefined;
         let rejections = 0;
         unsubscribe = phone.registration.subscribe(() => {
           rejections += 1;

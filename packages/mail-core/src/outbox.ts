@@ -454,6 +454,14 @@ export function createOutbox({
         );
         return false;
       }
+      if (
+        mailboxesOf(registration.getSnapshot().snapshot).some(
+          (mailbox) =>
+            mailbox.id === draft.connection && mailbox.state === 'cached',
+        )
+      ) {
+        return false;
+      }
     }
     const mailbox = connectionOf(draft.connection);
     if (mailbox !== undefined && (cached || mailbox.state.kind !== 'ready')) {
