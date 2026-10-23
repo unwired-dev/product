@@ -203,6 +203,9 @@ export function MenuButton({
   const latest = useRef(menuState(sections));
   useLayoutEffect(() => {
     latest.current = menuState(sections);
+    return () => {
+      latest.current.runs.clear();
+    };
   });
   const show = async () => {
     const tag = findNodeHandle(anchor.current);

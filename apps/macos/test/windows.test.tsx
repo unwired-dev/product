@@ -1575,7 +1575,7 @@ describe('mac windows of different Mail Profiles', () => {
     }
   });
 
-  it('keeps the window’s chosen Profile when registration storage locks and unlocks', async () => {
+  it('keeps the window’s chosen Profile and retires its open menu when registration locks', async () => {
     expect.hasAssertions();
     const { vault } = await createTwoProfileRegistration();
     const store = createRegistration({
@@ -1594,6 +1594,7 @@ describe('mac windows of different Mail Profiles', () => {
     const inbox = createGmailInbox(createSyntheticGmail().native);
     showMailboxes(singleMailbox(inbox, alex));
     const read = jest.spyOn(vault, 'registration');
+    const prompt = jest.spyOn(Alert, 'promptMacOS').mockReturnValue(undefined);
     try {
       const app = await render(<RegisteredWindow windowId="locked" />);
       await chooseProfile(
@@ -1603,6 +1604,7 @@ describe('mac windows of different Mail Profiles', () => {
       await expect(
         app.findByLabelText('Mail Profile, Work'),
       ).resolves.toBeVisible();
+      await fireEvent.press(app.getByLabelText('Mail Profile, Work'));
       read.mockRejectedValue(
         Object.assign(new Error('locked'), { code: 'locked' }),
       );
@@ -1613,6 +1615,8 @@ describe('mac windows of different Mail Profiles', () => {
         app.getByRole('header', { name: 'Unlock your device' }),
       ).toBeVisible();
       expect(app.queryByLabelText('Mail Profile, Work')).toBeNull();
+      await chooseMenuItem('New Mail Profile…');
+      expect(prompt).not.toHaveBeenCalled();
       read.mockRestore();
       await act(async () => {
         await store.restore();
@@ -1621,6 +1625,7 @@ describe('mac windows of different Mail Profiles', () => {
         app.findByLabelText('Mail Profile, Work'),
       ).resolves.toBeVisible();
     } finally {
+      prompt.mockRestore();
       read.mockRestore();
       replaced.restore();
     }
