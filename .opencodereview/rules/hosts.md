@@ -919,14 +919,24 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
-- `mailbox.tsx.WindowProfileScope` claiming per-scene restoration while using one
-  device-wide choice or process-wide router. Trace scene identity from the native
-  scene delegate through route dispatch and saved preferences, and check that the
-  installed host actually supports multiple scenes. Exercise two scenes with
-  different Profiles through switching, targeted links and relaunch; enabling the
-  UIKit scene lifecycle alone does not provide independent windows. Otherwise
-  one window redirects or restores another, or the required second window cannot
-  open. Record missing implementation separately from unavailable native evidence.
+- `window.tsx.ProfileWindow` keeping its chosen Profile only below
+  `RegistrationGate`. Trace transient locked and account-page branches that
+  unmount the mail shell: the live window must retain its Profile choice above
+  that gate. Exercise choosing another Profile, locking registration storage and
+  unlocking through the real gate; otherwise the window returns to its launch
+  Profile and overwrites AppKit's saved choice with that fallback.
+
+- For `mailbox.tsx.WindowProfileScope` and other Profile restoration, check the
+  accepted window scope in `docs/private-inbox-storage.md` first. #1037 restores
+  the single iPad window like iPhone; independent iPad windows belong to #1200.
+  When the task requires multiple independent scenes, trace scene identity from
+  the native scene delegate through route dispatch and saved preferences, and
+  check that the installed host actually supports multiple scenes. Exercise two
+  scenes with different Profiles through switching, targeted links and relaunch;
+  enabling the UIKit scene lifecycle alone does not provide independent windows.
+  One device-wide choice or process-wide router can redirect or restore another
+  window, or leave the required second window unable to open. Record missing
+  implementation separately from unavailable native evidence.
 
 - `registration-gate.tsx.SettingsCover`, `app/_layout.tsx.MailShell` or another
   native container changing when the split view joins its window or receives

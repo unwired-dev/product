@@ -247,7 +247,7 @@ records the rationale.
 
 The deterministic registration, Inbox and Draft relaunch tests exercise this
 compatibility path through substituted provider and storage boundaries. Deterministic
-isolation checks substitute a second Profile, which no host can create yet, to show
+isolation checks substitute a second Profile to show
 that windows, links and searches never reach another Profile's mail. Before
 release, verify Default Profile read/compose/relaunch on each maintained Apple
 host with real provider credentials, encrypted private state and queued work

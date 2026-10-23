@@ -106,12 +106,18 @@ type WindowProps = Readonly<{
   profile?: string;
 }>;
 
+// A switcher's Profile or a notification's targeted message, owned by the window above its gate.
+type ProfileChoice = string | NonNullable<ReturnType<typeof openedTarget>>;
+
 export function PreviewWindow({ windowId, profile }: WindowProps) {
+  const [choice, setChoice] = useState<ProfileChoice>();
   return (
     <CommandPaletteProvider windowId={windowId}>
       <ProfileWindow
         windowId={windowId}
         profile={profile}
+        choice={choice}
+        onChoose={setChoice}
       />
     </CommandPaletteProvider>
   );
@@ -123,13 +129,15 @@ export function PreviewWindow({ windowId, profile }: WindowProps) {
 function ProfileWindow({
   windowId,
   profile: restored,
+  choice,
+  onChoose,
 }: {
   readonly windowId: string;
   readonly profile: string | undefined;
+  readonly choice: ProfileChoice | undefined;
+  readonly onChoose: (choice: ProfileChoice) => void;
 }) {
-  const [opened, setOpened] =
-    useState<NonNullable<ReturnType<typeof openedTarget>>>();
-  const [chosen, setChosen] = useState<string>();
+  const opened = typeof choice === 'string' ? undefined : choice;
   const profiles = use(AccountContext)?.profiles;
   const choices = useSyncExternalStore(
     profileChoices.subscribe,
@@ -138,7 +146,7 @@ function ProfileWindow({
   useEffect(() => {
     void profileChoices.load();
   }, []);
-  const link = chosen ?? opened?.profile;
+  const link = typeof choice === 'string' ? choice : choice?.profile;
   const profile = windowProfile({
     link,
     restored,
@@ -159,14 +167,8 @@ function ProfileWindow({
         <WindowContents
           windowId={windowId}
           initialSelection={opened}
-          onOpenProfile={(target) => {
-            setChosen(undefined);
-            setOpened(target);
-          }}
-          onProfile={(next) => {
-            setOpened(undefined);
-            setChosen(next);
-          }}
+          onOpenProfile={onChoose}
+          onProfile={onChoose}
         />
       </ProfileScope>
     </InboxProvider>
@@ -424,6 +426,7 @@ function WindowContents({
 }
 
 export function InboxWindow({ windowId, profile }: WindowProps) {
+  const [choice, setChoice] = useState<ProfileChoice>();
   // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
     <CommandPaletteProvider windowId={windowId}>
@@ -431,6 +434,8 @@ export function InboxWindow({ windowId, profile }: WindowProps) {
         <ProfileWindow
           windowId={windowId}
           profile={profile}
+          choice={choice}
+          onChoose={setChoice}
         />
       </RegistrationGate>
     </CommandPaletteProvider>

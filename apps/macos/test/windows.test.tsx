@@ -19,7 +19,10 @@ import {
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
-import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
+import {
+  createRegistrationScenario,
+  createTwoProfileRegistration,
+} from '@private-email/mail-core/testing/registration-scenarios';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { palette } from '@private-email/mail-core/theme';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -45,7 +48,10 @@ import type { usePalette } from '../src/theme.ts';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
-import { PreviewWindow as InboxWindow } from '../src/window.tsx';
+import {
+  InboxWindow as RegisteredWindow,
+  PreviewWindow as InboxWindow,
+} from '../src/window.tsx';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -1516,6 +1522,58 @@ describe('mac windows of different Mail Profiles', () => {
       ).resolves.toBeVisible();
     } finally {
       preference.mockRestore();
+    }
+  });
+
+  it('keeps the window’s chosen Profile when registration storage locks and unlocks', async () => {
+    expect.hasAssertions();
+    const { vault, work } = await createTwoProfileRegistration();
+    const store = createRegistration({
+      ...vault,
+      registration: () => vault.registration(),
+    });
+    await store.restore();
+    const registrationModule = jest.requireMock<{
+      registration: typeof store;
+    }>('../src/registration.ts');
+    const replaced = jest.replaceProperty(
+      registrationModule,
+      'registration',
+      store,
+    );
+    const inbox = createGmailInbox(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const read = jest.spyOn(vault, 'registration');
+    try {
+      const app = await render(<RegisteredWindow windowId="locked" />);
+      await fireEvent(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'select',
+        { nativeEvent: { id: `profile\n${work}` } },
+      );
+      await expect(
+        app.findByLabelText('Mail Profile, Work'),
+      ).resolves.toBeVisible();
+      read.mockRejectedValue(
+        Object.assign(new Error('locked'), { code: 'locked' }),
+      );
+      await act(async () => {
+        await store.restore();
+      });
+      expect(
+        app.getByRole('header', { name: 'Unlock your device' }),
+      ).toBeVisible();
+      expect(app.queryByLabelText('Mail Profile, Work')).toBeNull();
+      read.mockRestore();
+      await act(async () => {
+        await store.restore();
+      });
+      await expect(
+        app.findByLabelText('Mail Profile, Work'),
+      ).resolves.toBeVisible();
+    } finally {
+      read.mockRestore();
+      replaced.restore();
     }
   });
 
