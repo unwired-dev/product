@@ -1,4 +1,4 @@
-import { english } from '@private-email/localization';
+import { createLocalization, english } from '@private-email/localization';
 import { menuState } from '@private-email/mail-core/context-menu';
 import {
   createProfileChoices,
@@ -91,6 +91,51 @@ describe('window Profiles', () => {
     await runs.get('profile\nnew')?.();
     expect(onSwitch).toHaveBeenCalledExactlyOnceWith(defaultProfile);
     expect(onCreate.mock.calls).toStrictEqual([[]]);
+  });
+
+  it('lets translations order the complete Profile subtitle and its provider list', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const { snapshot } = registration.getSnapshot();
+    const settings = { preference: null, language: 'en', locale: 'en-US' };
+    const { i18n } = createLocalization(settings, {
+      getSettings: async () => settings,
+      setLanguage: async () => settings,
+    });
+    i18n.addResourceBundle(
+      'en',
+      'translation',
+      {
+        profiles: {
+          connections: '{{provider}} / {{connections}}',
+          detail_zero: '{{connections}}; idle',
+          detail_authorization_zero: '{{connections}}; authorize',
+        },
+      },
+      true,
+      true,
+    );
+    const sections = profileMenu(i18n.getFixedT('en'), {
+      profiles: profilesOf(snapshot),
+      connections: [
+        ...mailboxesOf(snapshot),
+        {
+          id: 'additional',
+          address: 'additional@example.invalid',
+          profile: defaultProfile,
+          provider: 'microsoft-graph',
+          state: 'authorization',
+        },
+      ],
+      mailboxes: [],
+      current: workId,
+      onSwitch: () => undefined,
+      onCreate: () => undefined,
+    });
+    expect(sections[0]?.items.map(({ subtitle }) => subtitle)).toStrictEqual([
+      'Microsoft / Gmail; authorize',
+      'Gmail; idle',
+    ]);
   });
 
   it('shows the first letters of the first two words', () => {

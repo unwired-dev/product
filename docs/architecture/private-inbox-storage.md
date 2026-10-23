@@ -50,8 +50,9 @@ Connections, Drafts, assets, Outbox attempts, caches and encrypted records retai
 their identities and locations. The staging decision and its panel outcome are
 recorded in [ADR 0048's replacement amendment](../adr/0048-separate-encrypted-mail-profile-ownership.md#replacement-staging-amendment--2026-10-11).
 The [caller inventory and release evidence requirements](../private-inbox-storage.md#mail-profiles)
-remain implementer-readable. Multiple-Profile creation stays unavailable in the
-apps through #921; #922 owns app enablement and incompatible-client fencing.
+remain implementer-readable. #1036 supplies incompatible-client fencing, and
+#1037 exposes Profile creation, switching and window restoration within #922.
+The linked guide owns current support and remaining release evidence.
 The [synchronized Profile foundation](private-product-sync.md#synchronized-mail-profiles)
 records #920.
 
@@ -69,7 +70,9 @@ the mobile `profileId` URL parameter and native selectors: absent legacy values
 mean Default, malformed or repeated values use an
 empty selector that cannot match a decoded nonempty connection owner. Mobile
 message selection and reader close carry that selector through their routes.
-Mac initial props can name a Profile while native windows still open Default.
+Mac initial props carry the Profile AppKit restores. New windows resolve the
+device-local Startup Profile, then Default; targeted notification choices take
+precedence over restoration.
 The Profile provider is keyed by its decoded selector so reused host views retire
 their previous reader, query, mailbox choice and presentation consent on replacement.
 
@@ -78,9 +81,9 @@ the connection-owned Inbox or encrypted cache layout. Background synchronization
 continues account-wide. Reader/cache access and search remain confined to the
 currently projected owner. Account management and opaque Convex connection APIs
 remain Product Account-wide; Convex receives no Profile assignments. Drafts and
-delivery consume the staged connection-Profile boundaries below. Profile
-creation, restoration preferences and older-client fencing remain #922 work;
-#920 supplies synchronized assignments without enabling their app controls.
+delivery consume the connection-Profile boundaries below. #920 supplies
+synchronized assignments, #1036 adds older-client fencing, and #1037 adds app
+creation, switching and restoration. Further Profile management remains #1038.
 This is not qualification of the complete lifecycle protocol.
 
 The host tests exercise substituted ownership and routing with real shared

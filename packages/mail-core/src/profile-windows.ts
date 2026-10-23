@@ -92,21 +92,24 @@ export const profileMenu = (
         profile: id,
         view: {},
       });
+      const connectionNames =
+        owned.length === 0
+          ? t('profiles.noMailboxes')
+          : owned
+              .map(({ provider }) => t(`mailProviders.${provider}`))
+              .reduce((names, provider) =>
+                t('profiles.connections', { connections: names, provider }),
+              );
       return {
         key: `profile\n${id}`,
         title: profileName(t, id, profiles),
         symbol: '',
-        subtitle: [
-          ...(owned.some(({ state }) => state === 'authorization')
-            ? [t('profiles.needsSignIn')]
-            : []),
-          owned.length === 0
-            ? t('profiles.noMailboxes')
-            : owned
-                .map(({ provider }) => t(`mailProviders.${provider}`))
-                .join(' · '),
-          ...(unread === 0 ? [] : [t('mailboxes.unread', { count: unread })]),
-        ].join(' · '),
+        subtitle: t(
+          owned.some(({ state }) => state === 'authorization')
+            ? 'profiles.detail_authorization'
+            : 'profiles.detail',
+          { connections: connectionNames, count: unread },
+        ),
         checked: id === current,
         run: () => {
           onSwitch(id);
