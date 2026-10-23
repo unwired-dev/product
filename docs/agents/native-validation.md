@@ -160,7 +160,52 @@ AppKit's text Touch Bar and the Apple relay address used as a label. The contras
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The audits run in the host's
 current appearance only. They do not replace VoiceOver,
-Full Keyboard Access or iPhone and iPad keyboard qualification.
+Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
+
+### iPhone and iPad keyboard and accessibility journey
+
+The Expo native journey for a `registration-performance` Release build drives
+the same loop with hardware key presses on iPhone and iPad. Build it with
+`UNWIRED_MOCK_SCENARIO=registration-performance` as in the
+[mobile entry point](../mock-mail-sessions.md#mobile-entry-point), then run
+`pnpm test:native` from `apps/mobile`. Add `UNWIRED_APPEARANCE=light` to audit
+Light; the runner's default is Dark.
+
+The journey signs in with Apple and connects the synthetic Microsoft mailbox.
+Each Command Palette command is typed and run with Return: Account opens Settings,
+Inbox leaves it, and Search Mail focuses search. It types a query into search,
+then selects, cuts and pastes it back with Command-A, Command-X and Command-V,
+and Return submits it. Reply from the palette opens a Draft. Typing extends its
+subject, Tab moves focus to its recipients, and the body takes typing. After
+relaunch, the Inbox lists the saved Draft, which reopens with both edits.
+
+These steps still use touch on iPhone and iPad:
+
+- Opening the palette, by the header swipe or the iPad command input. iOS
+  offers no Command-P without native key commands.
+- Opening a row.
+- Placing the caret in the reply. Reply focuses no field, and Tab does not
+  reach one from there.
+- Closing the palette. A hardware Escape leaves it open.
+
+These gaps belong to [#849](https://github.com/unwired-dev/product/issues/849).
+
+It runs XCTest's accessibility audit on the Inbox, Mailboxes, Command Palette,
+Settings, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON
+line in the test log, with a screenshot of each audited screen.
+`knownAccessibilityGap` explains each issue the audits still report:
+
+- the software keyboard's suggestion cells;
+- an email address used as a label: a sender's, or the Apple relay address
+  that names the signed-in account;
+- text over the reader, also behind iPad's floating composer, that the audit
+  locates no element for ([#1213](https://github.com/unwired-dev/product/issues/1213)).
+
+Any other issue fails the journey. CI does not run this scenario; it is local
+native evidence. It does not replace VoiceOver, Full Keyboard Access or the
+owner's physical-device runs. On iPad, XCUITest sometimes waits 60 seconds per
+step for the app to settle while the software keyboard is shown, so a run can
+take an hour; the iPhone run takes about two minutes.
 
 ## Report what the evidence proves
 
