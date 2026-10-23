@@ -24,7 +24,7 @@ import {
   median,
   unavailable,
 } from './categorization-spike-client.ts';
-import { MenuItem, PopUp } from './composer-controls.tsx';
+import { PopUp } from './composer-controls.tsx';
 import { Button, Notice } from './design.tsx';
 import { Label } from './label.tsx';
 import { SettingsGroup, SettingsRow } from './settings.tsx';
@@ -487,7 +487,6 @@ function Pick({
   readonly disabled: boolean;
   readonly onChoose: (choice: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   return (
     <SettingsRow title={label}>
       <View style={styles.pick}>
@@ -495,22 +494,15 @@ function Pick({
           label={choices.find(([choice]) => choice === value)?.[1] ?? ''}
           accessibilityLabel={label}
           disabled={disabled}
-          open={open}
-          onToggle={() => {
-            setOpen(!open);
-          }}>
-          {choices.map(([choice, name]) => (
-            <MenuItem
-              key={choice}
-              label={name}
-              selected={choice === value}
-              onPress={() => {
-                onChoose(choice);
-                setOpen(false);
-              }}
-            />
-          ))}
-        </PopUp>
+          items={choices.map(([choice, name]) => ({
+            key: choice,
+            title: name,
+            checked: choice === value,
+            run: () => {
+              onChoose(choice);
+            },
+          }))}
+        />
       </View>
     </SettingsRow>
   );

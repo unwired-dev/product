@@ -16,7 +16,7 @@ import {
 import { use, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { FormatBar, MenuItem, PopUp } from './composer-controls.tsx';
+import { FormatBar, PopUp } from './composer-controls.tsx';
 import {
   Action,
   composerStyles,
@@ -59,78 +59,18 @@ const pickers = [
   ['drafts.assets.insertImagePanel', 'photos', true, 'photo.on.rectangle'],
 ] as const;
 
-// The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest reply.
-function WritingTools({
-  draft,
-  page,
-  onCapture,
-}: {
-  readonly draft: Draft;
-  readonly page: PageState;
-  readonly onCapture: Capture;
-}) {
-  const { t } = useLocalization();
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  const { selection } = page;
-  return (
-    <>
-      {assistance === undefined ? null : (
-        <MenuItem
-          disabled={!canRewrite(draft.body, selection)}
-          label={t('assistance.rewrite')}
-          accessibilityLabel={t(rewriteLabel(selection))}
-          selected={false}
-          onPress={() => {
-            onCapture('rewrite');
-          }}
-        />
-      )}
-      {translation === undefined ? null : (
-        <MenuItem
-          disabled={
-            !hasTranslatableText(
-              selectedText(draft.body, selection, translationInputLimit + 1),
-            )
-          }
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateSelectionLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('translate');
-          }}
-        />
-      )}
-      {assistance !== undefined && canSuggestReply(draft) ? (
-        <MenuItem
-          label={t('assistance.suggestReply')}
-          accessibilityLabel={t('assistance.suggestReplyLabel')}
-          selected={false}
-          onPress={() => {
-            onCapture('reply');
-          }}
-        />
-      ) : null}
-    </>
-  );
-}
-
 // The current composer's format bar, with Writing tools in place of its separate assistance
 // buttons; each control is one page command.
 export function PageFormatBar({
   draft,
   page,
-  tools,
   run,
-  onTools,
   onAdd,
   onCapture,
 }: {
   readonly draft: Draft;
   readonly page: PageState;
-  readonly tools: boolean;
   readonly run: (command: Command) => void;
-  readonly onTools: (open: boolean) => void;
   readonly onAdd: (source: PickSource, inline: boolean) => void;
   readonly onCapture: Capture;
 }) {
@@ -171,16 +111,55 @@ export function PageFormatBar({
         <PopUp
           accessibilityLabel={t('drafts.writingTools')}
           icon="sparkles"
-          open={tools}
-          onToggle={() => {
-            onTools(!tools);
-          }}>
-          <WritingTools
-            draft={draft}
-            page={page}
-            onCapture={onCapture}
-          />
-        </PopUp>
+          items={[
+            ...(assistance === undefined
+              ? []
+              : [
+                  {
+                    key: 'rewrite',
+                    title: t('assistance.rewrite'),
+                    accessibilityLabel: t(rewriteLabel(page.selection)),
+                    disabled: !canRewrite(draft.body, page.selection),
+                    run: () => {
+                      onCapture('rewrite');
+                    },
+                  },
+                ]),
+            ...(translation === undefined
+              ? []
+              : [
+                  {
+                    key: 'translate',
+                    title: t('translation.translate'),
+                    accessibilityLabel: t(
+                      'translation.translateSelectionLabel',
+                    ),
+                    disabled: !hasTranslatableText(
+                      selectedText(
+                        draft.body,
+                        page.selection,
+                        translationInputLimit + 1,
+                      ),
+                    ),
+                    run: () => {
+                      onCapture('translate');
+                    },
+                  },
+                ]),
+            ...(assistance !== undefined && canSuggestReply(draft)
+              ? [
+                  {
+                    key: 'reply',
+                    title: t('assistance.suggestReply'),
+                    accessibilityLabel: t('assistance.suggestReplyLabel'),
+                    run: () => {
+                      onCapture('reply');
+                    },
+                  },
+                ]
+              : []),
+          ]}
+        />
       )}
       <View style={[s.divider, { backgroundColor: colors.separator }]} />
       {pickers.map(([label, from, inline, icon]) => (

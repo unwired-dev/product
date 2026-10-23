@@ -34,6 +34,7 @@ import {
   press,
   simulatedPage,
 } from './evaluation-page.ts';
+import { chooseMenuItem, menuItems } from './native-menu.ts';
 import { injectedScripts } from './webview.tsx';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
@@ -398,7 +399,7 @@ describe('the Tiptap evaluation composer', () => {
     await page.report({});
     await page.typed('Keep this unsaved body');
     await press('Writing tools');
-    await press('Rewrite the message body');
+    await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
     await app.rerender(view('personal'));
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
@@ -462,7 +463,15 @@ describe('the Tiptap evaluation composer', () => {
     // Rewrite without a selection captures the whole body; the result replaces it in the page,
     // for the body revision it was captured from.
     await press('Writing tools');
-    await press('Rewrite the message body');
+    expect(menuItems()).toStrictEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Rewrite',
+          accessibilityLabel: 'Rewrite the message body',
+        }),
+      ]),
+    );
+    await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
     await press('Replace your text with this rewrite');
     expect(lastCommand()).toBe(
@@ -477,7 +486,19 @@ describe('the Tiptap evaluation composer', () => {
     // An edit retires a pending capture: its result is never offered.
     await report({ selection: { start: 9, end: 13 } });
     await press('Writing tools');
-    await press('Translate the selected text');
+    expect(menuItems()).toStrictEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Rewrite',
+          accessibilityLabel: 'Rewrite the selected text',
+        }),
+        expect.objectContaining({
+          title: 'Translate',
+          accessibilityLabel: 'Translate the selected text',
+        }),
+      ]),
+    );
+    await chooseMenuItem('Translate');
     await fireEvent.press(
       await screen.findByRole('radio', { name: 'Translate into German' }),
     );
@@ -491,7 +512,7 @@ describe('the Tiptap evaluation composer', () => {
     ];
     await report({ document: latest, selection: { start: 5, end: 11 } });
     await press('Writing tools');
-    await press('Translate the selected text');
+    await chooseMenuItem('Translate');
     await fireEvent.press(
       await screen.findByRole('radio', { name: 'Translate into German' }),
     );
@@ -534,7 +555,7 @@ describe('the Tiptap evaluation composer', () => {
       const { typed } = simulatedPage();
       await typed('Keep this body');
       await press('Writing tools');
-      await press('Rewrite the message body');
+      await chooseMenuItem('Rewrite');
       await screen.findByText(syntheticRewrite);
       const apply = screen.getByRole('button', {
         name: 'Replace your text with this rewrite',
@@ -618,7 +639,7 @@ describe('the Tiptap evaluation composer', () => {
     await press(/^Draft\./u);
     await simulatedPage().report({});
     await press('Writing tools');
-    await press('Suggest a reply to the quoted message');
+    await chooseMenuItem('Suggest reply');
     await screen.findByText(syntheticReply);
     await press('Replace your reply with this suggestion');
     expect(lastCommand()).toBe(

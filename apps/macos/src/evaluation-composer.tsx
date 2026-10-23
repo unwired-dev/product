@@ -121,7 +121,7 @@ function EvaluationEditor({
   const bodyRevision = useRef(0);
   const view = useRef<WebView>(null);
   const pageStopped = useRef(false);
-  const [open, setOpen] = useState<'save' | 'tools'>();
+  const [open, setOpen] = useState<'save'>();
   const [closing, setClosing] = useState<Closing>();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
@@ -582,11 +582,7 @@ function EvaluationEditor({
             <PageFormatBar
               draft={draft}
               page={pageState}
-              tools={open === 'tools'}
               run={run}
-              onTools={(next) => {
-                setOpen(next ? 'tools' : undefined);
-              }}
               onAdd={(from, inline) => {
                 void add(from, inline);
               }}
