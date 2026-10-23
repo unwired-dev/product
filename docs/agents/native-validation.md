@@ -142,7 +142,10 @@ the pop-up shows the choice. It closes Settings with Command-W. It runs Reply fr
 types into the reply and pastes into it. After relaunch, it checks that the
 saved Draft reopens with that text. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
-windows while the first window keeps its Draft. Opening a message, placing the
+windows while the first window keeps its Draft. Finally it searches for the Microsoft
+message **Quarterly planning** and opens it. The reader's **Folders** AppKit menu closes
+with Escape and with a click outside, then Down and Return choose **Projects**. The
+message moves and its reader closes. Opening a message, placing the
 caret in the new reply and Send still use the pointer (see
 [#849](https://github.com/unwired-dev/product/issues/849)). The journey never
 sends, because Send crashes the host

@@ -1176,6 +1176,34 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(second.waitForNonExistence(timeout: 10))
     front("inbox-window-1")
     XCTAssertTrue(typed.exists)
+
+    // #1125: Move's AppKit menu lists the Microsoft mailbox's own folders. Escape and a click
+    // outside dismiss it; the keyboard chooses a folder, which moves the message and closes its
+    // reader.
+    runCommand("Search Mail", in: app)
+    waitForFocus(search)
+    app.typeText("Quarterly planning")
+    XCTAssertTrue(row("Quarterly planning").waitForExistence(timeout: 15))
+    row("Quarterly planning").click()
+    let agenda = body("Agenda for Thursday.", in: window)
+    XCTAssertTrue(agenda.waitForExistence(timeout: 15))
+    let move = window.buttons["Folders"]
+    let projects = app.menuItems["Projects"]
+    move.click()
+    XCTAssertTrue(projects.waitForExistence(timeout: 5))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
+    move.click()
+    XCTAssertTrue(projects.waitForExistence(timeout: 5))
+    window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01)).click()
+    XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(agenda.exists)
+    move.click()
+    XCTAssertTrue(projects.waitForExistence(timeout: 5))
+    app.typeKey(.downArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(agenda.waitForNonExistence(timeout: 15))
   }
 
   // Opens the key window's Command Palette, narrows it to one command and runs it with Return.
