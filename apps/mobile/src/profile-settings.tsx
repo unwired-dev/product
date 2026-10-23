@@ -324,6 +324,7 @@ export function MailProfilesSettings({
               key={mailbox.id}
               icon="at"
               title={mailbox.address}
+              titleNumberOfLines={1}
               subtitle={t(`mailProviders.${mailbox.provider}`)}>
               <ProfilePopUp
                 accessibilityLabel={t('profiles.moveMailbox', {

@@ -12,3 +12,6 @@ confirmed, removes the named mailboxes this device still lists in the Profile
 from every Trusted Device. The registration store's `removeProfile` accepts the
 confirmed connections to remove before the Profile, and refused moves and
 removals explain their reason.
+
+On iPhone and iPad, long mailbox addresses truncate on one line beside the Profile
+pop-up while its accessibility label keeps the full address.
