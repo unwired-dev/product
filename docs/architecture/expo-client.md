@@ -11,9 +11,17 @@ Apply the [native component selection policy](../agents/native-components.md)
 to new UI and migrations. The custom views and navigation wiring described below
 record the current implementation, not requirements to retain them.
 
-- Router's explicitly accepted alpha `unstable-split-view` supplies native compact
-  and regular layouts. Route parameters identify the selected message. The iPhone
-  registration gate owns an outer `react-native-screens` native stack, retaining
+- The shell composes `react-native-screens`' experimental `Split.Host` and
+  `Split.Column` directly, with Expo Router's `Slot` in the reading column. This is
+  the same native host as Router's explicitly accepted alpha `unstable-split-view`;
+  its wrapper hides the columns' appearance callbacks. UIKit owns compact Back and
+  edge-swipe transitions. A leading column's `onDidAppear` lets the route follow a
+  completed Back when collapsed and no composer is open; a cancelled swipe keeps
+  the reader. The column API exposes no navigation item or bar configuration, so
+  `UnwiredNavigationChrome` retains only bar visibility, reader surface fill and
+  the counted system Back. It no longer detects pops. Route parameters identify
+  the selected message. The iPhone registration gate owns an outer
+  `react-native-screens` native stack, retaining
   the split-view mail shell as its first screen and pushing Settings as the second.
   UIKit's dismissal event retires that Settings request. The mail shell and composer
   keep their route and mounted state beneath the push; iPad retains the two-column

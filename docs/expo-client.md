@@ -32,12 +32,9 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 - Mobile framework and test versions belong to `catalogs.mobile` in
   [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). Shared tooling uses the default catalog.
-- Route parameters identify the selected message. The shell composes
-  `react-native-screens`' split host and columns directly, with Expo Router's `Slot`
-  as the reading column. Collapsed on iPhone, UIKit owns the reader's Back and edge
-  swipe, including cancellation; when a sidebar column then appears, the route
-  leaves the reader. Split columns expose no navigation bar or Back item, so a small
-  native view keeps the reader's bar, its surface and the unread count on its Back.
+- Route parameters identify the selected message. UIKit owns the reader's Back and
+  edge swipe, including cancellation. The shell keeps route selection aligned with
+  completed navigation and preserves an open Draft.
 - The message reader's Copy link action uses `expo-clipboard`, with the native
   module included in the reviewed Expo autolinking scope. Regenerate and rebuild
   development clients after adding or updating it.
