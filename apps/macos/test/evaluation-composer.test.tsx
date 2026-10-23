@@ -129,11 +129,14 @@ describe('the Tiptap evaluation composer', () => {
     expect(lastCommand()).toBe(
       commandScript({ type: 'editable', editable: false }),
     );
+    injectedScripts.length = 0;
     await answer('Cancel');
     expect(sheetShown()).toBeUndefined();
-    expect(lastCommand()).toBe(
+    // Editing resumes with the body focused again, where AppKit returns the keyboard.
+    expect(injectedScripts.slice(0, 2)).toStrictEqual([
       commandScript({ type: 'editable', editable: true }),
-    );
+      commandScript({ type: 'focus' }),
+    ]);
     await press('Close');
     await answer('Save');
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([

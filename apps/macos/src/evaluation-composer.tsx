@@ -527,6 +527,10 @@ function EvaluationEditor({
       } else if (choice === 1) {
         void deleteDraft();
       } else {
+        // AppKit hands keyboard focus back to the page, which blurred its body while paused; an
+        // unfocused page passes typing to React Native macOS, which aborts on it.
+        run({ type: 'editable', editable: true });
+        run({ type: 'focus' });
         setOpen(undefined);
       }
     };

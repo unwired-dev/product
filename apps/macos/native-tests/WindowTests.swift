@@ -406,6 +406,8 @@ final class WindowTests: XCTestCase {
     let subject = window.textFields["Subject"]
     subject.click()
     subject.typeText("Native close")
+    let body = window.webViews.textViews["Message body"]
+    body.click()
     window.typeKey("w", modifierFlags: .command)
     // The question is an AppKit alert sheet on this window; Escape answers Cancel.
     let sheet = window.sheets.firstMatch
@@ -413,7 +415,9 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(sheet.buttons["Don’t Save"].exists)
     window.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
-    XCTAssertTrue(window.webViews.textViews["Message body"].exists)
+    // Typing continues in the body, where the sheet returned keyboard focus.
+    app.typeText(" Resumed")
+    XCTAssertTrue(webText("Resumed", in: window).waitForExistence(timeout: 10))
     app.typeKey("q", modifierFlags: .command)
     XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
     sheet.buttons["Cancel"].click()
