@@ -148,6 +148,19 @@ final class InboxTests: XCTestCase {
   // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
   // the first one, without Gmail; Gmail is added beside it with a Google grant.
   private func appleRegistrationJourney(_ app: XCUIApplication) {
+    // On iPhone, Welcome's Privacy page shows the system navigation bar, whose Back returns to
+    // Welcome, also after reopening it.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons["Privacy & Data"].tap()
+      let privacy = app.navigationBars["Privacy & Data"]
+      XCTAssertTrue(privacy.waitForExistence(timeout: 10))
+      privacy.buttons["BackButton"].tap()
+      XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 10))
+      app.buttons["Privacy & Data"].tap()
+      XCTAssertTrue(privacy.waitForExistence(timeout: 10))
+      privacy.buttons["BackButton"].tap()
+      XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 10))
+    }
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Apple"].tap()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
@@ -166,6 +179,16 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add another Gmail mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      openSettings("Privacy & Data", in: app)
+      app.buttons["Error Reporting"].tap()
+      let reporting = app.navigationBars["Error Reporting"]
+      XCTAssertTrue(reporting.waitForExistence(timeout: 10))
+      // Error Reporting pushes over Privacy in the same stack, whose system Back returns to it.
+      reporting.buttons["BackButton"].tap()
+      XCTAssertTrue(app.navigationBars["Privacy & Data"].waitForExistence(timeout: 10))
+      XCTAssertFalse(reporting.exists)
+    }
     openSettings("Account & Devices", in: app)
     // Confirmed setup opens the unified Inbox: the Microsoft message reads through packaged Graph
     // beside Gmail's.
@@ -522,7 +545,8 @@ final class InboxTests: XCTestCase {
     let settings = app.buttons["Account & Devices"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.tap()
-    let destination = app.buttons["Back to Settings"]
+    // The pushed destination shows the system navigation bar, which owns its Back.
+    let destination = app.navigationBars["Account & Devices"]
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     edgeSwipe(app, completing: false)
     waitUntil { destination.isHittable }
@@ -563,11 +587,11 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns to the list of
-  // destinations, then pushes it.
+  // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns through the
+  // pushed destination's system Back to the list of destinations, then pushes it.
   private func openSettings(_ destination: String, in app: XCUIApplication) {
-    let back = app.buttons["Back to Settings"]
-    if back.exists {
+    let back = app.navigationBars.buttons["BackButton"]
+    if UIDevice.current.userInterfaceIdiom == .phone && back.exists {
       back.tap()
     }
     let item = app.buttons[destination]

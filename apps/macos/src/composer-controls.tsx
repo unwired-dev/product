@@ -126,6 +126,8 @@ type PopUpItem = Readonly<{
   key: string;
   title: string;
   accessibilityLabel?: string;
+  // An SF Symbol beside the title.
+  symbol?: string;
   checked?: boolean;
   disabled?: boolean;
   destructive?: boolean;

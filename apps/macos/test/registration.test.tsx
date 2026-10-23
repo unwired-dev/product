@@ -64,7 +64,7 @@ import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
-import { chooseMenuItem, menuItems } from './native-menu.ts';
+import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
 import {
   MacWindows,
   closeSettings,
@@ -810,12 +810,16 @@ describe('product registration', () => {
   /* oxlint-enable vitest/max-expects */
 
   it('organizes IMAP mail from the reader with Undo and Move to, and searches its folders at the server', async () => {
-    /* oxlint-disable vitest/max-expects -- One journey proves read state, archive with Undo, Move to and search. */
+    /* oxlint-disable vitest/max-expects -- One journey proves flags, archive with Undo, restore, Move to and search. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     const invoice = imap.deliver('INBOX', { subject: 'Quarterly invoice' });
     const lunch = imap.deliver('INBOX', { subject: 'Team lunch' });
     imap.addFolder('Archived Mail', ['archive']);
+    imap.addFolder('Deleted Messages', ['trash']);
+    const deleted = imap.deliver('Deleted Messages', {
+      subject: 'Recovered message',
+    });
     imap.addFolder('Projects');
     imap.deliver('Projects', { subject: 'Filed invoice' });
     const account = await signedIn();
@@ -876,6 +880,27 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
+    // Star sets the server's \Flagged flag, keeps the reader open and flags the row.
+    await press('Star');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`flag INBOX ${invoice}`);
+    });
+    expect(
+      screen.getByRole('header', { name: 'Quarterly invoice' }),
+    ).toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
+    ).resolves.toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: 'Remove star' }),
+    ).resolves.toBeVisible();
+    await press('Remove star');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Star' }),
+    ).resolves.toBeVisible();
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
     await press('Archive');
@@ -899,11 +924,48 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
-    // Move to lists the mailbox's other folders.
+    // Trash offers Move to Inbox, which closes the reader and offers no Undo.
+    await press('Deleted Messages. In alex@example.invalid');
+    await press(/Recovered message/u);
+    for (const name of ['Archive', 'Move to Trash', 'Report spam']) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+    await press('Move to Inbox');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(
+        `move Deleted Messages ${deleted} INBOX`,
+      );
+      expect(
+        screen.queryByRole('header', { name: 'Recovered message' }),
+      ).toBeNull();
+    });
+    await expect(
+      screen.findByText('Moved back to the Inbox: “Recovered message”.'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    await press('Inbox. In alex@example.invalid');
+    await expect(
+      screen.findByRole('button', { name: /Recovered message/u }),
+    ).resolves.toBeVisible();
+
+    // Move's system menu lists the mailbox's other folders; dismissing it moves nothing.
     await press(/Team lunch/u);
     await press('Folders');
+    expect(menuItems()).toMatchObject([
+      { title: 'Archived Mail', accessibilityLabel: 'Move to Archived Mail' },
+      {
+        title: 'Deleted Messages',
+        accessibilityLabel: 'Move to Deleted Messages',
+      },
+      { title: 'Projects', accessibilityLabel: 'Move to Projects' },
+    ]);
+    await dismissMenu();
+    expect(imap.server.changes.at(-1)).toBe(
+      `move Deleted Messages ${deleted} INBOX`,
+    );
+    await press('Folders');
     imap.server.loseReply = true;
-    await press('Move to Projects');
+    await chooseMenuItem('Projects');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`move INBOX ${lunch} Projects`);
     });
@@ -1647,6 +1709,156 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.getByText('Encrypted on this device')).toBeVisible();
     expect(screen.queryByText('Gmail · Encrypted on this device')).toBeNull();
+  });
+
+  it('runs nothing for a held Move choice after the reader switches to another mailbox', async () => {
+    expect.hasAssertions();
+    // Two IMAP mailboxes whose messages and folders share IDs and names.
+    const servers = [0, 1].map((index) =>
+      createSyntheticImap({ address: `mailbox${index}@example.invalid` }),
+    );
+    for (const imap of servers) {
+      imap.deliver('INBOX', { subject: 'Team lunch' });
+      imap.addFolder('Projects');
+    }
+    const account = await signedIn();
+    const connections: Record<string, (typeof servers)[number]['native']> = {};
+    for (const [index, imap] of servers.entries()) {
+      const connection = await connectImap(account, {
+        address: `mailbox${index}@example.invalid`,
+        host: 'imap.example.invalid',
+        username: `mailbox${index}`,
+      });
+      connections[connection] = imap.native;
+    }
+    const store = createRegistration(account.synthetic.vault);
+    const mailboxes = createMailboxes(
+      syntheticConnections({}, connections),
+      store,
+    );
+    function Reading() {
+      const [selected, setSelected] = useState<Selection>();
+      const close = () => {
+        setSelected(undefined);
+      };
+      return (
+        <InboxProvider
+          mailboxes={{ ...mailboxes, getSnapshot: mailboxes.getConnections }}>
+          <Shell
+            onClose={close}
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+            onClose={close}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <Reading />
+      </RegistrationGate>,
+    );
+    const press = async (name: string | RegExp) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await press('Inbox. In mailbox0@example.invalid');
+    await press(/Team lunch/u);
+    await press('Folders');
+    // The menu stays open while the reader moves to the other mailbox's equal message.
+    await press('Inbox. In mailbox1@example.invalid');
+    await press(/Team lunch/u);
+    await chooseMenuItem('Projects');
+    expect(servers.map(({ server }) => server.changes)).toStrictEqual([[], []]);
+  });
+
+  // Opens the Garden plans reader of a connected Microsoft mailbox and its Move menu.
+  const openMicrosoftMove = async (
+    graph: ReturnType<typeof createSyntheticGraph>,
+  ) => {
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
+    await store.register('apple');
+    await store.addMailbox('microsoft-graph');
+    await store.confirmRecoveryKey(lastFour(recoveryKeyOf(synthetic)));
+    const plans = graph.deliver({ subject: 'Garden plans' });
+    const mailboxes = gmailMailboxes(store, {
+      [syntheticMailboxes['casey@example.invalid']]: graph,
+    });
+    function Reading() {
+      const [selected, setSelected] = useState<Selection>();
+      const close = () => {
+        setSelected(undefined);
+      };
+      return (
+        <InboxProvider mailboxes={mailboxes}>
+          <Shell
+            onClose={close}
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+            onClose={close}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <Reading />
+      </RegistrationGate>,
+    );
+    for (const name of [/Garden plans/u, 'Folders']) {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    }
+    return plans;
+  };
+
+  it('moves Microsoft mail to a nested folder from the reader’s system Move menu', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph();
+    const lisbon = graph.createFolder('Lisbon', graph.createFolder('Travel'));
+    const plans = await openMicrosoftMove(graph);
+    // Each folder is named by its path, so a nested one stays apart from its parent.
+    expect(menuItems()).toMatchObject([
+      { title: 'Travel', accessibilityLabel: 'Move to Travel' },
+      {
+        title: 'Travel / Lisbon',
+        accessibilityLabel: 'Move to Travel / Lisbon',
+      },
+    ]);
+    await chooseMenuItem('Travel / Lisbon');
+    await waitFor(() => {
+      expect(graph.folderOf(plans)).toBe(lisbon);
+    });
+    expect(screen.queryByRole('header', { name: 'Garden plans' })).toBeNull();
+  });
+
+  it('shows a Microsoft mailbox without folders as a disabled note in its Move menu', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph();
+    const plans = await openMicrosoftMove(graph);
+    expect(menuItems()).toMatchObject([
+      {
+        title: 'This Microsoft mailbox has no folders of its own yet.',
+        disabled: true,
+      },
+    ]);
+    await dismissMenu();
+    expect(graph.folderOf(plans)).toBe('inbox');
   });
 
   it('chooses remote image policies for this device and each mailbox, and clears remote content', async () => {

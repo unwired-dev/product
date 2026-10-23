@@ -210,6 +210,15 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   otherwise a running spike can change selectors beneath its result or a retired
   control can dispatch an old command.
 
+- `organize.tsx.MoveMenu` or another deferred message menu identifying a choice
+  by message and destination alone. Provider message IDs and folder IDs can be
+  equal in different Mailbox Connections; include the owning connection in the
+  semantic key, as `commandTarget` does, before looking up the latest callback.
+  Hold a native answer while switching to another connection with equal message
+  and destination IDs, then release it and verify neither mailbox changes.
+  Otherwise the old menu can move a different mailbox's message through its new
+  callback despite rejecting retired messages and destinations within one mailbox.
+
 - Mac context-menu content removing `selectable` text without an accessible
   labeled replacement, or retaining selectable text that handles secondary
   clicks before its ancestor menu. Trace the installed paragraph's native event
@@ -925,6 +934,28 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
+
+- `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
+  migrated native header relying on the presenter's default appearance without
+  comparing settled Light and Dark captures with DESIGN.md and the frames.
+  Check its supported surface, title, tint and separator properties; opaque
+  defaults can introduce a black band or divider while navigation tests pass.
+  Keep the system controls and their intrinsic metrics when applying the tokens.
+
+- `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
+  native stack moving a React Native header gesture into a system navigation
+  bar's custom title view without proving native event delivery. Check the
+  installed presenter and exercise the gesture on the supported host before
+  relying on responder props; a working accessory tap or component callback
+  does not prove title drags reach React Native. Otherwise a required palette
+  entry can disappear while component journeys pass. Preserve the owning
+  feature's current entry contract rather than restoring superseded gestures.
+
+- `settings.tsx.SettingsWorkspace` or another native stack handling `onDismissed`
+  as a one-screen pop while the system Back history menu can remove several.
+  Trace the installed screen event's `dismissCount` through the route owner,
+  including Error Reporting skipping Privacy to Settings; otherwise JavaScript
+  retains a destination UIKit already removed and later navigation diverges.
 
 - `window.tsx.ProfileWindow` keeping its chosen Profile only below
   `RegistrationGate`. Trace transient locked and account-page branches that
