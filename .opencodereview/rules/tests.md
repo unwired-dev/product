@@ -64,8 +64,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   exception needs evidence that the defect affects every element it admits;
   otherwise new unrelated accessibility regressions silently pass as known gaps.
   When the audit supplies no element, as in `InboxTests.knownAccessibilityGap`,
-  require an owning issue, scope the exception to the observed screens and audit
-  type, and retain captures for investigation. A suspected decorative source is
+  require an owning issue, scope the exception to the observed hosts, screens, audit
+  type and exact observed issue description, and retain captures for investigation.
+  Audit type plus a nil element can describe unrelated findings; otherwise a new
+  unlocated defect passes under an existing issue. A suspected decorative source is
   not evidence that the finding is harmless; otherwise unlocated app defects can
   be dismissed without an owner or a way to narrow the exception.
 
