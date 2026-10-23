@@ -472,6 +472,7 @@ static NSScrollView *UnwiredPassage(NSString *text)
   view.textContainerInset = NSZeroSize;
   view.textContainer.lineFragmentPadding = 0;
   view.string = text;
+  [view.layoutManager ensureLayoutForTextContainer:view.textContainer];
   CGFloat height = [view.layoutManager usedRectForTextContainer:view.textContainer].size.height;
   scroll.frame = NSMakeRect(0, 0, 220, MIN(ceil(height), 120));
   return scroll;
