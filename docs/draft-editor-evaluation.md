@@ -52,9 +52,11 @@ their controls stop accepting input and leave VoiceOver immediately.
 - **Close.** An unchanged Draft closes at once, and an empty one is removed. Otherwise
   **Delete Draft** and **Save Draft** grow out of **Close** on iPhone and iPad, and the
   Mac asks **Do you want to save this message as a draft?** with **Save**,
-  **Don’t Save** and **Cancel**. The Mac question pauses body editing, keeps keyboard
-  focus within its choices and hides background composer controls from VoiceOver
-  until a choice is made. When storage refuses, the editor stays open with
+  **Don’t Save** and **Cancel**. The Mac question is a system alert sheet on the
+  editor's own window: AppKit keeps keyboard focus and VoiceOver in it, Escape chooses
+  **Cancel**, and body editing pauses until a choice is made. A question whose editor
+  goes away, as when another Product Account opens, closes without an answer.
+  When storage refuses, the editor stays open with
   **Try again**, and its edits still ask on the next **Close**. Unfinished recipient
   text becomes recipients on **Save Draft**; an invalid address keeps the editor open.
 - **Send.** Stores the Draft as shown and queues it, then closes. A refusal, such as

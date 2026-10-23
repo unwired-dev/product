@@ -407,12 +407,17 @@ final class WindowTests: XCTestCase {
     subject.click()
     subject.typeText("Native close")
     window.typeKey("w", modifierFlags: .command)
-    XCTAssertTrue(window.buttons["Save"].waitForExistence(timeout: 10))
-    window.buttons["Cancel"].click()
+    // The question is an AppKit alert sheet on this window; Escape answers Cancel.
+    let sheet = window.sheets.firstMatch
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    XCTAssertTrue(sheet.buttons["Don’t Save"].exists)
+    window.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
     XCTAssertTrue(window.webViews.textViews["Message body"].exists)
     app.typeKey("q", modifierFlags: .command)
-    XCTAssertTrue(window.buttons["Save"].waitForExistence(timeout: 10))
-    window.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    sheet.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
     // Saving later must not revive a cancelled Quit.
     saveOnClose(window)
     XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 10))
@@ -429,11 +434,11 @@ final class WindowTests: XCTestCase {
     second.textFields["Subject"].typeText("Second guarded window")
     app.typeKey("q", modifierFlags: .command)
     // One Quit asks each window, then actually stops the process.
-    let saving = app.windows.containing(.button, identifier: "Save").firstMatch
-    XCTAssertTrue(saving.waitForExistence(timeout: 10))
+    let saving = app.sheets.firstMatch
+    XCTAssertTrue(saving.buttons["Save"].waitForExistence(timeout: 10))
     saving.buttons["Save"].click()
     waitUntil { app.windows.count == 1 }
-    let remaining = app.windows.firstMatch
+    let remaining = app.windows.firstMatch.sheets.firstMatch
     XCTAssertTrue(remaining.buttons["Don’t Save"].waitForExistence(timeout: 10))
     remaining.buttons["Don’t Save"].click()
     waitUntil { app.state == .notRunning }
@@ -463,7 +468,7 @@ final class WindowTests: XCTestCase {
 
   private func saveOnClose(_ window: XCUIElement) {
     window.buttons["Close"].click()
-    let save = window.buttons["Save"]
+    let save = window.sheets.firstMatch.buttons["Save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.click()
     waitUntil { window.webViews.count == 0 }

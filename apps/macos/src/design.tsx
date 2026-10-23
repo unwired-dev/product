@@ -30,7 +30,7 @@ import {
 } from 'react-native';
 
 import { Label } from './label.tsx';
-import { isMenuChoice } from './native-menu.ts';
+import { isAlertChoice, isMenuChoice } from './native-menu.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const NativeSymbol = requireNativeComponent<
@@ -237,6 +237,50 @@ export function MenuButton({
       {children}
     </Pressable>
   );
+}
+
+type SheetQuestion = Readonly<{
+  title: string;
+  detail: string;
+  buttons: readonly string[];
+}>;
+
+interface NativeAlert extends TurboModule {
+  readonly show: (
+    anchor: number,
+    request: number,
+    question: SheetQuestion,
+  ) => Promise<unknown>;
+  readonly retire: (request: number) => void;
+}
+
+let alertRequests = 0;
+
+// Asks in an AppKit alert sheet on `anchor`'s window. `answer` resolves the chosen button's index;
+// the first button is the default and the last, Cancel, answers Escape. After `retire` the sheet
+// closes and answers null, even for a choice already made.
+export function askInSheet(anchor: View | null, question: SheetQuestion) {
+  const alert = TurboModuleRegistry.getEnforcing<NativeAlert>('UnwiredAlert');
+  const tag = findNodeHandle(anchor);
+  alertRequests += 1;
+  const request = alertRequests;
+  let current = tag !== null;
+  const ask = async () => {
+    if (tag === null) {
+      return null;
+    }
+    const chosen = await alert.show(tag, request, question);
+    return current && isAlertChoice(chosen) ? chosen : null;
+  };
+  return {
+    answer: ask(),
+    retire: () => {
+      if (current) {
+        current = false;
+        alert.retire(request);
+      }
+    },
+  };
 }
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.

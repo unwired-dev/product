@@ -12,6 +12,7 @@ import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { App, alex, registration } from './evaluation-app.tsx';
 import {
+  answer,
   lastAdded,
   lastCommand,
   press,
@@ -47,7 +48,7 @@ describe('evaluation Draft save ordering', () => {
       // WebKit delivers the first edit's report after the second; it cannot replace the newer body.
       await report({ revision: 1, document: first });
       await press('Close');
-      await press('Save', false);
+      await answer('Save', false);
       // Nor while Save waits for the page to acknowledge its last edit.
       await report({ revision: 1, document: first });
       expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
@@ -183,7 +184,7 @@ describe('evaluation Draft save ordering', () => {
       attachments: [],
     });
     await press('Close');
-    await press('Don’t Save');
+    await answer('Don’t Save');
     await act(async () => {
       storage.releaseImports();
     });

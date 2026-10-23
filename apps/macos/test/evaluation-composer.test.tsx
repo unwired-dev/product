@@ -21,19 +21,20 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { View } from 'react-native';
 
 import { MailAssistanceProfileContext } from '../src/mail-assistance-lifetime.ts';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { App, alex, registration } from './evaluation-app.tsx';
 import {
+  answer,
   lastAdded,
   lastCommand,
   lastSent,
   press,
   simulatedPage,
 } from './evaluation-page.ts';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 import { chooseMenuItem, menuItems } from './native-menu.ts';
 import { injectedScripts } from './webview.tsx';
 
@@ -101,7 +102,7 @@ async function settledImport(action: 'save' | 'delete' | 'unchanged') {
   }
   await press('Close');
   if (action !== 'unchanged') {
-    await press(action === 'save' ? 'Save' : 'Don’t Save');
+    await answer(action === 'save' ? 'Save' : 'Don’t Save');
   }
   return { drafts, id };
 }
@@ -109,82 +110,45 @@ async function settledImport(action: 'save' | 'delete' | 'unchanged') {
 describe('the Tiptap evaluation composer', () => {
   /* oxlint-disable vitest/max-expects -- The journey proves one evaluation path end to end. */
 
-  it('keeps background composer controls out of the save decision', async () => {
+  it('asks to save in the window’s sheet and withdraws it when the editor goes away', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
-    await render(<App drafts={drafts} />);
+    const app = await render(<App drafts={drafts} />);
     await press('New Message');
     const { typed } = simulatedPage();
     await typed('An unsaved message');
-    const send = screen.getByRole('button', { name: 'Send' });
-    const focus = jest.spyOn(View.prototype, 'focus');
-    try {
-      await press('Close');
-      // Native View methods are substituted here; these are focus requests, not AppKit evidence.
-      expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
-        screen.getByRole('button', { name: 'Save' }).props.onFocus,
-      );
-      for (const [from, event, shiftKey, to] of [
-        ['Save', 'focus', true, 'Cancel'],
-        ['Cancel', 'focus', false, 'Save'],
-        ['Save', 'blur', false, 'Save'],
-        ['Save', 'blur', true, 'Cancel'],
-      ] as const) {
-        const button = screen.getByRole('button', { name: from });
-        await fireEvent(button, 'focus');
-        await fireEvent(button, event);
-        focus.mockClear();
-        await fireEvent(
-          screen.getByText('Do you want to save this message as a draft?'),
-          'keyDown',
-          {
-            nativeEvent: {
-              key: 'Tab',
-              shiftKey,
-              metaKey: false,
-              ctrlKey: false,
-              altKey: false,
-            },
-          },
-        );
-        expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
-          screen.getByRole('button', { name: to }).props.onFocus,
-        );
-      }
-      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
-      expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
-      expect(screen.queryByLabelText('Subject')).toBeNull();
-      await act(async () => {
-        await fireEvent.press(send);
-      });
-      expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
-      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
-        { kind: 'paragraph', spans: [] },
-      ]);
-      await fireEvent(
-        screen.getByText('Do you want to save this message as a draft?'),
-        'keyDown',
-        {
-          nativeEvent: {
-            key: 'Escape',
-            shiftKey: false,
-            metaKey: false,
-            ctrlKey: false,
-            altKey: false,
-          },
-        },
-      );
-      expect(screen.getByRole('button', { name: 'Send' })).toBeOnTheScreen();
-      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
-      await press('Close');
-      await press('Save');
-      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
-        { kind: 'paragraph', spans: [{ text: 'An unsaved message' }] },
-      ]);
-    } finally {
-      focus.mockRestore();
-    }
+    await press('Close');
+    // AppKit owns the sheet's focus, Return, Escape (its last button) and VoiceOver.
+    expect(sheetShown()).toStrictEqual({
+      title: 'Do you want to save this message as a draft?',
+      detail: 'If you don’t save, this draft is deleted.',
+      buttons: ['Save', 'Don’t Save', 'Cancel'],
+    });
+    // Body editing pauses while the sheet asks.
+    expect(lastCommand()).toBe(
+      commandScript({ type: 'editable', editable: false }),
+    );
+    await answer('Cancel');
+    expect(sheetShown()).toBeUndefined();
+    expect(lastCommand()).toBe(
+      commandScript({ type: 'editable', editable: true }),
+    );
+    await press('Close');
+    await answer('Save');
+    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'An unsaved message' }] },
+    ]);
+    // An editor that unmounts, as when another Product Account opens, withdraws its sheet unanswered.
+    await press(/^Draft\./u);
+    await typed('An edit nobody answers for');
+    await press('Close');
+    expect(sheetShown()).toBeDefined();
+    await app.unmount();
+    expect(sheetShown()).toBeUndefined();
+    expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'An unsaved message' }] },
+    ]);
   });
 
   it('keeps edits in the editor until Save, and reopens them after relaunch', async () => {
@@ -235,7 +199,7 @@ describe('the Tiptap evaluation composer', () => {
     // Close asks first; a Save Draft that storage refuses keeps the editor open to try again.
     await press('Close');
     storage.setLocked(true);
-    await press('Save');
+    await answer('Save');
     expect(screen.getByText(saveBlocked)).toBeOnTheScreen();
     expect(page).toBeOnTheScreen();
     // Editing again clears the notice, and the unsaved edit still asks on Close.
@@ -243,7 +207,7 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.queryByText(saveBlocked)).not.toBeOnTheScreen();
     storage.setLocked(false);
     await press('Close');
-    await press('Save');
+    await answer('Save');
     expect(screen.queryByTestId('message-webview')).toBeNull();
     // WebKit can queue a callback before Close removes the page. Retired pages cannot edit.
     await act(async () => {
@@ -295,7 +259,7 @@ describe('the Tiptap evaluation composer', () => {
     await page.typed('Before Close');
     storage.hold();
     await press('Close');
-    await press('Save', false);
+    await answer('Save', false);
     // WebKit may still have a text update queued when the native Save control is pressed.
     await page.typed('Last queued edit');
     await page.report({ frozen: true });
@@ -324,8 +288,8 @@ describe('the Tiptap evaluation composer', () => {
     await press('Close', false);
     await page.typed('Queued before Close');
     await page.report({ frozen: true });
-    expect(screen.getByRole('button', { name: 'Save' })).toBeOnTheScreen();
-    await press('Don’t Save');
+    expect(sheetShown()).toBeDefined();
+    await answer('Don’t Save');
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
 
@@ -357,13 +321,13 @@ describe('the Tiptap evaluation composer', () => {
     await screen.findByTestId('message-webview');
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
     await press('Close');
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(sheetShown()).toBeUndefined();
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
 
     await press('New Message');
     await simulatedPage().typed('Never mind');
     await press('Close');
-    await press('Don’t Save');
+    await answer('Don’t Save');
     expect(screen.queryByTestId('message-webview')).toBeNull();
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
 
@@ -406,7 +370,7 @@ describe('the Tiptap evaluation composer', () => {
     expect(screen.getByTestId('message-webview')).toBeOnTheScreen();
     await press('Close', false);
     await page.report({ frozen: true });
-    await press('Save');
+    await answer('Save');
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
       { kind: 'paragraph', spans: [{ text: 'Keep this unsaved body' }] },
     ]);
@@ -532,7 +496,7 @@ describe('the Tiptap evaluation composer', () => {
       document: [{ kind: 'quote', spans: [{ text: replaced }] }],
     });
     await press('Close');
-    await press('Save');
+    await answer('Save');
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
       { kind: 'quote', spans: [{ text: replaced }] },
     ]);
@@ -588,7 +552,7 @@ describe('the Tiptap evaluation composer', () => {
       expect(injectedScripts).toHaveLength(scripts);
       // The body the page last reported can still be saved.
       await press('Close');
-      await press('Save');
+      await answer('Save');
       expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
         { kind: 'paragraph', spans: [{ text: 'Keep this body' }] },
       ]);
@@ -655,7 +619,7 @@ describe('the Tiptap evaluation composer', () => {
       document: [{ kind: 'paragraph', spans: [{ text: syntheticReply }] }],
     });
     await press('Close');
-    await press('Save');
+    await answer('Save');
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     const [saved] = draftsOf(reopened.getSnapshot());
@@ -763,7 +727,7 @@ describe('the Tiptap evaluation composer', () => {
     await press('Remove plan.pdf');
     const removed = lastSent();
     await press('Close');
-    await press('Save');
+    await answer('Save');
     expect({
       attached: attached.images,
       converted,
@@ -843,7 +807,7 @@ describe('the Tiptap evaluation composer', () => {
     });
     // Save Draft waits only for the save; the import completes into the stored Draft.
     await press('Close');
-    await press('Save');
+    await answer('Save');
     await act(async () => {
       storage.releaseImports();
     });
@@ -893,7 +857,7 @@ describe('the Tiptap evaluation composer', () => {
       attachments: [],
     });
     await press('Close');
-    await press('Save');
+    await answer('Save');
     // Reopened while private storage is locked, the image cannot be checked yet.
     storage.setLocked(true);
     injectedScripts.length = 0;
@@ -976,9 +940,10 @@ describe('the Tiptap evaluation composer', () => {
     await press('Close');
     // A Cancel queued before React disables the row arrives after Save has started.
     const queued: (event: object) => void = cancel.props.onClick;
-    const save = await screen.findByRole('button', { name: 'Save' });
     await act(async () => {
-      fireEvent.press(save);
+      chooseSheetButton('Save');
+    });
+    await act(async () => {
       queued({ nativeEvent: {} });
     });
     await report({ frozen: true });
