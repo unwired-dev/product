@@ -199,6 +199,7 @@ static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destr
         [NSImageSymbolConfiguration configurationWithHierarchicalColor:destructiveColor]];
   }
   menuItem.image = image;
+  menuItem.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
   NSString *subtitle = item[@"subtitle"];
   if (subtitle.length > 0) menuItem.subtitle = subtitle;
   if ([item[@"checked"] boolValue]) menuItem.state = NSControlStateValueOn;

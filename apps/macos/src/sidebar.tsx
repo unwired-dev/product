@@ -139,7 +139,7 @@ function ProfileSwitcher({
         current: profile,
         onSwitch: onProfile,
         onCreate: () => {
-          Alert.prompt(
+          Alert.promptMacOS(
             t('profiles.newTitle'),
             t('profiles.newMessage'),
             [
@@ -154,14 +154,15 @@ function ProfileSwitcher({
               { text: t('common.cancel'), style: 'cancel' },
             ],
             'plain-text',
+            [{ placeholder: t('profiles.name') }],
           );
         },
       })}
       style={[styles.switcher, { backgroundColor: colors.fillQuiet }]}>
       <View style={styles.switcherRow}>
         <View
-          style={[styles.monogram, { backgroundColor: colors.textPrimary }]}>
-          <Text style={[styles.monogramText, { color: colors.surfaceContent }]}>
+          style={[styles.monogram, { backgroundColor: colors.brandMonogram }]}>
+          <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
             {profileMonogram(name)}
           </Text>
         </View>

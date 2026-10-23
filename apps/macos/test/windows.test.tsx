@@ -1579,7 +1579,7 @@ describe('mac windows of different Mail Profiles', () => {
 
   it('names a new Mail Profile and explains a failed creation', async () => {
     expect.hasAssertions();
-    const prompt = jest.spyOn(Alert, 'prompt').mockReturnValue(undefined);
+    const prompt = jest.spyOn(Alert, 'promptMacOS').mockReturnValue(undefined);
     const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
     const createProfile = jest.fn((_name: string) =>
       Promise.resolve('failed' as const),
@@ -1605,6 +1605,9 @@ describe('mac windows of different Mail Profiles', () => {
         'select',
         { nativeEvent: { id: 'profile\nnew' } },
       );
+      expect(prompt.mock.lastCall?.[4]).toStrictEqual([
+        { placeholder: 'Name' },
+      ]);
       const buttons = prompt.mock.lastCall?.[2];
       ok(Array.isArray(buttons));
       await act(async () => {

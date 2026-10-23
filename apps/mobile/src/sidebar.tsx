@@ -178,8 +178,8 @@ function ProfileSwitcher({
       ]}>
       <View style={styles.switcherRow}>
         <View
-          style={[styles.monogram, { backgroundColor: colors.textPrimary }]}>
-          <Text style={[styles.monogramText, { color: colors.surfaceContent }]}>
+          style={[styles.monogram, { backgroundColor: colors.brandMonogram }]}>
+          <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
             {profileMonogram(name)}
           </Text>
         </View>
