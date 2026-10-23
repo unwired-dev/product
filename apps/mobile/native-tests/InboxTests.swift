@@ -326,7 +326,7 @@ final class InboxTests: XCTestCase {
 
   // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
   // the Startup Profile and offers Add Mail Profile… and the Startup Profile's system pop-up menu.
-  // Open Inbox returns to the Mailboxes the switcher sits in.
+  // Open Inbox shows the kept Inbox (#1069), whose Back returns to the switcher's Mailboxes.
   private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) {
     switcher.tap()
     let manage = app.buttons["Manage Mail Profiles…"]
@@ -376,9 +376,11 @@ final class InboxTests: XCTestCase {
       }, timeout: 10)
     }
     app.buttons["Open Inbox"].tap()
-    if UIDevice.current.userInterfaceIdiom == .pad
-      && (!switcher.exists || !switcher.isHittable)
-    {
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let back = app.buttons["Back to Mailboxes"]
+      waitUntil { back.isHittable && !switcher.isHittable }
+      back.tap()
+    } else if !switcher.exists || !switcher.isHittable {
       app.navigationBars.buttons.firstMatch.tap()
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
