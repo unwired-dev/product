@@ -45,6 +45,9 @@ const styles = StyleSheet.create({
   lede: { ...textStyles.body, opacity: 0.8 },
   ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23 },
   ipadStatus: { fontSize: 17.25, lineHeight: 23, opacity: 0.78 },
+  // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
+  status: { position: 'absolute', top: 0, left: 0, right: 0 },
+  hidden: { opacity: 0 },
   points: { gap: 14, marginTop: 10, marginBottom: ipad ? 28 : 0 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
@@ -170,41 +173,15 @@ const motion = css.create({
 });
 
 // Launch shows this until it has read the saved account, then Welcome, setup or the Inbox (#1070).
+// It lays out as Welcome, so the seal stays in place when Welcome follows.
 export function Restoring() {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const reduced = useReducedMotion();
   return (
-    <View
-      accessible
-      accessibilityRole="progressbar"
-      accessibilityLabel={t('onboarding.restoring')}
-      style={[
-        styles.page,
-        styles.welcome,
-        { backgroundColor: colors.brandDeep },
-      ]}>
-      <View style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
-        <Animated.View
-          style={[
-            styles.seal,
-            ipad && styles.ipadSeal,
-            { backgroundColor: colors.brandSeal },
-            !reduced && motion.breathing,
-          ]}
-        />
-        <Animated.View style={motion.arriving}>
-          <Text
-            style={[
-              styles.lede,
-              ipad && styles.ipadStatus,
-              { color: colors.brandOnDeep },
-            ]}>
-            {t('onboarding.restoring')}
-          </Text>
-        </Animated.View>
-      </View>
-    </View>
+    <Welcome
+      restoring
+      onContinue={() => undefined}
+      // Welcome always offers Privacy & Data, which shapes its layout.
+      onPrivacy={() => undefined}
+    />
   );
 }
 
@@ -212,14 +189,26 @@ export function Restoring() {
 export function Welcome({
   onContinue,
   onPrivacy,
+  restoring = false,
 }: {
   readonly onContinue: () => void;
   readonly onPrivacy?: () => void;
+  // Launch progress: only the seal and its status show, where the seal and headline will be.
+  readonly restoring?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
   const ink = { color: colors.brandOnDeep };
+  // Welcome's own content keeps its place while launch progress shows, unseen and unreachable.
+  const hidden = restoring
+    ? ({
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
+      } as const)
+    : undefined;
+  const concealed = restoring ? styles.hidden : undefined;
   const points = [
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
@@ -253,6 +242,12 @@ export function Welcome({
   );
   return (
     <View
+      {...(restoring && {
+        accessible: true,
+        accessibilityRole: 'progressbar',
+        accessibilityLabel: t('onboarding.restoring'),
+        pointerEvents: 'none',
+      })}
       style={[
         styles.page,
         {
@@ -261,25 +256,47 @@ export function Welcome({
           paddingBottom: insets.bottom,
         },
       ]}>
-      <ScrollView contentContainerStyle={styles.welcome}>
+      <ScrollView
+        contentContainerStyle={styles.welcome}
+        scrollEnabled={!restoring}>
         <View
           style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
-          <View
+          <Animated.View
             style={[
               styles.seal,
               ipad && styles.ipadSeal,
               { backgroundColor: colors.brandSeal },
+              restoring && !reduced && motion.breathing,
             ]}
           />
+          <View>
+            <Text
+              accessibilityRole="header"
+              {...hidden}
+              style={[
+                styles.headline,
+                ipad && styles.ipadHeadline,
+                ink,
+                concealed,
+              ]}>
+              {t('onboarding.welcome.title')}
+            </Text>
+            {restoring ? (
+              <Animated.View style={[styles.status, motion.arriving]}>
+                <Text style={[styles.lede, ipad && styles.ipadStatus, ink]}>
+                  {t('onboarding.restoring')}
+                </Text>
+              </Animated.View>
+            ) : null}
+          </View>
           <Text
-            accessibilityRole="header"
-            style={[styles.headline, ipad && styles.ipadHeadline, ink]}>
-            {t('onboarding.welcome.title')}
-          </Text>
-          <Text style={[styles.lede, ipad && styles.ipadLede, ink]}>
+            {...hidden}
+            style={[styles.lede, ipad && styles.ipadLede, ink, concealed]}>
             {t('onboarding.welcome.description')}
           </Text>
-          <View style={[styles.points, ipad && styles.ipadPoints]}>
+          <View
+            {...hidden}
+            style={[styles.points, ipad && styles.ipadPoints, concealed]}>
             {points.map(({ icon, text }) => (
               <View
                 key={icon}
@@ -297,13 +314,21 @@ export function Welcome({
             ))}
           </View>
           {ipad ? (
-            <View style={{ alignSelf: 'flex-start', minWidth: 184 }}>
+            <View
+              {...hidden}
+              style={[{ alignSelf: 'flex-start', minWidth: 184 }, concealed]}>
               {action}
             </View>
           ) : null}
         </View>
       </ScrollView>
-      {ipad ? null : <View style={styles.footer}>{action}</View>}
+      {ipad ? null : (
+        <View
+          {...hidden}
+          style={[styles.footer, concealed]}>
+          {action}
+        </View>
+      )}
     </View>
   );
 }

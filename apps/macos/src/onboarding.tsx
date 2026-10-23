@@ -31,6 +31,10 @@ const styles = StyleSheet.create({
   headline: { fontSize: 52, lineHeight: 58, fontWeight: '400' },
   lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.8 },
   status: { fontSize: 15, lineHeight: 20, opacity: 0.78 },
+  // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
+  restoringStatus: { position: 'absolute', top: 0, left: 0, right: 0 },
+  hidden: { opacity: 0 },
+  privacy: { minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   points: { gap: 14, marginTop: 36, marginBottom: 28 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { fontSize: 15, lineHeight: 16, opacity: 0.85 },
@@ -112,14 +116,15 @@ const styles = StyleSheet.create({
 const easeInOut = Easing.bezier(0.42, 0, 0.58, 1);
 const easeOut = Easing.bezier(0, 0, 0.58, 1);
 
-// Launch shows this until it has read the saved account, then Welcome, setup or the Inbox (#1070).
-// The seal breathes and the status arrives after a moment, so a quick launch shows only the seal.
-export function Restoring() {
-  const colors = usePalette();
-  const { t } = useLocalization();
+// While launch reads the saved account, the seal breathes and the status arrives after a moment, so
+// a quick launch shows only the seal. Reduce Motion keeps the seal still.
+function useRestoringMotion(restoring: boolean) {
   const seal = useMemo(() => new Animated.Value(1), []);
   const status = useMemo(() => new Animated.Value(0), []);
   useEffect(() => {
+    if (!restoring) {
+      return undefined;
+    }
     let current = true;
     const breathing = Animated.loop(
       Animated.sequence(
@@ -152,31 +157,20 @@ export function Restoring() {
       breathing.stop();
       arriving.stop();
     };
-  }, [seal, status]);
+  }, [restoring, seal, status]);
+  return { seal, status };
+}
+
+// Launch shows this until it has read the saved account, then Welcome, setup or the Inbox (#1070).
+// It lays out as Welcome, so the seal stays in place when Welcome follows.
+export function Restoring() {
   return (
-    <View
-      accessible
-      accessibilityRole="progressbar"
-      accessibilityLabel={t('onboarding.restoring')}
-      style={[
-        styles.page,
-        styles.welcome,
-        { backgroundColor: colors.brandDeep },
-      ]}>
-      <View style={styles.welcomeContent}>
-        <Animated.View
-          style={[
-            styles.seal,
-            { backgroundColor: colors.brandSeal, opacity: seal },
-          ]}
-        />
-        <Animated.View style={{ opacity: status }}>
-          <Label style={[styles.status, { color: colors.brandOnDeep }]}>
-            {t('onboarding.restoring')}
-          </Label>
-        </Animated.View>
-      </View>
-    </View>
+    <Welcome
+      restoring
+      onContinue={() => undefined}
+      // Welcome always offers Privacy & Data, which shapes its layout.
+      onPrivacy={() => undefined}
+    />
   );
 }
 
@@ -184,32 +178,77 @@ export function Restoring() {
 export function Welcome({
   onContinue,
   onPrivacy,
+  restoring = false,
 }: {
   readonly onContinue: () => void;
   readonly onPrivacy?: () => void;
+  // Launch progress: only the seal and its status show, where the seal and headline will be.
+  readonly restoring?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const motion = useRestoringMotion(restoring);
   const ink = { color: colors.brandOnDeep };
+  // Welcome's own content keeps its place while launch progress shows, unseen and unreachable;
+  // its controls give way to spacers of their size, so nothing invisible takes keyboard focus.
+  const hidden = restoring
+    ? ({
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
+      } as const)
+    : undefined;
+  const concealed = restoring ? styles.hidden : undefined;
   const points = [
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
   ];
   return (
     <ScrollView
+      {...(restoring && {
+        accessible: true,
+        accessibilityRole: 'progressbar',
+        accessibilityLabel: t('onboarding.restoring'),
+        pointerEvents: 'none',
+      })}
       contentContainerStyle={styles.welcome}
+      scrollEnabled={!restoring}
       style={[styles.page, { backgroundColor: colors.brandDeep }]}>
       <View style={styles.welcomeContent}>
-        <View style={[styles.seal, { backgroundColor: colors.brandSeal }]} />
-        <Label
-          accessibilityRole="header"
-          style={[styles.headline, ink]}>
-          {t('onboarding.welcome.title')}
-        </Label>
-        <Label style={[styles.lede, ink]}>
-          {t('onboarding.welcome.description')}
-        </Label>
-        <View style={styles.points}>
+        <Animated.View
+          style={[
+            styles.seal,
+            { backgroundColor: colors.brandSeal, opacity: motion.seal },
+          ]}
+        />
+        <View>
+          <View
+            {...hidden}
+            style={concealed}>
+            <Label
+              accessibilityRole="header"
+              style={[styles.headline, ink]}>
+              {t('onboarding.welcome.title')}
+            </Label>
+          </View>
+          {restoring ? (
+            <Animated.View
+              style={[styles.restoringStatus, { opacity: motion.status }]}>
+              <Label style={[styles.status, ink]}>
+                {t('onboarding.restoring')}
+              </Label>
+            </Animated.View>
+          ) : null}
+        </View>
+        <View
+          {...hidden}
+          style={concealed}>
+          <Label style={[styles.lede, ink]}>
+            {t('onboarding.welcome.description')}
+          </Label>
+        </View>
+        <View
+          {...hidden}
+          style={[styles.points, concealed]}>
           {points.map(({ icon, text }) => (
             <View
               key={icon}
@@ -223,31 +262,35 @@ export function Welcome({
             </View>
           ))}
         </View>
-        <View style={styles.continue}>
-          <OnboardingAction
-            fill="brand"
-            label={t('onboarding.welcome.continue')}
-            onPress={onContinue}
-          />
-        </View>
-        {onPrivacy === undefined ? null : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('settings.destinations.privacy')}
-            onPress={onPrivacy}
-            focusable
-            style={[
-              styles.continue,
-              {
-                minHeight: 44,
-                justifyContent: 'center',
-                alignItems: 'center',
-              },
-            ]}>
-            <Text style={[textStyles.body, ink]}>
-              {t('settings.destinations.privacy')}
-            </Text>
-          </Pressable>
+        {restoring ? (
+          <>
+            <View
+              style={[styles.continue, styles.action, styles.brandAction]}
+            />
+            <View style={[styles.continue, styles.privacy]} />
+          </>
+        ) : (
+          <>
+            <View style={styles.continue}>
+              <OnboardingAction
+                fill="brand"
+                label={t('onboarding.welcome.continue')}
+                onPress={onContinue}
+              />
+            </View>
+            {onPrivacy === undefined ? null : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('settings.destinations.privacy')}
+                onPress={onPrivacy}
+                focusable
+                style={[styles.continue, styles.privacy]}>
+                <Text style={[textStyles.body, ink]}>
+                  {t('settings.destinations.privacy')}
+                </Text>
+              </Pressable>
+            )}
+          </>
         )}
       </View>
     </ScrollView>
