@@ -177,9 +177,15 @@ Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-
 The Expo native journey for a `registration-performance` Release build drives
 the same loop with hardware key presses on iPhone and iPad. Build it with
 `UNWIRED_MOCK_SCENARIO=registration-performance` as in the
-[mobile entry point](../mock-mail-sessions.md#mobile-entry-point), then run
-`pnpm test:native` from `apps/mobile`. Add `UNWIRED_APPEARANCE=light` to audit
-Light; the runner's default is Dark.
+[mobile entry point](../mock-mail-sessions.md#mobile-entry-point), then run it
+on the built app:
+
+```sh
+mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
+```
+
+Add `UNWIRED_APPEARANCE=light` to audit Light; the runner's default is Dark.
 
 The journey signs in with Apple and connects the synthetic Microsoft mailbox.
 Each Command Palette command is typed and run with Return: Account opens Settings,
