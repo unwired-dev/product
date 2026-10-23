@@ -68,27 +68,14 @@ jest.mock(
       'react-native-safe-area-context/jest/mock',
     ).default,
 );
-// oxlint-disable-next-line vitest/prefer-import-in-mock -- Substitute the native split host; mount its actual secondary route.
-jest.mock('expo-router/unstable-split-view', () => {
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Substitute the native split host and keep its column appearance events for the test to deliver.
+jest.mock('react-native-screens/experimental', () => {
   const { createElement } = jest.requireActual<{
     createElement: typeof ReactCreateElement;
   }>('react');
   const { View } = jest.requireActual<{ View: typeof NativeView }>(
     'react-native',
   );
-  const Secondary = jest.requireActual<{ default: typeof MessageRoute }>(
-    '../app/message/[id].tsx',
-  ).default;
-  const Compose = jest.requireActual<{ default: typeof ComposeRoute }>(
-    '../app/compose/[draft].tsx',
-  ).default;
-  const Thread = jest.requireActual<{ default: typeof ThreadRoute }>(
-    '../app/thread/[id].tsx',
-  ).default;
-  const { usePathname, useGlobalSearchParams } = jest.requireMock<{
-    usePathname: () => string;
-    useGlobalSearchParams: () => { draft?: string };
-  }>('expo-router');
   const { useImperativeHandle, useLayoutEffect } = jest.requireActual<{
     useLayoutEffect: typeof ReactUseLayoutEffect;
     useImperativeHandle: typeof ReactUseImperativeHandle;
@@ -99,13 +86,12 @@ jest.mock('expo-router/unstable-split-view', () => {
   const { useCommandRegistry } = jest.requireActual<{
     useCommandRegistry: typeof UseCommandRegistry;
   }>('../src/command-palette.tsx');
-  function SplitView({
+  function Host({
     children,
-    testID,
     ref,
+    ...props
   }: {
     readonly children: ReactNode;
-    readonly testID?: string;
     readonly ref: Ref<Readonly<{ show: (column: string) => void }>>;
   }) {
     useImperativeHandle(ref, () => ({
@@ -117,25 +103,24 @@ jest.mock('expo-router/unstable-split-view', () => {
     useLayoutEffect(() => {
       commands.registry = registry;
     }, [registry]);
-    const pathname = usePathname();
-    const { draft } = useGlobalSearchParams();
-    let detail = pathname === '/thread/[id]' ? Thread : Secondary;
-    if (draft !== undefined) {
-      detail = Compose;
-    }
-    return createElement(View, { testID }, children, createElement(detail));
+    return createElement(View, props, children);
   }
-  SplitView.Column = View;
-  return { SplitView, shown, commands };
+  return {
+    // The native safe-area wrapper supplies no routing behavior.
+    SafeAreaView: View,
+    Split: { Host, Column: View },
+    shown,
+    commands,
+  };
 });
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Router state stands in for native URL delivery; views and stores are real.
 jest.mock('expo-router', () => {
-  const { useSyncExternalStore } = jest.requireActual<{
+  const { createElement, useSyncExternalStore } = jest.requireActual<{
+    createElement: typeof ReactCreateElement;
     useSyncExternalStore: typeof ReactUseSyncExternalStore;
   }>('react');
   let params: Readonly<Record<string, unknown>> = {};
   let pathname = '/';
-  let previous: typeof params | undefined = undefined;
   const listeners = new Set<() => void>();
   const setParams = (next: typeof params) => {
     params = next;
@@ -151,11 +136,31 @@ jest.mock('expo-router', () => {
   };
   const getSnapshot = () => params;
   const useParams = () => useSyncExternalStore(subscribe, getSnapshot);
+  // The secondary column's route. Routes load on first render, once this mock exists for them.
+  function Slot() {
+    const { draft } = useParams();
+    if (draft !== undefined) {
+      return createElement(
+        jest.requireActual<{ default: typeof ComposeRoute }>(
+          '../app/compose/[draft].tsx',
+        ).default,
+      );
+    }
+    return createElement(
+      pathname === '/thread/[id]'
+        ? jest.requireActual<{ default: typeof ThreadRoute }>(
+            '../app/thread/[id].tsx',
+          ).default
+        : jest.requireActual<{ default: typeof MessageRoute }>(
+            '../app/message/[id].tsx',
+          ).default,
+    );
+  }
   return {
+    Slot,
     params: getSnapshot,
     setParams: (next: typeof params) => {
       pathname = '/';
-      previous = undefined;
       setParams(next);
     },
     usePathname: () => {
@@ -176,28 +181,9 @@ jest.mock('expo-router', () => {
         pathname = nextPath;
         setParams(next ?? {});
       },
-      push: ({ params: next }: { readonly params: typeof params }) => {
-        previous = params;
-        pathname = '/thread/[id]';
-        setParams(next);
-      },
-      canGoBack: () => previous !== undefined,
-      back: () => {
-        if (previous !== undefined) {
-          pathname = '/message/[id]';
-          const restored = previous;
-          previous = undefined;
-          setParams(restored);
-        }
-      },
     },
   };
 });
-// oxlint-disable-next-line vitest/prefer-import-in-mock -- The native safe-area wrapper supplies no routing behavior.
-jest.mock('react-native-screens/experimental', () => ({
-  SafeAreaView: jest.requireActual<{ View: typeof NativeView }>('react-native')
-    .View,
-}));
 
 const route = jest.requireMock<{
   params: () => Readonly<Record<string, unknown>>;
@@ -207,7 +193,7 @@ const route = jest.requireMock<{
 const split = jest.requireMock<{
   shown: string[];
   commands: { registry?: CommandRegistry };
-}>('expo-router/unstable-split-view');
+}>('react-native-screens/experimental');
 
 function showMail(profile: string) {
   const gmail = createSyntheticGmail();
@@ -528,6 +514,12 @@ describe('profile-scoped mobile routes', () => {
         screen.getByTestId('mail-split', { includeHiddenElements: true }),
         'collapse',
       );
+      // A column appearing beneath the composer is no Back from the reader; the Draft stays open.
+      await act(() => {
+        screen
+          .getByTestId('inbox-column', { includeHiddenElements: true })
+          .props.onDidAppear();
+      });
       expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull();
       // The keyed format bar moves without retiring its open menu.
       expect(screen.getByRole('button', { name: 'Heading 1' })).toBeVisible();
@@ -798,7 +790,7 @@ describe('profile-scoped mobile routes', () => {
     }
   });
 
-  it('returns a cold-opened Thread to its Work Profile Inbox when Back has no history', async () => {
+  it('leaves a cold-opened Work Profile Thread for its Inbox once a collapsed split view pops it', async () => {
     expect.hasAssertions();
     const id = showMail('work');
     route.setParams({});
@@ -810,42 +802,25 @@ describe('profile-scoped mobile routes', () => {
     await expect(
       screen.findByText('Synthetic garden body.'),
     ).resolves.toBeVisible();
-    split.shown.length = 0;
-    // The system Back pops its native screen, which reports onPop.
-    await act(() => {
-      screen.getByTestId('system-back').props.onPop();
-    });
-    expect(split.shown).toStrictEqual(['supplementary']);
-    expect(screen.queryByText('Synthetic garden body.')).toBeNull();
-    expect(screen.getByLabelText('Search senders and subjects')).toBeVisible();
-    expect(screen.getByRole('button', { name: /Garden plan/u })).toBeVisible();
-  });
-
-  it('returns a pushed Thread to the previous reader instead of replacing it with the Inbox', async () => {
-    expect.hasAssertions();
-    const id = showMail('work');
-    route.setParams({ profileId: 'work', mailbox: 'garden', id });
-    await render(<RootLayout />);
-    await expect(
-      screen.findByRole('button', { name: 'Archive' }),
-    ).resolves.toBeVisible();
-    await act(() => {
-      route.router.push({
-        pathname: '/thread/[id]',
-        params: { profileId: 'work', mailbox: 'garden', id },
+    const appear = async (column: string) => {
+      await act(() => {
+        screen
+          .getByTestId(column, { includeHiddenElements: true })
+          .props.onDidAppear();
       });
-    });
-    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    // The system Back pops its native screen, which reports onPop.
+    };
+    // Beside the reader, a sidebar appearing in an expanded split view leaves the Thread open.
+    await appear('mailboxes-column');
+    expect(screen.getByText('Synthetic garden body.')).toBeVisible();
     await act(() => {
-      screen.getByTestId('system-back').props.onPop();
+      screen.getByTestId('mail-split').props.onCollapse();
     });
-    await expect(
-      screen.findByRole('button', { name: 'Archive' }),
-    ).resolves.toBeVisible();
-    await expect(
-      screen.findByText('Synthetic garden body.'),
-    ).resolves.toBeVisible();
+    split.shown.length = 0;
+    // Collapsed, the system Back pops this Thread, whose link left Mailboxes beneath it.
+    await appear('mailboxes-column');
+    expect(split.shown.at(-1)).toBe('supplementary');
+    expect(route.params()).toStrictEqual({ profileId: 'work' });
+    expect(screen.queryByText('Synthetic garden body.')).toBeNull();
   });
 
   it.each([
