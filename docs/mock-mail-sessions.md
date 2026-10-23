@@ -141,7 +141,9 @@ Outlook update 001 to 125, each with its own body. Every other Gmail body is HTM
 The Mac [performance journey](agents/native-validation.md#mac-performance-journey)
 connects both mailboxes and times its interactions over them; the Mac
 [keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
-drives them by keyboard. CI runs neither.
+drives them by keyboard. The Expo native journey connects the Microsoft mailbox and
+[drives it by hardware keyboard](agents/native-validation.md#iphone-and-ipad-keyboard-and-accessibility-journey)
+on iPhone and iPad. CI runs none of them.
 The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
 adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
 reader. It has no native journey; its evidence comes from the page and the Swift
