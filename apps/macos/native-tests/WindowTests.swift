@@ -1344,7 +1344,8 @@ final class WindowTests: XCTestCase {
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
-  // Every React Native button lacks a press action until #1194, so that gap is not listed per button.
+  // Every React Native button and message link control lacks a press action until #1194, so that gap
+  // is not listed per control.
   private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
@@ -1354,7 +1355,7 @@ final class WindowTests: XCTestCase {
     switch issue.auditType {
     case .contrast where type == .staticText && contrastGaps.contains(label):
       return "#1195"
-    case .action where type == .button:
+    case .action where type == .button || (type == .link && label.hasPrefix("Open link: ")):
       return "#1194"
     case .parentChild where issue.element == nil:
       return "#1194"
@@ -1377,6 +1378,9 @@ final class WindowTests: XCTestCase {
     where issue.compactDescription == "Label duplicates role description"
       && ((type == .image && label == "Image not loaded")
         || (type == .link && label.hasPrefix("Open link: "))):
+      return "#1220"
+    // The same placeholder shows "Image" under that label.
+    case .elementDetection where type == .image && label == "Image not loaded":
       return "#1220"
     default:
       return nil
