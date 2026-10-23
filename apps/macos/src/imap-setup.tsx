@@ -407,7 +407,7 @@ function ManualSending({
           {t('imap.securityLabel')}
         </Text>
         <PopUp
-          quiet
+          variant="field"
           accessibilityLabel={t('imap.smtpSecurity')}
           label={t(`imap.security.${security}`)}
           items={securities.map((choice) => ({

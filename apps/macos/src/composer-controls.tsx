@@ -50,7 +50,13 @@ const styles = StyleSheet.create({
     paddingLeft: 0,
     paddingRight: 0,
   },
+  fieldPopUp: {
+    flex: 1,
+    borderWidth: 1,
+    paddingHorizontal: spacing.s,
+  },
   popUpText: { ...textStyles.body, flexShrink: 1 },
+  fieldPopUpText: { flex: 1 },
 });
 
 type MarkName = `drafts.marks.${Mark}`;
@@ -146,6 +152,7 @@ export function PopUp({
   icon,
   prefix,
   quiet = false,
+  variant = 'compact',
   disabled = false,
   selected = false,
   items,
@@ -155,6 +162,7 @@ export function PopUp({
   readonly icon?: string;
   readonly prefix?: string;
   readonly quiet?: boolean;
+  readonly variant?: 'compact' | 'field';
   readonly disabled?: boolean;
   // Whether the shown choice is in effect, as a chosen sender is and a retained one is not.
   readonly selected?: boolean;
@@ -209,7 +217,15 @@ export function PopUp({
       style={[
         styles.popUp,
         label === undefined ? styles.iconPopUp : null,
-        { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
+        variant === 'field'
+          ? [
+              styles.fieldPopUp,
+              {
+                backgroundColor: colors.surfaceContent,
+                borderColor: colors.separator,
+              },
+            ]
+          : { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
       ]}>
       {icon === undefined ? null : (
         <SFSymbol
@@ -226,12 +242,18 @@ export function PopUp({
         <>
           <Text
             numberOfLines={1}
-            style={[styles.popUpText, { color: colors.textPrimary }]}>
+            style={[
+              styles.popUpText,
+              variant === 'field' ? styles.fieldPopUpText : null,
+              { color: colors.textPrimary },
+            ]}>
             {label}
           </Text>
           <SFSymbol
-            name="chevron.up.chevron.down"
-            size={12}
+            name={
+              variant === 'field' ? 'chevron.down' : 'chevron.up.chevron.down'
+            }
+            size={variant === 'field' ? 16 : 12}
             color={colors.textSecondary}
           />
         </>
