@@ -1278,7 +1278,9 @@ final class InboxTests: XCTestCase {
     waitForFocus(query)
     press("Inbox\n", in: app)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
-    XCTAssertTrue(inbox.waitForExistence(timeout: 10))
+    // Portrait iPad shows the empty reader with the list behind Show Sidebar; Search Mail brings it
+    // forward.
+    XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10))
 
     // Search Mail focuses search, which takes typing, Select All, Cut and Paste; Return submits
     // the query and puts the keyboard away.
