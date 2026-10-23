@@ -113,6 +113,10 @@ it.
   unknown; after **Check Again**, the row says Gmail did not confirm it. Every Mac
   window showing the message shows the same check in progress and the same answer,
   and pressing **Check Again** again while it runs starts no second lookup.
+  If mailbox verification rejects before the lookup, the message stays unknown
+  and **Check Again** returns to idle without a no-confirmation notice. A later
+  activation, mailbox-ready event or **Check Again** can retry verification and
+  the Sent check; the app never resubmits the message automatically.
   If the check finds locked storage, the Inbox hides its mail; device removal
   closes it, and refused Gmail access asks for authorization again, including
   after an offline retry. The delivery outcome remains unknown.
@@ -215,6 +219,9 @@ cover:
   activation, keeping the message queued if the app pauses during verification,
   backing off rejected verification without blocking later entries, and preventing
   submission when native device removal is reported during held verification;
+- deferring automatic unknown recovery and **Check Again** after rejected
+  verification, even with a ready cached Inbox, then checking Sent successfully
+  without another submission once verification recovers;
 - each refusal at Send.
 
 `outbox-lifecycle.test.ts` exercises pause/resume across Undo Send, claims,

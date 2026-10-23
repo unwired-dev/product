@@ -743,15 +743,28 @@ export function createOutbox({
   const hasUnknown = () =>
     drafts.getOutbox().some((entry) => entry.state === 'unknown');
   const pass = async () => {
+    const deferred = new Set<string>();
     // Recovery also owns opening its mailbox after a launch with no Inbox.
     for (const entry of drafts.getOutbox()) {
-      if (running() && entry.state === 'unknown') {
-        await openSender(entry.draft);
+      if (
+        running() &&
+        entry.state === 'unknown' &&
+        !(await openSender(entry.draft))
+      ) {
+        deferred.add(entry.id);
       }
     }
     checkUnknown(false);
     for (const id of checks) {
-      await checkSent(id);
+      if (deferred.has(id)) {
+        // No lookup ran; retire its request and let a later opportunity retry.
+        checks.delete(id);
+        queuedChecks.delete(id);
+        asked.delete(id);
+        publish();
+      } else {
+        await checkSent(id);
+      }
     }
     const now = Date.now();
     for (const entry of drafts.getOutbox()) {
@@ -909,7 +922,8 @@ export function createOutbox({
       return drafts.restore(id);
     },
     // Looks for an unknown message in Gmail's Sent mailbox now, publishing 'checking' at once and
-    // 'unconfirmed' when it stays unknown. Resolves whether it left the Outbox as sent.
+    // 'unconfirmed' when it stays unknown after a lookup, or idle when preparation deferred it.
+    // Resolves whether it left the Outbox as sent.
     check: async (id: string) => {
       const entry = entryOf(id);
       const request: CheckRequest | undefined =

@@ -1,4 +1,6 @@
 /* oxlint-disable vitest/max-expects -- Delivery journeys verify durable state, mailbox recovery and provider copies together. */
+import type { Outbox } from '@private-email/mail-core/outbox';
+
 import { english } from '@private-email/localization';
 import { createDrafts, draftOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
@@ -7,6 +9,7 @@ import {
   outboxCopy,
   undoSendWindow,
 } from '@private-email/mail-core/outbox';
+import { boundaryOf } from '@private-email/mail-core/outgoing-message';
 import {
   createRegistration,
   mailboxesOf,
@@ -276,4 +279,101 @@ describe('outbox cache-only authorization recovery', () => {
       await Promise.all([processing, removing]);
     }
   });
+
+  it.each([
+    {
+      name: 'automatic recovery',
+      recover: (outbox: Outbox) => outbox.resume(),
+    },
+    {
+      name: 'Check Again',
+      recover: (outbox: Outbox, id: string) => outbox.check(id),
+    },
+  ])(
+    'defers $name after verification rejects and later checks Sent without resubmission',
+    async ({ recover }) => {
+      expect.hasAssertions();
+      const phone = await offlineSender();
+      let unsubscribe: (() => void) | undefined = undefined;
+      try {
+        const admitted = present(
+          phone.drafts.getOutbox()[0],
+          'admitted message',
+        );
+        const boundary = present(
+          boundaryOf(admitted.message.segments),
+          'MIME boundary',
+        );
+        // Conflicting Sent evidence retains the real accepted handoff as unknown.
+        const other = phone.gmail.deliver({
+          headers: {
+            'Content-Type': `multipart/alternative; boundary="${boundary}"`,
+          },
+        });
+        phone.gmail.label(other, 'SENT');
+        phone.gmail.failSend({ lost: true });
+        phone.setOnline(true);
+        vi.setSystemTime(Date.now() + undoSendWindow);
+        await phone.outbox.process();
+        const unknown = present(phone.drafts.getOutbox()[0], 'unknown message');
+        expect(unknown.state).toBe('unknown');
+        expect(phone.gmail.sends).toHaveLength(1);
+
+        // Registration loses verification while the existing ready Inbox stays cached.
+        phone.setOnline(false);
+        await phone.registration.resume();
+        expect(
+          mailboxesOf(phone.registration.getSnapshot().snapshot),
+        ).toMatchObject([{ state: 'cached' }]);
+        expect(phone.mailboxes.getConnections()[0]?.state).toMatchObject({
+          kind: 'ready',
+          organize: true,
+        });
+        const sentLists = () =>
+          phone.gmail.requests.filter(
+            ({ path, query }) =>
+              path === 'messages' && query.get('labelIds') === 'SENT',
+          ).length;
+        const before = sentLists();
+        expect(before).toBe(1);
+        let rejections = 0;
+        unsubscribe = phone.registration.subscribe(() => {
+          rejections += 1;
+          throw new Error('Synthetic registration listener defect');
+        });
+        phone.setOnline(true);
+
+        await recover(phone.outbox, phone.id);
+
+        expect(rejections).toBe(1);
+        expect(sentLists()).toBe(before);
+        expect(phone.drafts.getOutbox()).toStrictEqual([unknown]);
+        expect(phone.outbox.getSnapshot()).toMatchObject([
+          { id: phone.id, state: 'unknown', check: 'idle' },
+        ]);
+        expect(
+          outboxCopy(
+            english,
+            present(phone.outbox.getSnapshot()[0], 'deferred message'),
+            'gmail',
+          ).unconfirmed,
+        ).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(rejections).toBe(1);
+        expect(sentLists()).toBe(before);
+        expect(phone.gmail.sends).toHaveLength(1);
+
+        unsubscribe();
+        phone.gmail.setLabel(other, 'SENT', false);
+        await expect(phone.outbox.check(phone.id)).resolves.toBe(true);
+        expect(sentLists()).toBe(before + 1);
+        expect(phone.drafts.getOutbox()).toStrictEqual([]);
+        expect(phone.outbox.getSnapshot()).toStrictEqual([]);
+        expect(phone.gmail.sends).toHaveLength(1);
+      } finally {
+        unsubscribe?.();
+        phone.outbox.dispose();
+      }
+    },
+  );
 });
