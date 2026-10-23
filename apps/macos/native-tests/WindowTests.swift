@@ -953,7 +953,8 @@ final class WindowTests: XCTestCase {
     let environment = ProcessInfo.processInfo.environment
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
-    // Cut and Copy write the desktop's pasteboard; give the person their contents back.
+    // Cut and Copy write the desktop's pasteboard; give the person their contents back unless
+    // something else has written it since the journey's last write.
     let pasteboard = NSPasteboard.general
     let saved = (pasteboard.pasteboardItems ?? []).map { item in
       let copy = NSPasteboardItem()
@@ -962,7 +963,9 @@ final class WindowTests: XCTestCase {
       }
       return copy
     }
+    var written = pasteboard.changeCount
     addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
       pasteboard.clearContents()
       pasteboard.writeObjects(saved)
     }
@@ -987,6 +990,7 @@ final class WindowTests: XCTestCase {
     app.typeKey("x", modifierFlags: .command)
     waitUntil { search.value as? String == "" }
     XCTAssertEqual(pasteboard.string(forType: .string), "Outlook update 003")
+    written = pasteboard.changeCount
     app.typeKey("v", modifierFlags: .command)
     waitUntil { search.value as? String == "Outlook update 003" }
     XCTAssertTrue(row("Outlook update 003").waitForExistence(timeout: 15))
@@ -1028,6 +1032,8 @@ final class WindowTests: XCTestCase {
     // Paste goes through the Edit menu into the body as well.
     app.typeKey("a", modifierFlags: .command)
     app.typeKey("c", modifierFlags: .command)
+    waitUntil { pasteboard.string(forType: .string) == "Keyboard reply" }
+    written = pasteboard.changeCount
     app.typeKey(.rightArrow, modifierFlags: [])
     app.typeKey("v", modifierFlags: .command)
     waitUntil { typed.value as? String == "Keyboard replyKeyboard reply" }
@@ -1109,7 +1115,23 @@ final class WindowTests: XCTestCase {
     }
   }
 
+  // Secondary text that fails or nearly fails the contrast audit (#1195). The audits cover every
+  // open window, so this lists labels rather than screens.
+  private let contrastGaps: Set<String> = [
+    "", "Account & Devices", "Accounts", "All Inboxes. All inboxes · 2 unread", "App",
+    "Application", "Automation", "Colleague 003, colleague003@example.invalid",
+    "Encrypted mailbox list: casey@example.invalid, other@example.invalid.", "Favorites",
+    "Gmail · other@example.invalid", "Go To", "Mailboxes", "Microsoft · casey@example.invalid",
+    "October 2025", "Private sync is on", "Search. 1 message · All inboxes",
+    "Select a message to start reading.", "Selected Message", "September 2025",
+    "Sign-in methods", "Signed in with Apple.",
+    "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
+    "casey@example.invalid, other@example.invalid are connected on this device.",
+    "relay@privaterelay.example.invalid",
+  ]
+
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
+  // Every React Native button lacks a press action until #1194, so that gap is not listed per button.
   private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
@@ -1117,7 +1139,7 @@ final class WindowTests: XCTestCase {
     let touchBar =
       type == .touchBar || (type == .popUpButton && ["list style", "text alignment"].contains(label))
     switch issue.auditType {
-    case .contrast where type == .staticText:
+    case .contrast where type == .staticText && contrastGaps.contains(label):
       return "#1195"
     case .action where type == .button:
       return "#1194"
