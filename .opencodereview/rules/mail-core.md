@@ -728,10 +728,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Stop that entry's preparation before mailbox loading, submission or accepted
   message filing, retain allow-listed diagnostics, and let queued/filing entries
   reach their existing per-entry backoff while later entries continue. Trace all
-  callers, including unknown preparation, without adding automatic resubmission
-  or a new unknown retry policy. An outer process catch alone skips per-entry
-  scheduling and later work; logging and continuing can submit after failed
-  verification, while an immediately due queued entry can spin without backoff.
+  callers and later dispatch loops: failed unknown preparation must suppress both
+  prequeued explicit and automatically queued Sent lookups, even with a ready
+  cached Inbox. Settle Check Again without claiming an unperformed lookup and
+  preserve eligibility for a later authorized opportunity, without immediate retry,
+  automatic resubmission or a new unknown retry policy. An outer process catch
+  alone skips per-entry scheduling and later work; logging and continuing can
+  submit after failed verification, while an immediately due queued entry can
+  spin without backoff.
 - `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
   interrupted by generation renewal, closure or owner invalidation as a completed
   automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence

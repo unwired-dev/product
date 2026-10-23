@@ -714,7 +714,15 @@ export function createOutbox({
   let passing: Promise<void> | undefined = undefined;
   let requested = false;
   // A single Sent lookup owns its deduplication markers until the provider settles.
-  const checkSent = async (id: string) => {
+  const checkSent = async (id: string, deferred: boolean) => {
+    if (deferred) {
+      // No lookup ran; retire its request and let a later opportunity retry.
+      checks.delete(id);
+      queuedChecks.delete(id);
+      asked.delete(id);
+      publish();
+      return;
+    }
     if (!running()) {
       return;
     }
@@ -756,15 +764,7 @@ export function createOutbox({
     }
     checkUnknown(false);
     for (const id of checks) {
-      if (deferred.has(id)) {
-        // No lookup ran; retire its request and let a later opportunity retry.
-        checks.delete(id);
-        queuedChecks.delete(id);
-        asked.delete(id);
-        publish();
-      } else {
-        await checkSent(id);
-      }
+      await checkSent(id, deferred.has(id));
     }
     const now = Date.now();
     for (const entry of drafts.getOutbox()) {
