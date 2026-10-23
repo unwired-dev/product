@@ -63,8 +63,8 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
 1. Enumerate all open issues labelled `ready-for-agent` without the
    `in progress` claim, following every page, for example
    `gh issue list --label ready-for-agent --search '-label:"in progress"' --limit 1000`.
-   Exclude pull requests, `ready-for-human`, `human needed`, and `wontfix`
-   issues, plus issues with an open implementation PR or other clear evidence
+   Exclude pull requests, `ready-for-human`, `ready-for-test`, `human needed`,
+   and `wontfix` issues, plus issues with an open implementation PR or other clear evidence
    of active implementation. Apply any narrower scope the user
    supplied. Do not infer readiness from age or priority alone.
 2. Read the organization's native **Priority issue field**, not a GitHub Projects

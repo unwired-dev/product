@@ -191,6 +191,7 @@ final class InboxTests: XCTestCase {
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
+    verifyCompactReaderBack(app)
     if UIDevice.current.userInterfaceIdiom == .phone {
       // Landscape leaves little room above the keyboard; Search and its explanation stay reachable.
       XCUIDevice.shared.orientation = .landscapeLeft
@@ -250,6 +251,7 @@ final class InboxTests: XCTestCase {
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
+    verifyCompactReaderBack(app)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
@@ -1312,6 +1314,7 @@ final class InboxTests: XCTestCase {
     shot.name = "Selected message"
     shot.lifetime = .keepAlways
     add(shot)
+    verifyCompactReaderBack(app)
     verifyCompactSwipeBack(app, reader: sender, row: maya)
     let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
       .firstMatch
@@ -1522,7 +1525,23 @@ final class InboxTests: XCTestCase {
       row.tap()
       XCTAssertTrue(reader.waitForExistence(timeout: 10))
       waitUntil { reader.isHittable }
+      verifyCompactReaderBack(app)
     }
+  }
+
+  // #1051: the compact reader's only Back is the navigation bar's system Back, which UIKit's edge
+  // swipe needs; no custom Back pill is drawn beside it, and the reader's surface fills the bar.
+  private func verifyCompactReaderBack(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let back = NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
+    XCTAssertEqual(app.buttons.matching(back).count, 1)
+    XCTAssertEqual(app.navigationBars.buttons.matching(back).count, 1)
+    let bar = app.navigationBars.firstMatch.frame
+    let x = app.windows.firstMatch.frame.maxX - 8
+    let colors = pixels(app, at: [CGPoint(x: x, y: bar.midY), CGPoint(x: x, y: bar.maxY + 150)])
+    XCTAssertTrue(
+      zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+      "The bar \(colors[0]) differs from the reader surface \(colors[1])")
   }
 
   // A leading-edge swipe across the iPhone window. A held release leaves the position to decide, so

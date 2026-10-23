@@ -379,6 +379,9 @@ styles) so the file stays editable.
   then every message expanded newest to oldest with compact sender-and-date headers,
   disclosed recipients, bodies and thin separators, per the
   [reader loading and image requirements](docs/product/messages-and-delivery.md#thread-identity-and-reader-behavior).
+  On iPhone the navigation bar's system Back returns to the list and shows the
+  mailbox's unread count on a disk beside its chevron, as Mail does; the subject
+  sits on a fixed row beneath the bar.
   Received attachments sit below their message body, with availability and actions
   following the [received-attachment contract](docs/gmail-inbox.md#received-attachments).
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
