@@ -1589,6 +1589,51 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
   });
 
+  it('turns off the system Sign in with Apple button and Google while a sign-in runs (#1127)', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-declined');
+    let answer: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Apple's answer until checked.
+    const held = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    await render(
+      <RegistrationGate
+        store={started(
+          createRegistration({
+            ...synthetic.vault,
+            signInIdentity: async (...request) => {
+              await held;
+              return synthetic.vault.signInIdentity(...request);
+            },
+          }),
+        )}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await continueToSignIn();
+    const apple = await screen.findByTestId('sign-in-with-apple');
+    expect(apple).toHaveProp('enabled', true);
+    await act(async () => {
+      await fireEvent.press(apple);
+    });
+    expect(screen.getByTestId('sign-in-with-apple')).toHaveProp(
+      'enabled',
+      false,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Sign in with Google' }),
+    ).toBeDisabled();
+    await act(async () => {
+      answer();
+      await held;
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Connect your mail' }),
+    ).resolves.toBeVisible();
+  });
+
   it('continues Apple sign-in into separate Gmail authorization and keeps the relay address as contact information', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the provider choice and the Gmail grant. */
     expect.hasAssertions();
@@ -1602,9 +1647,7 @@ describe('product registration', () => {
     );
     await continueToSignIn();
     await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Sign in with Apple' }),
-      );
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
     });
     await expect(
       screen.findByRole('header', { name: 'Connect your mail' }),
@@ -1680,7 +1723,9 @@ describe('product registration', () => {
       });
     };
     await press('Continue');
-    await press('Sign in with Apple');
+    await act(async () => {
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
+    });
     // Sign-in alone asks no provider for mail; the person chooses one.
     await expect(
       screen.findByRole('header', { name: 'Connect your mail' }),
@@ -1888,7 +1933,9 @@ describe('product registration', () => {
       });
     };
     await press('Continue');
-    await press('Sign in with Apple');
+    await act(async () => {
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
+    });
     await press('Choose another Google mailbox');
     await settings('Privacy & Data');
     // Each pop-up shows its policy, and its menu checks the same one.
@@ -2578,9 +2625,7 @@ describe('product registration', () => {
     );
     await continueToSignIn();
     await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Sign in with Apple' }),
-      );
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
     });
     await act(async () => {
       await fireEvent.press(

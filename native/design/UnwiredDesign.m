@@ -4,6 +4,7 @@
 // SF Symbols for both hosts and the Mac's Liquid Glass; the hosts target iOS and macOS 27.
 #if TARGET_OS_OSX
 #import <AppKit/AppKit.h>
+#import <AuthenticationServices/AuthenticationServices.h>
 
 typedef NSView UnwiredPlatformView;
 
@@ -75,6 +76,61 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 @end
 
 @implementation UnwiredGlassView
+@end
+
+// The system Sign in with Apple button, black in Light and white in Dark per Apple's button styles.
+// Its style is fixed at creation, so an appearance change replaces it. Remove this view when React
+// Native macOS or a maintained package offers the button with an enabled state and both styles.
+@interface UnwiredAppleIDButtonView : NSView
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onPress;
+@end
+
+@implementation UnwiredAppleIDButtonView {
+  ASAuthorizationAppleIDButton *_button;
+  BOOL _dark;
+}
+- (instancetype)initWithFrame:(NSRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _enabled = YES;
+    [self render];
+  }
+  return self;
+}
+- (void)setEnabled:(BOOL)enabled { _enabled = enabled; _button.enabled = enabled; }
+- (void)viewDidChangeEffectiveAppearance
+{
+  [super viewDidChangeEffectiveAppearance];
+  [self render];
+}
+- (void)render
+{
+  BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:@[
+    NSAppearanceNameAqua, NSAppearanceNameDarkAqua
+  ]] isEqualToString:NSAppearanceNameDarkAqua];
+  if (_button != nil && dark == _dark) return;
+  _dark = dark;
+  ASAuthorizationAppleIDButton *button = [ASAuthorizationAppleIDButton
+      buttonWithType:ASAuthorizationAppleIDButtonTypeSignIn
+               style:dark ? ASAuthorizationAppleIDButtonStyleWhite : ASAuthorizationAppleIDButtonStyleBlack];
+  button.cornerRadius = 8;
+  button.enabled = self.enabled;
+  button.target = self;
+  button.action = @selector(press);
+  button.frame = self.bounds;
+  button.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  if (_button == nil) {
+    [self addSubview:button];
+  } else {
+    [self replaceSubview:_button with:button];
+  }
+  _button = button;
+}
+- (void)press
+{
+  if (self.onPress) self.onPress(@{});
+}
 @end
 #else
 #import <UIKit/UIKit.h>
@@ -552,5 +608,15 @@ RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 RCT_EXPORT_MODULE(UnwiredGlass)
 RCT_EXPORT_VIEW_PROPERTY(cornerRadius, CGFloat)
 - (UnwiredPlatformView *)view { return [UnwiredGlassView new]; }
+@end
+
+@interface UnwiredAppleIDButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredAppleIDButtonManager
+RCT_EXPORT_MODULE(UnwiredAppleIDButton)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredAppleIDButtonView new]; }
 @end
 #endif
