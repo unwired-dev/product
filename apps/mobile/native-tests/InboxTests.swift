@@ -1375,7 +1375,7 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // Why each issue the audits still find is not the app's to fix.
+  // The owner of each known gap, or why it is not the app's to fix.
   private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue, on screen: String)
     -> String?
   {
@@ -1385,7 +1385,9 @@ final class InboxTests: XCTestCase {
     case .sufficientElementDescription where issue.detailedDescription.contains("TUIPrediction"):
       return "system keyboard"
     // An address is the readable name of a sender or, in Settings, of the signed-in account.
-    case .sufficientElementDescription where label.contains("@"):
+    case .sufficientElementDescription
+    where issue.element?.elementType == .staticText
+      && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
     // Text the audit locates no element for, over the reader; iPad's composer leaves it in view.
     case .elementDetection where ["Reader", "Composer"].contains(screen) && issue.element == nil:
