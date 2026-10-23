@@ -166,6 +166,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A desktop journey such as `WindowTests.testKeyboardAndAccessibility` restoring
+  a saved pasteboard unconditionally. Snapshot its representations before the
+  journey writes, record `changeCount` after each owned Cut or Copy, and restore
+  only while the last write is still owned. Guaranteed teardown alone does not
+  establish ownership; otherwise it erases content copied later by the person
+  or another application.
+
 - A software-keyboard journey such as `InboxTests.sendJourney` using burst
   `typeText` or an unconfirmed character loop when the field can drop keystrokes
   during keyboard presentation or rerendering. Reuse `InboxTests.type(_:into:)`
