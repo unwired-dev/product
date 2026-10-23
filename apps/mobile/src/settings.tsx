@@ -418,8 +418,8 @@ export function SettingsWorkspace({
       </View>
     );
   }
-  if (destination !== undefined) {
-    const page = (
+  const page =
+    destination === undefined ? undefined : (
       <View style={styles.page}>
         <AccountHeader
           title={t(`settings.destinations.${destination}`)}
@@ -440,10 +440,8 @@ export function SettingsWorkspace({
         {content}
       </View>
     );
-    if (destination !== 'privacy') {
-      return page;
-    }
-    return (
+  const shown =
+    destination === 'privacy' ? (
       <ScreenStack style={styles.page}>
         <ScreenStackItem
           screenId="privacy-settings"
@@ -484,16 +482,18 @@ export function SettingsWorkspace({
           </ScreenStackItem>
         )}
       </ScreenStack>
+    ) : (
+      page
     );
-  }
-  return (
+  const list = (
     <View style={styles.page}>
       <AccountHeader
         title={t('settings.title')}
         accessory={accessory}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        {children}
+        {/* `children` are the shown destination's groups once one is pushed. */}
+        {destination === undefined ? children : null}
         <Pressable
           accessibilityLabel={t('settings.destinations.account')}
           accessibilityRole="button"
@@ -548,6 +548,41 @@ export function SettingsWorkspace({
         ))}
       </ScrollView>
     </View>
+  );
+  // The welcome screen's Privacy page is pushed by its own stack, with no list beneath.
+  if (onWelcome !== undefined) {
+    return shown;
+  }
+  // The list stays beneath its pushed destination, so the edge swipe pops back to it as Back does.
+  return (
+    <ScreenStack style={styles.page}>
+      <ScreenStackItem
+        screenId="settings-list"
+        activityState={2}
+        freezeOnBlur={false}
+        headerConfig={{ hidden: true }}>
+        <View
+          style={styles.page}
+          accessibilityElementsHidden={shown !== undefined}
+          importantForAccessibility={
+            shown === undefined ? 'auto' : 'no-hide-descendants'
+          }>
+          {list}
+        </View>
+      </ScreenStackItem>
+      {shown === undefined ? null : (
+        <ScreenStackItem
+          screenId="settings-destination"
+          activityState={2}
+          headerConfig={{ hidden: true }}
+          gestureEnabled
+          onDismissed={() => {
+            onDestination(undefined);
+          }}>
+          {shown}
+        </ScreenStackItem>
+      )}
+    </ScreenStack>
   );
 }
 

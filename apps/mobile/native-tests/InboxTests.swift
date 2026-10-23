@@ -453,6 +453,42 @@ final class InboxTests: XCTestCase {
     top.name = "Thread scrolled to its newest message"
     top.lifetime = .keepAlways
     add(top)
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    // The cold-opened Thread view has no Inbox beneath it to swipe back to; its Back shows one. The
+    // Inbox opens the Thread's newest message in the reader, then the field guide's HTML.
+    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+    let thread = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail maintenance"))
+      .firstMatch
+    XCTAssertTrue(thread.waitForExistence(timeout: 10))
+    thread.tap()
+    verifyScrolledSwipeBack(app, row: thread, text: app.staticTexts["Crew 6, note 20."].firstMatch)
+    let guide = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
+      .firstMatch
+    guide.tap()
+    verifyScrolledSwipeBack(
+      app, row: guide, text: app.staticTexts["Field guide, section 20."].firstMatch)
+    let back = app.buttons["Back to Mailboxes"]
+    // Settings covers the mail on iPhone. From a destination, a swipe released early keeps it, a
+    // completed one returns to the list of destinations, and another to the Mailboxes beneath.
+    back.tap()
+    let account = app.buttons["Account"]
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
+    let settings = app.buttons["Account & Devices"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.tap()
+    let destination = app.buttons["Back to Settings"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    edgeSwipe(app, completing: false)
+    waitUntil { destination.isHittable }
+    edgeSwipe(app, completing: true)
+    waitUntil { settings.isHittable && !destination.exists }
+    edgeSwipe(app, completing: true)
+    waitUntil { account.isHittable && !settings.exists }
+    let mailboxes = XCTAttachment(screenshot: app.screenshot())
+    mailboxes.name = "Mailboxes after swiping back from Settings"
+    mailboxes.lifetime = .keepAlways
+    add(mailboxes)
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -1456,6 +1492,47 @@ final class InboxTests: XCTestCase {
       thenDragTo: window.coordinate(
         withNormalizedOffset: CGVector(dx: completing ? 0.9 : 0.25, dy: 0.5)),
       withVelocity: completing ? .fast : .slow, thenHoldForDuration: completing ? 0 : 0.3)
+  }
+
+  // #976: after scrolling a body taller than the screen until `text` shows, an iPhone edge swipe
+  // released early keeps the reading position, and a completed one returns to an Inbox that no
+  // longer selects `row`.
+  private func verifyScrolledSwipeBack(
+    _ app: XCUIApplication, row: XCUIElement, text: XCUIElement
+  ) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let window = app.windows.firstMatch.frame
+    let onScreen = { text.exists && window.contains(CGPoint(x: text.frame.midX, y: text.frame.midY)) }
+    XCTAssertTrue(text.waitForExistence(timeout: 20))
+    XCTAssertFalse(onScreen(), "The body fits on the screen")
+    for _ in 0..<10 where !onScreen() {
+      app.swipeUp(velocity: .slow)
+    }
+    XCTAssertTrue(onScreen())
+    let reading = settledFrame(of: text)
+    let back = app.buttons["Back to Mailboxes"]
+    edgeSwipe(app, completing: false)
+    waitUntil { onScreen() && !back.exists }
+    XCTAssertEqual(settledFrame(of: text).minY, reading.minY, accuracy: 2)
+    edgeSwipe(app, completing: true)
+    XCTAssertTrue(back.waitForExistence(timeout: 10))
+    waitUntil { row.isHittable && !row.isSelected && !text.exists }
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Inbox after swiping back from a scrolled body"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
+  // The element's frame once two separate polls see it unchanged, after scrolling momentum or a
+  // transition has settled.
+  private func settledFrame(of element: XCUIElement) -> CGRect {
+    var previous = CGRect.null
+    waitUntil {
+      let frame = element.frame
+      defer { previous = frame }
+      return frame == previous
+    }
+    return previous
   }
 
   // #1066: an iPhone edge swipe from a reader opened in search results returns to those results
