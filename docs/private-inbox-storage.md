@@ -196,8 +196,8 @@ opens in the Default Profile. Closing a targeted reader returns to the same
 Profile's Inbox. Malformed Profile selectors, including repeated link parameters,
 remain unavailable.
 Signing into another Product Account retires the preceding account's switcher
-route. A new targeted link received during setup keeps its target, including an
-unavailable target, instead of opening a fallback Inbox.
+route. A targeted link received during setup, including a redelivered identical
+link, keeps its target even when unavailable instead of opening a fallback Inbox.
 Changing a window's Profile retires its previous reader presentation and clears
 its search and mailbox choice.
 The unified and single-mailbox Inbox, local and online search, the reader

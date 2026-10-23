@@ -40,6 +40,7 @@ import {
 import {
   Alert,
   DeviceEventEmitter,
+  Linking,
   StyleSheet,
   TurboModuleRegistry,
 } from 'react-native';
@@ -1197,36 +1198,67 @@ describe('the mobile Profile Switcher', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
-  it('drops the previous Product Account’s switched Profile after signing into another account', async () => {
-    expect.hasAssertions();
-    try {
-      savedPreferences(new Map());
-      showMail('work');
-      route.setParams({});
-      const app = await render(view());
-      await choose('Mail Profile, Primary Profile', 'profile\nwork');
-      await expect(
-        screen.findByLabelText('Mail Profile, Work'),
-      ).resolves.toBeVisible();
-      // The same window, after signing out and into another Product Account.
-      await app.rerender(view(undefined, 'another-product-account'));
-      await expect(
-        screen.findByLabelText('Mail Profile, Primary Profile'),
-      ).resolves.toBeVisible();
-      expect(route.params()).toStrictEqual({});
-    } finally {
-      jest.restoreAllMocks();
-    }
-  });
-
-  it.each([
-    { profileId: defaultProfile, heading: 'Garden plan' },
-    { profileId: ['work', 'work'], heading: 'Message unavailable' },
-  ])(
-    'keeps a new targeted link when another account opens: $heading',
-    async ({ profileId, heading }) => {
+  it.each([false, true])(
+    'drops the previous Product Account’s switched Profile after signing into another account, after link %s',
+    async (redelivered) => {
       expect.hasAssertions();
       try {
+        jest
+          .spyOn(Linking, 'addEventListener')
+          .mockImplementation((type, listener) =>
+            DeviceEventEmitter.addListener(type, listener),
+          );
+        savedPreferences(new Map());
+        showMail('work');
+        route.setParams({});
+        const app = await render(view());
+        await choose('Mail Profile, Primary Profile', 'profile\nwork');
+        await expect(
+          screen.findByLabelText('Mail Profile, Work'),
+        ).resolves.toBeVisible();
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Each fixed table case checks route retirement with or without a preceding URL event.
+        if (redelivered) {
+          await act(() => {
+            DeviceEventEmitter.emit('url', {
+              url: 'unwired-mail://?profileId=work',
+            });
+          });
+        }
+        // The same window, after signing out and into another Product Account.
+        await app.rerender(view(undefined, 'another-product-account'));
+        await expect(
+          screen.findByLabelText('Mail Profile, Primary Profile'),
+        ).resolves.toBeVisible();
+        expect(route.params()).toStrictEqual({});
+      } finally {
+        jest.restoreAllMocks();
+      }
+    },
+  );
+
+  it.each([
+    { profileId: defaultProfile, heading: 'Garden plan', redelivered: false },
+    {
+      profileId: ['work', 'work'],
+      heading: 'Message unavailable',
+      redelivered: false,
+    },
+    { profileId: defaultProfile, heading: 'Garden plan', redelivered: true },
+    {
+      profileId: ['work', 'work'],
+      heading: 'Message unavailable',
+      redelivered: true,
+    },
+  ])(
+    'keeps a targeted link when another account opens: $heading, redelivered $redelivered',
+    async ({ profileId, heading, redelivered }) => {
+      expect.hasAssertions();
+      try {
+        jest
+          .spyOn(Linking, 'addEventListener')
+          .mockImplementation((type, listener) =>
+            DeviceEventEmitter.addListener(type, listener),
+          );
         savedPreferences(new Map());
         showMail('work');
         route.setParams({});
@@ -1235,8 +1267,22 @@ describe('the mobile Profile Switcher', () => {
         await screen.findByLabelText('Mail Profile, Work');
         const id = showMail(defaultProfile);
         const params = { mailbox: 'garden', id, profileId };
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Each fixed table case checks a fresh or cached target without duplicating the journey.
+        if (redelivered) {
+          await act(() => {
+            route.router.replace({ pathname: '/message/[id]', params });
+          });
+          await screen.findByRole('header', { name: heading });
+        }
         // A new link arrives while the gate admits another account, replacing the old route.
         await act(async () => {
+          DeviceEventEmitter.emit('url', {
+            url: `unwired-mail://message/${id}?mailbox=garden&${[profileId]
+              .flat()
+              .map((selector) => `profileId=${selector}`)
+              .join('&')}`,
+          });
+          // Expo Router interns identical route info, including its params object.
           route.router.replace({ pathname: '/message/[id]', params });
           await app.rerender(view(undefined, 'another-product-account'));
         });

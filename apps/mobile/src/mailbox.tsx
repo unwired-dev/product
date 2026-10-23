@@ -187,10 +187,10 @@ export function WindowProfileScope({
   useEffect(() => {
     if (foreign) {
       router.replace({ pathname: '/' });
-    } else if (account !== undefined) {
+    } else if (account !== undefined && routeAccount !== account.account) {
       onRouteAccount(account.account);
     }
-  }, [foreign, account, onRouteAccount]);
+  }, [foreign, account, routeAccount, onRouteAccount]);
   const choices = useSyncExternalStore(
     profileChoices.subscribe,
     profileChoices.getSnapshot,

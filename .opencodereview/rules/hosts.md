@@ -938,8 +938,10 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   from account retirement, and associate a mobile route owner with the route it
   actually observed. Exercise both an unchanged switcher route and a new message
   link received while the gate admits another account, including malformed
-  selectors. Otherwise the old choice strands the new account in an unlisted
-  Profile, or retiring it erases a new target and incorrectly opens a fallback.
+  selectors and redelivered identical URLs. Router's interned parameter snapshots
+  do not identify delivery events. Otherwise the old choice strands the new
+  account in an unlisted Profile, or retiring it erases a new target and
+  incorrectly opens a fallback.
 
 - For `mailbox.tsx.WindowProfileScope` and other Profile restoration, check the
   accepted window scope in `docs/private-inbox-storage.md` first. #1037 restores

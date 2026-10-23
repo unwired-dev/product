@@ -16,16 +16,10 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
+  Linking,
   Platform,
   StyleSheet,
   TurboModuleRegistry,
@@ -477,16 +471,15 @@ export default function RootLayout() {
       account: string;
     }>
   >();
-  const ownRoute = useCallback(
-    (account: string) => {
-      setRouteAccount((current) =>
-        current?.params === params && current.account === account
-          ? current
-          : { params, account },
-      );
-    },
-    [params],
-  );
+  useEffect(() => {
+    // Router reuses params for identical URLs; a delivered link has no preceding account owner.
+    const subscription = Linking.addEventListener('url', () => {
+      setRouteAccount(undefined);
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
   return (
     <RegistrationGate>
       <InboxProvider>
@@ -498,7 +491,9 @@ export default function RootLayout() {
             routeAccount={
               routeAccount?.params === params ? routeAccount.account : undefined
             }
-            onRouteAccount={ownRoute}
+            onRouteAccount={(account) => {
+              setRouteAccount({ params, account });
+            }}
             link={
               profileId === undefined && id !== undefined
                 ? defaultProfile
