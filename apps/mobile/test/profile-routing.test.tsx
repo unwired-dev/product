@@ -1149,7 +1149,7 @@ describe('the mobile Profile Switcher', () => {
       const prompt = jest.spyOn(Alert, 'prompt').mockReturnValue(undefined);
       showMail(defaultProfile);
       route.setParams({});
-      await render(<RootLayout />);
+      const app = await render(<RootLayout />);
       await screen.findByLabelText('Mail Profile, Primary Profile');
       await choose('Mail Profile, Primary Profile', 'profile\nmanage');
       const work = await screen.findByRole('button', { name: 'Work' });
@@ -1188,6 +1188,16 @@ describe('the mobile Profile Switcher', () => {
       });
       const family = await screen.findByRole('button', { name: 'Family' });
       expect(family.props.accessibilityHint).toBe('No mailboxes');
+      // Startup Profile is only for a new window, not the shell under Settings.
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
+      await expect(
+        screen.findByLabelText('Mail Profile, Primary Profile'),
+      ).resolves.toBeVisible();
+      await app.unmount();
+      await render(<RootLayout />);
+      await expect(
+        screen.findByLabelText('Mail Profile, Office'),
+      ).resolves.toBeVisible();
     } finally {
       store.restore();
       mode.restore();

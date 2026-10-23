@@ -1,6 +1,7 @@
 import type { Drafts } from '@private-email/mail-core/drafts';
 import type { ViewScope } from '@private-email/mail-core/mailboxes';
 import type { Outbox } from '@private-email/mail-core/outbox';
+import type { ProfileChoicesStore } from '@private-email/mail-core/profile-windows';
 import type { ReactNode } from 'react';
 
 import { createComposerNavigation } from '@private-email/mail-core/composer-navigation';
@@ -31,7 +32,6 @@ import type {
 
 import { useLocalization } from './localization.ts';
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
-import { profileChoices } from './profile-choices.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
   drafts as defaultDrafts,
@@ -157,9 +157,11 @@ export function WindowProfileScope({
   link: routed,
   routeAccount,
   onRouteAccount,
+  savedChoices,
   children,
 }: {
   readonly link: unknown;
+  readonly savedChoices: ProfileChoicesStore;
   // The Product Account the route's Profile was chosen in, kept above the registration gate.
   readonly routeAccount: string | undefined;
   readonly onRouteAccount: (account: string) => void;
@@ -183,12 +185,14 @@ export function WindowProfileScope({
     }
   }, [foreign, account, routeAccount, onRouteAccount]);
   const choices = useSyncExternalStore(
-    profileChoices.subscribe,
-    profileChoices.getSnapshot,
+    savedChoices.subscribe,
+    savedChoices.getSnapshot,
   );
   useEffect(() => {
-    void profileChoices.load();
-  }, []);
+    if (savedChoices.getSnapshot() === undefined) {
+      void savedChoices.load();
+    }
+  }, [savedChoices]);
   const profile = windowProfile({
     link,
     restored: choices?.restored,
@@ -197,9 +201,9 @@ export function WindowProfileScope({
   });
   useEffect(() => {
     if (choices !== undefined && link !== undefined && profile !== '') {
-      void profileChoices.restore(profile);
+      void savedChoices.restore(profile);
     }
-  }, [choices, link, profile]);
+  }, [choices, link, profile, savedChoices]);
   // Until the saved choices are read, a window without a link shows no Profile yet.
   return choices === undefined && link === undefined ? null : (
     <ProfileScope profile={profile}>{children}</ProfileScope>

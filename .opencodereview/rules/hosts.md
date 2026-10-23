@@ -974,6 +974,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   account in an unlisted Profile, or retiring it erases a new target and
   incorrectly opens a fallback.
 
+- `window.tsx.ProfileWindow` or `mailbox.tsx.WindowProfileScope` deriving an
+  open window's fallback from Settings' live Startup Profile subscription.
+  Keep launch choices owned above transient registration gates and separate
+  from the editable device preference. Exercise changing Startup Profile before
+  any explicit Profile switch, return from Settings and a newly opened window;
+  otherwise a preference for future windows redirects a live reader or composer
+  without its Profile-switch guard.
+
 - For `mailbox.tsx.WindowProfileScope` and other Profile restoration, check the
   accepted window scope in `docs/private-inbox-storage.md` first. #1037 restores
   the single iPad window like iPhone; independent iPad windows belong to #1200.

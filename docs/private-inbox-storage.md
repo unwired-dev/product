@@ -198,8 +198,8 @@ can be edited for every Profile except the Primary Profile; an empty or unchange
 name changes nothing, and a refused rename restores the listed name and asks to
 try again. The **Startup Profile** pop-up under This Device saves the choice only
 on this device; with none saved, or once its Profile is no longer listed, it shows
-and opens the Primary Profile. On iPhone and iPad it applies only until a link or
-the switcher chooses the window's Profile.
+and opens the Primary Profile. Changing it leaves every open window in its
+current Profile; the new choice applies when a new window opens.
 
 On iPhone/iPad, a message link with a `profileId` parameter opens only in that
 Profile; an old-form message or Thread link without one, from before Profiles,

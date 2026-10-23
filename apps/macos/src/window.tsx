@@ -1,4 +1,5 @@
 import type { openedTarget } from '@private-email/mail-core/notifications';
+import type { ProfileChoicesStore } from '@private-email/mail-core/profile-windows';
 
 import {
   commandTarget,
@@ -8,7 +9,7 @@ import { followOpenedNotifications } from '@private-email/mail-core/notification
 import { windowProfile } from '@private-email/mail-core/profile-windows';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useState, useSyncExternalStore } from 'react';
+import { use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
@@ -33,7 +34,7 @@ import {
 } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
-import { profileChoices } from './profile-choices.ts';
+import { createWindowProfileChoices } from './profile-choices.ts';
 import {
   AccountContext,
   RegistrationGate,
@@ -115,12 +116,14 @@ type ProfileChoice = Readonly<{
 
 export function PreviewWindow({ windowId, profile }: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
+  const savedChoices = useMemo(() => createWindowProfileChoices(), []);
   return (
     <CommandPaletteProvider windowId={windowId}>
       <ProfileWindow
         windowId={windowId}
         profile={profile}
         choice={choice}
+        savedChoices={savedChoices}
         onChoose={setChoice}
       />
     </CommandPaletteProvider>
@@ -134,11 +137,13 @@ function ProfileWindow({
   windowId,
   profile: restored,
   choice,
+  savedChoices,
   onChoose,
 }: {
   readonly windowId: string;
   readonly profile: string | undefined;
   readonly choice: ProfileChoice | undefined;
+  readonly savedChoices: ProfileChoicesStore;
   readonly onChoose: (choice: ProfileChoice) => void;
 }) {
   const account = use(AccountContext);
@@ -151,12 +156,14 @@ function ProfileWindow({
     onChoose({ account: account?.account ?? '', choice: next });
   };
   const choices = useSyncExternalStore(
-    profileChoices.subscribe,
-    profileChoices.getSnapshot,
+    savedChoices.subscribe,
+    savedChoices.getSnapshot,
   );
   useEffect(() => {
-    void profileChoices.load();
-  }, []);
+    if (savedChoices.getSnapshot() === undefined) {
+      void savedChoices.load();
+    }
+  }, [savedChoices]);
   const link = typeof current === 'string' ? current : current?.profile;
   const profile = windowProfile({
     link,
@@ -438,6 +445,7 @@ function WindowContents({
 
 export function InboxWindow({ windowId, profile }: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
+  const savedChoices = useMemo(() => createWindowProfileChoices(), []);
   // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
     <CommandPaletteProvider windowId={windowId}>
@@ -446,6 +454,7 @@ export function InboxWindow({ windowId, profile }: WindowProps) {
           windowId={windowId}
           profile={profile}
           choice={choice}
+          savedChoices={savedChoices}
           onChoose={setChoice}
         />
       </RegistrationGate>

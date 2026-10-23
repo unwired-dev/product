@@ -1653,12 +1653,23 @@ describe('mac windows of different Mail Profiles', () => {
     showMailboxes(singleMailbox(inbox, alex));
     const nativeRegistration = TurboModuleRegistry.getEnforcing<
       TurboModule & {
+        preference: (key: string) => Promise<unknown>;
         setPreference: (key: string, value: string) => Promise<unknown>;
       }
     >('UnwiredRegistration');
+    const saved = new Map<string, string>();
+    const reading = jest
+      .spyOn(nativeRegistration, 'preference')
+      .mockImplementation((key) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- An unsaved preference reads as null.
+        Promise.resolve({ value: saved.get(key) ?? null }),
+      );
     const saving = jest
       .spyOn(nativeRegistration, 'setPreference')
-      .mockResolvedValue({});
+      .mockImplementation((key, value) => {
+        saved.set(key, value);
+        return Promise.resolve({});
+      });
     const prompt = jest.spyOn(Alert, 'promptMacOS').mockReturnValue(undefined);
     const renaming = jest.spyOn(store, 'renameProfile');
     try {
@@ -1694,14 +1705,6 @@ describe('mac windows of different Mail Profiles', () => {
         settings.findByRole('header', { name: 'Office' }),
       ).resolves.toBeVisible();
       expect(renaming.mock.calls).toStrictEqual([[workId, 'Office']]);
-      // The window's Profile Menu names the renamed Profile too.
-      await chooseProfile(
-        app.getByLabelText('Mail Profile, Primary Profile'),
-        'Office',
-      );
-      await expect(
-        app.findByLabelText('Mail Profile, Office'),
-      ).resolves.toBeVisible();
       await fireEvent.press(
         settings.getByRole('button', { name: 'Startup Profile' }),
       );
@@ -1710,6 +1713,16 @@ describe('mac windows of different Mail Profiles', () => {
       expect(
         settings.getByRole('button', { name: 'Office' }),
       ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      // Startup Profile is only for a new window, not this open one.
+      expect(app.getByLabelText('Mail Profile, Primary Profile')).toBeVisible();
+      // The window's Profile Menu names the renamed Profile too.
+      await chooseProfile(
+        app.getByLabelText('Mail Profile, Primary Profile'),
+        'Office',
+      );
+      await expect(
+        app.findByLabelText('Mail Profile, Office'),
+      ).resolves.toBeVisible();
       await fireEvent.press(
         settings.getByRole('button', { name: 'Add Mail Profile…' }),
       );
@@ -1724,10 +1737,20 @@ describe('mac windows of different Mail Profiles', () => {
       });
       const family = await settings.findByRole('button', { name: 'Family' });
       expect(family.props.accessibilityHint).toBe('No mailboxes');
+      await app.unmount();
+      const opened = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="new-manage" />
+        </MacWindows>,
+      );
+      await expect(
+        opened.findByLabelText('Mail Profile, Office'),
+      ).resolves.toBeVisible();
     } finally {
       renaming.mockRestore();
       prompt.mockRestore();
       saving.mockRestore();
+      reading.mockRestore();
       replaced.restore();
       // The shared store keeps the last choices it read; read the device's again.
       await act(async () => {
