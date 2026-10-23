@@ -9,6 +9,8 @@ import type {
 import {
   profileConnections,
   profileName,
+  profileRefusalText,
+  profileRemoval,
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
@@ -55,23 +57,59 @@ const styles = StyleSheet.create({
 // Explains a refused Mail Profile change; nothing changed.
 const refused = (
   t: Translate,
-  change: 'new' | 'rename',
+  change: Parameters<typeof profileRefusalText>[1],
   failure: ProfileFailure,
 ) => {
-  Alert.alert(
-    t(
-      failure === 'upgrade-required'
-        ? 'profiles.upgradeTitle'
-        : `profiles.${change}Title`,
-    ),
-    t(
-      failure === 'upgrade-required'
-        ? 'profiles.upgradeMessage'
-        : `profiles.${change}Failed`,
-    ),
-    [{ text: t('profiles.ok') }],
-  );
+  const { title, message } = profileRefusalText(t, change, failure);
+  Alert.alert(title, message, [{ text: t('profiles.ok') }]);
 };
+
+// A system menu choosing one Mail Profile, labeled with the current one.
+function ProfilePopUp({
+  accessibilityLabel,
+  current,
+  ids,
+  nameOf,
+  onChoose,
+}: {
+  readonly accessibilityLabel: string;
+  readonly current: string;
+  readonly ids: readonly string[];
+  readonly nameOf: (id: string) => string;
+  readonly onChoose: (id: string) => void;
+}) {
+  const colors = usePalette();
+  return (
+    <MenuButton
+      style={styles.menu}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityValue={{ text: nameOf(current) }}
+      sections={[
+        {
+          items: ids.map((id) => ({
+            key: id,
+            title: nameOf(id),
+            symbol: '',
+            checked: id === current,
+            run: () => {
+              onChoose(id);
+            },
+          })),
+        },
+      ]}>
+      <View style={styles.popUp}>
+        <Text style={[styles.value, { color: colors.textPrimary }]}>
+          {nameOf(current)}
+        </Text>
+        <SFSymbol
+          name="chevron.up.chevron.down"
+          size={12}
+          color={colors.textSecondary}
+        />
+      </View>
+    </MenuButton>
+  );
+}
 
 // Asks for a new Mail Profile's name and creates it without switching to it.
 export function promptNewProfile(
@@ -178,6 +216,37 @@ export function MailProfilesSettings({
   const selected = ids.includes(chosen) ? chosen : defaultProfile;
   const startup = windowProfile({ startup: choices?.startup, profiles });
   const nameOf = (id: string) => profileName(t, id, profiles);
+  const owned = mailboxes.filter(({ profile }) => profile === selected);
+  const move = async (mailbox: string, profile: string) => {
+    await store.moveMailbox(mailbox, profile);
+    const failure = store.getSnapshot().profileFailure;
+    if (failure !== undefined) {
+      refused(t, 'move', failure);
+    }
+  };
+  const remove = async (profile: string, confirmed: readonly string[]) => {
+    await store.removeProfile(profile, confirmed);
+    const failure = store.getSnapshot().profileFailure;
+    if (failure !== undefined) {
+      refused(t, 'remove', failure);
+    }
+  };
+  // Removing a Profile also removes the mailboxes the question names, after the person confirms.
+  const confirmRemoval = () => {
+    const profile = selected;
+    const confirmed = owned.map(({ id }) => id);
+    const { title, message } = profileRemoval(t, nameOf(profile), owned);
+    Alert.alert(title, message, [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('profiles.removeAction'),
+        style: 'destructive',
+        onPress: () => {
+          void remove(profile, confirmed);
+        },
+      },
+    ]);
+  };
   return (
     <>
       <SettingsGroup title={t('profiles.settings.profiles')}>
@@ -246,39 +315,60 @@ export function MailProfilesSettings({
           />
         </SettingsRow>
       </SettingsGroup>
+      {owned.length === 0 ? null : (
+        <SettingsGroup
+          title={t('profiles.settings.mailboxes')}
+          footer={t('profiles.settings.moveFooter')}>
+          {owned.map((mailbox) => (
+            <SettingsRow
+              key={mailbox.id}
+              icon="at"
+              title={mailbox.address}
+              subtitle={t(`mailProviders.${mailbox.provider}`)}>
+              <ProfilePopUp
+                accessibilityLabel={t('profiles.moveMailbox', {
+                  address: mailbox.address,
+                })}
+                current={selected}
+                ids={ids}
+                nameOf={nameOf}
+                onChoose={(id) => {
+                  if (id !== selected) {
+                    void move(mailbox.id, id);
+                  }
+                }}
+              />
+            </SettingsRow>
+          ))}
+        </SettingsGroup>
+      )}
+      {selected === defaultProfile ? null : (
+        <SettingsGroup footer={t('profiles.settings.removeFooter')}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('profiles.remove')}
+            onPress={confirmRemoval}>
+            <SettingsRow
+              title={t('profiles.remove')}
+              titleTone="destructive"
+            />
+          </Pressable>
+        </SettingsGroup>
+      )}
       {choices === undefined ? null : (
         <SettingsGroup
           title={t('profiles.settings.device')}
           footer={t('profiles.settings.deviceFooter')}>
           <SettingsRow title={t('profiles.startup')}>
-            <MenuButton
-              style={styles.menu}
+            <ProfilePopUp
               accessibilityLabel={t('profiles.startup')}
-              accessibilityValue={{ text: nameOf(startup) }}
-              sections={[
-                {
-                  items: ids.map((id) => ({
-                    key: id,
-                    title: nameOf(id),
-                    symbol: '',
-                    checked: id === startup,
-                    run: () => {
-                      void profileChoices.chooseStartup(account, id);
-                    },
-                  })),
-                },
-              ]}>
-              <View style={styles.popUp}>
-                <Text style={[styles.value, { color: colors.textPrimary }]}>
-                  {nameOf(startup)}
-                </Text>
-                <SFSymbol
-                  name="chevron.up.chevron.down"
-                  size={12}
-                  color={colors.textSecondary}
-                />
-              </View>
-            </MenuButton>
+              current={startup}
+              ids={ids}
+              nameOf={nameOf}
+              onChoose={(id) => {
+                void profileChoices.chooseStartup(account, id);
+              }}
+            />
           </SettingsRow>
         </SettingsGroup>
       )}

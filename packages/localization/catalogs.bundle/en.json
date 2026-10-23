@@ -1136,11 +1136,29 @@
     "startup": "Startup Profile",
     "renameTitle": "Rename Mail Profile",
     "renameFailed": "The Mail Profile could not be renamed. Try again.",
+    "upgradeRetry": "Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then try again.",
+    "changed": "Another device changed these Mail Profiles first. Check them, then try again.",
+    "moveMailbox": "Mail Profile for {{address}}",
+    "moveTitle": "Mailbox Not Moved",
+    "moveFailed": "The mailbox could not be moved. Try again.",
+    "remove": "Remove Mail Profile…",
+    "removeAction": "Remove",
+    "removeQuestion": "Remove “{{name}}”?",
+    "removeEmpty": "{{name}} is removed from all your Trusted Devices. It owns no mailboxes.",
+    "removeQuestionMailboxes": "Remove “{{name}}” and Its Mailboxes?",
+    "removeMailboxes_one": "{{addresses}} is also removed from Unwired Mail on all your devices, with its Drafts and pending sends. Its mail stays with {{provider}}.",
+    "removeMailboxes_other": "{{addresses}} are also removed from Unwired Mail on all your devices, with their Drafts and pending sends. Their mail stays with their providers.",
+    "mailServer": "the mail server",
+    "removeTitle": "Mail Profile Not Removed",
+    "removeFailed": "The Mail Profile could not be removed. Try again.",
     "settings": {
       "profiles": "Profiles",
       "synchronized": "Names and ownership synchronize through Private Sync.",
       "device": "This Device",
-      "deviceFooter": "Window restoration and the Startup Profile stay only on this device."
+      "deviceFooter": "Window restoration and the Startup Profile stay only on this device.",
+      "mailboxes": "Mailboxes",
+      "moveFooter": "Moving a mailbox keeps its mail, Drafts and sign-in. Moving needs Private Sync.",
+      "removeFooter": "Removing a Mail Profile also removes its mailboxes from Unwired Mail on all your devices, after you confirm. Their mail stays with the provider."
     }
   }
 }

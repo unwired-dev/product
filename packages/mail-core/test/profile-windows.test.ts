@@ -5,6 +5,8 @@ import {
   createProfileChoices,
   profileMenu,
   profileMonogram,
+  profileRefusalText,
+  profileRemoval,
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
 import {
@@ -195,6 +197,52 @@ describe('window Profiles', () => {
       'Microsoft / Gmail; authorize',
       'Gmail; idle',
     ]);
+  });
+
+  it('names the mailboxes a Profile removal also removes', () => {
+    expect.hasAssertions();
+    const mailbox = {
+      id: 'one',
+      provider: 'imap' as const,
+      address: 'bob@example.invalid',
+      state: 'connected' as const,
+      profile: 'work',
+    };
+    expect(profileRemoval(english, 'Family', [])).toStrictEqual({
+      title: 'Remove “Family”?',
+      message:
+        'Family is removed from all your Trusted Devices. It owns no mailboxes.',
+    });
+    expect(profileRemoval(english, 'Work', [mailbox]).message).toBe(
+      'bob@example.invalid is also removed from Unwired Mail on all your devices, with its Drafts and pending sends. Its mail stays with the mail server.',
+    );
+    expect(
+      profileRemoval(english, 'Work', [
+        mailbox,
+        { ...mailbox, id: 'two', address: 'ann@example.invalid' },
+      ]).message,
+    ).toBe(
+      'bob@example.invalid, ann@example.invalid are also removed from Unwired Mail on all your devices, with their Drafts and pending sends. Their mail stays with their providers.',
+    );
+    expect(
+      profileRefusalText(english, 'move', 'profile-changed'),
+    ).toStrictEqual({
+      title: 'Mailbox Not Moved',
+      message:
+        'Another device changed these Mail Profiles first. Check them, then try again.',
+    });
+  });
+
+  it('explains each refused move and removal', () => {
+    expect.hasAssertions();
+    expect(profileRefusalText(english, 'remove', 'failed').message).toBe(
+      'The Mail Profile could not be removed. Try again.',
+    );
+    expect(
+      profileRefusalText(english, 'move', 'upgrade-required').message,
+    ).toBe(
+      'Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then try again.',
+    );
   });
 
   it('shows the first letters of the first two words', () => {

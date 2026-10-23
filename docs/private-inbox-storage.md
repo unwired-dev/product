@@ -141,7 +141,10 @@ registration store already offers these operations:
   each refused Profile change by its reason: `upgrade-required`, `profile-in-use` or
   `profile-changed`.
 - **Removing a Profile** needs Private Sync. It is refused for the Default Profile
-  and, with `profile-in-use`, while the Profile owns a live connection. Unreadable
+  and, with `profile-in-use`, while the Profile owns a live connection that the
+  person did not confirm removing with it. The store first removes each confirmed
+  connection the Profile still owns, as Email Accounts removes one, then the
+  Profile; a confirmed connection moved to another Profile meanwhile stays. Unreadable
   ownership or connection descriptions leave removal unavailable, as does a missing
   description for a connection the Profile owns. Removing a Profile
   still pending on this device also prevents a delayed first publication from
@@ -199,6 +202,16 @@ can be edited for every Profile except the Primary Profile; an empty or unchange
 name changes nothing, and a refused rename restores the listed name and asks to
 try again. Creation and renaming wait for active registration work; a queued edit
 is retired if that Product Account leaves before it can run.
+Beneath the selected Profile, **Mailboxes** lists the connections it owns, each
+with a system pop-up naming its Mail Profile; choosing another Profile moves the
+connection. Every Profile except the Primary Profile offers **Remove Mail
+Profile…**, which asks first in a system alert. For a Profile that owns
+connections, the question names them, and confirming removes them from Unwired
+Mail on every Trusted Device, with their Drafts and pending sends, before the
+Profile; their mail stays with the provider. A refused move or removal names
+another device's earlier change (`profile-changed`, or `profile-in-use` when a
+connection arrived after the question), explains `upgrade-required`, or asks to
+try again.
 The **Startup Profile** pop-up under This Device saves the choice only
 for this Product Account on this device; another account keeps its own choice.
 With none saved, or once its Profile is no longer listed, it shows

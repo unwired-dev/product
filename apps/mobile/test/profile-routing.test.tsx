@@ -24,7 +24,10 @@ import {
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
-import { defaultProfile } from '@private-email/mail-core/registration';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createTwoProfileRegistration } from '@private-email/mail-core/testing/registration-scenarios';
@@ -1201,6 +1204,102 @@ describe('the mobile Profile Switcher', () => {
       await expect(
         screen.findByLabelText('Mail Profile, Office'),
       ).resolves.toBeVisible();
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
+  it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      savedPreferences(new Map());
+      const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(<RootLayout />);
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Work' }),
+      );
+      const moving = 'Mail Profile for other@example.invalid';
+      expect(screen.getByLabelText(moving)).toHaveAccessibilityValue({
+        text: 'Work',
+      });
+      await choose(moving, defaultProfile);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Work' }).props.accessibilityHint,
+        ).toBe('No mailboxes');
+      });
+      expect(screen.queryByLabelText(moving)).toBeNull();
+      // The Primary Profile lists both mailboxes and cannot be removed.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Primary Profile' }),
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Remove Mail Profile…' }),
+      ).toBeNull();
+      await choose(moving, workId);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Work' }).props.accessibilityHint,
+        ).toBe('Gmail');
+      });
+      expect(alert).not.toHaveBeenCalled();
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Work' }));
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Remove Mail Profile…' }),
+      );
+      const asked = alert.mock.lastCall;
+      ok(asked);
+      const [title, message, buttons] = asked;
+      expect([title, message]).toStrictEqual([
+        'Remove “Work” and Its Mailboxes?',
+        'other@example.invalid is also removed from Unwired Mail on all your devices, with its Drafts and pending sends. Its mail stays with Gmail.',
+      ]);
+      ok(Array.isArray(buttons));
+      expect(buttons.map(({ text, style }) => [text, style])).toStrictEqual([
+        ['Cancel', 'cancel'],
+        ['Remove', 'destructive'],
+      ]);
+      await act(async () => {
+        buttons.find(({ text }) => text === 'Remove')?.onPress?.();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Work' })).toBeNull();
+      });
+      expect(
+        screen.getByRole('header', { name: 'Primary Profile' }),
+      ).toBeVisible();
+      expect(
+        mailboxesOf(registration.getSnapshot().snapshot).map(
+          ({ address }) => address,
+        ),
+      ).toStrictEqual(['alex@example.invalid']);
+      // No refusal followed the question.
+      expect(alert.mock.lastCall?.[0]).toBe(title);
     } finally {
       store.restore();
       mode.restore();

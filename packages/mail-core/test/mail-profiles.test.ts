@@ -1121,3 +1121,37 @@ describe('mail profile capability fence', () => {
     expect(storedProfiles(sync, account)).toStrictEqual([]);
   });
 });
+
+describe('removing a Mail Profile with its mailboxes', () => {
+  it('removes the confirmed mailboxes, then the Profile, and keeps one moved away meanwhile', async () => {
+    expect.hasAssertions();
+    const context = await connected();
+    const store = createRegistration(context.vault);
+    await store.createProfile('Work');
+    const work = profileNamed(store.getSnapshot().snapshot, 'Work').id;
+    const mailbox = await context.mailboxId();
+
+    // Confirmed while Work owned it, then moved back before the removal ran.
+    await store.moveMailbox(mailbox, work);
+    await store.moveMailbox(mailbox, defaultProfile);
+    await store.removeProfile(work, [mailbox]);
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([
+      defaultProfile,
+    ]);
+
+    // A mailbox moved in unconfirmed keeps the Profile and its mailbox.
+    await store.createProfile('Home');
+    const home = profileNamed(store.getSnapshot().snapshot, 'Home').id;
+    await store.moveMailbox(mailbox, home);
+    await store.removeProfile(home);
+    expect(store.getSnapshot().profileFailure).toBe('profile-in-use');
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([home]);
+
+    await store.removeProfile(home, [mailbox]);
+    expect(store.getSnapshot().profileFailure).toBeUndefined();
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(mailboxesOf(decode(store.getSnapshot().snapshot))).toStrictEqual([]);
+  });
+});

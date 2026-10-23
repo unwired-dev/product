@@ -644,8 +644,21 @@ export function createRegistration(vault: NativeRegistrationVault) {
       changeProfile(request(native.createProfile(name))),
     renameProfile: (profile: string, name: string) =>
       changeProfile(request(native.renameProfile(profile, name))),
-    removeProfile: (profile: string) =>
-      execute(request(native.removeProfile(profile)), profileRefusal),
+    // Removes the mailboxes the person confirmed removing with the Profile, each as Email Accounts
+    // removes one, then the Profile. One moved to another Profile meanwhile stays; one moved in
+    // unconfirmed refuses removal with `profile-in-use`.
+    removeProfile: (profile: string, confirmed: readonly string[] = []) =>
+      execute(
+        Effect.gen(function* () {
+          for (const mailbox of mailboxesOf(state.snapshot)) {
+            if (mailbox.profile === profile && confirmed.includes(mailbox.id)) {
+              yield* request(native.removeMailbox(mailbox.id));
+            }
+          }
+          return yield* request(native.removeProfile(profile));
+        }),
+        profileRefusal,
+      ),
     moveMailbox: (connection: string, profile: string) =>
       execute(request(native.moveMailbox(connection, profile)), profileRefusal),
     notifyMailbox: (connection: string, enabled: boolean) =>

@@ -668,7 +668,7 @@ export function SettingsRow({
 }: {
   readonly icon?: string;
   readonly title: string;
-  readonly titleTone?: 'accent';
+  readonly titleTone?: 'accent' | 'destructive';
   readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
@@ -692,7 +692,12 @@ export function SettingsRow({
             type.title,
             {
               color:
-                titleTone === 'accent' ? colors.accentInk : colors.textPrimary,
+                titleTone === undefined
+                  ? colors.textPrimary
+                  : {
+                      accent: colors.accentInk,
+                      destructive: colors.statusDestructive,
+                    }[titleTone],
             },
           ]}>
           {title}
