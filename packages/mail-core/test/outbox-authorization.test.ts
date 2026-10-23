@@ -210,6 +210,7 @@ describe('outbox cache-only authorization recovery', () => {
     const phone = await offlineSender();
     let rejected = false;
     const unsubscribe = phone.registration.subscribe(() => {
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Inject one listener defect; later notifications must run normally.
       if (!rejected) {
         rejected = true;
         throw new Error('Synthetic registration listener defect');

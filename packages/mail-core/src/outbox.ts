@@ -602,7 +602,7 @@ export function createOutbox({
       );
       return;
     }
-    if ((await holdClaim(account, entry, current)) && current()) {
+    if (await holdClaim(account, entry, current)) {
       await handOff(entry.id, current);
       const accepted = entryOf(entry.id);
       if (current() && accepted?.state === 'filing') {
