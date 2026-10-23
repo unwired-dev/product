@@ -1541,8 +1541,11 @@ describe('mac windows of different Mail Profiles', () => {
     const preference = jest
       .spyOn(nativeRegistration, 'preference')
       .mockImplementation((key) =>
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the Startup Profile is saved.
-        Promise.resolve({ value: key === 'startup-profile' ? 'work' : null }),
+        Promise.resolve({
+          value:
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the Startup Profile is saved.
+            key === 'startup-profile:synthetic-product-account' ? 'work' : null,
+        }),
       );
     try {
       const gmail = createSyntheticGmail();
@@ -1572,7 +1575,7 @@ describe('mac windows of different Mail Profiles', () => {
       preference.mockRestore();
       // The shared store keeps the last choices it read; read the device's again.
       await act(async () => {
-        await profileChoices.load();
+        await profileChoices.load('synthetic-product-account');
       });
     }
   });
@@ -1642,6 +1645,9 @@ describe('mac windows of different Mail Profiles', () => {
       registration: () => vault.registration(),
     });
     await store.restore();
+    const { snapshot } = store.getSnapshot();
+    ok(snapshot.kind !== 'signed-out');
+    const owner = snapshot.productAccountId;
     const replaced = jest.replaceProperty(
       jest.requireMock<{ registration: typeof store }>(
         '../src/registration.ts',
@@ -1709,7 +1715,7 @@ describe('mac windows of different Mail Profiles', () => {
         settings.getByRole('button', { name: 'Startup Profile' }),
       );
       await chooseMenuItem('Office');
-      expect(saving).toHaveBeenCalledWith('startup-profile', workId);
+      expect(saving).toHaveBeenCalledWith(`startup-profile:${owner}`, workId);
       expect(
         settings.getByRole('button', { name: 'Office' }),
       ).toHaveAccessibilityValue({ text: 'Startup Profile' });
@@ -1754,7 +1760,7 @@ describe('mac windows of different Mail Profiles', () => {
       replaced.restore();
       // The shared store keeps the last choices it read; read the device's again.
       await act(async () => {
-        await profileChoices.load();
+        await profileChoices.load(owner);
       });
     }
   });

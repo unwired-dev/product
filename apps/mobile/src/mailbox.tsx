@@ -169,6 +169,7 @@ export function WindowProfileScope({
 }) {
   const account = use(AccountContext);
   const profiles = account?.profiles;
+  const owner = account?.account ?? '';
   // After signing into another Product Account, the previous account's route names none of its
   // Profiles, so the window returns to its own choices.
   const foreign =
@@ -184,15 +185,14 @@ export function WindowProfileScope({
       onRouteAccount(account.account);
     }
   }, [foreign, account, routeAccount, onRouteAccount]);
-  const choices = useSyncExternalStore(
-    savedChoices.subscribe,
-    savedChoices.getSnapshot,
+  const choices = useSyncExternalStore(savedChoices.subscribe, () =>
+    savedChoices.getSnapshot(owner),
   );
   useEffect(() => {
-    if (savedChoices.getSnapshot() === undefined) {
-      void savedChoices.load();
+    if (savedChoices.getSnapshot(owner) === undefined) {
+      void savedChoices.load(owner);
     }
-  }, [savedChoices]);
+  }, [owner, savedChoices]);
   const profile = windowProfile({
     link,
     restored: choices?.restored,
@@ -201,9 +201,9 @@ export function WindowProfileScope({
   });
   useEffect(() => {
     if (choices !== undefined && link !== undefined && profile !== '') {
-      void savedChoices.restore(profile);
+      void savedChoices.restore(owner, profile);
     }
-  }, [choices, link, profile, savedChoices]);
+  }, [choices, link, owner, profile, savedChoices]);
   // Until the saved choices are read, a window without a link shows no Profile yet.
   return choices === undefined && link === undefined ? null : (
     <ProfileScope profile={profile}>{children}</ProfileScope>

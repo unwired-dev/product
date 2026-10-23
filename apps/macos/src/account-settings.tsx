@@ -646,6 +646,7 @@ export function AccountSettings({
       ) : null}
       {destination === 'profiles' ? (
         <MailProfilesSettings
+          account={snapshot.productAccountId}
           profiles={profilesOf(snapshot)}
           mailboxes={mailboxes}
           store={store}

@@ -148,6 +148,7 @@ function ProfileWindow({
 }) {
   const account = use(AccountContext);
   const profiles = account?.profiles;
+  const owner = account?.account ?? '';
   // Another Product Account's choice never names this one's Profile.
   const current =
     choice?.account === (account?.account ?? '') ? choice.choice : undefined;
@@ -155,15 +156,14 @@ function ProfileWindow({
   const choose = (next: ProfileChoice['choice']) => {
     onChoose({ account: account?.account ?? '', choice: next });
   };
-  const choices = useSyncExternalStore(
-    savedChoices.subscribe,
-    savedChoices.getSnapshot,
+  const choices = useSyncExternalStore(savedChoices.subscribe, () =>
+    savedChoices.getSnapshot(owner),
   );
   useEffect(() => {
-    if (savedChoices.getSnapshot() === undefined) {
-      void savedChoices.load();
+    if (savedChoices.getSnapshot(owner) === undefined) {
+      void savedChoices.load(owner);
     }
-  }, [savedChoices]);
+  }, [owner, savedChoices]);
   const link = typeof current === 'string' ? current : current?.profile;
   const profile = windowProfile({
     link,

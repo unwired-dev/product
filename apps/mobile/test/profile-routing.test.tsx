@@ -1130,6 +1130,9 @@ describe('the mobile Profile Switcher', () => {
   it('manages Mail Profiles in Settings through the real registration', async () => {
     expect.hasAssertions();
     const { registration, work: workId } = await createTwoProfileRegistration();
+    const { snapshot } = registration.getSnapshot();
+    ok(snapshot.kind !== 'signed-out');
+    const owner = snapshot.productAccountId;
     const mode = jest.replaceProperty(
       jest.requireMock<{ previewInbox: boolean }>(
         '@private-email/mail-core/registration-mode',
@@ -1170,7 +1173,7 @@ describe('the mobile Profile Switcher', () => {
       ).resolves.toBeVisible();
       expect(screen.getByDisplayValue('Office')).toBeVisible();
       await choose('Startup Profile', workId);
-      expect(saving).toHaveBeenCalledWith('startup-profile', workId);
+      expect(saving).toHaveBeenCalledWith(`startup-profile:${owner}`, workId);
       expect(
         screen.getByRole('button', { name: 'Office' }),
       ).toHaveAccessibilityValue({ text: 'Startup Profile' });
@@ -1359,7 +1362,9 @@ describe('the mobile Profile Switcher', () => {
   it('opens the Startup Profile, while a message link from before Profiles opens the Default Profile', async () => {
     expect.hasAssertions();
     try {
-      savedPreferences(new Map([['startup-profile', 'work']]));
+      savedPreferences(
+        new Map([['startup-profile:synthetic-product-account', 'work']]),
+      );
       const id = showMail('work');
       route.setParams({});
       const app = await render(view());

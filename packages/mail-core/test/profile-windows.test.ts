@@ -206,7 +206,7 @@ describe('window Profiles', () => {
 
   it('restores the saved window Profile and saves the chosen Startup Profile', async () => {
     expect.hasAssertions();
-    const saved = new Map([['startup-profile', 'work']]);
+    const saved = new Map([['startup-profile:account-a', 'work']]);
     const setPreference = vi.fn<
       (key: string, value: string) => Promise<unknown>
     >((key, value) => {
@@ -220,26 +220,58 @@ describe('window Profiles', () => {
       setPreference,
     };
     const choices = createProfileChoices(native);
-    expect(choices.getSnapshot()).toBeUndefined();
-    await choices.load();
-    expect(choices.getSnapshot()).toStrictEqual({
+    expect(choices.getSnapshot('account-a')).toBeUndefined();
+    await choices.load('account-a');
+    expect(choices.getSnapshot('account-a')).toStrictEqual({
       restored: undefined,
       startup: 'work',
     });
-    await choices.restore('work');
-    await choices.restore('work');
-    await choices.chooseStartup(defaultProfile);
+    await choices.restore('account-a', 'work');
+    await choices.restore('account-a', 'work');
+    await choices.chooseStartup('account-a', defaultProfile);
     expect(setPreference.mock.calls).toStrictEqual([
       ['window-profile', 'work'],
-      ['startup-profile', defaultProfile],
+      ['startup-profile:account-a', defaultProfile],
     ]);
     // The next launch reads both back.
     const relaunched = createProfileChoices(native);
-    await relaunched.load();
-    expect(relaunched.getSnapshot()).toStrictEqual({
+    await relaunched.load('account-a');
+    expect(relaunched.getSnapshot('account-a')).toStrictEqual({
       restored: 'work',
       startup: defaultProfile,
     });
+  });
+
+  it('keeps each Product Account’s Startup Profile after another account saves its choice', async () => {
+    expect.hasAssertions();
+    const saved = new Map<string, string>();
+    const native = {
+      preference: (key: string) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- An unsaved key reads as null.
+        Promise.resolve({ value: saved.get(key) ?? null }),
+      setPreference: (key: string, value: string) => {
+        saved.set(key, value);
+        return Promise.resolve({});
+      },
+    };
+    const first = createProfileChoices(native);
+    const second = createProfileChoices(native);
+    await first.load('account-a');
+    await first.chooseStartup('account-a', 'work');
+    await second.load('account-b');
+    await second.chooseStartup('account-b', 'office');
+    expect(first.getSnapshot('account-b')).toBeUndefined();
+    await first.load('account-b');
+    expect(first.getSnapshot('account-b')?.startup).toBe('office');
+    expect(first.getSnapshot('account-a')?.startup).toBe('work');
+    const reopened = createProfileChoices(native);
+    await reopened.load('account-a');
+    expect(
+      windowProfile({
+        startup: reopened.getSnapshot('account-a')?.startup,
+        profiles: [work],
+      }),
+    ).toBe('work');
   });
 
   it.each([
@@ -299,8 +331,8 @@ describe('window Profiles', () => {
       preference: () => Promise.resolve({ value: 5 }),
       setPreference: () => Promise.resolve({}),
     });
-    await choices.load();
-    expect(choices.getSnapshot()).toStrictEqual({
+    await choices.load('account-a');
+    expect(choices.getSnapshot('account-a')).toStrictEqual({
       restored: undefined,
       startup: undefined,
     });
@@ -312,8 +344,8 @@ describe('window Profiles', () => {
       preference: () => Promise.reject(new Error('locked')),
       setPreference: () => Promise.resolve({}),
     });
-    await choices.load();
-    expect(choices.getSnapshot()).toStrictEqual({
+    await choices.load('account-a');
+    expect(choices.getSnapshot('account-a')).toStrictEqual({
       restored: undefined,
       startup: undefined,
     });

@@ -107,7 +107,8 @@ another Profile and switching to it are exposed by
 [#922](https://github.com/unwired-dev/product/issues/922). Settings › Mail
 Profiles lists them and renames them
 ([#1038](https://github.com/unwired-dev/product/issues/1038)); removing a Profile
-and moving a connection between Profiles there wait for their approved designs.
+and moving a connection between Profiles there follow in the next slice with
+the approved designs.
 
 [#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
 definitions and ownership through [Private Sync](private-product-sync.md); the shared
@@ -199,7 +200,8 @@ name changes nothing, and a refused rename restores the listed name and asks to
 try again. Creation and renaming wait for active registration work; a queued edit
 is retired if that Product Account leaves before it can run.
 The **Startup Profile** pop-up under This Device saves the choice only
-on this device; with none saved, or once its Profile is no longer listed, it shows
+for this Product Account on this device; another account keeps its own choice.
+With none saved, or once its Profile is no longer listed, it shows
 and opens the Primary Profile. Changing it leaves every open window in its
 current Profile; the new choice applies when a new window opens.
 

@@ -154,10 +154,12 @@ function ProfileName({
 // Settings › Mail Profiles: every Profile with its connections, Add Mail Profile…, the selected
 // Profile's name, and this device's Startup Profile.
 export function MailProfilesSettings({
+  account,
   profiles,
   mailboxes,
   store,
 }: {
+  readonly account: string;
   readonly profiles: readonly MailProfile[];
   readonly mailboxes: readonly MailboxConnection[];
   readonly store: Registration;
@@ -165,13 +167,12 @@ export function MailProfilesSettings({
   const colors = usePalette();
   const { t } = useLocalization();
   const [chosen, setChosen] = useState(defaultProfile);
-  const choices = useSyncExternalStore(
-    profileChoices.subscribe,
-    profileChoices.getSnapshot,
+  const choices = useSyncExternalStore(profileChoices.subscribe, () =>
+    profileChoices.getSnapshot(account),
   );
   useEffect(() => {
-    void profileChoices.load();
-  }, []);
+    void profileChoices.load(account);
+  }, [account]);
   const ids = [defaultProfile, ...profiles.map(({ id }) => id)];
   // A Profile removed elsewhere leaves the Primary Profile selected.
   const selected = ids.includes(chosen) ? chosen : defaultProfile;
@@ -262,7 +263,7 @@ export function MailProfilesSettings({
                     symbol: '',
                     checked: id === startup,
                     run: () => {
-                      void profileChoices.chooseStartup(id);
+                      void profileChoices.chooseStartup(account, id);
                     },
                   })),
                 },
