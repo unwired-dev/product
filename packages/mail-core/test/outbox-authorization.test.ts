@@ -332,6 +332,7 @@ describe('outbox cache-only authorization recovery', () => {
         const sentLists = () =>
           phone.gmail.requests.filter(
             ({ path, query }) =>
+              // oxlint-disable-next-line vitest/no-conditional-in-test -- Count only Sent-list provider requests for the lookup assertion.
               path === 'messages' && query.get('labelIds') === 'SENT',
           ).length;
         const before = sentLists();
