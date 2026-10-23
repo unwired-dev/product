@@ -25,6 +25,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- An accessibility audit classifier such as `WindowTests.knownAccessibilityGap`
+  suppressing an entire issue category or element type for a narrower tracked
+  defect. Match each exception to the owning issue and observed elements, keep
+  unmatched issues failing and print every classified issue. A category-wide
+  exception needs evidence that the framework defect affects that whole class;
+  otherwise new unrelated accessibility regressions silently pass as known gaps.
+
 - An expiry test such as `ImapMailboxTests.imapSessionsStayWithTheirConnectionGeneration`
   shortening a session's lifetime before establishing the held command it intends
   to expire. Open the session and observe the command waiting before shortening
