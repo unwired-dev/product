@@ -16,6 +16,7 @@ import {
   RemoteContentContext,
   RemoteContentSettings,
 } from '../src/remote-content.tsx';
+import { chooseMenuItem } from './native-menu.ts';
 
 // A 1×1 PNG served by the controlled image server.
 const photo =
@@ -533,12 +534,14 @@ describe('remote message content in IMAP mail', () => {
       </RemoteContentContext>,
     );
     try {
-      const never = screen.getByRole('radio', {
-        name: 'Remote images for imap@example.invalid: Never',
-      });
       await act(() => {
-        fireEvent.press(never);
+        fireEvent.press(
+          screen.getByRole('button', {
+            name: 'Remote images for imap@example.invalid',
+          }),
+        );
       });
+      await chooseMenuItem('Never');
       expect(settings.getSnapshot()?.overrides).toStrictEqual({
         'imap-a': 'never',
       });

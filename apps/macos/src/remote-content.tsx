@@ -6,7 +6,6 @@ import type {
 } from '@private-email/mail-core/remote-content';
 
 import { remoteContentPolicy } from '@private-email/mail-core/remote-content';
-import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -15,10 +14,11 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
+import { PopUp } from './composer-controls.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
@@ -113,76 +113,40 @@ export function useRemoteImages({
 }
 
 const styles = StyleSheet.create({
-  choices: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-    gap: spacing.xs,
-  },
-  choice: {
-    minHeight: 28,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.m,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
   label: { ...textStyles.body },
   text: { ...textStyles.body },
 });
 
 type Choice = RemoteContentPolicy | 'device';
 
-// The policy choices as buttons that report which one is selected; `device` follows the
-// device's choice for one mailbox.
-export function PolicyChoice({
+// The policy choices as a pop-up whose AppKit menu checks the selected one; `device` follows
+// the device's choice for one mailbox.
+function PolicyChoice({
   label,
   selected,
   choices,
   onChoose,
 }: {
-  // Names the setting for each button's accessibility label.
+  // Names the setting as the pop-up's accessibility label.
   readonly label: string;
   readonly selected: Choice;
   readonly choices: readonly Choice[];
   readonly onChoose: (choice: Choice) => void;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   return (
-    <View style={styles.choices}>
-      {choices.map((choice) => (
-        <Pressable
-          key={choice}
-          accessibilityRole="radio"
-          accessibilityLabel={`${label}: ${t(`remoteContent.policies.${choice}`)}`}
-          accessibilityState={{ checked: choice === selected }}
-          focusable
-          onPress={() => {
-            onChoose(choice);
-          }}
-          style={[
-            styles.choice,
-            {
-              backgroundColor:
-                choice === selected ? colors.accentFill : colors.fillQuiet,
-            },
-          ]}>
-          <Text
-            style={[
-              styles.label,
-              {
-                color:
-                  choice === selected
-                    ? colors.accentOnFill
-                    : colors.textPrimary,
-                fontWeight: choice === selected ? '600' : '400',
-              },
-            ]}>
-            {t(`remoteContent.policies.${choice}`)}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
+    <PopUp
+      accessibilityLabel={label}
+      label={t(`remoteContent.policies.${selected}`)}
+      items={choices.map((choice) => ({
+        key: choice,
+        title: t(`remoteContent.policies.${choice}`),
+        checked: choice === selected,
+        run: () => {
+          onChoose(choice);
+        },
+      }))}
+    />
   );
 }
 

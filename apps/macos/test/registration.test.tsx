@@ -64,6 +64,7 @@ import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
+import { chooseMenuItem, menuItems } from './native-menu.ts';
 import {
   MacWindows,
   closeSettings,
@@ -527,6 +528,18 @@ describe('product registration', () => {
         screen.getByLabelText('SMTP password, same as incoming if blank'),
         smtpPassword,
       );
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'SMTP security' }),
+        );
+      });
+      const checkedSecurity = menuItems()
+        .filter(({ checked }) => checked)
+        .map(({ title }) => title);
+      await chooseMenuItem('STARTTLS');
+      const chosenSecurity: unknown = screen.getByRole('button', {
+        name: 'SMTP security',
+      }).props.accessibilityValue?.text;
       const credentialGuidance = screen.getAllByText(
         'Same as incoming if blank.',
       ).length;
@@ -539,13 +552,18 @@ describe('product registration', () => {
       });
       expect({
         canConnect,
+        checkedSecurity,
+        chosenSecurity,
         credentialGuidance,
         setups,
         failure: store.getSnapshot().imapFailure,
         password: screen.queryByLabelText('Password'),
         state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
+        security: mailboxesOf(store.getSnapshot().snapshot)[0]?.smtp?.security,
       }).toStrictEqual({
         canConnect: expectedConnect,
+        checkedSecurity: ['SSL/TLS'],
+        chosenSecurity: 'STARTTLS',
         credentialGuidance: 2,
         setups: [
           expect.objectContaining({
@@ -553,7 +571,7 @@ describe('product registration', () => {
             smtp: {
               host: 'smtp.example.invalid',
               port: 465,
-              security: 'tls',
+              security: 'starttls',
               username: 'alex',
               ...sendingPassword,
             },
@@ -562,6 +580,7 @@ describe('product registration', () => {
         failure: undefined,
         password: null,
         state: 'connected',
+        security: 'starttls',
       });
     },
   );
@@ -1660,22 +1679,22 @@ describe('product registration', () => {
     await press('Sign in with Apple');
     await press('Choose another Google mailbox');
     await settings('Privacy & Data');
-    const choice = (name: string) => screen.getByRole('radio', { name });
-    expect(choice('On this device: Ask')).toBeChecked();
-    expect(
-      choice('Remote images for other@example.invalid: Use device setting'),
-    ).toBeChecked();
-    await act(async () => {
-      await fireEvent.press(choice('On this device: Always load'));
+    // Each pop-up shows its policy, and its menu checks the same one.
+    const policy = (name: string) => screen.getByRole('button', { name });
+    const device = 'On this device';
+    const mailbox = 'Remote images for other@example.invalid';
+    expect(policy(device)).toHaveAccessibilityValue({ text: 'Ask' });
+    expect(policy(mailbox)).toHaveAccessibilityValue({
+      text: 'Use device setting',
     });
-    await act(async () => {
-      await fireEvent.press(
-        choice('Remote images for other@example.invalid: Never'),
-      );
-    });
-    expect(
-      choice('Remote images for other@example.invalid: Never'),
-    ).toBeChecked();
+    await press(device);
+    expect(menuItems().filter(({ checked }) => checked)).toMatchObject([
+      { title: 'Ask' },
+    ]);
+    await chooseMenuItem('Always load');
+    await press(mailbox);
+    await chooseMenuItem('Never');
+    expect(policy(mailbox)).toHaveAccessibilityValue({ text: 'Never' });
     expect(saved.at(-1)).toBe(
       '{"policy":"always","overrides":{"synthetic-connection-other":"never"}}',
     );

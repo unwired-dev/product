@@ -1095,6 +1095,21 @@ final class WindowTests: XCTestCase {
     runCommand("Account", in: app)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     try audit(app, "Settings")
+    // #1196: a remote-content policy is a pop-up whose AppKit menu owns the choice and dismissal.
+    settings.buttons["Privacy & Data"].click()
+    let policy = settings.buttons["On this device"]
+    XCTAssertTrue(policy.waitForExistence(timeout: 15))
+    XCTAssertEqual(policy.value as? String, "Ask")
+    policy.click()
+    let never = app.menuItems["Never"]
+    XCTAssertTrue(never.waitForExistence(timeout: 5))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(never.waitForNonExistence(timeout: 5))
+    XCTAssertEqual(policy.value as? String, "Ask")
+    policy.click()
+    never.click()
+    waitUntil { policy.value as? String == "Never" }
+    try audit(app, "Privacy & Data")
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
 
@@ -1232,9 +1247,11 @@ final class WindowTests: XCTestCase {
     case .sufficientElementDescription
     where type == .other && ["System default", "English"].contains(label):
       return "#1196"
-    // The Apple relay address is the readable name of the signed-in account.
+    // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription
-    where type == .staticText && label == "relay@privaterelay.example.invalid":
+    where type == .staticText
+      && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
+        .contains(label):
       return "email address"
     default:
       return nil
