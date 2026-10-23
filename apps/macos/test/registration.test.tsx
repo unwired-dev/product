@@ -1656,6 +1656,74 @@ describe('product registration', () => {
     expect(screen.queryByText('Gmail · Encrypted on this device')).toBeNull();
   });
 
+  it('runs nothing for a held Move choice after the reader switches to another mailbox', async () => {
+    expect.hasAssertions();
+    // Two IMAP mailboxes whose messages and folders share IDs and names.
+    const servers = [0, 1].map((index) =>
+      createSyntheticImap({ address: `mailbox${index}@example.invalid` }),
+    );
+    for (const imap of servers) {
+      imap.deliver('INBOX', { subject: 'Team lunch' });
+      imap.addFolder('Projects');
+    }
+    const account = await signedIn();
+    const connections: Record<string, (typeof servers)[number]['native']> = {};
+    for (const [index, imap] of servers.entries()) {
+      const connection = await connectImap(account, {
+        address: `mailbox${index}@example.invalid`,
+        host: 'imap.example.invalid',
+        username: `mailbox${index}`,
+      });
+      connections[connection] = imap.native;
+    }
+    const store = createRegistration(account.synthetic.vault);
+    const mailboxes = createMailboxes(
+      syntheticConnections({}, connections),
+      store,
+    );
+    function Reading() {
+      const [selected, setSelected] = useState<Selection>();
+      const close = () => {
+        setSelected(undefined);
+      };
+      return (
+        <InboxProvider
+          mailboxes={{ ...mailboxes, getSnapshot: mailboxes.getConnections }}>
+          <Shell
+            onClose={close}
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+            onClose={close}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <Reading />
+      </RegistrationGate>,
+    );
+    const press = async (name: string | RegExp) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await press('Inbox. In mailbox0@example.invalid');
+    await press(/Team lunch/u);
+    await press('Folders');
+    // The menu stays open while the reader moves to the other mailbox's equal message.
+    await press('Inbox. In mailbox1@example.invalid');
+    await press(/Team lunch/u);
+    await chooseMenuItem('Projects');
+    expect(servers.map(({ server }) => server.changes)).toStrictEqual([[], []]);
+  });
+
   // Opens the Garden plans reader of a connected Microsoft mailbox and its Move menu.
   const openMicrosoftMove = async (
     graph: ReturnType<typeof createSyntheticGraph>,

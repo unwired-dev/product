@@ -276,14 +276,15 @@ function Toolbar({
 }
 
 // Move to a folder from the system menu dropped below the Move button; notes are disabled items.
-// Keys carry the message, so a late choice moves only the message the menu opened for.
+// Keys carry the mailbox and message, so a late choice moves only the message the menu opened for.
 function MoveMenu({
-  message,
+  target,
   folders,
   notes,
   onMove,
 }: {
-  readonly message: string;
+  // The mailbox and message, as their command target names them.
+  readonly target: string;
   readonly folders: ReadonlyArray<
     Readonly<{ id: string; name: string; symbol?: string }>
   >;
@@ -297,7 +298,7 @@ function MoveMenu({
       accessibilityLabel={t('gmailActions.folders')}
       items={[
         ...folders.map(({ id, name, symbol = 'folder' }) => ({
-          key: `${message}\n${id}`,
+          key: `${target}\n${id}`,
           title: name,
           accessibilityLabel: t('gmailActions.moveTo', { label: name }),
           symbol,
@@ -438,7 +439,7 @@ function ImapMessageActions({
         move={
           folders.length === 0 ? undefined : (
             <MoveMenu
-              message={message.id}
+              target={commandTarget(mailbox?.id, message).id}
               folders={folders}
               onMove={move}
             />
@@ -554,7 +555,7 @@ function GmailMessageActions({
             />
           ) : (
             <MoveMenu
-              message={message.id}
+              target={commandTarget(mailbox?.id, message).id}
               folders={state.labels}
               notes={[
                 ...(state.labels.length === 0
