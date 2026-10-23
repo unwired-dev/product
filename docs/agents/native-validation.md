@@ -144,7 +144,8 @@ caret in the new reply and Send still use the pointer (see
 [#849](https://github.com/unwired-dev/product/issues/849)). The journey never
 sends, because Send crashes the host
 ([#1174](https://github.com/unwired-dev/product/issues/1174)). Cut and Copy use
-the desktop pasteboard, so the journey restores its earlier contents.
+the desktop pasteboard. The journey restores its earlier contents only if
+nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
 reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
