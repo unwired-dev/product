@@ -205,6 +205,11 @@ describe('the Tiptap evaluation composer', () => {
     await answer('Save');
     expect(screen.getByText(saveBlocked)).toBeOnTheScreen();
     expect(page).toBeOnTheScreen();
+    // A refused Save also returns the keyboard to the page that finishing blurred.
+    expect(injectedScripts.slice(-2)).toStrictEqual([
+      commandScript({ type: 'editable', editable: true }),
+      commandScript({ type: 'focus' }),
+    ]);
     // Editing again clears the notice, and the unsaved edit still asks on Close.
     await typed('Hello from Tiptap, again');
     expect(screen.queryByText(saveBlocked)).not.toBeOnTheScreen();

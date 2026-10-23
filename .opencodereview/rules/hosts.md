@@ -1067,7 +1067,7 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   without restoring its page's editing focus. Trace `editor.ts`'s freeze/blur
   and command guard: enable editing before sending focus, keep both commands
   behind the current request and mounted-owner checks, and type into the body
-  after Cancel or Escape in the native journey. A dismissed sheet and an
+  after Cancel, Escape and a refused finish in the native journey. A dismissed sheet and an
   editable command alone do not prove focus returned; an unfocused page can
   pass typing into the React Native macOS responder chain and abort the app.
 - `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of

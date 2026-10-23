@@ -418,6 +418,23 @@ final class WindowTests: XCTestCase {
     // Typing continues in the body, where the sheet returned keyboard focus.
     app.typeText(" Resumed")
     XCTAssertTrue(webText("Resumed", in: window).waitForExistence(timeout: 10))
+    // A refused Save must also return typing to the body, rather than an unfocused WebView.
+    let to = window.textFields["To"]
+    to.click()
+    to.typeText("invalid-address")
+    body.click()
+    window.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    sheet.buttons["Save"].click()
+    XCTAssertTrue(
+      text("Correct or remove the invalid address to close this Draft.", in: window)
+        .waitForExistence(timeout: 10))
+    app.typeText(" After refusal")
+    XCTAssertTrue(webText("After refusal", in: window).waitForExistence(timeout: 10))
+    to.click()
+    window.typeKey("a", modifierFlags: .command)
+    window.typeKey(.delete, modifierFlags: [])
+    body.click()
     app.typeKey("q", modifierFlags: .command)
     XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
     sheet.buttons["Cancel"].click()

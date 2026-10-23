@@ -125,7 +125,7 @@ function EvaluationEditor({
   const busy = useRef(false);
   const paused = useRef<((ready: boolean) => void) | undefined>(undefined);
   const leaving = useRef<((allowed: boolean) => void) | undefined>(undefined);
-  // Whether the last Close opened its question rather than finishing or failing.
+  // Whether the current finishing operation opened its question rather than failing.
   const asked = useRef(false);
   const answerLeave = useCallback((allowed: boolean) => {
     const answer = leaving.current;
@@ -380,6 +380,7 @@ function EvaluationEditor({
       return false;
     }
     busy.current = true;
+    asked.current = false;
     setOpen(undefined);
     setClosing('saving');
     let closed = false;
@@ -408,6 +409,10 @@ function EvaluationEditor({
     answerLeave(closed);
     if (!closed) {
       run({ type: 'editable', editable: true });
+      // A question keeps focus until answered; a refused finish returns it to the blurred body.
+      if (!asked.current) {
+        run({ type: 'focus' });
+      }
     }
     if (closed && mounted.current) {
       mounted.current = false;
@@ -499,7 +504,6 @@ function EvaluationEditor({
   useCloseGuard(navigation.leave);
   useLayoutEffect(() =>
     navigation.register(async () => {
-      asked.current = false;
       if (await close()) {
         return true;
       }
