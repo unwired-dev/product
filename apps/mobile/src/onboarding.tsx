@@ -14,6 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated, { css, useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Glass, SFSymbol } from './design.tsx';
@@ -43,6 +44,10 @@ const styles = StyleSheet.create({
   ipadHeadline: { fontSize: 59.8, lineHeight: 66.7, fontWeight: '400' },
   lede: { ...textStyles.body, opacity: 0.8 },
   ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23 },
+  ipadStatus: { fontSize: 17.25, lineHeight: 23, opacity: 0.78 },
+  // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
+  status: { position: 'absolute', top: 0, left: 0, right: 0 },
+  hidden: { opacity: 0 },
   points: { gap: 14, marginTop: 10, marginBottom: ipad ? 28 : 0 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
@@ -148,18 +153,62 @@ const styles = StyleSheet.create({
   brandDescription: { ...textStyles.body, textAlign: 'left' },
 });
 
+// While launch reads the saved account, the seal breathes and the status arrives after a moment, so
+// a quick launch shows only the seal.
+const motion = css.create({
+  breathing: {
+    animationName: { '50%': { opacity: 0.35 } },
+    animationDuration: '1600ms',
+    animationIterationCount: 'infinite',
+    animationTimingFunction: 'ease-in-out',
+  },
+  arriving: {
+    opacity: 0,
+    animationName: { to: { opacity: 1 } },
+    animationDuration: '200ms',
+    animationDelay: '600ms',
+    animationFillMode: 'forwards',
+    animationTimingFunction: 'ease-out',
+  },
+});
+
+// Launch shows this until it has read the saved account, then Welcome, setup or the Inbox (#1070).
+// It lays out as Welcome, so the seal stays in place when Welcome follows.
+export function Restoring() {
+  return (
+    <Welcome
+      restoring
+      onContinue={() => undefined}
+      // Welcome always offers Privacy & Data, which shapes its layout.
+      onPrivacy={() => undefined}
+    />
+  );
+}
+
 // The brand moment before signing in: deep graphite with the cinnabar seal and its one action.
 export function Welcome({
   onContinue,
   onPrivacy,
+  restoring = false,
 }: {
   readonly onContinue: () => void;
   readonly onPrivacy?: () => void;
+  // Launch progress: only the seal and its status show, where the seal and headline will be.
+  readonly restoring?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
   const ink = { color: colors.brandOnDeep };
+  // Welcome's own content keeps its place while launch progress shows, unseen and unreachable.
+  const hidden = restoring
+    ? ({
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
+      } as const)
+    : undefined;
+  const concealed = restoring ? styles.hidden : undefined;
   const points = [
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
@@ -169,6 +218,8 @@ export function Welcome({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t('settings.destinations.privacy')}
+        disabled={restoring}
+        focusable={!restoring}
         onPress={onPrivacy}
         style={{
           minHeight: 44,
@@ -184,6 +235,7 @@ export function Welcome({
     <>
       {ipad ? null : privacy}
       <OnboardingAction
+        disabled={restoring}
         fill="brand"
         label={t('onboarding.welcome.continue')}
         onPress={onContinue}
@@ -193,6 +245,12 @@ export function Welcome({
   );
   return (
     <View
+      {...(restoring && {
+        accessible: true,
+        accessibilityRole: 'progressbar',
+        accessibilityLabel: t('onboarding.restoring'),
+        pointerEvents: 'none',
+      })}
       style={[
         styles.page,
         {
@@ -201,25 +259,47 @@ export function Welcome({
           paddingBottom: insets.bottom,
         },
       ]}>
-      <ScrollView contentContainerStyle={styles.welcome}>
+      <ScrollView
+        contentContainerStyle={styles.welcome}
+        scrollEnabled={!restoring}>
         <View
           style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
-          <View
+          <Animated.View
             style={[
               styles.seal,
               ipad && styles.ipadSeal,
               { backgroundColor: colors.brandSeal },
+              restoring && !reduced && motion.breathing,
             ]}
           />
+          <View>
+            <Text
+              accessibilityRole="header"
+              {...hidden}
+              style={[
+                styles.headline,
+                ipad && styles.ipadHeadline,
+                ink,
+                concealed,
+              ]}>
+              {t('onboarding.welcome.title')}
+            </Text>
+            {restoring ? (
+              <Animated.View style={[styles.status, motion.arriving]}>
+                <Text style={[styles.lede, ipad && styles.ipadStatus, ink]}>
+                  {t('onboarding.restoring')}
+                </Text>
+              </Animated.View>
+            ) : null}
+          </View>
           <Text
-            accessibilityRole="header"
-            style={[styles.headline, ipad && styles.ipadHeadline, ink]}>
-            {t('onboarding.welcome.title')}
-          </Text>
-          <Text style={[styles.lede, ipad && styles.ipadLede, ink]}>
+            {...hidden}
+            style={[styles.lede, ipad && styles.ipadLede, ink, concealed]}>
             {t('onboarding.welcome.description')}
           </Text>
-          <View style={[styles.points, ipad && styles.ipadPoints]}>
+          <View
+            {...hidden}
+            style={[styles.points, ipad && styles.ipadPoints, concealed]}>
             {points.map(({ icon, text }) => (
               <View
                 key={icon}
@@ -237,13 +317,21 @@ export function Welcome({
             ))}
           </View>
           {ipad ? (
-            <View style={{ alignSelf: 'flex-start', minWidth: 184 }}>
+            <View
+              {...hidden}
+              style={[{ alignSelf: 'flex-start', minWidth: 184 }, concealed]}>
               {action}
             </View>
           ) : null}
         </View>
       </ScrollView>
-      {ipad ? null : <View style={styles.footer}>{action}</View>}
+      {ipad ? null : (
+        <View
+          {...hidden}
+          style={[styles.footer, concealed]}>
+          {action}
+        </View>
+      )}
     </View>
   );
 }
@@ -394,6 +482,7 @@ export function OnboardingAction({
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      focusable={!disabled}
       onPress={onPress}
       style={[
         styles.action,
