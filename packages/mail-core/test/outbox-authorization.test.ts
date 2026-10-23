@@ -218,7 +218,7 @@ describe('outbox cache-only authorization recovery', () => {
         ).toMatchObject([{ state: 'cached' }]);
         expect(phone.synthetic.backend.offline).toBe(false);
         expect(phone.server.reach()).toBeUndefined();
-        const opens = phone.requests.opens;
+        const { opens } = phone.requests;
         const reads = phone.gmail.requests.length;
 
         vi.setSystemTime(Date.now() + undoSendWindow);
@@ -485,7 +485,7 @@ describe('outbox cache-only authorization recovery', () => {
         expect(
           mailboxesOf(phone.registration.getSnapshot().snapshot),
         ).toMatchObject([{ state: 'cached' }]);
-        const opens = phone.requests.opens;
+        const { opens } = phone.requests;
         await recover(phone.outbox, phone.id);
         expect(phone.requests.opens).toBe(opens);
         expect(sentLists()).toBe(before);
@@ -500,7 +500,7 @@ describe('outbox cache-only authorization recovery', () => {
             'gmail',
           ).unconfirmed,
         ).toBeUndefined();
-        const refreshes = phone.synthetic.google.refreshes;
+        const { refreshes } = phone.synthetic.google;
         await vi.advanceTimersByTimeAsync(60_000);
         expect(phone.synthetic.google.refreshes).toBe(refreshes);
         expect(sentLists()).toBe(before);
