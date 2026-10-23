@@ -631,7 +631,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     await fireEvent.press(
       app.getByRole('button', { name: 'Open Command Palette' }),
     );
-    await fireEvent(app.getByPlaceholderText('Type a command'), 'keyDown', {
+    await fireEvent(app.getByPlaceholderText('Type a command'), 'keyPress', {
       nativeEvent: { key: 'Escape' },
     });
     expect(app.queryByPlaceholderText('Type a command')).toBeNull();
