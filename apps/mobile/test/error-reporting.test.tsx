@@ -250,17 +250,31 @@ describe('installation privacy access', () => {
         screen.findByText(/Available without signing in/u),
       ).resolves.toBeVisible();
       expect(screen.getByTestId('reporting-privacy-screen')).toBeVisible();
-      expect(
-        screen
+      // The page's title is the system navigation bar's.
+      const titled = expect.objectContaining({ title: 'Privacy & Data' });
+      expect({
+        bar: screen.getByTestId('reporting-privacy-screen').children,
+        headers: screen
           .getAllByRole('header', {
             name: /^(?:Privacy & Data|Error Reporting)$/u,
           })
           .map((header) => header.props.children),
-      ).toStrictEqual(['Privacy & Data', 'Error Reporting']);
+      }).toStrictEqual({
+        bar: expect.arrayContaining([
+          expect.objectContaining({ props: titled }),
+        ]),
+        headers: ['Error Reporting'],
+      });
       expect(
         screen.queryByRole('button', { name: 'Sign in with Google' }),
       ).toBeNull();
-      await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+      await fireEvent(
+        screen.getByTestId('reporting-privacy-screen'),
+        'dismissed',
+        {
+          nativeEvent: { dismissCount: 1 },
+        },
+      );
       await expect(
         screen.findByRole('button', { name: back }),
       ).resolves.toBeVisible();
@@ -326,9 +340,9 @@ describe('reporting settings navigation', () => {
     expect(
       screen.getByRole('switch', { name: 'Share error reports' }).props,
     ).toMatchObject({ value: false });
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Back to Settings' }),
-    );
+    await fireEvent(screen.getByTestId('error-reporting-detail'), 'dismissed', {
+      nativeEvent: { dismissCount: 1 },
+    });
     await expect(
       screen.findByRole('button', { name: 'Error Reporting' }),
     ).resolves.toBeVisible();

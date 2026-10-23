@@ -156,8 +156,13 @@ const openSettings = async (destination: string) => {
   });
 };
 
-// Returns from a pushed Settings destination to the list of them.
-const backToSettings = () => openSettings('Back to Settings');
+// Returns from a pushed Settings destination to the list of them, as the system Back does.
+const backToSettings = () =>
+  act(async () => {
+    await fireEvent(screen.getByTestId('settings-destination'), 'dismissed', {
+      nativeEvent: { dismissCount: 1 },
+    });
+  });
 
 // A value the store's snapshot shows, such as the Recovery Key presented for setup.
 const shown = (

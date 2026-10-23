@@ -522,7 +522,8 @@ final class InboxTests: XCTestCase {
     let settings = app.buttons["Account & Devices"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.tap()
-    let destination = app.buttons["Back to Settings"]
+    // The pushed destination shows the system navigation bar, which owns its Back.
+    let destination = app.navigationBars["Account & Devices"]
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     edgeSwipe(app, completing: false)
     waitUntil { destination.isHittable }
@@ -563,11 +564,11 @@ final class InboxTests: XCTestCase {
     }
   }
 
-  // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns to the list of
-  // destinations, then pushes it.
+  // Opens a Settings destination: iPad selects it in the sidebar; iPhone returns through the
+  // pushed destination's system Back to the list of destinations, then pushes it.
   private func openSettings(_ destination: String, in app: XCUIApplication) {
-    let back = app.buttons["Back to Settings"]
-    if back.exists {
+    let back = app.navigationBars.buttons["BackButton"]
+    if UIDevice.current.userInterfaceIdiom == .phone && back.exists {
       back.tap()
     }
     let item = app.buttons[destination]

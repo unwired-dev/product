@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -10,7 +10,6 @@ import {
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
-import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -40,23 +39,18 @@ export function AccountPage({
 }
 
 // A page's title as a fixed header that opens the palette by a downward swipe, its
-// accessibility action or, on iPad, the command input. iPhone centers the title between the way
-// back and the accessory. The gate renders outside any screen, so on iPhone the header clears
+// accessibility action or, on iPad, the command input. iPhone centers the title between an empty
+// slot and the accessory. The gate renders outside any screen, so on iPhone the header clears
 // the status bar with the root's insets, as the palette sheet does; the iPad workspace has
 // already cleared it.
 export function AccountHeader({
   title,
-  onBack,
-  backLabel,
   accessory,
 }: {
   readonly title: string;
-  readonly onBack?: (() => void) | undefined;
-  readonly backLabel?: string;
   readonly accessory?: ReactNode;
 }) {
   const colors = usePalette();
-  const { t } = useLocalization();
   const header = usePaletteHeader();
   const insets = useSafeAreaInsets();
   return (
@@ -73,24 +67,7 @@ export function AccountHeader({
       ]}
       {...header.swipe}>
       <View style={styles.accountHeading}>
-        {pad && onBack === undefined ? null : (
-          <View style={pad ? undefined : styles.phoneHeaderSlot}>
-            {onBack === undefined ? null : (
-              <Pressable
-                accessibilityLabel={backLabel ?? t('settings.back')}
-                accessibilityRole="button"
-                onPress={onBack}
-                style={[styles.back, { boxShadow: colors.smallGlassShadow }]}>
-                <Glass cornerRadius={22} />
-                <SFSymbol
-                  name="chevron.left"
-                  size={17}
-                  color={colors.textPrimary}
-                />
-              </Pressable>
-            )}
-          </View>
-        )}
+        {pad ? null : <View style={styles.phoneHeaderSlot} />}
         <Text
           accessibilityRole="header"
           numberOfLines={1}
@@ -113,5 +90,22 @@ export function AccountHeader({
         <CommandInput />
       </View>
     </View>
+  );
+}
+
+// A pushed page's title in the system navigation bar, which opens the palette by a downward swipe
+// or its accessibility action, as the fixed headers do.
+export function PaletteTitle({ title }: { readonly title: string }) {
+  const colors = usePalette();
+  const header = usePaletteHeader();
+  return (
+    <Text
+      accessibilityRole="header"
+      numberOfLines={1}
+      style={[textStyles.headline, { color: colors.textPrimary }]}
+      {...header.swipe}
+      {...header.action}>
+      {title}
+    </Text>
   );
 }

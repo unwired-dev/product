@@ -11,9 +11,14 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScreenStack, ScreenStackItem } from 'react-native-screens';
+import {
+  ScreenStack,
+  ScreenStackHeaderCenterView,
+  ScreenStackHeaderRightView,
+  ScreenStackItem,
+} from 'react-native-screens';
 
-import { AccountHeader } from './account-page.tsx';
+import { AccountHeader, PaletteTitle } from './account-page.tsx';
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -289,7 +294,7 @@ function DestinationRow({
 }
 
 // Settings: on iPad a glass sidebar of destinations beside the selected one's form; on iPhone the
-// list of destinations, or one destination pushed over it with a way back.
+// list of destinations, or one destination pushed over it in the system navigation bar.
 export function SettingsWorkspace({
   account,
   destination,
@@ -418,73 +423,28 @@ export function SettingsWorkspace({
       </View>
     );
   }
-  const page =
-    destination === undefined ? undefined : (
-      <View style={styles.page}>
-        <AccountHeader
-          title={t(`settings.destinations.${destination}`)}
-          backLabel={t(
-            onWelcome === undefined ? 'settings.back' : 'onboarding.back',
-          )}
-          onBack={() => {
-            if (onWelcome === undefined) {
-              onDestination(
-                destination === 'errorReporting' ? 'privacy' : undefined,
-              );
-            } else {
-              onWelcome();
-            }
-          }}
-          accessory={accessory}
-        />
-        {content}
-      </View>
-    );
-  const shown =
-    destination === 'privacy' ? (
-      <ScreenStack style={styles.page}>
-        <ScreenStackItem
-          screenId="privacy-settings"
-          activityState={2}
-          freezeOnBlur={false}
-          headerConfig={{ hidden: true }}>
-          <View
-            style={styles.page}
-            accessibilityElementsHidden={detail !== undefined}
-            importantForAccessibility={
-              detail === undefined ? 'auto' : 'no-hide-descendants'
-            }>
-            {page}
-          </View>
-        </ScreenStackItem>
-        {detail === undefined ? null : (
-          <ScreenStackItem
-            screenId="error-reporting"
-            testID="error-reporting-detail"
-            activityState={2}
-            headerConfig={{ hidden: true }}
-            gestureEnabled
-            onDismissed={() => {
-              onDestination('privacy');
-            }}>
-            <View style={styles.page}>
-              <AccountHeader
-                title={t('errorReporting.title')}
-                onBack={() => {
-                  onDestination('privacy');
-                }}
-                accessory={accessory}
-              />
-              <ScrollView contentContainerStyle={styles.content}>
-                {detail}
-              </ScrollView>
-            </View>
-          </ScreenStackItem>
+  // The welcome screen's Privacy page is pushed by its own stack, which shows its bar.
+  if (onWelcome !== undefined) {
+    return content;
+  }
+  // A pushed page's system navigation bar owns Back and its edge swipe. Its title stays a React
+  // Native view for the palette's swipe and action, and the accessory keeps its own glass.
+  const bar = (title: string) => ({
+    title,
+    backButtonDisplayMode: 'minimal' as const,
+    children: (
+      <>
+        <ScreenStackHeaderCenterView>
+          <PaletteTitle title={title} />
+        </ScreenStackHeaderCenterView>
+        {accessory === undefined ? null : (
+          <ScreenStackHeaderRightView hidesSharedBackground>
+            {accessory}
+          </ScreenStackHeaderRightView>
         )}
-      </ScreenStack>
-    ) : (
-      page
-    );
+      </>
+    ),
+  });
   const list = (
     <View style={styles.page}>
       <AccountHeader
@@ -549,37 +509,57 @@ export function SettingsWorkspace({
       </ScrollView>
     </View>
   );
-  // The welcome screen's Privacy page is pushed by its own stack, with no list beneath.
-  if (onWelcome !== undefined) {
-    return shown;
-  }
-  // The list stays beneath its pushed destination, so the edge swipe pops back to it as Back does.
+  // The list stays beneath its pushed destination, and Error Reporting is pushed over Privacy.
   return (
     <ScreenStack style={styles.page}>
       <ScreenStackItem
         screenId="settings-list"
         activityState={2}
         freezeOnBlur={false}
-        headerConfig={{ hidden: true }}>
+        headerConfig={{ hidden: true, title: t('settings.title') }}>
         <View
           style={styles.page}
-          accessibilityElementsHidden={shown !== undefined}
+          accessibilityElementsHidden={destination !== undefined}
           importantForAccessibility={
-            shown === undefined ? 'auto' : 'no-hide-descendants'
+            destination === undefined ? 'auto' : 'no-hide-descendants'
           }>
           {list}
         </View>
       </ScreenStackItem>
-      {shown === undefined ? null : (
+      {destination === undefined ? null : (
         <ScreenStackItem
           screenId="settings-destination"
+          testID="settings-destination"
           activityState={2}
-          headerConfig={{ hidden: true }}
+          freezeOnBlur={false}
+          headerConfig={bar(t(`settings.destinations.${destination}`))}
           gestureEnabled
           onDismissed={() => {
             onDestination(undefined);
           }}>
-          {shown}
+          <View
+            style={styles.page}
+            accessibilityElementsHidden={detail !== undefined}
+            importantForAccessibility={
+              detail === undefined ? 'auto' : 'no-hide-descendants'
+            }>
+            {content}
+          </View>
+        </ScreenStackItem>
+      )}
+      {detail === undefined ? null : (
+        <ScreenStackItem
+          screenId="error-reporting"
+          testID="error-reporting-detail"
+          activityState={2}
+          headerConfig={bar(t('errorReporting.title'))}
+          gestureEnabled
+          onDismissed={() => {
+            onDestination('privacy');
+          }}>
+          <ScrollView contentContainerStyle={styles.content}>
+            {detail}
+          </ScrollView>
         </ScreenStackItem>
       )}
     </ScreenStack>

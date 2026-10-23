@@ -2386,7 +2386,7 @@ describe('command palette', () => {
       expect(screen.getByRole('button', { name })).toBeVisible();
     }
     expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
-    // A destination pushes over the list, and the way back returns to it.
+    // A destination pushes over the list, and the system Back returns to it.
     await press('Account & Devices');
     expect(
       screen.getByRole('header', { name: 'Account & Devices' }),
@@ -2396,7 +2396,11 @@ describe('command palette', () => {
     ).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Email Accounts' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
-    await press('Back to Settings');
+    await act(async () => {
+      await fireEvent(screen.getByTestId('settings-destination'), 'dismissed', {
+        nativeEvent: { dismissCount: 1 },
+      });
+    });
     expect(screen.getByRole('header', { name: 'Settings' })).toBeVisible();
     expect(
       screen.queryByRole('header', { name: 'Account & Devices' }),
