@@ -62,13 +62,7 @@ const styles = StyleSheet.create({
 
 // The compact reader's header: the subject beneath the navigation bar, whose system Back shows the
 // mailbox's unread count.
-export function ReaderHeader({
-  subject,
-  onClose,
-}: {
-  readonly subject: string;
-  readonly onClose: () => void;
-}) {
+export function ReaderHeader({ subject }: { readonly subject: string }) {
   const state = useInbox();
   const header = usePaletteHeader();
   const colors = usePalette();
@@ -84,7 +78,6 @@ export function ReaderHeader({
       {...header.swipe}>
       <NavigationChrome
         testID="system-back"
-        onPop={onClose}
         backLabel={
           unread === 0
             ? t('message.back')

@@ -958,12 +958,7 @@ function MailboxMessage({
               })
             }
           />
-          {header ? (
-            <ReaderHeader
-              subject={message.subject}
-              onClose={onClose}
-            />
-          ) : null}
+          {header ? <ReaderHeader subject={message.subject} /> : null}
           {compact ? null : (
             <View
               // Its empty width leaves taps to the panel dismissal beneath.
@@ -1026,13 +1021,10 @@ function MailboxMessage({
 export function ThreadView({
   mailbox,
   id,
-  onClose,
 }: {
   // The mailbox the message belongs to; Gmail message IDs are unique only within it.
   readonly mailbox: string | undefined;
   readonly id: string | undefined;
-  // Leaves the Thread; the compact header's Back.
-  readonly onClose?: (() => void) | undefined;
 }) {
   const profile = useProfile();
   if (mailbox === undefined || id === undefined) {
@@ -1046,20 +1038,13 @@ export function ThreadView({
         <ThreadMessages
           key={`${mailbox}/${id}`}
           id={id}
-          onClose={onClose}
         />
       </ProfileMailAssistanceGate>
     </MailboxScope>
   );
 }
 
-function ThreadMessages({
-  id,
-  onClose,
-}: {
-  readonly id: string;
-  readonly onClose: (() => void) | undefined;
-}) {
+function ThreadMessages({ id }: { readonly id: string }) {
   const state = useInbox();
   const inbox = useInboxActions();
   const colors = usePalette();
@@ -1090,7 +1075,6 @@ function ThreadMessages({
   ) {
     return <EmptyDetail id={id} />;
   }
-  const header = compact && onClose !== undefined;
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
@@ -1107,11 +1091,8 @@ function ThreadMessages({
               })
             }
           />
-          {header ? (
-            <ReaderHeader
-              subject={opened.subject}
-              onClose={onClose}
-            />
+          {compact ? (
+            <ReaderHeader subject={opened.subject} />
           ) : (
             <RegularHeader subject={opened.subject} />
           )}

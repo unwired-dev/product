@@ -217,8 +217,6 @@ describe('thread view', () => {
     await layOut(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
     await expect(screen.findByText('See you then.')).resolves.toBeVisible();
     expect(screen.getByRole('header', { name: 'Re: Planning' })).toBeVisible();
-    // The subject text itself stays selectable inside the accessible header.
-    expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     await expect(
       screen.findByText('Can we meet on Tuesday?'),
     ).resolves.toBeVisible();
@@ -440,46 +438,39 @@ describe('thread view', () => {
     expect(screen.queryByText(/^\d+ Messages?$/u)).toBeNull();
   });
 
-  it.each([
-    { back: false, onClose: undefined },
-    { back: true, onClose: () => undefined },
-  ])(
-    'opens the Command Palette from the thread header with Back $back',
-    async ({ back, onClose }) => {
-      expect.hasAssertions();
-      const { native, middle } = threadMailbox();
-      const store = createGmailInbox(native);
-      await render(
-        <InboxProvider mailboxes={singleMailbox(store, alex)}>
-          <CommandPaletteProvider>
-            <ThreadView
-              id={middle}
-              mailbox={alex}
-              onClose={onClose}
-            />
-          </CommandPaletteProvider>
-        </InboxProvider>,
-      );
-      await act(store.load);
-      expect(screen.queryByTestId('system-back') !== null).toBe(back);
-      await fireEvent(
-        await screen.findByRole('header', { name: 'Re: Planning' }),
-        'accessibilityAction',
-        { nativeEvent: { actionName: 'openCommandPalette' } },
-      );
-      const palette = within(screen.getByTestId('command-palette'));
-      expect(
-        palette.getByRole('header', {
-          name: 'Selected Message · Re: Planning',
-        }),
-      ).toBeVisible();
-      expect(
-        palette.getByRole('button', {
-          name: 'Reply. Not available for this message',
-        }),
-      ).toBeDisabled();
-    },
-  );
+  it('opens the Command Palette from the thread header beside its system Back', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createGmailInbox(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await act(store.load);
+    expect(screen.queryByTestId('system-back')).not.toBeNull();
+    await fireEvent(
+      await screen.findByRole('header', { name: 'Re: Planning' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'openCommandPalette' } },
+    );
+    const palette = within(screen.getByTestId('command-palette'));
+    expect(
+      palette.getByRole('header', {
+        name: 'Selected Message · Re: Planning',
+      }),
+    ).toBeVisible();
+    expect(
+      palette.getByRole('button', {
+        name: 'Reply. Not available for this message',
+      }),
+    ).toBeDisabled();
+  });
 
   it('shows the message as unavailable when it is not cached', async () => {
     expect.hasAssertions();
@@ -506,13 +497,11 @@ describe('thread view', () => {
     try {
       const { native, middle } = threadMailbox();
       const store = createGmailInbox(native);
-      const onClose = jest.fn();
       await render(
         <InboxProvider mailboxes={singleMailbox(store, alex)}>
           <ThreadView
             id={middle}
             mailbox={alex}
-            onClose={onClose}
           />
         </InboxProvider>,
       );
@@ -526,17 +515,11 @@ describe('thread view', () => {
       );
       expect(screen.getByText('3 Messages')).toBeVisible();
       // Every delivered message is unread, including the one outside the Thread.
-      // The system Back, named and badged by the reader, pops its native screen, which reports onPop.
-      const back = screen.getByTestId('system-back');
-      expect(back.props).toMatchObject({
+      // The reader names and badges the system Back.
+      expect(screen.getByTestId('system-back').props).toMatchObject({
         backLabel: 'Back, 4 unread',
         backCount: '4',
       });
-      await act(() => {
-        back.props.onPop();
-      });
-      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce.
-      expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
       Dimensions.set({ window });
     }
