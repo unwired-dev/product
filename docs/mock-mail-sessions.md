@@ -50,8 +50,9 @@ described in [Google registration](google-registration.md#deterministic-evidence
 [linked sign-in](linked-sign-in.md#deterministic-evidence),
 [sign-out and deletion](account-removal.md#deterministic-evidence), the
 [Tiptap Draft editor evaluation](draft-editor-evaluation.md), the
-[Thread view](catch-up.md#thread-view) and the
-[Mac performance journey](agents/native-validation.md#mac-performance-journey).
+[Thread view](catch-up.md#thread-view), the
+[Mac performance journey](agents/native-validation.md#mac-performance-journey) and the
+[Mac keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey).
 The registration journeys use the real native vault, Keychain and encrypted Inbox store.
 At each provider and backend seam, the vault asks a relay compiled only into the
 selected registration build (`native/private-inbox/synthetic/`). The synthetic Effect
@@ -123,7 +124,9 @@ In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
 also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and
 Outlook update 001 to 125, each with its own body. Every other Gmail body is HTML.
 The Mac [performance journey](agents/native-validation.md#mac-performance-journey)
-connects both mailboxes and times its interactions over them. CI does not run it.
+connects both mailboxes and times its interactions over them; the Mac
+[keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
+drives them by keyboard. CI runs neither.
 The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
 adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
 reader. It has no native journey; its evidence comes from the page and the Swift

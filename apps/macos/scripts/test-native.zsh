@@ -43,9 +43,11 @@ cp native-tests/{WindowTests.swift,create-project.rb} "$probe_dir/"
 builtin cd -q "$probe_dir"
 "${RUBY:-ruby}" create-project.rb
 journey=${2:-testIndependentWindowsCloseReopenAndQuit}
-# The performance journey relaunches the app for each of its many samples.
+# The performance journey relaunches the app for each of its many samples; the keyboard journey
+# runs five accessibility audits.
 allowance=120
 [[ "$journey" == testWarmCachePerformance ]] && allowance=1200
+[[ "$journey" == testKeyboardAndAccessibility ]] && allowance=600
 xcodebuild test "-only-testing:WindowProbe/WindowTests/$journey" -project WindowProbe.xcodeproj -scheme WindowProbe \
   -destination 'platform=macOS' -test-timeouts-enabled YES \
   -maximum-test-execution-time-allowance "$allowance" -derivedDataPath "$probe_dir/DerivedData" \

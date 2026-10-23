@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 // Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
@@ -939,6 +940,200 @@ final class WindowTests: XCTestCase {
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
     try reportPerformance(groups, evidence: evidence, overhead: overhead)
+  }
+
+  // #626: the core mail loop by keyboard where the Mac app offers a keyboard path, over the
+  // registration-performance build's Gmail and Microsoft mailboxes, with XCTest's accessibility
+  // audit of each screen. Opening a row, placing the caret in a new reply, sending and moving
+  // between controls with Tab still need the pointer (#849); Send also crashes this host (#1174).
+  // Every audit issue is printed, and one outside knownAccessibilityGap fails the journey.
+  // swiftlint:disable:next function_body_length
+  func testKeyboardAndAccessibility() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    // Cut and Copy write the desktop's pasteboard; give the person their contents back.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    addTeardownBlock {
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+    let app = XCUIApplication(url: appURL)
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func row(_ subject: String) -> XCUIElement {
+      window.buttons.matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+    }
+    try audit(app, "Inbox")
+
+    // Search Mail focuses the search field, which takes typing, Cut and Paste.
+    let search = window.textFields["Search senders and subjects"]
+    runCommand("Search Mail", in: app)
+    waitForFocus(search)
+    app.typeText("Outlook update 003")
+    XCTAssertTrue(row("Outlook update 003").waitForExistence(timeout: 15))
+    waitUntil { !row("Outlook update 004").exists }
+    app.typeKey("a", modifierFlags: .command)
+    app.typeKey("x", modifierFlags: .command)
+    waitUntil { search.value as? String == "" }
+    XCTAssertEqual(pasteboard.string(forType: .string), "Outlook update 003")
+    app.typeKey("v", modifierFlags: .command)
+    waitUntil { search.value as? String == "Outlook update 003" }
+    XCTAssertTrue(row("Outlook update 003").waitForExistence(timeout: 15))
+    // Escape closes the palette and hands focus back to the control that had it.
+    app.typeKey("p", modifierFlags: .command)
+    let command = window.textFields["Type a command"]
+    waitForFocus(command)
+    try audit(app, "Command Palette")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(command.waitForNonExistence(timeout: 10))
+    waitForFocus(search)
+    // Down and Up move through the enabled commands: New Message, Search Mail, Inbox, then
+    // Account, which Return runs.
+    app.typeKey("p", modifierFlags: .command)
+    waitForFocus(command)
+    for key in [XCUIKeyboardKey.downArrow, .downArrow, .downArrow, .upArrow, .downArrow] {
+      app.typeKey(key, modifierFlags: [])
+    }
+    app.typeKey(.return, modifierFlags: [])
+    let settings = app.windows["settings-window"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    try audit(app, "Settings")
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+
+    // Reply from the palette starts a Draft beside the reader; it keeps typed text across relaunch.
+    row("Outlook update 003").click()
+    XCTAssertTrue(body("Outlook update 003 body.", in: window).waitForExistence(timeout: 15))
+    try audit(app, "Reader")
+    runCommand("Reply", in: app)
+    // The empty body is labelled with its placeholder; once typed into, it is found by its text.
+    let message = window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    XCTAssertTrue(message.waitForExistence(timeout: 15))
+    message.click()
+    message.typeText("Keyboard reply")
+    let typed = window.textViews.matching(NSPredicate(format: "value CONTAINS %@", "Keyboard reply"))
+      .firstMatch
+    XCTAssertTrue(typed.waitForExistence(timeout: 10))
+    // Paste goes through the Edit menu into the body as well.
+    app.typeKey("a", modifierFlags: .command)
+    app.typeKey("c", modifierFlags: .command)
+    app.typeKey(.rightArrow, modifierFlags: [])
+    app.typeKey("v", modifierFlags: .command)
+    waitUntil { typed.value as? String == "Keyboard replyKeyboard reply" }
+    try audit(app, "Composer")
+    // The composer hides the search field; Search Mail shows it again. Clearing the query lists
+    // the Inbox, with the saved Draft.
+    runCommand("Search Mail", in: app)
+    waitForFocus(search)
+    app.typeKey("a", modifierFlags: .command)
+    app.typeKey(.delete, modifierFlags: [])
+    let draft = row("Draft. Re: Outlook update 003")
+    XCTAssertTrue(draft.waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(draft.waitForExistence(timeout: 30))
+    draft.click()
+    XCTAssertTrue(typed.waitForExistence(timeout: 15))
+    XCTAssertEqual(typed.value as? String, "Keyboard replyKeyboard reply")
+
+    // Window commands: a new Inbox, cycling, Show Inbox and closing, each window with its own view.
+    app.typeKey("n", modifierFlags: .command)
+    let second = app.windows["Inbox 2"]
+    XCTAssertTrue(second.waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      second.descendants(matching: .any).matching(
+        NSPredicate(format: "label == %@", "Select a message to start reading.")
+      ).firstMatch.waitForExistence(timeout: 15))
+    XCTAssertTrue(typed.exists)
+    // Windows are listed front to back.
+    func front(_ identifier: String) {
+      waitUntil { app.windows.firstMatch.identifier == identifier }
+    }
+    front("inbox-window-2")
+    app.typeKey("`", modifierFlags: .command)
+    front("inbox-window-1")
+    app.typeKey("`", modifierFlags: .command)
+    front("inbox-window-2")
+    app.typeKey("0", modifierFlags: .command)
+    front("inbox-window-1")
+    app.typeKey("`", modifierFlags: .command)
+    front("inbox-window-2")
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(second.waitForNonExistence(timeout: 10))
+    front("inbox-window-1")
+    XCTAssertTrue(typed.exists)
+  }
+
+  // Opens the key window's Command Palette, narrows it to one command and runs it with Return.
+  private func runCommand(_ name: String, in app: XCUIApplication) {
+    app.typeKey("p", modifierFlags: .command)
+    let input = app.textFields.matching(NSPredicate(format: "label == %@", "Type a command")).firstMatch
+    XCTAssertTrue(input.waitForExistence(timeout: 10))
+    waitForFocus(input)
+    app.typeText(name)
+    waitUntil { input.value as? String == name }
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(input.waitForNonExistence(timeout: 10))
+  }
+
+  private func waitForFocus(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+    let focused = NSPredicate(format: "hasKeyboardFocus == true")
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: focused, object: element)], timeout: 10),
+      .completed, "\(element) never took keyboard focus", file: file, line: line)
+  }
+
+  // Runs every XCTest accessibility audit on the app as shown, prints each issue as an
+  // ACCESSIBILITY line and fails on one that no known gap explains.
+  private func audit(_ app: XCUIApplication, _ screen: String) throws {
+    try app.performAccessibilityAudit { issue in
+      let gap = self.knownAccessibilityGap(issue)
+      print("ACCESSIBILITY " + self.json([
+        "screen": screen, "audit": issue.compactDescription,
+        "elementType": issue.element?.elementType.rawValue ?? -1,
+        "label": issue.element?.label ?? "", "knownGap": gap ?? "",
+      ]))
+      return gap != nil
+    }
+  }
+
+  // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
+  private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
+    let type = issue.element?.elementType
+    let label = issue.element?.label ?? ""
+    // AppKit's Touch Bar for a focused text view.
+    let touchBar =
+      type == .touchBar || (type == .popUpButton && ["list style", "text alignment"].contains(label))
+    switch issue.auditType {
+    case .contrast where type == .staticText:
+      return "#1195"
+    case .action where type == .button:
+      return "#1194"
+    case .parentChild where issue.element == nil:
+      return "#1194"
+    case .action where touchBar, .sufficientElementDescription where touchBar:
+      return "AppKit Touch Bar"
+    case .sufficientElementDescription
+    where type == .other && ["System default", "English"].contains(label):
+      return "#1196"
+    // An email address is the readable name of an account.
+    case .sufficientElementDescription where type == .staticText && label.contains("@"):
+      return "email address"
+    default:
+      return nil
+    }
   }
 
   // Signs in with Apple and connects the synthetic Microsoft mailbox, confirms the Recovery Key,
