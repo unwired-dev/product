@@ -19,6 +19,7 @@ import {
   ProviderList,
   ProviderRow,
   SignIn,
+  SignInWithApple,
   Welcome,
 } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
@@ -62,17 +63,26 @@ export function SignedOutPage({
       description={copy?.description ?? t('onboarding.signIn.description')}
       actions={
         <>
-          {actions.signIn.map(({ offer, provider, label }) => (
-            <OnboardingAction
-              key={`${offer}-${provider}`}
-              disabled={busy}
-              fill={provider === 'apple' ? 'apple' : 'quiet'}
-              label={label}
-              onPress={() => {
-                void store.register(provider);
-              }}
-            />
-          ))}
+          {actions.signIn.map(({ offer, provider, label }) => {
+            const register = () => {
+              void store.register(provider);
+            };
+            return provider === 'apple' ? (
+              <SignInWithApple
+                key={`${offer}-${provider}`}
+                disabled={busy}
+                onPress={register}
+              />
+            ) : (
+              <OnboardingAction
+                key={`${offer}-${provider}`}
+                disabled={busy}
+                fill="quiet"
+                label={label}
+                onPress={register}
+              />
+            );
+          })}
           <FinePrint>{t('onboarding.signIn.finePrint')}</FinePrint>
         </>
       }>
