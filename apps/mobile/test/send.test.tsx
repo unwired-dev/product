@@ -53,6 +53,7 @@ const snapshot: RegistrationSnapshot = {
 };
 const registration = {
   getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+  resume: () => Promise.resolve(),
   subscribe: () => () => undefined,
 };
 

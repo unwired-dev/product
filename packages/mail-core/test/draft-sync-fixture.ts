@@ -39,6 +39,7 @@ export async function device(
   const listeners = new Set<() => void>();
   const registration = {
     getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+    resume: () => Promise.resolve(),
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
