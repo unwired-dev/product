@@ -246,7 +246,73 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
     XCTAssertTrue(relaunched.buttons[starred].exists)
     XCTAssertTrue(text("rowan@example.invalid", in: relaunched).exists)
+    if apple { composerMenuJourney(app, first: relaunched) }
   }
+
+  // #1076: the composer's Text style, From and actions pop-ups open AppKit menus that the system
+  // dismisses, and each choice changes only the Draft of the window that opened the menu.
+  private func composerMenuJourney(_ app: XCUIApplication, first: XCUIElement) {
+    func compose(in window: XCUIElement) -> XCUIElement {
+      window.buttons["New Message"].click()
+      let style = window.buttons["Text style"]
+      XCTAssertTrue(style.waitForExistence(timeout: 15))
+      return style
+    }
+    // XCUITest does not expose an AppKit menu's checkmark (isSelected is the pointer highlight),
+    // so each pop-up reports its current choice as its accessibility value.
+    func shows(_ control: XCUIElement, _ choice: String) {
+      waitUntil { (control.value as? String) == choice }
+    }
+    let style = compose(in: first)
+    shows(style, "Body")
+    style.click()
+    let heading = app.menuItems["Heading 1"]
+    XCTAssertTrue(heading.waitForExistence(timeout: 5))
+    // Escape and a click outside the menu dismiss it without a choice.
+    first.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
+    style.click()
+    XCTAssertTrue(heading.waitForExistence(timeout: 5))
+    first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01)).click()
+    XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
+    shows(style, "Body")
+    style.click()
+    heading.click()
+    XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
+    shows(style, "Heading 1")
+    // The sender menu lists the Profile's mailboxes.
+    let from = first.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send from"))
+      .firstMatch
+    XCTAssertTrue(from.waitForExistence(timeout: 5))
+    let sender = from.label.replacingOccurrences(of: "Send from ", with: "")
+    from.click()
+    XCTAssertTrue(app.menuItems[sender].waitForExistence(timeout: 5))
+    first.typeKey(.escape, modifierFlags: [])
+    // A second window's Draft keeps its own text style.
+    app.typeKey("n", modifierFlags: .command)
+    let second = app.windows["Inbox 2"]
+    // A new window may open on the confirmed-setup account page (#1189).
+    if second.buttons["Open Inbox"].waitForExistence(timeout: 10) { second.buttons["Open Inbox"].click() }
+    XCTAssertTrue(second.buttons["New Message"].waitForExistence(timeout: 15))
+    let secondStyle = compose(in: second)
+    shows(secondStyle, "Body")
+    secondStyle.click()
+    app.menuItems["Quote"].click()
+    shows(secondStyle, "Quote")
+    shows(style, "Heading 1")
+    // Discard is the destructive action and asks before removing the Draft.
+    first.click()
+    first.buttons["Compose actions"].click()
+    let discard = app.menuItems["Discard"]
+    XCTAssertTrue(discard.waitForExistence(timeout: 5))
+    discard.click()
+    XCTAssertTrue(first.buttons["Discard Draft"].waitForExistence(timeout: 5))
+    first.buttons["Keep Editing"].click()
+    XCTAssertTrue(second.buttons["Text style"].exists)
+    // Closing a composer crashes the host (#1174), so the journey ends with both still open.
+    app.terminate()
+  }
+
 
   // The Tiptap evaluation editor (#818): a new Draft is typed into the packaged page, saved through
   // the encrypted Draft store, and reopened after relaunch. Focus, resize and teardown are recorded.
@@ -378,12 +444,20 @@ final class WindowTests: XCTestCase {
       .firstMatch
   }
 
-  private func writingTool(_ name: String, in window: XCUIElement) -> XCUIElement {
+  // A Writing tools item of the AppKit menu the sparkles button opens. The menu shows the page
+  // state from when it opened, so it reopens until a selection reported since enables the item.
+  private func writingTool(
+    _ name: String, in window: XCUIElement, of app: XCUIApplication
+  ) -> XCUIElement {
     let tools = window.buttons["Writing tools"]
     XCTAssertTrue(tools.waitForExistence(timeout: 30))
-    tools.click()
-    let action = window.buttons[name]
-    XCTAssertTrue(action.waitForExistence(timeout: 15))
+    let action = app.menuItems[name]
+    for _ in 0..<5 {
+      tools.click()
+      if action.waitForExistence(timeout: 5) && action.isEnabled { return action }
+      window.typeKey(.escape, modifierFlags: [])
+    }
+    XCTFail("Writing tools never offered \(name)")
     return action
   }
 
@@ -420,17 +494,15 @@ final class WindowTests: XCTestCase {
     waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered list"].isSelected }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
       window.webViews.staticTexts.firstMatch.doubleClick()
-      self.writingTool("Rewrite the selected text", in: window).click()
+      self.writingTool("Rewrite the selected text", in: window, of: app).click()
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: false) {
       window.webViews.textViews["Message body"].click()
-      self.writingTool("Rewrite the message body", in: window).click()
+      self.writingTool("Rewrite the message body", in: window, of: app).click()
     }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
       window.webViews.staticTexts.firstMatch.doubleClick()
-      let translate = self.writingTool("Translate the selected text", in: window)
-      waitUntil { translate.isEnabled }
-      translate.click()
+      self.writingTool("Translate the selected text", in: window, of: app).click()
       window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Translate into German"))
         .firstMatch.click()
     }
@@ -444,7 +516,7 @@ final class WindowTests: XCTestCase {
       app, result: "Synthetic reply to local mail.", apply: "Replace your reply with this suggestion",
       draft: "Garden plans for spring", numbered: false, boldAfterApply: false
     ) {
-      self.writingTool("Suggest a reply to the quoted message", in: window).click()
+      self.writingTool("Suggest a reply to the quoted message", in: window, of: app).click()
     }
   }
 

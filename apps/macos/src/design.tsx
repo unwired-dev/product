@@ -36,7 +36,7 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-export const NativeGlass = requireNativeComponent<
+const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 

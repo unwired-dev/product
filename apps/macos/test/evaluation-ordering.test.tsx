@@ -17,6 +17,7 @@ import {
   press,
   simulatedPage,
 } from './evaluation-page.ts';
+import { chooseMenuItem } from './native-menu.ts';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -82,7 +83,7 @@ describe('evaluation Draft save ordering', () => {
     await report({ revision: 2, selection: { start: 7, end: 7 } });
     const before = lastCommand();
     await press('Writing tools');
-    await press('Rewrite the message body');
+    await chooseMenuItem('Rewrite');
     expect(lastCommand()).toBe(before);
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
     // Once that body arrives, the capture describes it and replaces it at its revision.
@@ -91,7 +92,7 @@ describe('evaluation Draft save ordering', () => {
       document: [{ kind: 'paragraph', spans: [{ text: 'One two' }] }],
     });
     await press('Writing tools');
-    await press('Rewrite the message body');
+    await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
     await press('Replace your text with this rewrite');
     expect(lastCommand()).toContain('"type":"replace","revision":2');
@@ -110,7 +111,7 @@ describe('evaluation Draft save ordering', () => {
     const { report, typed } = simulatedPage();
     await typed('One');
     await press('Writing tools');
-    await press('Rewrite the message body');
+    await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
     // The preview belongs to revision 1, but only revision 2's selection has arrived.
     await report({ revision: 2, selection: { start: 7, end: 7 } });
