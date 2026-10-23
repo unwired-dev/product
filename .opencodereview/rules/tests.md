@@ -25,6 +25,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A state-transition wait such as the landscape loop in
+  `InboxTests.verifyCompactMailboxesFillScreen` accepting a predicate already true
+  in the preceding state. Require an observable result that distinguishes the
+  requested state, or establish and observe an intermediate state first. Window
+  width greater than height cannot distinguish opposite landscape rotations;
+  otherwise row checks and captures can repeat the first orientation while
+  claiming to cover both.
+
 - An expiry test such as `ImapMailboxTests.imapSessionsStayWithTheirConnectionGeneration`
   shortening a session's lifetime before establishing the held command it intends
   to expire. Open the session and observe the command waiting before shortening
