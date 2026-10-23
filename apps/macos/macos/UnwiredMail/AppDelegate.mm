@@ -384,7 +384,11 @@ extern "C" NSString *UnwiredWindowProfile(NSString *identifier);
   NSMenuItem *editItem = [main addItemWithTitle:UnwiredNativeText(@"edit") action:nil keyEquivalent:@""];
   NSMenu *edit = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"edit")];
   editItem.submenu = edit;
+  // AppKit sends text fields these key equivalents only through menu items. No Undo: the native
+  // undo stack goes stale when JavaScript sets a field's text and would corrupt it.
+  [edit addItemWithTitle:UnwiredNativeText(@"cut") action:@selector(cut:) keyEquivalent:@"x"];
   [edit addItemWithTitle:UnwiredNativeText(@"copy") action:@selector(copy:) keyEquivalent:@"c"];
+  [edit addItemWithTitle:UnwiredNativeText(@"paste") action:@selector(paste:) keyEquivalent:@"v"];
   [edit addItemWithTitle:UnwiredNativeText(@"selectAll") action:@selector(selectAll:) keyEquivalent:@"a"];
 
   NSMenuItem *viewItem = [main addItemWithTitle:UnwiredNativeText(@"view") action:nil keyEquivalent:@""];

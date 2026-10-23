@@ -432,13 +432,16 @@ export function Mailboxes({
     await reload();
   };
   return (
-    <SafeAreaView
-      edges={{ top: true, bottom: true, left: true }}
+    // The safe area keeps its insets as margins, so on iPhone the surface around it fills the
+    // screen behind the status bar and home indicator.
+    <View
       style={[
         styles.fill,
         compact && { backgroundColor: colors.surfaceContent },
       ]}>
-      <View style={styles.fill}>
+      <SafeAreaView
+        edges={{ top: true, bottom: true, left: true, right: true }}
+        style={styles.fill}>
         {/* The header opens the Command Palette by a downward swipe or its accessibility action. */}
         <View
           style={styles.heading}
@@ -543,7 +546,7 @@ export function Mailboxes({
             />
           </View>
         )}
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
