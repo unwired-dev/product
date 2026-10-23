@@ -1022,15 +1022,17 @@ export const canOpenInbox = (snapshot: RegistrationSnapshot) =>
   snapshot.removalPending === undefined;
 
 // The account setup that needs the person before the Inbox, described so that newly appearing
-// setup differs from setup already pending; empty when none: a Recovery Key to confirm or enter,
-// a device approval on either side, or a mailbox not yet saved to private sync.
+// setup differs from setup already pending; empty when none: a Recovery Key to confirm, a device
+// approval on either side, or a mailbox not yet saved to private sync. Recovery Key entry waits in
+// Settings, unless an unanswered removal's replacement key must be confirmed before it.
 const inboxSetup = (snapshot: RegistrationSnapshot) => {
   if (snapshot.kind !== 'connected' && snapshot.kind !== 'cached') {
     return '';
   }
   const privateSync =
     snapshot.privateSync === 'setup-pending' ||
-    offersRecovery(snapshot.privateSync)
+    (offersRecovery(snapshot.privateSync) &&
+      snapshot.revocationRecoveryKey !== undefined)
       ? snapshot.privateSync
       : undefined;
   return [
