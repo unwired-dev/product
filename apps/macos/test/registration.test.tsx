@@ -528,6 +528,18 @@ describe('product registration', () => {
         screen.getByLabelText('SMTP password, same as incoming if blank'),
         smtpPassword,
       );
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'SMTP security' }),
+        );
+      });
+      const checkedSecurity = menuItems()
+        .filter(({ checked }) => checked)
+        .map(({ title }) => title);
+      await chooseMenuItem('STARTTLS');
+      const chosenSecurity: unknown = screen.getByRole('button', {
+        name: 'SMTP security',
+      }).props.accessibilityValue?.text;
       const credentialGuidance = screen.getAllByText(
         'Same as incoming if blank.',
       ).length;
@@ -540,13 +552,18 @@ describe('product registration', () => {
       });
       expect({
         canConnect,
+        checkedSecurity,
+        chosenSecurity,
         credentialGuidance,
         setups,
         failure: store.getSnapshot().imapFailure,
         password: screen.queryByLabelText('Password'),
         state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
+        security: mailboxesOf(store.getSnapshot().snapshot)[0]?.smtp?.security,
       }).toStrictEqual({
         canConnect: expectedConnect,
+        checkedSecurity: ['SSL/TLS'],
+        chosenSecurity: 'STARTTLS',
         credentialGuidance: 2,
         setups: [
           expect.objectContaining({
@@ -554,7 +571,7 @@ describe('product registration', () => {
             smtp: {
               host: 'smtp.example.invalid',
               port: 465,
-              security: 'tls',
+              security: 'starttls',
               username: 'alex',
               ...sendingPassword,
             },
@@ -563,6 +580,7 @@ describe('product registration', () => {
         failure: undefined,
         password: null,
         state: 'connected',
+        security: 'starttls',
       });
     },
   );
