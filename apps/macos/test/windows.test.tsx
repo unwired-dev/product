@@ -1838,7 +1838,7 @@ describe('mac windows of different Mail Profiles', () => {
       const [title, message, buttons] = asked;
       expect([title, message]).toStrictEqual([
         'Remove “Work” and Its Mailboxes?',
-        'other@example.invalid is also removed from Unwired Mail on all your devices, with its Drafts and pending sends. Its mail stays with Gmail.',
+        'other@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with Gmail.',
       ]);
       ok(Array.isArray(buttons));
       expect(buttons.map(({ text, style }) => [text, style])).toStrictEqual([

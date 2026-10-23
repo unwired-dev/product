@@ -214,7 +214,7 @@ describe('window Profiles', () => {
         'Family is removed from all your Trusted Devices. It owns no mailboxes.',
     });
     expect(profileRemoval(english, 'Work', [mailbox]).message).toBe(
-      'bob@example.invalid is also removed from Unwired Mail on all your devices, with its Drafts and pending sends. Its mail stays with the mail server.',
+      'bob@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with the mail server.',
     );
     expect(
       profileRemoval(english, 'Work', [
@@ -222,7 +222,7 @@ describe('window Profiles', () => {
         { ...mailbox, id: 'two', address: 'ann@example.invalid' },
       ]).message,
     ).toBe(
-      'bob@example.invalid, ann@example.invalid are also removed from Unwired Mail on all your devices, with their Drafts and pending sends. Their mail stays with their providers.',
+      'bob@example.invalid, ann@example.invalid are also removed from Unwired Mail on all your devices. Their mail stays with their providers.',
     );
     expect(
       profileRefusalText(english, 'move', 'profile-changed'),

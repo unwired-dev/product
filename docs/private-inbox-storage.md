@@ -144,7 +144,9 @@ registration store already offers these operations:
   and, with `profile-in-use`, while the Profile owns a live connection that the
   person did not confirm removing with it. The store first removes each confirmed
   connection the Profile still owns, as Email Accounts removes one, then the
-  Profile; a confirmed connection moved to another Profile meanwhile stays. Unreadable
+  Profile. A confirmed connection this device already knows moved to another Profile
+  stays. The question names each connection, so one that another device moved without
+  this device learning of it yet is still removed, as Email Accounts would. Unreadable
   ownership or connection descriptions leave removal unavailable, as does a missing
   description for a connection the Profile owns. Removing a Profile
   still pending on this device also prevents a delayed first publication from
@@ -209,8 +211,9 @@ with a system pop-up naming its Mail Profile; choosing another Profile moves the
 connection. Every Profile except the Primary Profile offers **Remove Mail
 Profile…**, which asks first in a system alert. For a Profile that owns
 connections, the question names them, and confirming removes them from Unwired
-Mail on every Trusted Device, with their Drafts and pending sends, before the
-Profile; their mail stays with the provider. A refused move or removal names
+Mail on every Trusted Device before the Profile; their mail stays with the
+provider. As after removing a mailbox in Email Accounts, Drafts written from them
+stay. A refused move or removal names
 another device's earlier change (`profile-changed`, or `profile-in-use` when a
 connection arrived after the question), explains `upgrade-required`, or asks to
 try again.
