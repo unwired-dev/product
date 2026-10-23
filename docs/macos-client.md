@@ -86,9 +86,8 @@ not expose plain nonselectable `Text` to accessibility: wrap it in an accessible
 its label, or make it selectable so it becomes a native text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
 
-The Edit menu has no Undo or Redo. AppKit's undo stack for a text field goes
-stale once JavaScript sets the field's text, so undoing would corrupt it. The
-composer body keeps its own Command-Z and Shift-Command-Z history.
+The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
+Shift-Command-Z history.
 
 Link confirmations move keyboard focus to their first choice and cycle Tab and
 Shift-Tab within the choices; Escape dismisses the alert. Dismissal does not
