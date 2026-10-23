@@ -811,9 +811,10 @@ describe('profile-scoped mobile routes', () => {
       screen.findByText('Synthetic garden body.'),
     ).resolves.toBeVisible();
     split.shown.length = 0;
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Back, 2 unread' }),
-    );
+    // The system Back pops its native screen, which reports onPop.
+    await act(() => {
+      screen.getByTestId('system-back').props.onPop();
+    });
     expect(split.shown).toStrictEqual(['supplementary']);
     expect(screen.queryByText('Synthetic garden body.')).toBeNull();
     expect(screen.getByLabelText('Search senders and subjects')).toBeVisible();
@@ -835,9 +836,10 @@ describe('profile-scoped mobile routes', () => {
       });
     });
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Back, 2 unread' }),
-    );
+    // The system Back pops its native screen, which reports onPop.
+    await act(() => {
+      screen.getByTestId('system-back').props.onPop();
+    });
     await expect(
       screen.findByRole('button', { name: 'Archive' }),
     ).resolves.toBeVisible();

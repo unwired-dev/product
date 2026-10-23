@@ -461,9 +461,7 @@ describe('thread view', () => {
         </InboxProvider>,
       );
       await act(store.load);
-      expect(screen.queryByRole('button', { name: /^Back/u }) !== null).toBe(
-        back,
-      );
+      expect(screen.queryByTestId('system-back') !== null).toBe(back);
       await fireEvent(
         await screen.findByRole('header', { name: 'Re: Planning' }),
         'accessibilityAction',
@@ -528,9 +526,15 @@ describe('thread view', () => {
       );
       expect(screen.getByText('3 Messages')).toBeVisible();
       // Every delivered message is unread, including the one outside the Thread.
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Back, 4 unread' }),
-      );
+      // The system Back, named and badged by the reader, pops its native screen, which reports onPop.
+      const back = screen.getByTestId('system-back');
+      expect(back.props).toMatchObject({
+        backLabel: 'Back, 4 unread',
+        backCount: '4',
+      });
+      await act(() => {
+        back.props.onPop();
+      });
       // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce.
       expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
