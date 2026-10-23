@@ -211,6 +211,20 @@ const byIdentifier = Order.mapInput(
   ({ payloadIdentifier }: Readonly<{ payloadIdentifier: string }>) =>
     payloadIdentifier,
 );
+// Mail Profile changes compare and set several records together, with no other checks or deletes.
+const decodeAtomicWrites = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    checks: Schema.Tuple([]),
+    deletes: Schema.Tuple([]),
+    writes: Schema.NonEmptyArray(
+      Schema.Struct({
+        payloadIdentifier: Schema.NonEmptyString,
+        encryptedPayload: EncryptedPayload,
+        expectedUpdatedAt: Schema.optionalKey(Schema.Finite),
+      }),
+    ),
+  }),
+);
 const payloadOf = (value: unknown) =>
   Schema.decodeUnknownEffect(EncryptedPayload)(value).pipe(
     Effect.orElseSucceed(() => null),
@@ -626,6 +640,72 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         );
       });
 
+      // Several compare-and-set writes in one transaction, as Mail Profile changes make them: all
+      // commit, or none does and the stored records come back instead.
+      const putAll = Effect.fn('SyntheticConvex.putAll')(function* ({
+        args,
+        identity,
+        product,
+      }: Presented) {
+        const decoded = yield* decodeAtomicWrites(args).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        // Convex refuses a batch that writes one record twice, before storing any of it.
+        if (
+          identity === null ||
+          decoded === null ||
+          new Set(
+            decoded.writes.map(({ payloadIdentifier }) => payloadIdentifier),
+          ).size !== decoded.writes.length
+        ) {
+          return yield* refusal('UNAVAILABLE');
+        }
+        const { writes: batch } = decoded;
+        const account = product.productAccountId;
+        return yield* update((next) =>
+          Effect.gen(function* () {
+            if (
+              batch.some(
+                ({ encryptedPayload }) =>
+                  encryptedPayload.keyVersion !== epoch(account),
+              )
+            ) {
+              return yield* refuse('PRODUCT_SYNC_KEY_ROTATION_REQUIRED');
+            }
+            const records = next.records[account] ?? {};
+            const current = batch.flatMap(({ payloadIdentifier }) => {
+              const existing = records[payloadIdentifier];
+              return existing === undefined ? [] : [existing];
+            });
+            if (
+              batch.some(
+                ({ payloadIdentifier, expectedUpdatedAt }) =>
+                  records[payloadIdentifier]?.updatedAt !== expectedUpdatedAt,
+              )
+            ) {
+              return { committed: false, payloads: current };
+            }
+            const stored = batch.map(
+              ({ payloadIdentifier, encryptedPayload }) => ({
+                payloadIdentifier,
+                encryptedPayload,
+                updatedAt: (records[payloadIdentifier]?.updatedAt ?? 0) + 1,
+              }),
+            );
+            next.records[account] = {
+              ...records,
+              ...Object.fromEntries(
+                stored.map((record) => [record.payloadIdentifier, record]),
+              ),
+            };
+            return { committed: true, payloads: stored };
+          }),
+        ).pipe(
+          Effect.flatMap(success),
+          Effect.catchTag('SyntheticRefusal', ({ code }) => refusal(code)),
+        );
+      });
+
       // Signing out forgets this device; signing in again makes it wait for admission.
       const unregister = ({ args, product }: Presented) =>
         changed((next) => {
@@ -809,6 +889,10 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
                 continueCursor: '',
               }),
         'productSync:putEncryptedPayloadIfUnchanged': putPayload,
+        'productSync:putEncryptedPayloadsAtomically': putAll,
+        // Every device of a synthetic account runs this build, so no older client fences Profiles.
+        'productSync:declareMailProfileCapability': () =>
+          success({ fenced: false }),
         '/product-account/delete': ({ product }) =>
           Effect.gen(function* () {
             if (!state.deleted.includes(product.productAccountId)) {

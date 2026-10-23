@@ -14,6 +14,14 @@ interface SettingsHost extends TurboModule {
 export const settingsHost = () =>
   TurboModuleRegistry.get<SettingsHost>('UnwiredCommands');
 
+interface WindowHost extends TurboModule {
+  // AppKit saves the window's Mail Profile with its restorable state.
+  readonly setWindowProfile: (window: string, profile: string) => void;
+}
+
+export const windowHost = () =>
+  TurboModuleRegistry.get<WindowHost>('UnwiredCommands');
+
 const isRequestSerial = Schema.is(Schema.Int);
 let observing = false;
 

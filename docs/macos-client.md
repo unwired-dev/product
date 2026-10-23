@@ -55,7 +55,8 @@ availability on mobile does not establish Mac compatibility.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
-(**All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
+(the window's [Profile Switcher](private-inbox-storage.md#mail-profiles),
+**All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
 **Account**), the message list with its floating search and **New Message** bar,
 and the reader. The **Show Sidebar** / **Hide Sidebar** button before the list title
 toggles the sidebar; a window at most 900pt wide starts without it.
@@ -79,6 +80,15 @@ command bar.
 | Dock/Finder reopen                     | Focus an existing Inbox or create one               |
 | Unwired Mail > Quit, Command-Q         | End the process                                     |
 | Edit > Cut, Copy, Paste, Select All    | Edit the focused text field or text view            |
+
+When the system keeps windows at quit (System Settings, Desktop & Dock, with
+"Close windows when quitting an application" turned off) or after the app ends
+unexpectedly, AppKit restores each Inbox window with its frame and Mail Profile.
+Otherwise a launch opens one new window in the Startup Profile. The Settings
+window is never restored. Native journeys launch with
+`-ApplePersistenceIgnoreState YES`, so each starts from one new window; restoring a
+window's Profile across a real relaunch is not yet verified natively and remains a
+release check.
 
 Closing the final window keeps the application and its runtime alive, and Gmail
 synchronization continues without a window, as

@@ -5,10 +5,10 @@ import {
   runWhenOffered,
 } from '@private-email/mail-core/commands';
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
-import { defaultProfile } from '@private-email/mail-core/registration';
+import { windowProfile } from '@private-email/mail-core/profile-windows';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
@@ -26,6 +26,7 @@ import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
 import {
   InboxProvider,
+  profileChoices,
   ProfileScope,
   useMailboxes,
   useProfile,
@@ -33,9 +34,13 @@ import {
 } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
-import { RegistrationGate, SettingsGate } from './registration-gate.tsx';
+import {
+  AccountContext,
+  RegistrationGate,
+  SettingsGate,
+} from './registration-gate.tsx';
 import { native, registration } from './registration.ts';
-import { settingsHost } from './settings-window-client.ts';
+import { settingsHost, windowHost } from './settings-window-client.ts';
 import { useSettingsRequest } from './settings-window.ts';
 import { Mailboxes } from './sidebar.tsx';
 import { usePalette } from './theme.ts';
@@ -97,41 +102,84 @@ const styles = StyleSheet.create({
 
 type WindowProps = Readonly<{
   windowId: string;
-  // The window's Mail Profile. Native windows name none and show the Default Profile until #647
-  // lets the person open another.
+  // The Mail Profile AppKit restored with the window; a new window names none.
   profile?: string;
 }>;
 
-export function PreviewWindow({
-  windowId,
-  profile = defaultProfile,
-}: WindowProps) {
+// A switcher's Profile or a notification's targeted message, owned by the window above its gate
+// and kept only for the Product Account it was made in.
+type ProfileChoice = Readonly<{
+  account: string;
+  choice: string | NonNullable<ReturnType<typeof openedTarget>>;
+}>;
+
+export function PreviewWindow({ windowId, profile }: WindowProps) {
+  const [choice, setChoice] = useState<ProfileChoice>();
   return (
     <CommandPaletteProvider windowId={windowId}>
       <ProfileWindow
         windowId={windowId}
         profile={profile}
+        choice={choice}
+        onChoose={setChoice}
       />
     </CommandPaletteProvider>
   );
 }
 
+// The window's Mail Profile: the one its switcher or a tapped notification chose, then the one
+// AppKit restored, then the Startup Profile, then the Default Profile. AppKit saves the chosen or
+// restored Profile with the window, so an unlisted restored Profile returns once it is listed.
 function ProfileWindow({
   windowId,
-  profile,
+  profile: restored,
+  choice,
+  onChoose,
 }: {
   readonly windowId: string;
-  readonly profile: string;
+  readonly profile: string | undefined;
+  readonly choice: ProfileChoice | undefined;
+  readonly onChoose: (choice: ProfileChoice) => void;
 }) {
-  const [opened, setOpened] =
-    useState<NonNullable<ReturnType<typeof openedTarget>>>();
+  const account = use(AccountContext);
+  const profiles = account?.profiles;
+  // Another Product Account's choice never names this one's Profile.
+  const current =
+    choice?.account === (account?.account ?? '') ? choice.choice : undefined;
+  const opened = typeof current === 'string' ? undefined : current;
+  const choose = (next: ProfileChoice['choice']) => {
+    onChoose({ account: account?.account ?? '', choice: next });
+  };
+  const choices = useSyncExternalStore(
+    profileChoices.subscribe,
+    profileChoices.getSnapshot,
+  );
+  useEffect(() => {
+    void profileChoices.load();
+  }, []);
+  const link = typeof current === 'string' ? current : current?.profile;
+  const profile = windowProfile({
+    link,
+    restored,
+    startup: choices?.startup,
+    profiles: profiles ?? [],
+  });
+  const kept = link ?? restored ?? profile;
+  useEffect(() => {
+    windowHost()?.setWindowProfile(`inbox-window-${windowId}`, kept);
+  }, [windowId, kept]);
+  // A new window waits for the saved Startup Profile.
+  if (choices === undefined && link === undefined && restored === undefined) {
+    return null;
+  }
   return (
     <InboxProvider>
-      <ProfileScope profile={opened?.profile ?? profile}>
+      <ProfileScope profile={profile}>
         <WindowContents
           windowId={windowId}
           initialSelection={opened}
-          onOpenProfile={setOpened}
+          onOpenProfile={choose}
+          onProfile={choose}
         />
       </ProfileScope>
     </InboxProvider>
@@ -180,12 +228,15 @@ function WindowContents({
   windowId,
   initialSelection,
   onOpenProfile,
+  onProfile,
 }: {
   readonly windowId: string;
   readonly initialSelection: Selection | undefined;
   readonly onOpenProfile: (
     target: NonNullable<ReturnType<typeof openedTarget>>,
   ) => void;
+  // Switches only this window to another Mail Profile.
+  readonly onProfile: (profile: string) => void;
 }) {
   const [selected, setSelected] = useState<Selection | undefined>(
     initialSelection,
@@ -240,6 +291,11 @@ function WindowContents({
   const compose = (id: string) => {
     setComposing(id);
   };
+  const switchProfile = async (next: string) => {
+    if (await leave()) {
+      onProfile(next);
+    }
+  };
   // Either pane closes the reader when its message leaves the Inbox.
   const close = () => {
     setSelected(undefined);
@@ -273,6 +329,9 @@ function WindowContents({
                 <Mailboxes
                   view={view}
                   onView={setView}
+                  onProfile={(next) => {
+                    void switchProfile(next);
+                  }}
                 />
               </GlassGroup>
             ) : null}
@@ -377,10 +436,8 @@ function WindowContents({
   );
 }
 
-export function InboxWindow({
-  windowId,
-  profile = defaultProfile,
-}: WindowProps) {
+export function InboxWindow({ windowId, profile }: WindowProps) {
+  const [choice, setChoice] = useState<ProfileChoice>();
   // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
     <CommandPaletteProvider windowId={windowId}>
@@ -388,6 +445,8 @@ export function InboxWindow({
         <ProfileWindow
           windowId={windowId}
           profile={profile}
+          choice={choice}
+          onChoose={setChoice}
         />
       </RegistrationGate>
     </CommandPaletteProvider>

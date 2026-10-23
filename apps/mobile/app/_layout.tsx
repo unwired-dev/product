@@ -9,8 +9,8 @@ import {
   commandTarget,
   runWhenOffered,
 } from '@private-email/mail-core/commands';
-import { readingProfile } from '@private-email/mail-core/mailboxes';
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
+import { defaultProfile } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { router, useGlobalSearchParams } from 'expo-router';
@@ -19,6 +19,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
+  Linking,
   Platform,
   StyleSheet,
   TurboModuleRegistry,
@@ -49,8 +50,9 @@ import {
 import { Inbox } from '../src/inbox.tsx';
 import {
   InboxProvider,
-  ProfileScope,
   useLeaveComposer,
+  useProfile,
+  WindowProfileScope,
 } from '../src/mailbox.tsx';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
@@ -132,9 +134,10 @@ function OpenedNotifications() {
   return null;
 }
 
-// Presentation choices live below ProfileScope, which retires them with the Profile.
+// Presentation choices live below WindowProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
+  const leave = useLeaveComposer();
   const { width } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
@@ -157,12 +160,11 @@ function MailShell() {
       }) as const,
     [regular, expanded, insets.top],
   );
-  const { id, mailbox, folder, draft, profileId } = useGlobalSearchParams<{
+  const { id, mailbox, folder, draft } = useGlobalSearchParams<{
     id?: string;
     mailbox?: string;
     folder?: string;
     draft?: string;
-    profileId?: string | string[];
   }>();
   // A docked software keyboard leaves the overlay and the window bar only the height above it; a
   // floating one is ignored. On iPhone only an open composer listens: re-rendering the shell for
@@ -200,10 +202,8 @@ function MailShell() {
   }, [listening, width]);
   const available =
     keyboardTop === undefined ? height : Math.min(height, keyboardTop);
-  // The window's Mail Profile: a targeted deep link's, otherwise the Default Profile, which owns
-  // every mailbox an old-form link from before Profiles names. An unknown Profile shows nothing.
-  // shortcut: a new route without a Profile uses Default until #647 adds restoration preferences.
-  const shownProfile = readingProfile(profileId);
+  // The window's Mail Profile, which WindowProfileScope chose.
+  const shownProfile = useProfile();
   // Close or New Message can finish saving after the reader beneath it changes. The router
   // commits navigation after this render, so a handler that changes the reader updates this first.
   const reader = useRef({ id, mailbox, folder, profile: shownProfile });
@@ -237,6 +237,15 @@ function MailShell() {
       params: { ...selection, profileId: shownProfile },
     });
     splitView.current?.show('secondary');
+  }
+
+  async function switchProfile(profile: string) {
+    if (await leave()) {
+      router.replace({
+        pathname: '/',
+        params: { profileId: profile },
+      });
+    }
   }
 
   // The compose destination retains the reader's selection beneath its editor.
@@ -291,6 +300,9 @@ function MailShell() {
               <SplitView.Column>
                 <Mailboxes
                   view={view}
+                  onProfile={(profile) => {
+                    void switchProfile(profile);
+                  }}
                   onView={(next) => {
                     setView(next);
                     // On iPhone a Mailbox opens its list; beside it, the list is already shown.
@@ -446,17 +458,49 @@ function MailShell() {
 }
 
 export default function RootLayout() {
-  const { profileId } = useGlobalSearchParams<{
+  const params = useGlobalSearchParams<{
+    id?: string;
     profileId?: string | string[];
   }>();
+  const { id, profileId } = params;
+  // Keep the owner of this exact route above the gate. A new link received during bootstrap
+  // names its own target, even when the preceding route belonged to another Product Account.
+  const [routeAccount, setRouteAccount] = useState<
+    Readonly<{
+      params: typeof params;
+      account: string;
+    }>
+  >();
+  useEffect(() => {
+    // Router reuses params for identical URLs; a delivered link has no preceding account owner.
+    const subscription = Linking.addEventListener('url', () => {
+      setRouteAccount(undefined);
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
   return (
     <RegistrationGate>
       <InboxProvider>
         <CommandPaletteProvider>
           <OpenedNotifications />
-          <ProfileScope profile={readingProfile(profileId)}>
+          {/* A message or Thread link from before Profiles names none and opens in the Default
+              Profile, which owns every mailbox it can name. */}
+          <WindowProfileScope
+            routeAccount={
+              routeAccount?.params === params ? routeAccount.account : undefined
+            }
+            onRouteAccount={(account) => {
+              setRouteAccount({ params, account });
+            }}
+            link={
+              profileId === undefined && id !== undefined
+                ? defaultProfile
+                : profileId
+            }>
             <MailShell />
-          </ProfileScope>
+          </WindowProfileScope>
         </CommandPaletteProvider>
       </InboxProvider>
     </RegistrationGate>
