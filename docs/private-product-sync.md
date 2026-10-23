@@ -51,8 +51,10 @@ of restarting Gmail consent. Reopening an account that already
 has Private Sync keys on a device without them never creates keys. A device that
 signs in to an existing account waits as a [Pending Device](#approving-a-new-device).
 A Trusted Device that lost its local keys shows **Unlock private data on this
-device** and offers [Recovery Key entry](#recovering-with-the-recovery-key), or
-signing out and in again so another device can approve it. Nothing is reset.
+device** under **Account & Devices** and offers
+[Recovery Key entry](#recovering-with-the-recovery-key), or signing out and in again
+so another device can approve it. Nothing is reset. Its saved mail still opens at
+launch; an unanswered removal's replacement Recovery Key opens the account page first.
 
 If the device loses its encryption key before the initial Recovery Key was
 confirmed, that Recovery Key stays visible and must be confirmed before fresh

@@ -10,9 +10,11 @@ Gmail mailbox's Inbox on iPhone, iPad and Mac, and
 [registration](google-registration.md) connects a mailbox and account setup needs
 nothing more from the person, launch opens the Inbox. The **Account** button opens Settings
 beside the Inbox, which keeps its Draft, mailbox and selected message. The account page
-opens instead while a Recovery Key needs confirming or entering, a device approval is
-waiting on either side, the mailbox is not yet saved to private sync, or a sign-out or
-deletion is unfinished; there **Open Inbox** can leave that setup for later.
+opens instead while a Recovery Key needs confirming, a device approval is waiting on
+either side, the mailbox is not yet saved to private sync, or a sign-out or deletion is
+unfinished; there **Open Inbox** can leave that setup for later. Optional Recovery Key
+entry on a Trusted Device that lost its local keys does not hold back available mail:
+launch opens the Inbox, and Settings offers the entry under **Account & Devices**.
 
 ## Settings
 
