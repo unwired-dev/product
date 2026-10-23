@@ -1399,8 +1399,10 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = orientation
       waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
       let landscape = app.windows.firstMatch.frame
-      waitUntil { row.isHittable && row.frame.maxX < landscape.maxX - 44 }
+      // A row still laid out for portrait ends left of the middle.
+      waitUntil { row.isHittable && row.frame.maxX > landscape.midX }
       XCTAssertGreaterThan(row.frame.minX, landscape.minX + 44)
+      XCTAssertLessThan(row.frame.maxX, landscape.maxX - 44)
       let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
       shot.name = "Mailboxes in \(orientation == .landscapeLeft ? "landscape left" : "landscape right")"
       shot.lifetime = .keepAlways
