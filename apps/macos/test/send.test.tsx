@@ -31,6 +31,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { chooseMenuItem } from './native-menu.ts';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const account = 'synthetic-product-account';
@@ -260,9 +261,9 @@ describe('sending a Draft', () => {
       await act(async () => {
         await sender.drafts.save();
       });
-      // These callbacks were dispatched before native received the read-only props.
+      // These callbacks were dispatched, and this menu opened, before native received the
+      // read-only props.
       await press('Text style');
-      await press('Send from alex@example.invalid');
       const changeSubject = screen.getByLabelText('Subject').props.onChangeText;
       const changeBody =
         screen.getByLabelText('Message body').props.onChangeText;
@@ -279,8 +280,12 @@ describe('sending a Draft', () => {
         changeTo('maya@example.invalid');
         await pressed;
       });
+      await chooseMenuItem('Heading 1');
 
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Lunch');
+      expect(
+        screen.getByRole('button', { name: 'Text style' }),
+      ).toHaveTextContent('Body');
       expect(screen.getByLabelText('Message body')).toHaveTextContent(
         'See you',
       );
@@ -300,8 +305,6 @@ describe('sending a Draft', () => {
         'Bold',
         'Show Cc and Bcc',
         'Text style',
-        'Body',
-        'Heading 1',
       ]) {
         expect(screen.getByRole('button', { name })).toBeDisabled();
       }
@@ -587,7 +590,7 @@ describe('sending a Draft', () => {
         }),
       ).toBeNull();
       await press('Compose actions');
-      await press('Discard');
+      await chooseMenuItem('Discard');
       await press('Discard Draft');
       // Gmail refuses the first, keeps the second without answering, and answers the third with
       // a server error without keeping it.
@@ -607,7 +610,7 @@ describe('sending a Draft', () => {
       await press('Edit');
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Refused');
       await press('Compose actions');
-      await press('Discard');
+      await chooseMenuItem('Discard');
       await press('Discard Draft');
       await compose('Lost');
       await press('Send');

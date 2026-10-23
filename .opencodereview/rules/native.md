@@ -612,6 +612,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### AppKit host
 
+- `UnwiredDesign.m` menu migration dropping a localized accessibility label when
+  building `NSMenuItem` titles. Preserve the visible title and the separate
+  accessible name, including Writing tools' whole-body versus selected-text
+  scope. Check the item payload, AppKit property and native journey locator
+  together; otherwise VoiceOver loses the operation's target while component
+  tests that choose only by visible title still pass.
+
 - `AppDelegate.mm.installMenus` omitting standard text-editing menu items or
   targeting them at the app delegate. Trace Cut, Copy, Paste and Select All key
   equivalents through AppKit's focused responder and menu validation, in both a

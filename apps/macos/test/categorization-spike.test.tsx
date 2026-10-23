@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { TurboModuleRegistry } from 'react-native';
 
 import { CategorizationSpike } from '../src/categorization-spike-page.tsx';
+import { chooseMenuItem } from './native-menu.ts';
 
 const candidates = [
   {
@@ -166,19 +167,17 @@ describe('categorization spike page', () => {
     ).toBeVisible();
 
     await fireEvent.press(screen.getByRole('button', { name: 'Candidate' }));
-    await fireEvent.press(
-      screen.getByText('Custom · adapted DeBERTa v3 XSmall · 256 tokens'),
-    );
+    await chooseMenuItem('Custom · adapted DeBERTa v3 XSmall · 256 tokens');
     await fireEvent.press(screen.getByRole('button', { name: 'Precision' }));
-    await fireEvent.press(screen.getByText('INT8'));
+    await chooseMenuItem('INT8');
     await fireEvent.press(
       screen.getByRole('button', { name: 'Compute units' }),
     );
-    await fireEvent.press(screen.getByText('CPU only'));
+    await chooseMenuItem('CPU only');
     await fireEvent.press(
       screen.getByRole('button', { name: 'Custom Categories' }),
     );
-    await fireEvent.press(screen.getByText('20 categories'));
+    await chooseMenuItem('20 categories');
     await fireEvent.press(screen.getByText('Classify'));
     expect(module.classify.mock.calls[1]?.[1]).toBe(
       '{"run":"xsmall-zs-adapted-body256-description","precision":"int8","units":"cpuOnly","message":"synthetic:en-overlap-orders-flights-2:4","rounds":3,"categoryCount":20}',
@@ -193,9 +192,7 @@ describe('categorization spike page', () => {
     );
     await renderWith(module);
     await fireEvent.press(screen.getByRole('button', { name: 'Candidate' }));
-    await fireEvent.press(
-      screen.getByText('Custom · adapted DeBERTa v3 XSmall · 256 tokens'),
-    );
+    await chooseMenuItem('Custom · adapted DeBERTa v3 XSmall · 256 tokens');
     await fireEvent.press(screen.getByText('Benchmark'));
     expect(module.benchmark.mock.calls[0]?.[1]).toContain(
       '"categories":["online-purchases","flights-booked","statements","kids-school","event-invitations","family-friends"]',
@@ -245,8 +242,23 @@ describe('categorization spike page', () => {
     await settle(pending, requestAt(pending, 0), classified);
     expect(screen.getByText('RESULT · ORDERS AND FLIGHTS')).toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: 'Precision' }));
-    await fireEvent.press(screen.getByText('INT8'));
+    await chooseMenuItem('INT8');
     expect(screen.queryByText('RESULT · ORDERS AND FLIGHTS')).toBeNull();
+  });
+
+  it('keeps the running selection when an already-open menu answers after its control is disabled', async () => {
+    expect.hasAssertions();
+    const { module, pending } = scriptedSpike();
+    await renderWith(module);
+    const precision = screen.getByRole('button', { name: 'Precision' });
+    await fireEvent.press(precision);
+    await fireEvent.press(screen.getByText('Classify'));
+    expect(precision).toBeDisabled();
+    await chooseMenuItem('INT8');
+    expect(precision).toHaveTextContent('FP16');
+    await settle(pending, requestAt(pending, 0), classified);
+    expect(screen.getByText('RESULT · ORDERS AND FLIGHTS')).toBeVisible();
+    expect(precision).toHaveTextContent('FP16');
   });
 
   it('rejects a result that won the native race with Cancel', async () => {

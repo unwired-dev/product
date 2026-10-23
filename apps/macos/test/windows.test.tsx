@@ -52,6 +52,7 @@ import {
   InboxWindow as RegisteredWindow,
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
+import { chooseMenuItem } from './native-menu.ts';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -88,6 +89,15 @@ const commandModule = (menu: TurboModule) => {
     .mockImplementation((name) =>
       name === 'UnwiredCommands' ? menu : get(name),
     );
+};
+
+// Opens a window's Profile Switcher and chooses a Profile Menu item, as a click would.
+const chooseProfile = async (
+  switcher: Parameters<typeof fireEvent.press>[0],
+  title: string,
+) => {
+  await fireEvent.press(switcher);
+  await chooseMenuItem(title);
 };
 
 const maya = 'Unread. Maya Chen. A little more room to think';
@@ -251,10 +261,9 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Keep this draft.',
       );
       await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
-      await fireEvent(
+      await chooseProfile(
         app.getByLabelText('Mail Profile, Primary Profile'),
-        'select',
-        { nativeEvent: { id: 'profile\nwork' } },
+        'Work',
       );
       expect(app.getByLabelText('Mail Profile, Primary Profile')).toBeVisible();
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
@@ -1464,10 +1473,9 @@ describe('mac windows of different Mail Profiles', () => {
       const first = within(app.getByTestId('inbox-window-first'));
       const second = within(app.getByTestId('inbox-window-second'));
       await first.findByRole('button', { name: /Garden plan/u });
-      await fireEvent(
+      await chooseProfile(
         first.getByLabelText('Mail Profile, Primary Profile'),
-        'select',
-        { nativeEvent: { id: 'profile\nwork' } },
+        'Work',
       );
       // The switched window remounts its contents for the new Profile.
       const switched = within(app.getByTestId('inbox-window-first'));
@@ -1506,10 +1514,9 @@ describe('mac windows of different Mail Profiles', () => {
         <InboxWindow windowId="account" />
       </WithWork>,
     );
-    await fireEvent(
+    await chooseProfile(
       await app.findByLabelText('Mail Profile, Primary Profile'),
-      'select',
-      { nativeEvent: { id: 'profile\nwork' } },
+      'Work',
     );
     await expect(
       app.findByLabelText('Mail Profile, Work'),
@@ -1570,7 +1577,7 @@ describe('mac windows of different Mail Profiles', () => {
 
   it('keeps the window’s chosen Profile when registration storage locks and unlocks', async () => {
     expect.hasAssertions();
-    const { vault, work } = await createTwoProfileRegistration();
+    const { vault } = await createTwoProfileRegistration();
     const store = createRegistration({
       ...vault,
       registration: () => vault.registration(),
@@ -1589,10 +1596,9 @@ describe('mac windows of different Mail Profiles', () => {
     const read = jest.spyOn(vault, 'registration');
     try {
       const app = await render(<RegisteredWindow windowId="locked" />);
-      await fireEvent(
+      await chooseProfile(
         await app.findByLabelText('Mail Profile, Primary Profile'),
-        'select',
-        { nativeEvent: { id: `profile\n${work}` } },
+        'Work',
       );
       await expect(
         app.findByLabelText('Mail Profile, Work'),
@@ -1644,10 +1650,9 @@ describe('mac windows of different Mail Profiles', () => {
           <InboxWindow windowId="create" />
         </AccountContext>,
       );
-      await fireEvent(
+      await chooseProfile(
         await app.findByLabelText('Mail Profile, Primary Profile'),
-        'select',
-        { nativeEvent: { id: 'profile\nnew' } },
+        'New Mail Profile…',
       );
       expect(prompt.mock.lastCall?.[4]).toStrictEqual([
         { placeholder: 'Name' },

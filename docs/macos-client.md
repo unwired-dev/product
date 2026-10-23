@@ -40,7 +40,14 @@ reviewed Swift packages, SwiftMail and swift-log, at the revisions
 [its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
-SF Symbol and Liquid Glass views shared with the iPhone/iPad host. Follow
+SF Symbol and Liquid Glass views shared with the iPhone/iPad host, and the Mac-only
+`UnwiredMenu` presenter. The composer's Text style, From, actions and Writing tools
+pop-ups open an AppKit `NSMenu` through it: the system owns presentation, keyboard
+navigation, Escape and click-outside dismissal. Each menu drops below its control and
+checks the current choice. Writing tools retain
+their localized selection/body descriptions for accessibility. React Native
+macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or destructive items. Remove
+the presenter when the host provides an anchored menu with those states. Follow
 [native component selection](agents/native-components.md): prefer provided
 React Native macOS/AppKit controls and presenters over custom equivalents, and
 retain a minimal native adapter only for a documented host API gap. Expo UI

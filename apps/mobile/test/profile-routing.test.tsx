@@ -1156,7 +1156,6 @@ describe('the mobile Profile Switcher', () => {
         screen.findByRole('button', { name: /Garden plan/u }),
       ).resolves.toBeVisible();
       expect(screen.getByLabelText('Mail Profile, Work')).toBeVisible();
-      jest.restoreAllMocks();
     } finally {
       jest.restoreAllMocks();
     }
@@ -1180,7 +1179,6 @@ describe('the mobile Profile Switcher', () => {
         screen.findByLabelText('Mail Profile, Primary Profile'),
       ).resolves.toBeVisible();
       expect(route.params()).toStrictEqual({});
-      jest.restoreAllMocks();
     } finally {
       jest.restoreAllMocks();
     }
@@ -1205,7 +1203,6 @@ describe('the mobile Profile Switcher', () => {
       expect(
         screen.getByLabelText('Mail Profile, Primary Profile'),
       ).toBeVisible();
-      jest.restoreAllMocks();
     } finally {
       jest.restoreAllMocks();
     }
@@ -1249,7 +1246,6 @@ describe('the mobile Profile Switcher', () => {
           [{ text: 'OK' }],
         );
       });
-      jest.restoreAllMocks();
     } finally {
       jest.restoreAllMocks();
     }

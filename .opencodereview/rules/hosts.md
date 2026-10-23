@@ -203,6 +203,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   action execute a different one or silently do nothing. Exercise a recreated
   callback, a section insertion and a retired choice through the native event boundary.
 
+- `composer-controls.tsx.PopUp` accepting a late native choice after its trigger
+  becomes disabled, even when the individual item has no disabled flag. Recheck
+  both current control and item eligibility, publish callbacks at the layout
+  commit and retire them on unmount. Exercise a held answer across disablement;
+  otherwise a running spike can change selectors beneath its result or a retired
+  control can dispatch an old command.
+
 - Mac context-menu content removing `selectable` text without an accessible
   labeled replacement, or retaining selectable text that handles secondary
   clicks before its ancestor menu. Trace the installed paragraph's native event

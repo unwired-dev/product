@@ -94,6 +94,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   its target despite passing component tests. Record unavailable native
   execution separately from static or predicate-only evidence.
 
+- A checked-item assertion in `WindowTests.composerMenuJourney` or another
+  AppKit menu journey treating `isSelected` as the menu item's checkmark. On the
+  qualified macOS host it reflects the pointer highlight; XCUITest exposes no
+  menu-item checkmark state. Assert the current choice through the trigger's
+  accessibility value and verify checkmarks through native captures or manual
+  inspection. Keep chosen-value, visual-checkmark and JavaScript menu fake's
+  `checked` evidence distinct; otherwise pointer placement can falsely qualify
+  a checkmark or fail a valid selection.
+
 - A native keyboard-visibility check such as `InboxTests.appleRegistrationJourney`
   comparing only a result's bounds with the keyboard. Require the complete result
   inside its scroller's visible rectangle and enough viewport height for a full

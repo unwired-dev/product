@@ -245,13 +245,15 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 @end
 
 #if TARGET_OS_OSX
-// A menu item for each entry: an action reporting its `id` to `target`'s `select:`, or a submenu.
-// An optional `subtitle` shows beneath the title and `checked` adds a checkmark.
+static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor);
+
+// An item sends `select:` to `target` with its `id`; `symbol`, `checked` and `disabled` are optional.
 static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destructiveColor)
 {
   NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:item[@"title"] action:nil keyEquivalent:@""];
+  if (item[@"accessibilityLabel"] != nil) menuItem.accessibilityLabel = item[@"accessibilityLabel"];
   NSString *symbol = item[@"symbol"];
-  NSImage *image = symbol.length > 0 ? [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] : nil;
+  NSImage *image = symbol.length == 0 ? nil : [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
   if ([item[@"destructive"] boolValue]) {
     menuItem.attributedTitle = [[NSAttributedString alloc] initWithString:item[@"title"]
         attributes:@{NSForegroundColorAttributeName: destructiveColor}];
@@ -259,14 +261,15 @@ static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destr
         [NSImageSymbolConfiguration configurationWithHierarchicalColor:destructiveColor]];
   }
   menuItem.image = image;
+  // macOS 27 hides menu images by default; the design shows them.
   menuItem.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
   NSString *subtitle = item[@"subtitle"];
   if (subtitle.length > 0) menuItem.subtitle = subtitle;
-  if ([item[@"checked"] boolValue]) menuItem.state = NSControlStateValueOn;
+  menuItem.state = [item[@"checked"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+  menuItem.enabled = ![item[@"disabled"] boolValue];
   NSArray<NSDictionary *> *items = item[@"items"];
   if (items != nil) {
-    menuItem.submenu = [[NSMenu alloc] initWithTitle:item[@"title"]];
-    for (NSDictionary *child in items) [menuItem.submenu addItem:UnwiredMenuItem(child, target, destructiveColor)];
+    menuItem.submenu = UnwiredMenuOf(item[@"title"], @[@{@"items": items}], target, destructiveColor);
   } else {
     menuItem.target = target;
     menuItem.action = @selector(select:);
@@ -275,9 +278,11 @@ static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destr
   return menuItem;
 }
 
-static NSMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor)
+// Sections of items, set apart by separators.
+static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor)
 {
-  NSMenu *menu = [NSMenu new];
+  NSMenu *menu = [[NSMenu alloc] initWithTitle:title];
+  menu.autoenablesItems = NO;
   for (NSDictionary *section in sections) {
     if (menu.numberOfItems > 0) [menu addItem:[NSMenuItem separatorItem]];
     for (NSDictionary *item in section[@"items"]) [menu addItem:UnwiredMenuItem(item, target, destructiveColor)];
@@ -289,7 +294,7 @@ static NSMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, id target, NSColor
 - (NSMenu *)menuForEvent:(NSEvent *)event
 {
   if (self.sections.count == 0) return [super menuForEvent:event];
-  return UnwiredMenu(self.sections, self, self.destructiveColor);
+  return UnwiredMenuOf(@"", self.sections, self, self.destructiveColor);
 }
 
 - (void)select:(NSMenuItem *)sender
@@ -398,53 +403,59 @@ RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
 @end
 
-// A pull-down button whose system menu opens on tap or click, with the same items as the context
-// menu. Its React content draws the label and passes touches to the button: UIButton's primary
-// action menu on iPhone and iPad, and a menu below the view on the Mac, also from the keyboard
-// and VoiceOver.
 #if TARGET_OS_OSX
-@interface UnwiredMenuButtonView : RCTView
-@property (nonatomic, copy) NSArray<NSDictionary *> *sections;
-@property (nonatomic, copy) RCTDirectEventBlock onSelect;
+// Answers one pop-up menu with its chosen item's id, or null when nothing was chosen.
+@interface UnwiredMenuChoice : NSObject
+@property (nonatomic, copy) RCTPromiseResolveBlock resolve;
 @end
 
-@implementation UnwiredMenuButtonView
-- (void)showMenu
+@implementation UnwiredMenuChoice
+- (void)select:(NSMenuItem *)sender { [self answer:sender.representedObject]; }
+
+- (void)answer:(id)value
 {
-  if (self.sections.count == 0) return;
-  NSMenu *menu = UnwiredMenu(self.sections, self, NSColor.systemRedColor);
-  [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSHeight(self.bounds) + 4) inView:self];
+  if (self.resolve) self.resolve(value);
+  self.resolve = nil;
 }
+@end
 
-- (void)mouseDown:(NSEvent *)event { [self showMenu]; }
-- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
-- (BOOL)acceptsFirstResponder { return YES; }
-- (NSRect)focusRingMaskBounds { return self.bounds; }
-- (void)drawFocusRingMask { NSRectFill(self.bounds); }
+// A control's menu, dropping below it with any checked item marked. React Native
+// macOS's ActionSheetIOS menu has no checked or destructive items and no separators.
+@interface UnwiredMenu : NSObject <RCTBridgeModule>
+@end
 
-- (void)keyDown:(NSEvent *)event
+@implementation UnwiredMenu
+@synthesize viewRegistry_DEPRECATED = _viewRegistry_DEPRECATED;
+RCT_EXPORT_MODULE()
+
+- (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
+
+RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
+                  sections:(NSArray<NSDictionary *> *)sections
+                  destructiveColor:(id)destructiveColor
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
 {
-  if ([event.charactersIgnoringModifiers isEqualToString:@" "] || [event.charactersIgnoringModifiers isEqualToString:@"\r"]) {
-    [self showMenu];
-  } else {
-    [super keyDown:event];
+  NSView *view = [self.viewRegistry_DEPRECATED viewForReactTag:anchor];
+  UnwiredMenuChoice *choice = [UnwiredMenuChoice new];
+  choice.resolve = resolve;
+  NSMenu *menu = UnwiredMenuOf(@"", sections, choice, [RCTConvert NSColor:destructiveColor]);
+  NSRect bounds = view.bounds;
+  // The menu drops below its control, as the design's Mac menus do.
+  CGFloat bottom = view.isFlipped ? NSMaxY(bounds) : NSMinY(bounds);
+  // Tracking returns once the menu closes, after sending a chosen item's action.
+  if (view.window != nil && menu.numberOfItems > 0) {
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(bounds), bottom) inView:view];
   }
-}
-
-- (BOOL)isAccessibilityElement { return YES; }
-- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityPopUpButtonRole; }
-- (BOOL)accessibilityPerformPress
-{
-  [self showMenu];
-  return YES;
-}
-
-- (void)select:(NSMenuItem *)sender
-{
-  if (self.onSelect) self.onSelect(@{@"id": sender.representedObject});
+  [choice answer:[NSNull null]];
 }
 @end
-#else
+#endif
+
+#if !TARGET_OS_OSX
+// A pull-down button whose system menu opens on tap, with the same items as the context menu.
+// Its React content draws the label and passes touches to UIButton's primary action menu. The
+// Mac drops the same menu below its control through UnwiredMenu.
 @interface UnwiredMenuButtonView : UIButton
 @property (nonatomic, copy) NSArray<NSDictionary *> *sections;
 @property (nonatomic, copy) RCTDirectEventBlock onSelect;
@@ -470,6 +481,7 @@ RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
 @end
 #endif
 
+#if !TARGET_OS_OSX
 @interface UnwiredMenuButtonManager : RCTViewManager
 @end
 
@@ -479,6 +491,7 @@ RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredMenuButtonView new]; }
 @end
+#endif
 
 // A decorative symbol: its control carries the accessible label.
 @interface UnwiredSymbolManager : RCTViewManager

@@ -104,12 +104,7 @@ import {
   View,
 } from 'react-native';
 
-import {
-  ComposerActions,
-  FormatBar,
-  MenuItem,
-  PopUp,
-} from './composer-controls.tsx';
+import { ComposerActions, FormatBar, PopUp } from './composer-controls.tsx';
 import {
   Notice as Banner,
   Button,
@@ -599,7 +594,6 @@ export function SendingMailbox({
 }) {
   const account = use(AccountContext);
   const { t } = useLocalization();
-  const [open, setOpen] = useState(false);
   const mailboxes = account?.mailboxes ?? [];
   const state = sendingStateOf(draft, mailboxes);
   // Only the Draft's own Mail Profile can send it.
@@ -619,39 +613,22 @@ export function SendingMailbox({
   }
   return (
     <PopUp
-      above
       quiet
       accessibilityLabel={label}
       disabled={!editable}
       label={from}
-      open={open}
       prefix={t('drafts.fromLabel')}
       selected={state === 'available'}
-      onToggle={() => {
-        setOpen((current) => !current);
-      }}>
-      {senders.map((mailbox) => {
-        const address = clip(mailbox.address);
-        return (
-          <MenuItem
-            key={mailbox.id}
-            disabled={!editable}
-            accessibilityLabel={t(
-              address.length < mailbox.address.length
-                ? 'drafts.sendFromShortened'
-                : 'drafts.sendFrom',
-              { address },
-            )}
-            label={address}
-            selected={state === 'available' && mailbox.id === draft.connection}
-            onPress={() => {
-              setOpen(false);
-              onChange(mailbox);
-            }}
-          />
-        );
-      })}
-    </PopUp>
+      items={senders.map((mailbox) => ({
+        key: mailbox.id,
+        title: mailbox.address,
+        checked: state === 'available' && mailbox.id === draft.connection,
+        disabled: !editable,
+        run: () => {
+          onChange(mailbox);
+        },
+      }))}
+    />
   );
 }
 

@@ -7,25 +7,30 @@ import type {
   ColorValue,
   NativeSyntheticEvent,
   StyleProp,
+  TurboModule,
   ViewProps,
   ViewStyle,
 } from 'react-native';
 
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
   Easing,
+  findNodeHandle,
+  processColor,
   Pressable,
   requireNativeComponent,
   StyleSheet,
   Text,
+  TurboModuleRegistry,
   View,
 } from 'react-native';
 
 import { Label } from './label.tsx';
+import { isMenuChoice } from './native-menu.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const NativeSymbol = requireNativeComponent<
@@ -36,7 +41,7 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-export const NativeGlass = requireNativeComponent<
+const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
 >('UnwiredGlass');
 
@@ -177,43 +182,57 @@ export function ContextMenu({
   );
 }
 
-const NativeMenuButton = requireNativeComponent<
-  ViewProps & {
-    readonly sections: ReadonlyArray<
-      Readonly<{
-        palette?: boolean | undefined;
-        items: readonly NativeMenuItem[];
-      }>
-    >;
-    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
-  }
->('UnwiredMenuButton');
+interface NativeMenu extends TurboModule {
+  readonly show: (
+    anchor: number,
+    sections: ReturnType<typeof menuState>['sections'],
+    destructiveColor: ReturnType<typeof processColor>,
+  ) => Promise<unknown>;
+}
 
-// A pull-down button whose system menu opens on tap or click. Its children only draw the label:
-// the native button receives every touch and carries the accessibility label.
+// A pull-down button whose AppKit menu drops below it on click, Space or VoiceOver press. Its
+// children draw the label; the latest items answer the chosen one.
 export function MenuButton({
   sections,
   children,
   style,
   ...props
 }: ViewProps & { readonly sections: readonly MenuSection[] }) {
-  const menu = menuState(sections);
+  const colors = usePalette();
+  const anchor = useRef<View>(null);
+  const latest = useRef(menuState(sections));
+  useLayoutEffect(() => {
+    latest.current = menuState(sections);
+  });
+  const show = async () => {
+    const tag = findNodeHandle(anchor.current);
+    if (tag === null) {
+      return;
+    }
+    const chosen = await TurboModuleRegistry.getEnforcing<NativeMenu>(
+      'UnwiredMenu',
+    ).show(
+      tag,
+      latest.current.sections,
+      processColor(colors.statusDestructive),
+    );
+    if (isMenuChoice(chosen) && chosen !== null) {
+      await latest.current.runs.get(chosen)?.();
+    }
+  };
   return (
-    <NativeMenuButton
+    <Pressable
       {...props}
+      ref={anchor}
+      collapsable={false}
       accessibilityRole="button"
-      sections={menu.sections}
-      onSelect={({ nativeEvent }) => {
-        void menu.runs.get(nativeEvent.id)?.();
+      focusable
+      onPress={() => {
+        void show();
       }}
       style={style}>
-      <View
-        collapsable={false}
-        pointerEvents="none"
-        style={styles.menuContent}>
-        {children}
-      </View>
-    </NativeMenuButton>
+      {children}
+    </Pressable>
   );
 }
 
