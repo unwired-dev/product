@@ -22,6 +22,72 @@ Hardware nomination and published Apple Intelligence eligibility do not prove
 runtime API readiness or passing qualification. Measurements remain outstanding
 under #625, #626, #822 and #830; this update records no test run.
 
+## Mac keyboard and accessibility slice, 2026-10-23
+
+This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),
+using the [Mac keyboard and accessibility journey](../agents/native-validation.md#mac-keyboard-and-accessibility-journey).
+The runtime snapshot was `9b6e6db652a4bade1a12b22a96ffa7e7faa36930`, with root
+lockfile SHA-256 `98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The reference was the Mac mini M4 with 16 GB memory, `Mac16,10`, macOS 27.0.1
+(`26A434`), Xcode 27.1 (`27A9275`), Node 24.21.0 and pnpm 11.5.2, with React
+Native macOS 0.81.9. The supplied `registration-performance` Testing app uses
+Release optimization, packaged JavaScript and the real native vault, Keychain
+and encrypted store, with synthetic provider/backend responses.
+
+The independent simplicity reviewer ran the journey from the repository root:
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testKeyboardAndAccessibility
+```
+
+It passed one test with zero failures in 146.919 seconds. OCR inspected the
+retained evidence in `artifacts/macos-inbox/journey.vFDqsv/`: `xcodebuild.log`,
+`WindowProbe.xcresult`, `ownership.json` and the successful `result.json`.
+The disposable app and cleanup helper were removed. The review completed at
+`0d6af2e6e` added documentation and rules only, so it retained that runtime evidence
+without another app build or journey. Setup/build time is separate and was not
+measured by this run; its journey duration exceeds the two-minute focused-check
+target and does not establish a CI feedback-time p95.
+
+This run exercised the keyboard paths and Draft relaunch/window assertions.
+Its Down/Up sequence ended at the last command, which also ran if Up did nothing;
+that result did not independently prove native Up behavior. In Light appearance it printed 192
+accessibility issues across Inbox (26), Command Palette (34), Settings (46),
+reader (36) and composer (50), with none unclassified. These are known gaps:
+125 button-action/parent-child reports owned by #1194, 49 contrast reports owned
+by #1195, eight option-role reports owned by #1196, nine AppKit Touch Bar reports
+and one email-address label report. A passing classified audit does not establish
+that these accessibility defects are fixed.
+
+The PR-feedback OCR review strengthened the arrow assertion at `f37b5a4df`:
+Down reaches Account, two Up presses return to Search Mail, and Return must
+focus search while Settings stays closed. Account then opens Settings through
+a separate palette command. This detects an Up handler that does nothing,
+which the earlier endpoint assertion could not distinguish. It also retains
+the `234cf08dc` pasteboard ownership guard and 25-label contrast baseline.
+
+OCR ran the command above with that current XCTest source and the unchanged
+supplied Testing app. One test passed with zero failures in 231.406 seconds;
+`artifacts/macos-inbox/journey.8bM6Qy/` retains `xcodebuild.log`,
+`WindowProbe.xcresult`, `ownership.json` and the exit-code-zero `result.json`.
+The host, lockfile and app runtime remain those recorded above. All 192 audit
+reports have the same screen/owner totals and contrast labels as the earlier
+run, with none unclassified. The disposable app and cleanup helpers were removed,
+and the run-owned app and XCTest runner exited. No app rebuild was needed for
+this test-only correction. This duration is a functional journey result, exceeds
+the focused-check target and establishes neither a performance budget nor CI p95.
+
+Dark appearance, VoiceOver, Full Keyboard Access, native folder-picker Escape,
+pointer-only row opening and reply-caret placement, and Send remain unqualified
+by this run. Keyboard navigation remains with #849; Send also encounters the
+host crash tracked by #1174. Physical iPhone/iPad, their keyboard journeys,
+owner-operated VoiceOver/dictation (#1106), adaptive layouts, Mail View switching
+and next-frame typing/formatting remain open under #626. This synthetic journey
+does not qualify real provider authentication/transport or the separate
+storage/privacy checks, and retires no legacy coverage.
+
 ## Mac warm-cache performance slice, 2026-10-22
 
 This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),

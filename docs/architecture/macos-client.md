@@ -36,6 +36,10 @@ and keeps registration activation and assistance loading alive when every Inbox
 window is closed. Reading leaves unread flags unchanged. Explicit read/unread actions persist
 and update all windows without changing their selections.
 
+The Edit menu omits native Undo and Redo because AppKit's undo stack for a text
+field goes stale once JavaScript sets the field's text, so undoing would corrupt
+it. The composer body keeps its own Command-Z and Shift-Command-Z history.
+
 ## Build and run
 
 The checked-in Objective-C++ host, Podfile and Ruby project generator own the
