@@ -1126,6 +1126,78 @@ describe('the mobile Profile Switcher', () => {
     }
   });
 
+  /* oxlint-disable vitest/max-expects -- One journey opens, renames, adds and picks the Startup Profile. */
+  it('manages Mail Profiles in Settings through the real registration', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      const saving = savedPreferences(new Map());
+      const prompt = jest.spyOn(Alert, 'prompt').mockReturnValue(undefined);
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(<RootLayout />);
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      const work = await screen.findByRole('button', { name: 'Work' });
+      expect(work.props.accessibilityHint).toBe('Gmail');
+      // No Startup Profile is saved, so new windows open the Primary Profile.
+      expect(
+        screen.getByRole('button', { name: 'Primary Profile' }),
+      ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      // The Primary Profile keeps its name.
+      expect(screen.queryByDisplayValue('Primary Profile')).toBeNull();
+      await fireEvent.press(work);
+      const name = screen.getByDisplayValue('Work');
+      expect(name).toHaveProp('accessibilityLabel', 'Name');
+      await fireEvent.changeText(name, '  Office ');
+      await fireEvent(name, 'endEditing');
+      await expect(
+        screen.findByRole('header', { name: 'Office' }),
+      ).resolves.toBeVisible();
+      expect(screen.getByDisplayValue('Office')).toBeVisible();
+      await choose('Startup Profile', workId);
+      expect(saving).toHaveBeenCalledWith('startup-profile', workId);
+      expect(
+        screen.getByRole('button', { name: 'Office' }),
+      ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+      );
+      const buttons = prompt.mock.lastCall?.[2];
+      ok(Array.isArray(buttons));
+      await act(async () => {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
+        (
+          buttons.find(({ text }) => text === 'Create')?.onPress as
+            | ((value: string) => void)
+            | undefined
+        )?.('Family');
+        await Promise.resolve();
+      });
+      const family = await screen.findByRole('button', { name: 'Family' });
+      expect(family.props.accessibilityHint).toBe('No mailboxes');
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
+
   /* oxlint-disable vitest/max-expects -- One journey switches, saves and restores the window's Profile. */
   it('switches the window to the chosen Profile and restores it after relaunch', async () => {
     expect.hasAssertions();
@@ -1150,7 +1222,12 @@ describe('the mobile Profile Switcher', () => {
             { title: 'Work', subtitle: 'Gmail · 2 unread', checked: false },
           ],
         },
-        { items: [{ title: 'New Mail Profile…' }] },
+        {
+          items: [
+            { title: 'New Mail Profile…' },
+            { title: 'Manage Mail Profiles…' },
+          ],
+        },
       ]);
       await choose('Mail Profile, Primary Profile', 'profile\nwork');
       await expect(

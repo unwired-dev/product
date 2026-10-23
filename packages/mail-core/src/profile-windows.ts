@@ -63,8 +63,25 @@ export const profileMonogram = (name: string) =>
 type Listed = Parameters<typeof mailboxSidebar>[0]['mailboxes'][number] &
   Readonly<{ profile: string }>;
 
+// A Mail Profile's connections by provider, or that it has none.
+export const profileConnections = (
+  t: Translate,
+  connections: readonly MailboxConnection[],
+  profile: string,
+) => {
+  const owned = profileMailboxes(connections, profile);
+  return owned.length === 0
+    ? t('profiles.noMailboxes')
+    : owned
+        .map(({ provider }) => t(`mailProviders.${provider}`))
+        .reduce((names, provider) =>
+          t('profiles.connections', { connections: names, provider }),
+        );
+};
+
 // The Profile Menu: every Mail Profile with its connections and unread mail, the window's own
-// checked, then New Mail Profile…. Choosing a Profile switches only the window that asked.
+// checked, then New Mail Profile… and Manage Mail Profiles…. Choosing a Profile switches only the
+// window that asked.
 export const profileMenu = (
   t: Translate,
   {
@@ -74,6 +91,7 @@ export const profileMenu = (
     current,
     onSwitch,
     onCreate,
+    onManage,
   }: Readonly<{
     profiles: readonly MailProfile[];
     connections: readonly MailboxConnection[];
@@ -81,34 +99,32 @@ export const profileMenu = (
     current: string;
     onSwitch: (profile: string) => void;
     onCreate: () => void;
+    // Opens Settings › Mail Profiles.
+    onManage: () => void;
   }>,
 ): readonly MenuSection[] => [
   {
     items: [defaultProfile, ...profiles.map(({ id }) => id)].map((id) => {
-      const owned = profileMailboxes(connections, id);
       const { unread } = mailboxSidebar({
         mailboxes: profileMailboxes(mailboxes, id),
         connections,
         profile: id,
         view: {},
       });
-      const connectionNames =
-        owned.length === 0
-          ? t('profiles.noMailboxes')
-          : owned
-              .map(({ provider }) => t(`mailProviders.${provider}`))
-              .reduce((names, provider) =>
-                t('profiles.connections', { connections: names, provider }),
-              );
       return {
         key: `profile\n${id}`,
         title: profileName(t, id, profiles),
         symbol: '',
         subtitle: t(
-          owned.some(({ state }) => state === 'authorization')
+          profileMailboxes(connections, id).some(
+            ({ state }) => state === 'authorization',
+          )
             ? 'profiles.detail_authorization'
             : 'profiles.detail',
-          { connections: connectionNames, count: unread },
+          {
+            connections: profileConnections(t, connections, id),
+            count: unread,
+          },
         ),
         checked: id === current,
         // The window's own Profile changes nothing, so an open composer and reader stay.
@@ -127,6 +143,12 @@ export const profileMenu = (
         title: t('profiles.new'),
         symbol: 'plus',
         run: onCreate,
+      },
+      {
+        key: 'profile\nmanage',
+        title: t('profiles.manage'),
+        symbol: 'gearshape',
+        run: onManage,
       },
     ],
   },
@@ -159,6 +181,14 @@ export const createProfileChoices = (native: NativePreferences) => {
       listener();
     }
   };
+  const save =
+    (choice: keyof ProfileChoices, key: string) => (profile: string) => {
+      if (choices === undefined || choices[choice] === profile) {
+        return Promise.resolve();
+      }
+      publish({ ...choices, [choice]: profile });
+      return runLogged(savePreference(native, key, profile));
+    };
   return {
     getSnapshot: () => choices,
     subscribe: (listener: () => void) => {
@@ -184,13 +214,9 @@ export const createProfileChoices = (native: NativePreferences) => {
         ),
       ),
     // The window's last active Profile, which the next launch restores.
-    restore: (profile: string) => {
-      if (choices === undefined || choices.restored === profile) {
-        return Promise.resolve();
-      }
-      publish({ ...choices, restored: profile });
-      return runLogged(savePreference(native, restoredKey, profile));
-    },
+    restore: save('restored', restoredKey),
+    // The Startup Profile, chosen in Settings, which new windows open.
+    chooseStartup: save('startup', startupKey),
   };
 };
 

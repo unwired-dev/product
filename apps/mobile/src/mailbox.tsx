@@ -10,10 +10,7 @@ import {
   readingProfile,
   savedMessageBodies,
 } from '@private-email/mail-core/mailboxes';
-import {
-  createProfileChoices,
-  windowProfile,
-} from '@private-email/mail-core/profile-windows';
+import { windowProfile } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { router } from 'expo-router';
 import {
@@ -34,10 +31,10 @@ import type {
 
 import { useLocalization } from './localization.ts';
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
+import { profileChoices } from './profile-choices.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
   drafts as defaultDrafts,
-  native,
   outbox as defaultOutbox,
 } from './registration.ts';
 
@@ -152,12 +149,6 @@ export function ProfileScope({
 export function useProfile() {
   return use(ProfileContext);
 }
-
-// The window's last shown and Startup Profiles, saved on this device.
-const profileChoices = createProfileChoices({
-  preference: (key) => native().preference(key),
-  setPreference: (key, value) => native().setPreference(key, value),
-});
 
 // Scopes the window to its Mail Profile: a targeted link's, which every navigation after a switch
 // also names, then the Profile it last showed, the Startup Profile and the Default Profile. Only a

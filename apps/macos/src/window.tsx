@@ -26,7 +26,6 @@ import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
 import {
   InboxProvider,
-  profileChoices,
   ProfileScope,
   useMailboxes,
   useProfile,
@@ -34,6 +33,7 @@ import {
 } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
 import { MessageDetail } from './message-detail.tsx';
+import { profileChoices } from './profile-choices.ts';
 import {
   AccountContext,
   RegistrationGate,

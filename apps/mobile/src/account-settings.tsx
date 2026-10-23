@@ -26,6 +26,7 @@ import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
 import { NotificationSettings } from './notification-settings.tsx';
 import { TrustCard } from './onboarding.tsx';
+import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
@@ -671,6 +672,13 @@ export function AccountSettings({
           mailboxes={mailboxes}
           button={button}
           microsoft={microsoft}
+          store={store}
+        />
+      ) : null}
+      {destination === 'profiles' ? (
+        <MailProfilesSettings
+          profiles={profilesOf(snapshot)}
+          mailboxes={mailboxes}
           store={store}
         />
       ) : null}

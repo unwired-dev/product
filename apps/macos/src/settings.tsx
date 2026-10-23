@@ -13,6 +13,7 @@ import { textStyles, usePalette } from './theme.ts';
 export type SettingsDestination =
   | 'account'
   | 'mailboxes'
+  | 'profiles'
   | 'notifications'
   | 'language'
   | 'privacy'
@@ -20,7 +21,13 @@ export type SettingsDestination =
 
 // The sidebar's groups below the account item, in the design's order.
 const sections = [
-  { title: 'accounts', items: [{ id: 'mailboxes', icon: 'at' }] },
+  {
+    title: 'accounts',
+    items: [
+      { id: 'mailboxes', icon: 'at' },
+      { id: 'profiles', icon: 'person.crop.rectangle.stack' },
+    ],
+  },
   { title: 'automation', items: [{ id: 'notifications', icon: 'bell' }] },
   {
     title: 'application',

@@ -43,6 +43,7 @@ describe('window Profiles', () => {
     const { snapshot } = registration.getSnapshot();
     const onSwitch = vi.fn<(profile: string) => void>();
     const onCreate = vi.fn<() => void>();
+    const onManage = vi.fn<() => void>();
     const { sections, runs } = menuState(
       profileMenu(english, {
         profiles: profilesOf(snapshot),
@@ -51,6 +52,7 @@ describe('window Profiles', () => {
         current: workId,
         onSwitch,
         onCreate,
+        onManage,
       }),
     );
     expect(sections).toStrictEqual([
@@ -86,6 +88,14 @@ describe('window Profiles', () => {
             subtitle: undefined,
             checked: undefined,
           },
+          {
+            id: 'profile\nmanage',
+            title: 'Manage Mail Profiles…',
+            symbol: 'gearshape',
+            destructive: undefined,
+            subtitle: undefined,
+            checked: undefined,
+          },
         ],
       },
     ]);
@@ -93,8 +103,10 @@ describe('window Profiles', () => {
     await runs.get(`profile\n${workId}`)?.();
     await runs.get(`profile\n${defaultProfile}`)?.();
     await runs.get('profile\nnew')?.();
+    await runs.get('profile\nmanage')?.();
     expect(onSwitch).toHaveBeenCalledExactlyOnceWith(defaultProfile);
     expect(onCreate.mock.calls).toStrictEqual([[]]);
+    expect(onManage.mock.calls).toStrictEqual([[]]);
   });
 
   it('counts each Profile’s own unread mail', async () => {
@@ -128,6 +140,7 @@ describe('window Profiles', () => {
         current: defaultProfile,
         onSwitch: () => undefined,
         onCreate: () => undefined,
+        onManage: () => undefined,
       }),
     );
     expect(sections[0]?.items.map(({ subtitle }) => subtitle)).toStrictEqual([
@@ -175,6 +188,7 @@ describe('window Profiles', () => {
       current: workId,
       onSwitch: () => undefined,
       onCreate: () => undefined,
+      onManage: () => undefined,
     });
     expect(sections[0]?.items.map(({ subtitle }) => subtitle)).toStrictEqual([
       'Microsoft / Gmail; authorize',
@@ -189,7 +203,7 @@ describe('window Profiles', () => {
     expect(profileMonogram('Émile Zola Fan')).toBe('ÉZ');
   });
 
-  it('restores the saved window Profile and keeps the Startup Profile', async () => {
+  it('restores the saved window Profile and saves the chosen Startup Profile', async () => {
     expect.hasAssertions();
     const saved = new Map([['startup-profile', 'work']]);
     const setPreference = vi.fn<
@@ -213,14 +227,18 @@ describe('window Profiles', () => {
     });
     await choices.restore('work');
     await choices.restore('work');
-    expect(setPreference).toHaveBeenCalledExactlyOnceWith(
-      'window-profile',
-      'work',
-    );
-    // The next launch reads it back.
+    await choices.chooseStartup(defaultProfile);
+    expect(setPreference.mock.calls).toStrictEqual([
+      ['window-profile', 'work'],
+      ['startup-profile', defaultProfile],
+    ]);
+    // The next launch reads both back.
     const relaunched = createProfileChoices(native);
     await relaunched.load();
-    expect(relaunched.getSnapshot()?.restored).toBe('work');
+    expect(relaunched.getSnapshot()).toStrictEqual({
+      restored: 'work',
+      startup: defaultProfile,
+    });
   });
 
   it('reads a malformed saved choice as none', async () => {
