@@ -36,7 +36,7 @@ const styles = StyleSheet.create({
   },
 });
 
-// Explains a refused Mail Profile change; nothing changed.
+// Explains why a Mail Profile change did not complete.
 const refused = (
   t: Translate,
   change: Parameters<typeof profileRefusalText>[1],

@@ -105,10 +105,9 @@ its Outbox entry belong to the Profile of their Mailbox Connection. Creating
 another Profile and switching to it are exposed by
 [#1037](https://github.com/unwired-dev/product/issues/1037), part of
 [#922](https://github.com/unwired-dev/product/issues/922). Settings › Mail
-Profiles lists them and renames them
-([#1038](https://github.com/unwired-dev/product/issues/1038)); removing a Profile
-and moving a connection between Profiles there follow in the next slice with
-the approved designs.
+Profiles lists and renames them, moves connections between them, and removes a
+Profile after confirming its mailboxes
+([#1038](https://github.com/unwired-dev/product/issues/1038)).
 
 [#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
 definitions and ownership through [Private Sync](private-product-sync.md); the shared
@@ -204,8 +203,8 @@ its connections' providers, and marks the Startup Profile
 creates one as New Mail Profile… does. Selecting a Profile shows its name, which
 can be edited for every Profile except the Primary Profile; an empty or unchanged
 name changes nothing, and a refused rename restores the listed name and asks to
-try again. Creation and renaming wait for active registration work; a queued edit
-is retired if that Product Account leaves before it can run.
+try again. Creation, renaming, moving and removal wait for active registration
+work; a queued change is retired if that Product Account leaves before it can run.
 Beneath the selected Profile, **Mailboxes** lists the connections it owns, each
 with a system pop-up naming its Mail Profile; choosing another Profile moves the
 connection. Every Profile except the Primary Profile offers **Remove Mail

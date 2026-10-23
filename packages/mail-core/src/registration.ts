@@ -647,7 +647,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
       changeProfile(request(native.renameProfile(profile, name))),
     // Removes the mailboxes the person confirmed removing with the Profile, each as Email Accounts
     // removes one, then the Profile. One this device already knows moved to another Profile stays;
-    // one moved in unconfirmed refuses removal with `profile-in-use`.
+    // an unobserved move does not revoke confirmation. One moved in unconfirmed refuses removal
+    // with `profile-in-use`.
     removeProfile: (profile: string, confirmed: readonly string[] = []) =>
       changeProfile(
         Effect.gen(function* () {
