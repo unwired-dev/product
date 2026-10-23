@@ -168,7 +168,6 @@
   },
   "settings": {
     "title": "Settings",
-    "back": "Back to Settings",
     "sections": {
       "accounts": "Accounts",
       "automation": "Automation",

@@ -2126,6 +2126,15 @@ describe('connected Gmail Inbox', () => {
   /* oxlint-enable vitest/max-expects */
 });
 
+// The title the system navigation bar shows over the pushed Settings page, once it is pushed.
+const pushedSettings = async () => {
+  const page = await screen.findByTestId('settings-destination');
+  const bar = page.children.find(
+    (child) => typeof child !== 'string' && child.props.title !== undefined,
+  );
+  return typeof bar === 'string' ? undefined : bar?.props.title;
+};
+
 // Opens the palette as VoiceOver does, through the header's accessibility action.
 const openPalette = (header: ReturnType<typeof screen.getByRole>) =>
   fireEvent(header, 'accessibilityAction', {
@@ -2386,26 +2395,33 @@ describe('command palette', () => {
       expect(screen.getByRole('button', { name })).toBeVisible();
     }
     expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
-    // A destination pushes over the list, and the way back returns to it.
+    // A destination pushes over the list, and the system Back returns to it.
     await press('Account & Devices');
-    expect(
-      screen.getByRole('header', { name: 'Account & Devices' }),
-    ).toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(
       screen.getByText('alex@example.invalid is connected on this device.'),
     ).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Email Accounts' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Open Inbox' })).toBeVisible();
-    await press('Back to Settings');
+    await act(async () => {
+      await fireEvent(screen.getByTestId('settings-destination'), 'dismissed', {
+        nativeEvent: { dismissCount: 1 },
+      });
+    });
     expect(screen.getByRole('header', { name: 'Settings' })).toBeVisible();
-    expect(
-      screen.queryByRole('header', { name: 'Account & Devices' }),
-    ).toBeNull();
+    expect(screen.queryByTestId('settings-destination')).toBeNull();
     await press('Email Accounts');
+    await expect(pushedSettings()).resolves.toBe('Email Accounts');
     expect(
       screen.getByRole('header', { name: 'Mailbox Connections' }),
     ).toBeVisible();
-    await openPalette(screen.getByRole('header', { name: 'Email Accounts' }));
+    // The pushed page's system title takes no palette swipe; the list's title keeps it.
+    await act(async () => {
+      await fireEvent(screen.getByTestId('settings-destination'), 'dismissed', {
+        nativeEvent: { dismissCount: 1 },
+      });
+    });
+    await openPalette(screen.getByRole('header', { name: 'Settings' }));
     expect(
       openedPalette().getByRole('button', {
         name: 'Reply. Select a conversation',
@@ -2417,7 +2433,7 @@ describe('command palette', () => {
       );
     });
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
-    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
+    expect(screen.queryByRole('header', { name: 'Settings' })).toBeNull();
     await expect(
       screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',

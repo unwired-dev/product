@@ -249,18 +249,31 @@ describe('installation privacy access', () => {
       await expect(
         screen.findByText(/Available without signing in/u),
       ).resolves.toBeVisible();
-      expect(screen.getByTestId('reporting-privacy-screen')).toBeVisible();
-      expect(
-        screen
+      // The page's title is the system navigation bar's.
+      const titled = expect.objectContaining({ title: 'Privacy & Data' });
+      expect({
+        bar: screen.getByTestId('reporting-privacy-screen').children,
+        headers: screen
           .getAllByRole('header', {
             name: /^(?:Privacy & Data|Error Reporting)$/u,
           })
           .map((header) => header.props.children),
-      ).toStrictEqual(['Privacy & Data', 'Error Reporting']);
+      }).toStrictEqual({
+        bar: expect.arrayContaining([
+          expect.objectContaining({ props: titled }),
+        ]),
+        headers: ['Error Reporting'],
+      });
       expect(
         screen.queryByRole('button', { name: 'Sign in with Google' }),
       ).toBeNull();
-      await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+      await fireEvent(
+        screen.getByTestId('reporting-privacy-screen'),
+        'dismissed',
+        {
+          nativeEvent: { dismissCount: 1 },
+        },
+      );
       await expect(
         screen.findByRole('button', { name: back }),
       ).resolves.toBeVisible();
@@ -297,45 +310,55 @@ async function connectedRegistration() {
 }
 
 describe('reporting settings navigation', () => {
-  it('pushes reporting from Privacy & Data and returns to the retained privacy page', async () => {
-    expect.hasAssertions();
-    const registration = await connectedRegistration();
-    const { store } = reporting({
-      kind: 'ready',
-      enabled: false,
-      deletion: 'idle',
-    });
-    await render(
-      <RegistrationGate
-        store={registration}
-        errorReporting={store}
-        microsoft={false}
-        preview={false}>
-        <OpenPrivacy />
-      </RegistrationGate>,
-    );
-    await fireEvent.press(
-      await screen.findByRole('button', { name: 'Open device privacy' }),
-    );
-    await fireEvent.press(
-      await screen.findByRole('button', { name: 'Error Reporting' }),
-    );
-    await expect(
-      screen.findByTestId('error-reporting-detail'),
-    ).resolves.toBeVisible();
-    expect(
-      screen.getByRole('switch', { name: 'Share error reports' }).props,
-    ).toMatchObject({ value: false });
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Back to Settings' }),
-    );
-    await expect(
-      screen.findByRole('button', { name: 'Error Reporting' }),
-    ).resolves.toBeVisible();
-    expect(
-      screen.queryByRole('switch', { name: 'Share error reports' }),
-    ).toBeNull();
-  });
+  it.each([
+    { dismissCount: 1, page: 'Privacy & Data', action: 'Error Reporting' },
+    { dismissCount: 2, page: 'Settings', action: 'Email Accounts' },
+  ])(
+    'returns from reporting to $page after popping $dismissCount screens',
+    async ({ dismissCount, action }) => {
+      expect.hasAssertions();
+      const registration = await connectedRegistration();
+      const { store } = reporting({
+        kind: 'ready',
+        enabled: false,
+        deletion: 'idle',
+      });
+      await render(
+        <RegistrationGate
+          store={registration}
+          errorReporting={store}
+          microsoft={false}
+          preview={false}>
+          <OpenPrivacy />
+        </RegistrationGate>,
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Open device privacy' }),
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Error Reporting' }),
+      );
+      await expect(
+        screen.findByTestId('error-reporting-detail'),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByRole('switch', { name: 'Share error reports' }).props,
+      ).toMatchObject({ value: false });
+      await fireEvent(
+        screen.getByTestId('error-reporting-detail'),
+        'dismissed',
+        {
+          nativeEvent: { dismissCount },
+        },
+      );
+      await expect(
+        screen.findByRole('button', { name: action }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.queryByRole('switch', { name: 'Share error reports' }),
+      ).toBeNull();
+    },
+  );
 });
 
 describe('privacy after account removal', () => {

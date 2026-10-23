@@ -935,6 +935,28 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
+- `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
+  migrated native header relying on the presenter's default appearance without
+  comparing settled Light and Dark captures with DESIGN.md and the frames.
+  Check its supported surface, title, tint and separator properties; opaque
+  defaults can introduce a black band or divider while navigation tests pass.
+  Keep the system controls and their intrinsic metrics when applying the tokens.
+
+- `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
+  native stack moving a React Native header gesture into a system navigation
+  bar's custom title view without proving native event delivery. Check the
+  installed presenter and exercise the gesture on the supported host before
+  relying on responder props; a working accessory tap or component callback
+  does not prove title drags reach React Native. Otherwise a required palette
+  entry can disappear while component journeys pass. Preserve the owning
+  feature's current entry contract rather than restoring superseded gestures.
+
+- `settings.tsx.SettingsWorkspace` or another native stack handling `onDismissed`
+  as a one-screen pop while the system Back history menu can remove several.
+  Trace the installed screen event's `dismissCount` through the route owner,
+  including Error Reporting skipping Privacy to Settings; otherwise JavaScript
+  retains a destination UIKit already removed and later navigation diverges.
+
 - `window.tsx.ProfileWindow` keeping its chosen Profile only below
   `RegistrationGate`. Trace transient locked and account-page branches that
   unmount the mail shell: the live window must retain its Profile choice above
