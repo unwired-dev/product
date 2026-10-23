@@ -203,8 +203,8 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   action execute a different one or silently do nothing. Exercise a recreated
   callback, a section insertion and a retired choice through the native event boundary.
 
-- `composer-controls.tsx.PopUp` accepting a late native choice after its trigger
-  becomes disabled, even when the individual item has no disabled flag. Recheck
+- `composer-controls.tsx.PopUp` or `design.tsx.MenuButton` accepting a late native
+  choice after its trigger becomes disabled, even when the individual item has no disabled flag. Recheck
   both current control and item eligibility, publish callbacks at the layout
   commit and retire them on unmount. Exercise a held answer across disablement;
   otherwise a running spike can change selectors beneath its result or a retired
@@ -925,6 +925,35 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
+
+- `window.tsx.ProfileWindow` keeping its chosen Profile only below
+  `RegistrationGate`. Trace transient locked and account-page branches that
+  unmount the mail shell: the live window must retain its Profile choice above
+  that gate. Exercise choosing another Profile, locking registration storage and
+  unlocking through the real gate; otherwise the window returns to its launch
+  Profile and overwrites AppKit's saved choice with that fallback.
+
+- `window.tsx.ProfileWindow` or mobile `RootLayout` retaining an explicit Profile
+  choice after its Product Account changes. Keep transient-lock retention separate
+  from account retirement, and associate a mobile route owner with the route it
+  actually observed. Exercise both an unchanged switcher route and a new message
+  link received while the gate admits another account, including malformed
+  selectors and redelivered identical URLs. Router's interned parameter snapshots
+  do not identify delivery events. Otherwise the old choice strands the new
+  account in an unlisted Profile, or retiring it erases a new target and
+  incorrectly opens a fallback.
+
+- For `mailbox.tsx.WindowProfileScope` and other Profile restoration, check the
+  accepted window scope in `docs/private-inbox-storage.md` first. #1037 restores
+  the single iPad window like iPhone; independent iPad windows belong to #1200.
+  When the task requires multiple independent scenes, trace scene identity from
+  the native scene delegate through route dispatch and saved preferences, and
+  check that the installed host actually supports multiple scenes. Exercise two
+  scenes with different Profiles through switching, targeted links and relaunch;
+  enabling the UIKit scene lifecycle alone does not provide independent windows.
+  One device-wide choice or process-wide router can redirect or restore another
+  window, or leave the required second window unable to open. Record missing
+  implementation separately from unavailable native evidence.
 
 - `registration-gate.tsx.SettingsCover`, `app/_layout.tsx.MailShell` or another
   native container changing when the split view joins its window or receives

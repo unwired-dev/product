@@ -5,6 +5,8 @@ const { TurboModuleRegistry } = require('react-native');
 const unwiredRegistration = {
   getConstants: () => ({}),
   mailAssistance: () => Promise.resolve({ owner: null, profiles: [] }),
+  preference: () => Promise.resolve({ value: null }),
+  setPreference: () => Promise.resolve({}),
 };
 const { getEnforcing } = TurboModuleRegistry;
 // `UnwiredMenu` tracks one menu at a time until the journey answers it. It loads with the

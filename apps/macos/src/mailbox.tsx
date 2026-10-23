@@ -10,6 +10,7 @@ import {
   readingProfile,
   savedMessageBodies,
 } from '@private-email/mail-core/mailboxes';
+import { createProfileChoices } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import {
   createContext,
@@ -32,6 +33,7 @@ import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
   drafts as defaultDrafts,
+  native,
   outbox as defaultOutbox,
 } from './registration.ts';
 
@@ -179,11 +181,22 @@ export function useProfile() {
 // Every mailbox of the scoped Profile the Inbox shows, in the order the connections were added.
 // Another Profile's mailboxes never appear, so readers and searches cannot reach them.
 export function useMailboxes() {
-  const mailboxes = use(MailboxesContext);
   const profile = use(ProfileContext);
-  const all = useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
+  const all = useAllMailboxes();
   return useMemo(() => profileMailboxes(all, profile), [all, profile]);
 }
+
+// Every Profile's mailboxes, which only the Profile Menu's unread counts read.
+export function useAllMailboxes() {
+  const mailboxes = use(MailboxesContext);
+  return useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
+}
+
+// The device's Startup Profile, which a new window opens. AppKit restores each window's own.
+export const profileChoices = createProfileChoices({
+  preference: (key) => native().preference(key),
+  setPreference: (key, value) => native().setPreference(key, value),
+});
 
 export function useReloadMailboxes() {
   return use(MailboxesContext).load;
