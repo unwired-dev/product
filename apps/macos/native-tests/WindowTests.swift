@@ -2,18 +2,18 @@ import AppKit
 import XCTest
 
 // Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
-// Optimistic rows and the encrypted cache alone cannot prove that Gmail accepted a change.
-private func assertGmailActionsSettled(_ window: XCUIElement) {
+// Optimistic rows and the encrypted cache alone cannot prove that a provider accepted a change.
+private func assertProviderActionsSettled(_ window: XCUIElement, provider: String = "Gmail") {
   let unconfirmed = window.descendants(matching: .any).matching(
     NSPredicate(
       format: "label MATCHES %@",
-      "(?s).*(Gmail could not|Gmail has not confirmed|Gmail needs your permission|"
-        + "waits? for Gmail|Organizing mail waits).*"))
+      "(?s).*(\(provider) could not|\(provider) has not confirmed|\(provider) needs your permission|"
+        + "waits? for \(provider)|could not be saved|Organizing mail waits).*"))
   XCTAssertFalse(unconfirmed.firstMatch.waitForExistence(timeout: 5))
   let unfinished = window.descendants(matching: .any).matching(
     NSPredicate(
       format: "label CONTAINS %@ OR label CONTAINS %@",
-      "Saving the change on this device", "Checking Gmail"))
+      "Saving the change on this device", "Checking \(provider)"))
   XCTAssertTrue(unfinished.firstMatch.waitForNonExistence(timeout: 10))
   XCTAssertFalse(unconfirmed.firstMatch.exists)
 }
@@ -214,18 +214,18 @@ final class WindowTests: XCTestCase {
     // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
     resumed.buttons["Star"].click()
     XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
-    assertGmailActionsSettled(resumed)
+    assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Remove star"].exists)
     // The starred row names its flag.
     let starred = rowan + ". Flagged"
     resumed.buttons["Archive"].click()
     XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
-    assertGmailActionsSettled(resumed)
+    assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Undo"].exists)
     XCTAssertFalse(resumed.buttons[starred].exists)
     resumed.buttons["Undo"].click()
     XCTAssertTrue(resumed.buttons[starred].waitForExistence(timeout: 15))
-    assertGmailActionsSettled(resumed)
+    assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons[starred].exists)
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
@@ -1144,6 +1144,10 @@ final class WindowTests: XCTestCase {
     app.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
     XCTAssertTrue(agenda.waitForNonExistence(timeout: 15))
+    let moved = text("Moved: “Quarterly planning”.", in: window)
+    XCTAssertTrue(moved.waitForExistence(timeout: 10))
+    assertProviderActionsSettled(window, provider: "Microsoft")
+    XCTAssertTrue(moved.exists)
     searchFor("Outlook update 003")
 
     // Reply from the palette starts a Draft beside the reader; it keeps typed text across relaunch.
