@@ -1345,7 +1345,8 @@ extension UnwiredRegistration {
     }
   }
 
-  // `change` names `{ folder, uidValidity, uid }` and exactly one of `read` or `destination`.
+  // `change` names `{ folder, uidValidity, uid }` and exactly one of `read`, `flagged` or
+  // `destination`.
   @objc(imapModify:change:resolver:rejecter:)
   func imapModify(
     _ scope: [String: Any], change: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
@@ -1357,6 +1358,7 @@ extension UnwiredRegistration {
         let validity = (change["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
         let uid = (change["uid"] as? Double).flatMap({ UInt32(exactly: $0) }),
         change["read"] == nil || change["read"] is Bool,
+        change["flagged"] == nil || change["flagged"] is Bool,
         change["destination"] == nil || change["destination"] is String
       else { throw RegistrationError.unavailable }
       let copied: ImapCopy?
@@ -1374,7 +1376,8 @@ extension UnwiredRegistration {
         connection: connection, address: address, generation: generation,
         change: ImapChange(
           folder: folder, uidValidity: validity, uid: uid, read: change["read"] as? Bool,
-          destination: change["destination"] as? String, copied: copied))
+          flagged: change["flagged"] as? Bool, destination: change["destination"] as? String,
+          copied: copied))
     }
   }
 

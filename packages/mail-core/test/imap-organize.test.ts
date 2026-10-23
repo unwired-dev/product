@@ -185,6 +185,7 @@ describe('organizing IMAP mail', () => {
       imapQuickActions(t, message, state).map(({ action: change }) => change),
     ).toStrictEqual([
       { kind: 'read' },
+      { kind: 'star' },
       { kind: 'archive', destination: 'Archive' },
       { kind: 'trash', destination: 'Deleted Messages' },
       { kind: 'spam', destination: 'Junk' },
@@ -193,20 +194,116 @@ describe('organizing IMAP mail', () => {
       imapMoveTargets(message, state).map(({ name }) => name),
     ).toStrictEqual(['Archive', 'Deleted Messages', 'Junk', 'Projects']);
 
-    // A server without MOVE and UIDPLUS, or without declared roles, offers only read state.
+    // A server without MOVE and UIDPLUS, or without declared roles, offers only flag changes.
     imap.server.capabilities = { moves: false, idle: false };
     await inbox.load();
     const limited = ready(inbox.getSnapshot());
     expect(
       imapQuickActions(t, message, limited).map(({ name }) => name),
-    ).toStrictEqual(['read']);
+    ).toStrictEqual(['read', 'star']);
     expect(imapMoveTargets(message, limited)).toStrictEqual([]);
     expect(
       imapQuickActions(t, message, {
         folders: [],
         capabilities: { moves: true, idle: true },
       }).map(({ name }) => name),
-    ).toStrictEqual(['read']);
+    ).toStrictEqual(['read', 'star']);
+  });
+
+  it('stars with the server flag, keeps it across synchronization and follows a star set elsewhere', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves each step of the star's life. */
+    expect.hasAssertions();
+    const imap = organizedServer();
+    const uid = imap.deliver('INBOX', { subject: 'Hello' });
+    const other = imap.deliver('INBOX', {
+      subject: 'Starred elsewhere',
+      flags: [String.raw`\Flagged`],
+    });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const message = inboxMessage(inbox.getSnapshot(), 'Hello');
+    expect(message.flagged).toBe(false);
+    expect(inboxMessage(inbox.getSnapshot(), 'Starred elsewhere').flagged).toBe(
+      true,
+    );
+    const starred = inbox.organize(
+      message,
+      action(inbox.getSnapshot(), message, 'star'),
+    );
+    // The star shows at once, without leaving the Inbox or offering Undo.
+    expect(inbox.message(message.id)?.flagged).toBe(true);
+    expect(inboxMessage(inbox.getSnapshot(), 'Hello').flagged).toBe(true);
+    await starred;
+    expect(imap.server.changes).toStrictEqual([`flag INBOX ${uid}`]);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      undo: false,
+      notice: { kind: 'done', action: { kind: 'star' } },
+    });
+    await inbox.load();
+    const kept = inboxMessage(inbox.getSnapshot(), 'Hello');
+    expect(kept).toMatchObject({ flagged: true, unread: true });
+    expect(
+      imapQuickActions(t, kept, ready(inbox.getSnapshot()))[1]?.action,
+    ).toStrictEqual({ kind: 'unstar' });
+
+    await inbox.organize(kept, { kind: 'unstar' });
+    expect(imap.server.changes).toStrictEqual([
+      `flag INBOX ${uid}`,
+      `unflag INBOX ${uid}`,
+    ]);
+    // Another client's change arrives with the next synchronization.
+    imap.setFlags('INBOX', other, []);
+    await inbox.load();
+    expect(subjects(inbox.getSnapshot())).toHaveLength(2);
+    expect(
+      ready(inbox.getSnapshot()).messages.map(({ flagged }) => flagged),
+    ).toStrictEqual([false, false]);
+  });
+
+  /* oxlint-enable vitest/max-expects */
+
+  it('moves mail in Trash or Spam back to the Inbox instead of archiving, trashing or reporting it', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    imap.deliver('Deleted Messages', { subject: 'Deleted' });
+    imap.deliver('Junk', { subject: 'Not spam' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    for (const [folder, subject] of [
+      ['Deleted Messages', 'Deleted'],
+      ['Junk', 'Not spam'],
+    ] as const) {
+      await inbox.openFolder(folder);
+      const message = first(folderMessages(inbox.folder(folder)));
+      expect(message.subject).toBe(subject);
+      expect(
+        imapQuickActions(t, message, ready(inbox.getSnapshot())).map(
+          ({ action: change }) => change,
+        ),
+      ).toStrictEqual([
+        { kind: 'read' },
+        { kind: 'star' },
+        { kind: 'restore', destination: 'INBOX' },
+      ]);
+      await inbox.organize(
+        message,
+        action(inbox.getSnapshot(), message, 'restore'),
+      );
+      expect(imap.server.changes.at(-1)).toBe(
+        `move ${folder} ${message.uid} INBOX`,
+      );
+      // Moving back to the Inbox offers no Undo, as for Gmail.
+      expect(ready(inbox.getSnapshot())).toMatchObject({
+        notice: { kind: 'done', action: { kind: 'restore' } },
+        undo: false,
+      });
+    }
+    await inbox.load();
+    expect(subjects(inbox.getSnapshot()).toSorted()).toStrictEqual([
+      'Deleted',
+      'Not spam',
+    ]);
   });
 
   it('shows read state at once, applies it at the server and keeps it after the next synchronization', async () => {

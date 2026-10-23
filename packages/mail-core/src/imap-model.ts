@@ -44,13 +44,17 @@ const ImapMessageSchema = Schema.Struct({
   preview: Schema.String,
   receivedAt: Schema.String,
   unread: Schema.Boolean,
+  // The \Flagged flag, shown as Gmail's star; absent from caches saved before it was kept.
+  flagged: Schema.optionalKey(Schema.Boolean),
 });
 export type ImapMessage = typeof ImapMessageSchema.Type;
 
-// One organizing change. Read state is a flag; every other action moves the message to its
-// `destination` folder, chosen by role when the change was made.
+// One organizing change. Read state and the star are flags; every other action moves the message
+// to its `destination` folder, chosen by role when the change was made.
 const ImapActionSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literals(['read', 'unread']) }),
+  Schema.Struct({
+    kind: Schema.Literals(['read', 'unread', 'star', 'unstar']),
+  }),
   Schema.Struct({
     // `restore` undoes a move, back to the folder the message came from.
     kind: Schema.Literals(['archive', 'trash', 'spam', 'move', 'restore']),
@@ -271,8 +275,22 @@ export const ofOtherGeneration = (
   );
 };
 
-const unreadOf = (flags: readonly string[]) =>
-  !flags.some((flag) => flag.toLowerCase() === seen);
+const flagged = String.raw`\flagged`;
+
+// The read state and star the message's flags give it.
+const flagsOf = (flags: readonly string[]) => {
+  const set = new Set(flags.map((flag) => flag.toLowerCase()));
+  return { unread: !set.has(seen), flagged: set.has(flagged) };
+};
+
+// A message with a flag change shown: read state or the star.
+export const withFlag = (
+  message: ImapMessage,
+  { kind }: Readonly<{ kind: 'read' | 'unread' | 'star' | 'unstar' }>,
+): ImapMessage =>
+  kind === 'read' || kind === 'unread'
+    ? { ...message, unread: kind === 'unread' }
+    : { ...message, flagged: kind === 'star' };
 
 // A listed message from its envelope in the folder at that UIDVALIDITY.
 export const listedMessage = (
@@ -289,7 +307,7 @@ export const listedMessage = (
   subject: message.subject,
   preview: '',
   receivedAt: new Date(message.received).toISOString(),
-  unread: unreadOf(message.flags),
+  ...flagsOf(message.flags),
 });
 
 // Newest UID first: the order a folder's arrivals take, which trims the cache window.
@@ -326,7 +344,7 @@ export function applyFolderRead(
         const current = flags.get(message.uid);
         return current === undefined
           ? []
-          : [{ ...message, unread: unreadOf(current) }];
+          : [{ ...message, ...flagsOf(current) }];
       });
   const known = new Set(kept.map(({ uid }) => uid));
   const merged = Arr.sort(

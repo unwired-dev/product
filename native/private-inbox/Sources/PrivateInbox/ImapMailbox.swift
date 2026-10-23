@@ -49,23 +49,26 @@ enum ImapFailure: Error, Equatable {
   case interrupted
 }
 
-// One change to one identified message: its read state, or a move to `destination`.
+// One change to one identified message: its read state, its \Flagged flag, or a move to
+// `destination`.
 struct ImapChange: Sendable, Equatable {
   let folder: String
   let uidValidity: UInt32
   let uid: UInt32
   let read: Bool?
+  let flagged: Bool?
   let destination: String?
   let copied: ImapCopy?
 
   init(
-    folder: String, uidValidity: UInt32, uid: UInt32, read: Bool?, destination: String?,
-    copied: ImapCopy? = nil
+    folder: String, uidValidity: UInt32, uid: UInt32, read: Bool?, flagged: Bool? = nil,
+    destination: String?, copied: ImapCopy? = nil
   ) {
     self.folder = folder
     self.uidValidity = uidValidity
     self.uid = uid
     self.read = read
+    self.flagged = flagged
     self.destination = destination
     self.copied = copied
   }
@@ -398,6 +401,12 @@ struct SwiftMailImap: ImapProvider {
         if let read = change.read {
           issued = true
           try await server.store(flags: [.seen], on: message, operation: read ? .add : .remove)
+          return .stored
+        }
+        if let flagged = change.flagged {
+          issued = true
+          try await server.store(
+            flags: [.flagged], on: message, operation: flagged ? .add : .remove)
           return .stored
         }
         guard let destination = change.destination else { throw RegistrationError.unavailable }
@@ -733,7 +742,8 @@ extension RegistrationStore {
   func imapModify(
     connection: String, address: String, generation: String, change: ImapChange
   ) async throws -> [String: Any] {
-    guard (change.read == nil) != (change.destination == nil), Self.imapFolderName(change.folder),
+    guard [change.read != nil, change.flagged != nil, change.destination != nil].count(where: { $0 }) == 1,
+      Self.imapFolderName(change.folder),
       change.destination.map(Self.imapFolderName) ?? true, change.destination != change.folder,
       change.uidValidity > 0, change.uid > 0,
       change.copied.map({ $0.uidValidity > 0 && $0.uid > 0 && change.destination != nil }) ?? true

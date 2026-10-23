@@ -151,11 +151,19 @@ const capabilitiesOf = (user, namespaces) =>
 // Folders the server no longer selects, and a destination it refuses.
 const gone = /(?:^|[ "])Gone"?$/u;
 let copies = 0;
-// Organizing commands on the selected folder: read state, MOVE, and COPY with a UID EXPUNGE.
+// Organizing commands on the selected folder: read state, the star, MOVE, and COPY with a UID
+// EXPUNGE.
 // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
 const organize = (socket, tag, command) => {
   if (/^UID STORE 11 [+-]FLAGS(?:\.SILENT)? \(\\Seen\)$/u.test(command)) {
     operations.add(command.includes('+FLAGS') ? 'store-seen' : 'store-unseen');
+    socket.write(`${tag} OK Stored\r\n`);
+  } else if (
+    /^UID STORE 11 [+-]FLAGS(?:\.SILENT)? \(\\Flagged\)$/u.test(command)
+  ) {
+    operations.add(
+      command.includes('+FLAGS') ? 'store-flagged' : 'store-unflagged',
+    );
     socket.write(`${tag} OK Stored\r\n`);
   } else if (
     /^UID STORE 11 \+FLAGS(?:\.SILENT)? \(\\Deleted\)$/u.test(command)
@@ -521,7 +529,9 @@ process.on('SIGTERM', () => {
       'sent-search',
       'shared-list',
       'store-deleted',
+      'store-flagged',
       'store-seen',
+      'store-unflagged',
       'store-unseen',
       'unidentified',
     ]);

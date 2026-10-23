@@ -779,6 +779,21 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
+    // Star sets the server's \Flagged flag, keeps the reader and More open and flags the row.
+    await press('Star');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`flag INBOX ${invoice}`);
+    });
+    expect(
+      screen.getByRole('header', { name: 'Quarterly invoice' }),
+    ).toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
+    ).resolves.toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: 'Remove star' }),
+    ).resolves.toBeVisible();
+    await press('More');
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
     await press('Archive');
