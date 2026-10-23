@@ -289,6 +289,7 @@ describe('profile-scoped mobile routes', () => {
           openAccount: () => undefined,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
+          account: 'synthetic-product-account',
           profiles: [{ id: 'work', name: 'Work' }],
           createProfile: () => Promise.resolve(undefined),
         }}>
@@ -420,6 +421,7 @@ describe('profile-scoped mobile routes', () => {
             openAccount: () => undefined,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
             profiles: [{ id: 'work', name: 'Work' }],
             createProfile: () => Promise.resolve(undefined),
           }}>
@@ -750,6 +752,7 @@ describe('profile-scoped mobile routes', () => {
             openAccount: () => undefined,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
             profiles: [],
             createProfile: () => Promise.resolve(undefined),
           }}>
@@ -842,6 +845,7 @@ describe('profile-scoped mobile routes', () => {
           openAccount: () => undefined,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
+          account: 'synthetic-product-account',
           profiles: [],
           createProfile: () => Promise.resolve(undefined),
         }}>
@@ -1090,6 +1094,7 @@ describe('the mobile Profile Switcher', () => {
       name: string,
     ) => Promise<'upgrade-required' | undefined> = () =>
       Promise.resolve(undefined),
+    account = 'synthetic-product-account',
   ) => (
     <AccountContext
       value={{
@@ -1097,7 +1102,8 @@ describe('the mobile Profile Switcher', () => {
         openAccount: () => undefined,
         authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
-        profiles: [work],
+        account,
+        profiles: account === 'synthetic-product-account' ? [work] : [],
         createProfile,
       }}>
       <RootLayout />
@@ -1148,6 +1154,25 @@ describe('the mobile Profile Switcher', () => {
     jest.restoreAllMocks();
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('drops the previous Product Account’s switched Profile after signing into another account', async () => {
+    expect.hasAssertions();
+    savedPreferences(new Map());
+    showMail('work');
+    route.setParams({});
+    const app = await render(view());
+    await choose('Mail Profile, Primary Profile', 'profile\nwork');
+    await expect(
+      screen.findByLabelText('Mail Profile, Work'),
+    ).resolves.toBeVisible();
+    // The same window, after signing out and into another Product Account.
+    await app.rerender(view(undefined, 'another-product-account'));
+    await expect(
+      screen.findByLabelText('Mail Profile, Primary Profile'),
+    ).resolves.toBeVisible();
+    expect(route.params()).toStrictEqual({});
+    jest.restoreAllMocks();
+  });
 
   it('opens the Startup Profile, while a message link from before Profiles opens the Default Profile', async () => {
     expect.hasAssertions();

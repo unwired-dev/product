@@ -35,6 +35,12 @@ NSString *UnwiredWindowProfile(NSString *identifier)
   return identifier == nil ? nil : windowProfiles()[identifier];
 }
 
+// A restored window keeps its Profile even if it quits before its JavaScript reports one.
+void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile)
+{
+  if (identifier != nil && profile != nil) windowProfiles()[identifier] = profile;
+}
+
 NSString *UnwiredGuardedWindow(void)
 {
   for (NSWindow *window in NSApp.windows) {

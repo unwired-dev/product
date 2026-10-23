@@ -10,6 +10,7 @@ extern "C" BOOL UnwiredCloseGuarded(NSString *identifier);
 extern "C" NSString *UnwiredGuardedWindow(void);
 // UnwiredCommands.m: the Mail Profile each Inbox window's JavaScript last reported.
 extern "C" NSString *UnwiredWindowProfile(NSString *identifier);
+extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile);
 
 // Shared Swift in native/private-inbox receives APNs registration and Gmail wake hints.
 @protocol UnwiredPushWakes
@@ -170,6 +171,7 @@ extern "C" NSString *UnwiredWindowProfile(NSString *identifier);
   window.delegate = self;
   window.autorecalculatesKeyViewLoop = YES;
   window.restorationClass = AppDelegate.class;
+  UnwiredRecordWindowProfile(window.identifier, profile);
   NSMutableDictionary *properties = [@{@"windowId": windowID} mutableCopy];
   if (profile != nil) properties[@"profile"] = profile;
   NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredMail"

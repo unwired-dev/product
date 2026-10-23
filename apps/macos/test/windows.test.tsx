@@ -218,6 +218,7 @@ describe('mac window selection with the shared mock mailbox', () => {
           openAccount: () => undefined,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
+          account: 'synthetic-product-account',
           profiles: [{ id: 'work', name: 'Work' }],
           createProfile: () => Promise.resolve(undefined),
         }}>
@@ -1362,7 +1363,13 @@ describe('mac windows over a connected Gmail mailbox', () => {
 
 describe('mac windows of different Mail Profiles', () => {
   // The account lists the Work Profile, so a window AppKit restored with it keeps it.
-  function WithWork({ children }: { readonly children: ReactNode }) {
+  function WithWork({
+    children,
+    account = 'synthetic-product-account',
+  }: {
+    readonly children: ReactNode;
+    readonly account?: string;
+  }) {
     return (
       <AccountContext
         value={{
@@ -1370,7 +1377,11 @@ describe('mac windows of different Mail Profiles', () => {
           openAccount: () => undefined,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
-          profiles: [{ id: 'work', name: 'Work' }],
+          account,
+          profiles:
+            account === 'synthetic-product-account'
+              ? [{ id: 'work', name: 'Work' }]
+              : [],
           createProfile: () => Promise.resolve(undefined),
         }}>
         {children}
@@ -1485,6 +1496,34 @@ describe('mac windows of different Mail Profiles', () => {
     }
   }); /* oxlint-enable vitest/max-expects */
 
+  it('drops a window’s switched Profile once another Product Account signs in', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Garden plan' });
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <WithWork>
+        <InboxWindow windowId="account" />
+      </WithWork>,
+    );
+    await fireEvent(
+      await app.findByLabelText('Mail Profile, Primary Profile'),
+      'select',
+      { nativeEvent: { id: 'profile\nwork' } },
+    );
+    await expect(
+      app.findByLabelText('Mail Profile, Work'),
+    ).resolves.toBeVisible();
+    await app.rerender(
+      <WithWork account="another-product-account">
+        <InboxWindow windowId="account" />
+      </WithWork>,
+    );
+    await expect(
+      app.findByLabelText('Mail Profile, Primary Profile'),
+    ).resolves.toBeVisible();
+  });
+
   it('opens a new window in the Startup Profile and a restored window in its own', async () => {
     expect.hasAssertions();
     const nativeRegistration = TurboModuleRegistry.getEnforcing<
@@ -1594,6 +1633,7 @@ describe('mac windows of different Mail Profiles', () => {
             openAccount: () => undefined,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
             profiles: [],
             createProfile,
           }}>

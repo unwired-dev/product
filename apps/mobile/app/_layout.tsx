@@ -461,6 +461,8 @@ export default function RootLayout() {
     id?: string;
     profileId?: string | string[];
   }>();
+  // Outlives the registration gate, so signing into another account can tell its route apart.
+  const [routeAccount, setRouteAccount] = useState<string>();
   return (
     <RegistrationGate>
       <InboxProvider>
@@ -469,6 +471,8 @@ export default function RootLayout() {
           {/* A message or Thread link from before Profiles names none and opens in the Default
               Profile, which owns every mailbox it can name. */}
           <WindowProfileScope
+            routeAccount={routeAccount}
+            onRouteAccount={setRouteAccount}
             link={
               profileId === undefined && id !== undefined
                 ? defaultProfile

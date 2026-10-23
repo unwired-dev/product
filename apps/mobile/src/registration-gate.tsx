@@ -89,6 +89,8 @@ export const AccountContext = createContext<
       openAccount: (destination?: SettingsDestination) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
+      // The signed-in Product Account, whose Mail Profiles a window's choices belong to.
+      account: string;
       // The Mail Profiles besides the Default Profile.
       profiles: readonly MailProfile[];
       // Names a new Mail Profile; resolves why it was refused, if it was.
@@ -193,6 +195,7 @@ function RegistrationGateContent({
       },
       authorizeMailbox: store.authorizeMailbox,
       refreshInbox: store.refreshInbox,
+      account: choices?.inbox.account ?? '',
       profiles,
       createProfile: async (name: string) => {
         await store.createProfile(name);

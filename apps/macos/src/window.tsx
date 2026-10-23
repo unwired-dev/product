@@ -106,8 +106,12 @@ type WindowProps = Readonly<{
   profile?: string;
 }>;
 
-// A switcher's Profile or a notification's targeted message, owned by the window above its gate.
-type ProfileChoice = string | NonNullable<ReturnType<typeof openedTarget>>;
+// A switcher's Profile or a notification's targeted message, owned by the window above its gate
+// and kept only for the Product Account it was made in.
+type ProfileChoice = Readonly<{
+  account: string;
+  choice: string | NonNullable<ReturnType<typeof openedTarget>>;
+}>;
 
 export function PreviewWindow({ windowId, profile }: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
@@ -137,8 +141,15 @@ function ProfileWindow({
   readonly choice: ProfileChoice | undefined;
   readonly onChoose: (choice: ProfileChoice) => void;
 }) {
-  const opened = typeof choice === 'string' ? undefined : choice;
-  const profiles = use(AccountContext)?.profiles;
+  const account = use(AccountContext);
+  const profiles = account?.profiles;
+  // Another Product Account's choice never names this one's Profile.
+  const current =
+    choice?.account === (account?.account ?? '') ? choice.choice : undefined;
+  const opened = typeof current === 'string' ? undefined : current;
+  const choose = (next: ProfileChoice['choice']) => {
+    onChoose({ account: account?.account ?? '', choice: next });
+  };
   const choices = useSyncExternalStore(
     profileChoices.subscribe,
     profileChoices.getSnapshot,
@@ -146,7 +157,7 @@ function ProfileWindow({
   useEffect(() => {
     void profileChoices.load();
   }, []);
-  const link = typeof choice === 'string' ? choice : choice?.profile;
+  const link = typeof current === 'string' ? current : current?.profile;
   const profile = windowProfile({
     link,
     restored,
@@ -167,8 +178,8 @@ function ProfileWindow({
         <WindowContents
           windowId={windowId}
           initialSelection={opened}
-          onOpenProfile={onChoose}
-          onProfile={onChoose}
+          onOpenProfile={choose}
+          onProfile={choose}
         />
       </ProfileScope>
     </InboxProvider>

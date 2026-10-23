@@ -256,6 +256,7 @@ function App({
           openAccount,
           authorizeMailbox: () => Promise.resolve(),
           refreshInbox: (load) => load(),
+          account: 'synthetic-product-account',
           profiles: [],
           createProfile: () => Promise.resolve(undefined),
         }}>
@@ -2919,6 +2920,7 @@ function ReaderApp({
         openAccount: ignore,
         authorizeMailbox: () => Promise.resolve(),
         refreshInbox: (load) => load(),
+        account: 'synthetic-product-account',
         profiles: [],
         createProfile: () => Promise.resolve(undefined),
       }}>
@@ -3960,6 +3962,7 @@ describe('replying to and forwarding from the reader', () => {
             openAccount: ignore,
             authorizeMailbox: () => Promise.resolve(),
             refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
             profiles: [],
             createProfile: () => Promise.resolve(undefined),
           }}>
