@@ -171,7 +171,7 @@ parent/child links
 ([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)), choose-one
 options without a role ([#1196](https://github.com/unwired-dev/product/issues/1196)),
-reader labels that repeat their role
+reader labels that repeat their role or differ from visible text
 ([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
 and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
