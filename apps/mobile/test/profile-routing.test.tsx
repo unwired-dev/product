@@ -1180,12 +1180,10 @@ describe('the mobile Profile Switcher', () => {
       const buttons = prompt.mock.lastCall?.[2];
       ok(Array.isArray(buttons));
       await act(async () => {
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
-        (
-          buttons.find(({ text }) => text === 'Create')?.onPress as
-            | ((value: string) => void)
-            | undefined
-        )?.('Family');
+        const create = buttons.find(({ text }) => text === 'Create')
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
+          ?.onPress as ((value: string) => void) | undefined;
+        create?.('Family');
         await Promise.resolve();
       });
       const family = await screen.findByRole('button', { name: 'Family' });

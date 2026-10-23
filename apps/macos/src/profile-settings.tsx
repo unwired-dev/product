@@ -114,13 +114,10 @@ function ProfileName({
     <TextInput
       accessibilityLabel={t('profiles.name')}
       autoCorrect={false}
-      onBlur={() => {
+      onEndEditing={() => {
         void rename();
       }}
       onChangeText={setEntry}
-      onSubmitEditing={() => {
-        void rename();
-      }}
       style={[styles.name, { color: colors.textSecondary }]}
       value={entry}
     />

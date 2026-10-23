@@ -1649,9 +1649,8 @@ describe('mac windows of different Mail Profiles', () => {
       'registration',
       store,
     );
-    showMailboxes(
-      singleMailbox(createGmailInbox(createSyntheticGmail().native), alex),
-    );
+    const inbox = createGmailInbox(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
     const nativeRegistration = TurboModuleRegistry.getEnforcing<
       TurboModule & {
         setPreference: (key: string, value: string) => Promise<unknown>;
@@ -1661,6 +1660,7 @@ describe('mac windows of different Mail Profiles', () => {
       .spyOn(nativeRegistration, 'setPreference')
       .mockResolvedValue({});
     const prompt = jest.spyOn(Alert, 'promptMacOS').mockReturnValue(undefined);
+    const renaming = jest.spyOn(store, 'renameProfile');
     try {
       const app = await render(
         <MacWindows store={store}>
@@ -1684,10 +1684,16 @@ describe('mac windows of different Mail Profiles', () => {
       const name = settings.getByDisplayValue('Work');
       expect(name).toHaveProp('accessibilityLabel', 'Name');
       await fireEvent.changeText(name, 'Office');
-      await fireEvent(name, 'submitEditing');
+      // Return submits, ends editing and blurs before the renamed name renders.
+      await act(async () => {
+        await fireEvent(name, 'submitEditing');
+        await fireEvent(name, 'endEditing');
+        await fireEvent(name, 'blur');
+      });
       await expect(
         settings.findByRole('header', { name: 'Office' }),
       ).resolves.toBeVisible();
+      expect(renaming.mock.calls).toStrictEqual([[workId, 'Office']]);
       // The window's Profile Menu names the renamed Profile too.
       await chooseProfile(
         app.getByLabelText('Mail Profile, Primary Profile'),
@@ -1719,6 +1725,7 @@ describe('mac windows of different Mail Profiles', () => {
       const family = await settings.findByRole('button', { name: 'Family' });
       expect(family.props.accessibilityHint).toBe('No mailboxes');
     } finally {
+      renaming.mockRestore();
       prompt.mockRestore();
       saving.mockRestore();
       replaced.restore();
