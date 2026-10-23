@@ -302,7 +302,11 @@ The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar grou
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
 above the reading pane groups **Archive**, **Move
 to Trash** and **Labels** (or **Folders**), then Reply, Reply All and Forward,
-then the remaining actions. iPad's fixed toolbar holds **Archive**, **Labels**
+then the remaining actions. The Mac's **Folders** for IMAP and Microsoft mail opens
+the system menu below the button, one folder per item with its symbol. A choice moves
+the message, while Escape or a click outside closes the menu without moving it.
+Microsoft's note that the mailbox has no folders, or that some were left out, shows
+as an unavailable item. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Folders**, **Reply** and
 **More**, beside a separate circular New Message button. Reply
@@ -324,8 +328,8 @@ knows it. A search lists the folders that can hold mail by their full path, such
 account; choosing the account returns to its folders, and **Cancel** closes the picker
 without moving anything. Choosing a folder moves the message and closes the picker. More
 lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
-label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on
-iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
+label checkboxes under a **Labels** heading. Menu panels, including the Mac's Gmail
+**Labels** panel, ease in from their toolbar and fade out on iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
 button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per

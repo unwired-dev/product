@@ -18,8 +18,9 @@ import {
 } from '@private-email/mail-core/imap-setup';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState, useSyncExternalStore } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { PopUp } from './composer-controls.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { ProviderList, ProviderRow } from './onboarding.tsx';
@@ -54,15 +55,6 @@ const formStyles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  choices: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  choice: {
-    minHeight: 28,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.m,
-    borderRadius: radius.chip,
-    borderCurve: 'continuous',
-  },
-  choiceLabel: { ...textStyles.body },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
   notes: { ...textStyles.subheadline },
 });
@@ -414,44 +406,19 @@ function ManualSending({
           style={[formStyles.label, { color: colors.textPrimary }]}>
           {t('imap.securityLabel')}
         </Text>
-        <View
-          accessibilityRole="radiogroup"
-          style={formStyles.choices}>
-          {securities.map((choice) => {
-            const selected = choice === security;
-            return (
-              <Pressable
-                key={choice}
-                accessibilityLabel={`${t('imap.smtpSecurity')}: ${t(`imap.security.${choice}`)}`}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: selected }}
-                onPress={() => {
-                  onSecurity(choice);
-                }}
-                style={[
-                  formStyles.choice,
-                  {
-                    backgroundColor: selected
-                      ? colors.accentFill
-                      : colors.fillQuiet,
-                  },
-                ]}>
-                <Text
-                  style={[
-                    formStyles.choiceLabel,
-                    {
-                      color: selected
-                        ? colors.accentOnFill
-                        : colors.textPrimary,
-                      fontWeight: selected ? '600' : '400',
-                    },
-                  ]}>
-                  {t(`imap.security.${choice}`)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <PopUp
+          variant="field"
+          accessibilityLabel={t('imap.smtpSecurity')}
+          label={t(`imap.security.${security}`)}
+          items={securities.map((choice) => ({
+            key: choice,
+            title: t(`imap.security.${choice}`),
+            checked: choice === security,
+            run: () => {
+              onSecurity(choice);
+            },
+          }))}
+        />
       </View>
       {field({
         name: 'smtpUsername',

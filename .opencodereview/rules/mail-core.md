@@ -743,6 +743,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Ordinary foreground verification can renew the native generation while Outbox
   processing uses the previous one. Keep this definite non-delivery queued with its
   held claim, and recheck removed, unauthorized or renamed senders before retry.
+  Return that known outcome for durable recording before awaiting mailbox reopening
+  or provider synchronization. Hold a recovery read and reopen Draft storage to
+  verify the entry is queued, not still sending; otherwise relaunch turns known
+  non-delivery into unknown and strands a safely retryable message. Reopen through
+  the existing serialized loader with its owner and removal fences intact.
   Trace native `gmailSend` and `gmail(sending: true)` before changing this mapping:
   after a request may reach Gmail, preserve its answer or an unknown outcome,
   never infer safe resubmission from a later generation change. Otherwise an

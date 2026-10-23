@@ -589,6 +589,7 @@ export function OnDeviceMarker({ label }: { readonly label: string }) {
     <View
       accessible
       accessibilityLabel={label}
+      accessibilityRole="text"
       style={styles.marker}>
       <SFSymbol
         name="lock.fill"

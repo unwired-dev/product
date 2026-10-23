@@ -1,9 +1,19 @@
 import type { ReactNode } from 'react';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-import { SFSymbol } from './design.tsx';
+import { ModalBackground, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -20,6 +30,11 @@ const styles = StyleSheet.create({
   seal: { width: 18, height: 18, borderRadius: 9, marginBottom: 24 },
   headline: { fontSize: 52, lineHeight: 58, fontWeight: '400' },
   lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.8 },
+  status: { fontSize: 15, lineHeight: 20, opacity: 0.78 },
+  // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
+  restoringStatus: { position: 'absolute', top: 0, left: 0, right: 0 },
+  hidden: { opacity: 0 },
+  privacy: { minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   points: { gap: 14, marginTop: 36, marginBottom: 28 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { fontSize: 15, lineHeight: 16, opacity: 0.85 },
@@ -97,75 +112,163 @@ const styles = StyleSheet.create({
   cardDescription: { ...textStyles.body, textAlign: 'center' },
 });
 
+// CSS ease-in-out and ease-out, as the mobile host's Restoring animation uses.
+const easeInOut = Easing.bezier(0.42, 0, 0.58, 1);
+const easeOut = Easing.bezier(0, 0, 0.58, 1);
+
+// While launch reads the saved account, the seal breathes and the status arrives after a moment, so
+// a quick launch shows only the seal. Reduce Motion keeps the seal still.
+function useRestoringMotion(restoring: boolean) {
+  const seal = useMemo(() => new Animated.Value(1), []);
+  const status = useMemo(() => new Animated.Value(0), []);
+  useEffect(() => {
+    if (!restoring) {
+      return undefined;
+    }
+    let current = true;
+    const breathing = Animated.loop(
+      Animated.sequence(
+        [0.35, 1].map((toValue) =>
+          Animated.timing(seal, {
+            toValue,
+            duration: 800,
+            easing: easeInOut,
+            useNativeDriver: true,
+          }),
+        ),
+      ),
+    );
+    const arriving = Animated.timing(status, {
+      toValue: 1,
+      duration: 200,
+      delay: 600,
+      easing: easeOut,
+      useNativeDriver: true,
+    });
+    arriving.start();
+    const breathe = async () => {
+      if (!(await AccessibilityInfo.isReduceMotionEnabled()) && current) {
+        breathing.start();
+      }
+    };
+    void breathe();
+    return () => {
+      current = false;
+      breathing.stop();
+      arriving.stop();
+    };
+  }, [restoring, seal, status]);
+  return { seal, status };
+}
+
+// Launch shows this until it has read the saved account, then Welcome, setup or the Inbox (#1070).
+// It lays out as Welcome, so the seal stays in place when Welcome follows.
+export function Restoring() {
+  return (
+    <Welcome
+      restoring
+      onContinue={() => undefined}
+      // Welcome always offers Privacy & Data, which shapes its layout.
+      onPrivacy={() => undefined}
+    />
+  );
+}
+
 // The brand moment before signing in: deep graphite with the cinnabar seal and its one action.
 export function Welcome({
   onContinue,
   onPrivacy,
+  restoring = false,
 }: {
   readonly onContinue: () => void;
   readonly onPrivacy?: () => void;
+  // Launch progress: only the seal and its status show, where the seal and headline will be.
+  readonly restoring?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const motion = useRestoringMotion(restoring);
   const ink = { color: colors.brandOnDeep };
+  const concealed = restoring ? styles.hidden : undefined;
   const points = [
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
   ];
   return (
     <ScrollView
+      {...(restoring && {
+        accessible: true,
+        accessibilityRole: 'progressbar',
+        accessibilityLabel: t('onboarding.restoring'),
+        pointerEvents: 'none',
+      })}
       contentContainerStyle={styles.welcome}
+      scrollEnabled={!restoring}
       style={[styles.page, { backgroundColor: colors.brandDeep }]}>
       <View style={styles.welcomeContent}>
-        <View style={[styles.seal, { backgroundColor: colors.brandSeal }]} />
-        <Label
-          accessibilityRole="header"
-          style={[styles.headline, ink]}>
-          {t('onboarding.welcome.title')}
-        </Label>
-        <Label style={[styles.lede, ink]}>
-          {t('onboarding.welcome.description')}
-        </Label>
-        <View style={styles.points}>
-          {points.map(({ icon, text }) => (
-            <View
-              key={icon}
-              style={styles.point}>
-              <SFSymbol
-                name={icon}
-                size={13}
-                color={colors.brandOnDeep}
-              />
-              <Label style={[styles.pointText, ink]}>{text}</Label>
+        <Animated.View
+          style={[
+            styles.seal,
+            { backgroundColor: colors.brandSeal, opacity: motion.seal },
+          ]}
+        />
+        <View>
+          <ModalBackground
+            accessibilityElementsHidden={restoring}
+            style={concealed}>
+            <Label
+              accessibilityRole="header"
+              style={[styles.headline, ink]}>
+              {t('onboarding.welcome.title')}
+            </Label>
+            <Label style={[styles.lede, ink]}>
+              {t('onboarding.welcome.description')}
+            </Label>
+            <View style={styles.points}>
+              {points.map(({ icon, text }) => (
+                <View
+                  key={icon}
+                  style={styles.point}>
+                  <SFSymbol
+                    name={icon}
+                    size={13}
+                    color={colors.brandOnDeep}
+                  />
+                  <Label style={[styles.pointText, ink]}>{text}</Label>
+                </View>
+              ))}
             </View>
-          ))}
+            <View style={styles.continue}>
+              <OnboardingAction
+                disabled={restoring}
+                fill="brand"
+                label={t('onboarding.welcome.continue')}
+                onPress={onContinue}
+              />
+            </View>
+            {onPrivacy === undefined ? null : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('settings.destinations.privacy')}
+                disabled={restoring}
+                onPress={onPrivacy}
+                focusable={!restoring}
+                style={[styles.continue, styles.privacy]}>
+                <Text style={[textStyles.body, ink]}>
+                  {t('settings.destinations.privacy')}
+                </Text>
+              </Pressable>
+            )}
+          </ModalBackground>
+          {restoring ? (
+            <Animated.View
+              style={[styles.restoringStatus, { opacity: motion.status }]}>
+              <Text style={[styles.status, ink]}>
+                {t('onboarding.restoring')}
+              </Text>
+            </Animated.View>
+          ) : null}
         </View>
-        <View style={styles.continue}>
-          <OnboardingAction
-            fill="brand"
-            label={t('onboarding.welcome.continue')}
-            onPress={onContinue}
-          />
-        </View>
-        {onPrivacy === undefined ? null : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('settings.destinations.privacy')}
-            onPress={onPrivacy}
-            focusable
-            style={[
-              styles.continue,
-              {
-                minHeight: 44,
-                justifyContent: 'center',
-                alignItems: 'center',
-              },
-            ]}>
-            <Text style={[textStyles.body, ink]}>
-              {t('settings.destinations.privacy')}
-            </Text>
-          </Pressable>
-        )}
       </View>
     </ScrollView>
   );

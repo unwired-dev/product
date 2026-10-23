@@ -1000,6 +1000,7 @@
     }
   },
   "onboarding": {
+    "restoring": "Opening your mail…",
     "welcome": {
       "title": "Your mail,\non your devices.",
       "description": "Unwired Mail brings Gmail, iCloud and Microsoft 365 together in one calm, private inbox.",

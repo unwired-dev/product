@@ -64,6 +64,7 @@ import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
+import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
 import {
   MacWindows,
   closeSettings,
@@ -527,6 +528,18 @@ describe('product registration', () => {
         screen.getByLabelText('SMTP password, same as incoming if blank'),
         smtpPassword,
       );
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'SMTP security' }),
+        );
+      });
+      const checkedSecurity = menuItems()
+        .filter(({ checked }) => checked)
+        .map(({ title }) => title);
+      await chooseMenuItem('STARTTLS');
+      const chosenSecurity: unknown = screen.getByRole('button', {
+        name: 'SMTP security',
+      }).props.accessibilityValue?.text;
       const credentialGuidance = screen.getAllByText(
         'Same as incoming if blank.',
       ).length;
@@ -539,13 +552,18 @@ describe('product registration', () => {
       });
       expect({
         canConnect,
+        checkedSecurity,
+        chosenSecurity,
         credentialGuidance,
         setups,
         failure: store.getSnapshot().imapFailure,
         password: screen.queryByLabelText('Password'),
         state: mailboxesOf(store.getSnapshot().snapshot)[0]?.state,
+        security: mailboxesOf(store.getSnapshot().snapshot)[0]?.smtp?.security,
       }).toStrictEqual({
         canConnect: expectedConnect,
+        checkedSecurity: ['SSL/TLS'],
+        chosenSecurity: 'STARTTLS',
         credentialGuidance: 2,
         setups: [
           expect.objectContaining({
@@ -553,7 +571,7 @@ describe('product registration', () => {
             smtp: {
               host: 'smtp.example.invalid',
               port: 465,
-              security: 'tls',
+              security: 'starttls',
               username: 'alex',
               ...sendingPassword,
             },
@@ -562,6 +580,7 @@ describe('product registration', () => {
         failure: undefined,
         password: null,
         state: 'connected',
+        security: 'starttls',
       });
     },
   );
@@ -880,11 +899,18 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
-    // Move to lists the mailbox's other folders.
+    // Move's system menu lists the mailbox's other folders; dismissing it moves nothing.
     await press(/Team lunch/u);
     await press('Folders');
+    expect(menuItems()).toMatchObject([
+      { title: 'Archived Mail', accessibilityLabel: 'Move to Archived Mail' },
+      { title: 'Projects', accessibilityLabel: 'Move to Projects' },
+    ]);
+    await dismissMenu();
+    expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
+    await press('Folders');
     imap.server.loseReply = true;
-    await press('Move to Projects');
+    await chooseMenuItem('Projects');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`move INBOX ${lunch} Projects`);
     });
@@ -1630,6 +1656,156 @@ describe('product registration', () => {
     expect(screen.queryByText('Gmail · Encrypted on this device')).toBeNull();
   });
 
+  it('runs nothing for a held Move choice after the reader switches to another mailbox', async () => {
+    expect.hasAssertions();
+    // Two IMAP mailboxes whose messages and folders share IDs and names.
+    const servers = [0, 1].map((index) =>
+      createSyntheticImap({ address: `mailbox${index}@example.invalid` }),
+    );
+    for (const imap of servers) {
+      imap.deliver('INBOX', { subject: 'Team lunch' });
+      imap.addFolder('Projects');
+    }
+    const account = await signedIn();
+    const connections: Record<string, (typeof servers)[number]['native']> = {};
+    for (const [index, imap] of servers.entries()) {
+      const connection = await connectImap(account, {
+        address: `mailbox${index}@example.invalid`,
+        host: 'imap.example.invalid',
+        username: `mailbox${index}`,
+      });
+      connections[connection] = imap.native;
+    }
+    const store = createRegistration(account.synthetic.vault);
+    const mailboxes = createMailboxes(
+      syntheticConnections({}, connections),
+      store,
+    );
+    function Reading() {
+      const [selected, setSelected] = useState<Selection>();
+      const close = () => {
+        setSelected(undefined);
+      };
+      return (
+        <InboxProvider
+          mailboxes={{ ...mailboxes, getSnapshot: mailboxes.getConnections }}>
+          <Shell
+            onClose={close}
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+            onClose={close}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <Reading />
+      </RegistrationGate>,
+    );
+    const press = async (name: string | RegExp) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await press('Inbox. In mailbox0@example.invalid');
+    await press(/Team lunch/u);
+    await press('Folders');
+    // The menu stays open while the reader moves to the other mailbox's equal message.
+    await press('Inbox. In mailbox1@example.invalid');
+    await press(/Team lunch/u);
+    await chooseMenuItem('Projects');
+    expect(servers.map(({ server }) => server.changes)).toStrictEqual([[], []]);
+  });
+
+  // Opens the Garden plans reader of a connected Microsoft mailbox and its Move menu.
+  const openMicrosoftMove = async (
+    graph: ReturnType<typeof createSyntheticGraph>,
+  ) => {
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
+    await store.register('apple');
+    await store.addMailbox('microsoft-graph');
+    await store.confirmRecoveryKey(lastFour(recoveryKeyOf(synthetic)));
+    const plans = graph.deliver({ subject: 'Garden plans' });
+    const mailboxes = gmailMailboxes(store, {
+      [syntheticMailboxes['casey@example.invalid']]: graph,
+    });
+    function Reading() {
+      const [selected, setSelected] = useState<Selection>();
+      const close = () => {
+        setSelected(undefined);
+      };
+      return (
+        <InboxProvider mailboxes={mailboxes}>
+          <Shell
+            onClose={close}
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+            onClose={close}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <Reading />
+      </RegistrationGate>,
+    );
+    for (const name of [/Garden plans/u, 'Folders']) {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    }
+    return plans;
+  };
+
+  it('moves Microsoft mail to a nested folder from the reader’s system Move menu', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph();
+    const lisbon = graph.createFolder('Lisbon', graph.createFolder('Travel'));
+    const plans = await openMicrosoftMove(graph);
+    // Each folder is named by its path, so a nested one stays apart from its parent.
+    expect(menuItems()).toMatchObject([
+      { title: 'Travel', accessibilityLabel: 'Move to Travel' },
+      {
+        title: 'Travel / Lisbon',
+        accessibilityLabel: 'Move to Travel / Lisbon',
+      },
+    ]);
+    await chooseMenuItem('Travel / Lisbon');
+    await waitFor(() => {
+      expect(graph.folderOf(plans)).toBe(lisbon);
+    });
+    expect(screen.queryByRole('header', { name: 'Garden plans' })).toBeNull();
+  });
+
+  it('shows a Microsoft mailbox without folders as a disabled note in its Move menu', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph();
+    const plans = await openMicrosoftMove(graph);
+    expect(menuItems()).toMatchObject([
+      {
+        title: 'This Microsoft mailbox has no folders of its own yet.',
+        disabled: true,
+      },
+    ]);
+    await dismissMenu();
+    expect(graph.folderOf(plans)).toBe('inbox');
+  });
+
   it('chooses remote image policies for this device and each mailbox, and clears remote content', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-declined');
@@ -1660,22 +1836,22 @@ describe('product registration', () => {
     await press('Sign in with Apple');
     await press('Choose another Google mailbox');
     await settings('Privacy & Data');
-    const choice = (name: string) => screen.getByRole('radio', { name });
-    expect(choice('On this device: Ask')).toBeChecked();
-    expect(
-      choice('Remote images for other@example.invalid: Use device setting'),
-    ).toBeChecked();
-    await act(async () => {
-      await fireEvent.press(choice('On this device: Always load'));
+    // Each pop-up shows its policy, and its menu checks the same one.
+    const policy = (name: string) => screen.getByRole('button', { name });
+    const device = 'On this device';
+    const mailbox = 'Remote images for other@example.invalid';
+    expect(policy(device)).toHaveAccessibilityValue({ text: 'Ask' });
+    expect(policy(mailbox)).toHaveAccessibilityValue({
+      text: 'Use device setting',
     });
-    await act(async () => {
-      await fireEvent.press(
-        choice('Remote images for other@example.invalid: Never'),
-      );
-    });
-    expect(
-      choice('Remote images for other@example.invalid: Never'),
-    ).toBeChecked();
+    await press(device);
+    expect(menuItems().filter(({ checked }) => checked)).toMatchObject([
+      { title: 'Ask' },
+    ]);
+    await chooseMenuItem('Always load');
+    await press(mailbox);
+    await chooseMenuItem('Never');
+    expect(policy(mailbox)).toHaveAccessibilityValue({ text: 'Never' });
     expect(saved.at(-1)).toBe(
       '{"policy":"always","overrides":{"synthetic-connection-other":"never"}}',
     );
@@ -2849,6 +3025,55 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('settings-window')).toBeNull();
     });
+  });
+
+  it('shows only launch progress until it reads a configured installation, then its Inbox (#1070)', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const vault = synthetic.relaunch();
+    let answer: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold launch's registration read until checked.
+    const read = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    await render(
+      <RegistrationGate
+        store={started(
+          createRegistration({
+            ...vault,
+            registration: async () => {
+              await read;
+              return vault.registration();
+            },
+          }),
+        )}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    // Only launch progress shows before the read answers: no Welcome, header or control.
+    expect(
+      screen.getByRole('progressbar', { name: 'Opening your mail…' }),
+    ).toBeVisible();
+    expect([
+      screen.queryByText('Your mail,\non your devices.'),
+      screen.queryByRole('header'),
+      screen.queryByRole('button'),
+    ]).toStrictEqual([null, null, null]);
+    // Keep the real controls' text metrics without admitting invisible keyboard actions.
+    for (const name of ['Continue', 'Privacy & Data']) {
+      expect(
+        screen.getByRole('button', { name, includeHiddenElements: true }),
+      ).toBeDisabled();
+    }
+    await act(async () => {
+      answer();
+      await read;
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Account' }),
+    ).resolves.toBeVisible();
   });
 
   it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {

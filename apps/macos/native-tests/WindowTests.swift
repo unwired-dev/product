@@ -2,18 +2,18 @@ import AppKit
 import XCTest
 
 // Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
-// Optimistic rows and the encrypted cache alone cannot prove that Gmail accepted a change.
-private func assertGmailActionsSettled(_ window: XCUIElement) {
+// Optimistic rows and the encrypted cache alone cannot prove that a provider accepted a change.
+private func assertProviderActionsSettled(_ window: XCUIElement, provider: String = "Gmail") {
   let unconfirmed = window.descendants(matching: .any).matching(
     NSPredicate(
       format: "label MATCHES %@",
-      "(?s).*(Gmail could not|Gmail has not confirmed|Gmail needs your permission|"
-        + "waits? for Gmail|Organizing mail waits).*"))
+      "(?s).*(\(provider) could not|\(provider) has not confirmed|\(provider) needs your permission|"
+        + "waits? for \(provider)|could not be saved|Organizing mail waits).*"))
   XCTAssertFalse(unconfirmed.firstMatch.waitForExistence(timeout: 5))
   let unfinished = window.descendants(matching: .any).matching(
     NSPredicate(
       format: "label CONTAINS %@ OR label CONTAINS %@",
-      "Saving the change on this device", "Checking Gmail"))
+      "Saving the change on this device", "Checking \(provider)"))
   XCTAssertTrue(unfinished.firstMatch.waitForNonExistence(timeout: 10))
   XCTAssertFalse(unconfirmed.firstMatch.exists)
 }
@@ -214,18 +214,18 @@ final class WindowTests: XCTestCase {
     // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
     resumed.buttons["Star"].click()
     XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
-    assertGmailActionsSettled(resumed)
+    assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Remove star"].exists)
     // The starred row names its flag.
     let starred = rowan + ". Flagged"
     resumed.buttons["Archive"].click()
     XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
-    assertGmailActionsSettled(resumed)
+    assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Undo"].exists)
     XCTAssertFalse(resumed.buttons[starred].exists)
     resumed.buttons["Undo"].click()
     XCTAssertTrue(resumed.buttons[starred].waitForExistence(timeout: 15))
-    assertGmailActionsSettled(resumed)
+    assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons[starred].exists)
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
@@ -1095,8 +1095,60 @@ final class WindowTests: XCTestCase {
     runCommand("Account", in: app)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     try audit(app, "Settings")
+    // #1196: a remote-content policy is a pop-up whose AppKit menu owns the choice and dismissal.
+    settings.buttons["Privacy & Data"].click()
+    let policy = settings.buttons["On this device"]
+    XCTAssertTrue(policy.waitForExistence(timeout: 15))
+    XCTAssertEqual(policy.value as? String, "Ask")
+    policy.click()
+    let never = app.menuItems["Never"]
+    XCTAssertTrue(never.waitForExistence(timeout: 5))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(never.waitForNonExistence(timeout: 5))
+    XCTAssertEqual(policy.value as? String, "Ask")
+    policy.click()
+    never.click()
+    waitUntil { policy.value as? String == "Never" }
+    try audit(app, "Privacy & Data")
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+
+    // #1125: Move's AppKit menu lists the Microsoft mailbox's own folders. Escape and a click
+    // outside dismiss it; the keyboard chooses a folder, which moves the message and closes its
+    // reader. It runs before Reply: a docked reply composer blocks the reader toolbar (#1211).
+    func searchFor(_ query: String) {
+      runCommand("Search Mail", in: app)
+      waitForFocus(search)
+      app.typeKey("a", modifierFlags: .command)
+      app.typeText(query)
+      XCTAssertTrue(row(query).waitForExistence(timeout: 15))
+    }
+    searchFor("Quarterly planning")
+    row("Quarterly planning").click()
+    let agenda = body("Agenda for Thursday.", in: window)
+    XCTAssertTrue(agenda.waitForExistence(timeout: 15))
+    let move = window.buttons["Folders"]
+    let projects = app.menuItems["Projects"]
+    move.click()
+    XCTAssertTrue(projects.waitForExistence(timeout: 5))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
+    move.click()
+    XCTAssertTrue(projects.waitForExistence(timeout: 5))
+    window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01)).click()
+    XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(agenda.exists)
+    move.click()
+    XCTAssertTrue(projects.waitForExistence(timeout: 5))
+    app.typeKey(.downArrow, modifierFlags: [])
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(agenda.waitForNonExistence(timeout: 15))
+    let moved = text("Moved: “Quarterly planning”.", in: window)
+    XCTAssertTrue(moved.waitForExistence(timeout: 10))
+    assertProviderActionsSettled(window, provider: "Microsoft")
+    XCTAssertTrue(moved.exists)
+    searchFor("Outlook update 003")
 
     // Reply from the palette starts a Draft beside the reader; it keeps typed text across relaunch.
     row("Outlook update 003").click()
@@ -1232,9 +1284,11 @@ final class WindowTests: XCTestCase {
     case .sufficientElementDescription
     where type == .other && ["System default", "English"].contains(label):
       return "#1196"
-    // The Apple relay address is the readable name of the signed-in account.
+    // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription
-    where type == .staticText && label == "relay@privaterelay.example.invalid":
+    where type == .staticText
+      && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
+        .contains(label):
       return "email address"
     default:
       return nil

@@ -136,7 +136,17 @@ then cuts and pastes that query through the Edit menu. It closes the palette wit
 Escape and checks that focus returns to the search field. It moves through the
 palette's commands with Down and Up and runs Search Mail with Return, checking
 focus returns to search and Settings stays closed. It then runs Account from the
-palette, which opens Settings, and closes Settings with Command-W. It runs Reply from the palette,
+palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
+pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
+the pop-up shows the choice. It closes Settings with Command-W. It then searches for the
+Microsoft message **Quarterly planning** and opens it. The reader's **Folders** AppKit
+menu closes with Escape and with a click outside, then Down and Return choose
+**Projects**, which moves the message and closes its reader. This runs before Reply
+because the reader toolbar ignores clicks while a reply composer is docked
+([#1211](https://github.com/unwired-dev/product/issues/1211)). Before continuing, it
+checks the moved-message notice and rejects refusal, unsaved, pending and unfinished
+save/sync states. This is a synthetic completion proxy, not provider destination
+readback. It runs Reply from the palette,
 types into the reply and pastes into it. After relaunch, it checks that the
 saved Draft reopens with that text. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
@@ -149,14 +159,14 @@ the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
-reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
+Privacy & Data, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are buttons without a press action and the missing
 parent/child links
 ([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)), choose-one
 options without a role ([#1196](https://github.com/unwired-dev/product/issues/1196)),
-AppKit's text Touch Bar and the Apple relay address used as a label. The contrast gap lists
+AppKit's text Touch Bar and email addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The audits run in the host's
 current appearance only. They do not replace VoiceOver,

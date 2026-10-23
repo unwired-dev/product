@@ -49,7 +49,7 @@ import {
   mailAssistance as deviceMailAssistance,
 } from './mail-assistance.tsx';
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
-import { TrustCard } from './onboarding.tsx';
+import { Restoring, TrustCard } from './onboarding.tsx';
 import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import {
@@ -242,6 +242,10 @@ function RegistrationGateContent({
         </MailAssistanceContext>
       </RemoteContentContext>
     );
+  }
+  // Until launch reads saved registration, a configured app must not flash Welcome (#1070).
+  if (screen.destination === 'restoring') {
+    return <Restoring />;
   }
   return (
     <ScrollView
