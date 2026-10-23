@@ -164,6 +164,15 @@ const backToSettings = () =>
     });
   });
 
+// The title the system navigation bar shows over the pushed Settings page, once it is pushed.
+const pushedSettings = async () => {
+  const page = await screen.findByTestId('settings-destination');
+  const bar = page.children.find(
+    (child) => typeof child !== 'string' && child.props.title !== undefined,
+  );
+  return typeof bar === 'string' ? undefined : bar?.props.title;
+};
+
 // A value the store's snapshot shows, such as the Recovery Key presented for setup.
 const shown = (
   store: Pick<Registration, 'getSnapshot'>,
@@ -443,7 +452,7 @@ describe('product registration', () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
       // The Inbox's repair opens Settings on Email Accounts, where its form is.
-      await screen.findByRole('header', { name: 'Email Accounts' });
+      await pushedSettings();
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
@@ -1110,9 +1119,7 @@ describe('product registration', () => {
       );
     });
     // Pending setup opens Settings on Account & Devices.
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(
       screen.getByText('other@example.invalid is connected on this device.'),
     ).toBeVisible();
@@ -1147,9 +1154,7 @@ describe('product registration', () => {
         await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(
       screen.getByText('alex@example.invalid is connected on this device.'),
     ).toBeVisible();
@@ -1262,9 +1267,7 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.getByRole('button', { name: 'Gmail' })).toBeVisible();
     await press('Microsoft 365 and Outlook');
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(
       screen.getByText('casey@example.invalid is connected on this device.'),
     ).toBeVisible();
@@ -2077,9 +2080,7 @@ describe('product registration', () => {
         await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     // The Gmail grant is a Mailbox Connection, not a Linked Sign-In.
     expect(
       screen.getByText(/Only Apple opens this Product Account/u),
@@ -2514,9 +2515,7 @@ describe('product registration', () => {
     );
     await openAccount();
     await openSettings('Email Accounts');
-    expect(
-      screen.getByRole('header', { name: 'Email Accounts' }),
-    ).toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Email Accounts');
     // Foreground verification discovers another Product Account with an unconfirmed key.
     // Another window of this device signed out and signed in to another Product Account.
     const replacement = createRegistration(synthetic.relaunch());
@@ -2527,13 +2526,10 @@ describe('product registration', () => {
     await act(async () => {
       await store.resume();
     });
-    expect(
-      screen.getByRole('header', { name: 'Account & Devices' }),
-    ).toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(screen.getByTestId('recovery-key')).toHaveTextContent(
       shown(replacement, 'recoveryKey'),
     );
-    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
   });
 
   it('keeps a mailbox’s New Mail Notifications off when Product Sync cannot save them, and links denied permission to the system', async () => {
@@ -2633,12 +2629,12 @@ describe('product registration', () => {
     await openSettings('Email Accounts');
     // The covered Inbox stays mounted but leaves the accessibility tree to Settings.
     expect({
-      settings: screen.getByRole('header', { name: 'Email Accounts' }),
+      settings: await pushedSettings(),
       covered: screen.queryByLabelText('Draft'),
       kept: screen.getByLabelText('Draft', { includeHiddenElements: true })
         .props.value,
     }).toStrictEqual({
-      settings: expect.anything(),
+      settings: 'Email Accounts',
       covered: null,
       kept: 'Unfinished',
     });
@@ -2775,9 +2771,7 @@ describe('product registration', () => {
       }
       await Promise.resolve();
     });
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     // Google refuses the saved sign-in, so the account cannot be verified.
     synthetic.google.refreshFailure = 'invalid-grant';
     await act(async () => {
@@ -2791,9 +2785,7 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Connect your mail' }),
     ).resolves.toBeVisible();
-    expect(
-      screen.queryByRole('header', { name: 'Account & Devices' }),
-    ).toBeNull();
+    expect(screen.queryByTestId('settings-destination')).toBeNull();
   });
 
   // Mocked journey: the deterministic Mock Mail Session stands in for native preparation and

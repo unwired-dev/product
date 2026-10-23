@@ -13,12 +13,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ScreenStack,
-  ScreenStackHeaderCenterView,
   ScreenStackHeaderRightView,
   ScreenStackItem,
 } from 'react-native-screens';
 
-import { AccountHeader, PaletteTitle } from './account-page.tsx';
+import { AccountHeader } from './account-page.tsx';
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -427,23 +426,17 @@ export function SettingsWorkspace({
   if (onWelcome !== undefined) {
     return content;
   }
-  // A pushed page's system navigation bar owns Back and its edge swipe. Its title stays a React
-  // Native view for the palette's swipe and action, and the accessory keeps its own glass.
+  // A pushed page's system navigation bar owns Back and its edge swipe; the accessory keeps its
+  // own glass. The bar's title takes no palette swipe, which stays on the list's title.
   const bar = (title: string) => ({
     title,
     backButtonDisplayMode: 'minimal' as const,
-    children: (
-      <>
-        <ScreenStackHeaderCenterView>
-          <PaletteTitle title={title} />
-        </ScreenStackHeaderCenterView>
-        {accessory === undefined ? null : (
-          <ScreenStackHeaderRightView hidesSharedBackground>
-            {accessory}
-          </ScreenStackHeaderRightView>
-        )}
-      </>
-    ),
+    children:
+      accessory === undefined ? undefined : (
+        <ScreenStackHeaderRightView hidesSharedBackground>
+          {accessory}
+        </ScreenStackHeaderRightView>
+      ),
   });
   const list = (
     <View style={styles.page}>
@@ -554,8 +547,8 @@ export function SettingsWorkspace({
           activityState={2}
           headerConfig={bar(t('errorReporting.title'))}
           gestureEnabled
-          onDismissed={() => {
-            onDestination('privacy');
+          onDismissed={({ nativeEvent: { dismissCount } }) => {
+            onDestination(dismissCount > 1 ? undefined : 'privacy');
           }}>
           <ScrollView contentContainerStyle={styles.content}>
             {detail}

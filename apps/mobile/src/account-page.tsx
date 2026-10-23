@@ -92,20 +92,3 @@ export function AccountHeader({
     </View>
   );
 }
-
-// A pushed page's title in the system navigation bar, which opens the palette by a downward swipe
-// or its accessibility action, as the fixed headers do.
-export function PaletteTitle({ title }: { readonly title: string }) {
-  const colors = usePalette();
-  const header = usePaletteHeader();
-  return (
-    <Text
-      accessibilityRole="header"
-      numberOfLines={1}
-      style={[textStyles.headline, { color: colors.textPrimary }]}
-      {...header.swipe}
-      {...header.action}>
-      {title}
-    </Text>
-  );
-}

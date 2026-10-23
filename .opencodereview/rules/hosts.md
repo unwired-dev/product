@@ -926,6 +926,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
+- `settings.tsx.SettingsWorkspace` or another native stack handling `onDismissed`
+  as a one-screen pop while the system Back history menu can remove several.
+  Trace the installed screen event's `dismissCount` through the route owner,
+  including Error Reporting skipping Privacy to Settings; otherwise JavaScript
+  retains a destination UIKit already removed and later navigation diverges.
+
 - `window.tsx.ProfileWindow` keeping its chosen Profile only below
   `RegistrationGate`. Trace transient locked and account-page branches that
   unmount the mail shell: the live window must retain its Profile choice above
