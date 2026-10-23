@@ -182,6 +182,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A native geometry wait such as `InboxTests.settledFrame(of:)` seeding its
+  previous frame from a sample taken immediately before polling, or comparing
+  reading position after a cancelled swipe without waiting for stable geometry.
+  Require separate polling samples to agree both before and after the gesture;
+  visibility or absence predicates already true before cancellation do not prove
+  settlement. Otherwise momentum or an unfinished interactive transition can
+  pass the first evaluation, falsely qualify position preservation or race the
+  next swipe.
+
 - A desktop journey such as `WindowTests.testKeyboardAndAccessibility` restoring
   a saved pasteboard unconditionally. Snapshot its representations before the
   journey writes, record `changeCount` after each owned Cut or Copy, and restore
