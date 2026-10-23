@@ -85,6 +85,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   readback; otherwise later saves retain the initial snapshot or failed writes
   appear committed until relaunch.
 
+- `testing/synthetic-convex.ts.putAll` admitting repeated payload identifiers
+  before constructing an atomic write map. Reject duplicates before persistence
+  and verify unchanged stored records through the relay; otherwise map construction
+  drops a write while the response claims the entire batch committed.
+
 - `imap-model.ts.folderListing` exposing case variants of the reserved ASCII INBOX
   name as separate identities, or folding a distinct Unicode name or an
   attribute-only inbox folder into it. Canonicalize only the reserved name and
@@ -134,6 +139,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   packaged host when its transform differs from the test runtime.
 
 #### Shared palette and visible states
+
+- `profile-windows.ts.profileMenu` dispatching a switch for its checked Profile.
+  Selecting the window's current workspace must return before host navigation or
+  composer-exit work; otherwise a no-op selection closes a reader or prompts for
+  an open Draft. Verify the shared action and preserve both hosts' exit guards
+  for actual Profile changes.
 
 - A change to `theme.ts.palette` that checks text contrast but overlooks the
   surfaces and state indicators in its mobile and Mac consumers. Trace text,

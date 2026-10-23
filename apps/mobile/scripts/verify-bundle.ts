@@ -50,7 +50,10 @@ const inventory = [
   ['React Native 0.86.3', /react-native@0\.86\.3[/_]/u],
   ['Effect v4', /effect@4\.0\.0[/_]/u],
   ['Shared mail core', /mail-core.*[/\\]src[/\\]index\.ts$/u],
-  ['Native split view', /expo-router[/\\]build[/\\]split-view[/\\]/u],
+  [
+    'Native split view',
+    /react-native-screens[/\\].*gamma[/\\]split[/\\]SplitHost/u,
+  ],
 ] satisfies ReadonlyArray<readonly [string, RegExp]>;
 
 for (const [name, pattern] of inventory) {

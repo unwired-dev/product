@@ -612,6 +612,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### AppKit host
 
+- `AppDelegate.mm.openWindowWithProfile` passing a restored Profile only to its
+  React root while `willEncodeRestorableState` reads a separate native map. Seed
+  native restoration state when constructing the window, before JavaScript or
+  registration can run; otherwise quitting while storage is locked loses the
+  restored choice. Keep real AppKit relaunch evidence separate from host tests.
+
 - `UnwiredDesign.m` menu migration dropping a localized accessibility label when
   building `NSMenuItem` titles. Preserve the visible title and the separate
   accessible name, including Writing tools' whole-body versus selected-text

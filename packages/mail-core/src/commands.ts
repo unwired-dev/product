@@ -545,6 +545,35 @@ const logFailure =
   ({ cause }: Readonly<{ cause: unknown }>) =>
     Effect.logError(message, rejectionDiagnostic(cause));
 
+// A saved preference's text, or undefined when none is saved; an unreadable or malformed one
+// reads as none.
+export const savedPreference = (native: NativePreferences, key: string) =>
+  call(() => native.preference(key)).pipe(
+    Effect.map((reply) =>
+      Option.getOrUndefined(
+        Option.flatMapNullishOr(decodeSaved(reply), ({ value }) => value),
+      ),
+    ),
+    Effect.catchTag('PreferenceFailure', (failure) =>
+      logFailure('A preference could not be read:')(failure).pipe(
+        Effect.as(undefined),
+      ),
+    ),
+  );
+
+export const savePreference = (
+  native: NativePreferences,
+  key: string,
+  value: string,
+) =>
+  call(() => native.setPreference(key, value)).pipe(
+    Effect.asVoid,
+    Effect.catchTag(
+      'PreferenceFailure',
+      logFailure('A preference could not be saved:'),
+    ),
+  );
+
 /**
  * The one-time hint that explains the iPhone gesture: due once loaded, until
  * dismissed or the palette first opens. A store for the host.

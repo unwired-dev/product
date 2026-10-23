@@ -59,7 +59,6 @@ export function Glass({
 }
 
 interface NavigationChromeProps extends Pick<ViewProps, 'testID'> {
-  readonly onPop?: (() => void) | undefined;
   // A screen that names its Back keeps the system navigation bar instead of hiding it.
   readonly backLabel?: string | undefined;
   // Shown on a disk beside the Back chevron; empty shows the chevron alone.
@@ -73,7 +72,7 @@ const NativeNavigationChrome = requireNativeComponent<
 >('UnwiredNavigationChrome');
 
 // Hides the native navigation bar while a compact screen shows its own header, unless the screen
-// names its system Back. Back or the edge swipe pops the screen, and onPop lets its route follow.
+// names its system Back.
 export function NavigationChrome(props: NavigationChromeProps) {
   return (
     <NativeNavigationChrome
@@ -288,6 +287,46 @@ export function ContextMenu({
         {children}
       </View>
     </NativeContextMenu>
+  );
+}
+
+const NativeMenuButton = requireNativeComponent<
+  ViewProps & {
+    readonly sections: ReadonlyArray<
+      Readonly<{
+        palette?: boolean | undefined;
+        items: readonly NativeMenuItem[];
+      }>
+    >;
+    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  }
+>('UnwiredMenuButton');
+
+// A pull-down button whose system menu opens on tap or click. Its children only draw the label:
+// the native button receives every touch and carries the accessibility label.
+export function MenuButton({
+  sections,
+  children,
+  style,
+  ...props
+}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+  const menu = menuState(sections);
+  return (
+    <NativeMenuButton
+      {...props}
+      accessibilityRole="button"
+      sections={menu.sections}
+      onSelect={({ nativeEvent }) => {
+        void menu.runs.get(nativeEvent.id)?.();
+      }}
+      style={style}>
+      <View
+        collapsable={false}
+        pointerEvents="none"
+        style={styles.menuContent}>
+        {children}
+      </View>
+    </NativeMenuButton>
   );
 }
 

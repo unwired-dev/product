@@ -102,10 +102,10 @@ moves or changes. The Default Profile retains deployed Product Account-scoped
 storage identifiers; a new Profile receives a distinct opaque namespace that
 cannot collide with that existing data. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
-another Profile stays unavailable in the apps until
-[#647](https://github.com/unwired-dev/product/issues/647) enables it. Its last
-slice, [#922](https://github.com/unwired-dev/product/issues/922), adds the apps'
-Profile management and switching.
+another Profile and switching to it are exposed by
+[#1037](https://github.com/unwired-dev/product/issues/1037), part of
+[#922](https://github.com/unwired-dev/product/issues/922). Further Profile
+management belongs to [#1038](https://github.com/unwired-dev/product/issues/1038).
 
 [#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
 definitions and ownership through [Private Sync](private-product-sync.md); the shared
@@ -163,12 +163,41 @@ can authenticate it.
 
 Reading and search name their Profile explicitly
 ([#645](https://github.com/unwired-dev/product/issues/645)). Each Mac window and
-the iPhone/iPad window shows one Mail Profile. Native Mac windows currently open
-the Default Profile. On iPhone/iPad, a message link with a `profileId` parameter
-opens only in that Profile; an old-form link without one, from before Profiles,
+the iPhone/iPad window shows one Mail Profile
+([#1037](https://github.com/unwired-dev/product/issues/1037)). Its sidebar's
+Profile Switcher shows the Profile's monogram and name, and the Default Profile
+appears as **Primary Profile**. The switcher opens the system menu: every Profile
+with its connections' providers, a sign-in notice and its unread count, the
+window's own checked, then **New Mail Profile…**. Choosing a Profile switches only
+that window. New Mail Profile… asks for a name and creates the Profile through the
+fenced store without switching to it. When another Trusted Device's client cannot
+keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
+asks to try again. Creating a Profile needs a Product Sign-In verified since the
+app launched; after a relaunch it fails until the person signs in again
+([#1188](https://github.com/unwired-dev/product/issues/1188)).
+
+A window opens a targeted link's Profile first, then the Profile it restores, then
+the device-local Startup Profile, then the Default Profile. A restored or Startup
+Profile the account no longer lists is skipped. It returns once listed again.
+AppKit restores each Mac window with the Profile it last showed, following the
+system setting for keeping windows when quitting; a real relaunch that restores
+it has not yet been verified natively and remains a release check. A window that is
+not restored is new and opens the Startup Profile. The iPhone and iPad app has one window, as
+multiple iPad scenes are turned off. It restores the Profile a link or the switcher
+last chose. Independent iPad windows, each with its own Profile, are tracked in
+[#1200](https://github.com/unwired-dev/product/issues/1200).
+Settings will offer the Startup Profile choice
+([#1038](https://github.com/unwired-dev/product/issues/1038)); until then none is
+saved, and new windows open the Default Profile.
+
+On iPhone/iPad, a message link with a `profileId` parameter opens only in that
+Profile; an old-form message or Thread link without one, from before Profiles,
 opens in the Default Profile. Closing a targeted reader returns to the same
 Profile's Inbox. Malformed Profile selectors, including repeated link parameters,
 remain unavailable.
+Signing into another Product Account retires the preceding account's switcher
+route. A targeted link received during setup, including a redelivered identical
+link, keeps its target even when unavailable instead of opening a fallback Inbox.
 Changing a window's Profile retires its previous reader presentation and clears
 its search and mailbox choice.
 The unified and single-mailbox Inbox, local and online search, the reader
@@ -224,7 +253,7 @@ records the rationale.
 
 The deterministic registration, Inbox and Draft relaunch tests exercise this
 compatibility path through substituted provider and storage boundaries. Deterministic
-isolation checks substitute a second Profile, which no host can create yet, to show
+isolation checks substitute a second Profile to show
 that windows, links and searches never reach another Profile's mail. Before
 release, verify Default Profile read/compose/relaunch on each maintained Apple
 host with real provider credentials, encrypted private state and queued work

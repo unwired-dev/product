@@ -7,25 +7,30 @@ import type {
   ColorValue,
   NativeSyntheticEvent,
   StyleProp,
+  TurboModule,
   ViewProps,
   ViewStyle,
 } from 'react-native';
 
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
   Easing,
+  findNodeHandle,
+  processColor,
   Pressable,
   requireNativeComponent,
   StyleSheet,
   Text,
+  TurboModuleRegistry,
   View,
 } from 'react-native';
 
 import { Label } from './label.tsx';
+import { isMenuChoice } from './native-menu.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const NativeSymbol = requireNativeComponent<
@@ -174,6 +179,63 @@ export function ContextMenu({
         {children}
       </View>
     </NativeContextMenu>
+  );
+}
+
+interface NativeMenu extends TurboModule {
+  readonly show: (
+    anchor: number,
+    sections: ReturnType<typeof menuState>['sections'],
+    destructiveColor: ReturnType<typeof processColor>,
+  ) => Promise<unknown>;
+}
+
+// A pull-down button whose AppKit menu drops below it on click, Space or VoiceOver press. Its
+// children draw the label; the latest items answer the chosen one.
+export function MenuButton({
+  sections,
+  children,
+  style,
+  ...props
+}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+  const colors = usePalette();
+  const anchor = useRef<View>(null);
+  const latest = useRef(menuState(sections));
+  useLayoutEffect(() => {
+    latest.current = menuState(sections);
+    return () => {
+      latest.current.runs.clear();
+    };
+  });
+  const show = async () => {
+    const tag = findNodeHandle(anchor.current);
+    if (tag === null) {
+      return;
+    }
+    const chosen = await TurboModuleRegistry.getEnforcing<NativeMenu>(
+      'UnwiredMenu',
+    ).show(
+      tag,
+      latest.current.sections,
+      processColor(colors.statusDestructive),
+    );
+    if (isMenuChoice(chosen) && chosen !== null) {
+      await latest.current.runs.get(chosen)?.();
+    }
+  };
+  return (
+    <Pressable
+      {...props}
+      ref={anchor}
+      collapsable={false}
+      accessibilityRole="button"
+      focusable
+      onPress={() => {
+        void show();
+      }}
+      style={style}>
+      {children}
+    </Pressable>
   );
 }
 
