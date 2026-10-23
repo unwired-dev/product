@@ -203,8 +203,8 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   action execute a different one or silently do nothing. Exercise a recreated
   callback, a section insertion and a retired choice through the native event boundary.
 
-- `composer-controls.tsx.PopUp` accepting a late native choice after its trigger
-  becomes disabled, even when the individual item has no disabled flag. Recheck
+- `composer-controls.tsx.PopUp` or `design.tsx.MenuButton` accepting a late native
+  choice after its trigger becomes disabled, even when the individual item has no disabled flag. Recheck
   both current control and item eligibility, publish callbacks at the layout
   commit and retire them on unmount. Exercise a held answer across disablement;
   otherwise a running spike can change selectors beneath its result or a retired
@@ -932,6 +932,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   that gate. Exercise choosing another Profile, locking registration storage and
   unlocking through the real gate; otherwise the window returns to its launch
   Profile and overwrites AppKit's saved choice with that fallback.
+
+- `window.tsx.ProfileWindow` or mobile `RootLayout` retaining an explicit Profile
+  choice after its Product Account changes. Keep transient-lock retention separate
+  from account retirement, and associate a mobile route owner with the route it
+  actually observed. Exercise both an unchanged switcher route and a new message
+  link received while the gate admits another account, including malformed
+  selectors. Otherwise the old choice strands the new account in an unlisted
+  Profile, or retiring it erases a new target and incorrectly opens a fallback.
 
 - For `mailbox.tsx.WindowProfileScope` and other Profile restoration, check the
   accepted window scope in `docs/private-inbox-storage.md` first. #1037 restores

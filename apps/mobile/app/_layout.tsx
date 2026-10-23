@@ -16,7 +16,14 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { router, useGlobalSearchParams } from 'expo-router';
 import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Keyboard,
   Platform,
@@ -457,12 +464,29 @@ function MailShell() {
 }
 
 export default function RootLayout() {
-  const { id, profileId } = useGlobalSearchParams<{
+  const params = useGlobalSearchParams<{
     id?: string;
     profileId?: string | string[];
   }>();
-  // Outlives the registration gate, so signing into another account can tell its route apart.
-  const [routeAccount, setRouteAccount] = useState<string>();
+  const { id, profileId } = params;
+  // Keep the owner of this exact route above the gate. A new link received during bootstrap
+  // names its own target, even when the preceding route belonged to another Product Account.
+  const [routeAccount, setRouteAccount] = useState<
+    Readonly<{
+      params: typeof params;
+      account: string;
+    }>
+  >();
+  const ownRoute = useCallback(
+    (account: string) => {
+      setRouteAccount((current) =>
+        current?.params === params && current.account === account
+          ? current
+          : { params, account },
+      );
+    },
+    [params],
+  );
   return (
     <RegistrationGate>
       <InboxProvider>
@@ -471,8 +495,10 @@ export default function RootLayout() {
           {/* A message or Thread link from before Profiles names none and opens in the Default
               Profile, which owns every mailbox it can name. */}
           <WindowProfileScope
-            routeAccount={routeAccount}
-            onRouteAccount={setRouteAccount}
+            routeAccount={
+              routeAccount?.params === params ? routeAccount.account : undefined
+            }
+            onRouteAccount={ownRoute}
             link={
               profileId === undefined && id !== undefined
                 ? defaultProfile

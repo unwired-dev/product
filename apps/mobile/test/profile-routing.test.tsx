@@ -27,6 +27,7 @@ import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createTwoProfileRegistration } from '@private-email/mail-core/testing/registration-scenarios';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import {
   act,
@@ -1115,6 +1116,40 @@ describe('the mobile Profile Switcher', () => {
     });
   };
 
+  it('owns the route through the real connected registration gate', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      savedPreferences(new Map());
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(<RootLayout />);
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', `profile\n${workId}`);
+      await expect(
+        screen.findByLabelText('Mail Profile, Work'),
+      ).resolves.toBeVisible();
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey switches, saves and restores the window's Profile. */
   it('switches the window to the chosen Profile and restores it after relaunch', async () => {
     expect.hasAssertions();
@@ -1183,6 +1218,37 @@ describe('the mobile Profile Switcher', () => {
       jest.restoreAllMocks();
     }
   });
+
+  it.each([
+    { profileId: defaultProfile, heading: 'Garden plan' },
+    { profileId: ['work', 'work'], heading: 'Message unavailable' },
+  ])(
+    'keeps a new targeted link when another account opens: $heading',
+    async ({ profileId, heading }) => {
+      expect.hasAssertions();
+      try {
+        savedPreferences(new Map());
+        showMail('work');
+        route.setParams({});
+        const app = await render(view());
+        await choose('Mail Profile, Primary Profile', 'profile\nwork');
+        await screen.findByLabelText('Mail Profile, Work');
+        const id = showMail(defaultProfile);
+        const params = { mailbox: 'garden', id, profileId };
+        // A new link arrives while the gate admits another account, replacing the old route.
+        await act(async () => {
+          route.router.replace({ pathname: '/message/[id]', params });
+          await app.rerender(view(undefined, 'another-product-account'));
+        });
+        await expect(
+          screen.findByRole('header', { name: heading }),
+        ).resolves.toBeVisible();
+        expect(route.params()).toStrictEqual(params);
+      } finally {
+        jest.restoreAllMocks();
+      }
+    },
+  );
 
   it('opens the Startup Profile, while a message link from before Profiles opens the Default Profile', async () => {
     expect.hasAssertions();
