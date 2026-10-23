@@ -10,7 +10,6 @@ import {
   readingProfile,
   savedMessageBodies,
 } from '@private-email/mail-core/mailboxes';
-import { createProfileChoices } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import {
   createContext,
@@ -33,7 +32,6 @@ import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
   drafts as defaultDrafts,
-  native,
   outbox as defaultOutbox,
 } from './registration.ts';
 
@@ -191,12 +189,6 @@ export function useAllMailboxes() {
   const mailboxes = use(MailboxesContext);
   return useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
 }
-
-// The device's Startup Profile, which a new window opens. AppKit restores each window's own.
-export const profileChoices = createProfileChoices({
-  preference: (key) => native().preference(key),
-  setPreference: (key, value) => native().setPreference(key, value),
-});
 
 export function useReloadMailboxes() {
   return use(MailboxesContext).load;

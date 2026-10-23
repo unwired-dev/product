@@ -46,13 +46,15 @@ import {
 import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
 
-import { InboxProvider, profileChoices } from '../src/mailbox.tsx';
+import { InboxProvider } from '../src/mailbox.tsx';
+import { profileChoices } from '../src/profile-choices.ts';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import {
   InboxWindow as RegisteredWindow,
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
 import { chooseMenuItem } from './native-menu.ts';
+import { MacWindows, settingsWindow } from './settings-window.tsx';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -1539,8 +1541,11 @@ describe('mac windows of different Mail Profiles', () => {
     const preference = jest
       .spyOn(nativeRegistration, 'preference')
       .mockImplementation((key) =>
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the Startup Profile is saved.
-        Promise.resolve({ value: key === 'startup-profile' ? 'work' : null }),
+        Promise.resolve({
+          value:
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the Startup Profile is saved.
+            key === 'startup-profile:synthetic-product-account' ? 'work' : null,
+        }),
       );
     try {
       const gmail = createSyntheticGmail();
@@ -1570,7 +1575,7 @@ describe('mac windows of different Mail Profiles', () => {
       preference.mockRestore();
       // The shared store keeps the last choices it read; read the device's again.
       await act(async () => {
-        await profileChoices.load();
+        await profileChoices.load('synthetic-product-account');
       });
     }
   });
@@ -1630,6 +1635,136 @@ describe('mac windows of different Mail Profiles', () => {
       replaced.restore();
     }
   });
+
+  /* oxlint-disable vitest/max-expects -- One journey opens, renames, adds and picks the Startup Profile. */
+  it('manages Mail Profiles in the Settings window through the real registration', async () => {
+    expect.hasAssertions();
+    const { vault, work: workId } = await createTwoProfileRegistration();
+    const store = createRegistration({
+      ...vault,
+      registration: () => vault.registration(),
+    });
+    await store.restore();
+    const { snapshot } = store.getSnapshot();
+    ok(snapshot.kind !== 'signed-out');
+    const owner = snapshot.productAccountId;
+    const replaced = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof store }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      store,
+    );
+    const inbox = createGmailInbox(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const nativeRegistration = TurboModuleRegistry.getEnforcing<
+      TurboModule & {
+        preference: (key: string) => Promise<unknown>;
+        setPreference: (key: string, value: string) => Promise<unknown>;
+      }
+    >('UnwiredRegistration');
+    const saved = new Map<string, string>();
+    const reading = jest
+      .spyOn(nativeRegistration, 'preference')
+      .mockImplementation((key) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- An unsaved preference reads as null.
+        Promise.resolve({ value: saved.get(key) ?? null }),
+      );
+    const saving = jest
+      .spyOn(nativeRegistration, 'setPreference')
+      .mockImplementation((key, value) => {
+        saved.set(key, value);
+        return Promise.resolve({});
+      });
+    const prompt = jest.spyOn(Alert, 'promptMacOS').mockReturnValue(undefined);
+    const renaming = jest.spyOn(store, 'renameProfile');
+    try {
+      const app = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="manage" />
+        </MacWindows>,
+      );
+      await chooseProfile(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'Manage Mail Profiles…',
+      );
+      await app.findByRole('header', { name: 'Mail Profiles' });
+      const settings = settingsWindow();
+      const work = await settings.findByRole('button', { name: 'Work' });
+      expect(work.props.accessibilityHint).toBe('Gmail');
+      expect(
+        settings.getByRole('button', { name: 'Primary Profile' }),
+      ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      // The Primary Profile keeps its name.
+      expect(settings.queryByDisplayValue('Primary Profile')).toBeNull();
+      await fireEvent.press(work);
+      const name = settings.getByDisplayValue('Work');
+      expect(name).toHaveProp('accessibilityLabel', 'Name');
+      await fireEvent.changeText(name, 'Office');
+      // Return submits, ends editing and blurs before the renamed name renders.
+      await act(async () => {
+        await fireEvent(name, 'submitEditing');
+        await fireEvent(name, 'endEditing');
+        await fireEvent(name, 'blur');
+      });
+      await expect(
+        settings.findByRole('header', { name: 'Office' }),
+      ).resolves.toBeVisible();
+      expect(renaming.mock.calls).toStrictEqual([[workId, 'Office']]);
+      await fireEvent.press(
+        settings.getByRole('button', { name: 'Startup Profile' }),
+      );
+      await chooseMenuItem('Office');
+      expect(saving).toHaveBeenCalledWith(`startup-profile:${owner}`, workId);
+      expect(
+        settings.getByRole('button', { name: 'Office' }),
+      ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      // Startup Profile is only for a new window, not this open one.
+      expect(app.getByLabelText('Mail Profile, Primary Profile')).toBeVisible();
+      // The window's Profile Menu names the renamed Profile too.
+      await chooseProfile(
+        app.getByLabelText('Mail Profile, Primary Profile'),
+        'Office',
+      );
+      await expect(
+        app.findByLabelText('Mail Profile, Office'),
+      ).resolves.toBeVisible();
+      await fireEvent.press(
+        settings.getByRole('button', { name: 'Add Mail Profile…' }),
+      );
+      const buttons = prompt.mock.lastCall?.[2];
+      ok(Array.isArray(buttons));
+      await act(async () => {
+        const create = buttons.find(({ text }) => text === 'Create')
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
+          ?.onPress as ((value: string) => void) | undefined;
+        create?.('Family');
+        await Promise.resolve();
+      });
+      const family = await settings.findByRole('button', { name: 'Family' });
+      expect(family.props.accessibilityHint).toBe('No mailboxes');
+      await app.unmount();
+      const opened = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="new-manage" />
+        </MacWindows>,
+      );
+      await expect(
+        opened.findByLabelText('Mail Profile, Office'),
+      ).resolves.toBeVisible();
+    } finally {
+      renaming.mockRestore();
+      prompt.mockRestore();
+      saving.mockRestore();
+      reading.mockRestore();
+      replaced.restore();
+      // The shared store keeps the last choices it read; read the device's again.
+      await act(async () => {
+        await profileChoices.load(owner);
+      });
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
 
   it('names a new Mail Profile and explains a failed creation', async () => {
     expect.hasAssertions();

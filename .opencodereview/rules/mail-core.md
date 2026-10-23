@@ -524,6 +524,22 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `profile-windows.ts.createProfileChoices` reading or saving Startup Profile
+  through an account-independent native preference key, or returning a previously
+  loaded account's choice to a replacement account. Trace the owner through both
+  Settings and window consumers and exercise A saving Work, B saving Office and
+  A reopening. Native interface preferences are device-global unless their key
+  scopes them; otherwise B overwrites A's Startup choice or a live window uses
+  another account's cached preference.
+
+- `registration.ts.createProfile` or `renameProfile` dropping an editing or
+  prompt completion while foreground verification holds the operation permit.
+  Keep committed Profile edits until admission and recheck their Product Account
+  before running them. Exercise a held activation followed by rename and create,
+  including removal or replacement of the account before admission; otherwise
+  Settings displays unsaved names, silently loses creation or applies old intent
+  to another account.
+
 - `notifications.ts.createNotifications.arrived` capturing mutable Mail Profile
   ownership before awaiting device settings. Resolve the connection's current
   Profile after that wait, alongside the account/incarnation/eligibility recheck,

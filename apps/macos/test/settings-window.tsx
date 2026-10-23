@@ -47,6 +47,7 @@ const host = {
   restoreFocus: () => undefined,
   guardClose: () => undefined,
   finishClose: () => undefined,
+  setWindowProfile: () => undefined,
 };
 
 const { get } = TurboModuleRegistry;

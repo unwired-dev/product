@@ -16,7 +16,6 @@ import {
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use, useSyncExternalStore } from 'react';
 import {
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -37,6 +36,7 @@ import {
   useProfile,
   useReloadMailboxes,
 } from './mailbox.tsx';
+import { promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -128,20 +128,6 @@ function ProfileSwitcher({
   }
   const { profiles } = account;
   const name = profileName(t, profile, profiles);
-  const create = async (entered: string) => {
-    const failure = await account.createProfile(entered);
-    if (failure !== undefined) {
-      Alert.alert(
-        failure === 'upgrade-required'
-          ? t('profiles.upgradeTitle')
-          : t('profiles.newTitle'),
-        failure === 'upgrade-required'
-          ? t('profiles.upgradeMessage')
-          : t('profiles.failed'),
-        [{ text: t('profiles.ok') }],
-      );
-    }
-  };
   return (
     <MenuButton
       accessibilityLabel={t('profiles.switcher', { name })}
@@ -152,23 +138,10 @@ function ProfileSwitcher({
         current: profile,
         onSwitch: onProfile,
         onCreate: () => {
-          Alert.prompt(
-            t('profiles.newTitle'),
-            t('profiles.newMessage'),
-            [
-              { text: t('common.cancel'), style: 'cancel' },
-              {
-                text: t('profiles.create'),
-                isPreferred: true,
-                onPress: (entered?: string) => {
-                  if (entered !== undefined && entered.trim() !== '') {
-                    void create(entered);
-                  }
-                },
-              },
-            ],
-            'plain-text',
-          );
+          promptNewProfile(t, account.createProfile);
+        },
+        onManage: () => {
+          account.openAccount('profiles');
         },
       })}
       style={[

@@ -319,8 +319,69 @@ final class InboxTests: XCTestCase {
     prompt.buttons["Cancel"].tap()
     XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+    mailProfilesSettingsJourney(app, switcher: switcher)
     // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
     app.buttons["All inboxes"].tap()
+  }
+
+  // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
+  // the Startup Profile and offers Add Mail Profile… and the Startup Profile's system pop-up menu.
+  // Open Inbox returns to the Mailboxes the switcher sits in.
+  private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) {
+    switcher.tap()
+    let manage = app.buttons["Manage Mail Profiles…"]
+    XCTAssertTrue(manage.waitForExistence(timeout: 10))
+    manage.tap()
+    let primary = app.buttons["Primary Profile"]
+    XCTAssertTrue(primary.waitForExistence(timeout: 15))
+    XCTAssertEqual(primary.value as? String, "Startup Profile")
+    let portraitWidth = primary.frame.width
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertTrue(app.navigationBars["Mail Profiles"].exists)
+    } else {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      waitUntil({
+        app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+          && primary.frame.width > portraitWidth
+      }, timeout: 10)
+    }
+    XCTAssertTrue(app.buttons["Add Mail Profile…"].exists)
+    let startup = app.buttons["Startup Profile"]
+    XCTAssertTrue(startup.exists)
+    XCTAssertGreaterThanOrEqual(startup.frame.height, 44)
+    let page = XCTAttachment(screenshot: app.screenshot())
+    page.name = "Settings Mail Profiles"
+    page.lifetime = .keepAlways
+    add(page)
+    let row = primary.frame
+    startup.tap()
+    // The pop-up's system menu lists each Profile beside the row that names it.
+    let named = app.buttons.matching(NSPredicate(format: "label == %@", "Primary Profile"))
+    waitUntil({ named.count > 1 }, timeout: 10)
+    let popUp = XCTAttachment(screenshot: app.screenshot())
+    popUp.name = "Startup Profile pop-up menu"
+    popUp.lifetime = .keepAlways
+    add(popUp)
+    // Choosing the checked Startup Profile again changes nothing and closes the menu.
+    let item = (0..<named.count).map { named.element(boundBy: $0) }.first { $0.frame != row }
+    XCTAssertNotNil(item)
+    item?.tap()
+    waitUntil({ named.count == 1 }, timeout: 10)
+    XCTAssertEqual(primary.value as? String, "Startup Profile")
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCUIDevice.shared.orientation = .portrait
+      waitUntil({
+        app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height
+          && primary.frame.width == portraitWidth
+      }, timeout: 10)
+    }
+    app.buttons["Open Inbox"].tap()
+    if UIDevice.current.userInterfaceIdiom == .pad
+      && (!switcher.exists || !switcher.isHittable)
+    {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    XCTAssertTrue(switcher.waitForExistence(timeout: 15))
   }
 
   // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged
