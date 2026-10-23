@@ -138,14 +138,16 @@ palette's commands with Down and Up and runs Search Mail with Return, checking
 focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
-the pop-up shows the choice. It closes Settings with Command-W. It runs Reply from the palette,
+the pop-up shows the choice. It closes Settings with Command-W. It then searches for the
+Microsoft message **Quarterly planning** and opens it. The reader's **Folders** AppKit
+menu closes with Escape and with a click outside, then Down and Return choose
+**Projects**, which moves the message and closes its reader. This runs before Reply
+because the reader toolbar ignores clicks while a reply composer is docked
+([#1211](https://github.com/unwired-dev/product/issues/1211)). It runs Reply from the palette,
 types into the reply and pastes into it. After relaunch, it checks that the
 saved Draft reopens with that text. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
-windows while the first window keeps its Draft. Finally it searches for the Microsoft
-message **Quarterly planning** and opens it. The reader's **Folders** AppKit menu closes
-with Escape and with a click outside, then Down and Return choose **Projects**. The
-message moves and its reader closes. Opening a message, placing the
+windows while the first window keeps its Draft. Opening a message, placing the
 caret in the new reply and Send still use the pointer (see
 [#849](https://github.com/unwired-dev/product/issues/849)). The journey never
 sends, because Send crashes the host
