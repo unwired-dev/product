@@ -210,6 +210,15 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   otherwise a running spike can change selectors beneath its result or a retired
   control can dispatch an old command.
 
+- `organize.tsx.MoveMenu` or another deferred message menu identifying a choice
+  by message and destination alone. Provider message IDs and folder IDs can be
+  equal in different Mailbox Connections; include the owning connection in the
+  semantic key, as `commandTarget` does, before looking up the latest callback.
+  Hold a native answer while switching to another connection with equal message
+  and destination IDs, then release it and verify neither mailbox changes.
+  Otherwise the old menu can move a different mailbox's message through its new
+  callback despite rejecting retired messages and destinations within one mailbox.
+
 - Mac context-menu content removing `selectable` text without an accessible
   labeled replacement, or retaining selectable text that handles secondary
   clicks before its ancestor menu. Trace the installed paragraph's native event
