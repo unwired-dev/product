@@ -71,6 +71,7 @@ command bar.
 | Window > Inbox number                  | Focus that window                                   |
 | Dock/Finder reopen                     | Focus an existing Inbox or create one               |
 | Unwired Mail > Quit, Command-Q         | End the process                                     |
+| Edit > Cut, Copy, Paste, Select All    | Edit the focused text field or text view            |
 
 Closing the final window keeps the application and its runtime alive, and Gmail
 synchronization continues without a window, as
@@ -85,11 +86,21 @@ not expose plain nonselectable `Text` to accessibility: wrap it in an accessible
 its label, or make it selectable so it becomes a native text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
 
+The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
+Shift-Command-Z history.
+
 Link confirmations move keyboard focus to their first choice and cycle Tab and
 Shift-Tab within the choices; Escape dismisses the alert. Dismissal does not
 explicitly restore focus to the originating link because that control is not
-tracked. Focus return, the complete native keyboard journey and VoiceOver behavior
-remain accessibility qualification gaps.
+tracked.
+
+The [keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
+covers what the keyboard reaches today: Command Palette commands, Search Mail,
+editing, window commands and Settings. Tab only cycles the focused text field,
+so opening a message, placing the caret in a new reply and Send still need the
+pointer; [#849](https://github.com/unwired-dev/product/issues/849) owns keyboard
+navigation of the list, reader and composer. VoiceOver behavior remains an
+accessibility qualification gap.
 
 ## Build and run
 
@@ -198,8 +209,9 @@ component, bundle and runner contracts remain available.
 
 The runner selects one XCTest journey: the mailbox lifecycle journey by default,
 or the journey named after the app path, such as the
-[language journey](localization.md#verify) or the
-[performance journey](agents/native-validation.md#mac-performance-journey). The lifecycle journey opens two windows, selects different messages, focuses a
+[language journey](localization.md#verify), the
+[performance journey](agents/native-validation.md#mac-performance-journey) or the
+[keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey). The lifecycle journey opens two windows, selects different messages, focuses a
 window through its menu, closes both, checks continued application work, reopens
 through Launch Services, reads another message, and chooses the native Quit menu.
 Command-Q is checked separately through direct native UI automation because
