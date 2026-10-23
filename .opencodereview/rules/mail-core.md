@@ -723,6 +723,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   await settles. Verify one immediate handoff from the fresh opportunity without
   advancing the clock and without duplicate submission; otherwise stale work
   reinstates a delay that activation already cleared.
+- `outbox.ts.openSender` awaiting Registration verification without handling a
+  rejected Promise, including an Effect defect from a subscription listener.
+  Stop that entry's preparation before mailbox loading, submission or accepted
+  message filing, retain allow-listed diagnostics, and let queued/filing entries
+  reach their existing per-entry backoff while later entries continue. Trace all
+  callers, including unknown preparation, without adding automatic resubmission
+  or a new unknown retry policy. An outer process catch alone skips per-entry
+  scheduling and later work; logging and continuing can submit after failed
+  verification, while an immediately due queued entry can spin without backoff.
 - `outbox.ts.reconcile` or `createGmailInbox.findSent` treating a mailbox lookup
   interrupted by generation renewal, closure or owner invalidation as a completed
   automatic Sent check. Distinguish unavailable lookup scope from Gmail evidence

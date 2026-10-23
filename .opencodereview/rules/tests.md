@@ -81,6 +81,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   well as its consequences; a helper callback or spy alone proves no state
   change. Otherwise an untriggered move can leave ordinary delivery passing
   while the claimed ownership-change regression is untested.
+  For authorization races such as `outbox-authorization.test.ts`, trace the real
+  Registration action's serialization and drop behavior before claiming an owner
+  change during a held verification. An overlapping action dropped by
+  `withPermitsIfAvailable` changes no authority. Exercise a reachable transition
+  through public actions, substituting only an external native/provider boundary,
+  and assert the resulting public snapshot and delivery consequence; otherwise
+  an impossible account switch can appear to prove stale-owner fencing.
 
 - A native journey locator such as `WindowTests.key(groups:in:)` retaining a
   text pattern after its host changes displayed grouping, whitespace, copy or
