@@ -1410,6 +1410,8 @@ final class InboxTests: XCTestCase {
     }
     XCUIDevice.shared.orientation = .portrait
     waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
+    // The caller taps the row next, so wait until it no longer reports its landscape frame.
+    waitUntil { row.isHittable && row.frame.maxX <= app.windows.firstMatch.frame.maxX }
   }
 
   // #976: after a vertical drag, an iPhone edge swipe returns to the Inbox with no selection and
