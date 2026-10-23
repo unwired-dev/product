@@ -16,8 +16,13 @@ Use the repository's existing readiness labels:
 | ---------------------- | ----------------- |
 | Ready for an agent     | `ready-for-agent` |
 | Ready for a human      | `ready-for-human` |
+| Ready for device test  | `ready-for-test`  |
 | Will not be actioned   | `wontfix`         |
 | Claimed by active work | `in progress`     |
+
+Use `ready-for-test` in place of `ready-for-agent` or `ready-for-human` when the
+implementation is merged and only a person testing a released build, such as
+TestFlight, remains. Comment on the issue with what to test.
 
 Check `gh label list --repo unwired-dev/product` before applying labels. Explain
 missing information or blockers in the issue; do not assume `needs-triage` or
