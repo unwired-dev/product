@@ -218,6 +218,8 @@ export function Welcome({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t('settings.destinations.privacy')}
+        disabled={restoring}
+        focusable={!restoring}
         onPress={onPrivacy}
         style={{
           minHeight: 44,
@@ -233,6 +235,7 @@ export function Welcome({
     <>
       {ipad ? null : privacy}
       <OnboardingAction
+        disabled={restoring}
         fill="brand"
         label={t('onboarding.welcome.continue')}
         onPress={onContinue}
@@ -479,6 +482,7 @@ export function OnboardingAction({
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      focusable={!disabled}
       onPress={onPress}
       style={[
         styles.action,

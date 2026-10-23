@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 
-import { SFSymbol } from './design.tsx';
+import { ModalBackground, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -189,14 +189,6 @@ export function Welcome({
   const { t } = useLocalization();
   const motion = useRestoringMotion(restoring);
   const ink = { color: colors.brandOnDeep };
-  // Welcome's own content keeps its place while launch progress shows, unseen and unreachable;
-  // its controls give way to spacers of their size, so nothing invisible takes keyboard focus.
-  const hidden = restoring
-    ? ({
-        accessibilityElementsHidden: true,
-        importantForAccessibility: 'no-hide-descendants',
-      } as const)
-    : undefined;
   const concealed = restoring ? styles.hidden : undefined;
   const points = [
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
@@ -221,58 +213,34 @@ export function Welcome({
           ]}
         />
         <View>
-          <View
-            {...hidden}
+          <ModalBackground
+            accessibilityElementsHidden={restoring}
             style={concealed}>
             <Label
               accessibilityRole="header"
               style={[styles.headline, ink]}>
               {t('onboarding.welcome.title')}
             </Label>
-          </View>
-          {restoring ? (
-            <Animated.View
-              style={[styles.restoringStatus, { opacity: motion.status }]}>
-              <Label style={[styles.status, ink]}>
-                {t('onboarding.restoring')}
-              </Label>
-            </Animated.View>
-          ) : null}
-        </View>
-        <View
-          {...hidden}
-          style={concealed}>
-          <Label style={[styles.lede, ink]}>
-            {t('onboarding.welcome.description')}
-          </Label>
-        </View>
-        <View
-          {...hidden}
-          style={[styles.points, concealed]}>
-          {points.map(({ icon, text }) => (
-            <View
-              key={icon}
-              style={styles.point}>
-              <SFSymbol
-                name={icon}
-                size={13}
-                color={colors.brandOnDeep}
-              />
-              <Label style={[styles.pointText, ink]}>{text}</Label>
+            <Label style={[styles.lede, ink]}>
+              {t('onboarding.welcome.description')}
+            </Label>
+            <View style={styles.points}>
+              {points.map(({ icon, text }) => (
+                <View
+                  key={icon}
+                  style={styles.point}>
+                  <SFSymbol
+                    name={icon}
+                    size={13}
+                    color={colors.brandOnDeep}
+                  />
+                  <Label style={[styles.pointText, ink]}>{text}</Label>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-        {restoring ? (
-          <>
-            <View
-              style={[styles.continue, styles.action, styles.brandAction]}
-            />
-            <View style={[styles.continue, styles.privacy]} />
-          </>
-        ) : (
-          <>
             <View style={styles.continue}>
               <OnboardingAction
+                disabled={restoring}
                 fill="brand"
                 label={t('onboarding.welcome.continue')}
                 onPress={onContinue}
@@ -282,16 +250,25 @@ export function Welcome({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('settings.destinations.privacy')}
+                disabled={restoring}
                 onPress={onPrivacy}
-                focusable
+                focusable={!restoring}
                 style={[styles.continue, styles.privacy]}>
                 <Text style={[textStyles.body, ink]}>
                   {t('settings.destinations.privacy')}
                 </Text>
               </Pressable>
             )}
-          </>
-        )}
+          </ModalBackground>
+          {restoring ? (
+            <Animated.View
+              style={[styles.restoringStatus, { opacity: motion.status }]}>
+              <Text style={[styles.status, ink]}>
+                {t('onboarding.restoring')}
+              </Text>
+            </Animated.View>
+          ) : null}
+        </View>
       </View>
     </ScrollView>
   );

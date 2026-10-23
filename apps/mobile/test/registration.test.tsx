@@ -2717,6 +2717,12 @@ describe('product registration', () => {
         screen.queryByRole('header'),
         screen.queryByRole('button'),
       ]).toStrictEqual([null, null, null]);
+      // Hidden Welcome controls retain their layout without admitting keyboard actions.
+      for (const name of ['Continue', 'Privacy & Data']) {
+        expect(
+          screen.getByRole('button', { name, includeHiddenElements: true }),
+        ).toBeDisabled();
+      }
       await act(async () => {
         read.resolve(undefined);
         await read.promise;

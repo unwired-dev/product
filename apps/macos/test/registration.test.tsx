@@ -2884,6 +2884,12 @@ describe('product registration', () => {
       screen.queryByRole('header'),
       screen.queryByRole('button'),
     ]).toStrictEqual([null, null, null]);
+    // Keep the real controls' text metrics without admitting invisible keyboard actions.
+    for (const name of ['Continue', 'Privacy & Data']) {
+      expect(
+        screen.getByRole('button', { name, includeHiddenElements: true }),
+      ).toBeDisabled();
+    }
     await act(async () => {
       answer();
       await read;
