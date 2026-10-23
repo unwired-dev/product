@@ -156,7 +156,7 @@ parent/child links
 ([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)), choose-one
 options without a role ([#1196](https://github.com/unwired-dev/product/issues/1196)),
-AppKit's text Touch Bar and email addresses used as labels. The contrast gap lists
+AppKit's text Touch Bar and the Apple relay address used as a label. The contrast gap lists
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The audits run in the host's
 current appearance only. They do not replace VoiceOver,

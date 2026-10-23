@@ -1154,8 +1154,9 @@ final class WindowTests: XCTestCase {
     case .sufficientElementDescription
     where type == .other && ["System default", "English"].contains(label):
       return "#1196"
-    // An email address is the readable name of an account.
-    case .sufficientElementDescription where type == .staticText && label.contains("@"):
+    // The Apple relay address is the readable name of the signed-in account.
+    case .sufficientElementDescription
+    where type == .staticText && label == "relay@privaterelay.example.invalid":
       return "email address"
     default:
       return nil
