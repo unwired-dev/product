@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { ViewProps } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useMemo } from 'react';
@@ -7,6 +8,7 @@ import {
   Animated,
   Easing,
   Pressable,
+  requireNativeComponent,
   ScrollView,
   StyleSheet,
   Text,
@@ -64,10 +66,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  appleAction: { borderRadius: 8 },
+  apple: { height: 40 },
   brandAction: { minHeight: 36 },
   actionLabel: { ...textStyles.bodyEmphasized },
-  appleLabel: { fontSize: 15, lineHeight: 16, fontWeight: '600' },
   providers: {
     overflow: 'hidden',
     borderRadius: radius.card,
@@ -332,7 +333,7 @@ export function FinePrint({ children }: { readonly children: string }) {
   );
 }
 
-// An onboarding action: Welcome's brand Continue, Sign in with Apple's black, or quiet.
+// An onboarding action: Welcome's brand Continue, or quiet.
 export function OnboardingAction({
   label,
   onPress,
@@ -341,7 +342,7 @@ export function OnboardingAction({
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly fill: 'brand' | 'apple' | 'quiet';
+  readonly fill: 'brand' | 'quiet';
   readonly disabled?: boolean;
 }) {
   const colors = usePalette();
@@ -351,12 +352,6 @@ export function OnboardingAction({
       colors.brandOnSeal,
       styles.brandAction,
       styles.actionLabel,
-    ],
-    apple: [
-      colors.appleButton,
-      colors.appleOnButton,
-      styles.appleAction,
-      styles.appleLabel,
     ],
     quiet: [colors.fillQuiet, colors.textPrimary, undefined, textStyles.body],
   } as const;
@@ -374,14 +369,30 @@ export function OnboardingAction({
         shape,
         { backgroundColor: background, opacity: disabled ? 0.4 : 1 },
       ]}>
-      {fill === 'apple' ? (
-        <SFSymbol
-          name="apple.logo"
-          color={ink}
-        />
-      ) : null}
       <Text style={[type, { color: ink }]}>{label}</Text>
     </Pressable>
+  );
+}
+
+const NativeAppleIDButton = requireNativeComponent<
+  ViewProps & { readonly enabled: boolean; readonly onPress: () => void }
+>('UnwiredAppleIDButton');
+
+// The system Sign in with Apple button, which draws its own title, appearance and accessibility.
+export function SignInWithApple({
+  onPress,
+  disabled,
+}: {
+  readonly onPress: () => void;
+  readonly disabled: boolean;
+}) {
+  return (
+    <NativeAppleIDButton
+      enabled={!disabled}
+      onPress={onPress}
+      style={styles.apple}
+      testID="sign-in-with-apple"
+    />
   );
 }
 

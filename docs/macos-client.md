@@ -40,8 +40,8 @@ reviewed Swift packages, SwiftMail and swift-log, at the revisions
 [its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
-SF Symbol and Liquid Glass views shared with the iPhone/iPad host, and the Mac-only
-`UnwiredMenu` and `UnwiredAlert` presenters. The composer's Text style, From, actions
+SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
+`UnwiredMenu` and `UnwiredAlert` presenters, and `UnwiredAppleIDButton`. The composer's Text style, From, actions
 and Writing tools pop-ups open an AppKit `NSMenu` through `UnwiredMenu`: the system owns presentation, keyboard
 navigation, Escape and click-outside dismissal. Each menu drops below its control and
 checks the current choice. Writing tools retain
@@ -61,6 +61,14 @@ text grows the sheet past the screen.
 React Native macOS 0.81.9's `Alert` asks over the key window and cannot withdraw a
 question. Remove the presenter when the host's alert can target a window and be
 dismissed.
+Sign In's **Sign in with Apple** is AppKit's `ASAuthorizationAppleIDButton` through
+`UnwiredAppleIDButton`: black in Light, white in Dark, and turned off while a
+sign-in runs. The system draws and localizes its title and exposes it to VoiceOver;
+activation starts the existing Apple registration. The Mac button of
+`@invertase/react-native-apple-authentication` 2.5.1 has no enabled state and fixes
+its style per view, and the package adds a second Apple authorization module.
+Remove the adapter when React Native macOS or a maintained package offers the
+system button with an enabled state and both styles.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
