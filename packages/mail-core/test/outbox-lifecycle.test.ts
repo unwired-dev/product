@@ -18,6 +18,76 @@ describe('outbox execution opportunities', () => {
     vi.useRealTimers();
   });
 
+  it('retries an offline queued message after its mailbox session renews without navigation', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const { server, gmail } = sharedAccount();
+    const phone = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(phone);
+      server.setReachable(false);
+      await phone.outbox.send(() => phone.draft(id));
+      await vi.advanceTimersByTimeAsync(undoSendWindow);
+      expect(phone.drafts.getOutbox()).toMatchObject([
+        { id, state: 'queued', problem: 'offline' },
+      ]);
+      expect(gmail.sends).toHaveLength(0);
+
+      server.setReachable(true);
+      // Foreground registration invalidates native scopes while retaining the same connection.
+      gmail.reselect(alex.address);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(gmail.sends).toHaveLength(1);
+      expect(phone.drafts.getOutbox()).toStrictEqual([]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(gmail.sends).toHaveLength(1);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
+  it('keeps a pre-handoff refusal queued on reopen while mailbox recovery is still reading', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const phone = await sender(server, gmail, 'phone');
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let processing: Promise<void> | undefined = undefined;
+    try {
+      const id = await addressed(phone);
+      await phone.outbox.send(() => phone.draft(id));
+      gmail.reselect(alex.address);
+      const read = gmail.native.gmailRequest;
+      vi.spyOn(gmail.native, 'gmailRequest').mockImplementationOnce(
+        async (...args) => {
+          entered.resolve(undefined);
+          await release.promise;
+          return read(...args);
+        },
+      );
+
+      vi.setSystemTime(Date.now() + undoSendWindow);
+      processing = phone.outbox.process();
+      await entered.promise;
+      await vi.waitFor(() => {
+        expect(phone.drafts.getOutbox()).toMatchObject([
+          { id, state: 'queued', claim: 'held', problem: 'offline' },
+        ]);
+      });
+      const reopened = createDrafts(phone.storage.native, phone.registration);
+      await reopened.load();
+      expect(reopened.getOutbox()).toMatchObject([
+        { id, state: 'queued', claim: 'held' },
+      ]);
+      expect(gmail.sends).toHaveLength(0);
+    } finally {
+      phone.outbox.dispose();
+      release.resolve(undefined);
+      await processing;
+      await phone.mailboxes.load();
+    }
+  });
+
   it('keeps Undo and the original deadline while paused, then resumes a durable intent once', async () => {
     expect.hasAssertions();
     const { server, gmail } = sharedAccount();

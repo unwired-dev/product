@@ -83,6 +83,9 @@ it.
   cancellable and retries after the same delay.
   A mailbox refresh that prevents handoff also keeps the message waiting;
   returning to the app does not turn an ordinary refresh into **Not sent**.
+  If a native session renewal invalidates a Gmail or Graph handoff before it
+  starts, the app reopens that mailbox for the next retry. Delivery does not
+  require opening Settings or returning to the Inbox.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
   - the mailbox needs Gmail access again, is no longer connected, or changed its
@@ -198,6 +201,10 @@ cover:
   without submitting the frozen message;
 - a mailbox refresh refusing handoff before submission, retaining the claim and
   sending on the next pass;
+- automatic recovery after a native mailbox session renewal while offline work
+  waits, without Inbox navigation or a duplicate provider copy;
+- preserving definite pre-handoff non-delivery as queued through reopening while
+  mailbox recovery is still reading from the provider;
 - each refusal at Send.
 
 `outbox-lifecycle.test.ts` exercises pause/resume across Undo Send, claims,

@@ -3922,23 +3922,27 @@ export function createGmailInbox(
     attachmentFile: attachments.attachmentFile,
     // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
     // provider, so the message waits.
-    send: (message: OutgoingSend) => {
+    send: async (message: OutgoingSend): Promise<SendOutcome> => {
       const scope = opened;
       if (scope === undefined || forgotten) {
-        return Promise.resolve<SendOutcome>({
+        return {
           kind: 'queued',
           problem: 'offline',
-        });
+        };
       }
       const reading = owner;
-      return runLogged(
+      let invalidated = false;
+      const result = await runLogged(
         Effect.tryPromise({
           // Microsoft threads a reply by its headers; Graph has no thread to join.
           try: () =>
             graph === undefined
               ? native.gmailSend(message, scope)
               : native.graphSend({ segments: message.segments }, scope),
-          catch: sendRejection,
+          catch: (cause) => {
+            invalidated = rejectionCode(cause) === 'mailbox-invalidated';
+            return sendRejection(cause);
+          },
         }).pipe(
           Effect.flatMap((reply) =>
             decodeResponse(reply).pipe(
@@ -3970,6 +3974,11 @@ export function createGmailInbox(
           ),
         ),
       );
+      // Reopen for the next retry without delaying persistence of known non-delivery.
+      if (invalidated && owner === reading && !forgotten) {
+        void load();
+      }
+      return result;
     },
     // Looks for a message whose handoff had no answer in this mailbox's Sent messages: Gmail's by
     // its MIME boundary, Microsoft's by its Message-ID. Resolves sent, unknown when the provider
