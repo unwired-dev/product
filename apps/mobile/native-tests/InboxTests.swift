@@ -1427,7 +1427,9 @@ final class InboxTests: XCTestCase {
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
     // Text the audit locates no element for, over the reader; iPad's composer leaves it in view.
-    case .elementDetection where ["Reader", "Composer"].contains(screen) && issue.element == nil:
+    case .elementDetection
+    where ["Reader", "Composer"].contains(screen) && issue.element == nil
+      && issue.compactDescription == "Potentially inaccessible text":
       return "#1213"
     default:
       return nil
