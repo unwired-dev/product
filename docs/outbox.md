@@ -86,6 +86,11 @@ it.
   If a native session renewal invalidates a Gmail or Graph handoff before it
   starts, the app reopens that mailbox for the next retry. Delivery does not
   require opening Settings or returning to the Inbox.
+  After an offline launch, retries also reverify a cache-only sending mailbox
+  and reopen its Inbox. Reconnecting while the app stays active does not require
+  switching apps or waiting for the five-minute Inbox poll. Verification finishes
+  before the message is recorded as handed off, and pausing the app still prevents
+  a new submission.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
   - the mailbox needs Gmail access again, is no longer connected, or changed its
@@ -205,6 +210,8 @@ cover:
   waits, without Inbox navigation or a duplicate provider copy;
 - preserving definite pre-handoff non-delivery as queued through reopening while
   mailbox recovery is still reading from the provider;
+- revalidating cache-only authorization after connectivity returns without an
+  activation, keeping the message queued if the app pauses during verification;
 - each refusal at Send.
 
 `outbox-lifecycle.test.ts` exercises pause/resume across Undo Send, claims,

@@ -158,7 +158,7 @@ export function createOutbox({
     | 'subscribe'
   >;
   mailboxes: Pick<Mailboxes, 'getConnections' | 'subscribe'>;
-  registration: Pick<Registration, 'getSnapshot' | 'subscribe'>;
+  registration: Pick<Registration, 'getSnapshot' | 'subscribe' | 'resume'>;
   claims: NativeDeliveryClaim | undefined;
 }>) {
   // When each pending message may try again; one without an entry uses its Send deadline.
@@ -438,8 +438,15 @@ export function createOutbox({
 
   // Delivery owns opening its sender even when no Inbox view has loaded it.
   const openSender = async (draft: Draft) => {
+    const cached = mailboxesOf(registration.getSnapshot().snapshot).some(
+      (mailbox) =>
+        mailbox.id === draft.connection && mailbox.state === 'cached',
+    );
+    if (cached) {
+      await registration.resume();
+    }
     const mailbox = connectionOf(draft.connection);
-    if (mailbox !== undefined && mailbox.state.kind !== 'ready') {
+    if (mailbox !== undefined && (cached || mailbox.state.kind !== 'ready')) {
       await mailbox.inbox.load();
     }
   };
