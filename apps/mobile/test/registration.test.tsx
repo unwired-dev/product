@@ -2687,7 +2687,7 @@ describe('product registration', () => {
       { role: 'header', name: 'Your mail,\non your devices.' },
     ],
   ] as const)(
-    'shows nothing until launch reads a %s installation, then its destination (#1070)',
+    'shows only launch progress until it reads a %s installation, then its destination (#1070)',
     async (_installation, installation, destination) => {
       expect.hasAssertions();
       const synthetic = await installation();
@@ -2708,7 +2708,10 @@ describe('product registration', () => {
           <ConnectedInbox />
         </RegistrationGate>,
       );
-      // Neither Welcome nor any other page shows before the read answers.
+      // Only launch progress shows before the read answers: no Welcome, header or control.
+      expect(
+        screen.getByRole('progressbar', { name: 'Opening your mail…' }),
+      ).toBeVisible();
       expect([
         screen.queryByText('Your mail,\non your devices.'),
         screen.queryByRole('header'),

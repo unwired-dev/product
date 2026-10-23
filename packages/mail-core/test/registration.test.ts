@@ -500,7 +500,7 @@ describe('product registration', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
-  it('shows no page until launch reads saved registration, also when an activation reads it first (#1070)', async () => {
+  it('shows launch progress until saved registration is read, also when an activation reads it first (#1070)', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-success');
     const store = createRegistration(synthetic.vault);

@@ -14,6 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated, { css, useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Glass, SFSymbol } from './design.tsx';
@@ -43,6 +44,7 @@ const styles = StyleSheet.create({
   ipadHeadline: { fontSize: 59.8, lineHeight: 66.7, fontWeight: '400' },
   lede: { ...textStyles.body, opacity: 0.8 },
   ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23 },
+  ipadStatus: { fontSize: 17.25, lineHeight: 23 },
   points: { gap: 14, marginTop: 10, marginBottom: ipad ? 28 : 0 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
@@ -147,6 +149,64 @@ const styles = StyleSheet.create({
   brandTitle: { ...textStyles.largeTitle, textAlign: 'left' },
   brandDescription: { ...textStyles.body, textAlign: 'left' },
 });
+
+// While launch reads the saved account, the seal breathes and the status arrives after a moment, so
+// a quick launch shows only the seal.
+const motion = css.create({
+  breathing: {
+    animationName: { '50%': { opacity: 0.35 } },
+    animationDuration: '1600ms',
+    animationIterationCount: 'infinite',
+    animationTimingFunction: 'ease-in-out',
+  },
+  arriving: {
+    opacity: 0,
+    animationName: { to: { opacity: 1 } },
+    animationDuration: '200ms',
+    animationDelay: '600ms',
+    animationFillMode: 'forwards',
+    animationTimingFunction: 'ease-out',
+  },
+});
+
+// Launch shows this until it has read the saved account, then Welcome, setup or the Inbox (#1070).
+export function Restoring() {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const reduced = useReducedMotion();
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={t('onboarding.restoring')}
+      style={[
+        styles.page,
+        styles.welcome,
+        { backgroundColor: colors.brandDeep },
+      ]}>
+      <View style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
+        <Animated.View
+          style={[
+            styles.seal,
+            ipad && styles.ipadSeal,
+            { backgroundColor: colors.brandSeal },
+            !reduced && motion.breathing,
+          ]}
+        />
+        <Animated.View style={motion.arriving}>
+          <Text
+            style={[
+              styles.lede,
+              ipad && styles.ipadStatus,
+              { color: colors.brandOnDeep },
+            ]}>
+            {t('onboarding.restoring')}
+          </Text>
+        </Animated.View>
+      </View>
+    </View>
+  );
+}
 
 // The brand moment before signing in: deep graphite with the cinnabar seal and its one action.
 export function Welcome({

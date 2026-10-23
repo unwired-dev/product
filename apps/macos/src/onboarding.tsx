@@ -1,7 +1,17 @@
 import type { ReactNode } from 'react';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
@@ -20,6 +30,7 @@ const styles = StyleSheet.create({
   seal: { width: 18, height: 18, borderRadius: 9, marginBottom: 24 },
   headline: { fontSize: 52, lineHeight: 58, fontWeight: '400' },
   lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.8 },
+  status: { fontSize: 15, lineHeight: 20, opacity: 0.8 },
   points: { gap: 14, marginTop: 36, marginBottom: 28 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { fontSize: 15, lineHeight: 16, opacity: 0.85 },
@@ -96,6 +107,78 @@ const styles = StyleSheet.create({
   cardTitle: { ...textStyles.title3Emphasized, textAlign: 'center' },
   cardDescription: { ...textStyles.body, textAlign: 'center' },
 });
+
+// CSS ease-in-out and ease-out, as the mobile host's Restoring animation uses.
+const easeInOut = Easing.bezier(0.42, 0, 0.58, 1);
+const easeOut = Easing.bezier(0, 0, 0.58, 1);
+
+// Launch shows this until it has read the saved account, then Welcome, setup or the Inbox (#1070).
+// The seal breathes and the status arrives after a moment, so a quick launch shows only the seal.
+export function Restoring() {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const seal = useMemo(() => new Animated.Value(1), []);
+  const status = useMemo(() => new Animated.Value(0), []);
+  useEffect(() => {
+    let current = true;
+    const breathing = Animated.loop(
+      Animated.sequence(
+        [0.35, 1].map((toValue) =>
+          Animated.timing(seal, {
+            toValue,
+            duration: 800,
+            easing: easeInOut,
+            useNativeDriver: true,
+          }),
+        ),
+      ),
+    );
+    const arriving = Animated.timing(status, {
+      toValue: 1,
+      duration: 200,
+      delay: 600,
+      easing: easeOut,
+      useNativeDriver: true,
+    });
+    arriving.start();
+    const breathe = async () => {
+      if (!(await AccessibilityInfo.isReduceMotionEnabled()) && current) {
+        breathing.start();
+      }
+    };
+    void breathe();
+    return () => {
+      current = false;
+      breathing.stop();
+      arriving.stop();
+    };
+  }, [seal, status]);
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={t('onboarding.restoring')}
+      style={[
+        styles.page,
+        styles.welcome,
+        { backgroundColor: colors.brandDeep },
+      ]}>
+      <View style={styles.welcomeContent}>
+        <Animated.View
+          style={[
+            styles.seal,
+            { backgroundColor: colors.brandSeal, opacity: seal },
+          ]}
+        />
+        <Animated.View style={{ opacity: status }}>
+          <Label style={[styles.status, { color: colors.brandOnDeep }]}>
+            {t('onboarding.restoring')}
+          </Label>
+        </Animated.View>
+      </View>
+    </View>
+  );
+}
 
 // The brand moment before signing in: deep graphite with the cinnabar seal and its one action.
 export function Welcome({

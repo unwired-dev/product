@@ -2850,7 +2850,7 @@ describe('product registration', () => {
     });
   });
 
-  it('shows nothing until launch reads a configured installation, then its Inbox (#1070)', async () => {
+  it('shows only launch progress until it reads a configured installation, then its Inbox (#1070)', async () => {
     expect.hasAssertions();
     const { synthetic, setup } = await signedIn();
     await setup.addMailbox();
@@ -2875,7 +2875,10 @@ describe('product registration', () => {
         <ConnectedInbox />
       </RegistrationGate>,
     );
-    // Neither Welcome nor any other page shows before the read answers.
+    // Only launch progress shows before the read answers: no Welcome, header or control.
+    expect(
+      screen.getByRole('progressbar', { name: 'Opening your mail…' }),
+    ).toBeVisible();
     expect([
       screen.queryByText('Your mail,\non your devices.'),
       screen.queryByRole('header'),
