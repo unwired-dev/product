@@ -104,8 +104,11 @@ cannot collide with that existing data. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
 another Profile and switching to it are exposed by
 [#1037](https://github.com/unwired-dev/product/issues/1037), part of
-[#922](https://github.com/unwired-dev/product/issues/922). Further Profile
-management belongs to [#1038](https://github.com/unwired-dev/product/issues/1038).
+[#922](https://github.com/unwired-dev/product/issues/922). Settings › Mail
+Profiles lists them and renames them
+([#1038](https://github.com/unwired-dev/product/issues/1038)); removing a Profile
+and moving a connection between Profiles there follow in the next slice with
+the approved designs.
 
 [#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
 definitions and ownership through [Private Sync](private-product-sync.md); the shared
@@ -186,9 +189,21 @@ not restored is new and opens the Startup Profile. The iPhone and iPad app has o
 multiple iPad scenes are turned off. It restores the Profile a link or the switcher
 last chose. Independent iPad windows, each with its own Profile, are tracked in
 [#1200](https://github.com/unwired-dev/product/issues/1200).
-Settings will offer the Startup Profile choice
-([#1038](https://github.com/unwired-dev/product/issues/1038)); until then none is
-saved, and new windows open the Default Profile.
+
+Settings › Mail Profiles, which the Profile Menu's **Manage Mail Profiles…** opens
+on Mac, iPhone and iPad, lists the Primary Profile and every other Profile with
+its connections' providers, and marks the Startup Profile
+([#1038](https://github.com/unwired-dev/product/issues/1038)). **Add Mail Profile…**
+creates one as New Mail Profile… does. Selecting a Profile shows its name, which
+can be edited for every Profile except the Primary Profile; an empty or unchanged
+name changes nothing, and a refused rename restores the listed name and asks to
+try again. Creation and renaming wait for active registration work; a queued edit
+is retired if that Product Account leaves before it can run.
+The **Startup Profile** pop-up under This Device saves the choice only
+for this Product Account on this device; another account keeps its own choice.
+With none saved, or once its Profile is no longer listed, it shows
+and opens the Primary Profile. Changing it leaves every open window in its
+current Profile; the new choice applies when a new window opens.
 
 On iPhone/iPad, a message link with a `profileId` parameter opens only in that
 Profile; an old-form message or Thread link without one, from before Profiles,

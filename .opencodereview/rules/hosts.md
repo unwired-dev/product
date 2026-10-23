@@ -180,6 +180,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Qualify any separate enlarged touch handler with
   native interaction evidence rather than treating component events as proof.
 
+- `profile-settings.tsx` sizing the Startup Profile menu or editable Name only
+  to its text while the containing Settings row supplies the minimum height.
+  Check the actual native trigger and text field bounds against the 44pt mobile
+  and 28pt Mac targets; otherwise most of a seemingly tappable row does nothing.
+  Preserve the approved row geometry while enlarging the interactive control.
+
 - `SettingsWorkspace` or another route reusing `AccountHeader`'s default back
   label after changing its return target. Trace the callback to the retained
   destination, including signed-out privacy opened from Welcome or Sign In;
@@ -973,6 +979,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   do not identify delivery events. Otherwise the old choice strands the new
   account in an unlisted Profile, or retiring it erases a new target and
   incorrectly opens a fallback.
+
+- `window.tsx.ProfileWindow` or `mailbox.tsx.WindowProfileScope` deriving an
+  open window's fallback from Settings' live Startup Profile subscription.
+  Keep launch choices owned above transient registration gates and separate
+  from the editable device preference. Exercise changing Startup Profile before
+  any explicit Profile switch, return from Settings and a newly opened window;
+  otherwise a preference for future windows redirects a live reader or composer
+  without its Profile-switch guard.
 
 - For `mailbox.tsx.WindowProfileScope` and other Profile restoration, check the
   accepted window scope in `docs/private-inbox-storage.md` first. #1037 restores

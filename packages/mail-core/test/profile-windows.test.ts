@@ -8,6 +8,7 @@ import {
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
 import {
+  createRegistration,
   defaultProfile,
   mailboxesOf,
   profilesOf,
@@ -43,6 +44,7 @@ describe('window Profiles', () => {
     const { snapshot } = registration.getSnapshot();
     const onSwitch = vi.fn<(profile: string) => void>();
     const onCreate = vi.fn<() => void>();
+    const onManage = vi.fn<() => void>();
     const { sections, runs } = menuState(
       profileMenu(english, {
         profiles: profilesOf(snapshot),
@@ -51,6 +53,7 @@ describe('window Profiles', () => {
         current: workId,
         onSwitch,
         onCreate,
+        onManage,
       }),
     );
     expect(sections).toStrictEqual([
@@ -86,6 +89,14 @@ describe('window Profiles', () => {
             subtitle: undefined,
             checked: undefined,
           },
+          {
+            id: 'profile\nmanage',
+            title: 'Manage Mail Profiles…',
+            symbol: 'gearshape',
+            destructive: undefined,
+            subtitle: undefined,
+            checked: undefined,
+          },
         ],
       },
     ]);
@@ -93,8 +104,10 @@ describe('window Profiles', () => {
     await runs.get(`profile\n${workId}`)?.();
     await runs.get(`profile\n${defaultProfile}`)?.();
     await runs.get('profile\nnew')?.();
+    await runs.get('profile\nmanage')?.();
     expect(onSwitch).toHaveBeenCalledExactlyOnceWith(defaultProfile);
     expect(onCreate.mock.calls).toStrictEqual([[]]);
+    expect(onManage.mock.calls).toStrictEqual([[]]);
   });
 
   it('counts each Profile’s own unread mail', async () => {
@@ -128,6 +141,7 @@ describe('window Profiles', () => {
         current: defaultProfile,
         onSwitch: () => undefined,
         onCreate: () => undefined,
+        onManage: () => undefined,
       }),
     );
     expect(sections[0]?.items.map(({ subtitle }) => subtitle)).toStrictEqual([
@@ -175,6 +189,7 @@ describe('window Profiles', () => {
       current: workId,
       onSwitch: () => undefined,
       onCreate: () => undefined,
+      onManage: () => undefined,
     });
     expect(sections[0]?.items.map(({ subtitle }) => subtitle)).toStrictEqual([
       'Microsoft / Gmail; authorize',
@@ -189,9 +204,9 @@ describe('window Profiles', () => {
     expect(profileMonogram('Émile Zola Fan')).toBe('ÉZ');
   });
 
-  it('restores the saved window Profile and keeps the Startup Profile', async () => {
+  it('restores the saved window Profile and saves the chosen Startup Profile', async () => {
     expect.hasAssertions();
-    const saved = new Map([['startup-profile', 'work']]);
+    const saved = new Map([['startup-profile:account-a', 'work']]);
     const setPreference = vi.fn<
       (key: string, value: string) => Promise<unknown>
     >((key, value) => {
@@ -205,23 +220,110 @@ describe('window Profiles', () => {
       setPreference,
     };
     const choices = createProfileChoices(native);
-    expect(choices.getSnapshot()).toBeUndefined();
-    await choices.load();
-    expect(choices.getSnapshot()).toStrictEqual({
+    expect(choices.getSnapshot('account-a')).toBeUndefined();
+    await choices.load('account-a');
+    expect(choices.getSnapshot('account-a')).toStrictEqual({
       restored: undefined,
       startup: 'work',
     });
-    await choices.restore('work');
-    await choices.restore('work');
-    expect(setPreference).toHaveBeenCalledExactlyOnceWith(
-      'window-profile',
-      'work',
-    );
-    // The next launch reads it back.
+    await choices.restore('account-a', 'work');
+    await choices.restore('account-a', 'work');
+    await choices.chooseStartup('account-a', defaultProfile);
+    expect(setPreference.mock.calls).toStrictEqual([
+      ['window-profile', 'work'],
+      ['startup-profile:account-a', defaultProfile],
+    ]);
+    // The next launch reads both back.
     const relaunched = createProfileChoices(native);
-    await relaunched.load();
-    expect(relaunched.getSnapshot()?.restored).toBe('work');
+    await relaunched.load('account-a');
+    expect(relaunched.getSnapshot('account-a')).toStrictEqual({
+      restored: 'work',
+      startup: defaultProfile,
+    });
   });
+
+  it('keeps each Product Account’s Startup Profile after another account saves its choice', async () => {
+    expect.hasAssertions();
+    const saved = new Map<string, string>();
+    const native = {
+      preference: (key: string) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- An unsaved key reads as null.
+        Promise.resolve({ value: saved.get(key) ?? null }),
+      setPreference: (key: string, value: string) => {
+        saved.set(key, value);
+        return Promise.resolve({});
+      },
+    };
+    const first = createProfileChoices(native);
+    const second = createProfileChoices(native);
+    await first.load('account-a');
+    await first.chooseStartup('account-a', 'work');
+    await second.load('account-b');
+    await second.chooseStartup('account-b', 'office');
+    expect(first.getSnapshot('account-b')).toBeUndefined();
+    await first.load('account-b');
+    expect(first.getSnapshot('account-b')?.startup).toBe('office');
+    expect(first.getSnapshot('account-a')?.startup).toBe('work');
+    const reopened = createProfileChoices(native);
+    await reopened.load('account-a');
+    expect(
+      windowProfile({
+        startup: reopened.getSnapshot('account-a')?.startup,
+        profiles: [work],
+      }),
+    ).toBe('work');
+  });
+
+  it.each([
+    ['keeps', false, ['Office', 'Family']],
+    ['retires', true, []],
+  ] as const)(
+    '%s queued Profile edits when activation finishes or the account leaves',
+    async (_action, retire, names) => {
+      expect.hasAssertions();
+      const { vault, work: workId } = await createTwoProfileRegistration();
+      let beforeRead: (() => Promise<void>) | undefined = undefined;
+      const store = createRegistration({
+        ...vault,
+        registration: async () => {
+          const hook = beforeRead;
+          beforeRead = undefined;
+          await hook?.();
+          return vault.registration();
+        },
+      });
+      await store.restore();
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      beforeRead = async () => {
+        entered.resolve(undefined);
+        await release.promise;
+      };
+      const resuming = store.resume();
+      await entered.promise;
+      try {
+        const renaming = store.renameProfile(workId, 'Office');
+        const creating = store.createProfile('Family');
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- The second fixed case removes the account during the held activation.
+        if (retire) {
+          await vault.purge('revoked');
+        }
+        release.resolve(undefined);
+        await Promise.all([resuming, renaming, creating]);
+        expect(
+          profilesOf(store.getSnapshot().snapshot).map(({ name }) => name),
+        ).toStrictEqual(names);
+        expect(store.getSnapshot().profileFailure).toBeUndefined();
+        expect(store.getSnapshot()).toMatchObject({
+          busy: false,
+          failed: false,
+        });
+      } finally {
+        release.resolve(undefined);
+        await resuming;
+      }
+    },
+  );
 
   it('reads a malformed saved choice as none', async () => {
     expect.hasAssertions();
@@ -229,8 +331,8 @@ describe('window Profiles', () => {
       preference: () => Promise.resolve({ value: 5 }),
       setPreference: () => Promise.resolve({}),
     });
-    await choices.load();
-    expect(choices.getSnapshot()).toStrictEqual({
+    await choices.load('account-a');
+    expect(choices.getSnapshot('account-a')).toStrictEqual({
       restored: undefined,
       startup: undefined,
     });
@@ -242,8 +344,8 @@ describe('window Profiles', () => {
       preference: () => Promise.reject(new Error('locked')),
       setPreference: () => Promise.resolve({}),
     });
-    await choices.load();
-    expect(choices.getSnapshot()).toStrictEqual({
+    await choices.load('account-a');
+    expect(choices.getSnapshot('account-a')).toStrictEqual({
       restored: undefined,
       startup: undefined,
     });

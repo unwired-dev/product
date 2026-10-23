@@ -26,6 +26,7 @@ import { textStyles, usePalette } from './theme.ts';
 export type SettingsDestination =
   | 'account'
   | 'mailboxes'
+  | 'profiles'
   | 'notifications'
   | 'language'
   | 'privacy'
@@ -33,7 +34,13 @@ export type SettingsDestination =
 
 // The groups below the account item, in the design's order.
 const sections = [
-  { title: 'accounts', items: [{ id: 'mailboxes', icon: 'at' }] },
+  {
+    title: 'accounts',
+    items: [
+      { id: 'mailboxes', icon: 'at' },
+      { id: 'profiles', icon: 'person.crop.rectangle.stack' },
+    ],
+  },
   { title: 'automation', items: [{ id: 'notifications', icon: 'bell' }] },
   {
     title: 'application',
@@ -653,6 +660,7 @@ function Hairline() {
 export function SettingsRow({
   icon,
   title,
+  titleTone,
   disabled = false,
   subtitle,
   subtitleTone,
@@ -660,6 +668,7 @@ export function SettingsRow({
 }: {
   readonly icon?: string;
   readonly title: string;
+  readonly titleTone?: 'accent';
   readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
@@ -678,7 +687,16 @@ export function SettingsRow({
         />
       )}
       <View style={[styles.rowText, disabled && { opacity: 0.45 }]}>
-        <Text style={[type.title, { color: colors.textPrimary }]}>{title}</Text>
+        <Text
+          style={[
+            type.title,
+            {
+              color:
+                titleTone === 'accent' ? colors.accentInk : colors.textPrimary,
+            },
+          ]}>
+          {title}
+        </Text>
         {subtitle === undefined ? null : (
           <Text
             style={[

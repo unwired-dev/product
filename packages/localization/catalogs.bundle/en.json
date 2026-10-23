@@ -176,6 +176,7 @@
     "destinations": {
       "account": "Account & Devices",
       "mailboxes": "Email Accounts",
+      "profiles": "Mail Profiles",
       "notifications": "Notifications",
       "language": "Language",
       "privacy": "Privacy & Data",
@@ -1114,6 +1115,8 @@
     "primary": "Primary Profile",
     "switcher": "Mail Profile, {{name}}",
     "new": "New Mail Profile…",
+    "manage": "Manage Mail Profiles…",
+    "add": "Add Mail Profile…",
     "noMailboxes": "No mailboxes",
     "connections": "{{connections}} · {{provider}}",
     "detail_zero": "{{connections}}",
@@ -1128,7 +1131,16 @@
     "create": "Create",
     "upgradeTitle": "Update Your Other Devices",
     "upgradeMessage": "Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then create the Mail Profile again.",
-    "failed": "The Mail Profile could not be created. Try again.",
-    "ok": "OK"
+    "newFailed": "The Mail Profile could not be created. Try again.",
+    "ok": "OK",
+    "startup": "Startup Profile",
+    "renameTitle": "Rename Mail Profile",
+    "renameFailed": "The Mail Profile could not be renamed. Try again.",
+    "settings": {
+      "profiles": "Profiles",
+      "synchronized": "Names and ownership synchronize through Private Sync.",
+      "device": "This Device",
+      "deviceFooter": "Window restoration and the Startup Profile stay only on this device."
+    }
   }
 }

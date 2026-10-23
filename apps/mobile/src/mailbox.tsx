@@ -1,6 +1,7 @@
 import type { Drafts } from '@private-email/mail-core/drafts';
 import type { ViewScope } from '@private-email/mail-core/mailboxes';
 import type { Outbox } from '@private-email/mail-core/outbox';
+import type { ProfileChoicesStore } from '@private-email/mail-core/profile-windows';
 import type { ReactNode } from 'react';
 
 import { createComposerNavigation } from '@private-email/mail-core/composer-navigation';
@@ -10,10 +11,7 @@ import {
   readingProfile,
   savedMessageBodies,
 } from '@private-email/mail-core/mailboxes';
-import {
-  createProfileChoices,
-  windowProfile,
-} from '@private-email/mail-core/profile-windows';
+import { windowProfile } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { router } from 'expo-router';
 import {
@@ -37,7 +35,6 @@ import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
   drafts as defaultDrafts,
-  native,
   outbox as defaultOutbox,
 } from './registration.ts';
 
@@ -153,12 +150,6 @@ export function useProfile() {
   return use(ProfileContext);
 }
 
-// The window's last shown and Startup Profiles, saved on this device.
-const profileChoices = createProfileChoices({
-  preference: (key) => native().preference(key),
-  setPreference: (key, value) => native().setPreference(key, value),
-});
-
 // Scopes the window to its Mail Profile: a targeted link's, which every navigation after a switch
 // also names, then the Profile it last showed, the Startup Profile and the Default Profile. Only a
 // Profile a link chose is saved, so an unlisted saved Profile returns once it is listed again.
@@ -166,9 +157,11 @@ export function WindowProfileScope({
   link: routed,
   routeAccount,
   onRouteAccount,
+  savedChoices,
   children,
 }: {
   readonly link: unknown;
+  readonly savedChoices: ProfileChoicesStore;
   // The Product Account the route's Profile was chosen in, kept above the registration gate.
   readonly routeAccount: string | undefined;
   readonly onRouteAccount: (account: string) => void;
@@ -176,6 +169,7 @@ export function WindowProfileScope({
 }) {
   const account = use(AccountContext);
   const profiles = account?.profiles;
+  const owner = account?.account ?? '';
   // After signing into another Product Account, the previous account's route names none of its
   // Profiles, so the window returns to its own choices.
   const foreign =
@@ -191,13 +185,14 @@ export function WindowProfileScope({
       onRouteAccount(account.account);
     }
   }, [foreign, account, routeAccount, onRouteAccount]);
-  const choices = useSyncExternalStore(
-    profileChoices.subscribe,
-    profileChoices.getSnapshot,
+  const choices = useSyncExternalStore(savedChoices.subscribe, () =>
+    savedChoices.getSnapshot(owner),
   );
   useEffect(() => {
-    void profileChoices.load();
-  }, []);
+    if (savedChoices.getSnapshot(owner) === undefined) {
+      void savedChoices.load(owner);
+    }
+  }, [owner, savedChoices]);
   const profile = windowProfile({
     link,
     restored: choices?.restored,
@@ -206,9 +201,9 @@ export function WindowProfileScope({
   });
   useEffect(() => {
     if (choices !== undefined && link !== undefined && profile !== '') {
-      void profileChoices.restore(profile);
+      void savedChoices.restore(owner, profile);
     }
-  }, [choices, link, profile]);
+  }, [choices, link, owner, profile, savedChoices]);
   // Until the saved choices are read, a window without a link shows no Profile yet.
   return choices === undefined && link === undefined ? null : (
     <ProfileScope profile={profile}>{children}</ProfileScope>
