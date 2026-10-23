@@ -233,6 +233,47 @@ async function connectImap(
 }
 
 describe('product registration', () => {
+  it.each([
+    { kind: 'connected', gmail: undefined },
+    // Gmail cannot be reached, so the saved Inbox opens from its cache.
+    { kind: 'cached', gmail: 'offline' },
+  ] as const)(
+    'opens the $kind Inbox on launch while Recovery Key entry waits in Settings (#1068)',
+    async ({ kind, gmail }) => {
+      expect.hasAssertions();
+      // Apple cannot renew the sign-in at launch, so this device keeps its account and mailbox.
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      const setup = createRegistration(synthetic.vault);
+      await setup.register('apple');
+      synthetic.choose('alex@example.invalid');
+      await setup.addMailbox();
+      await confirmRecoveryKey(setup);
+      // This Trusted Device then lost its encryption key; Recovery Key entry can unlock it later.
+      synthetic.device.productSync.deviceKey = false;
+      synthetic.device.productSync.deviceKeyName = undefined;
+      synthetic.google.refreshFailure = gmail;
+      const store = createRegistration(synthetic.relaunch());
+      await render(
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>,
+      );
+      await openAccount();
+      expect(store.getSnapshot().snapshot).toMatchObject({
+        kind,
+        privateSync: 'enrollment-needed',
+      });
+      await openSettings('Account & Devices');
+      expect(
+        screen.getByRole('button', { name: english('recovery.unlock') }),
+      ).toBeOnTheScreen();
+    },
+  );
+
   it('keeps IMAP provider navigation blocked while another mailbox authorization is pending', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();

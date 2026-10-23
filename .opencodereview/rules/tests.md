@@ -25,6 +25,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A state-transition wait such as the landscape loop in
+  `InboxTests.verifyCompactMailboxesFillScreen` accepting a predicate already true
+  in the preceding state or for stale child geometry after the window changes.
+  Require an observable result that distinguishes the requested state at each
+  layer used by the assertions or next interaction, including intermediate
+  transitions and terminal cleanup before a caller's tap. Observe an intermediate
+  state at those same layers when needed.
+  Window width greater than height cannot distinguish opposite landscape
+  rotations, and a portrait row can already satisfy a landscape right-edge
+  clearance bound. Wait for the row to leave its stale layout before asserting
+  both edges or returning to the next action; otherwise checks and captures can
+  repeat the preceding orientation, fail on stale frames or tap outside the
+  restored window despite a correct layout.
+
 - A keyboard journey such as `WindowTests.testKeyboardAndAccessibility` proving
   both arrow directions only by running the list's final command. Trace the
   clamped selection with each direction disabled: an extra Down can reach the

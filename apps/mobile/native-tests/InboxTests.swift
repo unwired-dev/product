@@ -189,6 +189,7 @@ final class InboxTests: XCTestCase {
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
+    verifyCompactReaderBack(app)
     if UIDevice.current.userInterfaceIdiom == .phone {
       // Landscape leaves little room above the keyboard; Search and its explanation stay reachable.
       XCUIDevice.shared.orientation = .landscapeLeft
@@ -248,6 +249,7 @@ final class InboxTests: XCTestCase {
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
+    verifyCompactReaderBack(app)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
@@ -1280,6 +1282,7 @@ final class InboxTests: XCTestCase {
     shot.name = "Selected message"
     shot.lifetime = .keepAlways
     add(shot)
+    verifyCompactReaderBack(app)
     verifyCompactSwipeBack(app, reader: sender, row: maya)
     let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
       .firstMatch
@@ -1414,8 +1417,55 @@ final class InboxTests: XCTestCase {
       shot.name = "Mailboxes after holding Back, \(hold)"
       shot.lifetime = .keepAlways
       add(shot)
+      if hold == 1 {
+        verifyCompactMailboxesFillScreen(app, row: inboxes)
+      }
       inboxes.tap()
       verifyCompactInboxHeader(app)
+    }
+  }
+
+  // #1067: iPhone Mailboxes fills the screen. Its surface reaches the top and bottom edges behind
+  // the status bar and home indicator (Dark only shows a surface that stops short), and in either
+  // landscape orientation its rows keep clear of the Dynamic Island.
+  private func verifyCompactMailboxesFillScreen(_ app: XCUIApplication, row: XCUIElement) {
+    func rotate(to orientation: UIDeviceOrientation) -> CGRect {
+      XCUIDevice.shared.orientation = orientation
+      let portrait = orientation == .portrait
+      waitUntil {
+        let window = app.windows.firstMatch.frame
+        return portrait ? window.height > window.width : window.width > window.height
+      }
+      let window = app.windows.firstMatch.frame
+      // Observe the row too, including the portrait between opposite landscape rotations.
+      waitUntil {
+        row.isHittable && (portrait ? row.frame.maxX <= window.maxX : row.frame.maxX > window.midX)
+      }
+      return window
+    }
+    let window = rotate(to: .portrait)
+    let colors = pixels(
+      app,
+      at: [
+        CGPoint(x: 8, y: window.midY),
+        CGPoint(x: 8, y: window.minY + 8),
+        CGPoint(x: 8, y: window.maxY - 8),
+      ])
+    for (edge, color) in zip(["Top", "Bottom"], colors.dropFirst()) {
+      XCTAssertTrue(
+        zip(colors[0], color).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+        "\(edge) edge \(color) differs from the Mailboxes surface \(colors[0])")
+    }
+    for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight] {
+      let landscape = rotate(to: orientation)
+      XCTAssertGreaterThan(row.frame.minX, landscape.minX + 44)
+      XCTAssertLessThan(row.frame.maxX, landscape.maxX - 44)
+      let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      shot.name = "Mailboxes in \(orientation == .landscapeLeft ? "landscape left" : "landscape right")"
+      shot.lifetime = .keepAlways
+      add(shot)
+      // Establish portrait row geometry before the next rotation or the caller's tap.
+      _ = rotate(to: .portrait)
     }
   }
 
@@ -1443,7 +1493,23 @@ final class InboxTests: XCTestCase {
       row.tap()
       XCTAssertTrue(reader.waitForExistence(timeout: 10))
       waitUntil { reader.isHittable }
+      verifyCompactReaderBack(app)
     }
+  }
+
+  // #1051: the compact reader's only Back is the navigation bar's system Back, which UIKit's edge
+  // swipe needs; no custom Back pill is drawn beside it, and the reader's surface fills the bar.
+  private func verifyCompactReaderBack(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let back = NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
+    XCTAssertEqual(app.buttons.matching(back).count, 1)
+    XCTAssertEqual(app.navigationBars.buttons.matching(back).count, 1)
+    let bar = app.navigationBars.firstMatch.frame
+    let x = app.windows.firstMatch.frame.maxX - 8
+    let colors = pixels(app, at: [CGPoint(x: x, y: bar.midY), CGPoint(x: x, y: bar.maxY + 150)])
+    XCTAssertTrue(
+      zip(colors[0], colors[1]).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+      "The bar \(colors[0]) differs from the reader surface \(colors[1])")
   }
 
   // A leading-edge swipe across the iPhone window. A held release leaves the position to decide, so
