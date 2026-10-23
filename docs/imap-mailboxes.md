@@ -272,8 +272,15 @@ message is no longer in this folder on the mail server**.
 ## Organizing
 
 IMAP mail offers, in the reader and as Inbox row actions, **Mark as read** or **Mark as
-unread**, **Archive**, **Move to Trash**, **Report spam**, and under **Folders**, **Move
-to** any other selectable folder, including the Inbox. IMAP has no labels or star.
+unread**, **Star** or **Remove star**, **Archive**, **Move to Trash**, **Report spam**, and
+under **Folders**, **Move to** any other selectable folder, including the Inbox. In the
+folders the server declares as Trash or Spam (`\Trash`, `\Junk`), **Move to Inbox** takes
+the place of Archive, Move to Trash and Report spam, as in Gmail's Trash and Spam; it offers
+no Undo. IMAP has no labels.
+The star is the server's `\Flagged` flag, so other mail apps show it as a flag: the
+Inbox row shows a flag, the context menus say **Flag** and **Unflag**, and a flag set
+or cleared elsewhere arrives with the next synchronization. Starring keeps the reader
+open and offers no Undo, like a read-state change.
 The folder listing keeps the server's hierarchy delimiter, so iPhone's Move picker nests
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
 unavailable.
@@ -284,7 +291,7 @@ not offered, and no folder is guessed by name. The row and reader
 
 Moves need a server that moves one message without expunging others: MOVE, or else
 COPY with UIDPLUS's `UID EXPUNGE` of that message alone. A server with neither offers
-only read state; a plain `EXPUNGE`, which would also remove messages other clients marked
+only read state and the star; a plain `EXPUNGE`, which would also remove messages other clients marked
 deleted, is never sent. A folder opened read-only refuses changes.
 
 Each change shows at once, is saved in the connection's encrypted cache and is sent to
@@ -307,8 +314,28 @@ the server in order:
   the UID the server reported for it (COPYUID). A move whose new UID is unknown offers no
   Undo after it is applied.
 
-Read state is kept in the cache once applied; a moved message leaves its folder's cache,
-and a cached destination folder is read again so a message moved back shows there.
+Read state and the star are kept in the cache once applied; a moved message leaves its
+folder's cache, and a cached destination folder is read again so a message moved back shows
+there. A cache saved before the star was kept shows no star until the next synchronization
+reads the message's flags.
+
+### Reader actions compared with Gmail
+
+[#1022](https://github.com/unwired-dev/product/issues/1022) audited the
+[Gmail reader's](gmail-inbox.md#organizing-mail) actions that need no sending. The IMAP
+reader offers each one that applies:
+
+- **Offered as for Gmail:** read state, the star, Archive, Move to Trash, Report spam,
+  Move to (Folders), Move to Inbox in Trash and Spam, Undo of a move, the row and
+  reader context menus and Command Palette commands, VoiceOver row actions, Copy
+  Address, Open Link and Copy Link, the received-attachment actions, Remote Message
+  Content, on-device summaries and translation.
+- **Not offered, deliberately:** **Labels** and label checkboxes, because IMAP organizes
+  mail in folders, which Move to covers; the **Thread** view, because IMAP gives the
+  app no conversation identifier like Gmail's thread ID; and Gmail's view-based Move to,
+  which removes only the shown label, because an IMAP message is in exactly one folder.
+- **Separate work:** Reply, Reply All and Forward need sending and belong to
+  [#1023](https://github.com/unwired-dev/product/issues/1023).
 
 ## Online search
 

@@ -737,7 +737,7 @@ export function Inbox({
           name,
           label,
           run: () => {
-            leaving(action.kind !== 'read' && action.kind !== 'unread');
+            leaving('destination' in action);
             void inbox.organize(message, action);
           },
         }),

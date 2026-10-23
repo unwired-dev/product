@@ -156,8 +156,22 @@ const openSettings = async (destination: string) => {
   });
 };
 
-// Returns from a pushed Settings destination to the list of them.
-const backToSettings = () => openSettings('Back to Settings');
+// Returns from a pushed Settings destination to the list of them, as the system Back does.
+const backToSettings = () =>
+  act(async () => {
+    await fireEvent(screen.getByTestId('settings-destination'), 'dismissed', {
+      nativeEvent: { dismissCount: 1 },
+    });
+  });
+
+// The title the system navigation bar shows over the pushed Settings page, once it is pushed.
+const pushedSettings = async () => {
+  const page = await screen.findByTestId('settings-destination');
+  const bar = page.children.find(
+    (child) => typeof child !== 'string' && child.props.title !== undefined,
+  );
+  return typeof bar === 'string' ? undefined : bar?.props.title;
+};
 
 // A value the store's snapshot shows, such as the Recovery Key presented for setup.
 const shown = (
@@ -438,7 +452,7 @@ describe('product registration', () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
       // The Inbox's repair opens Settings on Email Accounts, where its form is.
-      await screen.findByRole('header', { name: 'Email Accounts' });
+      await pushedSettings();
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: repair }));
       });
@@ -713,12 +727,16 @@ describe('product registration', () => {
   /* oxlint-enable vitest/max-expects */
 
   it('organizes IMAP mail from the reader with Undo and Move to, and searches its folders at the server', async () => {
-    /* oxlint-disable vitest/max-expects -- One journey proves read state, archive with Undo, Move to and search. */
+    /* oxlint-disable vitest/max-expects -- One journey proves flags, archive with Undo, restore, Move to and search. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     const invoice = imap.deliver('INBOX', { subject: 'Quarterly invoice' });
     const lunch = imap.deliver('INBOX', { subject: 'Team lunch' });
     imap.addFolder('Archived Mail', ['archive']);
+    imap.addFolder('Deleted Messages', ['trash']);
+    const deleted = imap.deliver('Deleted Messages', {
+      subject: 'Recovered message',
+    });
     imap.addFolder('Projects');
     imap.addFolder('Clients', [], false);
     imap.addFolder('Clients/Acme');
@@ -779,6 +797,28 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
+    // Star sets the server's \Flagged flag, keeps the reader and More open and flags the row.
+    await press('Star');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`flag INBOX ${invoice}`);
+    });
+    expect(
+      screen.getByRole('header', { name: 'Quarterly invoice' }),
+    ).toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
+    ).resolves.toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: 'Remove star' }),
+    ).resolves.toBeVisible();
+    await press('Remove star');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Star' }),
+    ).resolves.toBeVisible();
+    await press('More');
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
     await press('Archive');
@@ -801,6 +841,31 @@ describe('product registration', () => {
       screen.findByRole('button', { name: /Quarterly invoice/u }),
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
+
+    // Trash offers Move to Inbox, which closes the reader and offers no Undo.
+    await press('Deleted Messages. In alex@example.invalid');
+    await press(/Recovered message/u);
+    await press('More');
+    for (const name of ['Archive', 'Move to Trash', 'Report spam']) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+    await press('Move to Inbox');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(
+        `move Deleted Messages ${deleted} INBOX`,
+      );
+      expect(
+        screen.queryByRole('header', { name: 'Recovered message' }),
+      ).toBeNull();
+    });
+    await expect(
+      screen.findByText('Moved back to the Inbox: “Recovered message”.'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    await press('Inbox. In alex@example.invalid');
+    await expect(
+      screen.findByRole('button', { name: /Recovered message/u }),
+    ).resolves.toBeVisible();
 
     // Move to lists the mailbox's other folders. On iPhone it is a picker naming the message: the
     // current folder cannot be chosen again, and a search narrows the rest.
@@ -863,7 +928,9 @@ describe('product registration', () => {
         includeHiddenElements: true,
       }),
     ).toBeOnTheScreen();
-    expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
+    expect(imap.server.changes.at(-1)).toBe(
+      `move Deleted Messages ${deleted} INBOX`,
+    );
     await act(() => {
       for (const exit of exits.splice(0)) {
         exit();
@@ -1105,9 +1172,7 @@ describe('product registration', () => {
       );
     });
     // Pending setup opens Settings on Account & Devices.
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(
       screen.getByText('other@example.invalid is connected on this device.'),
     ).toBeVisible();
@@ -1142,9 +1207,7 @@ describe('product registration', () => {
         await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(
       screen.getByText('alex@example.invalid is connected on this device.'),
     ).toBeVisible();
@@ -1257,9 +1320,7 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.getByRole('button', { name: 'Gmail' })).toBeVisible();
     await press('Microsoft 365 and Outlook');
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(
       screen.getByText('casey@example.invalid is connected on this device.'),
     ).toBeVisible();
@@ -2072,9 +2133,7 @@ describe('product registration', () => {
         await screen.findByRole('button', { name: 'Gmail' }),
       );
     });
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     // The Gmail grant is a Mailbox Connection, not a Linked Sign-In.
     expect(
       screen.getByText(/Only Apple opens this Product Account/u),
@@ -2509,9 +2568,7 @@ describe('product registration', () => {
     );
     await openAccount();
     await openSettings('Email Accounts');
-    expect(
-      screen.getByRole('header', { name: 'Email Accounts' }),
-    ).toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Email Accounts');
     // Foreground verification discovers another Product Account with an unconfirmed key.
     // Another window of this device signed out and signed in to another Product Account.
     const replacement = createRegistration(synthetic.relaunch());
@@ -2522,13 +2579,10 @@ describe('product registration', () => {
     await act(async () => {
       await store.resume();
     });
-    expect(
-      screen.getByRole('header', { name: 'Account & Devices' }),
-    ).toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     expect(screen.getByTestId('recovery-key')).toHaveTextContent(
       shown(replacement, 'recoveryKey'),
     );
-    expect(screen.queryByRole('header', { name: 'Email Accounts' })).toBeNull();
   });
 
   it('keeps a mailbox’s New Mail Notifications off when Product Sync cannot save them, and links denied permission to the system', async () => {
@@ -2628,12 +2682,12 @@ describe('product registration', () => {
     await openSettings('Email Accounts');
     // The covered Inbox stays mounted but leaves the accessibility tree to Settings.
     expect({
-      settings: screen.getByRole('header', { name: 'Email Accounts' }),
+      settings: await pushedSettings(),
       covered: screen.queryByLabelText('Draft'),
       kept: screen.getByLabelText('Draft', { includeHiddenElements: true })
         .props.value,
     }).toStrictEqual({
-      settings: expect.anything(),
+      settings: 'Email Accounts',
       covered: null,
       kept: 'Unfinished',
     });
@@ -2770,9 +2824,7 @@ describe('product registration', () => {
       }
       await Promise.resolve();
     });
-    await expect(
-      screen.findByRole('header', { name: 'Account & Devices' }),
-    ).resolves.toBeVisible();
+    await expect(pushedSettings()).resolves.toBe('Account & Devices');
     // Google refuses the saved sign-in, so the account cannot be verified.
     synthetic.google.refreshFailure = 'invalid-grant';
     await act(async () => {
@@ -2786,9 +2838,7 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Connect your mail' }),
     ).resolves.toBeVisible();
-    expect(
-      screen.queryByRole('header', { name: 'Account & Devices' }),
-    ).toBeNull();
+    expect(screen.queryByTestId('settings-destination')).toBeNull();
   });
 
   // Mocked journey: the deterministic Mock Mail Session stands in for native preparation and

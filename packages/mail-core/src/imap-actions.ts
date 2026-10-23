@@ -52,8 +52,9 @@ export const imapRoleFolder = (
 };
 
 /**
- * Lists a message's quick actions: its read state, then moves to the folders
- * the server declares for archive, Trash and Spam.
+ * Lists a message's quick actions: its read state and star, then moves to the
+ * folders the server declares for archive, Trash and Spam. Mail in Trash or
+ * Spam moves back to the Inbox instead, as Gmail's does.
  *
  * @example
  *   imapQuickActions(t, message, state);
@@ -69,19 +70,29 @@ export const imapQuickActions = (
   message: ImapMessage,
   { folders, capabilities }: Listing,
 ) => {
+  const removed = ['trash', 'junk'].some(
+    (role) => imapRoleFolder(folders, role) === message.folder,
+  );
+  const moves: ReadonlyArray<
+    Readonly<{
+      kind: 'archive' | 'trash' | 'spam' | 'restore';
+      destination: string;
+    }>
+  > = removed
+    ? [{ kind: 'restore', destination: inboxFolder }]
+    : roles.flatMap(([kind, role]) => {
+        const destination = imapRoleFolder(folders, role);
+        return destination === undefined || destination === message.folder
+          ? []
+          : [{ kind, destination }];
+      });
   const actions: ReadonlyArray<
-    | Readonly<{ kind: 'read' | 'unread' }>
-    | Readonly<{ kind: 'archive' | 'trash' | 'spam'; destination: string }>
+    | Readonly<{ kind: 'read' | 'unread' | 'star' | 'unstar' }>
+    | (typeof moves)[number]
   > = [
     { kind: message.unread ? 'read' : 'unread' },
-    ...(capabilities?.moves === true
-      ? roles.flatMap(([kind, role]) => {
-          const destination = imapRoleFolder(folders, role);
-          return destination === undefined || destination === message.folder
-            ? []
-            : [{ kind, destination }];
-        })
-      : []),
+    { kind: message.flagged === true ? 'unstar' : 'star' },
+    ...(capabilities?.moves === true ? moves : []),
   ];
   return actions.map((action) => ({
     name: action.kind,

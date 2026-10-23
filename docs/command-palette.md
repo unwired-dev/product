@@ -79,7 +79,9 @@ results never appear in the palette. The vocabulary lives in the
   the Mailboxes title, the reader's subject line, the composer's top bar or the
   Account page's title,
   which stay put while the content scrolls) opens the palette; swipes that start in the content scroll
-  it as usual. There is no visible entry button. A one-time hint under the
+  it as usual. There is no visible entry button. Settings pages pushed over the list
+  show the system navigation bar's title, which takes no swipe; their Back returns to
+  the list's title. A one-time hint under the
   Inbox heading says Swipe down on the header for commands, and goes away once
   dismissed or after the palette first opens; the choice is kept in the
   device's preferences. Each header's title also exposes an Open Command

@@ -437,7 +437,7 @@ function ImapMessageActions({
   }
   const act = (action: ImapAction) => {
     void inbox.organize(message, action);
-    if (action.kind !== 'read' && action.kind !== 'unread') {
+    if ('destination' in action) {
       onClose?.();
     }
   };

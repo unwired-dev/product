@@ -810,12 +810,16 @@ describe('product registration', () => {
   /* oxlint-enable vitest/max-expects */
 
   it('organizes IMAP mail from the reader with Undo and Move to, and searches its folders at the server', async () => {
-    /* oxlint-disable vitest/max-expects -- One journey proves read state, archive with Undo, Move to and search. */
+    /* oxlint-disable vitest/max-expects -- One journey proves flags, archive with Undo, restore, Move to and search. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     const invoice = imap.deliver('INBOX', { subject: 'Quarterly invoice' });
     const lunch = imap.deliver('INBOX', { subject: 'Team lunch' });
     imap.addFolder('Archived Mail', ['archive']);
+    imap.addFolder('Deleted Messages', ['trash']);
+    const deleted = imap.deliver('Deleted Messages', {
+      subject: 'Recovered message',
+    });
     imap.addFolder('Projects');
     imap.deliver('Projects', { subject: 'Filed invoice' });
     const account = await signedIn();
@@ -876,6 +880,27 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
+    // Star sets the server's \Flagged flag, keeps the reader open and flags the row.
+    await press('Star');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`flag INBOX ${invoice}`);
+    });
+    expect(
+      screen.getByRole('header', { name: 'Quarterly invoice' }),
+    ).toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
+    ).resolves.toBeVisible();
+    await expect(
+      screen.findByRole('button', { name: 'Remove star' }),
+    ).resolves.toBeVisible();
+    await press('Remove star');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Star' }),
+    ).resolves.toBeVisible();
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
     await press('Archive');
@@ -899,15 +924,45 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
+    // Trash offers Move to Inbox, which closes the reader and offers no Undo.
+    await press('Deleted Messages. In alex@example.invalid');
+    await press(/Recovered message/u);
+    for (const name of ['Archive', 'Move to Trash', 'Report spam']) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+    await press('Move to Inbox');
+    await waitFor(() => {
+      expect(imap.server.changes.at(-1)).toBe(
+        `move Deleted Messages ${deleted} INBOX`,
+      );
+      expect(
+        screen.queryByRole('header', { name: 'Recovered message' }),
+      ).toBeNull();
+    });
+    await expect(
+      screen.findByText('Moved back to the Inbox: “Recovered message”.'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    await press('Inbox. In alex@example.invalid');
+    await expect(
+      screen.findByRole('button', { name: /Recovered message/u }),
+    ).resolves.toBeVisible();
+
     // Move's system menu lists the mailbox's other folders; dismissing it moves nothing.
     await press(/Team lunch/u);
     await press('Folders');
     expect(menuItems()).toMatchObject([
       { title: 'Archived Mail', accessibilityLabel: 'Move to Archived Mail' },
+      {
+        title: 'Deleted Messages',
+        accessibilityLabel: 'Move to Deleted Messages',
+      },
       { title: 'Projects', accessibilityLabel: 'Move to Projects' },
     ]);
     await dismissMenu();
-    expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
+    expect(imap.server.changes.at(-1)).toBe(
+      `move Deleted Messages ${deleted} INBOX`,
+    );
     await press('Folders');
     imap.server.loseReply = true;
     await chooseMenuItem('Projects');
