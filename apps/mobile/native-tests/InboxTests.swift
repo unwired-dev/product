@@ -1379,7 +1379,21 @@ final class InboxTests: XCTestCase {
   // the status bar and home indicator (Dark only shows a surface that stops short), and in either
   // landscape orientation its rows keep clear of the Dynamic Island.
   private func verifyCompactMailboxesFillScreen(_ app: XCUIApplication, row: XCUIElement) {
-    let window = app.windows.firstMatch.frame
+    func rotate(to orientation: UIDeviceOrientation) -> CGRect {
+      XCUIDevice.shared.orientation = orientation
+      let portrait = orientation == .portrait
+      waitUntil {
+        let window = app.windows.firstMatch.frame
+        return portrait ? window.height > window.width : window.width > window.height
+      }
+      let window = app.windows.firstMatch.frame
+      // Observe the row too, including the portrait between opposite landscape rotations.
+      waitUntil {
+        row.isHittable && (portrait ? row.frame.maxX <= window.maxX : row.frame.maxX > window.midX)
+      }
+      return window
+    }
+    let window = rotate(to: .portrait)
     let colors = pixels(
       app,
       at: [
@@ -1393,25 +1407,16 @@ final class InboxTests: XCTestCase {
         "\(edge) edge \(color) differs from the Mailboxes surface \(colors[0])")
     }
     for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight] {
-      // Portrait between the two, so the wait below sees each rotation finish.
-      XCUIDevice.shared.orientation = .portrait
-      waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
-      XCUIDevice.shared.orientation = orientation
-      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
-      let landscape = app.windows.firstMatch.frame
-      // A row still laid out for portrait ends left of the middle.
-      waitUntil { row.isHittable && row.frame.maxX > landscape.midX }
+      let landscape = rotate(to: orientation)
       XCTAssertGreaterThan(row.frame.minX, landscape.minX + 44)
       XCTAssertLessThan(row.frame.maxX, landscape.maxX - 44)
       let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
       shot.name = "Mailboxes in \(orientation == .landscapeLeft ? "landscape left" : "landscape right")"
       shot.lifetime = .keepAlways
       add(shot)
+      // Establish portrait row geometry before the next rotation or the caller's tap.
+      _ = rotate(to: .portrait)
     }
-    XCUIDevice.shared.orientation = .portrait
-    waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
-    // The caller taps the row next, so wait until it no longer reports its landscape frame.
-    waitUntil { row.isHittable && row.frame.maxX <= app.windows.firstMatch.frame.maxX }
   }
 
   // #976: after a vertical drag, an iPhone edge swipe returns to the Inbox with no selection and
