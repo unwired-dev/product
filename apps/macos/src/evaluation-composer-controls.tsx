@@ -8,13 +8,12 @@ import {
   canSuggestReply,
 } from '@private-email/mail-core/assistance';
 import { selectedText } from '@private-email/mail-core/semantic-document';
-import { spacing } from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
-import { use, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { use } from 'react';
+import { Text, TextInput, View } from 'react-native';
 
 import { FormatBar, PopUp } from './composer-controls.tsx';
 import {
@@ -23,31 +22,13 @@ import {
   Recipients,
   rewriteLabel,
 } from './composer.tsx';
-import {
-  Button,
-  GlassPanel,
-  ModalBackground,
-  ToolbarButton,
-} from './design.tsx';
+import { ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { AssistanceContext } from './message-summary.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
 const s = composerStyles;
-const styles = StyleSheet.create({
-  // The save question drops from the window's top edge, over the composer.
-  sheet: {
-    position: 'absolute',
-    zIndex: 4,
-    top: 52,
-    alignSelf: 'center',
-    width: 300,
-  },
-  sheetContent: { padding: 20, gap: spacing.s },
-  sheetTitle: { ...textStyles.bodyEmphasized, textAlign: 'center' },
-  sheetDetail: { ...textStyles.subheadline, textAlign: 'center' },
-});
 
 export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
 type Capture = (purpose: CapturedDraftText['purpose']) => void;
@@ -244,131 +225,6 @@ export function DraftFields({
           {recipients('bcc')}
         </>
       ) : null}
-    </View>
-  );
-}
-
-// Only the save choices remain interactive and accessible while the question is open.
-export function SaveBackground({
-  active,
-  children,
-}: {
-  readonly active: boolean;
-  readonly children: ReactNode;
-}) {
-  return (
-    <ModalBackground
-      accessibilityElementsHidden={active}
-      pointerEvents={active ? 'none' : 'auto'}
-      style={s.fill}>
-      {children}
-    </ModalBackground>
-  );
-}
-
-// Asks whether to keep changed Draft content, as Mail does when a message window closes.
-export function SaveSheet({
-  open,
-  onSave,
-  onDelete,
-  onCancel,
-}: {
-  readonly open: boolean;
-  readonly onSave: () => void;
-  readonly onDelete: () => void;
-  readonly onCancel: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const buttons = useRef<Array<View | null>>([]);
-  const [focused, setFocused] = useState<number>();
-  if (!open && focused !== undefined) {
-    setFocused(undefined);
-  }
-  const choices = [
-    { label: t('drafts.saveAction'), onPress: onSave },
-    { label: t('drafts.dontSave'), onPress: onDelete },
-    { label: t('common.cancel'), onPress: onCancel },
-  ];
-  const focusChoice = (index: number) => {
-    const button = buttons.current[index];
-    if (button !== null && button !== undefined && 'focus' in button) {
-      button.focus();
-    }
-  };
-  useEffect(() => {
-    if (!open) {
-      for (const button of buttons.current) {
-        if (button !== null && 'blur' in button) {
-          button.blur();
-        }
-      }
-      return;
-    }
-    const [first] = buttons.current;
-    if (first !== null && first !== undefined && 'focus' in first) {
-      first.focus();
-    }
-  }, [open]);
-  return (
-    <View
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'box-none' : 'none'}
-      accessibilityViewIsModal={open}
-      onAccessibilityEscape={onCancel}
-      keyDownEvents={[
-        { key: 'Escape' },
-        { key: 'Tab' },
-        { key: 'Tab', shiftKey: true },
-      ]}
-      onKeyDown={({ nativeEvent }) => {
-        if (!open) {
-          return;
-        }
-        if (nativeEvent.key === 'Escape') {
-          onCancel();
-        } else if (nativeEvent.key === 'Tab') {
-          const step = nativeEvent.shiftKey ? -1 : 1;
-          const from = focused ?? (step === -1 ? 0 : -1);
-          focusChoice((from + step + choices.length) % choices.length);
-        }
-      }}
-      style={styles.sheet}>
-      <GlassPanel
-        open={open}
-        origin="top">
-        <View style={styles.sheetContent}>
-          <Text
-            selectable
-            accessibilityRole="header"
-            style={[styles.sheetTitle, { color: colors.textPrimary }]}>
-            {t('drafts.saveQuestion')}
-          </Text>
-          <Text
-            selectable
-            style={[styles.sheetDetail, { color: colors.textSecondary }]}>
-            {t('drafts.saveQuestionDetail')}
-          </Text>
-          {choices.map(({ label, onPress }, index) => (
-            <Button
-              key={label}
-              disabled={!open}
-              ref={(button) => {
-                buttons.current[index] = button;
-              }}
-              onFocus={() => {
-                setFocused(index);
-              }}
-              onBlur={() => {
-                setFocused(undefined);
-              }}
-              fill={index === 0 ? 'accent' : 'quiet'}
-              label={label}
-              onPress={onPress}
-            />
-          ))}
-        </View>
-      </GlassPanel>
     </View>
   );
 }

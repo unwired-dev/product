@@ -1058,10 +1058,18 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
   excluded by the Mac renderer; preserve the AppKit background wrapper's
   accessibility-children and hit-test suppression rather than relying on props
-  that rendered tests recognize but the native host ignores. Apply the same native
-  suppression to `evaluation-composer.tsx`'s background while `SaveSheet` is open;
-  keep its choices keyboard-owned and pause the page, or background edits and
-  Send remain reachable during the save decision.
+  that rendered tests recognize but the native host ignores. While
+  `evaluation-composer.tsx` asks its Save question, verify the native presenter
+  owns background input and accessibility, and pause the page. A retained custom
+  overlay must supply the equivalent suppression and keyboard ownership, or
+  background edits and Send remain reachable during the save decision.
+- `evaluation-composer.tsx` resuming a paused WebView after a native question
+  without restoring its page's editing focus. Trace `editor.ts`'s freeze/blur
+  and command guard: enable editing before sending focus, keep both commands
+  behind the current request and mounted-owner checks, and type into the body
+  after Cancel, Escape and a refused finish in the native journey. A dismissed sheet and an
+  editable command alone do not prove focus returned; an unfocused page can
+  pass typing into the React Native macOS responder chain and abort the app.
 - `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
   expanded. Trace its `organize.tsx` callers through opening and closing the
   panel, preserving the visual open state and omitting disclosure state for
