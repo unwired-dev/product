@@ -384,6 +384,102 @@ describe('the synthetic backend keeps its state across launches', () => {
     ).toStrictEqual({ stored: null });
   });
 
+  it('answers the Mail Profile fence and commits atomic Profile writes only over the stored versions', async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-apple', { state: null });
+    const connected = await ask('convex.connect', {
+      identity,
+      deviceIdentifier: 'installation-1',
+    });
+    const product = decoded(Schema.Unknown, connected);
+    const call = async (
+      path: string,
+      args: Readonly<Record<string, unknown>>,
+    ) =>
+      decoded(
+        Exchange,
+        await ask('convex.call', { path, args, identity, product }),
+      ).body.value;
+    const sealed = {
+      algorithm: 'AES-GCM-256',
+      ciphertextBase64: 'AA==',
+      keyVersion: 1,
+      nonceBase64: 'AA==',
+      schemaVersion: 3,
+      tagBase64: 'AA==',
+    };
+    await call('productSync:initialize', {
+      encryptedPayload: sealed,
+      recoveryVerifier: 'verifier',
+      deviceEncryptionPublicKey: deviceKey,
+    });
+    await expect(
+      call('productSync:declareMailProfileCapability', {
+        capabilityVersion: 1,
+      }),
+    ).resolves.toStrictEqual({ fenced: false });
+    // Each write expects no stored record.
+    const write = (identifiers: readonly string[]) =>
+      call('productSync:putEncryptedPayloadsAtomically', {
+        checks: [],
+        deletes: [],
+        writes: identifiers.map((payloadIdentifier) => ({
+          payloadIdentifier,
+          encryptedPayload: sealed,
+        })),
+      });
+    const work = {
+      payloadIdentifier: 'profile.work',
+      encryptedPayload: sealed,
+      updatedAt: 1,
+    };
+    const home = { ...work, payloadIdentifier: 'profile.home' };
+    await expect(
+      write(['profile.work', 'profile.home']),
+    ).resolves.toStrictEqual({
+      committed: true,
+      payloads: [work, home],
+    });
+    // A conflict in one record must also keep the other new record unpublished.
+    await expect(
+      write(['profile.personal', 'profile.work']),
+    ).resolves.toStrictEqual({
+      committed: false,
+      payloads: [work],
+    });
+    // A batch writing one record twice is refused before anything is stored.
+    const duplicate = await ask('convex.call', {
+      path: 'productSync:putEncryptedPayloadsAtomically',
+      args: {
+        checks: [],
+        deletes: [],
+        writes: ['profile.extra', 'profile.extra'].map((payloadIdentifier) => ({
+          payloadIdentifier,
+          encryptedPayload: sealed,
+        })),
+      },
+      identity,
+      product,
+    });
+    expect(
+      decoded(
+        Schema.Struct({
+          body: Schema.fromJsonString(Schema.Struct({ status: Schema.String })),
+        }),
+        duplicate,
+      ).body.status,
+    ).toBe('error');
+    await expect(
+      call('productSync:listEncryptedPayloadsForTrustedDevice', {
+        payloadIdentifierPrefix: 'profile.',
+      }),
+    ).resolves.toStrictEqual({
+      page: [home, work],
+      isDone: true,
+      continueCursor: '',
+    });
+  });
+
   it('learns on relaunch that another device removed this one, which then waits as a new device', async () => {
     /* oxlint-disable vitest/max-expects -- One journey spans the removal and the new sign-in. */
     expect.hasAssertions();

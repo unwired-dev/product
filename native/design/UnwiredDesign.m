@@ -239,7 +239,7 @@ static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destr
   NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:item[@"title"] action:nil keyEquivalent:@""];
   if (item[@"accessibilityLabel"] != nil) menuItem.accessibilityLabel = item[@"accessibilityLabel"];
   NSString *symbol = item[@"symbol"];
-  NSImage *image = symbol == nil ? nil : [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+  NSImage *image = symbol.length == 0 ? nil : [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
   if ([item[@"destructive"] boolValue]) {
     menuItem.attributedTitle = [[NSAttributedString alloc] initWithString:item[@"title"]
         attributes:@{NSForegroundColorAttributeName: destructiveColor}];
@@ -247,6 +247,10 @@ static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destr
         [NSImageSymbolConfiguration configurationWithHierarchicalColor:destructiveColor]];
   }
   menuItem.image = image;
+  // macOS 27 hides menu images by default; the design shows them.
+  menuItem.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
+  NSString *subtitle = item[@"subtitle"];
+  if (subtitle.length > 0) menuItem.subtitle = subtitle;
   menuItem.state = [item[@"checked"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
   menuItem.enabled = ![item[@"disabled"] boolValue];
   NSArray<NSDictionary *> *items = item[@"items"];
@@ -285,6 +289,40 @@ static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections,
 }
 @end
 #else
+static UIMenuElement *UnwiredMenuElement(NSDictionary *item, void (^select)(NSString *identifier))
+{
+  NSString *symbol = item[@"symbol"];
+  UIImage *image = symbol.length > 0 ? [UIImage systemImageNamed:symbol] : nil;
+  NSArray<NSDictionary *> *items = item[@"items"];
+  if (items != nil) {
+    NSMutableArray<UIMenuElement *> *children = [NSMutableArray new];
+    for (NSDictionary *child in items) [children addObject:UnwiredMenuElement(child, select)];
+    return [UIMenu menuWithTitle:item[@"title"] image:image identifier:nil options:0 children:children];
+  }
+  NSString *identifier = item[@"id"];
+  UIAction *action = [UIAction actionWithTitle:item[@"title"] image:image identifier:nil
+      handler:^(__unused UIAction *action) { select(identifier); }];
+  if ([item[@"destructive"] boolValue]) action.attributes = UIMenuElementAttributesDestructive;
+  NSString *subtitle = item[@"subtitle"];
+  if (subtitle.length > 0) action.subtitle = subtitle;
+  if ([item[@"checked"] boolValue]) action.state = UIMenuElementStateOn;
+  return action;
+}
+
+static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSString *identifier))
+{
+  NSMutableArray<UIMenuElement *> *groups = [NSMutableArray new];
+  for (NSDictionary *section in sections) {
+    NSMutableArray<UIMenuElement *> *elements = [NSMutableArray new];
+    for (NSDictionary *item in section[@"items"]) [elements addObject:UnwiredMenuElement(item, select)];
+    UIMenu *group = [UIMenu menuWithTitle:@"" image:nil identifier:nil
+                                  options:UIMenuOptionsDisplayInline children:elements];
+    if ([section[@"palette"] boolValue]) group.preferredElementSize = UIMenuElementSizeMedium;
+    [groups addObject:group];
+  }
+  return [UIMenu menuWithChildren:groups];
+}
+
 @interface UnwiredContextMenuView () <UIContextMenuInteractionDelegate>
 @end
 
@@ -304,16 +342,9 @@ static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections,
   __weak UnwiredContextMenuView *weakSelf = self;
   return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
       actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
-        NSMutableArray<UIMenuElement *> *sections = [NSMutableArray new];
-        for (NSDictionary *section in weakSelf.sections) {
-          NSMutableArray<UIMenuElement *> *elements = [NSMutableArray new];
-          for (NSDictionary *item in section[@"items"]) [elements addObject:[weakSelf element:item]];
-          UIMenu *group = [UIMenu menuWithTitle:@"" image:nil identifier:nil
-                                        options:UIMenuOptionsDisplayInline children:elements];
-          if ([section[@"palette"] boolValue]) group.preferredElementSize = UIMenuElementSizeMedium;
-          [sections addObject:group];
-        }
-        return [UIMenu menuWithChildren:sections];
+        return UnwiredMenu(weakSelf.sections, ^(NSString *identifier) {
+          if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
+        });
       }];
 }
 
@@ -338,25 +369,6 @@ static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections,
           dismissalPreviewForItemWithIdentifier:(id<NSCopying>)identifier
 {
   return [self preview];
-}
-
-- (UIMenuElement *)element:(NSDictionary *)item
-{
-  UIImage *image = [UIImage systemImageNamed:item[@"symbol"]];
-  NSArray<NSDictionary *> *items = item[@"items"];
-  if (items != nil) {
-    NSMutableArray<UIMenuElement *> *children = [NSMutableArray new];
-    for (NSDictionary *child in items) [children addObject:[self element:child]];
-    return [UIMenu menuWithTitle:item[@"title"] image:image identifier:nil options:0 children:children];
-  }
-  NSString *identifier = item[@"id"];
-  __weak UnwiredContextMenuView *weakSelf = self;
-  UIAction *action = [UIAction actionWithTitle:item[@"title"] image:image identifier:nil
-      handler:^(__unused UIAction *action) {
-        if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
-      }];
-  if ([item[@"destructive"] boolValue]) action.attributes = UIMenuElementAttributesDestructive;
-  return action;
 }
 @end
 #endif
@@ -423,6 +435,47 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   }
   [choice answer:[NSNull null]];
 }
+@end
+#endif
+
+#if !TARGET_OS_OSX
+// A pull-down button whose system menu opens on tap, with the same items as the context menu.
+// Its React content draws the label and passes touches to UIButton's primary action menu. The
+// Mac drops the same menu below its control through UnwiredMenu.
+@interface UnwiredMenuButtonView : UIButton
+@property (nonatomic, copy) NSArray<NSDictionary *> *sections;
+@property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@end
+
+@implementation UnwiredMenuButtonView
+- (instancetype)initWithFrame:(CGRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    self.showsMenuAsPrimaryAction = YES;
+  }
+  return self;
+}
+
+- (void)setSections:(NSArray<NSDictionary *> *)sections
+{
+  _sections = [sections copy];
+  __weak UnwiredMenuButtonView *weakSelf = self;
+  self.menu = UnwiredMenu(_sections, ^(NSString *identifier) {
+    if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
+  });
+}
+@end
+#endif
+
+#if !TARGET_OS_OSX
+@interface UnwiredMenuButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredMenuButtonManager
+RCT_EXPORT_MODULE(UnwiredMenuButton)
+RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredMenuButtonView new]; }
 @end
 #endif
 

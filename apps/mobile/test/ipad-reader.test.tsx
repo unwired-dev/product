@@ -199,6 +199,9 @@ describe('iPad reader', () => {
               openAccount: ignore,
               authorizeMailbox: () => Promise.resolve(),
               refreshInbox: (load) => load(),
+              account: 'synthetic-product-account',
+              profiles: [],
+              createProfile: () => Promise.resolve(undefined),
             }}>
             <Reader
               inbox={inbox}

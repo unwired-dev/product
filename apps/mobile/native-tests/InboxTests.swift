@@ -186,6 +186,8 @@ final class InboxTests: XCTestCase {
         NSPredicate(
           format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
       ).firstMatch.waitForExistence(timeout: 15))
+    profileSwitcherJourney(app)
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
@@ -255,6 +257,47 @@ final class InboxTests: XCTestCase {
     shot.lifetime = .keepAlways
     add(shot)
     sendJourney(app)
+  }
+
+  // #1037: the Mailboxes Profile Switcher opens its system menu, listing the Primary Profile with
+  // its connections and New Mail Profile…, whose prompt asks for a name and cancels without
+  // change. Creating a Profile needs this launch's verified Product Sign-In, which this journey no
+  // longer has after its relaunch, so creating and switching stay with the app integration tests.
+  private func profileSwitcherJourney(_ app: XCUIApplication) {
+    let switcher = app.buttons["Mail Profile, Primary Profile"]
+    // The switcher sits in the Mailboxes column; on iPhone that column is one Back away.
+    if !switcher.waitForExistence(timeout: 5) || !switcher.isHittable {
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        app.buttons["Back to Mailboxes"].tap()
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
+    }
+    XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+    switcher.tap()
+    let create = app.buttons["New Mail Profile…"]
+    XCTAssertTrue(create.waitForExistence(timeout: 10))
+    // A system menu row reads its subtitle after its title.
+    XCTAssertTrue(
+      app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Primary Profile"))
+        .firstMatch.exists)
+    let menu = XCTAttachment(screenshot: app.screenshot())
+    menu.name = "Profile Menu with the Primary Profile"
+    menu.lifetime = .keepAlways
+    add(menu)
+    create.tap()
+    let prompt = app.alerts["New Mail Profile"]
+    XCTAssertTrue(prompt.waitForExistence(timeout: 10))
+    XCTAssertTrue(prompt.textFields.firstMatch.exists)
+    let named = XCTAttachment(screenshot: app.screenshot())
+    named.name = "New Mail Profile prompt"
+    named.lifetime = .keepAlways
+    add(named)
+    prompt.buttons["Cancel"].tap()
+    XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+    // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
+    app.buttons["All inboxes"].tap()
   }
 
   // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged

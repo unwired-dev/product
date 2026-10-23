@@ -4,6 +4,8 @@ import type { ErrorReporting } from '@private-email/mail-core/error-reporting';
 import type {
   InboxChoice,
   MailboxConnection,
+  MailProfile,
+  ProfileFailure,
   Registration,
   RegistrationScreen,
 } from '@private-email/mail-core/registration';
@@ -11,7 +13,10 @@ import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
-import { registrationScreen } from '@private-email/mail-core/registration';
+import {
+  profilesOf,
+  registrationScreen,
+} from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
   Fragment,
@@ -84,6 +89,12 @@ export const AccountContext = createContext<
       openAccount: (destination?: SettingsDestination) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
+      // The signed-in Product Account, whose Mail Profiles a window's choices belong to.
+      account: string;
+      // The Mail Profiles besides the Default Profile.
+      profiles: readonly MailProfile[];
+      // Names a new Mail Profile; resolves why it was refused, if it was.
+      createProfile: (name: string) => Promise<ProfileFailure | undefined>;
     }>
   | undefined
 >(undefined);
@@ -168,6 +179,10 @@ function RegistrationGateContent({
       void mailAssistance.load(assistanceScope);
     }
   }, [preview, mailAssistance, assistanceScope]);
+  const profiles = useMemo(
+    () => profilesOf(registrationState.snapshot),
+    [registrationState.snapshot],
+  );
   const actions = useMemo(
     () => ({
       mailboxes: screen.mailboxes,
@@ -180,8 +195,14 @@ function RegistrationGateContent({
       },
       authorizeMailbox: store.authorizeMailbox,
       refreshInbox: store.refreshInbox,
+      account: choices?.inbox.account ?? '',
+      profiles,
+      createProfile: async (name: string) => {
+        await store.createProfile(name);
+        return store.getSnapshot().profileFailure;
+      },
     }),
-    [store, screen.mailboxes, choices],
+    [store, screen.mailboxes, choices, profiles],
   );
   useEffect(() => {
     if (preview) {
