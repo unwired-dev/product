@@ -30,7 +30,7 @@ const styles = StyleSheet.create({
   seal: { width: 18, height: 18, borderRadius: 9, marginBottom: 24 },
   headline: { fontSize: 52, lineHeight: 58, fontWeight: '400' },
   lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.8 },
-  status: { fontSize: 15, lineHeight: 20, opacity: 0.8 },
+  status: { fontSize: 15, lineHeight: 20, opacity: 0.78 },
   points: { gap: 14, marginTop: 36, marginBottom: 28 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { fontSize: 15, lineHeight: 16, opacity: 0.85 },

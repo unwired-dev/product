@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
   ipadHeadline: { fontSize: 59.8, lineHeight: 66.7, fontWeight: '400' },
   lede: { ...textStyles.body, opacity: 0.8 },
   ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23 },
-  ipadStatus: { fontSize: 17.25, lineHeight: 23 },
+  ipadStatus: { fontSize: 17.25, lineHeight: 23, opacity: 0.78 },
   points: { gap: 14, marginTop: 10, marginBottom: ipad ? 28 : 0 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
