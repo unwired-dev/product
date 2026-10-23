@@ -1367,9 +1367,44 @@ final class InboxTests: XCTestCase {
       shot.name = "Mailboxes after holding Back, \(hold)"
       shot.lifetime = .keepAlways
       add(shot)
+      if hold == 1 {
+        verifyCompactMailboxesFillScreen(app, row: inboxes)
+      }
       inboxes.tap()
       verifyCompactInboxHeader(app)
     }
+  }
+
+  // #1067: iPhone Mailboxes fills the screen. Its surface reaches the top and bottom edges behind
+  // the status bar and home indicator (Dark only shows a surface that stops short), and in either
+  // landscape orientation its rows keep clear of the Dynamic Island.
+  private func verifyCompactMailboxesFillScreen(_ app: XCUIApplication, row: XCUIElement) {
+    let window = app.windows.firstMatch.frame
+    let colors = pixels(
+      app,
+      at: [
+        CGPoint(x: 8, y: window.midY),
+        CGPoint(x: 8, y: window.minY + 8),
+        CGPoint(x: 8, y: window.maxY - 8),
+      ])
+    for (edge, color) in zip(["Top", "Bottom"], colors.dropFirst()) {
+      XCTAssertTrue(
+        zip(colors[0], color).allSatisfy { abs(Int($0) - Int($1)) <= 8 },
+        "\(edge) edge \(color) differs from the Mailboxes surface \(colors[0])")
+    }
+    for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight] {
+      XCUIDevice.shared.orientation = orientation
+      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+      let landscape = app.windows.firstMatch.frame
+      waitUntil { row.isHittable && row.frame.maxX < landscape.maxX - 44 }
+      XCTAssertGreaterThan(row.frame.minX, landscape.minX + 44)
+      let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      shot.name = "Mailboxes in \(orientation == .landscapeLeft ? "landscape left" : "landscape right")"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+    XCUIDevice.shared.orientation = .portrait
+    waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
   }
 
   // #976: after a vertical drag, an iPhone edge swipe returns to the Inbox with no selection and
