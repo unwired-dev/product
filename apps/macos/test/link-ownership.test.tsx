@@ -144,9 +144,10 @@ describe('queued message link privacy', () => {
 
   it('lists every warning before the caution destination', async () => {
     expect.hasAssertions();
+    const href = 'http://user@127.0.0.1/?next=https%3A%2F%2Fother.invalid';
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({
-      content: { html: `<a href="${oldHref}">https://bank.invalid</a>` },
+      content: { html: `<a href="${href}">https://bank.invalid</a>` },
     });
     const store = createGmailInbox(gmail.native);
     await store.load();
@@ -155,12 +156,17 @@ describe('queued message link privacy', () => {
       await fireEvent.press(
         screen.getByRole('link', { name: 'Open link: https://bank.invalid' }),
       );
-      const [intro, ...warnings] = String(sheetShown()?.detail).split('\n');
-      expect({ intro, warned: warnings.length > 0 }).toStrictEqual({
-        intro: 'Check this link before opening it:',
-        warned: true,
+      expect(sheetShown()).toMatchObject({
+        passage: href,
+        detail: [
+          'Check this link before opening it:',
+          '• The link text shows a different address.',
+          '• The link text shows a secure address, but the link is not secure.',
+          '• The address is a numeric IP address.',
+          '• The address contains a user name or password.',
+          '• The address forwards to another site.',
+        ].join('\n'),
       });
-      expect(warnings.every((line) => line.startsWith('• '))).toBe(true);
     } finally {
       await app.unmount();
     }
@@ -351,7 +357,7 @@ describe.each(['gmail', 'imap'] as const)(
       ['account', 'Copy link'],
       ['account', 'Proceed'],
     ] as const)(
-      'withdraws the old sheet and rejects queued input and a %s-change %s answer before passive cleanup',
+      'withdraws the old sheet and rejects queued input and a %s-change %s answer',
       async (transition, choice) => {
         expect.hasAssertions();
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
@@ -410,7 +416,7 @@ describe.each(['gmail', 'imap'] as const)(
                     url: 'about:blank#unwired-link-0',
                     navigationType: 'click',
                   });
-                  // The old sheet's answer arrives before its passive withdrawal.
+                  // Native resolves now; the async answer continuation may run after withdrawal.
                   chooseSheetButton(choice);
                 }}
               />

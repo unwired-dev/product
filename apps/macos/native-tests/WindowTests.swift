@@ -1373,8 +1373,10 @@ final class WindowTests: XCTestCase {
     case .sufficientElementDescription
     where type == .link && issue.element?.title.hasPrefix("https://") == true:
       return "web address"
-    case _ where type == .image && label == "Image not loaded",
-      _ where type == .link && label.hasPrefix("Open link: "):
+    case .sufficientElementDescription
+    where issue.compactDescription == "Label duplicates role description"
+      && ((type == .image && label == "Image not loaded")
+        || (type == .link && label.hasPrefix("Open link: "))):
       return "#1220"
     default:
       return nil
