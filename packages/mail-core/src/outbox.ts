@@ -578,7 +578,17 @@ export function createOutbox({
     entry: OutboxEntry,
     current: () => boolean,
   ) => {
-    if (!(await openSender(entry.draft)) || !current()) {
+    const opened = await openSender(entry.draft);
+    if (!current()) {
+      return;
+    }
+    if (!opened) {
+      await drafts.deliver(
+        entry.id,
+        step('queued', (each) =>
+          current() ? withState(each, 'queued', 'offline') : undefined,
+        ),
+      );
       return;
     }
     const check = handoffCheck(entry.draft);

@@ -1,7 +1,12 @@
 /* oxlint-disable vitest/max-expects -- Delivery journeys verify durable state, mailbox recovery and provider copies together. */
+import { english } from '@private-email/localization';
 import { createDrafts, draftOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import { createOutbox, undoSendWindow } from '@private-email/mail-core/outbox';
+import {
+  createOutbox,
+  outboxCopy,
+  undoSendWindow,
+} from '@private-email/mail-core/outbox';
 import {
   createRegistration,
   mailboxesOf,
@@ -217,12 +222,21 @@ describe('outbox cache-only authorization recovery', () => {
       await phone.outbox.process();
       expect(phone.gmail.sends).toHaveLength(1);
       expect(phone.drafts.getOutbox()).toMatchObject([
-        { id: phone.id, state: 'queued' },
+        { id: phone.id, state: 'queued', problem: 'offline' },
       ]);
+      expect(
+        outboxCopy(
+          english,
+          present(phone.outbox.getSnapshot()[0], 'waiting message'),
+          'gmail',
+        ).status,
+      ).toBe(
+        'Waiting to send. It sends when this device can reach Gmail and your Unwired Mail account.',
+      );
       await vi.advanceTimersByTimeAsync(29_999);
       expect(phone.gmail.sends).toHaveLength(1);
       expect(phone.drafts.getOutbox()).toMatchObject([
-        { id: phone.id, state: 'queued' },
+        { id: phone.id, state: 'queued', problem: 'offline' },
       ]);
       await vi.advanceTimersByTimeAsync(1);
       expect(phone.gmail.sends).toHaveLength(2);
