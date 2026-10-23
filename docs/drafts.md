@@ -55,8 +55,9 @@ Trusted Devices through Private Sync.
   roles within the preview; later recipients or groups may fall beyond its end.
   Bcc names appear in the sender's Draft list, including a Bcc-only Draft, within
   that same bound. The composer retains the full subject and recipients for
-  editing; its title and From choices also use bounded previews and announce
-  shortening. Sender/subject search lists received mail alone; clearing the search
+  editing; its title and From control label also use bounded previews and announce
+  shortening. Mac From menu items use full addresses; iPhone and iPad choices
+  retain bounded previews. Sender/subject search lists received mail alone; clearing the search
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
 - The composer shows the body first, then attachments, then the **Subject**,
   **To**, **Cc** and **Bcc** fields with right-aligned labels; its header holds
@@ -446,7 +447,7 @@ avoids splitting an emoji at the excerpt boundary, and verifies that later body
 spans are not read after the bounded excerpt is complete.
 Metadata regressions stop reading recipients once the row prefix is complete,
 preserve short recipient-role summaries, and check both hosts' bounded row names,
-From choices and composer titles while full authored values remain saved.
+From control labels and composer titles while full authored values remain saved.
 The emptiness check stops at the first non-whitespace body span without joining
 the body; whitespace-only content keeps the same Close behavior.
 They also cover later destinations and selecting the new Draft's row while

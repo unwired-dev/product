@@ -1,6 +1,6 @@
 # Gmail Provider Test Tenant provisioning
 
-Status: awaiting authorized operator attestation.
+Status: ready following authorized operator attestation.
 
 This runbook is the repository-safe handoff for provisioning the human-owned Google Workspace Provider Test Tenant. It does not prove that the tenant exists or grant automation access. An authorized human operator must complete the external steps and publish the redacted readiness record described below before the tenant is treated as ready.
 
@@ -28,26 +28,26 @@ The canonical readiness artifact is the single YAML block in this section of `do
 
 ```yaml
 schema_version: 1
-status: awaiting_operator_attestation
-verified_at: null
+status: ready
+verified_at: 2026-10-23T10:21:17Z
 tenant:
-  project_controlled: null
-  synthetic_only: null
-  at_least_two_test_users: null
+  project_controlled: true
+  synthetic_only: true
+  at_least_two_test_users: true
 oauth:
-  audience_internal: null
-  scopes_match_client: null
+  audience_internal: true
+  scopes_match_client: true
 operations:
-  administrative_owner_recorded: null
-  mfa_recorded: null
-  recovery_recorded: null
-  lifecycle_recorded: null
-  cost_owner_recorded: null
+  administrative_owner_recorded: true
+  mfa_recorded: true
+  recovery_recorded: true
+  lifecycle_recorded: true
+  cost_owner_recorded: true
 secrets:
-  approved_system_only: null
-  repository_exposure_reviewed: null
+  approved_system_only: true
+  repository_exposure_reviewed: true
 automation:
-  authorizer_role: null
+  authorizer_role: project maintainer
 ```
 
 The protected workflow must find exactly one readiness artifact, parse only the documented schema, require `schema_version: 1`, reject unknown fields, and reject missing, duplicate, or malformed artifacts. Readiness requires `status: ready`, a valid ISO 8601 UTC `verified_at`, a non-identifying `authorizer_role`, and every Boolean field set to `true`. Any other value fails closed and leaves Provider Compatibility Runs unauthorized.
