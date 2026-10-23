@@ -13,8 +13,7 @@ import { followOpenedNotifications } from '@private-email/mail-core/notification
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { router, useGlobalSearchParams } from 'expo-router';
-import { SplitView } from 'expo-router/unstable-split-view';
+import { router, Slot, useGlobalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -26,7 +25,11 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { Split } from 'react-native-screens/experimental';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
@@ -236,7 +239,6 @@ function MailShell() {
       pathname: '/message/[id]',
       params: { ...selection, profileId: shownProfile },
     });
-    splitView.current?.show('secondary');
   }
 
   async function switchProfile(profile: string) {
@@ -263,7 +265,37 @@ function MailShell() {
         profileId: latest.profile,
       },
     });
-    splitView.current?.show('secondary');
+  }
+
+  function closeReader() {
+    reader.current = {
+      id: undefined,
+      mailbox: undefined,
+      folder: undefined,
+      profile: shownProfile,
+    };
+    const open = regular ? composing.current : undefined;
+    router.replace({
+      pathname: open === undefined ? '/' : '/compose/[draft]',
+      params: {
+        ...(open === undefined ? {} : { draft: open }),
+        profileId: shownProfile,
+      },
+    });
+    // On iPhone the list returns over the reader, or over Mailboxes for the palette.
+    splitView.current?.show('supplementary');
+  }
+
+  // A collapsed split view pops the reader by its system Back or edge swipe, and the column beneath
+  // appears; a cancelled swipe never does. The route then leaves the reader too.
+  function followBack() {
+    if (
+      collapsed &&
+      reader.current.id !== undefined &&
+      composing.current === undefined
+    ) {
+      closeReader();
+    }
   }
 
   return (
@@ -277,7 +309,7 @@ function MailShell() {
         style={styles.fill}>
         <WindowBarContext value={regular ? windowBar : undefined}>
           <ReaderPaneWidthContext value={setReaderWidth}>
-            <SplitView
+            <Split.Host
               ref={splitView}
               testID="mail-split"
               columnMetrics={{
@@ -297,41 +329,30 @@ function MailShell() {
               preferredSplitBehavior="tile"
               primaryBackgroundStyle="sidebar"
               topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}>
-              <SplitView.Column>
-                <Mailboxes
-                  view={view}
-                  onProfile={(profile) => {
-                    void switchProfile(profile);
-                  }}
-                  onView={(next) => {
-                    setView(next);
-                    // On iPhone a Mailbox opens its list; beside it, the list is already shown.
-                    splitView.current?.show('supplementary');
-                  }}
-                />
-              </SplitView.Column>
-              <SplitView.Column>
-                <View style={styles.fill}>
-                  <Inbox
-                    composing={draft}
-                    onClose={() => {
-                      reader.current = {
-                        id: undefined,
-                        mailbox: undefined,
-                        folder: undefined,
-                        profile: shownProfile,
-                      };
-                      const open = regular ? composing.current : undefined;
-                      router.replace({
-                        pathname: open === undefined ? '/' : '/compose/[draft]',
-                        params: {
-                          ...(open === undefined ? {} : { draft: open }),
-                          profileId: shownProfile,
-                        },
-                      });
-                      // On iPhone the list returns over the reader, or over Mailboxes for the palette.
+              <Split.Column
+                testID="mailboxes-column"
+                onDidAppear={followBack}>
+                <SafeAreaProvider>
+                  <Mailboxes
+                    view={view}
+                    onProfile={(profile) => {
+                      void switchProfile(profile);
+                    }}
+                    onView={(next) => {
+                      setView(next);
+                      // On iPhone a Mailbox opens its list; beside it, the list is already shown.
                       splitView.current?.show('supplementary');
                     }}
+                  />
+                </SafeAreaProvider>
+              </Split.Column>
+              <Split.Column
+                testID="inbox-column"
+                onDidAppear={followBack}>
+                <SafeAreaProvider>
+                  <Inbox
+                    composing={draft}
+                    onClose={closeReader}
                     onBack={
                       phone
                         ? () => {
@@ -366,9 +387,12 @@ function MailShell() {
                     }
                     view={view}
                   />
-                </View>
-              </SplitView.Column>
-            </SplitView>
+                </SafeAreaProvider>
+              </Split.Column>
+              <Split.Column>
+                <Slot />
+              </Split.Column>
+            </Split.Host>
           </ReaderPaneWidthContext>
           {regular ? (
             <WindowBarHost
