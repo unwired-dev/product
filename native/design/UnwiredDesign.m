@@ -531,6 +531,8 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     NSInteger index = response - NSAlertFirstButtonReturn;
     resolve(index >= 0 && index < (NSInteger)buttons.count ? @(index) : [NSNull null]);
   }];
+  // The passage would take focus and swallow Return; the alert itself keeps it, as without one.
+  if (alert.accessoryView != nil) [alert.window makeFirstResponder:nil];
 }
 
 // Withdraws a question whose asker has moved on; it answers nothing.
