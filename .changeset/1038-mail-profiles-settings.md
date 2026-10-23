@@ -13,3 +13,7 @@ that new windows open.
 
 Profile creation and renaming wait for registration verification; changing Startup
 Profile preserves every already-open window.
+
+Match the approved Profile row disclosures and Add action tint, and keep Profile
+name editing and the mobile Startup Profile picker at the platform's minimum
+interaction size.

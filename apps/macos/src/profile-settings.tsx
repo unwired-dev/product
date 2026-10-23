@@ -12,10 +12,12 @@ import {
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
+import { spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
+import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
 import { SettingsGroup, SettingsRow } from './settings.tsx';
@@ -23,7 +25,13 @@ import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   value: { ...textStyles.body },
-  name: { ...textStyles.body, minWidth: 200, textAlign: 'right' },
+  name: {
+    ...textStyles.body,
+    minWidth: 200,
+    minHeight: 28,
+    marginVertical: -spacing.s,
+    textAlign: 'right',
+  },
 });
 
 // Explains a refused Mail Profile change; nothing changed.
@@ -170,7 +178,7 @@ export function MailProfilesSettings({
               setChosen(id);
             }}
             style={({ pressed }) =>
-              (id === selected || pressed) && {
+              pressed && {
                 backgroundColor: colors.accentSelectionSubtle,
               }
             }>
@@ -183,6 +191,11 @@ export function MailProfilesSettings({
                   {t('profiles.startup')}
                 </Text>
               ) : null}
+              <SFSymbol
+                name="chevron.right"
+                size={10}
+                color={colors.textSecondary}
+              />
             </SettingsRow>
           </Pressable>
         ))}
@@ -196,7 +209,10 @@ export function MailProfilesSettings({
               return store.getSnapshot().profileFailure;
             });
           }}>
-          <SettingsRow title={t('profiles.add')} />
+          <SettingsRow
+            title={t('profiles.add')}
+            titleTone="accent"
+          />
         </Pressable>
       </SettingsGroup>
       <SettingsGroup

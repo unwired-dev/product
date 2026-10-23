@@ -335,12 +335,20 @@ final class InboxTests: XCTestCase {
     let primary = app.buttons["Primary Profile"]
     XCTAssertTrue(primary.waitForExistence(timeout: 15))
     XCTAssertEqual(primary.value as? String, "Startup Profile")
+    let portraitWidth = primary.frame.width
     if UIDevice.current.userInterfaceIdiom == .phone {
       XCTAssertTrue(app.navigationBars["Mail Profiles"].exists)
+    } else {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      waitUntil({
+        app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+          && primary.frame.width > portraitWidth
+      }, timeout: 10)
     }
     XCTAssertTrue(app.buttons["Add Mail Profile…"].exists)
     let startup = app.buttons["Startup Profile"]
     XCTAssertTrue(startup.exists)
+    XCTAssertGreaterThanOrEqual(startup.frame.height, 44)
     let page = XCTAttachment(screenshot: app.screenshot())
     page.name = "Settings Mail Profiles"
     page.lifetime = .keepAlways
@@ -360,7 +368,19 @@ final class InboxTests: XCTestCase {
     item?.tap()
     waitUntil({ named.count == 1 }, timeout: 10)
     XCTAssertEqual(primary.value as? String, "Startup Profile")
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCUIDevice.shared.orientation = .portrait
+      waitUntil({
+        app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height
+          && primary.frame.width == portraitWidth
+      }, timeout: 10)
+    }
     app.buttons["Open Inbox"].tap()
+    if UIDevice.current.userInterfaceIdiom == .pad
+      && (!switcher.exists || !switcher.isHittable)
+    {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
   }
 

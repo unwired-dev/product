@@ -180,6 +180,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Qualify any separate enlarged touch handler with
   native interaction evidence rather than treating component events as proof.
 
+- `profile-settings.tsx` sizing the Startup Profile menu or editable Name only
+  to its text while the containing Settings row supplies the minimum height.
+  Check the actual native trigger and text field bounds against the 44pt mobile
+  and 28pt Mac targets; otherwise most of a seemingly tappable row does nothing.
+  Preserve the approved row geometry while enlarging the interactive control.
+
 - `SettingsWorkspace` or another route reusing `AccountHeader`'s default back
   label after changing its return target. Trace the callback to the retained
   destination, including signed-out privacy opened from Welcome or Sign In;

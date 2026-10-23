@@ -33,8 +33,23 @@ const value = settingsColumns ? typography.ipadList.body : textStyles.body;
 
 const styles = StyleSheet.create({
   value,
-  name: { ...value, minWidth: 160, textAlign: 'right' },
-  popUp: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  name: {
+    ...value,
+    minWidth: 160,
+    minHeight: 44,
+    marginVertical: -spacing.m,
+    textAlign: 'right',
+  },
+  menu: {
+    minHeight: 44,
+    marginVertical: -spacing.m,
+  },
+  popUp: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
 });
 
 // Explains a refused Mail Profile change; nothing changed.
@@ -181,7 +196,7 @@ export function MailProfilesSettings({
               setChosen(id);
             }}
             style={({ pressed }) =>
-              (id === selected || pressed) && {
+              pressed && {
                 backgroundColor: colors.accentSelectionSubtle,
               }
             }>
@@ -194,6 +209,11 @@ export function MailProfilesSettings({
                   {t('profiles.startup')}
                 </Text>
               ) : null}
+              <SFSymbol
+                name="chevron.right"
+                size={12}
+                color={colors.textSecondary}
+              />
             </SettingsRow>
           </Pressable>
         ))}
@@ -206,7 +226,10 @@ export function MailProfilesSettings({
               return store.getSnapshot().profileFailure;
             });
           }}>
-          <SettingsRow title={t('profiles.add')} />
+          <SettingsRow
+            title={t('profiles.add')}
+            titleTone="accent"
+          />
         </Pressable>
       </SettingsGroup>
       <SettingsGroup
@@ -228,6 +251,7 @@ export function MailProfilesSettings({
           footer={t('profiles.settings.deviceFooter')}>
           <SettingsRow title={t('profiles.startup')}>
             <MenuButton
+              style={styles.menu}
               accessibilityLabel={t('profiles.startup')}
               accessibilityValue={{ text: nameOf(startup) }}
               sections={[
