@@ -90,7 +90,8 @@ it.
   and reopen its Inbox. Reconnecting while the app stays active does not require
   switching apps or waiting for the five-minute Inbox poll. Verification finishes
   before the message is recorded as handed off, and pausing the app still prevents
-  a new submission.
+  a new submission. If verification rejects, the message keeps waiting for the
+  next retry without blocking later messages in the Outbox.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
   - the mailbox needs Gmail access again, is no longer connected, or changed its
@@ -169,8 +170,8 @@ mise exec -- pnpm --filter @private-email/macos test
 mise exec -- zsh native/private-inbox/integration/test.zsh ios
 ```
 
-Shared journeys in `packages/mail-core/test/outbox.test.ts` and
-`outbox-recovery.test.ts` use the real Draft
+Shared journeys in `packages/mail-core/test/outbox.test.ts`,
+`outbox-recovery.test.ts` and `outbox-authorization.test.ts` use the real Draft
 store, Gmail Inbox and Outbox with synthetic Draft storage, Gmail and Convex
 claims. They send a formatted reply with an inline image and an attachment once
 after the Undo Send Window, and parse it with an independent MIME parser. They also
@@ -211,7 +212,9 @@ cover:
 - preserving definite pre-handoff non-delivery as queued through reopening while
   mailbox recovery is still reading from the provider;
 - revalidating cache-only authorization after connectivity returns without an
-  activation, keeping the message queued if the app pauses during verification;
+  activation, keeping the message queued if the app pauses during verification,
+  backing off rejected verification without blocking later entries, and preventing
+  submission when native device removal is reported during held verification;
 - each refusal at Send.
 
 `outbox-lifecycle.test.ts` exercises pause/resume across Undo Send, claims,

@@ -443,20 +443,30 @@ export function createOutbox({
         mailbox.id === draft.connection && mailbox.state === 'cached',
     );
     if (cached) {
-      await registration.resume();
+      try {
+        await registration.resume();
+      } catch (error) {
+        await runLogged(
+          Effect.logError(
+            'Mailbox verification failed:',
+            rejectionDiagnostic(error),
+          ),
+        );
+        return false;
+      }
     }
     const mailbox = connectionOf(draft.connection);
     if (mailbox !== undefined && (cached || mailbox.state.kind !== 'ready')) {
       await mailbox.inbox.load();
     }
+    return true;
   };
 
   // Files an accepted message's Sent copy, and records it as sent once the copy is there. A
   // connection removed meanwhile has nowhere to keep it, so the message is recorded as sent; one
   // waiting for its password keeps the copy waiting.
   const file = async (entry: OutboxEntry, current: () => boolean) => {
-    await openSender(entry.draft);
-    if (!current()) {
+    if (!(await openSender(entry.draft)) || !current()) {
       return;
     }
     const mailbox = connectionOf(entry.draft.connection);
@@ -568,8 +578,7 @@ export function createOutbox({
     entry: OutboxEntry,
     current: () => boolean,
   ) => {
-    await openSender(entry.draft);
-    if (!current()) {
+    if (!(await openSender(entry.draft)) || !current()) {
       return;
     }
     const check = handoffCheck(entry.draft);

@@ -96,20 +96,26 @@ async function offlineSender() {
   setOnline(false);
   await registration.resume();
   await mailboxes.load();
-  const id = present(await drafts.create(connection), 'offline Draft');
-  const draft = () => present(draftOf(drafts.getSnapshot(), id), 'Draft');
-  const original = draft();
-  await drafts.update(
-    {
-      ...original,
-      to: [{ name: 'Recipient', address: 'recipient@example.invalid' }],
-      subject: 'Offline authorization',
-    },
-    original,
-  );
-  await outbox.send(draft);
+  const queue = async () => {
+    const id = present(await drafts.create(connection), 'offline Draft');
+    const draft = () => present(draftOf(drafts.getSnapshot(), id), 'Draft');
+    const original = draft();
+    await drafts.update(
+      {
+        ...original,
+        to: [{ name: 'Recipient', address: 'recipient@example.invalid' }],
+        subject: 'Offline authorization',
+      },
+      original,
+    );
+    await outbox.send(draft);
+    return id;
+  };
+  const id = await queue();
   return {
     id,
+    queue,
+    synthetic,
     drafts,
     mailboxes,
     outbox,
@@ -191,6 +197,68 @@ describe('outbox cache-only authorization recovery', () => {
       phone.outbox.dispose();
       verification.release();
       await processing;
+    }
+  });
+
+  it('backs off a rejected verification without submitting its message or blocking a later entry', async () => {
+    expect.hasAssertions();
+    const phone = await offlineSender();
+    let rejected = false;
+    const unsubscribe = phone.registration.subscribe(() => {
+      if (!rejected) {
+        rejected = true;
+        throw new Error('Synthetic registration listener defect');
+      }
+    });
+    try {
+      await phone.queue();
+      phone.setOnline(true);
+      vi.setSystemTime(Date.now() + undoSendWindow);
+      await phone.outbox.process();
+      expect(phone.gmail.sends).toHaveLength(1);
+      expect(phone.drafts.getOutbox()).toMatchObject([
+        { id: phone.id, state: 'queued' },
+      ]);
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(phone.gmail.sends).toHaveLength(1);
+      expect(phone.drafts.getOutbox()).toMatchObject([
+        { id: phone.id, state: 'queued' },
+      ]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(phone.gmail.sends).toHaveLength(2);
+      expect(phone.drafts.getOutbox()).toStrictEqual([]);
+    } finally {
+      unsubscribe();
+      phone.outbox.dispose();
+    }
+  });
+
+  it('stops delivery when native device removal is reported through Registration during held verification', async () => {
+    expect.hasAssertions();
+    const phone = await offlineSender();
+    let processing: Promise<void> | undefined = undefined;
+    let removing: Promise<void> | undefined = undefined;
+    const verification = phone.holdNextVerification();
+    try {
+      phone.setOnline(true);
+      vi.setSystemTime(Date.now() + undoSendWindow);
+      processing = phone.outbox.process();
+      await verification.started;
+      // A mailbox request purges native registration before reporting device removal to the store.
+      await phone.synthetic.vault.purge('revoked');
+      removing = phone.registration.deviceRemoved();
+      verification.release();
+      await Promise.all([processing, removing]);
+      expect(phone.registration.getSnapshot().snapshot).toStrictEqual({
+        kind: 'signed-out',
+        notice: 'revoked',
+      });
+      expect(phone.mailboxes.getConnections()).toStrictEqual([]);
+      expect(phone.gmail.sends).toHaveLength(0);
+    } finally {
+      phone.outbox.dispose();
+      verification.release();
+      await Promise.all([processing, removing]);
     }
   });
 });
