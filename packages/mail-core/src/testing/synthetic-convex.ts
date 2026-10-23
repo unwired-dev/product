@@ -650,7 +650,14 @@ export class SyntheticConvex extends Context.Service<SyntheticConvex>()(
         const decoded = yield* decodeAtomicWrites(args).pipe(
           Effect.orElseSucceed(() => null),
         );
-        if (identity === null || decoded === null) {
+        // Convex refuses a batch that writes one record twice, before storing any of it.
+        if (
+          identity === null ||
+          decoded === null ||
+          new Set(
+            decoded.writes.map(({ payloadIdentifier }) => payloadIdentifier),
+          ).size !== decoded.writes.length
+        ) {
           return yield* refusal('UNAVAILABLE');
         }
         const { writes: batch } = decoded;

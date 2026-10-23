@@ -447,6 +447,28 @@ describe('the synthetic backend keeps its state across launches', () => {
       committed: false,
       payloads: [work],
     });
+    // A batch writing one record twice is refused before anything is stored.
+    const duplicate = await ask('convex.call', {
+      path: 'productSync:putEncryptedPayloadsAtomically',
+      args: {
+        checks: [],
+        deletes: [],
+        writes: ['profile.extra', 'profile.extra'].map((payloadIdentifier) => ({
+          payloadIdentifier,
+          encryptedPayload: sealed,
+        })),
+      },
+      identity,
+      product,
+    });
+    expect(
+      decoded(
+        Schema.Struct({
+          body: Schema.fromJsonString(Schema.Struct({ status: Schema.String })),
+        }),
+        duplicate,
+      ).body.status,
+    ).toBe('error');
     await expect(
       call('productSync:listEncryptedPayloadsForTrustedDevice', {
         payloadIdentifierPrefix: 'profile.',

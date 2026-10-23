@@ -1,5 +1,6 @@
 import { createLocalization, english } from '@private-email/localization';
 import { menuState } from '@private-email/mail-core/context-menu';
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   createProfileChoices,
   profileMenu,
@@ -11,6 +12,7 @@ import {
   mailboxesOf,
   profilesOf,
 } from '@private-email/mail-core/registration';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createTwoProfileRegistration } from '@private-email/mail-core/testing/registration-scenarios';
 
 const work = { id: 'work', name: 'Work' };
@@ -87,10 +89,52 @@ describe('window Profiles', () => {
         ],
       },
     ]);
+    // The checked row is the window's own Profile; choosing it changes nothing.
+    await runs.get(`profile\n${workId}`)?.();
     await runs.get(`profile\n${defaultProfile}`)?.();
     await runs.get('profile\nnew')?.();
     expect(onSwitch).toHaveBeenCalledExactlyOnceWith(defaultProfile);
     expect(onCreate.mock.calls).toStrictEqual([[]]);
+  });
+
+  it('counts each Profile’s own unread mail', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const { snapshot } = registration.getSnapshot();
+    const connections = mailboxesOf(snapshot);
+    const unreadIn = async (count: number) => {
+      const gmail = createSyntheticGmail();
+      for (const subject of ['First', 'Second', 'Third'].slice(0, count)) {
+        gmail.deliver({ subject });
+      }
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      return inbox.getSnapshot();
+    };
+    const mailboxes = await Promise.all(
+      connections.map(async ({ id, profile }) => ({
+        id,
+        provider: 'gmail' as const,
+        profile,
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- One unread message for the Primary Profile's mailbox, three for Work's.
+        state: await unreadIn(profile === defaultProfile ? 1 : 3),
+      })),
+    );
+    const { sections } = menuState(
+      profileMenu(english, {
+        profiles: profilesOf(snapshot),
+        connections,
+        mailboxes,
+        current: defaultProfile,
+        onSwitch: () => undefined,
+        onCreate: () => undefined,
+      }),
+    );
+    expect(sections[0]?.items.map(({ subtitle }) => subtitle)).toStrictEqual([
+      'Gmail · 1 unread',
+      'Gmail · 3 unread',
+    ]);
+    expect(sections[0]?.items[1]?.id).toBe(`profile\n${workId}`);
   });
 
   it('lets translations order the complete Profile subtitle and its provider list', async () => {
@@ -177,6 +221,19 @@ describe('window Profiles', () => {
     const relaunched = createProfileChoices(native);
     await relaunched.load();
     expect(relaunched.getSnapshot()?.restored).toBe('work');
+  });
+
+  it('reads a malformed saved choice as none', async () => {
+    expect.hasAssertions();
+    const choices = createProfileChoices({
+      preference: () => Promise.resolve({ value: 5 }),
+      setPreference: () => Promise.resolve({}),
+    });
+    await choices.load();
+    expect(choices.getSnapshot()).toStrictEqual({
+      restored: undefined,
+      startup: undefined,
+    });
   });
 
   it('reads an unreadable saved choice as none', async () => {

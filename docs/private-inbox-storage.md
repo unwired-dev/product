@@ -172,14 +172,17 @@ window's own checked, then **New Mail Profile…**. Choosing a Profile switches 
 that window. New Mail Profile… asks for a name and creates the Profile through the
 fenced store without switching to it. When another Trusted Device's client cannot
 keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
-asks to try again.
+asks to try again. Creating a Profile needs a Product Sign-In verified since the
+app launched; after a relaunch it fails until the person signs in again
+([#1188](https://github.com/unwired-dev/product/issues/1188)).
 
 A window opens a targeted link's Profile first, then the Profile it restores, then
 the device-local Startup Profile, then the Default Profile. A restored or Startup
 Profile the account no longer lists is skipped. It returns once listed again.
 AppKit restores each Mac window with the Profile it last showed, following the
-system setting for keeping windows when quitting. A window that is not restored
-is new and opens the Startup Profile. The iPhone and iPad app has one window, as
+system setting for keeping windows when quitting; a real relaunch that restores
+it has not yet been verified natively and remains a release check. A window that is
+not restored is new and opens the Startup Profile. The iPhone and iPad app has one window, as
 multiple iPad scenes are turned off. It restores the Profile a link or the switcher
 last chose. Independent iPad windows, each with its own Profile, are tracked in
 [#1200](https://github.com/unwired-dev/product/issues/1200).

@@ -79,7 +79,9 @@ When the system keeps windows at quit (System Settings, Desktop & Dock, with
 unexpectedly, AppKit restores each Inbox window with its frame and Mail Profile.
 Otherwise a launch opens one new window in the Startup Profile. The Settings
 window is never restored. Native journeys launch with
-`-ApplePersistenceIgnoreState YES`, so each starts from one new window.
+`-ApplePersistenceIgnoreState YES`, so each starts from one new window; restoring a
+window's Profile across a real relaunch is not yet verified natively and remains a
+release check.
 
 Closing the final window keeps the application and its runtime alive, and Gmail
 synchronization continues without a window, as

@@ -46,7 +46,7 @@ import {
 import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
 
-import { InboxProvider } from '../src/mailbox.tsx';
+import { InboxProvider, profileChoices } from '../src/mailbox.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import {
   InboxWindow as RegisteredWindow,
@@ -1561,6 +1561,10 @@ describe('mac windows of different Mail Profiles', () => {
       ).resolves.toBeVisible();
     } finally {
       preference.mockRestore();
+      // The shared store keeps the last choices it read; read the device's again.
+      await act(async () => {
+        await profileChoices.load();
+      });
     }
   });
 

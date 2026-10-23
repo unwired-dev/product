@@ -111,8 +111,11 @@ export const profileMenu = (
           { connections: connectionNames, count: unread },
         ),
         checked: id === current,
+        // The window's own Profile changes nothing, so an open composer and reader stay.
         run: () => {
-          onSwitch(id);
+          if (id !== current) {
+            onSwitch(id);
+          }
         },
       };
     }),
