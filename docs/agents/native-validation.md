@@ -136,7 +136,9 @@ then cuts and pastes that query through the Edit menu. It closes the palette wit
 Escape and checks that focus returns to the search field. It moves through the
 palette's commands with Down and Up and runs Search Mail with Return, checking
 focus returns to search and Settings stays closed. It then runs Account from the
-palette, which opens Settings, and closes Settings with Command-W. It runs Reply from the palette,
+palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
+pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
+the pop-up shows the choice. It closes Settings with Command-W. It runs Reply from the palette,
 types into the reply and pastes into it. After relaunch, it checks that the
 saved Draft reopens with that text. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
@@ -149,7 +151,7 @@ the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
-reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
+Privacy & Data, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are buttons without a press action and the missing
 parent/child links
