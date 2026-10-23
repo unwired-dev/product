@@ -111,7 +111,8 @@ interface CommandMenu extends TurboModule {
 const commandMenu = () =>
   TurboModuleRegistry.get<CommandMenu>('UnwiredCommands');
 
-// The keys the palette's input handles itself; the rest edit the query as usual.
+// The keys the palette's input handles itself; the rest edit the query as usual. React Native
+// macOS reports Escape in a single-line input as a key press, never a key down.
 const handledKeys = [
   { key: 'ArrowUp' },
   { key: 'ArrowDown' },
@@ -569,13 +570,7 @@ function Palette({
     }
   };
   const keyDown = ({ nativeEvent }: KeyEvent) => {
-    if (nativeEvent.key === 'Escape') {
-      if (choosing === undefined) {
-        close();
-      } else {
-        back();
-      }
-    } else if (nativeEvent.key === 'ArrowDown') {
+    if (nativeEvent.key === 'ArrowDown') {
       highlight(Math.min(current + 1, enabled.length - 1));
     } else if (nativeEvent.key === 'ArrowUp') {
       highlight(Math.max(current - 1, 0));
@@ -624,6 +619,16 @@ function Palette({
             }
           }}
           onKeyDown={keyDown}
+          onKeyPress={({ nativeEvent }) => {
+            if (nativeEvent.key !== 'Escape') {
+              return;
+            }
+            if (choosing === undefined) {
+              close();
+            } else {
+              back();
+            }
+          }}
           // The input receives focus as soon as the palette, or its picker, appears.
           onLayout={() => {
             input.current?.focus();

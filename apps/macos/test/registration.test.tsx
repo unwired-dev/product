@@ -1264,7 +1264,7 @@ describe('product registration', () => {
       expect(menu.focus.saved).toStrictEqual(['inbox-window-bar']);
       await fireEvent(
         screen.getByPlaceholderText('Type a command'),
-        'keyDown',
+        'keyPress',
         {
           nativeEvent: { key: 'Escape' },
         },
@@ -1290,7 +1290,7 @@ describe('product registration', () => {
       focus.mockClear();
       await fireEvent(
         screen.getByPlaceholderText('Type a command'),
-        'keyDown',
+        'keyPress',
         {
           nativeEvent: { key: 'Escape' },
         },

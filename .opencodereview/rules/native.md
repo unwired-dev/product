@@ -619,6 +619,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   together; otherwise VoiceOver loses the operation's target while component
   tests that choose only by visible title still pass.
 
+- `AppDelegate.mm.installMenus` omitting standard text-editing menu items or
+  targeting them at the app delegate. Trace Cut, Copy, Paste and Select All key
+  equivalents through AppKit's focused responder and menu validation, in both a
+  controlled TextInput and the composer body; an editable control alone does not
+  provide these shortcuts, so typing can work while Command-X/V does nothing.
+  Preserve the documented omission of native Undo/Redo: a controlled field's
+  stale AppKit undo stack can corrupt text, while the composer owns its history.
+
 - `AttachmentPresenter` installing a controller only through `NSResponder.nextResponder`
   or a Quick Look data source, both unretained references. Give each window's
   controller an explicit strong owner through its active lifetime; on close,

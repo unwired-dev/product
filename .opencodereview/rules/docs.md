@@ -4,6 +4,15 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- Launch and **Open Inbox** gating lists in `docs/gmail-inbox.md` or
+  `docs/private-product-sync.md` conflating automatic landing, deferrable setup
+  and Inbox eligibility. Trace each listed condition
+  against `inboxSetup`, `canOpenInbox`, `opensInbox` and `inboxLanding` in
+  `packages/mail-core/src/registration.ts`. Distinguish setup that opens the account
+  page first but can be deferred from unfinished sign-out or deletion that closes
+  the Inbox, and qualify optional entry with the other pending setup gates;
+  otherwise the guide promises launch or manual access that the shared rule refuses.
+
 - A performance-coverage claim such as `docs/agents/native-validation.md`'s Mac
   journey saying it measures a budget without an action and rendered-result
   assertion for that interaction. Map each claimed budget to its measured

@@ -50,8 +50,9 @@ described in [Google registration](google-registration.md#deterministic-evidence
 [linked sign-in](linked-sign-in.md#deterministic-evidence),
 [sign-out and deletion](account-removal.md#deterministic-evidence), the
 [Tiptap Draft editor evaluation](draft-editor-evaluation.md), the
-[Thread view](catch-up.md#thread-view) and the
-[Mac performance journey](agents/native-validation.md#mac-performance-journey).
+[Thread view](catch-up.md#thread-view), the
+[Mac performance journey](agents/native-validation.md#mac-performance-journey) and the
+[Mac keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey).
 The registration journeys use the real native vault, Keychain and encrypted Inbox store.
 At each provider and backend seam, the vault asks a relay compiled only into the
 selected registration build (`native/private-inbox/synthetic/`). The synthetic Effect
@@ -111,19 +112,26 @@ types a new Draft into the Tiptap evaluation editor, rotates or resizes it, clos
 and reopens it after relaunch. It is the only registration scenario whose
 JavaScript differs from production: its bundles substitute the packaged editor page.
 In `registration-thread`, the synthetic Gmail mailbox also lists one Thread of six
-plain-text messages from Crew 1 to Crew 6, each body taller than a screen. The
-journey signs in like Google registration, then cold-opens the Thread view at
-Crew 3 through its `unwired-mail://thread/<id>?mailbox=<connection>` deep link. It
-checks that the opened message starts in the upper half of the screen, then drags
-into its text while Crew 4's body reply is held. Releasing that reply must retain
-the visible text position. It also checks that Crew 6's body unmounts once it lies
-more than a screen away, and that scrolling back to Crew 6 mounts it again. CI
-does not run this scenario; it is local native evidence.
+plain-text messages from Crew 1 to Crew 6, each body taller than a screen, and a
+field guide whose HTML body is taller than a screen. The journey signs in like
+Google registration, then cold-opens the Thread view at Crew 3 through its
+`unwired-mail://thread/<id>?mailbox=<connection>` deep link. It checks that the
+opened message starts in the upper half of the screen, then drags into its text
+while Crew 4's body reply is held. Releasing that reply must retain the visible
+text position. It also checks that Crew 6's body unmounts once it lies more than a
+screen away, and that scrolling back to Crew 6 mounts it again. On iPhone, the
+cold-opened Thread's Back then shows the Inbox, which opens Crew 6, then the field
+guide, in the reader. After scrolling into each body, a leading-edge swipe released
+early keeps the reading position, and a completed one returns to the Inbox. In
+Settings, a swipe from Account & Devices returns to the list of destinations, and
+another to Mailboxes. CI does not run this scenario; it is local native evidence.
 In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
 also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and
 Outlook update 001 to 125, each with its own body. Every other Gmail body is HTML.
 The Mac [performance journey](agents/native-validation.md#mac-performance-journey)
-connects both mailboxes and times its interactions over them. CI does not run it.
+connects both mailboxes and times its interactions over them; the Mac
+[keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
+drives them by keyboard. CI runs neither.
 The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
 adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
 reader. It has no native journey; its evidence comes from the page and the Swift

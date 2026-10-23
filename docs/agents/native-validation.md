@@ -120,6 +120,48 @@ query overhead, the synthetic press duration and every session stall. It
 measures neither Mail View switching, typing nor formatting feedback, keyboard or
 accessibility journeys, nor the iPhone and iPad references.
 
+### Mac keyboard and accessibility journey
+
+The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
+`Testing` build and sign-in as the performance journey:
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testKeyboardAndAccessibility
+```
+
+By keyboard, it runs Search Mail from the Command Palette and types a query. It
+then cuts and pastes that query through the Edit menu. It closes the palette with
+Escape and checks that focus returns to the search field. It moves through the
+palette's commands with Down and Up and runs Search Mail with Return, checking
+focus returns to search and Settings stays closed. It then runs Account from the
+palette, which opens Settings, and closes Settings with Command-W. It runs Reply from the palette,
+types into the reply and pastes into it. After relaunch, it checks that the
+saved Draft reopens with that text. Command-N opens a second Inbox with no
+selection; Command-backtick, Command-0 and Command-W then move between and close
+windows while the first window keeps its Draft. Opening a message, placing the
+caret in the new reply and Send still use the pointer (see
+[#849](https://github.com/unwired-dev/product/issues/849)). The journey never
+sends, because Send crashes the host
+([#1174](https://github.com/unwired-dev/product/issues/1174)). Cut and Copy use
+the desktop pasteboard. The journey restores its earlier contents only if
+nothing has written to it since the journey's last Cut or Copy.
+
+It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
+reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
+`xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
+audits still report. These are buttons without a press action and the missing
+parent/child links
+([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
+contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)), choose-one
+options without a role ([#1196](https://github.com/unwired-dev/product/issues/1196)),
+AppKit's text Touch Bar and the Apple relay address used as a label. The contrast gap lists
+the labels it covers. Any other issue fails
+the journey; remove a gap once its owner fixes it. The audits run in the host's
+current appearance only. They do not replace VoiceOver,
+Full Keyboard Access or iPhone and iPad keyboard qualification.
+
 ## Report what the evidence proves
 
 A production Hermes export verifies the JavaScript bundle. A native build proves

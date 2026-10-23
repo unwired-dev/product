@@ -25,6 +25,36 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A state-transition wait such as the landscape loop in
+  `InboxTests.verifyCompactMailboxesFillScreen` accepting a predicate already true
+  in the preceding state or for stale child geometry after the window changes.
+  Require an observable result that distinguishes the requested state at each
+  layer used by the assertions or next interaction, including intermediate
+  transitions and terminal cleanup before a caller's tap. Observe an intermediate
+  state at those same layers when needed.
+  Window width greater than height cannot distinguish opposite landscape
+  rotations, and a portrait row can already satisfy a landscape right-edge
+  clearance bound. Wait for the row to leave its stale layout before asserting
+  both edges or returning to the next action; otherwise checks and captures can
+  repeat the preceding orientation, fail on stale frames or tap outside the
+  restored window despite a correct layout.
+
+- A keyboard journey such as `WindowTests.testKeyboardAndAccessibility` proving
+  both arrow directions only by running the list's final command. Trace the
+  clamped selection with each direction disabled: an extra Down can reach the
+  same endpoint even when Up does nothing. Require an observable command result
+  that depends on returning to an interior row, or broken native Up delivery
+  passes the claimed keyboard check.
+
+- An accessibility audit classifier such as `WindowTests.knownAccessibilityGap`
+  suppressing an issue category, element type or label substring for a narrower
+  tracked defect. Match each exception to the owning issue or documented non-app
+  cause and observed elements. Label-based exceptions require the observed label
+  or stable identifier, not a substring such as `@` that admits unrelated labels.
+  Keep unmatched issues failing and print every classified issue. A wider
+  exception needs evidence that the defect affects every element it admits;
+  otherwise new unrelated accessibility regressions silently pass as known gaps.
+
 - An expiry test such as `ImapMailboxTests.imapSessionsStayWithTheirConnectionGeneration`
   shortening a session's lifetime before establishing the held command it intends
   to expire. Open the session and observe the command waiting before shortening
@@ -172,6 +202,22 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   green.
 
 #### Determinism and isolation
+
+- A native geometry wait such as `InboxTests.settledFrame(of:)` seeding its
+  previous frame from a sample taken immediately before polling, or comparing
+  reading position after a cancelled swipe without waiting for stable geometry.
+  Require separate polling samples to agree both before and after the gesture;
+  visibility or absence predicates already true before cancellation do not prove
+  settlement. Otherwise momentum or an unfinished interactive transition can
+  pass the first evaluation, falsely qualify position preservation or race the
+  next swipe.
+
+- A desktop journey such as `WindowTests.testKeyboardAndAccessibility` restoring
+  a saved pasteboard unconditionally. Snapshot its representations before the
+  journey writes, record `changeCount` after each owned Cut or Copy, and restore
+  only while the last write is still owned. Guaranteed teardown alone does not
+  establish ownership; otherwise it erases content copied later by the person
+  or another application.
 
 - A software-keyboard journey such as `InboxTests.sendJourney` using burst
   `typeText` or an unconfirmed character loop when the field can drop keystrokes

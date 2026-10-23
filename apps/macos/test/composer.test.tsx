@@ -361,7 +361,7 @@ describe('composing Drafts', () => {
     expect(
       receiveOnly.queryByRole('button', { name: 'New Message' }),
     ).toBeNull();
-    await fireEvent(screen.getByPlaceholderText('Type a command'), 'keyDown', {
+    await fireEvent(screen.getByPlaceholderText('Type a command'), 'keyPress', {
       nativeEvent: { key: 'Escape' },
     });
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);

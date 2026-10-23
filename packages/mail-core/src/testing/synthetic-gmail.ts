@@ -83,9 +83,9 @@ export const SyntheticGmailMessages = Context.Reference<
 });
 
 // The `registration-thread` mailbox adds one long Thread of six plain-text messages, Crew 6 the
-// newest, each body taller than a screen.
-const syntheticThread: Readonly<Record<string, SyntheticGmailMessage>> =
-  Object.fromEntries(
+// newest, each body taller than a screen, and a field guide whose HTML body is taller than a screen.
+const syntheticThread: Readonly<Record<string, SyntheticGmailMessage>> = {
+  ...Object.fromEntries(
     [1, 2, 3, 4, 5, 6].map((crew) => [
       `19a0c0ffee00001${crew}`,
       {
@@ -101,7 +101,19 @@ const syntheticThread: Readonly<Record<string, SyntheticGmailMessage>> =
         ).join('\n\n'),
       },
     ]),
-  );
+  ),
+  '19a0c0ffee000021': {
+    from: 'Iris Vale <iris@example.invalid>',
+    subject: 'Trail field guide',
+    snippet: 'Field guide, section 1.',
+    internalDate: '1759290000000',
+    labelIds: ['INBOX'],
+    html: Array.from(
+      { length: 40 },
+      (_, section) => `<p>Field guide, section ${section + 1}.</p>`,
+    ).join(''),
+  },
+};
 
 // The `registration-performance` mailbox adds 125 older Inbox Threads of one message each, every
 // other one HTML, for the warm-cache performance journey; Gmail update 001 is the newest.
