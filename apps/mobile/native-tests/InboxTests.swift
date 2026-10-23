@@ -1393,6 +1393,9 @@ final class InboxTests: XCTestCase {
         "\(edge) edge \(color) differs from the Mailboxes surface \(colors[0])")
     }
     for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight] {
+      // Portrait between the two, so the wait below sees each rotation finish.
+      XCUIDevice.shared.orientation = .portrait
+      waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
       XCUIDevice.shared.orientation = orientation
       waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
       let landscape = app.windows.firstMatch.frame
