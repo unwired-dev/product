@@ -23,6 +23,7 @@ import {
 import { createRegistrationFlow } from './registration-flow.ts';
 import {
   RegistrationSnapshotSchema,
+  defaultProfile,
   mailboxesOf,
   trustedDevicesOf,
 } from './registration-snapshot.ts';
@@ -656,6 +657,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
             const snapshot = yield* request(native.snapshot());
             publish({ ...state, snapshot });
             if (
+              profile !== defaultProfile &&
               mailboxesOf(snapshot).some(
                 (mailbox) => mailbox.id === id && mailbox.profile === profile,
               )

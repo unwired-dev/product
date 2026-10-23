@@ -1123,6 +1123,21 @@ describe('mail profile capability fence', () => {
 });
 
 describe('removing a Mail Profile with its mailboxes', () => {
+  it('keeps the Primary Profile mailboxes when its removal is refused', async () => {
+    expect.hasAssertions();
+    const context = await connected();
+    const store = createRegistration(context.vault);
+    await store.restore();
+    const before = mailboxesOf(store.getSnapshot().snapshot);
+    expect(before).toHaveLength(1);
+    await store.removeProfile(
+      defaultProfile,
+      before.map(({ id }) => id),
+    );
+    expect(store.getSnapshot().profileFailure).toBe('failed');
+    expect(mailboxesOf(store.getSnapshot().snapshot)).toStrictEqual(before);
+  });
+
   it('publishes completed mailbox removals when a later removal fails, so retry can finish', async () => {
     expect.hasAssertions();
     const context = await connected();
