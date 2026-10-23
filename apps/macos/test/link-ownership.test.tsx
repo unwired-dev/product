@@ -12,6 +12,7 @@ import {
   GmailMessageBody,
   LinkConfirmationProvider,
 } from '../src/message-body.tsx';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 
 // Capture the application callback through the same composite-fiber boundary as fireEvent.
 // Host nodes expose responder handlers rather than the Pressable's onPress prop.
@@ -89,23 +90,31 @@ describe('queued message link privacy', () => {
     {
       kind: 'ordinary',
       text: 'the plan',
-      first: 'Open link',
-      next: 'Cancel',
-      last: 'Cancel',
-      previous: 'Open link',
+      question: {
+        title: 'Open this link in your browser?',
+        detail: '',
+        buttons: ['Open link', 'Cancel'],
+        symbol: { name: 'link' },
+      },
+      opens: 'Open link',
     },
     {
       kind: 'caution',
       text: 'https://bank.invalid',
-      first: 'Cancel',
-      next: 'Copy link',
-      last: 'Proceed',
-      previous: 'Copy link',
+      question: {
+        title: 'This link may not be what it seems',
+        buttons: ['Cancel', 'Copy link', 'Proceed'],
+        cancel: 0,
+        destructive: 2,
+        symbol: { name: 'exclamationmark.shield' },
+      },
+      opens: 'Proceed',
     },
   ])(
-    'keeps Tab cycling inside the $kind alert after a choice loses focus',
-    async ({ text, first, next, last, previous }) => {
+    'asks about the $kind link in a sheet that opens only on its choice',
+    async ({ text, question, opens }) => {
       expect.hasAssertions();
+      const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
       const gmail = createSyntheticGmail();
       const id = gmail.deliver({
         content: { html: `<a href="${oldHref}">${text}</a>` },
@@ -113,46 +122,49 @@ describe('queued message link privacy', () => {
       const store = createGmailInbox(gmail.native);
       await store.load();
       const app = await render(view(store, id));
-      // The preset substitutes native View methods. This checks focus requests, not AppKit focus.
-      const focus = jest.spyOn(View.prototype, 'focus');
       try {
-        await fireEvent.press(
-          screen.getByRole('link', { name: `Open link: ${text}` }),
-        );
-        expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
-          screen.getByRole('button', { name: first }).props.onFocus,
-        );
-        for (const [from, event, shiftKey, to] of [
-          [first, 'blur', true, last],
-          [first, 'blur', false, first],
-          [first, 'focus', true, last],
-          [last, 'focus', false, first],
-          [first, 'focus', false, next],
-          [last, 'focus', true, previous],
-        ] as const) {
-          const button = screen.getByRole('button', { name: from });
-          await fireEvent(button, 'focus');
-          await fireEvent(button, event);
-          focus.mockClear();
-          await fireEvent(screen.getByText(oldHref), 'keyDown', {
-            nativeEvent: {
-              key: 'Tab',
-              shiftKey,
-              metaKey: false,
-              ctrlKey: false,
-              altKey: false,
-            },
-          });
-          expect(focus.mock.contexts.at(-1)?.props.onFocus).toBe(
-            screen.getByRole('button', { name: to }).props.onFocus,
-          );
-        }
+        const link = screen.getByRole('link', { name: `Open link: ${text}` });
+        await fireEvent.press(link);
+        expect(sheetShown()).toMatchObject({ ...question, passage: oldHref });
+        await act(() => {
+          chooseSheetButton('Cancel');
+        });
+        expect(sheetShown()).toBeUndefined();
+        await fireEvent.press(link);
+        await act(() => {
+          chooseSheetButton(opens);
+        });
+        expect(open.mock.calls).toStrictEqual([[oldHref]]);
       } finally {
         await app.unmount();
-        focus.mockRestore();
+        open.mockRestore();
       }
     },
   );
+
+  it('lists every warning before the caution destination', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: { html: `<a href="${oldHref}">https://bank.invalid</a>` },
+    });
+    const store = createGmailInbox(gmail.native);
+    await store.load();
+    const app = await render(view(store, id));
+    try {
+      await fireEvent.press(
+        screen.getByRole('link', { name: 'Open link: https://bank.invalid' }),
+      );
+      const [intro, ...warnings] = String(sheetShown()?.detail).split('\n');
+      expect({ intro, warned: warnings.length > 0 }).toStrictEqual({
+        intro: 'Check this link before opening it:',
+        warned: true,
+      });
+      expect(warnings.every((line) => line.startsWith('• '))).toBe(true);
+    } finally {
+      await app.unmount();
+    }
+  });
 
   it('copies the inspected destination through the native Clipboard', async () => {
     expect.hasAssertions();
@@ -169,7 +181,9 @@ describe('queued message link privacy', () => {
       await fireEvent.press(
         screen.getByRole('link', { name: 'Open link: https://bank.invalid' }),
       );
-      await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+      await act(() => {
+        chooseSheetButton('Copy link');
+      });
       expect(copy).toHaveBeenCalledWith(oldHref);
       expect(open).not.toHaveBeenCalled();
     } finally {
@@ -216,13 +230,7 @@ describe('queued message link privacy', () => {
           screen.getByTestId('message-webview').props
             .onShouldStartLoadWithRequest;
         await fireEvent.press(link);
-        expect(screen.getByText(oldHref)).toBeVisible();
-        const queuedCopy = pressHandler(
-          screen.getByRole('button', { name: 'Copy link' }),
-        );
-        const queuedProceed = pressHandler(
-          screen.getByRole('button', { name: 'Proceed' }),
-        );
+        expect(sheetShown()?.passage).toBe(oldHref);
         const transitions = {
           forget: async () => {
             await act(() => store.forget());
@@ -244,7 +252,7 @@ describe('queued message link privacy', () => {
           },
         };
         await transitions[transition]();
-        expect(screen.queryByText(oldHref)).toBeNull();
+        expect(sheetShown()).toBeUndefined();
         await act(() => {
           queuedPress();
           queuedNavigation({
@@ -253,18 +261,10 @@ describe('queued message link privacy', () => {
           });
         });
         expect({
-          url: screen.queryByText(oldHref),
-          copy: screen.queryByRole('button', { name: 'Copy link' }),
-          proceed: screen.queryByRole('button', { name: 'Proceed' }),
-        }).toStrictEqual({ url: null, copy: null, proceed: null });
-        await act(() => {
-          queuedCopy();
-          queuedProceed();
-        });
-        expect({
+          sheet: sheetShown(),
           copied: copy.mock.calls,
           opened: open.mock.calls,
-        }).toStrictEqual({ copied: [], opened: [] });
+        }).toStrictEqual({ sheet: undefined, copied: [], opened: [] });
       } finally {
         await app.unmount();
         copy.mockRestore();
@@ -334,18 +334,25 @@ describe.each(['gmail', 'imap'] as const)(
             </LinkConfirmationProvider>,
           );
           expect(retainedAtCommit).toStrictEqual([true]);
-          expect(screen.getByText(nextHref)).toBeVisible();
-          await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
-          expect(screen.queryByText(nextHref)).toBeNull();
+          expect(sheetShown()?.passage).toBe(nextHref);
+          await act(() => {
+            chooseSheetButton('Cancel');
+          });
+          expect(sheetShown()).toBeUndefined();
         } finally {
           await app.unmount();
         }
       },
     );
 
-    it.each(['message', 'account'] as const)(
-      'hides the old destination and rejects queued input before passive cleanup after %s changes',
-      async (transition) => {
+    it.each([
+      ['message', 'Copy link'],
+      ['message', 'Proceed'],
+      ['account', 'Copy link'],
+      ['account', 'Proceed'],
+    ] as const)(
+      'withdraws the old sheet and rejects queued input and a %s-change %s answer before passive cleanup',
+      async (transition, choice) => {
         expect.hasAssertions();
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
         const copy = jest
@@ -385,13 +392,7 @@ describe.each(['gmail', 'imap'] as const)(
               name: 'Open link: https://bank.invalid',
             }),
           );
-          const queuedCopy = pressHandler(
-            screen.getByRole('button', { name: 'Copy link' }),
-          );
-          const queuedProceed = pressHandler(
-            screen.getByRole('button', { name: 'Proceed' }),
-          );
-          const observations: Array<{ href: boolean; retained: boolean }> = [];
+          const retained: boolean[] = [];
           const replacement = {
             message: { store, id: next },
             account: { store: otherStore, id: sameId },
@@ -403,31 +404,29 @@ describe.each(['gmail', 'imap'] as const)(
               {reader(replacement.store, replacement.id)}
               <CommitProbe
                 inspect={() => {
-                  observations.push({
-                    href: JSON.stringify(app.toJSON()).includes(oldHref),
-                    retained: store.messageBody(id)?.kind === 'ready',
-                  });
+                  retained.push(store.messageBody(id)?.kind === 'ready');
                   queuedPress();
                   queuedNavigation({
                     url: 'about:blank#unwired-link-0',
                     navigationType: 'click',
                   });
-                  queuedCopy();
-                  queuedProceed();
+                  // The old sheet's answer arrives before its passive withdrawal.
+                  chooseSheetButton(choice);
                 }}
               />
             </LinkConfirmationProvider>,
           );
           expect({
-            observations,
+            retained,
+            sheet: sheetShown(),
             copied: copy.mock.calls,
             opened: open.mock.calls,
           }).toStrictEqual({
-            observations: [{ href: false, retained: true }],
+            retained: [true],
+            sheet: undefined,
             copied: [],
             opened: [],
           });
-          expect(screen.queryByText(oldHref)).toBeNull();
         } finally {
           await app.unmount();
           copy.mockRestore();

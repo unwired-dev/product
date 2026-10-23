@@ -45,6 +45,8 @@ export const SyntheticGmailMessages = Context.Reference<
       html:
         '<p>The seed order arrived. Shall we plan the beds this weekend?</p>' +
         '<p>Planting notes: <a href="https://example.invalid/garden">garden plan</a></p>' +
+        // A link whose visible address differs from its destination, which the reader flags.
+        '<p>Seed order: <a href="https://seeds.example.invalid/order">https://garden.example.invalid/order</a></p>' +
         '<img src="https://example.invalid/pixel.gif" alt="">',
     },
     '19a0c0ffee000002': {

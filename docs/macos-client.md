@@ -52,8 +52,12 @@ the presenter when the host provides an anchored menu with those states. Follow
 React Native macOS/AppKit controls and presenters over custom equivalents, and
 retain a minimal native adapter only for a documented host API gap. Expo UI
 availability on mobile does not establish Mac compatibility.
-`UnwiredAlert` asks the evaluation editor's save question in an `NSAlert` sheet on
-the asking view's own window and withdraws it by request when its asker goes away.
+`UnwiredAlert` asks the evaluation editor's save question and the reader's link
+confirmation in an `NSAlert` sheet on the asking view's own window and withdraws it
+by request when its asker goes away. It can name the button Escape answers, mark one
+destructive, replace the app icon with an SF Symbol and show a long selectable
+passage, such as a link destination, in a bounded scrolling view: `NSAlert`'s own
+text grows the sheet past the screen.
 React Native macOS 0.81.9's `Alert` asks over the key window and cannot withdraw a
 question. Remove the presenter when the host's alert can target a window and be
 dismissed.
@@ -111,10 +115,8 @@ hardware-keyboard qualification remain separate release checks.
 The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
 Shift-Command-Z history.
 
-Link confirmations move keyboard focus to their first choice and cycle Tab and
-Shift-Tab within the choices; Escape dismisses the alert. Dismissal does not
-explicitly restore focus to the originating link because that control is not
-tracked.
+Link confirmations are AppKit alert sheets, which own their keyboard focus,
+Return and Escape, VoiceOver and the return of focus to the window.
 
 The [keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
 covers what the keyboard reaches today: Command Palette commands, Search Mail,

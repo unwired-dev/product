@@ -696,10 +696,11 @@ or Inbox owner changes, and the current ownership boundary is checked again
 immediately before handoff. No link inspection needs a network lookup, backend,
 persistence or URL logging.
 
-On Mac, confirmation is a window-level glass alert over the dimmed Mailboxes
-sidebar, Inbox and reading pane. The window's selected mailbox and message gate
-the presentation; background accessibility is hidden while it is open, and
-Escape dismisses it.
+On Mac, confirmation is a system alert sheet on the reader's window. The window's
+selected mailbox and message gate the presentation, and the sheet closes without
+acting when either changes. The full destination scrolls within the sheet when it
+is long and can be selected. Escape answers Cancel. A flagged link makes Cancel the
+default button too, and its Proceed reads as destructive.
 Other windows retain their independent selections and confirmations.
 
 The accepted link inspection additionally compares URL-like visible anchor text

@@ -1,3 +1,4 @@
+#import <React/RCTUtils.h>
 #import <React/RCTView.h>
 #import <React/RCTViewManager.h>
 
@@ -455,7 +456,30 @@ RCT_EXPORT_MODULE()
 
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
 
-// The first button is the default and the last, Cancel, answers Escape.
+// A complete selectable text, such as a link's destination, that scrolls beyond a few lines: an
+// alert's own text grows the sheet past the screen.
+static NSScrollView *UnwiredPassage(NSString *text)
+{
+  NSScrollView *scroll = [NSTextView scrollableTextView];
+  scroll.drawsBackground = NO;
+  scroll.frame = NSMakeRect(0, 0, 220, 1);
+  NSTextView *view = scroll.documentView;
+  view.editable = NO;
+  view.drawsBackground = NO;
+  view.alignment = NSTextAlignmentCenter;
+  view.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+  view.textColor = NSColor.labelColor;
+  view.textContainerInset = NSZeroSize;
+  view.textContainer.lineFragmentPadding = 0;
+  view.string = text;
+  CGFloat height = [view.layoutManager usedRectForTextContainer:view.textContainer].size.height;
+  scroll.frame = NSMakeRect(0, 0, 220, MIN(ceil(height), 120));
+  return scroll;
+}
+
+// The first button is the default. `cancel`, the last unless given, answers Escape, and
+// `destructive` reads as destructive. A `symbol` replaces the app icon, and a `passage` shows
+// below the detail.
 RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
                   request:(nonnull NSNumber *)request
                   question:(NSDictionary *)question
@@ -468,13 +492,40 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     return;
   }
   NSArray<NSString *> *buttons = [RCTConvert NSStringArray:question[@"buttons"]];
+  id given = RCTNilIfNull(question[@"cancel"]);
+  NSInteger cancel = given ? [RCTConvert NSInteger:given] : (NSInteger)buttons.count - 1;
   NSAlert *alert = [NSAlert new];
   alert.messageText = [RCTConvert NSString:question[@"title"]];
   alert.informativeText = [RCTConvert NSString:question[@"detail"]];
   for (NSString *button in buttons) [alert addButtonWithTitle:button];
-  alert.buttons.lastObject.keyEquivalent = @"\033";
+  if (RCTNilIfNull(question[@"destructive"])) {
+    alert.buttons[[RCTConvert NSInteger:question[@"destructive"]]].hasDestructiveAction = YES;
+  }
+  NSDictionary *symbol = RCTNilIfNull(question[@"symbol"]);
+  if (symbol != nil) {
+    NSImageSymbolConfiguration *look = [[NSImageSymbolConfiguration configurationWithPointSize:40 weight:NSFontWeightRegular]
+        configurationByApplyingConfiguration:[NSImageSymbolConfiguration configurationWithHierarchicalColor:[RCTConvert NSColor:symbol[@"color"]]]];
+    alert.icon = [[NSImage imageWithSystemSymbolName:[RCTConvert NSString:symbol[@"name"]] accessibilityDescription:nil]
+        imageWithSymbolConfiguration:look];
+  }
+  if (RCTNilIfNull(question[@"passage"])) alert.accessoryView = UnwiredPassage([RCTConvert NSString:question[@"passage"]]);
+  // A first Cancel is also the default. AppKit gives a button titled Cancel Escape in place of
+  // Return, so it takes Return here, and its sheet maps Escape to it whatever its title.
+  id escape = nil;
+  if (cancel == 0) {
+    alert.buttons.firstObject.keyEquivalent = @"\r";
+    __weak NSAlert *asked = alert;
+    escape = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+      if (event.window != asked.window || ![event.charactersIgnoringModifiers isEqualToString:@"\033"]) return event;
+      [asked.buttons.firstObject performClick:nil];
+      return nil;
+    }];
+  } else {
+    alert.buttons[cancel].keyEquivalent = @"\033";
+  }
   self.shown[request] = alert;
   [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
+    if (escape != nil) [NSEvent removeMonitor:escape];
     [self.shown removeObjectForKey:request];
     NSInteger index = response - NSAlertFirstButtonReturn;
     resolve(index >= 0 && index < (NSInteger)buttons.count ? @(index) : [NSNull null]);

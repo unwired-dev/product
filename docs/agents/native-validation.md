@@ -138,7 +138,12 @@ palette's commands with Down and Up and runs Search Mail with Return, checking
 focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
-the pop-up shows the choice. It closes Settings with Command-W. It then searches for the
+the pop-up shows the choice. It closes Settings with Command-W. It then opens the Gmail
+message **Garden plans for spring** and asks about its links through their keyboard controls.
+Each link's AppKit alert sheet shows its title and full destination. Command-P stays closed
+behind the sheet, and Escape and Cancel close it. The flagged link's sheet closes with Escape
+and with Return, its default Cancel. The journey never opens or copies a link. Afterwards
+Command-P opens the palette again. It then searches for the
 Microsoft message **Quarterly planning** and opens it. The reader's **Folders** AppKit
 menu closes with Escape and with a click outside, then Down and Return choose
 **Projects**, which moves the message and closes its reader. This runs before Reply
@@ -159,14 +164,16 @@ the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
-Privacy & Data, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
+Privacy & Data, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are buttons without a press action and the missing
 parent/child links
 ([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)), choose-one
 options without a role ([#1196](https://github.com/unwired-dev/product/issues/1196)),
-AppKit's text Touch Bar and email addresses used as labels. The contrast gap lists
+reader labels that repeat their role
+([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
+and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The audits run in the host's
 current appearance only. They do not replace VoiceOver,
