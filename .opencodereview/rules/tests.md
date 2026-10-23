@@ -27,11 +27,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 - A state-transition wait such as the landscape loop in
   `InboxTests.verifyCompactMailboxesFillScreen` accepting a predicate already true
-  in the preceding state. Require an observable result that distinguishes the
-  requested state, or establish and observe an intermediate state first. Window
-  width greater than height cannot distinguish opposite landscape rotations;
-  otherwise row checks and captures can repeat the first orientation while
-  claiming to cover both.
+  in the preceding state or for stale child geometry after the window changes.
+  Require an observable result that distinguishes the requested state at each
+  layer used by the assertions, observing an intermediate state when needed.
+  Window width greater than height cannot distinguish opposite landscape
+  rotations, and a portrait row can already satisfy a landscape right-edge
+  clearance bound. Wait for the row to leave its stale layout before asserting
+  both edges; otherwise checks and captures can repeat the preceding orientation
+  or fail on stale frames despite a correct layout.
 
 - An expiry test such as `ImapMailboxTests.imapSessionsStayWithTheirConnectionGeneration`
   shortening a session's lifetime before establishing the held command it intends
