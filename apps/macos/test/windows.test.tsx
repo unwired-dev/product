@@ -42,6 +42,7 @@ import {
   Animated,
   AppState,
   DeviceEventEmitter,
+  processColor,
   ScrollView,
   TurboModuleRegistry,
   View,
@@ -1540,7 +1541,15 @@ describe('mac windows over a connected Gmail mailbox', () => {
         title: 'New Label',
         detail: 'The label is created in Gmail and added to this message.',
         buttons: ['Add Label', 'Cancel'],
-        symbol: { name: 'tag' },
+        symbol: {
+          name: 'tag',
+          color: {
+            dynamic: {
+              light: processColor(palette.light.accentInk),
+              dark: processColor(palette.dark.accentInk),
+            },
+          },
+        },
         field: 'Label name',
       });
       // Appearance changes must keep the native field and the name already typed into it.

@@ -32,7 +32,7 @@ import {
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { palette, radius, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -42,6 +42,7 @@ import {
 } from 'react';
 import {
   AccessibilityInfo,
+  DynamicColorMacOS,
   Pressable,
   StyleSheet,
   Text,
@@ -542,7 +543,6 @@ function GmailMessageActions({
   const store = useInboxActions();
   const { t } = useLocalization();
   const mailbox = useMailbox();
-  const colors = usePalette();
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
   const failure = useRef<ReturnType<typeof askInSheet>>(undefined);
@@ -552,12 +552,11 @@ function GmailMessageActions({
     },
     [],
   );
-  // Capture the question's presentation so an appearance or language change cannot replace its field.
+  // Keep the question's language so a preference change cannot replace its field.
   const [naming, setNaming] = useState<
     Readonly<{
       message: GmailMessage;
       t: Translate;
-      accentInk: ReturnType<typeof usePalette>['accentInk'];
     }>
   >();
   // Asks for a name, then creates the label in Gmail and applies it; a failure is explained. The
@@ -566,12 +565,18 @@ function GmailMessageActions({
     if (naming === undefined || !('createLabel' in store)) {
       return undefined;
     }
-    const { message, t: translate, accentInk } = naming;
+    const { message, t: translate } = naming;
     const question = askForText(anchor.current, {
       title: translate('gmailActions.newLabelTitle'),
       detail: translate('gmailActions.newLabelDetail'),
       buttons: [translate('gmailActions.addLabel'), translate('common.cancel')],
-      symbol: { name: 'tag', color: accentInk },
+      symbol: {
+        name: 'tag',
+        color: DynamicColorMacOS({
+          light: palette.light.accentInk,
+          dark: palette.dark.accentInk,
+        }),
+      },
       field: translate('gmailActions.labelName'),
     });
     let asking = true;
@@ -715,7 +720,6 @@ function GmailMessageActions({
                           setNaming({
                             message,
                             t,
-                            accentInk: colors.accentInk,
                           });
                         },
                       },
