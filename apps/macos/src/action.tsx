@@ -10,9 +10,9 @@ const styles = StyleSheet.create({
   outset: { marginHorizontal: -8 },
   capsule: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -67,7 +67,7 @@ export function Action({
               backgroundColor: pressed
                 ? colors.accentSelectionSubtle
                 : 'transparent',
-              borderColor:
+              outlineColor:
                 focused && !disabled ? colors.accentInk : 'transparent',
             },
           ]}>
