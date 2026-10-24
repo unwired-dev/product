@@ -2945,13 +2945,20 @@ export function createGmailInbox(
     if (
       !sameMailbox(latest, cache) ||
       saved === undefined ||
-      base === undefined ||
-      !sameCheckpoint(base.checkpoint, saved.checkpoint)
+      base === undefined
     ) {
       return yield* new SyncFailure({
         kind: 'invalidated',
         cause: 'mailbox',
         diagnostic: 'another mailbox',
+      });
+    }
+    // Another store saved newer provider progress; synchronization restarts from it.
+    if (!sameCheckpoint(base.checkpoint, saved.checkpoint)) {
+      return yield* new SyncFailure({
+        kind: 'conflict',
+        cause: 'checkpoint',
+        diagnostic: 'checkpoint changed',
       });
     }
     return {

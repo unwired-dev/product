@@ -278,7 +278,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
     graph.remove(removed);
     const delivered = graph.deliver({
       subject: 'After the refill',
-      at: Date.now(),
+      at: Date.UTC(2026, 9, 2),
     });
     round.split([removed], [delivered]);
     await inbox.load();
