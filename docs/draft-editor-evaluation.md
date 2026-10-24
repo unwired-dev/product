@@ -14,6 +14,15 @@ usability and performance ([#822](https://github.com/unwired-dev/product/issues/
 and the adoption decision ([#823](https://github.com/unwired-dev/product/issues/823))
 are separate evaluations.
 
+The [confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+require lossless editing of provider-hosted Drafts. This evaluation's bounded
+formatting and lossy paste behavior do not satisfy that target, and its existing
+evidence does not qualify provider Draft interoperability. Production lossless
+editing is tracked in [rich formatting #1267](https://github.com/unwired-dev/product/issues/1267)
+and [tables #1268](https://github.com/unwired-dev/product/issues/1268). Those
+tickets do not establish adoption of this evaluation editor or completion of
+its separate evaluation work.
+
 ## Selecting the evaluation editor
 
 Only builds of the `registration-draft-editor`

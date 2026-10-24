@@ -96,3 +96,4 @@ ADRs take the next number after the highest in this index.
 | 0071   | [Use opt-in PostHog EU telemetry on the Free plan](0071-use-opt-in-posthog-eu-telemetry-on-the-free-plan.md)                                   |
 | 0072   | [Allow reviewed post-launch Mail Commitments](0072-allow-reviewed-post-launch-mail-commitments.md)                                             |
 | 0073   | [Separate External Agent access from On-Device Mail Assistance](0073-separate-external-agent-access-from-on-device-assistance.md)              |
+| 0074   | [Use provider-hosted Drafts for cross-client editing](0074-use-provider-hosted-drafts-for-cross-client-editing.md)                             |

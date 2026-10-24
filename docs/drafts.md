@@ -1,4 +1,4 @@
-# Local rich-text Drafts
+# Drafts
 
 Setup, coding rules, validation and observable requirements remain in this file.
 
@@ -9,6 +9,46 @@ unsent message kept encrypted on this device until it is discarded or
 mailbox. [#614](https://github.com/unwired-dev/product/issues/614)
 [synchronizes Drafts](#continuing-on-another-device) between the Product Account's
 Trusted Devices through Private Sync.
+
+This guide describes the current implementation. The
+[confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+replace its provider read-only boundary and Private Sync Draft content transport
+with editable provider-hosted Drafts, an encrypted offline copy, automatic verified
+migration and lossless editing. Those requirements remain unimplemented; the
+formatting and synchronization limits below do not satisfy the launch target.
+
+## Provider-hosted Draft launch plan
+
+The [launch specification](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+owns the confirmed target behavior. The provider will hold the canonical Draft,
+including Drafts started in another compatible mail client; Unwired will retain
+encrypted local content for offline editing and pending uploads. The provider
+receives that content before Send, while the product backend remains unable to
+read it. Existing product-owned Drafts must survive automatic verified migration.
+
+The approved delivery slices are published:
+
+- Lossless production editing: [rich formatting #1267](https://github.com/unwired-dev/product/issues/1267)
+  and [tables #1268](https://github.com/unwired-dev/product/issues/1268).
+- Online provider Drafts: [Gmail #1269](https://github.com/unwired-dev/product/issues/1269),
+  [Microsoft #1270](https://github.com/unwired-dev/product/issues/1270), and
+  [IMAP #1271](https://github.com/unwired-dev/product/issues/1271).
+- Offline edits, known conflicts and recovery after external sending or deletion:
+  [Gmail #1272](https://github.com/unwired-dev/product/issues/1272),
+  [Microsoft #1273](https://github.com/unwired-dev/product/issues/1273), and
+  [IMAP #1274](https://github.com/unwired-dev/product/issues/1274).
+- Provider Draft retirement and restoration through Outbox and Undo:
+  [#1275](https://github.com/unwired-dev/product/issues/1275).
+- Automatic verified migration and retirement of the superseded Private Sync
+  Draft-content transport: [#1276](https://github.com/unwired-dev/product/issues/1276).
+- Real-provider and packaged-client qualification:
+  [#1282](https://github.com/unwired-dev/product/issues/1282), within the existing
+  expanded launch gate [#855](https://github.com/unwired-dev/product/issues/855).
+
+GitHub owns completion and native blocking relationships. Publishing these
+tickets does not establish implementation or qualification. The rest of this
+guide describes the current local Drafts, restricted formatting, Private Sync
+transport and known native exit gaps.
 
 ## Composing
 

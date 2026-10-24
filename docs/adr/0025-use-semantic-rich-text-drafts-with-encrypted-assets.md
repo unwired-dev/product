@@ -1,5 +1,14 @@
 # Use semantic rich-text Drafts with encrypted assets
 
+## Provider Draft amendment, 2026-10-24
+
+[ADR 0074](0074-use-provider-hosted-drafts-for-cross-client-editing.md) supersedes
+the Draft content and asset transport below for the maintained launch clients.
+The [launch contract](../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+requires editable provider-hosted Drafts and lossless content and visible
+formatting. Earlier document restrictions cannot narrow that requirement.
+The implementation below remains recorded without claiming the target is built.
+
 Draft bodies use a Semantic Message Document shared by Markdown shortcuts, formatting controls, context actions, and standards-compatible HTML plus plain-text delivery instead of storing Markdown or raw HTML. Attachments and inline images synchronize as independently encrypted Draft Assets, trading Product Sync storage and chunk-management complexity for complete cross-device Draft editing without exposing authored content to the backend; documents and assets share the non-evicting 100 MB device-wide Outgoing Content Store with Send Reminders and Scheduled Sends, and Send remains unavailable until every required asset is locally complete and verified. ADR-0046 broadens the original Draft-only storage boundary so transitions between Draft, reminder, and scheduled states reuse the same encrypted assets instead of duplicating them.
 
 Product-authored Drafts have no read-only presentation. Selecting one opens its Semantic Message Document directly in the composer, where every change continues through the existing encrypted autosave and conflict rules.

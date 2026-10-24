@@ -140,7 +140,9 @@ Items**, which Microsoft files afterwards:
 Graph accepts a message in one request of at most 4 MB, so a Microsoft mailbox sends
 messages of up to 3 MB here, files included; Send refuses a larger one and keeps the
 Draft open. Larger messages, which need Outlook drafts and attachment upload
-sessions, are a later slice.
+sessions, remain unimplemented in [#917](https://github.com/unwired-dev/product/issues/917).
+They are now required for the [confirmed launch](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24),
+within the selected mailbox's supported limits.
 
 ## Credentials
 
