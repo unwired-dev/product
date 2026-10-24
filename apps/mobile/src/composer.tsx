@@ -89,6 +89,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   AppState,
   Image,
@@ -343,16 +344,24 @@ export type Closing =
   | 'discard'
   | 'recipients';
 
-// A quiet banner beside the content it explains, with its actions under the message.
+// A quiet banner beside the content it explains, with its actions under the message. VoiceOver
+// announces an action's outcome when it appears; iOS ignores live regions.
 function Alert({
   message,
   actions,
+  outcome = false,
   children,
 }: {
   readonly message: string;
   readonly actions?: ComponentProps<typeof Banner>['messageActions'];
+  readonly outcome?: boolean;
   readonly children?: ReactNode;
 }) {
+  useEffect(() => {
+    if (outcome) {
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [outcome, message]);
   return (
     <Banner
       icon="exclamationmark.triangle"
@@ -1151,6 +1160,7 @@ function SendRefusalNotice({
   )?.provider;
   return refused === undefined ? null : (
     <Alert
+      outcome
       message={t(
         refused === 'too-large'
           ? tooLarge[provider ?? 'gmail']
@@ -1236,6 +1246,7 @@ export function ComposerNotices({
     <View style={styles.alerts}>
       {closing === 'blocked' || closing === 'discard-blocked' ? (
         <Alert
+          outcome
           message={
             closing === 'discard-blocked'
               ? t('drafts.discardBlocked')
@@ -1249,7 +1260,10 @@ export function ComposerNotices({
         </Alert>
       ) : null}
       {closing === 'recipients' ? (
-        <Alert message={t('drafts.invalidRecipients')} />
+        <Alert
+          outcome
+          message={t('drafts.invalidRecipients')}
+        />
       ) : null}
       <SendRefusalNotice
         connection={draft.connection}
@@ -1257,7 +1271,9 @@ export function ComposerNotices({
       />
       <SendingNotice draft={draft} />
       {closing === 'discard' ? (
-        <Alert message={t('drafts.discardConfirm')}>
+        <Alert
+          outcome
+          message={t('drafts.discardConfirm')}>
           <Button
             size="compact"
             destructive
