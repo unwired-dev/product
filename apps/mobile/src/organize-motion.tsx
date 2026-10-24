@@ -144,31 +144,28 @@ export function MovingRow({
   const size = useSharedValue(kind === 'returning' ? 0 : 1);
   const opacity = useSharedValue(kind === 'returning' ? 0 : 1);
   const settle = useRef(onSettled);
-  // The animated style stays bound from a motion's start until the row is whole again on the UI
-  // thread; a resting row binds none, so the list stays idle.
+  // The animated style stays bound only while the row moves; a resting row binds none, so the
+  // list stays idle. Reanimated keeps the properties it applied on a view after its style
+  // detaches, so a row that comes to rest, or whose motion another outcome clears, mounts a fresh
+  // view at its own height, which later Dynamic Type, width and mailbox-detail changes still lay
+  // out.
   const [bound, setBound] = useState(kind !== undefined);
+  const [rested, setRested] = useState(0);
   if (kind !== undefined && !bound) {
     setBound(true);
+  }
+  if (kind === undefined && bound) {
+    setBound(false);
+    setRested(rested + 1);
   }
   useEffect(() => {
     settle.current = onSettled;
   });
   useEffect(() => {
-    // A motion that ends or is cleared, as when another outcome replaces it, leaves the row whole
-    // before the style detaches.
     if (kind === undefined) {
-      if (bound) {
-        const rest = () => {
-          setBound(false);
-        };
-        size.set(withTiming(1, { duration: 0 }));
-        opacity.set(
-          withTiming(1, { duration: 0 }, () => {
-            'worklet';
-            scheduleOnRN(rest);
-          }),
-        );
-      }
+      // The next motion starts from a whole row.
+      size.set(1);
+      opacity.set(1);
       return;
     }
     const settled = () => {
@@ -197,7 +194,7 @@ export function MovingRow({
     }
     size.set(withTiming(1, timing));
     opacity.set(withTiming(1, timing, done));
-  }, [kind, wait, reduced, size, opacity, settle, bound]);
+  }, [kind, wait, reduced, size, opacity, settle]);
   const shown = useAnimatedStyle(
     () => ({ height: (natural ?? 0) * size.value, opacity: opacity.value }),
     [natural],
@@ -216,6 +213,7 @@ export function MovingRow({
   const gone = kind === 'leaving';
   return (
     <Animated.View
+      key={rested}
       style={[styles.clip, moving]}
       pointerEvents={gone ? 'none' : 'auto'}
       accessibilityElementsHidden={gone}

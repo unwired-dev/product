@@ -337,7 +337,10 @@ button when closed; with Reduce Motion they only fade. The action buttons and la
 with visible focus rings. After a removal, **Undo** appears in the Inbox. For every provider, a
 row that leaves the list collapses and fades in 200 ms while the rows below follow it up, and
 Undo, a refused or rolled-back change, or a discarded one grows it back from its current height
-without selecting it. A scroll, a selection or another action finishes a row still leaving, and
+without selecting it. Rows follow provider message IDs, so an IMAP message that Undo moves back
+under a new UID keeps its row, and mail that only looks the same never moves. A removal the
+provider has confirmed moves nothing later: a message another client restores appears without
+motion. A scroll, a selection or another action finishes a row still leaving, and
 on iPhone a row leaves once the reader's Back transition has shown the list. With Reduce Motion
 the row leaves at once and a returning row only fades in over 150 ms. Synchronization and
 changing the view, search or Filter never move rows, and new mail keeps the topmost visible row

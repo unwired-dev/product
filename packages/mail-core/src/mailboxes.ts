@@ -44,7 +44,7 @@ export type { RowMotionState, ShownRows } from './mailbox-motion.ts';
 export {
   advanceRowMotion,
   motionIdentityOf,
-  organizingConcerns,
+  organizingWork,
   placeLeavingRows,
   restingRowMotion,
 } from './mailbox-motion.ts';

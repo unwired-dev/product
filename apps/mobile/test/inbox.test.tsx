@@ -23,6 +23,7 @@ import { syntheticMailboxes } from '@private-email/mail-core/testing/registratio
 import { palette } from '@private-email/mail-core/theme';
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -2179,93 +2180,154 @@ describe('organizing motion', () => {
     });
   };
 
+  // These journeys inspect unfinished motion, so animation frames must not finish it between
+  // inputs. The list unmounts before frames return, so no animation outlives the journey.
+  const holdingFrames = async (journey: () => Promise<void>) => {
+    const frames = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockReturnValue(0);
+    try {
+      await journey();
+    } finally {
+      await cleanup();
+      frames.mockRestore();
+    }
+  };
+
+  // A row's content, the view around it that holds the row's height while it moves, and the list
+  // cell around that, which a row keeps while it leaves and returns.
+  const rowContent = (subject: string) => {
+    let node = screen.getByText(subject, { includeHiddenElements: true });
+    while (
+      node.parent !== null &&
+      StyleSheet.flatten(node.parent.props.style)?.overflow !== 'hidden'
+    ) {
+      node = node.parent;
+    }
+    return node;
+  };
+  const rowFrame = (subject: string) => rowContent(subject).parent;
+
   it('keeps a row leaving for an action and returns it with Undo, never for synchronization', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-    const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
-    const lunch = gmail.deliver({ subject: 'Lunch on Friday' });
-    const connected = await renderConnected(gmail.native);
-    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    await holdingFrames(async () => {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
+      const lunch = gmail.deliver({ subject: 'Lunch on Friday' });
+      const connected = await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
 
-    // Synchronization adds and removes rows without keeping any.
-    gmail.archive(elsewhere);
-    gmail.deliver({ subject: 'Arrives quietly' });
-    await act(connected.store().load);
-    await screen.findByText('Arrives quietly');
-    const synchronized = leavingRows('Archived elsewhere');
+      // Synchronization adds and removes rows without keeping any.
+      gmail.archive(elsewhere);
+      gmail.deliver({ subject: 'Arrives quietly' });
+      await act(connected.store().load);
+      await screen.findByText('Arrives quietly');
+      const synchronized = leavingRows('Archived elsewhere');
 
-    await archive('Lunch on Friday');
-    const archived = [
-      leavingRows('Lunch on Friday'),
-      screen.queryByText('Lunch on Friday'),
-    ];
-    const leaving = screen.getByText('Lunch on Friday', {
-      includeHiddenElements: true,
+      await archive('Lunch on Friday');
+      const archived = [
+        leavingRows('Lunch on Friday'),
+        screen.queryByText('Lunch on Friday'),
+      ];
+      const leaving = rowFrame('Lunch on Friday')?.parent;
+      // Undo brings the same row back, reversing from where it is.
+      await undo();
+      const restored = rowFrame('Lunch on Friday')?.parent;
+
+      expect({
+        synchronized,
+        archived,
+        restored: [leavingRows('Lunch on Friday'), restored === leaving],
+      }).toStrictEqual({
+        synchronized: 0,
+        archived: [1, null],
+        restored: [0, true],
+      });
+
+      // The Undo notice stays visible, but does not attribute a later server-side removal.
+      gmail.archive(lunch);
+      await act(connected.store().load);
+      expect(leavingRows('Lunch on Friday')).toBe(0);
     });
-    // Undo brings the same row back, reversing from where it is.
-    await undo();
-    const restored = screen.getByText('Lunch on Friday');
-
-    expect({
-      synchronized,
-      archived,
-      restored: [leavingRows('Lunch on Friday'), restored === leaving],
-    }).toStrictEqual({
-      synchronized: 0,
-      archived: [1, null],
-      restored: [0, true],
-    });
-
-    // The Undo notice stays visible, but does not attribute a later server-side removal.
-    gmail.archive(lunch);
-    await act(connected.store().load);
-    expect(leavingRows('Lunch on Friday')).toBe(0);
   });
 
   it('keeps the last row in its date section mounted through removal and Undo', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-    gmail.deliver({ subject: 'Only message today' });
-    await renderConnected(gmail.native);
-    const original = await screen.findByText('Only message today');
+    await holdingFrames(async () => {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Only message today' });
+      await renderConnected(gmail.native);
+      await screen.findByText('Only message today');
+      const original = rowFrame('Only message today')?.parent;
 
-    await archive('Only message today');
-    const leaving = screen.getByText('Only message today', {
-      includeHiddenElements: true,
+      await archive('Only message today');
+      const leaving = rowFrame('Only message today')?.parent;
+      await undo();
+
+      expect([
+        leaving === original,
+        rowFrame('Only message today')?.parent === original,
+      ]).toStrictEqual([true, true]);
     });
-    await undo();
+  });
 
-    expect([
-      leaving === original,
-      screen.getByText('Only message today') === original,
-    ]).toStrictEqual([true, true]);
+  it('lets a restored row lay out at its own height once its motion ends', async () => {
+    expect.hasAssertions();
+    await holdingFrames(async () => {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Lunch on Friday' });
+      gmail.deliver({ subject: 'Dinner on Saturday' });
+      await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
+
+      await archive('Lunch on Friday');
+      const moving = rowFrame('Lunch on Friday');
+      await fireEvent(rowContent('Lunch on Friday'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 76 } },
+      });
+      const held = StyleSheet.flatten(rowFrame('Lunch on Friday')?.props.style);
+      // Undo before the row has collapsed returns it whole at once.
+      await undo();
+      const resting = rowFrame('Lunch on Friday');
+
+      expect([
+        held.height,
+        resting === moving,
+        StyleSheet.flatten(resting?.props.style),
+      ]).toStrictEqual([76, false, { overflow: 'hidden' }]);
+    });
   });
 
   it('finishes a leaving row at once when a scroll or a selection interrupts it', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-    gmail.deliver({ subject: 'Lunch on Friday' });
-    gmail.deliver({ subject: 'Dinner on Saturday' });
-    gmail.deliver({ subject: 'Breakfast on Sunday' });
-    await renderConnected(gmail.native);
-    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    await holdingFrames(async () => {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Lunch on Friday' });
+      gmail.deliver({ subject: 'Dinner on Saturday' });
+      gmail.deliver({ subject: 'Breakfast on Sunday' });
+      await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
 
-    await archive('Lunch on Friday');
-    const beforeScroll = leavingRows('Lunch on Friday');
-    await fireEvent(screen.getByLabelText('Inbox messages'), 'scrollBeginDrag');
-    const scrolled = leavingRows('Lunch on Friday');
-    await archive('Dinner on Saturday');
-    const beforeSelection = leavingRows('Dinner on Saturday');
-    await fireEvent.press(
-      screen.getByRole('button', { name: /Breakfast on Sunday/u }),
-    );
+      await archive('Lunch on Friday');
+      const beforeScroll = leavingRows('Lunch on Friday');
+      await fireEvent(
+        screen.getByLabelText('Inbox messages'),
+        'scrollBeginDrag',
+      );
+      const scrolled = leavingRows('Lunch on Friday');
+      await archive('Dinner on Saturday');
+      const beforeSelection = leavingRows('Dinner on Saturday');
+      await fireEvent.press(
+        screen.getByRole('button', { name: /Breakfast on Sunday/u }),
+      );
 
-    expect([
-      beforeScroll,
-      scrolled,
-      beforeSelection,
-      leavingRows('Dinner on Saturday'),
-    ]).toStrictEqual([1, 0, 1, 0]);
+      expect([
+        beforeScroll,
+        scrolled,
+        beforeSelection,
+        leavingRows('Dinner on Saturday'),
+      ]).toStrictEqual([1, 0, 1, 0]);
+    });
   });
 
   it('removes a leaving row at once under Reduce Motion', async () => {
@@ -2288,21 +2350,23 @@ describe('organizing motion', () => {
 
   it('retires leaving rows when search replaces the list', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-    gmail.deliver({ subject: 'Lunch on Friday' });
-    gmail.deliver({ subject: 'Dinner on Saturday' });
-    await renderConnected(gmail.native);
-    await screen.findByRole('button', { name: /Lunch on Friday/u });
-    await archive('Lunch on Friday');
-    expect(leavingRows('Lunch on Friday')).toBe(1);
+    await holdingFrames(async () => {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Lunch on Friday' });
+      gmail.deliver({ subject: 'Dinner on Saturday' });
+      await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
+      await archive('Lunch on Friday');
+      expect(leavingRows('Lunch on Friday')).toBe(1);
 
-    await fireEvent(
-      screen.getByLabelText('Search senders and subjects'),
-      'focus',
-    );
-    expect(
-      screen.queryByText('Lunch on Friday', { includeHiddenElements: true }),
-    ).toBeNull();
+      await fireEvent(
+        screen.getByLabelText('Search senders and subjects'),
+        'focus',
+      );
+      expect(
+        screen.queryByText('Lunch on Friday', { includeHiddenElements: true }),
+      ).toBeNull();
+    });
   });
 });
 

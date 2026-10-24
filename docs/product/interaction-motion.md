@@ -158,7 +158,10 @@ verification status applies to these transitions.
 
 The list keeps a row an organizing outcome removed on screen while its height collapses and it
 fades, hidden from VoiceOver and touch, so the rows below follow it up. A row that returns keeps
-its identity and grows back from its current height. Each window's list decides from its own
+its identity and grows back from its current height: rows follow provider message IDs, and an
+IMAP message keeps its row while Undo moves it back under a new UID. A removal owns its row only
+until the provider confirms it, so another client's later restoration appears without motion.
+Each window's list decides from its own
 outcomes, so every Mac window moves on its own. A new outcome, a scroll or a selection finishes
 the rows still leaving. On iPhone, a row leaves once the reader's Back transition has shown the
 list again. Reduce Motion and scrolled synchronization still need native qualification.

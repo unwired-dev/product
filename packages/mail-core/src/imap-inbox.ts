@@ -271,6 +271,11 @@ export type ImapInboxState =
       readonly pending: number;
       readonly blocked: string | undefined;
       readonly notice?: ImapNotice;
+      // An Undo is moving a message back, and the folder it returns to has not been read since.
+      readonly restoring?: true;
+      // The ID each message a verified move gave a new UID was first shown with, so its row stays
+      // the same row when an Undo moves it back.
+      readonly originalIds?: ReadonlyMap<string, string>;
       // Whether Undo can still reverse the notice's move.
       readonly undo: boolean;
       // Marks an IMAP Inbox among other providers'.
@@ -492,6 +497,15 @@ const movedTo = (
         uidValidity: answer.uidValidity,
         uid: answer.uid,
       }
+    : undefined;
+
+// The ID a move the server mapped to a new UID gave the message, Undo's included.
+const movedId = ({ action }: ImapPending, answer: Answer) =>
+  answer.outcome === 'moved' &&
+  answer.uid !== undefined &&
+  answer.uidValidity !== undefined &&
+  moves(action)
+    ? messageId(action.destination, answer.uidValidity, answer.uid)
     : undefined;
 
 // Listings with the changes the server has not applied yet: read state and the star show at once,
@@ -739,6 +753,9 @@ export function createImapInbox(
   // The change being dispatched; its pending move cannot be withdrawn.
   let sending: string | undefined = undefined;
   let notice: ImapNotice | undefined = undefined;
+  let originalIds: ReadonlyMap<string, string> = new Map();
+  // Undo changes, until the folder they move a message back to is read again.
+  const restoring = new Set<string>();
   // The change the notice reports, and where the server moved its message, which Undo reverses.
   let noticed:
     | Readonly<{ id: string; original: ImapMessage; restore?: ImapMessage }>
@@ -1058,6 +1075,8 @@ export function createImapInbox(
       pending: changes().length,
       blocked: blockedChange()?.id,
       ...(notice === undefined ? {} : { notice }),
+      ...(restoring.size === 0 ? {} : { restoring: true }),
+      ...(originalIds.size === 0 ? {} : { originalIds }),
       undo: undoable(),
       imap: true,
     };
@@ -1269,6 +1288,8 @@ export function createImapInbox(
       return Effect.void;
     }
     if (closesAccess(kind)) {
+      originalIds = new Map();
+      restoring.clear();
       authenticationRejected = false;
       lifetime += 1;
       opened = undefined;
@@ -1450,6 +1471,13 @@ export function createImapInbox(
       return {};
     }
     yield* commit(settle(document, head, answer));
+    const moved = movedId(head, answer);
+    if (moved !== undefined) {
+      originalIds = new Map([
+        ...originalIds,
+        [moved, originalIds.get(head.message.id) ?? head.message.id],
+      ]);
+    }
     settleViews(head, answer);
     announce(head, answer);
     render();
@@ -1499,6 +1527,11 @@ export function createImapInbox(
       yield* synchronizeFolder(name);
       showFolder(name, 'current');
     }
+    for (const id of restoring) {
+      if (!changes().some((change) => change.id === id)) {
+        restoring.delete(id);
+      }
+    }
     render();
   });
 
@@ -1527,6 +1560,9 @@ export function createImapInbox(
         }
         const id = `${yield* Random.nextInt}:${yield* Random.nextInt}`;
         queued = [...queued, { id, action, message, attempts: 0 }];
+        if (action.kind === 'restore') {
+          restoring.add(id);
+        }
         notice = {
           kind: 'done',
           action,
@@ -2701,6 +2737,8 @@ export function createImapInbox(
       withdrawals.clear();
       notice = undefined;
       noticed = undefined;
+      originalIds = new Map();
+      restoring.clear();
       shared.images.delete(imageOwner);
       shared.waiting.delete(imageOwner);
       state = { kind: 'loading' };

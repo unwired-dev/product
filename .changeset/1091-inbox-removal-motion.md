@@ -6,4 +6,4 @@
 
 Keep an Inbox row that an organizing action removes on screen while it collapses and fades, and grow it back from its current height on Undo or when a refused, rolled-back or discarded change returns it, in every window. A scroll, a selection or another action finishes a leaving row; synchronization never moves rows and keeps a scrolled list's topmost visible row in place (#1091).
 
-Expose the shared organizing-row continuity projection through mail-core/mailboxes so both hosts use the same outcome and placement rules.
+Expose the shared organizing-row continuity projection through mail-core/mailboxes so both hosts use the same outcome and placement rules. Rows follow provider message IDs; an IMAP Inbox snapshot now names the ID each verified move started from (`originalIds`) and marks an Undo still moving a message back (`restoring`), so a restored row stays the same row and a removal the provider confirmed never animates another client's restoration.

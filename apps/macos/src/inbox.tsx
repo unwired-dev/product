@@ -22,7 +22,7 @@ import {
   inboxMessages,
   messageDateSections,
   motionIdentityOf,
-  organizingConcerns,
+  organizingWork,
   profileMailboxes,
   resultKey,
   searchMessages,
@@ -139,12 +139,12 @@ const rowKey = (
   item:
     | Readonly<{ outbox: OutboxSnapshotEntry }>
     | Readonly<{ draft: Draft }>
-    | Parameters<typeof resultKey>[0],
+    | Parameters<typeof motionIdentityOf>[0],
 ) => {
   if ('outbox' in item) {
     return `outbox\n${item.outbox.id}`;
   }
-  return 'draft' in item ? `draft\n${item.draft.id}` : resultKey(item);
+  return 'draft' in item ? `draft\n${item.draft.id}` : motionIdentityOf(item);
 };
 
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
@@ -795,11 +795,7 @@ export function Inbox({
       ...shown.map(({ state }) => state.kind === 'ready'),
     ],
     keyOf: rowKey,
-    identityOf: motionIdentityOf,
-    outcomes: shown.map(({ state }) =>
-      state.kind === 'ready' && 'notice' in state ? state.notice : undefined,
-    ),
-    concerned: organizingConcerns(shown),
+    ...organizingWork(shown),
   });
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
@@ -1088,9 +1084,9 @@ export function Inbox({
               />
             ) : (
               <MovingRow
-                motion={motion.motionOf(resultKey(item))}
+                motion={motion.motionOf(rowKey(item))}
                 onSettled={() => {
-                  motion.settle(resultKey(item));
+                  motion.settle(rowKey(item));
                 }}>
                 <MessageRow
                   mailbox={several ? item.mailbox.address : undefined}
