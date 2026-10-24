@@ -329,7 +329,7 @@ describe('organizing Gmail mail', () => {
     ]);
   });
 
-  it('creates a label in Gmail and applies it, reusing a listed name and reporting failures', async () => {
+  it('creates a label in Gmail and applies it, refusing duplicate names and reporting failures', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const travel = gmail.createLabel('Travel');
@@ -350,9 +350,9 @@ describe('organizing Gmail mail', () => {
     expect(gmail.labelsOf(target.id)).toContain(lisbon.id);
     expect(message(inbox, target.id).labels).toContain(lisbon.id);
 
-    // A name the mailbox already lists, ignoring case, applies that label without creating one.
-    await expect(inbox.createLabel(target, 'TRAVEL')).resolves.toBe(true);
-    expect(gmail.labelsOf(target.id)).toContain(travel);
+    // A duplicate name is refused without applying the existing label.
+    await expect(inbox.createLabel(target, 'TRAVEL')).resolves.toBe(false);
+    expect(gmail.labelsOf(target.id)).not.toContain(travel);
     expect(ready(inbox.getSnapshot()).labels).toHaveLength(2);
 
     // A name Gmail refuses, or Gmail out of reach, creates and applies nothing.
@@ -362,6 +362,142 @@ describe('organizing Gmail mail', () => {
     await expect(inbox.createLabel(target, 'Work')).resolves.toBe(false);
     expect(gmail.modifies).toHaveLength(modifies);
     expect(ready(inbox.getSnapshot()).labels).toHaveLength(2);
+  });
+
+  it('publishes and saves a created label while synchronization is held', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let hold = false;
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      gmailRequest: async (path, query, scope) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold the post-creation history read.
+        if (hold && path === 'history') {
+          hold = false;
+          entered.resolve(undefined);
+          await release.promise;
+        }
+        return gmail.native.gmailRequest(path, query, scope);
+      },
+    });
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    hold = true;
+    const creating = inbox.createLabel(target, 'Immediate');
+    try {
+      await entered.promise;
+      expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
+        { id: 'Label_1', name: 'Immediate' },
+      ]);
+      const cache = await gmail.native.openMailbox();
+      expect(parseJson(required(cache.document, 'the cache'))).toHaveProperty(
+        'labels',
+        [{ id: 'Label_1', name: 'Immediate' }],
+      );
+    } finally {
+      release.resolve(undefined);
+      await creating;
+    }
+    expect(gmail.labelsOf(target.id)).toContain('Label_1');
+  });
+
+  it('recovers access loss discovered by label creation', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const removed = vi.fn<() => void>();
+    const inbox = createGmailInbox(gmail.native, { removed });
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.failCreateLabel({ code: 'gmail-unavailable' });
+    await expect(inbox.createLabel(target, 'Work')).resolves.toBe(false);
+    expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
+    await inbox.load();
+    gmail.failCreateLabel({ code: 'locked' });
+    await expect(
+      inbox.createLabel(message(inbox, target.id), 'Work'),
+    ).resolves.toBe(false);
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'locked' });
+    await inbox.load();
+    gmail.failCreateLabel({ code: 'mailbox-revoked' });
+    await expect(
+      inbox.createLabel(message(inbox, target.id), 'Work'),
+    ).resolves.toBe(false);
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+    expect(removed).toHaveBeenCalledExactlyOnceWith();
+    expect(gmail.modifies).toStrictEqual([]);
+  });
+
+  it('keeps a created label through a concurrent catalog refresh without restoring deleted labels', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const deleted = gmail.createLabel('Deleted');
+    const held = holdingCommit(gmail.native);
+    const inbox = createGmailInbox(held.native);
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.deleteLabel(deleted);
+    held.arm(1);
+    const syncing = inbox.load();
+    await held.entered.promise;
+    const catalogs: string[][] = [];
+    const unsubscribe = inbox.subscribe(() => {
+      catalogs.push(ready(inbox.getSnapshot()).labels.map(({ id }) => id));
+    });
+    const saved = until(inbox, oneDurableChange);
+    const creating = inbox.createLabel(target, 'Created');
+    try {
+      await saved;
+      expect(ready(inbox.getSnapshot()).labels).toContainEqual({
+        id: 'Label_2',
+        name: 'Created',
+      });
+    } finally {
+      held.release.resolve(undefined);
+      try {
+        await Promise.all([syncing, creating]);
+      } finally {
+        unsubscribe();
+      }
+    }
+    expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
+      { id: 'Label_2', name: 'Created' },
+    ]);
+    expect(gmail.labelsOf(target.id)).toContain('Label_2');
+    expect(ready(inbox.getSnapshot()).pending).toBe(0);
+    expect(catalogs.every((labels) => labels.includes('Label_2'))).toBe(true);
+  });
+
+  it('refuses label creation for a message from the previous mailbox', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const previous = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    inbox.forget();
+    gmail.reselect('replacement@example.invalid');
+    gmail.deliver({ subject: 'Replacement mailbox' });
+    await inbox.load();
+    await expect(inbox.createLabel(previous, 'Previous owner')).resolves.toBe(
+      false,
+    );
+    const reopened = createGmailInbox(gmail.native);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).labels).toStrictEqual([]);
+    expect(gmail.modifies).toStrictEqual([]);
   });
 
   it('fences a late body admission while action reconciliation removes its message', async () => {

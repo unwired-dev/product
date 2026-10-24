@@ -316,11 +316,10 @@ label, checked when the message has it. Choosing a label adds or removes it. Bel
 separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253))
 asks for a name in a native alert sheet on the window: **Add Label** creates the label in
 Gmail and applies it to the message the menu opened for, as choosing a label does, and
-**Cancel** or a blank name changes nothing. A name the mailbox already lists, ignoring case,
-applies that label instead. Creation needs Gmail to answer: when Gmail refuses the name or
+**Cancel** or a blank name changes nothing. Creation needs Gmail to answer: when Gmail refuses the name, including an existing label's name, or
 cannot be reached, an alert says the label could not be created and nothing is applied.
-The new label joins **Labels** and the Move menus with the synchronization that sends the
-change. iPad's fixed toolbar holds **Archive**, **Labels**
+The new label joins **Labels** and the Move menus as soon as Gmail creates it, and is saved
+with the message's pending label change without waiting for synchronization. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Folders**, **Reply** and
 **More**, beside a separate circular New Message button. Reply
@@ -1322,8 +1321,9 @@ during a blocked history read, lost local save replies, changes saved under each
 step of a long listing and during action preparation and settlement, mailbox
 changes during conflict reopening, preserving labels on Undo, five-attempt
 stopping and resolution, revoked access, and the cache upgrade. Label creation tests
-cover creating and applying a label, reusing a listed name, and a refused or unreachable
-Gmail creating and applying nothing; the Mac journey covers **New Label…**, Cancel and
+cover creating and applying a label, refusing duplicate names, a refused or unreachable
+Gmail applying nothing, immediate and durable label publication during held synchronization,
+catalog refresh races, stale-message rejection and access-loss recovery; the Mac journey covers **New Label…**, Cancel and
 the failure alert. Shared
 registration tests cover queued foreground verification, concurrent sign-out and
 deletion after a mailbox removal hand-off.

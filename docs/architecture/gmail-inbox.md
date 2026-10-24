@@ -26,7 +26,7 @@ mailbox credential, preserves repeated query parameters, refuses redirects and
 returns only status/body. The ephemeral URL session keeps HTTP response caches
 off disk. Native and TypeScript diagnostics use fixed allow-listed values.
 
-The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `openMailbox(connection)` and
+The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `gmailCreateLabel(name, mailbox)`, `openMailbox(connection)` and
 `commitMailbox(mailbox, expectedRevision, document)`. The cache reply contains
 revision, address, an opaque native generation, a non-secret owner identity and an optional document, with `availability: retry` only for
 cache-only access. The mailbox argument names the connection and pairs the opened address and generation. Native errors distinguish grant rejection, protected storage,
@@ -363,6 +363,17 @@ message ID, label IDs and the bounded count, builds the JSON body, and performs
 one credentialed POST to `messages/<id>/modify`. Native credential custody,
 redirect refusal, ephemeral response caching and subject/generation fencing remain
 unchanged. No Gmail SDK or production dependency is introduced.
+
+Issue #1253 adds `gmailCreateLabel(name, mailbox)` through the same native mutation
+fence. Native code validates the name and constructs the `labels` POST body; the
+shared store decodes its response before saving the returned label alongside the
+message's ordinary pending label action. The private intake queue projects the
+new label immediately, and its existing CAS transaction persists both catalog
+and intent before synchronization. A stale synchronization rebase retains catalog
+IDs added since its base without restoring pre-existing labels the provider removed.
+Creation validates the message's owner before provider access and after the reply,
+and lifecycle failures use the Inbox's owner-fenced recovery. Duplicate names are
+left to Gmail to refuse; they never apply an already-listed label instead.
 
 The encrypted metadata document retains ordered pending actions, snapshots for
 restoration, stable intake IDs, immutable dispatch records and user labels. Each

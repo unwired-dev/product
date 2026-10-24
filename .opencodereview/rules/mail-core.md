@@ -294,7 +294,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   account; let those codes reach the existing purge-and-notice path before the
   requested operation. Otherwise a later native step fails as unavailable and
   leaves the shared store showing the removed account.
-- `createGmailInbox.findSent` or another auxiliary provider read reducing a
+- `createGmailInbox.findSent`, `createLabel` or another auxiliary provider operation reducing a
   lifecycle-changing `SyncFailure` to its operation's fallback without running
   the Inbox's owner-fenced recovery. The first discovery of locked storage,
   device revocation or rejected Gmail authorization must update the owning
