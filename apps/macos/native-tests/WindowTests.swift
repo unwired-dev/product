@@ -974,9 +974,9 @@ final class WindowTests: XCTestCase {
   // registration-performance build's Gmail and Microsoft Inboxes and their 250 added Threads.
   // A click sample runs from the release the app recorded to the first accessibility query that
   // finds the rendered result; a launch sample from the launch request. Both include XCUITest's
-  // queries, so they are upper bounds. A key sample runs from the key press to the body edit
-  // showing its result, both recorded by the app. The app also records each main-thread stall of
-  // 100 ms or longer, which the samples' windows attribute.
+  // queries, so they are upper bounds. A key or format bar sample runs from the key press or
+  // button release to the body edit showing its result, all recorded by the app. The app also
+  // records each main-thread stall of 100 ms or longer, which the samples' windows attribute.
   // swiftlint:disable:next function_body_length
   func testWarmCachePerformance() throws {
     continueAfterFailure = false
@@ -1089,10 +1089,10 @@ final class WindowTests: XCTestCase {
       relaunch()
       return (start, end)
     }
-    // Typing and formatting feedback: each sample runs from the key press the app recorded to its
-    // first recorded edit of the body that begins with the expected text and marks (bold 1,
-    // italic 2, underline 4 per character), so a later key press cannot hide a late result. The
-    // budget is the frame interval the app recorded.
+    // Typing and formatting feedback: each sample runs from the key press or format bar button
+    // release the app recorded to its first recorded edit of the body that begins with the
+    // expected text and marks (bold 1, italic 2, underline 4 per character), so a later input
+    // cannot hide a late result. The budget is the frame interval the app recorded.
     window.buttons["New Message"].click()
     let message = window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
     XCTAssertTrue(message.waitForExistence(timeout: 10))
@@ -1100,37 +1100,42 @@ final class WindowTests: XCTestCase {
     var text = ""
     var marks: [Int] = []
     func press(
-      _ name: String, _ keys: [(key: String, modifiers: XCUIElement.KeyModifierFlags)],
-      _ change: (String) -> Void
+      _ name: String, _ keys: [String], _ input: (String) -> Void, _ change: (String) -> Void
     ) {
       var windows: [(start: Double, end: Double)] = []
       var shows: [(text: String, marks: String)] = []
-      for (key, modifiers) in keys {
+      for key in keys {
         let start = uptime()
-        app.typeKey(key, modifierFlags: modifiers)
+        input(key)
         windows.append((start, uptime()))
         change(key)
         shows.append((text, marks.map(String.init).joined()))
       }
       groups.append((name, 0, windows, 0, shows))
     }
-    let typed = "typing feedback test"
-    press("typing", typed.map { (String($0), []) }) { key in
+    let type = { (key: String) in app.typeKey(key, modifierFlags: []) }
+    press("typing", "typing feedback test".map(String.init), type) { key in
       text += key
       marks.append(0)
     }
     // Command-B at the caret marks what is typed next.
     app.typeKey("b", modifierFlags: .command)
-    press("marked-typing", " bold words".map { (String($0), []) }) { key in
+    press("marked-typing", " bold words".map(String.init), type) { key in
       text += key
       marks.append(1)
     }
     // Option-Shift-Left selects the last word; each shortcut toggles its mark on it, then back.
     app.typeKey(.leftArrow, modifierFlags: [.option, .shift])
     let bits = ["b": 1, "i": 2, "u": 4]
-    press("formatting", (0..<12).map { (["b", "i", "u"][$0 / 2 % 3], .command) }) { key in
+    let toggles = (0..<12).map { ["b", "i", "u"][$0 / 2 % 3] }
+    let toggle = { (key: String) in
       for index in marks.indices.suffix(5) { marks[index] ^= bits[key, default: 0] }
     }
+    press("formatting", toggles, { app.typeKey($0, modifierFlags: .command) }, toggle)
+    // The format bar's mark buttons toggle the same marks on the still-selected word.
+    let buttons = ["b": "Bold", "i": "Italic", "u": "Underline"]
+    let click = { (key: String) in window.buttons[buttons[key, default: ""]].firstMatch.click() }
+    press("format-bar", toggles, click, toggle)
     let overhead = queryOverhead(window.buttons["New Message"])
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
@@ -1506,7 +1511,7 @@ final class WindowTests: XCTestCase {
     return durations[durations.count / 2]
   }
 
-  // A key group's windows bracket its key presses, and `shows` is the body each press must reach.
+  // A key or format bar group's windows bracket its inputs, and `shows` is the body each must reach.
   private typealias PerformanceGroup = (
     name: String, budget: Double, windows: [(start: Double, end: Double)], firstQuery: Int,
     shows: [(text: String, marks: String)]
@@ -1542,16 +1547,17 @@ final class WindowTests: XCTestCase {
     var lines: [String] = []
     var pressToRelease: [Double] = []
     for var group in groups {
-      // A key group runs from each recorded key press to the first edit showing its result.
+      // A key group runs from each recorded key press, and the format bar group from each
+      // recorded release, to the first edit showing its result.
       if !group.shows.isEmpty {
-        let pressed = try group.windows.map { window in
+        let inputs = group.name == "format-bar" ? releases : try times("key-down")
+        let starts = try group.windows.map { window in
           try XCTUnwrap(
-            keys.last { ($0.uptime ?? 0) >= window.start && ($0.uptime ?? 0) <= window.end },
-            "Missing key press for \(group.name)")
+            inputs.last { $0 >= window.start && $0 <= window.end },
+            "Missing input for \(group.name)")
         }
-        group.budget = try XCTUnwrap(pressed.compactMap(\.milliseconds).max())
-        group.windows = try zip(pressed, group.shows).map { key, shown in
-          let start = try XCTUnwrap(key.uptime)
+        group.budget = try XCTUnwrap(keys.compactMap(\.milliseconds).max())
+        group.windows = try zip(starts, group.shows).map { start, shown in
           let edit = try XCTUnwrap(
             edits.first {
               ($0.uptime ?? 0) >= start && $0.text?.hasPrefix(shown.text) == true
