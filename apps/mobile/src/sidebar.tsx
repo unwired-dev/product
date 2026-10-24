@@ -571,6 +571,7 @@ export function Mailboxes({
         </ScrollView>
         {compact && onCompose !== undefined ? (
           <FloatingBar
+            paddingBottom={spacing.xs}
             leading={null}
             trailing={
               <NewMessageButton

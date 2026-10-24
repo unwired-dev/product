@@ -434,11 +434,13 @@ export function WindowBarHost({
 // window shows it across its bottom edge instead.
 export function FloatingBar({
   hidden = false,
+  paddingBottom = spacing.l,
   leading,
   trailing,
   children,
 }: {
   readonly hidden?: boolean;
+  readonly paddingBottom?: number;
   readonly leading: ReactNode;
   readonly trailing: ReactNode;
   // The search field, or the button that opens it.
@@ -477,7 +479,10 @@ export function FloatingBar({
       {windowBar === undefined ? (
         <View
           pointerEvents="box-none"
-          style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
+          style={[
+            styles.bottomBar,
+            { paddingBottom, display: hidden ? 'none' : 'flex' },
+          ]}>
           {leading}
           {children}
           {trailing}
