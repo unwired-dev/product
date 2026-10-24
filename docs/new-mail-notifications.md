@@ -130,7 +130,7 @@ and a tap or Reply opens one. Every other launch opens an Inbox window as before
 ## Validate
 
 `packages/mail-core/test/gmail-inbox.test.ts`, `imap.test.ts` and
-`microsoft-mail.test.ts` cover each provider's arrival classification and commit
+`microsoft-notifications.test.ts` cover each provider's arrival classification and commit
 ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
 `host.test.ts` covers gating, background completion, permission and generic and preview
 content. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
