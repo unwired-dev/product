@@ -564,6 +564,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   posting, or iOS can suspend the process after the history checkpoint advances
   but before its alert reaches the system.
 
+- `graph-inbox.ts.quietRound` skipping the notification-time commit because an
+  empty round returned the same delta link. Persist the completed round's start
+  independently of whether its link changed, and exercise quiet synchronization
+  followed by relaunch and moved-in mail. Otherwise a stale arrival boundary can
+  report mail received before the latest synchronization's clock allowance.
+
+- `graph-inbox.ts` equating absence from the bounded cache with a new arrival.
+  Exercise updates to evicted messages and repeated delta IDs after newer pages
+  evict them, retaining the oldest-kept receipt guard. Keep all pages of a round
+  on its previous completed boundary and persist the round's start across
+  interruption/relaunch. Otherwise cached-history updates can alert, arrivals
+  can repeat, or later-page deliveries can be suppressed.
+
 - `gmail-inbox.ts.settled` merging confirmed action metadata into the Inbox or
   another cached view without enforcing `cacheLimit` before commit/publication.
   Check `everyView` additions and `settleObserved` callers with a full destination
