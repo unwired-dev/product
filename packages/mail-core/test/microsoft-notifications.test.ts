@@ -1,6 +1,9 @@
 import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
-import { gmailAction } from '@private-email/mail-core/gmail-actions';
+import {
+  gmailAction,
+  restoreAfter,
+} from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
@@ -359,6 +362,68 @@ describe('new Inbox notifications for Microsoft mail', () => {
     await inbox.load();
     expect(arrivals).toStrictEqual([['Arrived after the archive']]);
     expect(ready(inbox.getSnapshot()).messages).toHaveLength(cacheLimit);
+  });
+
+  it('keeps updates to evicted mail silent when Undo fills a cache awaiting refill', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ pageSize: 100 });
+    const historical = Array.from({ length: cacheLimit + 10 }, (_, index) =>
+      graph.deliver({
+        subject: `Historical ${index}`,
+        at: Date.UTC(2026, 9, 1) + index * 1000,
+      }),
+    );
+    let unavailable = false;
+    const native = {
+      ...graph.native,
+      graphRequest: (
+        url: string,
+        scope: Parameters<typeof graph.native.graphRequest>[1],
+      ) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Interrupt only delta reads while provider-confirmed Undo changes the cached edge.
+        if (unavailable && url.includes('/messages/delta?')) {
+          return Promise.reject(
+            Object.assign(new Error('Synthetic delta outage'), {
+              code: 'unavailable',
+            }),
+          );
+        }
+        return graph.native.graphRequest(url, scope);
+      },
+    };
+    const arrivals: string[][] = [];
+    const options = {
+      provider: 'microsoft-graph' as const,
+      arrived: (messages: ReadonlyArray<{ readonly subject: string }>) => {
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    };
+    const archive = async (interrupt = false) => {
+      const inbox = createGmailInbox(native, options);
+      await inbox.load();
+      const [message] = pair(ready(inbox.getSnapshot()).messages);
+      unavailable = interrupt;
+      await inbox.organize(message, gmailAction.archive);
+      return { inbox, message };
+    };
+    const first = await archive();
+    const second = await archive();
+    const third = await archive(true);
+    for (const { inbox, message } of [first, second, third]) {
+      const undo = restoreAfter(gmailAction.archive, message.labels);
+      assert.ok(undo !== undefined);
+      await inbox.organize(message, undo);
+    }
+    const full = ready(third.inbox.getSnapshot()).messages;
+    expect(full).toHaveLength(cacheLimit);
+    expect(full.map(({ subject }) => subject)).not.toContain('Historical 9');
+    const dropped = historical.at(9);
+    assert.ok(dropped !== undefined);
+    graph.restore(dropped);
+    graph.deliver({ subject: 'Actual arrival', at: Date.UTC(2026, 9, 2) });
+    unavailable = false;
+    await createGmailInbox(native, options).load();
+    expect(arrivals).toStrictEqual([['Actual arrival']]);
   });
 
   it('reports one arrival once when two stores read its delta page before either commits', async () => {

@@ -113,18 +113,17 @@ const deltaArrivals = (
   );
 };
 
-// The oldest receipt a full cache keeps, also while an action-shortened cache awaits its refill;
-// none while the cache holds the whole Inbox.
+// Keep the previous eviction edge until refill, advancing it if settlements fill the cache and
+// evict newer mail. No edge is needed while the cache holds the whole Inbox.
 function cacheEdge({ checkpoint, messages }: MailboxDocument) {
-  if (
-    checkpoint.kind === 'graph-current' &&
-    checkpoint.refillUntil !== undefined
-  ) {
-    return checkpoint.refillUntil;
-  }
+  const refillUntil =
+    checkpoint.kind === 'graph-current' ? checkpoint.refillUntil : undefined;
   return messages.length === cacheLimit
-    ? (messages.at(-1)?.receivedAt ?? '')
-    : undefined;
+    ? Order.max(Order.String)(
+        refillUntil ?? '',
+        messages.at(-1)?.receivedAt ?? '',
+      )
+    : refillUntil;
 }
 
 type GraphCheckpoint = Extract<
