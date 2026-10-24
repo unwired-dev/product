@@ -6,7 +6,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Action } from './composer.tsx';
+import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
 import { useOutbox } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -69,12 +69,14 @@ function UnknownRecovery({
       {confirming ? (
         <View style={styles.actions}>
           <Action
+            variant="composer"
             label={t('outbox.unknown.cancel')}
             onPress={() => {
               setConfirming(false);
             }}
           />
           <Action
+            variant="composer"
             destructive
             label={t('outbox.unknown.editAnyway')}
             onPress={onEdit}
@@ -83,6 +85,7 @@ function UnknownRecovery({
       ) : (
         <View style={styles.actions}>
           <Action
+            variant="composer"
             disabled={entry.check === 'checking'}
             label={t(
               entry.check === 'checking'
@@ -94,6 +97,7 @@ function UnknownRecovery({
             }}
           />
           <Action
+            variant="composer"
             label={t('outbox.edit')}
             onPress={() => {
               setConfirming(true);
@@ -162,6 +166,7 @@ export function OutboxRow({
       entry.state === 'filing' ||
       entry.state === 'unknown' ? null : (
         <Action
+          variant="composer"
           label={t(`outbox.${returning}`)}
           onPress={edit}
         />

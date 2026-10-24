@@ -104,6 +104,7 @@ import {
   View,
 } from 'react-native';
 
+import { Action } from './action.tsx';
 import { ComposerActions, FormatBar, PopUp } from './composer-controls.tsx';
 import {
   Notice as Banner,
@@ -169,7 +170,6 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   action: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 8 },
-  actionText: { ...textStyles.body },
   notice: { ...textStyles.body },
   review: { paddingHorizontal: fieldInset, paddingTop: spacing.m },
   body: {
@@ -385,37 +385,6 @@ const shortcuts = [
   { key: 'Z', metaKey: true, shiftKey: true },
 ];
 
-export function Action({
-  label,
-  onPress,
-  disabled = false,
-  destructive = false,
-  accessibilityLabel,
-}: {
-  readonly label: string;
-  readonly onPress: () => void;
-  readonly disabled?: boolean;
-  readonly destructive?: boolean;
-  readonly accessibilityLabel?: string;
-}) {
-  const colors = usePalette();
-  let color = destructive ? colors.statusDestructive : colors.accentInk;
-  if (disabled) {
-    color = colors.textSecondary;
-  }
-  return (
-    <Pressable
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={styles.action}>
-      <Text style={[styles.actionText, { color }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const rowLabel = (conflict: boolean, shortened: boolean) => {
   if (conflict) {
     return shortened
@@ -539,6 +508,7 @@ export function DraftList() {
               : t('drafts.listFailed')}
           </Notice>
           <Action
+            variant="composer"
             label={t('common.retry')}
             onPress={() => {
               void store.load();
@@ -555,6 +525,7 @@ export function DraftList() {
             {t(`drafts.unsaved.${state.save}`)}
           </Notice>
           <Action
+            variant="composer"
             label={t('drafts.saveDrafts')}
             onPress={() => {
               void store.save();
@@ -1024,6 +995,7 @@ function AssetRow({
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
+          variant="composer"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.retryLabel', {
             name: asset.name,
@@ -1034,6 +1006,7 @@ function AssetRow({
       ) : null}
       {running ? (
         <Action
+          variant="composer"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.cancelLabel', {
             name: asset.name,
@@ -2233,6 +2206,7 @@ function Editor({
             trailing={
               copiesShown ? undefined : (
                 <Action
+                  variant="composer"
                   disabled={sending}
                   accessibilityLabel={t('drafts.showCcBcc')}
                   label={t('drafts.ccBcc')}
