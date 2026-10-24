@@ -15,6 +15,7 @@ in the replacement.
 
 ## Decisions and scope
 
+- [Provider-hosted Draft authority and cross-client editing](../../adr/0074-use-provider-hosted-drafts-for-cross-client-editing.md)
 - [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
 - [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Keep queued delivery on its originating device](../../adr/0062-keep-queued-delivery-on-its-originating-device.md)
@@ -30,6 +31,13 @@ current replacement work from prototype maintenance and historical plans.
 - Composer expansion is transient to the open editor and never changes how a later Draft opens; the legacy synchronized partial-or-full opening preference is ignored after migration and removed only after older clients are fenced out
 
 ## Provider submission and Draft lifetime
+
+The Private Sync Draft mechanisms below retain their historical and current
+implementation scope. [ADR 0074](../../adr/0074-use-provider-hosted-drafts-for-cross-client-editing.md)
+supersedes them for the maintained launch target, with requirements owned by the
+[launch contract](../../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24).
+That replacement remains unimplemented; Outbox admission and uncertain-outcome
+safety remain required.
 
 - Before attempting that Sent append, the trusted device encrypts the exact accepted MIME in a connection-scoped journal; a stable RFC Message-ID prevents duplicate appends during recovery, and the journal is removed only after Sent containment or append is confirmed
 

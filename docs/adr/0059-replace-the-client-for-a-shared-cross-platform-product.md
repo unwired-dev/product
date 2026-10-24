@@ -4,6 +4,16 @@ status: accepted
 
 # Replace the client for a shared cross-platform product
 
+## Draft and invitation launch amendment, 2026-10-24
+
+The [confirmed launch additions](../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+include invitation responses, optional calendar addition with automatic valid
+organizer updates, and larger Microsoft sends. They supersede the affected
+deferrals below. [ADR 0074](0074-use-provider-hosted-drafts-for-cross-client-editing.md)
+replaces Private Sync Draft content and asset transport with provider-hosted
+Drafts and requires safe migration of existing Drafts. These accepted targets
+remain unimplemented and unqualified.
+
 ## Post-launch Mail Commitments amendment — 2026-10-13
 
 [ADR 0072](0072-allow-reviewed-post-launch-mail-commitments.md) adds a separate

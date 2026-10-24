@@ -4,6 +4,15 @@ status: accepted
 
 # Gate incoming attachment downloads in message presentation
 
+## Invitation launch amendment, 2026-10-24
+
+The [ADR 0045 amendment](0045-keep-contact-and-event-content-out-of-product-sync.md#invitation-launch-amendment-2026-10-24)
+supersedes the Add-to-Calendar-only part read rule below for explicit invitation
+responses and automatic valid organizer updates and cancellations to events the
+person opted to add. Authenticated bounded reads and other attachment and
+remote-content safety remain required. This accepted launch target remains
+unimplemented.
+
 ## Replacement IMAP reader amendment — 2026-10-22
 
 The maintained replacement reader's [#1020](https://github.com/unwired-dev/product/issues/1020)

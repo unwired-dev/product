@@ -21,6 +21,15 @@ This follows
 Product Sign-In alone never yields decryption keys, and missing local keys never
 create replacement keys.
 
+The [confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+replace Private Sync transport of Draft content and assets with canonical
+provider-hosted Drafts and encrypted local offline copies. This replacement and
+its [automatic verified migration #1276](https://github.com/unwired-dev/product/issues/1276)
+remain unimplemented. The [provider-hosted Draft plan](drafts.md#provider-hosted-draft-launch-plan)
+tracks the replacement slices. The current Draft
+transport is described in the [Draft guide](drafts.md#continuing-on-another-device);
+other Private Sync data retains its existing end-to-end encryption requirements.
+
 ## What the person sees
 
 After [Google](google-registration.md) or [Apple](apple-registration.md)
