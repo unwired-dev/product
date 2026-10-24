@@ -126,6 +126,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- Mobile `organize-motion` starting a reader action's exit after an estimated
+  Back duration or route closure. Follow the native Split column's completed
+  appearance through `_layout.tsx` and Inbox, and exercise a delayed appearance;
+  otherwise the row can finish leaving while UIKit still covers the list. Keep
+  Reduce Motion immediate and iPad's visible-list exit free of this wait.
 - `inbox.tsx` or `organize-motion` retaining a removed row under a different
   section key. Installed `VirtualizedSectionList` prefixes the item key with its
   section key, so keeping `keyExtractor` alone does not preserve the instance.

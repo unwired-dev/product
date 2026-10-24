@@ -34,6 +34,7 @@ import { createTwoProfileRegistration } from '@private-email/mail-core/testing/r
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -47,6 +48,7 @@ import {
   StyleSheet,
   TurboModuleRegistry,
 } from 'react-native';
+import { withTiming } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type ComposeRoute from '../app/compose/[draft].tsx';
@@ -57,6 +59,16 @@ import type { MailboxList } from '../src/private-storage.ts';
 
 import RootLayout from '../app/_layout.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Observe only the external animation boundary; the shell, Inbox and stores stay real.
+jest.mock('react-native-reanimated', () => {
+  const actual = jest.requireActual('react-native-reanimated');
+  return {
+    ...actual,
+    __esModule: true,
+    withTiming: jest.fn(actual.withTiming),
+  };
+});
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Replace only the singleton with a real store over synthetic native storage.
 jest.mock('../src/registration.ts', () => ({
@@ -249,6 +261,50 @@ const inboxNewMessage = () => {
 };
 
 describe('profile-scoped mobile routes', () => {
+  it('waits for the native Inbox column to appear before a reader action removes its row', async () => {
+    expect.hasAssertions();
+    const frames = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockReturnValue(0);
+    try {
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(<RootLayout />);
+      await fireEvent(screen.getByTestId('mail-split'), 'collapse');
+      await fireEvent(screen.getByTestId('inbox-column'), 'didAppear');
+      await fireEvent.press(
+        await screen.findByRole('button', { name: /Garden plan/u }),
+      );
+      await act(() => {
+        screen.getByTestId('inbox-column').props.onWillDisappear?.();
+      });
+      const timings = jest.mocked(withTiming).mockClear();
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Archive' }),
+      );
+      await screen.findByRole('button', { name: 'Undo' });
+      const beforeAppearance = timings.mock.calls.length;
+      const retained = screen.queryByText('Garden plan', {
+        includeHiddenElements: true,
+      });
+      await fireEvent(screen.getByTestId('inbox-column'), 'didAppear');
+      expect({
+        beforeAppearance,
+        retained: retained !== null,
+        started: timings.mock.calls.some(([target]) => target === 0),
+        reader: screen.queryByText('Synthetic garden body.'),
+      }).toStrictEqual({
+        beforeAppearance: 0,
+        retained: true,
+        started: true,
+        reader: null,
+      });
+    } finally {
+      await cleanup();
+      frames.mockRestore();
+    }
+  });
+
   it('restores a cold-launch link after preferences finish loading', async () => {
     expect.hasAssertions();
     const nativeRegistration = TurboModuleRegistry.getEnforcing<

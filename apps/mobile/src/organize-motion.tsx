@@ -13,6 +13,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import Animated, {
+  cancelAnimation,
   Easing,
   ReduceMotion,
   useAnimatedStyle,
@@ -32,17 +33,15 @@ const timing = {
   reduceMotion: ReduceMotion.Never,
 };
 const reducedFade = { ...timing, duration: 150 };
-// The reader's Back transition on iPhone, which shows the list again before a row leaves it.
-const backTransition = 350;
 
 export type RowMotion = Readonly<{
   kind: 'leaving' | 'returning';
-  // The reader covered the list when the row left.
+  // The native list column has not finished appearing.
   wait: boolean;
   reduced: boolean;
 }>;
 
-type Shown<I> = Omit<ShownRows<I>, 'covered'> & Readonly<{ reading: boolean }>;
+type Shown<I> = Omit<ShownRows<I>, 'covered'> & Readonly<{ visible: boolean }>;
 
 // Reduce Motion, following changes while the list is shown.
 function useReducedMotion() {
@@ -76,11 +75,11 @@ function useReducedMotion() {
 export function useRowMotion<I>(shown: Shown<I>) {
   const reduced = useReducedMotion();
   const [tracked, setTracked] = useState<RowMotionState<I>>(() =>
-    restingRowMotion({ ...shown, covered: shown.reading && !ipad }),
+    restingRowMotion({ ...shown, covered: !shown.visible && !ipad }),
   );
   const next = advanceRowMotion(tracked, {
     ...shown,
-    covered: shown.reading && !ipad,
+    covered: !shown.visible && !ipad,
   });
   if (next !== tracked) {
     setTracked(next);
@@ -91,7 +90,7 @@ export function useRowMotion<I>(shown: Shown<I>) {
     motionOf: (key: string): RowMotion | undefined => {
       const row = leaving.get(key);
       if (row !== undefined) {
-        return { kind: 'leaving', wait: row.wait, reduced };
+        return { kind: 'leaving', wait: row.wait && !shown.visible, reduced };
       }
       return tracked.returning.has(key)
         ? { kind: 'returning', wait: false, reduced }
@@ -184,10 +183,12 @@ export function MovingRow({
     if (kind === 'leaving') {
       if (reduced) {
         settled();
+      } else if (wait) {
+        cancelAnimation(size);
+        cancelAnimation(opacity);
       } else {
-        const delay = wait ? backTransition : 0;
-        size.set(withDelay(delay, withTiming(0, timing)));
-        opacity.set(withDelay(delay, withTiming(0, timing, done)));
+        size.set(withDelay(0, withTiming(0, timing)));
+        opacity.set(withDelay(0, withTiming(0, timing, done)));
       }
     } else if (reduced) {
       size.set(1);

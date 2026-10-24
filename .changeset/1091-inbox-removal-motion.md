@@ -9,3 +9,5 @@ Keep an Inbox row that an organizing action removes on screen while it collapses
 Expose the shared organizing-row continuity projection through mail-core/mailboxes so both hosts use the same outcome and placement rules. Rows follow provider message IDs; an IMAP Inbox snapshot now names the ID each verified move started from (`originalIds`). Provider snapshots name the messages with unfinished changes (`organizing`), including an IMAP Undo still moving back, so a restored row stays the same row and a confirmed removal stays quiet even while another message has unfinished work.
 
 Preserve Undo motion after a failed IMAP destination refresh and ignore a mobile exit completion delivered after the same row has started returning.
+
+Wait for the native iPhone Inbox column to finish appearing before its row exits, so a slower Back transition cannot conceal the removal.

@@ -1367,11 +1367,13 @@ describe('connected Gmail Inbox', () => {
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
     });
-    expect(
-      screen.getByRole('button', {
-        name: 'Oliver Park. Saturday, by the river?. Flagged',
-      }),
-    ).toBeVisible();
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', {
+          name: 'Oliver Park. Saturday, by the river?. Flagged',
+        }),
+      ).toBeVisible();
+    });
     expect(gmail.labelsOf(oliver).toSorted()).toStrictEqual(
       ['STARRED', travel, 'INBOX'].toSorted(),
     );

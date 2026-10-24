@@ -105,6 +105,8 @@ export type Selection = Readonly<{
 }>;
 
 interface InboxProps {
+  // The native list column has finished appearing.
+  readonly visible?: boolean;
   readonly selected: Selection | undefined;
   readonly onSelect: (selection: Selection) => void;
   // A collapsed overlay keeps editing while the reader's selection changes beneath it.
@@ -580,6 +582,7 @@ function InboxFooter({
 }
 
 export function Inbox({
+  visible,
   selected,
   onSelect,
   onSelectBehindComposer,
@@ -713,7 +716,7 @@ export function Inbox({
     ],
     keyOf: rowKey,
     ...organizingWork(shown),
-    reading: selected !== undefined,
+    visible: visible !== false,
   });
   // The rows the list shows, with leaving rows beside their former neighbours.
   const placed = motion.place();

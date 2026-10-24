@@ -163,8 +163,9 @@ IMAP message keeps its row while Undo moves it back under a new UID. A removal o
 until the provider confirms it, so another client's later restoration appears without motion.
 Each window's list decides from its own
 outcomes, so every Mac window moves on its own. A new outcome, a scroll or a selection finishes
-the rows still leaving. On iPhone, a row leaves once the reader's Back transition has shown the
-list again. Reduce Motion and scrolled synchronization still need native qualification.
+the rows still leaving. On iPhone, a row leaves once the native Inbox column reports that it
+has finished appearing after Back, rather than after an estimated transition duration.
+Reduce Motion and scrolled synchronization still need native qualification.
 
 ### Action outcome audit
 
