@@ -1785,11 +1785,21 @@ export function createGmailInbox(
     claim(views.flatMap((view) => view.messages));
     return views.length === 0 ? {} : { views };
   };
+  // Labels created for changes to the shown mailbox that are not saved yet.
+  const queuedLabels = () =>
+    queued.flatMap(({ scope, label }) =>
+      label !== undefined &&
+      shown !== undefined &&
+      sameMailbox(scope, shown.scope)
+        ? [label]
+        : [],
+    );
   const render = (): Extract<GmailInboxState, { kind: 'ready' }> => {
     const document = shown?.document;
     const durable = document?.pending ?? [];
     const changes = [...durable, ...queued.map((item) => item.pending)];
     const messages = organized(document?.messages ?? [], changes);
+    const listed = listedLabels(document);
     claim(messages);
     return {
       kind: 'ready',
@@ -1797,16 +1807,8 @@ export function createGmailInbox(
       ...(found.size === 0 ? {} : { found: [...found.values()] }),
       ...renderedViews(document, changes),
       sync: shownSyncState(),
-      ...listedLabels(document),
-      labels: includingLabels(
-        document?.labels ?? [],
-        queued
-          .filter(
-            ({ scope }) =>
-              shown !== undefined && sameMailbox(scope, shown.scope),
-          )
-          .flatMap(({ label }) => (label === undefined ? [] : [label])),
-      ),
+      ...listed,
+      labels: includingLabels(listed.labels, queuedLabels()),
       ...(graph === undefined
         ? {}
         : { unavailableActions: graph.unavailableActions() }),
@@ -3890,14 +3892,23 @@ export function createGmailInbox(
     );
   };
 
+  // A failed creation that changed access recovers the Inbox, unless its owner already left.
+  const labelNotCreated = (
+    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
+    requestedFor: number,
+  ) =>
+    requestedFor !== ownership || failure.kind === 'invalidated'
+      ? Effect.succeedNone
+      : recover(failure).pipe(Effect.as(Option.none()));
+
   // Creates a Gmail label and saves it with its message action before synchronization. Gmail
   // decides whether the name is available; a refused name never applies an existing label.
   const createLabel = async (message: GmailMessage, name: string) => {
     const scope = shown?.scope;
+    // An owned message is one of the open, verified mailbox's; a new owner disowns it.
     if (
-      forgotten ||
-      graph !== undefined ||
       scope === undefined ||
+      graph !== undefined ||
       !ownsMessage(message) ||
       !canOrganize(message)
     ) {
@@ -3911,17 +3922,11 @@ export function createGmailInbox(
         decodeCreatedLabel,
       ).pipe(
         Effect.catchTag('SyncFailure', (failure) =>
-          requestedFor !== ownership || failure.kind === 'invalidated'
-            ? Effect.succeedNone
-            : recover(failure).pipe(Effect.as(Option.none())),
+          labelNotCreated(failure, requestedFor),
         ),
       ),
     );
-    if (
-      Option.isNone(created) ||
-      requestedFor !== ownership ||
-      !ownsMessage(message)
-    ) {
+    if (Option.isNone(created) || !ownsMessage(message)) {
       return false;
     }
     await organize(message, gmailAction.label(created.value.id), created.value);
