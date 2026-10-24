@@ -673,6 +673,33 @@ describe('preview Inbox', () => {
     }
   });
 
+  it('draws no separator under a day’s last row, above the next day’s divider', async () => {
+    expect.hasAssertions();
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-09-28T12:00:00Z'));
+    try {
+      await render(<InboxJourney />);
+      await screen.findByRole('header', { name: 'Yesterday' });
+      const separator = (name: string) =>
+        within(screen.getByRole('button', { name })).queryByTestId(
+          'row-separator',
+        );
+      expect(
+        separator('Unread. Maya Chen. A little more room to think'),
+      ).toBeVisible();
+      expect(
+        separator('Unread. Oliver Park. Saturday, by the river?'),
+      ).toBeNull();
+      // The list's last row keeps its separator.
+      expect(
+        separator('North House. Your table is ready for Friday'),
+      ).toBeVisible();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('opens the activated message and exposes its selected state', async () => {
     expect.hasAssertions();
     await render(<InboxJourney />);

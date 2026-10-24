@@ -134,16 +134,16 @@ extension RegistrationStore {
     let expiration: String
   }
 
-  // One relay call with this Trusted Device's proof. Only the end of its access is distinguished.
+  // One authenticated relay call with this Trusted Device's proof. Only the end of access differs.
   private func relay<Value: Decodable>(
     _ endpoint: BackendRequest.Endpoint, _ path: String, _ args: [String: Any],
     _ product: ProductRegistrationReceipt
   ) async throws -> Value {
-    guard let transport else { throw RegistrationError.unavailable }
+    guard let transport, let session else { throw RegistrationError.unavailable }
     let (status, data) = try await transport(
       BackendRequest(
         endpoint: endpoint, path: path, args: args.merging(Self.proof(product)) { $1 },
-        product: product))
+        identity: session, product: product))
     guard let reply = try? JSONDecoder().decode(ConvexEnvelope<Value>.self, from: data) else {
       throw RegistrationError.unavailable
     }

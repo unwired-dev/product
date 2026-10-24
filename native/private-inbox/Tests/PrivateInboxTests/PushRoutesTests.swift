@@ -10,6 +10,7 @@ import Testing
   var verified = true
   var stopsWatch = true
   var remainingConnections = false
+  var requiresProductAuthentication = false
   // Paths that cannot reach Convex.
   var unreachable: Set<String> = []
   // A Convex error code every call is refused with.
@@ -18,6 +19,11 @@ import Testing
   func send(_ request: BackendRequest) throws -> (Int, Data) {
     requests.append((request.endpoint, request.path, request.args))
     if unreachable.contains(request.path) { throw URLError(.notConnectedToInternet) }
+    if requiresProductAuthentication, request.path.hasPrefix("pushRelay:"),
+      request.identity?.subject != subject
+    {
+      return (200, try reply(["status": "error", "errorMessage": "Authentication required"]))
+    }
     if let refusal {
       return (200, try reply(["status": "error", "errorData": ["code": refusal]]))
     }
@@ -75,6 +81,22 @@ private func watch(historyId: String, expiration: Double) -> (Int, Data) {
 }
 
 extension PrivateInboxTests {
+  @Test @MainActor func pushRoutingAuthenticatesProductSignInBeforeCreatingItsWatch() async throws {
+    let (store, google, relay, keys) = pushDevice()
+    relay.requiresProductAuthentication = true
+    defer { try? keys.remove("registration") }
+    _ = try await store.signIn()
+    google.subject = "synthetic-mailbox-subject"
+    _ = try await store.authorizeGmail()
+    google.gmailResponse = watch(historyId: "4242", expiration: 1_000_000_000)
+
+    try await store.routeMailboxes(device: device, topic: topic, now: 0)
+
+    #expect(try store.saved().pushDevice == device)
+    #expect(try store.mailboxRoutes(now: 0)["complete"] as? Bool == true)
+    #expect((try store.mailboxRoutes(now: 0)["routes"] as? [String: String])?.count == 1)
+  }
+
   @Test @MainActor func routesEachVerifiedMailboxAndRenewsItsWatchBeforeGmailEndsIt() async throws {
     let (store, google, relay, keys) = pushDevice()
     defer { try? keys.remove("registration") }

@@ -715,6 +715,8 @@ export function Inbox({
     ...organizingWork(shown),
     reading: selected !== undefined,
   });
+  // The rows the list shows, with leaving rows beside their former neighbours.
+  const placed = motion.place();
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),
@@ -926,7 +928,7 @@ export function Inbox({
             onRefresh={() => {
               void refresh();
             }}
-            sections={motion.place()}
+            sections={placed}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {
               if (section.key === 'outbox') {
@@ -1004,7 +1006,7 @@ export function Inbox({
                 </Text>
               ) : null
             }
-            renderItem={({ item, section }) => {
+            renderItem={({ item, section, index }) => {
               if ('outbox' in item) {
                 return (
                   <OutboxRow
@@ -1034,6 +1036,13 @@ export function Inbox({
                         : rowActions(item.mailbox, item.message)
                     }
                     now={now}
+                    // The next day's divider follows a day's last row.
+                    beforeDivider={
+                      index === section.data.length - 1 &&
+                      placed[placed.indexOf(section) + 1]?.key.startsWith(
+                        'saved\n',
+                      ) === true
+                    }
                     query={searching ? searched : undefined}
                     onSelect={() => {
                       motion.interrupt();
