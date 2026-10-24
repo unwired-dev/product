@@ -22,3 +22,21 @@ TurboModuleRegistry.getEnforcing = (name) => {
     ? require('./native-menu.ts').unwiredMenu
     : getEnforcing(name);
 };
+
+// `UnwiredPopUpButton` opens its menu through `UnwiredMenu` above when pressed; other native
+// components keep the React Native preset's mock.
+jest.mock(
+  'react-native-macos/Libraries/ReactNative/requireNativeComponent',
+  () => {
+    const requireNativeComponent = jest.requireActual(
+      'react-native-macos/jest/mocks/requireNativeComponent',
+    ).default;
+    return {
+      __esModule: true,
+      default: (name) =>
+        name === 'UnwiredPopUpButton'
+          ? require('./native-pop-up.tsx').NativePopUpButton
+          : requireNativeComponent(name),
+    };
+  },
+);

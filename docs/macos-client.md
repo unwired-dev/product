@@ -41,13 +41,22 @@ reviewed Swift packages, SwiftMail and swift-log, at the revisions
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
-`UnwiredMenu` and `UnwiredAlert` presenters, and `UnwiredAppleIDButton`. The composer's Text style, From, actions
-and Writing tools pop-ups open an AppKit `NSMenu` through `UnwiredMenu`: the system owns presentation, keyboard
-navigation, Escape and click-outside dismissal. Each menu drops below its control and
-checks the current choice. Writing tools retain
-their localized selection/body descriptions for accessibility. React Native
-macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or destructive items. Remove
-the presenter when the host provides an anchored menu with those states. Follow
+`UnwiredMenu` and `UnwiredAlert` presenters, `UnwiredAppleIDButton` and
+`UnwiredPopUpButton`. Pop-up controls are AppKit `NSPopUpButton`s through
+`UnwiredPopUpButton`. Settings rows, the IMAP security field and the composer's From
+and Text style show their current choice and open their menu over it, with the choice
+checked. The reader's Folders and the composer's actions and Writing tools are
+pull-down buttons that show their SF Symbol and drop their menu below. AppKit draws,
+focuses and opens each one, and owns keyboard navigation, Escape and click-outside
+dismissal. VoiceOver reads a pop-up button with its label and current choice, or a
+menu button with its label.
+Writing tools retain their localized selection/body descriptions for accessibility.
+React Native macOS 0.81.9 has no pop-up button; remove the adapter when it offers one
+with checked, disabled and destructive items. Other menus, such as the reader's More
+and the Profile Switcher, open from their own control through `UnwiredMenu` and drop
+below it. React Native macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or
+destructive items. Remove the presenter when the host provides an anchored menu with
+those states. Follow
 [native component selection](agents/native-components.md): prefer provided
 React Native macOS/AppKit controls and presenters over custom equivalents, and
 retain a minimal native adapter only for a documented host API gap. Expo UI

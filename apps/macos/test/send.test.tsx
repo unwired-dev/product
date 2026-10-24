@@ -287,7 +287,7 @@ describe('sending a Draft', () => {
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Lunch');
       expect(
         screen.getByRole('button', { name: 'Text style' }),
-      ).toHaveTextContent('Body');
+      ).toHaveAccessibilityValue({ text: 'Body' });
       expect(screen.getByLabelText('Message body')).toHaveTextContent(
         'See you',
       );

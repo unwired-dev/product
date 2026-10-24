@@ -254,7 +254,7 @@ final class WindowTests: XCTestCase {
   private func composerMenuJourney(_ app: XCUIApplication, first: XCUIElement) {
     func compose(in window: XCUIElement) -> XCUIElement {
       window.buttons["New Message"].click()
-      let style = window.buttons["Text style"]
+      let style = window.popUpButtons["Text style"]
       XCTAssertTrue(style.waitForExistence(timeout: 15))
       return style
     }
@@ -281,7 +281,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
     shows(style, "Heading 1")
     // The sender menu lists the Profile's mailboxes.
-    let from = first.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send from"))
+    let from = first.popUpButtons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send from"))
       .firstMatch
     XCTAssertTrue(from.waitForExistence(timeout: 5))
     let sender = from.label.replacingOccurrences(of: "Send from ", with: "")
@@ -302,13 +302,13 @@ final class WindowTests: XCTestCase {
     shows(style, "Heading 1")
     // Discard is the destructive action and asks before removing the Draft.
     first.click()
-    first.buttons["Compose actions"].click()
+    first.menuButtons["Compose actions"].click()
     let discard = app.menuItems["Discard"]
     XCTAssertTrue(discard.waitForExistence(timeout: 5))
     discard.click()
     XCTAssertTrue(first.buttons["Discard Draft"].waitForExistence(timeout: 5))
     first.buttons["Keep Editing"].click()
-    XCTAssertTrue(second.buttons["Text style"].exists)
+    XCTAssertTrue(second.popUpButtons["Text style"].exists)
     // Closing a composer crashes the host (#1174), so the journey ends with both still open.
     app.terminate()
   }
@@ -475,7 +475,7 @@ final class WindowTests: XCTestCase {
   private func writingTool(
     _ name: String, in window: XCUIElement, of app: XCUIApplication
   ) -> XCUIElement {
-    let tools = window.buttons["Writing tools"]
+    let tools = window.menuButtons["Writing tools"]
     XCTAssertTrue(tools.waitForExistence(timeout: 30))
     let action = app.menuItems[name]
     for _ in 0..<5 {
@@ -1219,7 +1219,7 @@ final class WindowTests: XCTestCase {
     try audit(app, "Settings")
     // #1196: a remote-content policy is a pop-up whose AppKit menu owns the choice and dismissal.
     settings.buttons["Privacy & Data"].click()
-    let policy = settings.buttons["On this device"]
+    let policy = settings.popUpButtons["On this device"]
     XCTAssertTrue(policy.waitForExistence(timeout: 15))
     XCTAssertEqual(policy.value as? String, "Ask")
     policy.click()
@@ -1253,7 +1253,7 @@ final class WindowTests: XCTestCase {
     row("Quarterly planning").click()
     let agenda = body("Agenda for Thursday.", in: window)
     XCTAssertTrue(agenda.waitForExistence(timeout: 15))
-    let move = window.buttons["Folders"]
+    let move = window.menuButtons["Folders"]
     let projects = app.menuItems["Projects"]
     move.click()
     XCTAssertTrue(projects.waitForExistence(timeout: 5))
