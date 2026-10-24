@@ -110,6 +110,46 @@ physical iPhone/iPad baselines, owner-operated VoiceOver/dictation and separate
 provider/network latency remain required. Synthetic providers do not qualify
 live authentication or transport. No legacy coverage is retired.
 
+### PR-feedback reruns, 2026-10-24
+
+Commit `02d998082` strengthens the journey to reject an expected text/mark state
+replaced before its matched draw. The implementer reran it in
+`artifacts/macos-inbox/journey.qWOcnr/`, with combined log
+`scratchpad/journey-2.log`: one XCTest passed, zero failures, 189.799 seconds.
+The independent simplicity reviewer reran the same snapshot in
+`artifacts/macos-inbox/journey.oCJ8wz/`, with combined log
+`scratchpad/review/simplicity-native-r2.log`: one XCTest passed, zero failures,
+209.967 seconds. Both used the same Mac, toolchain, scenario and existing
+`87fab99fc` Testing app described above; no rebuild was needed because runtime
+source was unchanged and the runner copies the current Swift journey each run.
+The root lockfile, native probe source, executable and packaged JavaScript still
+match the recorded `ocr-provenance-r1.json` hashes.
+
+Both commands used the guide's `testWarmCachePerformance` invocation under mise,
+command-scoped `DEVELOPER_DIR` selecting Xcode 27.1, `Apple Development` signing
+and the installed mock profile. The OCR reviewer independently replayed all 55
+samples per run against the raw lifecycle records and emitted performance lines.
+Storage/draw durations, frame counts and p95 flags matched; every matched draw's
+latest text/marks contained its expected result. The runs recorded 56 and 61 draws,
+respectively, with positive frame origins and approximately 8.333 ms intervals.
+Replay results are retained in `scratchpad/review/ocr-audit-r2.json`.
+
+| Interaction                  | Implementer draw p95 ms | Implementer p95 frames late | Simplicity draw p95 ms | Simplicity p95 frames late |
+| ---------------------------- | ----------------------: | --------------------------: | ---------------------: | -------------------------: |
+| Plain typing                 |                    14.7 |                           1 |                   21.7 |                          2 |
+| Typing after bold at caret   |                   727.4 |                          87 |                  727.4 |                         86 |
+| Selected-word mark shortcuts |                   635.1 |                          76 |                  372.3 |                         44 |
+| Format bar mark clicks       |                   126.3 |                          15 |                  138.0 |                         16 |
+
+All four `nextRenderedFrame` group flags are false in both reruns. Plain typing
+had three late samples in the implementer run and four in the simplicity run;
+its earlier p95 of zero is not a stable passing baseline. A passing XCTest here
+establishes valid journey evidence, not compliance with the performance targets.
+Both runners recorded successful cleanup with exit code 0. These reruns exceed
+the focused two-minute feedback target. The constant-refresh and presentation
+limits and all unmeasured release checks above still apply; latency remains
+tracked by [#1228](https://github.com/unwired-dev/product/issues/1228).
+
 ## Mac format bar text-storage timing slice, 2026-10-24
 
 This extends the composer timing evidence below for
