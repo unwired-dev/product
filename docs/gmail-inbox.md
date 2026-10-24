@@ -1048,7 +1048,9 @@ route removed while verification runs, or whose mailbox was removed or needs Gma
 Both hosts register for remote notifications at launch; iPhone and iPad declare the
 `remote-notification` background mode. Native code keeps the APNs token. After
 each registration verification with a verified mailbox, it registers that token
-with the relay (`pushRelay:registerDevice`) under the Trusted Device credential.
+with the relay (`pushRelay:registerDevice`) under the verified Product Sign-In
+session and Trusted Device credential. Every relay request carries both; the
+device proof alone does not authenticate the Product Account.
 For each verified connection without a current route, it then:
 
 1. registers the connection with the relay using its Google identity token
