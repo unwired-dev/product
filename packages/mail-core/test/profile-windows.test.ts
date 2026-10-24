@@ -5,6 +5,8 @@ import {
   createProfileChoices,
   profileMenu,
   profileMonogram,
+  profileRefusalText,
+  profileRemoval,
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
 import {
@@ -197,6 +199,52 @@ describe('window Profiles', () => {
     ]);
   });
 
+  it('names the mailboxes a Profile removal also removes', () => {
+    expect.hasAssertions();
+    const mailbox = {
+      id: 'one',
+      provider: 'imap' as const,
+      address: 'bob@example.invalid',
+      state: 'connected' as const,
+      profile: 'work',
+    };
+    expect(profileRemoval(english, 'Family', [])).toStrictEqual({
+      title: 'Remove “Family”?',
+      message:
+        'Family is removed from all your Trusted Devices. It owns no mailboxes.',
+    });
+    expect(profileRemoval(english, 'Work', [mailbox]).message).toBe(
+      'bob@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with the mail server.',
+    );
+    expect(
+      profileRemoval(english, 'Work', [
+        mailbox,
+        { ...mailbox, id: 'two', address: 'ann@example.invalid' },
+      ]).message,
+    ).toBe(
+      'bob@example.invalid, ann@example.invalid are also removed from Unwired Mail on all your devices. Their mail stays with their providers.',
+    );
+    expect(
+      profileRefusalText(english, 'move', 'profile-changed'),
+    ).toStrictEqual({
+      title: 'Mailbox Not Moved',
+      message:
+        'Another device changed these Mail Profiles first. Check them, then try again.',
+    });
+  });
+
+  it('explains each refused move and removal', () => {
+    expect.hasAssertions();
+    expect(profileRefusalText(english, 'remove', 'failed').message).toBe(
+      'The Mail Profile could not be removed. Try again.',
+    );
+    expect(
+      profileRefusalText(english, 'move', 'upgrade-required').message,
+    ).toBe(
+      'Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then try again.',
+    );
+  });
+
   it('shows the first letters of the first two words', () => {
     expect.hasAssertions();
     expect(profileMonogram('Primary Profile')).toBe('PP');
@@ -318,6 +366,61 @@ describe('window Profiles', () => {
           busy: false,
           failed: false,
         });
+      } finally {
+        release.resolve(undefined);
+        await resuming;
+      }
+    },
+  );
+
+  it.each([
+    [false, ['alex@example.invalid', 'other@example.invalid']],
+    [true, []],
+  ] as const)(
+    'keeps confirmed moves and removals through activation and retires them on account loss (%s)',
+    async (retire, addresses) => {
+      expect.hasAssertions();
+      const { vault, work: workId } = await createTwoProfileRegistration();
+      let beforeRead: (() => Promise<void>) | undefined = undefined;
+      const store = createRegistration({
+        ...vault,
+        registration: async () => {
+          const hook = beforeRead;
+          beforeRead = undefined;
+          await hook?.();
+          return vault.registration();
+        },
+      });
+      await store.restore();
+      const confirmed = mailboxesOf(store.getSnapshot().snapshot)
+        .filter(({ profile }) => profile === workId)
+        .map(({ id }) => id);
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      beforeRead = async () => {
+        entered.resolve(undefined);
+        await release.promise;
+      };
+      const resuming = store.resume();
+      await entered.promise;
+      try {
+        const moving = confirmed.map((id) =>
+          store.moveMailbox(id, defaultProfile),
+        );
+        const removing = store.removeProfile(workId, confirmed);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- The second case loses the account while foreground verification is held.
+        if (retire) {
+          await vault.purge('revoked');
+        }
+        release.resolve(undefined);
+        await Promise.all([resuming, ...moving, removing]);
+        expect(profilesOf(store.getSnapshot().snapshot)).toStrictEqual([]);
+        expect(
+          mailboxesOf(store.getSnapshot().snapshot).map(
+            ({ address }) => address,
+          ),
+        ).toStrictEqual(addresses);
+        expect(store.getSnapshot().profileFailure).toBeUndefined();
       } finally {
         release.resolve(undefined);
         await resuming;

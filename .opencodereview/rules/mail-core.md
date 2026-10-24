@@ -524,6 +524,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `registration.ts.removeProfile` removing confirmed mailboxes before enforcing
+  the target Profile's removal protection. Keep the Primary Profile's mailboxes
+  when its removal is refused through the public store, even if confirmation IDs
+  are supplied; hiding Remove in Settings does not protect this shared boundary.
+  Otherwise the cascade deletes mailboxes before the final Profile refusal.
+
 - `profile-windows.ts.createProfileChoices` reading or saving Startup Profile
   through an account-independent native preference key, or returning a previously
   loaded account's choice to a replacement account. Trace the owner through both

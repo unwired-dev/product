@@ -10,7 +10,10 @@ import {
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
-import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createRegistration,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
@@ -1762,6 +1765,104 @@ describe('mac windows of different Mail Profiles', () => {
       await act(async () => {
         await profileChoices.load(owner);
       });
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
+  it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
+    expect.hasAssertions();
+    const { vault } = await createTwoProfileRegistration();
+    const store = createRegistration({
+      ...vault,
+      registration: () => vault.registration(),
+    });
+    await store.restore();
+    const replaced = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof store }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      store,
+    );
+    const inbox = createGmailInbox(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    try {
+      const app = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="remove" />
+        </MacWindows>,
+      );
+      await chooseProfile(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'Manage Mail Profiles…',
+      );
+      const settings = settingsWindow();
+      await fireEvent.press(
+        await settings.findByRole('button', { name: 'Work' }),
+      );
+      const moving = 'Mail Profile for other@example.invalid';
+      await fireEvent.press(settings.getByRole('button', { name: moving }));
+      await chooseMenuItem('Primary Profile');
+      await waitFor(() => {
+        expect(
+          settings.getByRole('button', { name: 'Work' }).props
+            .accessibilityHint,
+        ).toBe('No mailboxes');
+      });
+      expect(settings.queryByRole('button', { name: moving })).toBeNull();
+      // The Primary Profile lists both mailboxes and cannot be removed.
+      await fireEvent.press(
+        settings.getByRole('button', { name: 'Primary Profile' }),
+      );
+      expect(
+        settings.queryByRole('button', { name: 'Remove Mail Profile…' }),
+      ).toBeNull();
+      await fireEvent.press(settings.getByRole('button', { name: moving }));
+      await chooseMenuItem('Work');
+      await waitFor(() => {
+        expect(
+          settings.getByRole('button', { name: 'Work' }).props
+            .accessibilityHint,
+        ).toBe('Gmail');
+      });
+      expect(alert).not.toHaveBeenCalled();
+
+      await fireEvent.press(settings.getByRole('button', { name: 'Work' }));
+      await fireEvent.press(
+        settings.getByRole('button', { name: 'Remove Mail Profile…' }),
+      );
+      const asked = alert.mock.lastCall;
+      ok(asked);
+      const [title, message, buttons] = asked;
+      expect([title, message]).toStrictEqual([
+        'Remove “Work” and Its Mailboxes?',
+        'other@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with Gmail.',
+      ]);
+      ok(Array.isArray(buttons));
+      expect(buttons.map(({ text, style }) => [text, style])).toStrictEqual([
+        ['Cancel', 'cancel'],
+        ['Remove', 'destructive'],
+      ]);
+      await act(async () => {
+        buttons.find(({ text }) => text === 'Remove')?.onPress?.();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(settings.queryByRole('button', { name: 'Work' })).toBeNull();
+      });
+      expect(
+        settings.getByRole('header', { name: 'Primary Profile' }),
+      ).toBeVisible();
+      expect(
+        mailboxesOf(store.getSnapshot().snapshot).map(({ address }) => address),
+      ).toStrictEqual(['alex@example.invalid']);
+      // No refusal followed the question.
+      expect(alert.mock.lastCall?.[0]).toBe(title);
+    } finally {
+      alert.mockRestore();
+      replaced.restore();
     }
   });
   /* oxlint-enable vitest/max-expects */
