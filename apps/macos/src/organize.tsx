@@ -80,6 +80,8 @@ const styles = StyleSheet.create({
     minHeight: 28,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
   },
   button: {
     minHeight: 28,

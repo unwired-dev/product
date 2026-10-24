@@ -201,6 +201,7 @@ export function MenuButton({
   const colors = usePalette();
   const anchor = useRef<View>(null);
   const latest = useRef(menuState(sections));
+  const [open, setOpen] = useState(false);
   useLayoutEffect(() => {
     latest.current = menuState(sections);
     return () => {
@@ -212,13 +213,17 @@ export function MenuButton({
     if (tag === null) {
       return;
     }
-    const chosen = await TurboModuleRegistry.getEnforcing<NativeMenu>(
-      'UnwiredMenu',
-    ).show(
-      tag,
-      latest.current.sections,
-      processColor(colors.statusDestructive),
-    );
+    const menu = TurboModuleRegistry.getEnforcing<NativeMenu>('UnwiredMenu');
+    setOpen(true);
+    const chosen = await menu
+      .show(
+        tag,
+        latest.current.sections,
+        processColor(colors.statusDestructive),
+      )
+      .finally(() => {
+        setOpen(false);
+      });
     if (isMenuChoice(chosen) && chosen !== null) {
       await latest.current.runs.get(chosen)?.();
     }
@@ -233,7 +238,10 @@ export function MenuButton({
       onPress={() => {
         void show();
       }}
-      style={style}>
+      style={({ pressed }) => [
+        style,
+        pressed || open ? { backgroundColor: colors.fillQuiet } : null,
+      ]}>
       {children}
     </Pressable>
   );
