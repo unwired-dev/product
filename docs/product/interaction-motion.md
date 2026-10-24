@@ -1,10 +1,10 @@
 # Interaction motion
 
 Status: goals and approach confirmed by the owner. The per-control
-[coverage ledger](#coverage-ledger) is complete from static source inspection. The
-[proposed motion specification](#proposed-motion-specification) awaits owner
-approval; until then it authorizes no UI implementation. This document does not
-establish completed implementation or native qualification.
+[coverage ledger](#coverage-ledger) is complete from static source inspection. The owner
+approved the [motion specification](#motion-specification) on 24 October 2026.
+This document does not establish completed implementation or native
+qualification.
 
 ## Agreed goals
 
@@ -49,13 +49,10 @@ establish completed implementation or native qualification.
 
 ## Next steps
 
-1. Obtain owner approval of the
-   [proposed motion specification](#proposed-motion-specification) and link the
-   approved Figma nodes here.
-2. After approval, implement approved defaults with the supported tools of each
+1. Implement the approved defaults with the supported tools of each
    host through the follow-up owners. Share motion values only where both hosts
    need them; native transitions retain their platform defaults.
-3. Verify the affected journeys on iPhone, iPad and Mac and update the ledger
+2. Verify the affected journeys on iPhone, iPad and Mac and update the ledger
    with evidence. Record unavailable native checks as deferred rather than passed.
 
 No new motion dependency or universal animation wrapper is selected.
@@ -160,10 +157,10 @@ verification status applies to these transitions.
 | Mac sidebar show and hide in `window.tsx`                                                                                                                          | Instant mount and unmount                                                                                                                              | Migration: #1058                                                            |
 | Notices (synchronization, authorization, storage, organize outcomes): `inbox.tsx`, `design.tsx`; Mac `organize.tsx`, mobile `organize-status.tsx`                  | Mount instantly; outcomes announce once, with alerts for refused or blocked changes                                                                    | Sufficient                                                                  |
 
-## Proposed motion specification
+## Motion specification
 
-Proposed for owner review on 24 October 2026; **not approved**. It specifies only
-missing or changed feedback. Each Figma section shows Light and Dark, and its
+The specification covers only missing or changed feedback. Each Figma section
+shows Light and Dark, and its
 Archive frames are linked as a click-through prototype:
 
 - [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=481-57440)
@@ -230,8 +227,8 @@ approval. Native migrations remain with
 [#849](https://github.com/unwired-dev/product/issues/849) owns keyboard and
 bulk-action capability, and [#981](https://github.com/unwired-dev/product/issues/981)
 owns blinking autosave feedback. [#1089](https://github.com/unwired-dev/product/issues/1089)
-owns this ledger, the specification and its approval, and is a native GitHub
-blocking dependency of #1090, #1091 and #1092. Native accessibility and
+owns this ledger and the approval; #1090, #1091 and #1092 implement the
+specification. Native accessibility and
 responsiveness qualification remains with #626, using the visual evidence work in
 #1061 through #1065 where applicable.
 
@@ -250,7 +247,7 @@ The [reader body-reveal contract](messages-and-delivery.md#thread-identity-and-r
 remains unchanged: preserve the topmost visible message and its text offset as
 bodies and images resolve, reveal each visible body once beneath its anchored
 header without a cross-fade, and reserve sanitized image dimensions when
-available. This proposal adds no body entrance animation. The ledger's static
+available. This specification adds no body entrance animation. The ledger's static
 inspection does not qualify this behavior on a native device.
 
 Visible changes beyond the existing frames follow the
