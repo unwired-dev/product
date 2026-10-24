@@ -56,7 +56,7 @@ import {
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
 import { chooseSheetButton, sheetsShown } from './native-alert.ts';
-import { chooseMenuItem } from './native-menu.ts';
+import { chooseMenuItem, chooseSubmenuItem, menuItems } from './native-menu.ts';
 import { MacWindows, settingsWindow } from './settings-window.tsx';
 import { started } from './started.ts';
 
@@ -880,7 +880,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         await second.findByRole('button', { name: /Archived flight/u }),
       );
       expect(second.queryByRole('button', { name: 'Archive' })).toBeNull();
-      expect(second.queryByRole('button', { name: 'Show labels' })).toBeNull();
+      expect(second.queryByRole('button', { name: 'Folders' })).toBeNull();
     } finally {
       await app.unmount();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
@@ -1036,7 +1036,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(second.getByRole('button', { name: oliver }));
     for (const window of [first, second]) {
       expect(window.queryByRole('button', { name: 'Archive' })).toBeNull();
-      expect(window.queryByRole('button', { name: 'Labels' })).toBeNull();
+      expect(window.queryByRole('button', { name: 'Folders' })).toBeNull();
       expect(window.getByRole('button', { name: maya })).toHaveProp(
         'accessibilityActions',
         [],
@@ -1046,8 +1046,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
       held.release();
       await list.load();
     });
-    expect(first.getByRole('button', { name: 'Labels' })).toBeVisible();
-    expect(second.getByRole('button', { name: 'Labels' })).toBeVisible();
+    expect(first.getByRole('button', { name: 'Folders' })).toBeVisible();
+    expect(second.getByRole('button', { name: 'Folders' })).toBeVisible();
     // Archiving in one window closes its reader and updates the other, which keeps its selection;
     // Undo from either window brings the message back to both.
     await act(async () => {
@@ -1215,7 +1215,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         ['Delete'],
       ]);
       await fireEvent.press(row);
-      await window.findByRole('button', { name: 'Labels' });
+      await window.findByRole('button', { name: 'Folders' });
       const sender = contextMenuOf(window.getByText('oliver@example.invalid'));
       expect(menuSections(sender)).toStrictEqual([['Copy Address']]);
       await chooseFromMenu(sender, 'Copy Address');
@@ -1248,6 +1248,83 @@ describe('mac windows over a connected Gmail mailbox', () => {
     } finally {
       await app.unmount();
       copy.mockRestore();
+    }
+  });
+
+  it('adds and removes Gmail labels from the reader’s More menu and moves from its folder menu', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const receipts = gmail.createLabel('Receipts');
+    const id = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    gmail.setLabel(id, travel, true);
+    const { registration } = await connectedRegistration();
+    showMailboxes(
+      createMailboxes(
+        syntheticConnections({ [alex]: { native: gmail.native } }),
+        registration,
+      ),
+    );
+    const app = await render(
+      <RegistrationGate
+        store={started(registration)}
+        preview={false}>
+        <InboxWindow windowId="first" />
+      </RegistrationGate>,
+    );
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await window.findByRole('button', { name: oliver }),
+      );
+      const more = await window.findByRole('button', { name: 'More' });
+      expect(window.queryByRole('button', { name: 'Labels' })).toBeNull();
+      await fireEvent.press(more);
+      expect(menuItems()).toMatchObject([
+        { title: 'Mark as Read' },
+        {
+          title: 'Move to…',
+          items: [{ title: 'Receipts' }, { title: 'Travel' }],
+        },
+        {
+          title: 'Labels',
+          items: [
+            { title: 'Receipts', checked: false },
+            { title: 'Travel', checked: true },
+          ],
+        },
+      ]);
+      await chooseSubmenuItem('Labels', 'Receipts');
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).toContain(receipts);
+      });
+      await fireEvent.press(more);
+      expect(
+        menuItems().find(({ title }) => title === 'Labels')?.items,
+      ).toMatchObject([
+        { title: 'Receipts', checked: true },
+        { title: 'Travel', checked: true },
+      ]);
+      await chooseSubmenuItem('Labels', 'Travel');
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).not.toContain(travel);
+      });
+      expect(gmail.labelsOf(id)).toContain('INBOX');
+      // The folder button's Move menu moves the message out of the Inbox, closing the reader.
+      await fireEvent.press(window.getByRole('button', { name: 'Folders' }));
+      await chooseMenuItem('Travel');
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).not.toContain('INBOX');
+      });
+      expect(gmail.labelsOf(id)).toContain(travel);
+      expect(
+        window.getByText('Select a message to start reading.'),
+      ).toBeVisible();
+    } finally {
+      await app.unmount();
     }
   });
 
