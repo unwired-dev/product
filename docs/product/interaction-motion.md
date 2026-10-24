@@ -166,7 +166,11 @@ qualification remains with #626.
 In the installed React Native 0.86.3 and react-native-macos 0.81.9,
 `accessibilityLiveRegion` does not announce changes on Apple hosts, and
 `accessibilityRole="alert"` does not post an announcement. This slice uses
-`AccessibilityInfo.announceForAccessibility` to announce outcomes as they appear.
+`AccessibilityInfo.announceForAccessibilityWithOptions` with `queue: true` for
+routine Outbox outcomes, and `announceForAccessibility` for immediate warnings
+and composer outcomes. The queue option sets UIKit's
+`UIAccessibilitySpeechAttributeQueueAnnouncement` on iOS and AppKit's
+`NSAccessibilityPriorityLow` on macOS.
 
 | Operation                                                                                                                                                                                                      | Pending                                                                                                                            | Outcome and recovery                                                                                                              | Classification                                                                                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
