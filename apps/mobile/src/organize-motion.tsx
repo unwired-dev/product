@@ -126,6 +126,10 @@ const styles = StyleSheet.create({
   collapsed: { height: 0, opacity: 0 },
 });
 
+// A returning row stays collapsed until its content is measured; a leaving one keeps its height.
+const unmeasured = (kind: RowMotion['kind']) =>
+  kind === 'returning' ? styles.collapsed : undefined;
+
 // A list row that collapses and fades as it leaves, and grows back from its current height when it
 // returns. Reduce Motion removes a leaving row at once and only fades a returning one in.
 export function MovingRow({
@@ -145,15 +149,22 @@ export function MovingRow({
   const size = useSharedValue(kind === 'returning' ? 0 : 1);
   const opacity = useSharedValue(kind === 'returning' ? 0 : 1);
   const settle = useRef(onSettled);
+  // Whether this row has moved since it last rested.
+  const moved = useRef(false);
   useEffect(() => {
     settle.current = onSettled;
   });
   useEffect(() => {
+    // A motion cleared before it finished, as when another outcome replaces it, leaves the row whole.
     if (kind === undefined) {
-      size.set(1);
-      opacity.set(1);
+      if (moved.current) {
+        moved.current = false;
+        size.set(1);
+        opacity.set(1);
+      }
       return;
     }
+    moved.current = true;
     const settled = () => {
       settle.current();
     };
@@ -188,13 +199,18 @@ export function MovingRow({
   const measure = ({ nativeEvent }: LayoutChangeEvent) => {
     setNatural(nativeEvent.layout.height);
   };
-  // Until its content is measured, a returning row stays collapsed and any other row keeps its own
-  // height.
-  const unmeasured = kind === 'returning' ? styles.collapsed : undefined;
+  // A resting row keeps its own height and binds no animated style, so the list stays idle. A
+  // moving row follows its animation once measured; until then, a returning row stays collapsed.
+  let moving = undefined;
+  if (kind !== undefined) {
+    // The measured height holds the row until the animated style takes over on the UI thread.
+    moving =
+      natural === undefined ? unmeasured(kind) : [{ height: natural }, shown];
+  }
   const gone = kind === 'leaving';
   return (
     <Animated.View
-      style={[styles.clip, natural === undefined ? unmeasured : shown]}
+      style={[styles.clip, moving]}
       pointerEvents={gone ? 'none' : 'auto'}
       accessibilityElementsHidden={gone}
       importantForAccessibility={gone ? 'no-hide-descendants' : 'auto'}>

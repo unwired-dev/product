@@ -142,15 +142,22 @@ export function MovingRow({
   const opacity = useMemo(() => new Animated.Value(1), []);
   const measured = useRef(false);
   const settle = useRef(onSettled);
+  // Whether this row has moved since it last rested.
+  const moved = useRef(false);
   useEffect(() => {
     settle.current = onSettled;
   });
   useEffect(() => {
+    // A motion cleared before it finished, as when another outcome replaces it, leaves the row whole.
     if (kind === undefined) {
-      size.setValue(1);
-      opacity.setValue(1);
+      if (moved.current) {
+        moved.current = false;
+        size.setValue(1);
+        opacity.setValue(1);
+      }
       return undefined;
     }
+    moved.current = true;
     const settled = ({ finished }: Readonly<{ finished: boolean }>) => {
       if (finished) {
         settle.current();
