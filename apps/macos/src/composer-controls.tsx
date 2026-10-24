@@ -3,23 +3,25 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
-import type { StyleProp, TextStyle, TurboModule } from 'react-native';
+import type {
+  NativeSyntheticEvent,
+  StyleProp,
+  TextStyle,
+  ViewProps,
+} from 'react-native';
 
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { spacing } from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef } from 'react';
 import {
-  findNodeHandle,
-  Pressable,
   processColor,
+  requireNativeComponent,
   StyleSheet,
   Text,
-  TurboModuleRegistry,
   View,
 } from 'react-native';
 
-import { SFSymbol, ToolbarButton } from './design.tsx';
+import { ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { isMenuChoice } from './native-menu.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -34,29 +36,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
-  popUp: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 28,
-    paddingLeft: 10,
-    paddingRight: spacing.s,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
-  iconPopUp: {
-    width: 32,
-    justifyContent: 'center',
-    paddingLeft: 0,
-    paddingRight: 0,
-  },
-  fieldPopUp: {
-    flex: 1,
-    borderWidth: 1,
-    paddingHorizontal: spacing.s,
-  },
-  popUpText: { ...textStyles.body, flexShrink: 1 },
-  fieldPopUpText: { flex: 1 },
+  // AppKit's regular pop-up is 24pt tall and 49pt wider than its title, for insets and chevrons.
+  popUp: { height: 24, flexShrink: 1, justifyContent: 'center' },
+  pullDown: { width: 46 },
+  fieldPopUp: { flex: 1 },
+  popUpSizing: { opacity: 0, paddingHorizontal: 25 },
 });
 
 type MarkName = `drafts.marks.${Mark}`;
@@ -134,44 +118,38 @@ type PopUpItem = Readonly<{
   run: () => void;
 }>;
 
-interface NativeMenu extends TurboModule {
-  readonly show: (
-    anchor: number,
-    sections: ReadonlyArray<{
-      readonly items: ReadonlyArray<
-        Omit<PopUpItem, 'key' | 'run'> & { id: string }
-      >;
-    }>,
-    destructiveColor: ReturnType<typeof processColor>,
-  ) => Promise<unknown>;
-}
+const NativePopUpButton = requireNativeComponent<
+  ViewProps & {
+    readonly items: ReadonlyArray<
+      Omit<PopUpItem, 'key' | 'run'> & { readonly id: string }
+    >;
+    readonly text: string | undefined;
+    readonly symbol: string | undefined;
+    readonly label: string;
+    readonly destructiveColor: ReturnType<typeof processColor>;
+    readonly enabled: boolean;
+    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  }
+>('UnwiredPopUpButton');
 
-// A pop-up control whose AppKit menu, dropped below it, owns presentation, keyboard and
-// dismissal.
+// A pop-up button that AppKit draws, focuses and opens: a label shows the current choice; an icon
+// alone makes it a pull-down button. A choice runs the latest item while the control is mounted.
 export function PopUp({
   label,
   accessibilityLabel,
   icon,
-  prefix,
-  quiet = false,
   variant = 'compact',
   disabled = false,
-  selected = false,
   items,
 }: {
   readonly label?: string;
   readonly accessibilityLabel: string;
   readonly icon?: string;
-  readonly prefix?: string;
-  readonly quiet?: boolean;
   readonly variant?: 'compact' | 'field';
   readonly disabled?: boolean;
-  // Whether the shown choice is in effect, as a chosen sender is and a retained one is not.
-  readonly selected?: boolean;
   readonly items: readonly PopUpItem[];
 }) {
   const colors = usePalette();
-  const anchor = useRef<View>(null);
   const latest = useRef(items);
   useLayoutEffect(() => {
     latest.current = disabled ? [] : items;
@@ -179,88 +157,47 @@ export function PopUp({
       latest.current = [];
     };
   });
-  const show = async () => {
-    const tag = findNodeHandle(anchor.current);
-    if (tag === null) {
-      return;
-    }
-    const chosen = await TurboModuleRegistry.getEnforcing<NativeMenu>(
-      'UnwiredMenu',
-    ).show(
-      tag,
-      [
-        {
-          items: items.map(({ key, run: _run, ...item }) => ({
-            ...item,
-            id: key,
-          })),
-        },
-      ],
-      processColor(colors.statusDestructive),
-    );
-    if (isMenuChoice(chosen)) {
-      latest.current
-        .find((item) => item.key === chosen && item.disabled !== true)
-        ?.run();
-    }
-  };
   return (
-    <Pressable
-      ref={anchor}
-      collapsable={false}
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole="button"
-      accessibilityState={{ disabled, selected }}
-      accessibilityValue={label === undefined ? undefined : { text: label }}
-      disabled={disabled}
-      onPress={() => {
-        void show();
-      }}
+    <View
       style={[
         styles.popUp,
-        label === undefined ? styles.iconPopUp : null,
-        variant === 'field'
-          ? [
-              styles.fieldPopUp,
-              {
-                backgroundColor: colors.surfaceContent,
-                borderColor: colors.separator,
-              },
-            ]
-          : { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
+        label === undefined ? styles.pullDown : null,
+        variant === 'field' ? styles.fieldPopUp : null,
       ]}>
-      {icon === undefined ? null : (
-        <SFSymbol
-          name={icon}
-          color={colors.textPrimary}
-        />
-      )}
-      {prefix === undefined ? null : (
-        <Text style={[styles.popUpText, { color: colors.textSecondary }]}>
-          {prefix}
+      {/* The hidden label sizes the pop-up, which AppKit draws over it. */}
+      {label === undefined ? null : (
+        <Text
+          numberOfLines={1}
+          style={[textStyles.body, styles.popUpSizing]}>
+          {label}
         </Text>
       )}
-      {label === undefined ? null : (
-        <>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.popUpText,
-              variant === 'field' ? styles.fieldPopUpText : null,
-              { color: colors.textPrimary },
-            ]}>
-            {label}
-          </Text>
-          <SFSymbol
-            name={
-              variant === 'field' ? 'chevron.down' : 'chevron.up.chevron.down'
-            }
-            size={variant === 'field' ? 16 : 12}
-            color={colors.textSecondary}
-          />
-        </>
-      )}
-    </Pressable>
+      {/* The accessibility props serve Testing Library; VoiceOver reads the AppKit pop-up. */}
+      <NativePopUpButton
+        accessible
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        accessibilityValue={label === undefined ? undefined : { text: label }}
+        destructiveColor={processColor(colors.statusDestructive)}
+        enabled={!disabled}
+        items={items.map(({ key, run: _run, ...item }) => ({
+          ...item,
+          id: key,
+        }))}
+        label={accessibilityLabel}
+        onSelect={({ nativeEvent }) => {
+          latest.current
+            .find(
+              (item) => item.key === nativeEvent.id && item.disabled !== true,
+            )
+            ?.run();
+        }}
+        style={StyleSheet.absoluteFill}
+        symbol={label === undefined ? icon : undefined}
+        text={label}
+      />
+    </View>
   );
 }
 
@@ -316,7 +253,6 @@ export function FormatBar({
       <PopUp
         accessibilityLabel={t('drafts.textStyle')}
         disabled={disabled}
-        icon="textformat"
         label={t(blockNames[kind])}
         items={textStyleKinds.map((value) => ({
           key: value,

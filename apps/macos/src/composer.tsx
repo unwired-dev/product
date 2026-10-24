@@ -269,6 +269,13 @@ const styles = StyleSheet.create({
     paddingRight: spacing.l,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  sender: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+  },
+  senderPrefix: textStyles.body,
   section: {
     ...textStyles.bodyEmphasized,
     paddingHorizontal: spacing.xl,
@@ -590,24 +597,30 @@ export function SendingMailbox({
       from,
     });
   }
+  const colors = usePalette();
   return (
-    <PopUp
-      quiet
-      accessibilityLabel={label}
-      disabled={!editable}
-      label={from}
-      prefix={t('drafts.fromLabel')}
-      selected={state === 'available'}
-      items={senders.map((mailbox) => ({
-        key: mailbox.id,
-        title: mailbox.address,
-        checked: state === 'available' && mailbox.id === draft.connection,
-        disabled: !editable,
-        run: () => {
-          onChange(mailbox);
-        },
-      }))}
-    />
+    <View style={styles.sender}>
+      <Text
+        importantForAccessibility="no"
+        accessibilityElementsHidden
+        style={[styles.senderPrefix, { color: colors.textSecondary }]}>
+        {t('drafts.fromLabel')}
+      </Text>
+      <PopUp
+        accessibilityLabel={label}
+        disabled={!editable}
+        label={from}
+        items={senders.map((mailbox) => ({
+          key: mailbox.id,
+          title: mailbox.address,
+          checked: state === 'available' && mailbox.id === draft.connection,
+          disabled: !editable,
+          run: () => {
+            onChange(mailbox);
+          },
+        }))}
+      />
+    </View>
   );
 }
 

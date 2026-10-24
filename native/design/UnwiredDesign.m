@@ -664,6 +664,70 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 }
 @end
 
+// A pop-up button that AppKit draws, focuses and opens: with a symbol, a pull-down showing it;
+// otherwise a pop-up showing `text`, its chosen item's title. The button sits inside a plain view,
+// so that React Native's wrapper stays out of accessibility and VoiceOver reaches only the button.
+// React Native macOS 0.81.9 has no pop-up button; remove this view when it offers one.
+@interface UnwiredPopUpButtonView : NSView
+@property (nonatomic, copy) NSArray<NSDictionary *> *items;
+@property (nonatomic, copy) NSString *text;
+@property (nonatomic, copy) NSString *symbol;
+@property (nonatomic, copy) NSString *label;
+@property (nonatomic, copy) NSColor *destructiveColor;
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@end
+
+@implementation UnwiredPopUpButtonView {
+  NSPopUpButton *_button;
+}
+- (instancetype)initWithFrame:(NSRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _enabled = YES;
+    _button = [[NSPopUpButton alloc] initWithFrame:self.bounds pullsDown:NO];
+    _button.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _button.autoenablesItems = NO;
+    [self addSubview:_button];
+  }
+  return self;
+}
+- (BOOL)isAccessibilityElement { return NO; }
+- (void)setLabel:(NSString *)label { _label = [label copy]; _button.accessibilityLabel = label; }
+- (void)setEnabled:(BOOL)enabled { _enabled = enabled; _button.enabled = enabled; }
+// React Native applies the whole prop batch before rebuilding the menu.
+- (void)didSetProps:(NSArray<NSString *> *)changedProps { [self render]; }
+// The menu always shows the items React Native last gave it; a choice only reports their id.
+- (void)render
+{
+  NSMenu *menu = UnwiredMenuOf(@"", @[@{@"items": self.items ?: @[]}], self,
+                               self.destructiveColor ?: NSColor.systemRedColor);
+  NSMenuItem *shown = [[NSMenuItem alloc] initWithTitle:self.text ?: @"" action:nil keyEquivalent:@""];
+  if (self.symbol.length > 0) {
+    shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
+  }
+  // A pull-down shows its first item, which its menu leaves out.
+  _button.pullsDown = self.symbol.length > 0;
+  if (_button.pullsDown) [menu insertItem:shown atIndex:0];
+  _button.menu = menu;
+  NSPopUpButtonCell *cell = _button.cell;
+  cell.usesItemFromMenu = _button.pullsDown;
+  if (!_button.pullsDown) {
+    NSInteger checked = [menu.itemArray indexOfObjectPassingTest:^BOOL(NSMenuItem *item, NSUInteger i, BOOL *stop) {
+      return item.state == NSControlStateValueOn;
+    }];
+    [_button selectItemAtIndex:checked == NSNotFound ? -1 : checked];
+    cell.menuItem = shown;
+  }
+}
+// AppKit selects the chosen item after this action, so the shown items return once it has.
+- (void)select:(NSMenuItem *)sender
+{
+  if (self.onSelect) self.onSelect(@{@"id": sender.representedObject});
+  dispatch_async(dispatch_get_main_queue(), ^{ [self render]; });
+}
+@end
+
 // A question in a sheet on its anchor's window, answering the chosen button's index. React Native
 // macOS's Alert asks over the key window and cannot withdraw a question its asker no longer owns.
 @interface UnwiredAlert : NSObject <RCTBridgeModule>
@@ -858,5 +922,20 @@ RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }
+@end
+
+@interface UnwiredPopUpButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredPopUpButtonManager
+RCT_EXPORT_MODULE(UnwiredPopUpButton)
+RCT_EXPORT_VIEW_PROPERTY(items, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(text, NSString)
+RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
+RCT_EXPORT_VIEW_PROPERTY(label, NSString)
+RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredPopUpButtonView new]; }
 @end
 #endif
