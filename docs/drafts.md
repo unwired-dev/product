@@ -139,8 +139,8 @@ later events from the editor that discarded it.
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. The compact iPhone system **Back**, Mac window
-close and Mac **Quit** currently have the separate native limitations below.
+composer stays open and says so. Mac window close and **Quit** use this same leave guard. The compact iPhone
+system **Back** still has the separate native limitation below.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
@@ -600,18 +600,15 @@ before release, covering the Back button and swipe, pending/failed/locked saves,
 unfinished recipients, selecting the same Draft to reveal it again, and successful
 retry.
 
-Mac window close and **Quit** also bypass the composer's leave guard. Closing a
-window keeps unsaved changes in memory while the app runs, even after its last
-window closes. A pending autosave can still finish; if saving fails or storage is
-locked, every Inbox window, including a reopened one, shows the warning and
-**Save Drafts**. Unfinished recipient text is included when the Draft is saved.
-Closed composers stop following later conflict copies, while their unsaved edits
-remain available to **Save Drafts**. A confirmed Discard already waiting for a save
-still finishes against its own conflicting version after the window closes.
-Quitting before the latest changes are stored loses them, including while a save
-is pending, failed or locked. The warning and retry do not prevent close or Quit.
-Add and qualify native close and quit protection before release, covering
-unfinished recipients, pending/failed/locked saves, multiple windows, closing the
-last window, and successful retry. These native exit gaps are tracked in
-[#778](https://github.com/unwired-dev/product/issues/778). The component tests do not
-satisfy these native checks.
+Mac window close, Command-W and **Quit** ask each open composer to finish before
+closing its window. Unfinished recipients and pending, failed or locked saves
+keep the window open; a refusal also cancels Quit. After a successful save or
+explicit discard, Quit continues through the remaining guarded windows. Closing
+the last window keeps the application running; Quit stops it. Forced account or
+device invalidation still removes private editor state.
+
+Native release qualification remains required for failed/locked saves, multiple
+guarded windows, last-window close and Quit with no windows, alongside successful
+retry. [#778](https://github.com/unwired-dev/product/issues/778) tracks remaining
+native exit qualification and the compact iPhone Back gap. Component tests do not
+satisfy those native checks.

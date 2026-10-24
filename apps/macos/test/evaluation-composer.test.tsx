@@ -273,6 +273,11 @@ describe('the Tiptap evaluation composer', () => {
     await press('New Message');
     const { typed } = simulatedPage();
     await typed('Moved by Expand');
+    const [original] = draftsOf(drafts.getSnapshot());
+    ok(original);
+    await act(async () => {
+      await drafts.update({ ...original, subject: 'Other editor' }, original);
+    });
     // Storage that refuses the save keeps the Draft here to try again.
     storage.setLocked(true);
     await press('Expand');
@@ -283,11 +288,49 @@ describe('the Tiptap evaluation composer', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('message-webview')).toBeNull();
     });
-    const [saved] = draftsOf(drafts.getSnapshot());
-    ok(saved, 'Expected the saved Draft');
+    const savedDrafts = draftsOf(drafts.getSnapshot());
+    const saved = savedDrafts.find(({ id }) => id === expanded[0]);
+    ok(saved, 'Expected the saved conflict copy');
+    expect(savedDrafts).toHaveLength(2);
+    expect(saved.id).not.toBe(original.id);
+    expect(savedDrafts.find(({ id }) => id === original.id)?.subject).toBe(
+      'Other editor',
+    );
     expect(expanded).toStrictEqual([saved.id]);
     expect(saved.body).toStrictEqual([
       { kind: 'paragraph', spans: [{ text: 'Moved by Expand' }] },
+    ]);
+  });
+
+  it('does not open a window when its editor unmounts during the Expand save', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const expanded = jest.fn<undefined, [string]>();
+    const app = await render(
+      <App
+        drafts={drafts}
+        onExpand={expanded}
+      />,
+    );
+    await press('New Message');
+    await simulatedPage().typed('Saved after teardown');
+    storage.hold();
+    try {
+      await press('Expand');
+      expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
+      await app.unmount();
+    } finally {
+      storage.release();
+    }
+    await act(async () => {
+      await drafts.save();
+    });
+    expect(expanded).not.toHaveBeenCalled();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Saved after teardown' }] },
     ]);
   });
 

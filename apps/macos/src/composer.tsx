@@ -106,6 +106,7 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
+import { useCloseGuard } from './command-palette.tsx';
 import { ComposerActions, FormatBar, PopUp } from './composer-controls.tsx';
 import {
   Notice as Banner,
@@ -1768,6 +1769,7 @@ function Editor({
     update,
   ]);
   const navigation = useComposerNavigation();
+  useCloseGuard(navigation.leave);
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   // Expand hands the Draft over once every edit is saved; a failed save keeps it here.
   const expand = async () => {

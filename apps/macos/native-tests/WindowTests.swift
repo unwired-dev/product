@@ -1353,12 +1353,31 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(windowBody.value as? String, "Keyboard replyKeyboard reply")
     XCTAssertTrue(typed.waitForNonExistence(timeout: 10))
     XCTAssertFalse(composer.buttons["Expand"].exists)
+    // Both native exits must reach the regular editor's recipient/save guard.
+    let to = composer.textFields.matching(NSPredicate(format: "label == %@", "To")).firstMatch
+    XCTAssertTrue(to.waitForExistence(timeout: 10))
+    to.click()
+    to.typeText("unfinished")
+    waitUntil { to.value as? String == "unfinished" }
+    composer.typeKey("w", modifierFlags: .command)
+    let invalid = text("Correct or remove the invalid address to close this Draft.", in: composer)
+    XCTAssertTrue(invalid.waitForExistence(timeout: 10))
+    composer.typeKey("q", modifierFlags: .command)
+    XCTAssertTrue(invalid.exists)
+    XCTAssertEqual(app.state, .runningForeground)
+    to.click()
+    composer.typeKey("a", modifierFlags: .command)
+    composer.typeKey(.delete, modifierFlags: [])
+    waitUntil { (to.value as? String ?? "").isEmpty }
     composer.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
     // A composer unmount aborted the host within seconds before (#1174).
     Thread.sleep(forTimeInterval: 5)
     XCTAssertEqual(app.state, .runningForeground)
     XCTAssertTrue(row("Draft. Re: Outlook update 003").exists)
+    // The refused Quit was cancelled, so it must not terminate after a later successful Close.
+    app.typeKey("q", modifierFlags: .command)
+    XCTAssertTrue(app.wait(for: .notRunning, timeout: 15))
   }
 
   // Opens the key window's Command Palette, narrows it to one command and runs it with Return.

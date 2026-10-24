@@ -41,6 +41,7 @@ import {
   Alert,
   Animated,
   AppState,
+  DeviceEventEmitter,
   ScrollView,
   TurboModuleRegistry,
   View,
@@ -307,14 +308,45 @@ describe('mac window selection with the shared mock mailbox', () => {
       );
       await fireEvent.press(app.getByRole('button', { name: 'Redo' }));
       await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
-      // Expand saves the Draft, typed recipient text included, and moves it into its own window.
-      await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
+      // A concurrent storage writer wins the original identifier while Expand is saving.
+      const before = drafts.getSnapshot();
+      ok(before.kind === 'ready');
+      const [original] = before.drafts;
+      ok(original);
+      const writer = createDrafts(storage.native, {
+        subscribe: () => () => undefined,
+        getSnapshot: () => account,
+      });
+      await writer.load();
+      await writer.update({ ...original, subject: 'Other writer' }, original);
+      storage.hold();
+      try {
+        await fireEvent.changeText(
+          app.getByLabelText('Subject'),
+          'Moving editor',
+        );
+        // Expand waits for saving, typed recipient text included, and follows its conflict copy.
+        await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
+        expect(app.getByTestId('composer-overlay')).toBeVisible();
+      } finally {
+        storage.release();
+      }
       await waitFor(() => {
         expect(app.queryByTestId('composer-overlay')).toBeNull();
       });
       await expect(app.findByText('oliver@example.com')).resolves.toBeVisible();
       const [opened] = composerWindows();
       ok(opened !== undefined);
+      expect(opened.draft).not.toBe(original.id);
+      expect(drafts.getSnapshot()).toMatchObject({
+        drafts: expect.arrayContaining([
+          {
+            ...original,
+            subject: 'Other writer',
+            updatedAt: expect.any(Number),
+          },
+        ]),
+      });
       expect(composerWindows()).toStrictEqual([
         { draft: opened.draft, profile: defaultProfile },
       ]);
@@ -337,7 +369,36 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).resolves.toHaveTextContent('Keep this draft.');
       expect(window.getByLabelText('To')).toHaveProp('value', 'unfinished');
       expect(window.queryByRole('button', { name: 'Expand' })).toBeNull();
+      // Native Close and Quit must reach this editor's leave guard, including unfinished entries.
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'composer-window-1',
+        });
+      });
+      expect(
+        window.getByRole('alert', {
+          name: 'Correct or remove the invalid address to close this Draft.',
+        }),
+      ).toBeVisible();
+      expect(closedWindows()).toStrictEqual([]);
       await fireEvent.changeText(window.getByLabelText('To'), '');
+      storage.setLocked(true);
+      await fireEvent.changeText(
+        window.getByLabelText('Subject'),
+        'Unsaved window edit',
+      );
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'composer-window-1',
+        });
+      });
+      expect(
+        window.getByText(
+          'This Draft could not be saved, so it stays open. Try again, or discard it.',
+        ),
+      ).toBeVisible();
+      expect(closedWindows()).toStrictEqual([]);
+      storage.setLocked(false);
       await fireEvent.press(window.getByRole('button', { name: 'Close' }));
       await waitFor(() => {
         expect(closedWindows()).toStrictEqual(['composer-window-1']);
