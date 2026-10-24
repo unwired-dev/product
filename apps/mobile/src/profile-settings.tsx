@@ -43,6 +43,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   menu: {
+    minWidth: 44,
     minHeight: 44,
     marginVertical: -spacing.m,
   },

@@ -14,4 +14,5 @@ confirmed connections to remove before the Profile, and refused moves and
 removals explain their reason.
 
 On iPhone and iPad, long mailbox addresses truncate on one line beside the Profile
-pop-up while its accessibility label keeps the full address.
+pop-up while its accessibility label keeps the full address. Profile pop-ups keep
+a 44-point minimum touch target even for short Profile names.
