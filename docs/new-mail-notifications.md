@@ -61,7 +61,8 @@ running behind this device's.
 - **Microsoft 365:** each committed page of a delta round reports the unread Inbox
   messages it names that were not already cached and were received no earlier than
   the allowance; a round's pages share one boundary, including after interruption
-  and relaunch. Once the 200-message cache is full, a message no newer than its
+  and relaunch. A completed empty round advances that boundary even if its delta
+  link is unchanged. Once the 200-message cache is full, a message no newer than its
   oldest entry may have been dropped from it, so it is not new either; this covers a
   change to such a message and Graph naming a message again later in a round. The
   initial listing, listing again after Graph expired the delta link and updates to
@@ -72,6 +73,9 @@ Neither provider tells delivery apart from a move, so mail received no earlier t
 the allowance can still notify when it is moved into the Inbox: from another folder it
 reached after the previous synchronization began, or back in after this device saw it
 in the last five minutes before that synchronization.
+If this device's clock is more than five minutes ahead of the provider's, arrivals
+can be missed. A round with more than 200 arrivals can also under-report to avoid
+reporting an evicted message twice.
 
 Before posting, after reading this device's settings, the device checks again that the
 connection still belongs to the same Product Account and incarnation and that its switch

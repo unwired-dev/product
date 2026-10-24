@@ -359,10 +359,10 @@ describe('reading Microsoft mail through Graph', () => {
     expect(updated.messages.find(({ id }) => id === read)?.unread).toBe(false);
     expect(updated.messages).toHaveLength(5);
 
-    // An unchanged Inbox returning the same link commits nothing.
+    // An unchanged Inbox returning the same link still commits its synchronization boundary.
     const commits = graph.commits.length;
     await relaunched.load();
-    expect(graph.commits).toHaveLength(commits);
+    expect(graph.commits).toHaveLength(commits + 1);
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
 
     // A fresh link from an empty round is saved, once per synchronization, and used next time.
@@ -370,7 +370,7 @@ describe('reading Microsoft mail through Graph', () => {
     graph.requests.length = 0;
     await relaunched.load();
     expect(reads(graph)).toStrictEqual(['changes']);
-    expect(graph.commits).toHaveLength(commits + 1);
+    expect(graph.commits).toHaveLength(commits + 2);
     expect(graph.commits.at(-1)).toContain('$deltatoken=');
     expect(graph.commits.at(-1)).toContain('r1');
     await relaunched.load();
@@ -378,7 +378,7 @@ describe('reading Microsoft mail through Graph', () => {
     expect(messageReads(graph).at(-1)?.searchParams.get('$deltatoken')).toMatch(
       /r1$/u,
     );
-    expect(graph.commits).toHaveLength(commits + 2);
+    expect(graph.commits).toHaveLength(commits + 3);
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
   });
 
@@ -453,6 +453,38 @@ describe('reading Microsoft mail through Graph', () => {
         ['Later arrival'],
       ]);
       expect(committed).toStrictEqual([true, true, true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('advances the arrival boundary after a quiet round returning the same delta link', async () => {
+    expect.hasAssertions();
+    const at = (hour: number, minute = 0) => Date.UTC(2026, 9, 1, hour, minute);
+    vi.useFakeTimers({ now: at(9), toFake: ['Date'] });
+    try {
+      const graph = createSyntheticGraph();
+      const filtered = graph.deliver({ subject: 'Filtered', at: at(8, 58) });
+      graph.remove(filtered);
+      const arrivals: string[][] = [];
+      const options = {
+        provider: 'microsoft-graph' as const,
+        arrived: (messages: ReadonlyArray<{ readonly subject: string }>) => {
+          arrivals.push(messages.map(({ subject }) => subject));
+        },
+      };
+      const inbox = createGmailInbox(graph.native, options);
+      await inbox.load();
+      vi.setSystemTime(at(10));
+      await inbox.load();
+
+      // The quiet round must advance the boundary durably, even though its link stayed the same.
+      vi.setSystemTime(at(11));
+      graph.restore(filtered);
+      graph.deliver({ subject: 'New arrival', at: at(10, 30) });
+      const relaunched = createGmailInbox(graph.native, options);
+      await relaunched.load();
+      expect(arrivals).toStrictEqual([['New arrival']]);
     } finally {
       vi.useRealTimers();
     }

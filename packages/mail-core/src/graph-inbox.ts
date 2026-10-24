@@ -245,16 +245,13 @@ export function createGraphReader(native: NativeGraphMailbox) {
     return next;
   });
 
-  // An unchanged Inbox still saves the round's link, as Graph asks, so a quiet mailbox never waits
-  // on an expiring one; saving it ends this synchronization.
+  // A quiet round still saves its start, even when its link is unchanged, so the next round uses
+  // the latest arrival boundary. Saving it ends this synchronization.
   const quietRound = (
     document: MailboxDocument,
     link: string,
     synchronizedAt: string,
   ) => {
-    if ('link' in document.checkpoint && document.checkpoint.link === link) {
-      return Option.none();
-    }
     const current: MailboxDocument = {
       ...document,
       synchronizedAt,
