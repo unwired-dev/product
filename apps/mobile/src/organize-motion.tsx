@@ -8,6 +8,7 @@ import type { LayoutChangeEvent } from 'react-native';
 import {
   advanceRowMotion,
   placeLeavingRows,
+  restingRowMotion,
 } from '@private-email/mail-core/mailboxes';
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, StyleSheet, View } from 'react-native';
@@ -74,15 +75,9 @@ function useReducedMotion() {
 // row's motion, and the interruptions that finish rows still leaving.
 export function useRowMotion<I>(shown: Shown<I>) {
   const reduced = useReducedMotion();
-  const [tracked, setTracked] = useState<RowMotionState<I>>(() => ({
-    order: shown.sections.flatMap(({ data }) => data.map(shown.keyOf)),
-    sections: shown.sections,
-    outcomes: shown.outcomes,
-    scope: shown.scope,
-    covered: shown.reading && !ipad,
-    leaving: [],
-    returning: new Set(),
-  }));
+  const [tracked, setTracked] = useState<RowMotionState<I>>(() =>
+    restingRowMotion({ ...shown, covered: shown.reading && !ipad }),
+  );
   const next = advanceRowMotion(tracked, {
     ...shown,
     covered: shown.reading && !ipad,
@@ -127,7 +122,7 @@ const styles = StyleSheet.create({
 });
 
 // A returning row stays collapsed until its content is measured; a leaving one keeps its height.
-const unmeasured = (kind: RowMotion['kind']) =>
+const unmeasured = (kind: RowMotion['kind'] | undefined) =>
   kind === 'returning' ? styles.collapsed : undefined;
 
 // A list row that collapses and fades as it leaves, and grows back from its current height when it
@@ -149,22 +144,33 @@ export function MovingRow({
   const size = useSharedValue(kind === 'returning' ? 0 : 1);
   const opacity = useSharedValue(kind === 'returning' ? 0 : 1);
   const settle = useRef(onSettled);
-  // Whether this row has moved since it last rested.
-  const moved = useRef(false);
+  // The animated style stays bound from a motion's start until the row is whole again on the UI
+  // thread; a resting row binds none, so the list stays idle.
+  const [bound, setBound] = useState(kind !== undefined);
+  if (kind !== undefined && !bound) {
+    setBound(true);
+  }
   useEffect(() => {
     settle.current = onSettled;
   });
   useEffect(() => {
-    // A motion cleared before it finished, as when another outcome replaces it, leaves the row whole.
+    // A motion that ends or is cleared, as when another outcome replaces it, leaves the row whole
+    // before the style detaches.
     if (kind === undefined) {
-      if (moved.current) {
-        moved.current = false;
-        size.set(1);
-        opacity.set(1);
+      if (bound) {
+        const rest = () => {
+          setBound(false);
+        };
+        size.set(withTiming(1, { duration: 0 }));
+        opacity.set(
+          withTiming(1, { duration: 0 }, () => {
+            'worklet';
+            scheduleOnRN(rest);
+          }),
+        );
       }
       return;
     }
-    moved.current = true;
     const settled = () => {
       settle.current();
     };
@@ -191,7 +197,7 @@ export function MovingRow({
     }
     size.set(withTiming(1, timing));
     opacity.set(withTiming(1, timing, done));
-  }, [kind, wait, reduced, size, opacity, settle]);
+  }, [kind, wait, reduced, size, opacity, settle, bound]);
   const shown = useAnimatedStyle(
     () => ({ height: (natural ?? 0) * size.value, opacity: opacity.value }),
     [natural],
@@ -202,7 +208,7 @@ export function MovingRow({
   // A resting row keeps its own height and binds no animated style, so the list stays idle. A
   // moving row follows its animation once measured; until then, a returning row stays collapsed.
   let moving = undefined;
-  if (kind !== undefined) {
+  if (bound) {
     // The measured height holds the row until the animated style takes over on the UI thread.
     moving =
       natural === undefined ? unmeasured(kind) : [{ height: natural }, shown];
@@ -215,7 +221,7 @@ export function MovingRow({
       accessibilityElementsHidden={gone}
       importantForAccessibility={gone ? 'no-hide-descendants' : 'auto'}>
       <View
-        style={kind === undefined ? undefined : styles.moving}
+        style={bound ? styles.moving : undefined}
         onLayout={measure}>
         {children}
       </View>

@@ -252,7 +252,8 @@ export type ImapFolderView =
 export type ImapNotice = Readonly<{
   kind: 'done' | 'rejected' | 'blocked';
   action: ImapAction;
-  message: Readonly<{ subject: string }>;
+  // The message as shown when the change was made.
+  message: ImapMessage;
 }>;
 
 export type ImapInboxState =
@@ -1029,7 +1030,7 @@ export function createImapInbox(
       notice = {
         kind: 'blocked',
         action: blocked.action,
-        message: { subject: blocked.message.subject },
+        message: blocked.message,
       };
       noticed = undefined;
     }
@@ -1316,7 +1317,7 @@ export function createImapInbox(
     notice = {
       kind: 'rejected',
       action,
-      message: { subject: message.subject },
+      message,
     };
     noticed = undefined;
   };
@@ -1529,7 +1530,7 @@ export function createImapInbox(
         notice = {
           kind: 'done',
           action,
-          message: { subject: message.subject },
+          message,
         };
         noticed = { id, original: message };
         render();

@@ -8,6 +8,7 @@ import type { LayoutChangeEvent } from 'react-native';
 import {
   advanceRowMotion,
   placeLeavingRows,
+  restingRowMotion,
 } from '@private-email/mail-core/mailboxes';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -70,15 +71,9 @@ function useReducedMotion() {
 // row's motion, and the interruptions that finish rows still leaving.
 export function useRowMotion<I>(shown: Shown<I>) {
   const reduced = useReducedMotion();
-  const [tracked, setTracked] = useState<RowMotionState<I>>(() => ({
-    order: shown.sections.flatMap(({ data }) => data.map(shown.keyOf)),
-    sections: shown.sections,
-    outcomes: shown.outcomes,
-    scope: shown.scope,
-    covered: false,
-    leaving: [],
-    returning: new Set(),
-  }));
+  const [tracked, setTracked] = useState<RowMotionState<I>>(() =>
+    restingRowMotion({ ...shown, covered: false }),
+  );
   const next = advanceRowMotion(tracked, { ...shown, covered: false });
   if (next !== tracked) {
     setTracked(next);

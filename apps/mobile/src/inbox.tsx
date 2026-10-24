@@ -20,6 +20,8 @@ import {
   inboxChoice,
   inboxMessages,
   messageDateSections,
+  motionIdentityOf,
+  organizingConcerns,
   profileMailboxes,
   resultKey,
 } from '@private-email/mail-core/mailboxes';
@@ -710,9 +712,11 @@ export function Inbox({
       ...shown.map(({ state }) => state.kind === 'ready'),
     ],
     keyOf: rowKey,
+    identityOf: motionIdentityOf,
     outcomes: shown.map(({ state }) =>
       state.kind === 'ready' && 'notice' in state ? state.notice : undefined,
     ),
+    concerned: organizingConcerns(shown),
     reading: selected !== undefined,
   });
   // Rows render again when the selection or a result's saved state changes.
