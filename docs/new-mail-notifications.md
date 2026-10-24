@@ -62,7 +62,7 @@ decides on its own to alert.
   names that were not already cached. Mail enters the cache only through the listing
   that starts a mailbox or follows an expired delta link, which never notifies, and
   through the delta page that classifies it. When a full cache refills after losing a
-  message, it takes only messages no newer than its oldest entry and leaves newer ones
+  message, it requests only messages no newer than its oldest entry and leaves newer ones
   to their delta page. Once the 200-message cache is full, a message no newer than its
   oldest entry may have been dropped from it, so it is not new either; this covers a
   change to such a message and Graph naming a message again later in a round. Updates

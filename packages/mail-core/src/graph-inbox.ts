@@ -161,9 +161,15 @@ export function createGraphReader(native: NativeGraphMailbox) {
   const listGraph = Effect.fnUntraced(function* (
     scope: MailboxScope,
     previous: MailboxDocument | undefined,
-    checkpoint: MailboxDocument['checkpoint'],
+    {
+      checkpoint,
+      until,
+    }: Readonly<{
+      checkpoint: MailboxDocument['checkpoint'];
+      until?: string;
+    }>,
   ) {
-    let url = graphInbox(cacheLimit);
+    let url = graphInbox(cacheLimit, until);
     const messages = new Map<string, GmailMessage>();
     // A page may be shorter than $top. Bound even empty or repeated continuation pages.
     for (let pages = 0; pages < cacheLimit; pages += 1) {
@@ -216,8 +222,13 @@ export function createGraphReader(native: NativeGraphMailbox) {
     let messages = merged.slice(0, cacheLimit);
     if (document.messages.length === cacheLimit && merged.length < cacheLimit) {
       const kept = new Set(merged.map(({ id }) => id));
-      const edge = merged.at(-1)?.receivedAt ?? '';
-      const listed = yield* listGraph(scope, document, current);
+      const edge =
+        merged.at(-1)?.receivedAt ?? document.messages.at(-1)?.receivedAt ?? '';
+      // Filter at the provider so pending newer arrivals cannot crowd older refill rows out.
+      const listed = yield* listGraph(scope, document, {
+        checkpoint: current,
+        until: edge,
+      });
       messages = Arr.sort(
         [
           ...merged,
@@ -263,7 +274,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
   > {
     const listing = { kind: 'graph-listing' } as const;
     if (document === undefined || !isGraphCheckpoint(document.checkpoint)) {
-      return Option.some(yield* listGraph(scope, document, listing));
+      return Option.some(
+        yield* listGraph(scope, document, { checkpoint: listing }),
+      );
     }
     const { checkpoint } = document;
     const page = yield* graphRead(scope)(
@@ -274,14 +287,18 @@ export function createGraphReader(native: NativeGraphMailbox) {
       Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
     );
     if (Option.isNone(page)) {
-      return Option.some(yield* listGraph(scope, document, listing));
+      return Option.some(
+        yield* listGraph(scope, document, { checkpoint: listing }),
+      );
     }
     const next = page.value['@odata.nextLink'];
     const link = yield* pageLink(page.value);
     if (checkpoint.kind === 'graph-listing') {
       return Option.some(
         next === undefined
-          ? yield* listGraph(scope, document, { kind: 'graph-current', link })
+          ? yield* listGraph(scope, document, {
+              checkpoint: { kind: 'graph-current', link },
+            })
           : { ...document, checkpoint: { kind: 'graph-listing', link } },
       );
     }
@@ -401,9 +418,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
       isGraphCheckpoint(document.checkpoint) &&
       document.messages.some(({ labels }) => labels === undefined)
     ) {
-      return listGraph(scope, document, document.checkpoint).pipe(
-        Effect.asSome,
-      );
+      return listGraph(scope, document, {
+        checkpoint: document.checkpoint,
+      }).pipe(Effect.asSome);
     }
     if (step >= 200) {
       return Effect.fail(

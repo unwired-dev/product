@@ -319,12 +319,21 @@ export function createSyntheticGraph({
 
   const inboxPage = (url: URL) => {
     const offset = Number(url.searchParams.get('$skip') ?? 0);
-    const inbox = newest();
+    const until = url.searchParams
+      .get('$filter')
+      ?.replace('receivedDateTime le ', '');
+    const inbox = newest().filter(
+      (each) =>
+        until === undefined ||
+        Date.parse(each.receivedDateTime) <= Date.parse(until),
+    );
+    const next = new URL(url);
+    next.searchParams.set('$skip', String(offset + pageSize));
     return respond({
       value: inbox.slice(offset, offset + pageSize).map(listed),
       ...(offset + pageSize < inbox.length
         ? {
-            '@odata.nextLink': `${graph}/me/mailfolders/inbox/messages?$skip=${offset + pageSize}`,
+            '@odata.nextLink': next.toString(),
           }
         : {}),
     });

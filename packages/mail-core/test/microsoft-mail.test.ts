@@ -448,7 +448,7 @@ describe('reading Microsoft mail through Graph', () => {
     expect(committed).toStrictEqual([true, true, true]);
   });
 
-  it('retains the start of an interrupted delta round so later deliveries notify after relaunch', async () => {
+  it('resumes an interrupted delta round and reports later deliveries after relaunch', async () => {
     expect.hasAssertions();
     const at = (hour: number) => Date.UTC(2026, 9, 1, hour);
     vi.useFakeTimers({ now: at(9), toFake: ['Date'] });
@@ -511,8 +511,7 @@ describe('reading Microsoft mail through Graph', () => {
     vi.useFakeTimers({ now: at(30), toFake: ['Date'] });
     try {
       const graph = createSyntheticGraph({ pageSize: 100 });
-      // Received just before the first synchronization, all within the clock allowance; the
-      // oldest does not fit the cache.
+      // The oldest historical message does not fit the cache.
       const listed = Array.from({ length: cacheLimit + 1 }, (_, index) =>
         graph.deliver({
           subject: `Listed ${index}`,
@@ -601,6 +600,43 @@ describe('reading Microsoft mail through Graph', () => {
     await relaunched.load();
     await relaunched.load();
     expect(arrivals).toStrictEqual([[delivered]]);
+  });
+
+  it('refills older mail without letting pending arrivals disable the evicted-message guard', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ pageSize: 100 });
+    const historical = Array.from({ length: cacheLimit + 2 }, (_, index) =>
+      graph.deliver({
+        subject: `Historical ${index}`,
+        at: Date.UTC(2026, 9, 1) + index * 1000,
+      }),
+    );
+    const round = splitRound(graph);
+    const arrivals: string[][] = [];
+    const inbox = createGmailInbox(round.native, {
+      provider: 'microsoft-graph',
+      arrived: (messages) => {
+        arrivals.push(messages.map(({ id }) => id));
+      },
+    });
+    await inbox.load();
+    const removed = ready(inbox.getSnapshot()).messages.slice(0, 2);
+    for (const { id } of removed) {
+      graph.remove(id);
+    }
+    const delivered = graph.deliver({
+      subject: 'Actual arrival',
+      at: Date.UTC(2026, 9, 2),
+    });
+    const [dropped] = pair(historical);
+    graph.restore(dropped);
+    round.split(
+      removed.map(({ id }) => id),
+      [dropped, delivered],
+    );
+    await inbox.load();
+    expect(arrivals).toStrictEqual([[delivered]]);
+    expect(ready(inbox.getSnapshot()).messages).toHaveLength(cacheLimit);
   });
 
   it('reports one arrival once when two stores read its delta page before either commits', async () => {
@@ -695,7 +731,6 @@ describe('reading Microsoft mail through Graph', () => {
     expect(reads(graph)).toStrictEqual([
       'changes',
       'message',
-      'list',
       'list',
       'changes',
     ]);
