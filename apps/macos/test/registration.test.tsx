@@ -2353,9 +2353,26 @@ describe('product registration', () => {
     // the native view passes vertical wheel scrolling of a normal-height document to the reader;
     // a document above the height cap keeps every wheel direction inside the view.
     await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 686, height: 120 } },
+      });
+    });
+    // A wide document may be measured before the container's first layout.
+    expect(body.props).toMatchObject({ scrollEnabled: false });
+    await act(async () => {
       await fireEvent(body, 'layout', {
         nativeEvent: { layout: { width: 320 } },
       });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: true, bounces: false });
+    await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 320, height: 120 } },
+      });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: false, bounces: false });
+    // Later measurements recompute overflow against the known layout.
+    await act(async () => {
       await fireEvent(body, 'contentSizeChange', {
         nativeEvent: { contentSize: { width: 686, height: 120 } },
       });
