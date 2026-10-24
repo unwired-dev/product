@@ -66,6 +66,18 @@ running behind this device's.
   mail moved back into the Inbox never notify; as for IMAP, mail that reached
   another folder after the previous synchronization began and was then moved in can.
 
+Before posting, after reading this device's settings, the device checks again that the
+connection still belongs to the same Product Account and incarnation and that its switch
+is on. Native posting must recheck the originating Product Account and connection
+incarnation before handing an alert to the system. An acknowledged preview opt-out
+also suppresses queued sender/subject content. Revoked devices,
+removed connections and other Product Accounts therefore post nothing. Each
+notification carries only opaque account, connection, incarnation and message
+identifiers. Background synchronization waits for notification posting before
+finishing the operating system's opportunity.
+Removing a connection withdraws its delivered notifications; signing out or a purge
+withdraws all of them.
+
 ## How a notification looks
 
 With previews on, the sender is the title (the address when the sender has no name)
