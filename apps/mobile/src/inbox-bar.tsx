@@ -109,10 +109,13 @@ const styles = StyleSheet.create({
 export function NewMessageButton({
   onCompose,
   scope,
+  registerCommand = true,
 }: {
   readonly onCompose: (id: string) => void;
   // The mailbox the Inbox shows, which a new message sends from when it can.
   readonly scope: string | undefined;
+  // The mounted Inbox owns the shared command; another column can reuse only its button.
+  readonly registerCommand?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -157,7 +160,7 @@ export function NewMessageButton({
   };
   return (
     <>
-      {disabled ? null : (
+      {disabled || !registerCommand ? null : (
         <RegisterCommands
           offer={() => [
             composeCommand(t, () => {
@@ -431,11 +434,13 @@ export function WindowBarHost({
 // window shows it across its bottom edge instead.
 export function FloatingBar({
   hidden = false,
+  paddingBottom = spacing.l,
   leading,
   trailing,
   children,
 }: {
   readonly hidden?: boolean;
+  readonly paddingBottom?: number;
   readonly leading: ReactNode;
   readonly trailing: ReactNode;
   // The search field, or the button that opens it.
@@ -474,7 +479,10 @@ export function FloatingBar({
       {windowBar === undefined ? (
         <View
           pointerEvents="box-none"
-          style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
+          style={[
+            styles.bottomBar,
+            { paddingBottom, display: hidden ? 'none' : 'flex' },
+          ]}>
           {leading}
           {children}
           {trailing}
