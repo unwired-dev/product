@@ -22,6 +22,91 @@ Hardware nomination and published Apple Intelligence eligibility do not prove
 runtime API readiness or passing qualification. Measurements remain outstanding
 under #625, #626, #822 and #830; this update records no test run.
 
+## Mac format bar text-storage timing slice, 2026-10-24
+
+This extends the composer timing evidence below for
+[#626](https://github.com/unwired-dev/product/issues/626), using the
+[Mac performance journey](../agents/native-validation.md#mac-performance-journey).
+The journey now clicks Bold, Bold, Italic, Italic, Underline and Underline twice
+over on the selected last word after the shortcut samples. Its 12 samples run
+from an app-recorded mouse release to the first app-recorded text-storage edit
+with the expected text and per-character marks. A missing release or matching
+edit fails the journey. The display interval comes from the recorded key events;
+this run uses one window on one display. Both endpoints exclude XCUITest.
+
+Source snapshot `86dc53986` used root lockfile SHA-256
+`98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The reference was the Mac mini M4 with 16 GB memory, `Mac16,10`, on macOS 27.0.1
+(`26A434`), with Xcode 27.1 (`27A9275`), Node 24.21.0 and pnpm 11.5.2.
+The signed `Testing` app is Release-optimized with packaged JavaScript and the
+`registration-performance` Mock Mail Session. The native probe is unchanged;
+the slice changes only the XCTest journey and its documentation.
+
+The implementation run passed one XCTest with zero failures in 227.3 seconds.
+Evidence is `artifacts/macos-inbox/journey.OqQpqS/`; its combined runner log is
+`scratchpad/evidence/journey1.log`. The independent OCR reviewer matched all 55
+input/edit durations to its emitted samples, including each format bar result
+before the next input. The four groups used a 16.67 ms comparison interval.
+
+| Interaction                  | Samples | p50 ms | p95 ms | Maximum ms |
+| ---------------------------- | ------: | -----: | -----: | ---------: |
+| Plain typing                 |      20 |    1.4 |    6.7 |       12.3 |
+| Typing after bold at caret   |      11 |  116.5 |  314.2 |      314.2 |
+| Selected-word mark shortcuts |      12 |   96.8 |  116.2 |      116.2 |
+| Format bar mark clicks       |      12 |  107.1 |  121.5 |      121.5 |
+
+The implementation run's other p95 upper bounds were launch 1028.9 ms, mailbox
+switch 285.7 ms, cached Microsoft/Gmail bodies 372.3/502.8 ms, empty composer
+501.3 ms and saved Draft composer 160.7 ms. Query overhead was 31.9 ms median.
+Recorded main-queue delays were 108.3, 118.9 and 110.6 ms; none overlapped a sample.
+
+The independent OCR rerun used the same source snapshot and supplied Testing app,
+without an app rebuild. From the repository root:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  UNWIRED_SIGNING_IDENTITY='Apple Development' \
+  UNWIRED_MOCK_PROFILE="$HOME/.config/unwired/signing/mock.provisionprofile" \
+  mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testWarmCachePerformance
+```
+
+It passed one XCTest with zero failures in 235.0 seconds. Evidence is
+`artifacts/macos-inbox/journey.Xl6Erp/`, including the log, raw lifecycle records,
+xcresult, ownership and successful cleanup result. The combined runner log,
+source/lockfile/executable/bundle hashes and independent sample-audit results
+are under `scratchpad/review/ocr-native.log`, `ocr-provenance.json` and
+`ocr-sample-audit-{initial,rerun}.json`. All 55 raw input/edit durations matched
+the emitted samples again; every format bar result preceded the next input.
+
+| Interaction                  | Samples | p50 ms | p95 ms | Maximum ms |
+| ---------------------------- | ------: | -----: | -----: | ---------: |
+| Plain typing                 |      20 |    1.5 |   13.1 |       13.7 |
+| Typing after bold at caret   |      11 |   84.0 |   87.1 |       87.1 |
+| Selected-word mark shortcuts |      12 |   90.9 |   98.1 |       98.1 |
+| Format bar mark clicks       |      12 |   90.2 |  103.9 |      103.9 |
+
+The interval remained 16.67 ms. Other p95 upper bounds were launch 1042.9 ms,
+mailbox switch 289.8 ms, cached Microsoft/Gmail bodies 365.1/547.5 ms, empty
+composer 468.0 ms and saved Draft composer 175.0 ms. Query overhead was 38.2 ms
+median. Session delays were 134.6, 120.7 and 227.6 ms; none overlapped a sample.
+XCTest reported Notification Center dialogs on this shared desktop, so these
+are not isolated rendering benchmarks. Runner cleanup succeeded and preserved
+the unrelated idle mock app from another worktree.
+
+Format bar clicks are now measured at text storage, superseding that deferred
+item in the earlier entry below. These measurements precede layout, drawing
+and display presentation and do not prove next-rendered-frame feedback or a
+passing Mac baseline. Group flags compare p95, not every input. The storage
+latency remains tracked by [#1228](https://github.com/unwired-dev/product/issues/1228).
+The sampled stall probe does not prove the absolute stall cap or startup before
+its installation. Click/launch upper bounds still include XCUITest; overruns
+leave their budgets unproven. Mail View switching, physical iPhone/iPad baselines,
+owner-operated VoiceOver/dictation, provider/network latency and display-level
+next-frame proof remain required. Synthetic providers do not qualify live
+authentication or transport. No legacy coverage is retired.
+
 ## Mac composer text-storage timing slice, 2026-10-24
 
 This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),
