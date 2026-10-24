@@ -76,7 +76,7 @@ graphite `accent/fill` bezel tint with a semibold title. Welcome's Continue take
 cinnabar `brand/seal` tint. The others keep the standard bezel, and Destructive also
 draws its title in `status/destructive`. In Dark, an `accent/ink` ring replaces the
 system focus ring. No push button takes Return as its key equivalent, so Return never
-sends an open Draft. A hidden copy of the title sizes each button. React Native macOS
+sends an open Draft. React Native macOS
 0.81.9's `Button` is a `TouchableOpacity`. Remove the adapter when React Native macOS
 offers an `NSButton`.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
