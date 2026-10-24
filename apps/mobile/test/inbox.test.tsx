@@ -2439,6 +2439,15 @@ describe('command palette', () => {
         name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
     ).resolves.toBeVisible();
+    // The list's Back closes Settings over what it covered.
+    await press('Account');
+    await press('Back');
+    expect(screen.queryByRole('header', { name: 'Settings' })).toBeNull();
+    expect(
+      screen.getByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    ).toBeVisible();
   });
 
   it('drops an open palette when the gate replaces the Inbox', async () => {

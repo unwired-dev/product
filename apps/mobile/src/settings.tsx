@@ -305,6 +305,7 @@ export function SettingsWorkspace({
   account,
   destination,
   onDestination,
+  leading,
   accessory,
   onWelcome,
   children,
@@ -316,6 +317,8 @@ export function SettingsWorkspace({
   readonly onDestination: (
     destination: SettingsDestination | undefined,
   ) => void;
+  // Shown before the iPhone list's title, such as Back to what Settings covers.
+  readonly leading?: ReactNode;
   // Shown in the header, such as an activity indicator and the way back to the Inbox.
   readonly accessory?: ReactNode;
   readonly onWelcome?: () => void;
@@ -453,6 +456,7 @@ export function SettingsWorkspace({
     <View style={styles.page}>
       <AccountHeader
         title={t('settings.title')}
+        leading={leading}
         accessory={accessory}
       />
       <ScrollView contentContainerStyle={styles.content}>

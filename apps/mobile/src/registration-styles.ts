@@ -30,6 +30,12 @@ export const registrationStyles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 22,
   },
+  headerButton: {
+    padding: 0,
+    borderRadius: 22,
+    backgroundColor: 'transparent',
+  },
+  dimmed: { opacity: 0.4 },
   // A 44pt control, the 20pt native busy indicator and its spacing balance both sides.
   phoneHeaderSlot: {
     width: 44 + 20 + spacing.s,

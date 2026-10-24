@@ -167,6 +167,7 @@
     "chooseMailbox": "Choose another Google mailbox"
   },
   "settings": {
+    "back": "Back",
     "title": "Settings",
     "sections": {
       "accounts": "Accounts",

@@ -31,7 +31,6 @@ import {
   ActivityIndicator,
   AppState,
   Keyboard,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -42,9 +41,9 @@ import { ScreenStack, ScreenStackItem } from 'react-native-screens';
 
 import type { SettingsDestination } from './settings.tsx';
 
-import { AccountPage } from './account-page.tsx';
+import { AccountPage, HeaderButton } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
-import { Button, Glass, Notice, SFSymbol } from './design.tsx';
+import { Button, Notice } from './design.tsx';
 import {
   ErrorReportingContext,
   ErrorReportingDestination,
@@ -258,6 +257,9 @@ function RegistrationGateContent({
                     setSettings(undefined);
                     shownSettings.onInbox?.();
                   }}
+                  onBack={() => {
+                    setSettings(undefined);
+                  }}
                 />
               )
             }>
@@ -402,6 +404,7 @@ function SettingsPage({
   screen,
   store,
   onInbox,
+  onBack,
 }: {
   readonly assistance: NativeAssistance;
   readonly microsoft: boolean;
@@ -409,6 +412,8 @@ function SettingsPage({
   readonly screen: RegistrationScreen;
   readonly store: Registration;
   readonly onInbox: () => void;
+  // Closes Settings over what it covers, such as Mailboxes; the account page has nothing beneath.
+  readonly onBack?: () => void;
 }) {
   const { snapshot, busy, failed, removalFailure } = useSyncExternalStore(
     store.subscribe,
@@ -452,6 +457,16 @@ function SettingsPage({
         destination={selectedDestination}
         onDestination={setDestination}
         detail={detail}
+        leading={
+          onBack === undefined ? undefined : (
+            <HeaderButton
+              label={t('settings.back')}
+              icon="chevron.left"
+              disabled={busy}
+              onPress={onBack}
+            />
+          )
+        }
         accessory={
           <>
             {busy ? (
@@ -465,26 +480,12 @@ function SettingsPage({
                 return Promise.resolve();
               })
             ) : (
-              <Pressable
-                accessibilityLabel={t('registration.openInbox')}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: busy }}
+              <HeaderButton
+                label={t('registration.openInbox')}
+                icon="tray"
                 disabled={busy}
                 onPress={onInbox}
-                style={[
-                  styles.back,
-                  {
-                    opacity: busy ? 0.4 : 1,
-                    boxShadow: colors.smallGlassShadow,
-                  },
-                ]}>
-                <Glass cornerRadius={22} />
-                <SFSymbol
-                  name="tray"
-                  size={20}
-                  color={colors.textPrimary}
-                />
-              </Pressable>
+              />
             )}
           </>
         }>

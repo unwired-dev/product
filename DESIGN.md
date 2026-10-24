@@ -345,6 +345,9 @@ styles) so the file stays editable.
   Connection. Conditional [Outbox](docs/outbox.md#sending) sits above Drafts.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
   The reference mockups show Favorites and per-list banners and omit the secondary mailboxes.
+  iPhone Mailboxes puts Settings in a glass **Account** circle at the header's trailing
+  edge and a glass New Message at the bottom trailing corner; the frames' **Edit**
+  beside Account has no feature behind it yet.
 - **Message list header:** mailbox title, a subtitle carrying unread count and
   sync status, and a row of up to five Mail View chips, as the
   [organization requirements](docs/product/organization.md) specify: Important and
