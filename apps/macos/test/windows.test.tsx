@@ -40,6 +40,7 @@ import {
   AccessibilityInfo,
   Alert,
   AppState,
+  LayoutAnimation,
   ScrollView,
   TurboModuleRegistry,
   View,
@@ -825,6 +826,57 @@ describe('mac windows over a connected Gmail mailbox', () => {
       expect(second.queryByRole('button', { name: /Old receipt/u })).toBeNull();
       expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
     } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('moves rows once for an action in either window, but not for synchronization', async () => {
+    expect.hasAssertions();
+    const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    const inbox = createGmailInbox(gmail.native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await first.findByRole('button', { name: /Lunch on Friday/u });
+      gmail.deliver({ subject: 'Arrives quietly' });
+      await act(inbox.load);
+      await expect(
+        second.findByRole('button', { name: /Arrives quietly/u }),
+      ).resolves.toBeVisible();
+      expect(configureNext).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await fireEvent(
+          second.getByRole('button', { name: /Lunch on Friday/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      expect(
+        first.queryByRole('button', { name: /Lunch on Friday/u }),
+      ).toBeNull();
+      expect(configureNext.mock.calls).toStrictEqual([
+        [
+          {
+            duration: 200,
+            create: { type: 'easeOut', property: 'opacity' },
+            update: { type: 'easeOut' },
+            delete: { type: 'easeOut', property: 'opacity' },
+          },
+        ],
+      ]);
+    } finally {
+      configureNext.mockRestore();
       await app.unmount();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
     }

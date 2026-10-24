@@ -115,6 +115,9 @@ interface InboxProps {
 
 const allInboxes: MailboxView = {};
 const keepView = () => undefined;
+// While the list is scrolled, synchronization keeps its topmost visible row in place; at the top,
+// new mail, Drafts and the Outbox appear above what was shown.
+const keepTopRow = { minIndexForVisible: 0 };
 
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
 const minute = 60_000;
@@ -687,6 +690,8 @@ export function Inbox({
   const title =
     folderName ??
     t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title');
+  // Set while the list is scrolled from its top, so synchronization keeps the reading position.
+  const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
   // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
   // again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
@@ -861,6 +866,12 @@ export function Inbox({
           </View>
           <SectionList
             accessibilityLabel={t('inbox.messages')}
+            maintainVisibleContentPosition={keepPosition}
+            onScroll={({ nativeEvent }) => {
+              setKeepPosition(
+                nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,
+              );
+            }}
             contentContainerStyle={styles.list}
             refreshing={refreshing}
             onRefresh={() => {

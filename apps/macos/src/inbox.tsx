@@ -126,6 +126,9 @@ interface InboxProps {
 
 const allInboxes: MailboxView = {};
 const keepView = () => undefined;
+// While the list is scrolled, synchronization keeps its topmost visible row in place; at the top,
+// new mail, Drafts and the Outbox appear above what was shown.
+const keepTopRow = { minIndexForVisible: 0 };
 
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
 const minute = 60_000;
@@ -712,6 +715,8 @@ export function Inbox({
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
   const [query, setQuery] = useState('');
+  // Set while the list is scrolled from its top, so synchronization keeps the reading position.
+  const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
   // Typing stays responsive while the list catches up with the latest query.
   const searched = useDeferredValue(query.trim());
   const inboxListed = useMemo(
@@ -959,6 +964,12 @@ export function Inbox({
         </View>
         <SectionList
           accessibilityLabel={t('inbox.messages')}
+          maintainVisibleContentPosition={keepPosition}
+          onScroll={({ nativeEvent }) => {
+            setKeepPosition(
+              nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,
+            );
+          }}
           contentContainerStyle={styles.list}
           sections={sections}
           stickySectionHeadersEnabled={false}

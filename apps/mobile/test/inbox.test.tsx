@@ -35,6 +35,7 @@ import {
   AccessibilityInfo,
   AppState,
   Dimensions,
+  LayoutAnimation,
   Linking,
   StyleSheet,
   View,
@@ -2157,6 +2158,93 @@ const listedMessage = (
   }
   return message;
 };
+
+describe('organizing motion', () => {
+  const moved = {
+    duration: 200,
+    create: { type: 'easeOut', property: 'opacity' },
+    update: { type: 'easeOut' },
+    delete: { type: 'easeOut', property: 'opacity' },
+  };
+  const archive = async (subject: string) => {
+    await act(async () => {
+      await fireEvent(
+        screen.getByRole('button', { name: new RegExp(subject, 'u') }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'archive' } },
+      );
+    });
+  };
+
+  it('moves rows for an action, its Undo and a refusal, but not for synchronization', async () => {
+    expect.hasAssertions();
+    const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
+    try {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Lunch on Friday' });
+      const connected = await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
+      // After each step: the animated commits so far, and whether the row is listed.
+      const steps: Array<readonly [number, boolean]> = [];
+      const step = () => {
+        steps.push([
+          configureNext.mock.calls.length,
+          screen.queryByText('Lunch on Friday') !== null,
+        ]);
+      };
+
+      gmail.deliver({ subject: 'Arrives quietly' });
+      await act(connected.store().load);
+      await screen.findByText('Arrives quietly');
+      step();
+      await archive('Lunch on Friday');
+      step();
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+      });
+      step();
+      // A refused change returns its row the way Undo does.
+      gmail.failModify({ status: 400 });
+      await archive('Lunch on Friday');
+      await screen.findByRole('alert', { name: /Gmail could not archive/u });
+      step();
+
+      expect(steps).toStrictEqual([
+        [0, true],
+        [1, false],
+        [2, true],
+        [4, true],
+      ]);
+      expect(configureNext.mock.calls).toStrictEqual(
+        Array.from({ length: 4 }, () => [moved]),
+      );
+    } finally {
+      configureNext.mockRestore();
+    }
+  });
+
+  it('removes a row at once and fades its return in under Reduce Motion', async () => {
+    expect.hasAssertions();
+    const reduced = jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockResolvedValue(true);
+    const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
+    try {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Lunch on Friday' });
+      await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
+
+      await archive('Lunch on Friday');
+      expect(configureNext.mock.calls).toStrictEqual([
+        [{ duration: 150, create: { type: 'easeOut', property: 'opacity' } }],
+      ]);
+    } finally {
+      configureNext.mockRestore();
+      reduced.mockRestore();
+    }
+  });
+});
 
 describe('command palette', () => {
   it('opens by swipe and accessibility action while search replaces the Inbox heading', async () => {

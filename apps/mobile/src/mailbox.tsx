@@ -31,6 +31,7 @@ import type {
 } from './private-storage.ts';
 
 import { useLocalization } from './localization.ts';
+import { animateOrganizing } from './organize-motion.ts';
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
@@ -95,6 +96,7 @@ export function InboxProvider({
       subscription.remove();
     };
   }, [account, mailboxes]);
+  useEffect(() => animateOrganizing(mailboxes), [mailboxes]);
   return (
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>
