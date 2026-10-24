@@ -64,7 +64,7 @@ import { native, registration, start } from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
 
-// iPhone's Inbox shows its own Back to Mailboxes in place of the native navigation bar.
+// A collapsed iPhone shows the Inbox's title and Back to Mailboxes in its navigation bar.
 const phone = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
@@ -354,13 +354,7 @@ function MailShell() {
                   <Inbox
                     composing={draft}
                     onClose={closeReader}
-                    onBack={
-                      phone
-                        ? () => {
-                            splitView.current?.show('primary');
-                          }
-                        : undefined
-                    }
+                    bar={phone && collapsed}
                     onCompose={compose}
                     onSelect={selectMessage}
                     onSelectBehindComposer={

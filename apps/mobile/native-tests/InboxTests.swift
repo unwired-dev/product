@@ -1573,6 +1573,7 @@ final class InboxTests: XCTestCase {
     verifyPullToRefresh(app)
     verifyCompactInboxHeader(app)
     verifyCompactBackHold(app)
+    verifyCompactInboxSwipeBack(app)
     verifyCompactInboxBottom(app, scrollToEnd: true)
     verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
@@ -1601,6 +1602,10 @@ final class InboxTests: XCTestCase {
       app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
         .firstMatch.waitForExistence(timeout: 10))
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
+    // #1243: search hides iPhone's navigation bar, as the Search Results frame shows.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertFalse(app.navigationBars.firstMatch.exists)
+    }
     let results = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     results.name = "Search results"
     results.lifetime = .keepAlways
@@ -1611,6 +1616,7 @@ final class InboxTests: XCTestCase {
     verifyCompactSwipeBackToResults(app, search: search, row: maya)
     app.buttons["Close Search"].tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
+    verifyCompactInboxHeader(app)
     // Close also empties the field, which is not controlled by the query (#970).
     XCTAssertEqual(search.value as? String, "Search")
     if UIDevice.current.userInterfaceIdiom == .pad {
@@ -1663,6 +1669,7 @@ final class InboxTests: XCTestCase {
     let restored = app.buttons["Oliver Park. Saturday, by the river?"]
     XCTAssertTrue(restored.waitForExistence(timeout: 20))
     verifyCompactSwipeBackKeepsScroll(app)
+    verifyCompactBarPalette(app)
     for _ in 0..<5 where !restored.isHittable {
       app.swipeDown()
     }
@@ -1731,22 +1738,53 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.textFields["Type a command"].exists)
   }
 
-  // On iPhone, Back and the Inbox heading share one row in place of the native navigation bar.
+  // #1243: on iPhone the Inbox's title and status line sit centered in the system navigation bar,
+  // whose Back is the only one returning to Mailboxes.
   private func verifyCompactInboxHeader(_ app: XCUIApplication) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-    let back = app.buttons["Back to Mailboxes"]
-    XCTAssertTrue(back.waitForExistence(timeout: 10))
-    let title = app.staticTexts["Inbox"].firstMatch
+    let bar = app.navigationBars.firstMatch
+    XCTAssertTrue(bar.buttons["Back to Mailboxes"].waitForExistence(timeout: 10))
+    XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Back to Mailboxes")).count, 1)
+    let title = bar.staticTexts["Inbox"].firstMatch
     XCTAssertTrue(title.waitForExistence(timeout: 10))
-    let subtitle = app.staticTexts.matching(
+    let subtitle = bar.staticTexts.matching(
       NSPredicate(format: "label BEGINSWITH %@", "Preview mailbox")
     ).firstMatch
     XCTAssertTrue(subtitle.exists)
+    let window = app.windows.firstMatch.frame
     for text in [title, subtitle] {
-      XCTAssertLessThan(text.frame.minY, back.frame.maxY)
-      XCTAssertGreaterThan(text.frame.maxY, back.frame.minY)
+      XCTAssertEqual(text.frame.midX, window.midX, accuracy: 1)
     }
-    XCTAssertFalse(app.navigationBars.firstMatch.exists)
+  }
+
+  // #1243: the Inbox's leading-edge swipe returns to Mailboxes as its Back does; one released early
+  // keeps the Inbox, and the Inbox reopens with its bar.
+  private func verifyCompactInboxSwipeBack(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let inboxes = app.buttons["All inboxes"]
+    let back = app.buttons["Back to Mailboxes"]
+    edgeSwipe(app, completing: false)
+    waitUntil { back.isHittable && !inboxes.isHittable }
+    edgeSwipe(app, completing: true)
+    XCTAssertTrue(inboxes.waitForExistence(timeout: 10))
+    waitUntil { inboxes.isHittable && !back.exists }
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Mailboxes after swiping back from the Inbox"
+    shot.lifetime = .keepAlways
+    add(shot)
+    inboxes.tap()
+    verifyCompactInboxHeader(app)
+  }
+
+  // #1243: the iPhone Inbox's title in the bar keeps the heading's downward swipe for the Command
+  // Palette. Opening it retires the one-time hint, which earlier checks rely on for list height.
+  private func verifyCompactBarPalette(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    openPalette(app, header: app.navigationBars.staticTexts["Inbox"].firstMatch)
+    let query = app.textFields["Type a command"]
+    XCTAssertTrue(query.waitForExistence(timeout: 10))
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
   }
 
   // #968: releasing a held Back returns to usable Mailboxes every time, and the Inbox reopens with

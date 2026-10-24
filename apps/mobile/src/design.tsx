@@ -65,6 +65,8 @@ interface NavigationChromeProps extends Pick<ViewProps, 'testID'> {
   readonly backCount?: string | undefined;
   // Fills the screen behind the bar.
   readonly surface?: ColorValue | undefined;
+  // The kept bar's title view, sized by its own layout.
+  readonly children?: ReactNode;
 }
 
 const NativeNavigationChrome = requireNativeComponent<
@@ -72,7 +74,7 @@ const NativeNavigationChrome = requireNativeComponent<
 >('UnwiredNavigationChrome');
 
 // Hides the native navigation bar while a compact screen shows its own header, unless the screen
-// names its system Back.
+// names its system Back, whose bar shows the children as its title.
 export function NavigationChrome(props: NavigationChromeProps) {
   return (
     <NativeNavigationChrome

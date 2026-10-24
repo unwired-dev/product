@@ -77,7 +77,8 @@ results never appear in the palette. The vocabulary lives in the
   [#849](https://github.com/unwired-dev/product/issues/849) exist.
   While a link confirmation sheet is open, answer it before opening the palette in
   that window; command entry in other windows remains available.
-- **iPhone:** a downward swipe that starts on a screen header (the Inbox heading,
+- **iPhone:** a downward swipe that starts on a screen header (the Inbox title in
+  the navigation bar,
   the Mailboxes title, the reader's subject line, the composer's top bar or the
   Account page's title,
   which stay put while the content scrolls) opens the palette; swipes that start in the content scroll
