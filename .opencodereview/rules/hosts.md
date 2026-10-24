@@ -1,5 +1,19 @@
 Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the host TypeScript in `apps/mobile` and `apps/macos`.
 
+- A custom keyboard-focus ring in `apps/mobile/src/design.tsx` or `action.tsx`
+  driven only by `Pressable.onFocus`/`onBlur` without checking the installed iOS
+  emitter and enabled feature flags. Trace the exact focus signal the requirement
+  names through the native source to the styled element; imperative
+  first-responder events, TV-only bridges and accessibility-focus notifications
+  do not by themselves establish keyboard-focus delivery. In particular,
+  `UIAccessibilityElementFocusedNotification` also follows VoiceOver and Switch
+  Control, so substituting it can draw a keyboard ring for another input mode.
+  Check the owning issue's platform scope and retained system indicator before
+  requiring a custom ring, and preserve a single indicator. Otherwise a ring can
+  pass manually fired component events while never appearing on keyboard
+  navigation, or appear for the wrong focus and duplicate the system indicator.
+  Keep native interaction evidence distinct from a substituted event-boundary test.
+
 A host owns views and native adapters. It renders shared stores from `@private-email/mail-core` and passes native modules into them. `apps/mobile` is Expo on iOS and iPadOS (Hermes, Expo Router split view); `apps/macos` is React Native macOS, where AppKit owns windows and each window mounts its own React root over one JavaScript runtime. The two hosts pin different React and React Native versions.
 
 Apply `docs/agents/native-components.md` to UI selection and migration. Checks
@@ -202,6 +216,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Check the actual native trigger and text field bounds against the 44pt mobile
   and 28pt Mac targets; otherwise most of a seemingly tappable row does nothing.
   Preserve the approved row geometry while enlarging the interactive control.
+
+- `action.tsx` or another compact control applying a feedback capsule's negative
+  margins to its interactive target. Compare its occupied layout width with the
+  previous control for labels narrower than the target minimum, including
+  adjacent actions in a row on both hosts. A target can retain its `minWidth`
+  while its margins reduce the space reserved by its parent; otherwise neighboring
+  labels shift or rows wrap differently despite passing minimum-hit-size checks.
 
 - `SettingsWorkspace` or another route reusing `AccountHeader`'s default back
   label after changing its return target. Trace the callback to the retained

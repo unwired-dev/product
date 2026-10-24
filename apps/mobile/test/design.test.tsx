@@ -29,7 +29,7 @@ const renderedRoot = () => {
 
 describe('design components', () => {
   it.each(['light', 'dark'] as const)(
-    'keeps primary button text legible while pressed in %s appearance',
+    'shows the primary fill at 80% with legible text while pressed in %s appearance',
     async (appearance) => {
       expect.hasAssertions();
       const colors = palette[appearance];
@@ -64,7 +64,9 @@ describe('design components', () => {
           },
         };
         await fireEvent(button, 'responderGrant', touch);
-        expect(button).toHaveStyle({ backgroundColor: colors.accentFill });
+        expect(button).toHaveStyle({
+          backgroundColor: `${colors.accentFill}CC`,
+        });
         expect(within(button).getByText('Allow Gmail access')).toHaveStyle({
           color: colors.accentOnFill,
         });
