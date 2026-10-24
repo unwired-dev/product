@@ -24,6 +24,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { useState } from 'react';
+import { AccessibilityInfo } from 'react-native';
 
 import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
@@ -553,6 +554,8 @@ describe('sending a Draft', () => {
   it('explains a refused Send, a refusal by Gmail and an unknown outcome, and recovers each', async () => {
     expect.hasAssertions();
     const sender = device();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
     try {
       await act(async () => {
         await sender.mailboxes.load();
@@ -664,6 +667,67 @@ describe('sending a Draft', () => {
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unknown');
       await later(sender, 60_000);
       expect(sender.gmail.sends).toHaveLength(1);
+      // VoiceOver hears each refusal, each change of where a message stands and each answer to
+      // Check Again once, in order; a message confirmed in Sent leaves the Outbox silently.
+      const row = (subject: string, status: string) =>
+        `${subject}. To sam@example.invalid. ${status}`;
+      const unknown =
+        'Delivery unknown. Check Sent in Gmail before sending it again.';
+      const unconfirmed =
+        'Gmail did not confirm this message. Check Sent in Gmail.';
+      expect(announce.mock.calls.map(([words]) => words)).toStrictEqual([
+        'Add a recipient before sending.',
+        'Add a recipient before sending.',
+        'Discard this Draft? It is deleted from this device.',
+        row('Refused', 'Sending soon'),
+        row('Refused', 'Sending…'),
+        row('Refused', 'Not sent. Gmail refused this message.'),
+        'Discard this Draft? It is deleted from this device.',
+        row('Lost', 'Sending soon'),
+        row('Unknown', 'Sending soon'),
+        row('Lost', 'Sending…'),
+        row('Lost', unknown),
+        row('Unknown', 'Sending…'),
+        row('Unknown', unknown),
+        unconfirmed,
+        warning,
+        unconfirmed,
+        warning,
+      ]);
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('announces each change of an Outbox message once, however many windows show it', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      const { rerender } = await render(<App sender={sender} />);
+      sender.gmail.failSend({ status: 400, body: '{}' });
+      await compose('Twice');
+      await press('Send');
+      // A second window opening on the same Outbox repeats nothing it already said.
+      await rerender(
+        <>
+          <App sender={sender} />
+          <App sender={sender} />
+        </>,
+      );
+      await later(sender, 10_000);
+      const refused =
+        'Twice. To sam@example.invalid. Not sent. Gmail refused this message.';
+      expect(screen.getAllByLabelText(refused)).toHaveLength(2);
+      expect(announce.mock.calls.map(([words]) => words)).toStrictEqual([
+        'Twice. To sam@example.invalid. Sending soon',
+        'Twice. To sam@example.invalid. Sending…',
+        refused,
+      ]);
     } finally {
       sender.outbox.dispose();
     }

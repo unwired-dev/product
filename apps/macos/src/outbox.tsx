@@ -3,8 +3,8 @@ import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { outboxCopy } from '@private-email/mail-core/outbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { use, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { use, useEffect, useState } from 'react';
+import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
@@ -35,6 +35,20 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.s },
 });
 
+// The words last announced for each Outbox row's status and Check Again answer. VoiceOver hears
+// each change once, however many windows show the row; iOS and macOS ignore live regions.
+const announced = new Map<string, string>();
+function useAnnouncement(key: string, words: string | undefined) {
+  useEffect(() => {
+    if (words === undefined) {
+      announced.delete(key);
+    } else if (announced.get(key) !== words) {
+      announced.set(key, words);
+      AccessibilityInfo.announceForAccessibility(words);
+    }
+  }, [key, words]);
+}
+
 // The way out of an unknown outcome: check the Sent mailbox again, or, after a warning that the
 // provider may already have sent it, return the message to the Drafts to send again deliberately.
 function UnknownRecovery({
@@ -54,13 +68,13 @@ function UnknownRecovery({
   // Only the window that opened it asks before editing.
   const [confirming, setConfirming] = useState(false);
   const notice = confirming ? editWarning : unconfirmed;
+  useAnnouncement(`${entry.id}:${entry.sendAt}:check`, unconfirmed);
   return (
     <View style={styles.recovery}>
       {notice === undefined ? null : (
         <View
           accessible
-          accessibilityLabel={notice}
-          accessibilityLiveRegion="polite">
+          accessibilityLabel={notice}>
           <Text style={[styles.detail, { color: colors.textSecondary }]}>
             {notice}
           </Text>
@@ -101,6 +115,7 @@ function UnknownRecovery({
             label={t('outbox.edit')}
             onPress={() => {
               setConfirming(true);
+              AccessibilityInfo.announceForAccessibility(editWarning);
             }}
           />
         </View>
@@ -127,6 +142,9 @@ export function OutboxRow({
       ({ id }) => id === entry.draft.connection,
     )?.provider,
   );
+  const label = t('outbox.rowLabel', { subject, recipients, status });
+  // A message sent again after Undo has a new deadline, so its words are heard again.
+  useAnnouncement(`${entry.id}:${entry.sendAt}`, label);
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {
     void (async () => {
@@ -140,11 +158,7 @@ export function OutboxRow({
     <View style={[styles.row, { backgroundColor: colors.surfaceSidebar }]}>
       <View
         accessible
-        accessibilityLabel={t('outbox.rowLabel', {
-          subject,
-          recipients,
-          status,
-        })}
+        accessibilityLabel={label}
         style={styles.grow}>
         <Text
           numberOfLines={1}
@@ -156,9 +170,7 @@ export function OutboxRow({
           style={[styles.detail, { color: colors.textSecondary }]}>
           {recipients}
         </Text>
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.detail, { color: colors.textSecondary }]}>
+        <Text style={[styles.detail, { color: colors.textSecondary }]}>
           {status}
         </Text>
       </View>

@@ -69,6 +69,10 @@ it.
 - The **Outbox** appears in the Inbox column above the Drafts only while it holds
   a message. Each row names its subject and recipients and says where the message
   stands, and is hidden during search with the Drafts.
+- VoiceOver announces each change of where a message stands, and each answer to
+  **Check Again**, once however many Mac windows show it. In the composer, a
+  refused Send, a Draft that could not be saved on Close or Discard, and the
+  Discard question are announced as they appear.
 - For 10 seconds a row says **Sending soon** and offers **Undo**. Undo returns the
   same Draft, with its identifier, files and reply details, and opens it in the
   composer. Nothing reaches Convex or Gmail before the window ends. Choosing
