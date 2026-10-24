@@ -2,7 +2,7 @@ import type {
   MenuSection,
   NativeMenuItem,
 } from '@private-email/mail-core/context-menu';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type {
   ColorValue,
   NativeSyntheticEvent,
@@ -114,6 +114,7 @@ const styles = StyleSheet.create({
     minHeight: 28,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
+    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -597,9 +598,6 @@ export function Button({
   disabled = false,
   destructive = false,
   accessibilityLabel,
-  ref,
-  onFocus,
-  onBlur,
 }: {
   readonly label: string;
   readonly onPress: () => void;
@@ -607,31 +605,38 @@ export function Button({
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly accessibilityLabel?: string;
-} & Pick<ComponentProps<typeof Pressable>, 'ref' | 'onFocus' | 'onBlur'>) {
+}) {
   const colors = usePalette();
+  const [focused, setFocused] = useState(false);
   const primary = fill === 'accent';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  // Pressed, the accent fill shows at 80% (CC) and the quiet fill takes the selection tint.
+  const pressedFill = primary ? `${idle}CC` : colors.accentSelectionSubtle;
   let color = primary ? colors.accentOnFill : colors.textPrimary;
   if (destructive) {
     color = colors.statusDestructive;
   }
   return (
     <Pressable
-      ref={ref}
-      onFocus={onFocus}
-      onBlur={onBlur}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      enableFocusRing={false}
       focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         {
-          backgroundColor:
-            pressed && !primary ? colors.accentSelectionSubtle : idle,
-          opacity: disabled ? 0.5 : 1,
+          backgroundColor: pressed ? pressedFill : idle,
+          outlineColor: focused && !disabled ? colors.accentInk : 'transparent',
+          opacity: disabled ? 0.4 : 1,
         },
       ]}>
       <Text
