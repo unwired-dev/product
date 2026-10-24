@@ -5,6 +5,8 @@ Setup, coding rules, validation and observable requirements remain in this file.
 [#619](https://github.com/unwired-dev/product/issues/619) adds **New Mail
 Notifications** to the maintained iPhone, iPad and Mac clients: a device-evaluated
 alert for genuinely new Inbox mail from a Mailbox Connection the person turned on.
+[#1094](https://github.com/unwired-dev/product/issues/1094) extends it from Gmail to
+IMAP and Microsoft 365 connections.
 The vocabulary lives in the [privacy and sync glossary](domain/privacy-and-sync.md).
 No categorization runs: #652 adds Category eligibility and #853 adds quiet hours and
 sender or rule filtering. [#908](https://github.com/unwired-dev/product/issues/908)
@@ -19,8 +21,8 @@ matches content, grouping and actions to the design.
   **Allow…**, which asks once. **Show Sender and Subject** is off by default; until
   it is turned on, every notification shows only the app's name and "New mail".
   Permission and this choice belong to this device and never synchronize.
-- **Per Mailbox** has a switch for each Gmail Mailbox Connection. Every connection
-  starts off. Turning one on the first time also asks for permission. The switch is
+- **Per Mailbox** has a switch for each Mailbox Connection, named by its provider
+  and address. Every connection starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
   synchronizes end-to-end encrypted to every Trusted Device, bound to the
   connection's current incarnation. A change
@@ -29,13 +31,13 @@ matches content, grouping and actions to the design.
   again starts it off. A policy this device cannot open turns notifications off
   locally, including older saved policies without their record identifier. Changes
   wait until the synchronized records can be read; unreadable ciphertext is never
-  replaced. IMAP and Microsoft connections are not listed yet
-  ([#1094](https://github.com/unwired-dev/product/issues/1094)).
+  replaced. Without a connection, the group says to add a mailbox.
 
 ## What notifies
 
-Only unread messages that Gmail's history reports as added to the Inbox after the
-mailbox finished its first listing notify. A Gmail synchronization that commits a
+Only unread messages genuinely newly arriving in the Inbox notify. For Gmail, these
+are messages that Gmail's history reports as added to the Inbox after the mailbox
+finished its first listing. A Gmail synchronization that commits a
 history page reports that page's new arrivals once, after the commit. Resuming an
 interrupted label listing preserves which arrivals were already considered.
 A failed or repeated synchronization therefore reports nothing twice. Listing,
@@ -44,6 +46,18 @@ back into the Inbox, mail read or archived elsewhere before this device synchron
 and cache refills never notify. Push wakes, background refresh, activation and the
 foreground poll all reach the same synchronization; the content-free push never
 decides on its own to alert.
+
+- **IMAP:** a committed Inbox read reports the unread messages whose UIDs are at or
+  above the previously committed UIDNEXT under an unchanged UIDVALIDITY, and whose
+  INTERNALDATE is later than any the cache has considered. That boundary never
+  moves back, even when the Inbox empties. The first listing, a UIDVALIDITY change
+  or reset, cache refills and mail moved in, which keeps its INTERNALDATE, never
+  notify. IDLE, polling and activation reach the same classification.
+- **Microsoft 365:** a committed delta round reports the unread Inbox messages it
+  names whose received time is later than any the mailbox has considered, with the
+  same never-rewinding boundary. The initial listing, listing again after Graph
+  expired the delta link, updates to messages already listed and mail moved back
+  into the Inbox never notify.
 
 Before posting, after reading this device's settings, the device checks again that the
 connection still belongs to the same Product Account and incarnation and that its switch
@@ -70,8 +84,10 @@ Symbols the reader uses, in the design's order: Reply first on iPhone and iPad,
 Archive first on the Mac. Archive and Mark as Read ask to unlock the device first,
 because protected storage is closed while it is locked, then act without opening
 the app: once registration verifies, the message the notification names is
-organized through the same queued Gmail change as the reader's toolbar, while its
-connection keeps the same Product Account and incarnation. The system's handler
+organized through the same queued provider change as the reader's toolbar, while its
+connection keeps the same Product Account and incarnation. An IMAP Archive needs a
+server that declares an archive folder and moves without expunging other mail, as
+the toolbar's does; otherwise it changes nothing. The system's handler
 finishes when that change is saved, or after 25 seconds; a change still queued is
 sent at the next opportunity. A message no longer listed, or a connection that is
 gone or recreated, changes nothing.
@@ -95,15 +111,16 @@ and a tap or Reply opens one. Every other launch opens an Inbox window as before
 
 ## Validate
 
-`packages/mail-core/test/gmail-inbox.test.ts` covers arrival classification and
-commit ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
+`packages/mail-core/test/gmail-inbox.test.ts`, `imap.test.ts` and
+`microsoft-mail.test.ts` cover each provider's arrival classification and commit
+ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
 `host.test.ts` covers gating, background completion, permission and generic and preview
 content. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
-as Read, and `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
+as Read, for Gmail and IMAP, and `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
 appearance and grouping, and each action from a locked device and with the app not
-running, needs a build with APNs and a protected Gmail mailbox. It stays a required
-release check.
+running, needs a build with APNs and protected Gmail, IMAP and Microsoft 365
+mailboxes. It stays a required release check.

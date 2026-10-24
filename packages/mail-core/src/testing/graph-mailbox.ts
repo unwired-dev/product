@@ -631,6 +631,12 @@ export function createSyntheticGraph({
         found.folder = 'deleteditems';
       });
     },
+    // The message returns to the Inbox, as when moved back in Outlook.
+    restore: (id: string) => {
+      change(id, (found) => {
+        found.folder = 'inbox';
+      });
+    },
     // The message is deleted for good, as when emptied from Deleted Items in Outlook.
     purge: (id: string) => {
       if (messages.delete(id)) {

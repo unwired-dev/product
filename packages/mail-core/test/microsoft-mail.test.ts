@@ -332,6 +332,46 @@ describe('reading Microsoft mail through Graph', () => {
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
   });
 
+  it('reports only unread mail newly arriving in the Inbox, once each, after its delta round commits', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 3 });
+    const arrivals: string[][] = [];
+    const inbox = createGmailInbox(graph.native, {
+      provider: 'microsoft-graph',
+      arrived: (messages) => {
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    });
+    // The first listing and its delta round are historical.
+    await inbox.load();
+    expect(arrivals).toStrictEqual([]);
+
+    const [moved = '', updated = ''] = ready(inbox.getSnapshot())
+      .messages.filter(({ unread }) => unread)
+      .map(({ id }) => id);
+    graph.remove(moved);
+    await inbox.load();
+    graph.deliver({ subject: 'New arrival' });
+    graph.deliver({ subject: 'Read elsewhere', isRead: true });
+    // A message moved back into the Inbox, or a change to one already listed, is not new mail.
+    graph.restore(moved);
+    graph.restore(updated);
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New arrival']]);
+    // Synchronizing again reports nothing twice.
+    await inbox.load();
+    expect(arrivals).toHaveLength(1);
+
+    // Mail found by listing again after Graph expired the delta link is not reported.
+    graph.expireDelta();
+    graph.deliver({ subject: 'Arrived while the link expired' });
+    await inbox.load();
+    expect(arrivals).toHaveLength(1);
+    graph.deliver({ subject: 'Later arrival' });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New arrival'], ['Later arrival']]);
+  });
+
   it('lists again when Graph expires the delta link, showing saved mail meanwhile', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 3, pageSize: 2 });

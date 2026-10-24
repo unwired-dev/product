@@ -406,6 +406,56 @@ describe('connecting IMAP mailboxes', () => {
     expect(after.some(({ id }) => before.has(id))).toBe(false);
   });
 
+  it('reports only unread mail newly arriving in the Inbox, once each, after its commit', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const at = (hour: number) => Date.UTC(2026, 9, 1, hour);
+    const listed = imap.deliver('INBOX', {
+      subject: 'Listed',
+      received: at(9),
+    });
+    const arrivals: string[][] = [];
+    const inbox = createImapInbox(imap.native, {
+      arrived: (messages) => {
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    });
+    // The first listing is historical.
+    await inbox.load();
+    expect(arrivals).toStrictEqual([]);
+
+    imap.deliver('INBOX', { subject: 'New arrival', received: at(10) });
+    imap.deliver('INBOX', {
+      subject: 'Read elsewhere',
+      received: at(11),
+      flags: [String.raw`\Seen`],
+    });
+    // Mail moved back into the Inbox gets a new UID but keeps its INTERNALDATE: it is not new.
+    imap.expunge('INBOX', listed);
+    imap.deliver('INBOX', { subject: 'Moved back', received: at(9) });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New arrival']]);
+    // Synchronizing again reports nothing twice.
+    await inbox.load();
+    expect(arrivals).toHaveLength(1);
+
+    // An emptied Inbox still remembers what it considered.
+    for (const { uid } of ready(inbox.getSnapshot()).messages) {
+      imap.expunge('INBOX', uid);
+    }
+    await inbox.load();
+    imap.deliver('INBOX', { subject: 'Moved back again', received: at(10) });
+    imap.deliver('INBOX', { subject: 'Later arrival', received: at(12) });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New arrival'], ['Later arrival']]);
+
+    // Mail listed again after a UIDVALIDITY change is not reported.
+    imap.renumber('INBOX');
+    imap.deliver('INBOX', { subject: 'After renumbering', received: at(13) });
+    await inbox.load();
+    expect(arrivals).toHaveLength(2);
+  });
+
   it('refuses an unidentified folder before caching messages and retries with established UIDVALIDITY', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

@@ -16,6 +16,7 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
+import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 import {
   createSyntheticDevice,
   createSyntheticProductSyncBackend,
@@ -40,9 +41,17 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     shared.backend.productSync = createSyntheticProductSyncBackend();
   }
   const { vault } = createSyntheticVault(shared);
-  const base = syntheticConnections({
-    [syntheticMailboxes['alex@example.invalid']]: gmail,
-  });
+  // Controlled IMAP servers by connection, added once a test connects one.
+  const imapServers: Record<
+    string,
+    ReturnType<typeof createSyntheticImap>['native']
+  > = {};
+  const base = syntheticConnections(
+    {
+      [syntheticMailboxes['alex@example.invalid']]: gmail,
+    },
+    imapServers,
+  );
   const drafts = createSyntheticDrafts(() => undefined, {
     server: createSyntheticProductSync(),
   });
@@ -160,6 +169,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     host,
     native,
     gmail,
+    shared,
+    imapServers,
     attachments: attachments.promise,
     cancelled,
     counts,
@@ -321,6 +332,78 @@ describe('the host assembly', () => {
     expect(gmail.labelsOf(kept)).toStrictEqual(
       expect.arrayContaining(['INBOX', 'UNREAD']),
     );
+  });
+
+  it('posts New Mail Notifications for an IMAP connection turned on, and archives or marks as read from them', async () => {
+    expect.hasAssertions();
+    const { host, shared, imapServers, notified, notificationActions } =
+      syntheticHost(undefined, true);
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    await host.registration.register('google');
+    await host.registration.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: shared.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    const mailbox = required(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+    );
+    imapServers[mailbox.id] = imap.native;
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.registration.notifyMailbox(mailbox.id, true);
+    host.followNotificationActions();
+
+    const archived = imap.deliver('INBOX', {
+      subject: 'Archive me',
+      received: Date.UTC(2026, 9, 1, 9),
+    });
+    const read = imap.deliver('INBOX', {
+      subject: 'Read me',
+      received: Date.UTC(2026, 9, 1, 10),
+    });
+    await host.gmailMailboxes.load();
+    const id = (uid: number) => `7.${uid}.INBOX`;
+    expect(notified).toStrictEqual([
+      expect.objectContaining({
+        body: 'New mail',
+        connection: mailbox.id,
+        epoch: mailbox.epoch,
+        message: id(read),
+      }),
+      expect.objectContaining({ message: id(archived) }),
+    ]);
+
+    const named = {
+      account: 'account-synthetic-product-subject',
+      connection: mailbox.id,
+      epoch: required(mailbox.epoch),
+    };
+    await notificationActions.send({
+      id: 'archive',
+      ...named,
+      message: id(archived),
+      action: 'archive',
+    });
+    await notificationActions.send({
+      id: 'read',
+      ...named,
+      message: id(read),
+      action: 'read',
+    });
+    expect(imap.server.changes).toStrictEqual([
+      `move INBOX ${archived} Archive`,
+      `read INBOX ${read}`,
+    ]);
   });
 
   it('posts nothing for a connection turned off or removed while posting waited, and groups a moved one under its new Profile', async () => {

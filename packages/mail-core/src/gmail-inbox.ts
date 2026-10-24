@@ -753,6 +753,33 @@ const latestNotificationHistory = (
       };
 };
 
+// Reports new Inbox mail after its commit. Awaited so a background opportunity covers posting; its
+// failure never ends synchronization.
+export const reportArrivals = <M>(
+  arrived: ((messages: readonly M[]) => void | Promise<void>) | undefined,
+  messages: readonly M[],
+) =>
+  arrived === undefined || messages.length === 0
+    ? Effect.void
+    : Effect.tryPromise(() => Promise.resolve(arrived(messages))).pipe(
+        Effect.catch((error) =>
+          Effect.logError(
+            'New mail notifications failed:',
+            rejectionDiagnostic(error),
+          ),
+        ),
+      );
+
+// The later of two Microsoft receipts already considered for notifications, as a document field.
+const latestNotificationReceipt = (
+  saved: string | undefined,
+  next: string | undefined,
+): Pick<MailboxDocument, 'notificationReceivedAt'> => {
+  const later =
+    saved === undefined || (next !== undefined && next > saved) ? next : saved;
+  return later === undefined ? {} : { notificationReceivedAt: later };
+};
+
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -772,6 +799,10 @@ const rebasedOnto = (
       ...latestNotificationHistory(
         saved.notificationHistoryId,
         next.notificationHistoryId,
+      ),
+      ...latestNotificationReceipt(
+        saved.notificationReceivedAt,
+        next.notificationReceivedAt,
       ),
       pending: [
         // A stale label read or Discard cannot remove a newly prepared attempt or Retry.
@@ -1126,8 +1157,8 @@ export function createGmailInbox(
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
     removed?: (() => void) | undefined;
-    // Called once a committed history page brought unread messages newly into the Inbox. Listing,
-    // backfill and messages moved into the Inbox never arrive.
+    // Called once a committed history page or Microsoft delta round brought unread messages newly
+    // into the Inbox. Listing, backfill and messages moved into the Inbox never arrive.
     arrived?:
       | ((messages: readonly GmailMessage[]) => void | Promise<void>)
       | undefined;
@@ -3435,21 +3466,10 @@ export function createGmailInbox(
       }
       restarts += restartedListing(document, next.value) ? 1 : 0;
       yield* restartLimit(restarts);
-      const brought = arrivals;
+      const brought =
+        graph === undefined ? arrivals : graph.arrivals(next.value);
       ({ cache, document } = yield* commitOver(cache, document, next.value));
-      if (brought.length > 0) {
-        // Awaited so a background opportunity covers posting; its failure never ends synchronization.
-        yield* Effect.tryPromise(() =>
-          Promise.resolve(arrived?.(brought)),
-        ).pipe(
-          Effect.catch((error) =>
-            Effect.logError(
-              'New mail notifications failed:',
-              rejectionDiagnostic(error),
-            ),
-          ),
-        );
-      }
+      yield* reportArrivals(arrived, brought);
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }

@@ -83,6 +83,9 @@ const FolderCacheSchema = Schema.Struct({
   uidValidity: Validity,
   uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   messages: Schema.Array(ImapMessageSchema),
+  // The newest INTERNALDATE already considered for notifications; it never moves back, so mail
+  // that leaves and returns does not count as new. Absent from caches saved before it was kept.
+  notificationReceivedAt: Schema.optionalKey(Schema.String),
 });
 type FolderCache = typeof FolderCacheSchema.Type;
 
@@ -323,6 +326,16 @@ const newestReceived = Order.combine(
 export const newestFirst = (messages: readonly ImapMessage[]) =>
   Arr.sort(messages, newestReceived);
 
+// The newest INTERNALDATE a folder's cache, and any messages read since, have considered.
+const latestReceived = (
+  cache: FolderCache | undefined,
+  messages: readonly ImapMessage[] = [],
+) =>
+  [...(cache?.messages ?? []), ...messages].reduce(
+    (latest, { receivedAt }) => (receivedAt > latest ? receivedAt : latest),
+    cache?.notificationReceivedAt ?? '',
+  );
+
 // Applies one folder synchronization to its cache: a reset or a new UIDVALIDITY replaces it, and
 // otherwise known messages keep only those still present, with the flags read now.
 export function applyFolderRead(
@@ -351,9 +364,34 @@ export function applyFolderRead(
     [...kept, ...fresh.filter(({ uid }) => !known.has(uid))],
     byUid,
   ).slice(0, window);
+  const considered = latestReceived(cached, merged);
   return {
     uidValidity: read.uidValidity,
     uidNext: read.uidNext,
     messages: newestFirst(merged),
+    ...(considered === '' ? {} : { notificationReceivedAt: considered }),
   };
+}
+
+// The unread mail a read brought newly into the folder: UIDs from the cached UIDNEXT on, under the
+// same UIDVALIDITY, received after everything the cache considered. A first listing, a reset or
+// new UIDVALIDITY, refilled older mail and mail moved in, which keeps its INTERNALDATE, never
+// arrive.
+export function arrivedMessages(
+  cached: FolderCache | undefined,
+  read: FolderRead,
+  next: FolderCache,
+) {
+  if (
+    cached === undefined ||
+    read.reset ||
+    cached.uidValidity !== read.uidValidity
+  ) {
+    return [];
+  }
+  const considered = latestReceived(cached);
+  return next.messages.filter(
+    ({ uid, unread, receivedAt }) =>
+      unread && uid >= cached.uidNext && receivedAt > considered,
+  );
 }

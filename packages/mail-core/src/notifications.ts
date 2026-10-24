@@ -5,12 +5,18 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { GmailInbox } from './gmail-inbox.ts';
+import type { ImapInbox } from './imap-inbox.ts';
+import type { ImapAction } from './imap-model.ts';
 import type { GmailMessage } from './mailbox-message.ts';
-import type { RegistrationSnapshot } from './registration-snapshot.ts';
+import type {
+  MailGrantProvider,
+  RegistrationSnapshot,
+} from './registration-snapshot.ts';
 
 import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { listedMessage } from './gmail-inbox.ts';
+import { imapRoleFolder } from './imap-actions.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
 import { createSubscribable } from './subscribable.ts';
 
@@ -29,6 +35,12 @@ const Mailbox = Schema.Struct({
   epoch: Schema.NonEmptyString,
 });
 export type NotificationMailbox = typeof Mailbox.Type;
+
+// What a notification shows of a newly arrived message from any provider.
+export type ArrivedMessage = Pick<
+  GmailMessage,
+  'id' | 'sender' | 'address' | 'subject'
+>;
 
 // A tapped notification retains its account and connection incarnation. Its Reply action opens
 // the message to reply to it.
@@ -132,7 +144,7 @@ const logged = (
 export const notificationContent = (
   t: Translate,
   previews: boolean,
-  { sender, address, subject }: GmailMessage,
+  { sender, address, subject }: ArrivedMessage,
 ) =>
   previews
     ? {
@@ -202,7 +214,7 @@ export function createNotifications(
     // connection may have been removed or turned off meanwhile.
     arrived: (
       { profile: currentProfile, ...mailbox }: Arrival,
-      messages: readonly GmailMessage[],
+      messages: readonly ArrivedMessage[],
       eligible: () => boolean,
     ) =>
       runLogged(
@@ -351,6 +363,52 @@ export function followOpenedNotifications(
   };
 }
 
+// A connection's open Inbox, from any provider.
+type OpenInbox =
+  | Readonly<{ provider: MailGrantProvider; inbox: GmailInbox }>
+  | Readonly<{ provider: 'imap'; inbox: ImapInbox }>;
+
+// An IMAP notification's change: Mark as Read, or a move to the folder the server declares for
+// archive when it moves without expunging other messages.
+const imapChange = (
+  state: ReturnType<ImapInbox['getSnapshot']>,
+  action: 'archive' | 'read',
+): ImapAction | undefined => {
+  if (action === 'read') {
+    return { kind: 'read' };
+  }
+  const destination =
+    state.kind === 'ready' && state.capabilities?.moves === true
+      ? imapRoleFolder(state.folders, 'archive')
+      : undefined;
+  return destination === undefined
+    ? undefined
+    : { kind: 'archive', destination };
+};
+
+// Archives or marks as read a listed message through the reader toolbar's queued change; a message
+// no longer listed changes nothing.
+async function organizeListed(
+  open: OpenInbox,
+  id: string,
+  action: 'archive' | 'read',
+) {
+  await open.inbox.load();
+  if (open.provider === 'imap') {
+    const message = open.inbox.message(id);
+    const change = imapChange(open.inbox.getSnapshot(), action);
+    if (message !== undefined && change !== undefined) {
+      await open.inbox.organize(message, change);
+    }
+    return;
+  }
+  const state = open.inbox.getSnapshot();
+  const message = state.kind === 'ready' ? listedMessage(state, id) : undefined;
+  if (message !== undefined) {
+    await open.inbox.organize(message, gmailAction[action]);
+  }
+}
+
 // Archives or marks as read each message chosen on a notification, one at a time, until a reloaded
 // JavaScript context replaces this reader. Each acts once registration verifies, while the
 // connection is still the one the notification named, through the same queued provider change as
@@ -363,15 +421,15 @@ export async function followNotificationActions(
   {
     snapshot,
     verify,
-    inbox,
+    mailbox,
   }: Readonly<{
     snapshot: () => RegistrationSnapshot;
     verify: (
       load: () => Promise<void>,
       mailboxLoading: 'explicit',
     ) => Promise<void>;
-    // The Gmail connection's open Inbox.
-    inbox: (connection: string) => GmailInbox | undefined;
+    // The connection's open Inbox.
+    mailbox: (connection: string) => OpenInbox | undefined;
   }>,
 ) {
   for (;;) {
@@ -392,18 +450,10 @@ export async function followNotificationActions(
         await verify(async () => {
           // Read after verification, which restores a cold host or removes a stale connection.
           const target = openedTarget(snapshot(), opened);
-          const open = target === undefined ? undefined : inbox(target.mailbox);
-          if (target === undefined || open === undefined) {
-            return;
-          }
-          await open.load();
-          const state = open.getSnapshot();
-          const message =
-            state.kind === 'ready'
-              ? listedMessage(state, target.id)
-              : undefined;
-          if (message !== undefined) {
-            await open.organize(message, gmailAction[action]);
+          const open =
+            target === undefined ? undefined : mailbox(target.mailbox);
+          if (target !== undefined && open !== undefined) {
+            await organizeListed(open, target.id, action);
           }
         }, 'explicit');
       } catch (error) {

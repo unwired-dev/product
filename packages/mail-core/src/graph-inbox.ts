@@ -94,6 +94,23 @@ type PendingChange = Pick<PendingAction, 'action' | 'message'>;
 // The most folders Move to lists for one mailbox.
 const folderLimit = 250;
 
+// The newest receipt a mailbox, and any messages read since, have considered for notifications.
+const latestReceived = (
+  document: MailboxDocument | undefined,
+  messages: readonly GmailMessage[] = [],
+) =>
+  [...(document?.messages ?? []), ...messages].reduce(
+    (latest, { receivedAt }) => (receivedAt > latest ? receivedAt : latest),
+    document?.notificationReceivedAt ?? '',
+  );
+const considering = (
+  document: MailboxDocument | undefined,
+  messages: readonly GmailMessage[],
+): Pick<MailboxDocument, 'notificationReceivedAt'> => {
+  const latest = latestReceived(document, messages);
+  return latest === '' ? {} : { notificationReceivedAt: latest };
+};
+
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
   { kind: 'graph-listing' | 'graph-current' }
@@ -107,6 +124,8 @@ const isGraphCheckpoint = (
 export function createGraphReader(native: NativeGraphMailbox) {
   // Documents that saved the link of an empty delta round; their synchronization is current.
   const quiet = new WeakSet<MailboxDocument>();
+  // The new Inbox mail each document's delta round brought, which its commit reports.
+  const arrivals = new WeakMap<MailboxDocument, readonly GmailMessage[]>();
   // One Graph read; a delta link Graph no longer accepts is GmailInvalidPage.
   const graphRead =
     (scope: MailboxScope) =>
@@ -149,13 +168,15 @@ export function createGraphReader(native: NativeGraphMailbox) {
       }
       const next = page['@odata.nextLink'];
       if (next === undefined || messages.size >= cacheLimit) {
+        const listed = Arr.sort([...messages.values()], newestFirst).slice(
+          0,
+          cacheLimit,
+        );
         return {
           ...previous,
+          ...considering(previous, listed),
           version: 1,
-          messages: Arr.sort([...messages.values()], newestFirst).slice(
-            0,
-            cacheLimit,
-          ),
+          messages: listed,
           checkpoint,
         } satisfies MailboxDocument;
       }
@@ -188,14 +209,25 @@ export function createGraphReader(native: NativeGraphMailbox) {
     );
     const merged = merge(document.messages, changed);
     const current = { kind: 'graph-current', link } as const;
-    if (document.messages.length === cacheLimit && merged.length < cacheLimit) {
-      return yield* listGraph(scope, document, current);
-    }
-    return {
-      ...document,
-      messages: merged.slice(0, cacheLimit),
-      checkpoint: current,
-    } satisfies MailboxDocument;
+    // Only unread mail received after everything already considered is new; an update to a known
+    // message, or mail moved back into the Inbox, is not.
+    const considered = latestReceived(document);
+    const brought = changed.flatMap(([, message]) =>
+      message !== undefined && message.unread && message.receivedAt > considered
+        ? [message]
+        : [],
+    );
+    const next =
+      document.messages.length === cacheLimit && merged.length < cacheLimit
+        ? yield* listGraph(scope, document, current)
+        : ({
+            ...document,
+            ...considering(document, merged),
+            messages: merged.slice(0, cacheLimit),
+            checkpoint: current,
+          } satisfies MailboxDocument);
+    arrivals.set(next, brought);
+    return next;
   });
 
   // An unchanged Inbox still saves the round's link, as Graph asks, so a quiet mailbox never waits
@@ -546,6 +578,8 @@ export function createGraphReader(native: NativeGraphMailbox) {
 
   return {
     advance,
+    // The new Inbox mail the delta round that produced `document` brought; listings bring none.
+    arrivals: (document: MailboxDocument) => arrivals.get(document) ?? [],
     partData,
     fullMessage,
     labels,
