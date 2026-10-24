@@ -82,6 +82,22 @@ const deltaReply = (url: string, value: readonly unknown[] | undefined) =>
 // The newest Inbox messages a Microsoft mailbox keeps on this device.
 const cacheLimit = 200;
 
+// Corrupt one persisted timestamp at the native storage boundary.
+const invalidGraphTime = (document: string | null, field: string) => {
+  if (document === null) {
+    throw new Error('Expected a saved Graph document');
+  }
+  return field === 'synchronizedAt'
+    ? document.replace(
+        /"synchronizedAt":"[^"]+"/u,
+        '"synchronizedAt":"invalid"',
+      )
+    : document.replace(
+        '"kind":"graph-current"',
+        '"kind":"graph-current","started":"invalid"',
+      );
+};
+
 // Graph whose next delta round, once split, arrives page by page: the first page's IDs, then each
 // later page's from a continuation, the last with the round's link. A single page is followed by
 // an empty final one.
@@ -592,6 +608,124 @@ describe('reading Microsoft mail through Graph', () => {
       vi.useRealTimers();
     }
   });
+
+  it('reports an arrival first cached by a refill when its later delta page resumes after relaunch', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: cacheLimit });
+    const round = splitRound(graph);
+    const arrivals: string[][] = [];
+    let interrupted = false;
+    const native = {
+      ...round.native,
+      graphRequest: (
+        url: string,
+        scope: Parameters<typeof graph.native.graphRequest>[1],
+      ) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Interrupt after the refill commits, before the next delta page.
+        if (!interrupted && url.includes('$skiptoken=rest')) {
+          interrupted = true;
+          return Promise.reject(
+            Object.assign(new Error('Synthetic interruption'), {
+              code: 'unavailable',
+            }),
+          );
+        }
+        return round.native.graphRequest(url, scope);
+      },
+    };
+    const options = {
+      provider: 'microsoft-graph' as const,
+      arrived: (messages: ReadonlyArray<{ readonly id: string }>): void => {
+        arrivals.push(messages.map(({ id }) => id));
+      },
+    };
+    const inbox = createGmailInbox(native, options);
+    await inbox.load();
+    const [firstMessage] = pair(ready(inbox.getSnapshot()).messages);
+    const removed = firstMessage.id;
+    graph.remove(removed);
+    const delivered = graph.deliver({
+      subject: 'After the refill',
+      at: Date.now(),
+    });
+    round.split([removed], [delivered]);
+    await inbox.load();
+    expect(
+      ready(inbox.getSnapshot()).messages.some(({ id }) => id === delivered),
+    ).toBe(true);
+    expect(arrivals).toStrictEqual([]);
+    const relaunched = createGmailInbox(native, options);
+    await relaunched.load();
+    await relaunched.load();
+    expect(arrivals).toStrictEqual([[delivered]]);
+  });
+
+  it('reports one arrival once when two stores read its delta page before either commits', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 1 });
+    await microsoftInbox(graph).load();
+    const delivered = graph.deliver({ subject: 'One arrival', at: Date.now() });
+    const gate = Promise.withResolvers<undefined>();
+    let reads = 0;
+    const native = {
+      ...graph.native,
+      graphRequest: async (
+        ...args: Parameters<typeof graph.native.graphRequest>
+      ) => {
+        const reply = await graph.native.graphRequest(...args);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the first delta read from each store.
+        if (args[0].includes('$deltatoken') && reads < 2) {
+          reads += 1;
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Release after both stores captured the same provider page.
+          if (reads === 2) {
+            gate.resolve(undefined);
+          }
+          await gate.promise;
+        }
+        return reply;
+      },
+    };
+    const arrivals: string[][] = [];
+    const options = {
+      provider: 'microsoft-graph' as const,
+      arrived: (messages: ReadonlyArray<{ readonly id: string }>) => {
+        arrivals.push(messages.map(({ id }) => id));
+      },
+    };
+    const first = createGmailInbox(native, options);
+    const second = createGmailInbox(native, options);
+    await Promise.all([first.load(), second.load()]);
+    expect(arrivals).toStrictEqual([[delivered]]);
+    expect([
+      ready(first.getSnapshot()).sync,
+      ready(second.getSnapshot()).sync,
+    ]).toStrictEqual(['current', 'current']);
+  });
+
+  it.each(['synchronizedAt', 'started'])(
+    'rejects an invalid saved %s without leaving synchronization running',
+    async (field) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph({ messages: 1 });
+      await microsoftInbox(graph).load();
+      graph.deliver({ subject: 'Later', at: Date.now() });
+      const inbox = createGmailInbox(
+        {
+          ...graph.native,
+          openMailbox: async () => {
+            const cache = await graph.native.openMailbox();
+            return {
+              ...cache,
+              document: invalidGraphTime(cache.document, field),
+            };
+          },
+        },
+        { provider: 'microsoft-graph' },
+      );
+      await expect(inbox.load()).resolves.toBeUndefined();
+      expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    },
+  );
 
   it('lists again when Graph expires the delta link, showing saved mail meanwhile', async () => {
     expect.hasAssertions();

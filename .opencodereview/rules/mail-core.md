@@ -577,6 +577,24 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   interruption/relaunch. Otherwise cached-history updates can alert, arrivals
   can repeat, or later-page deliveries can be suppressed.
 
+- `graph-inbox.ts.listGraph` treating mail discovered by a cache refill as already
+  considered for notifications. Preserve bounded arrival eligibility until that
+  message's delta entry commits, including interruption/relaunch and quiet
+  rounds. Otherwise a deletion page's refill can swallow an arrival from a later
+  delta page without exceeding the cache limit.
+
+- Graph synchronization rebasing a stale delta page over another reader's
+  committed checkpoint or considered-message state. Reopen changed progress
+  before reporting, retain ordinary intake rebases and preserve quiet-round
+  completion across them. Otherwise two stores can report the same arrival or
+  repeatedly commit quiet rounds until the page limit.
+
+- Persisted synchronization instants in `mailbox-document.ts` and `imap-model.ts`
+  accepted as arbitrary strings before `mailbox-message.ts.newMailSince` converts
+  them unsafely. Reject malformed values at decoding, including a resumed Graph
+  round's start, or synchronization can reject outside typed recovery and leave
+  the Inbox permanently syncing.
+
 - `gmail-inbox.ts.settled` merging confirmed action metadata into the Inbox or
   another cached view without enforcing `cacheLimit` before commit/publication.
   Check `everyView` additions and `settleObserved` callers with a full destination

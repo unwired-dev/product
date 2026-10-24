@@ -481,6 +481,22 @@ describe('connecting IMAP mailboxes', () => {
     }
   });
 
+  it('rejects an invalid saved synchronization time before reading or committing mail', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    await createImapInbox(imap.native).load();
+    assert.ok(imap.cache.document !== null);
+    imap.cache.document = imap.cache.document.replace(
+      /"synchronizedAt":"[^"]+"/u,
+      '"synchronizedAt":"invalid"',
+    );
+    const committed = imap.cache.commits;
+    const inbox = createImapInbox(imap.native);
+    await expect(inbox.load()).resolves.toBeUndefined();
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    expect(imap.cache.commits).toBe(committed);
+  });
+
   it('refuses an unidentified folder before caching messages and retries with established UIDVALIDITY', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

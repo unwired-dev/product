@@ -2,8 +2,9 @@
 
 Reviewer-only companion to [the operational guide](../new-mail-notifications.md),
 under the [implementation and review workflow](../agents/implementation-review.md).
-Issue #619 implements ADR 0063's Gmail slice. IMAP/Microsoft expansion remains
-#1094, Quiet/Profile Lock #648, filtering #853 and presentation expansion #908.
+Issue #619 implements ADR 0063's Gmail slice; #1094 extends it to IMAP and
+Microsoft. Quiet/Profile Lock remains #648, filtering #853 and presentation
+expansion #908.
 
 ## Policy and execution
 
@@ -25,6 +26,24 @@ reporting arrivals. Rebase retains the greater saved boundary. Older caches seed
 it before opening a view. Listing, backfill, expired-history relisting and moved
 messages produce no arrival. Notifications remain best effort; this does not add
 a transactional notification-center delivery journal.
+
+IMAP's encrypted folder cache retains UIDVALIDITY, UIDNEXT and the read's start.
+New unread UIDs under the same validity are candidates only within the previous
+read's receipt-time allowance. Graph's encrypted document retains the previous
+completed synchronization's start and carries a pending round's original start
+through continuations. A quiet round commits its start even when its delta link
+does not change. Persisted instants are decoded before use. The operational
+guide owns the five-minute clock allowance and accepted move/flood limitations.
+
+Graph applies only delta-page candidates after commit. The bounded cache's
+oldest receipt excludes previously evicted messages; a refill additionally
+retains at most its cached candidate IDs as `unconsidered` in the checkpoint.
+These IDs permit a later delta page to consider an arrival already cached by
+that refill, survive relaunch and quiet rounds, and leave after their delta entry
+commits or they leave the cache. Initial and expired-link listings remain silent.
+An intake-only CAS conflict rebases normally and retains the quiet-round stop
+marker. A competing reader's changed checkpoint or considered-message state
+instead restarts from durable progress before reporting, preventing duplicates.
 
 The host awaits settings and posting before completing a synchronization/wake.
 TypeScript rechecks the captured account/connection/address/epoch owner and switch

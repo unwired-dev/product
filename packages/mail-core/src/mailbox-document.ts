@@ -5,7 +5,11 @@ import * as Schema from 'effect/Schema';
 import type { GmailMessage } from './mailbox-message.ts';
 
 import { GmailActionSchema, GmailLabelSchema } from './gmail-actions.ts';
-import { GmailMessageSchema } from './mailbox-message.ts';
+import {
+  GmailMessageSchema,
+  GraphId,
+  SynchronizationTime,
+} from './mailbox-message.ts';
 import { GraphDeltaLink } from './microsoft-graph.ts';
 
 export type { GmailMessage } from './mailbox-message.ts';
@@ -45,7 +49,7 @@ const MailboxDocumentSchema = Schema.Struct({
   notificationHistoryId: Schema.optionalKey(HistoryId),
   // When Microsoft's last completed listing or delta round began, as an ISO instant on this
   // device's clock.
-  synchronizedAt: Schema.optionalKey(Schema.String),
+  synchronizedAt: Schema.optionalKey(SynchronizationTime),
   // Provider-confirmed messages stay in `messages`; requested changes wait here, in order.
   pending: Schema.optionalKey(Schema.Array(PendingActionSchema)),
   // The mailbox's own labels, for labeling and moving, or its folders for moving.
@@ -92,7 +96,9 @@ const MailboxDocumentSchema = Schema.Struct({
       kind: Schema.Literal('graph-current'),
       link: GraphDeltaLink,
       // A continuation retains the round's original start through interruption and relaunch.
-      started: Schema.optionalKey(Schema.String),
+      started: Schema.optionalKey(SynchronizationTime),
+      // A refill may list arrivals before their delta page. They remain unconsidered until then.
+      unconsidered: Schema.optionalKey(Schema.Array(GraphId)),
     }),
   ]),
 });

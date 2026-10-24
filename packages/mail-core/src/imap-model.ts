@@ -2,7 +2,7 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
-import { newMailSince } from './mailbox-message.ts';
+import { newMailSince, SynchronizationTime } from './mailbox-message.ts';
 
 // ponytail: the newest messages kept per folder, as for Gmail's Inbox; older ones stay on the
 // server until Historical Metadata Backfill.
@@ -87,7 +87,7 @@ const FolderCacheSchema = Schema.Struct({
   messages: Schema.Array(ImapMessageSchema),
   // When this device began the read that produced the cache, as an ISO instant; absent from caches
   // saved before it was kept.
-  synchronizedAt: Schema.optionalKey(Schema.String),
+  synchronizedAt: Schema.optionalKey(SynchronizationTime),
 });
 type FolderCache = typeof FolderCacheSchema.Type;
 

@@ -1,5 +1,11 @@
 import * as DateTime from 'effect/DateTime';
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
+
+// Persisted synchronization times must be parseable before newMailSince uses them.
+export const SynchronizationTime = Schema.String.check(
+  Schema.makeFilter((value) => Option.isSome(DateTime.make(value))),
+);
 
 // Graph's message, attachment and folder IDs also admit Gmail's alphanumeric IDs.
 export const GraphId = Schema.String.check(

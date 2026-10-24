@@ -2949,10 +2949,19 @@ export function createGmailInbox(
         diagnostic: 'another mailbox',
       });
     }
+    if (graph !== undefined && !graph.canRebase(base, saved)) {
+      return yield* new SyncFailure({
+        kind: 'conflict',
+        cause: 'delta',
+        diagnostic: 'delta checkpoint changed',
+      });
+    }
+    const next = rebasedOnto(base, saved, document);
+    graph?.rebase(document, next);
     return {
       cache: latest,
       base: saved,
-      document: rebasedOnto(base, saved, document),
+      document: next,
     };
   });
 

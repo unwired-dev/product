@@ -65,6 +65,9 @@ running behind this device's.
   link is unchanged. Once the 200-message cache is full, a message no newer than its
   oldest entry may have been dropped from it, so it is not new either; this covers a
   change to such a message and Graph naming a message again later in a round. The
+  cache may refill before a later delta page names an arrival; that arrival stays
+  eligible until its page commits, including after relaunch. Concurrent readers
+  resume the latest committed progress before reporting the same page. The
   initial listing, listing again after Graph expired the delta link and updates to
   messages already listed never notify, nor does mail received before the allowance
   that is moved back into the Inbox.

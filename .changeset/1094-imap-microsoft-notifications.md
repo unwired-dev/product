@@ -9,3 +9,4 @@ Notify privately for newly arrived Inbox mail from IMAP and Microsoft 365 mailbo
 
 Interrupted Microsoft delta rounds retain their original start time across relaunch, so later deliveries are still eligible for notifications.
 Empty rounds advance the arrival boundary even when Graph returns the same delta link.
+Cache refills preserve arrivals awaiting a later delta page, concurrent readers suppress duplicate alerts, and malformed saved synchronization times fail through normal recovery.
