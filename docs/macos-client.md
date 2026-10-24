@@ -90,8 +90,9 @@ toggles the sidebar; a window at most 900pt wide starts without it.
 
 The Profile Switcher keeps its monogram trigger. It and the reader's More menu
 button use `accent/selection-subtle` while pressed or while their menu is open.
-Keyboard focus uses the system ring in Light and an `accent/ink` ring in Dark,
-with the system ring suppressed in Dark. Native focus captures remain deferred
+In Light, AppKit draws its system focus ring. In Dark, `MenuButton`
+(`apps/macos/src/design.tsx`) turns that ring off and draws an `accent/ink`
+outline instead. Native focus captures remain deferred
 alongside the keyboard-navigation work in
 [#849](https://github.com/unwired-dev/product/issues/849).
 
