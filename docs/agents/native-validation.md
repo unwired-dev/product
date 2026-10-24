@@ -78,9 +78,9 @@ the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md)
 ### Mac performance journey
 
 On the Mac, the `testWarmCachePerformance` journey measures the budgets above
-except Mail View switching and next-rendered-frame typing and formatting feedback,
-which remain deferred. It records typing, formatting shortcut and format bar
-text-storage update timings as described below. Build the `Testing` configuration, which
+except Mail View switching, which remains deferred. It measures typing, formatting
+shortcut and format bar feedback from the text-storage update to the display frame
+that draws it, as described below. Build the `Testing` configuration, which
 is Release-optimized with packaged JavaScript plus the test-only probes, with
 `UNWIRED_MOCK_SCENARIO=registration-performance`, then run it with the
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
@@ -123,11 +123,20 @@ cannot hide a late result. A format bar sample runs the same way from the mouse
 release the app records. Both times come from the app, so these samples exclude
 XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
 of the key window's display, the interval at the display's maximum supported refresh
-rate. The edit notification fires before layout managers receive the change;
-the sample does not observe layout, drawing or display presentation. A key or format bar group's
-`withinBudget` result therefore describes only the text-storage update and does
-not prove next-rendered-frame feedback. Measuring that requirement remains open
-on [#626](https://github.com/unwired-dev/product/issues/626). The probe's synchronous
+rate. The edit notification fires before layout managers receive the change, so a
+key or format bar group's `withinBudget` result describes only the text-storage update.
+
+Next-rendered-frame feedback comes from the body's first draw after that edit. A
+display link records display frame starts on the same clock, and AppKit draws a
+change in the display frame that follows it. The journey places the end of that
+draw in the frame that started last before it, counting frames from any recorded
+start at the link's frame interval, and reports `framesLate`: the frames that
+started after the input and before that one. `nextRenderedFrame` holds when the
+group's p95 is 0, so the first frame the app renders after the input shows the
+result. `drawnMs` runs from the input to the end of the draw. This assumes the
+display refreshes at a constant interval while the journey types. The draw is
+the app's last step: the window server composites the committed frame for the
+following display refresh. The probe's synchronous
 key-event logging also adds work before the edit. A key press, button release
 or expected edit missing from the evidence fails the journey.
 The probe samples every 10 ms after its launch setup. No recorded delay means no

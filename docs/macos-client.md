@@ -263,11 +263,14 @@ the application never creates a test-control server or accepts reset commands.
 Lifecycle records contain event names, process/session identity, window
 counts and tick counts. With that path, the probe also records each primary mouse
 press and release, key press with the display's maximum-refresh interval, focused
-non-field-editor text edit, and observed main-queue delays of 100 ms or longer, with
-their uptime and duration where applicable, for the
+non-field-editor text edit, that text view's first draw after each edit with a recent
+display frame start and the frame interval, and observed main-queue delays of 100 ms
+or longer, with their uptime and duration where applicable, for the
 [performance journey](agents/native-validation.md#mac-performance-journey). In
 text-edit records it includes the text and its per-UTF-16-unit bold, italic and
-underline marks; the journey uses synthetic composer content. In
+underline marks; the journey uses synthetic composer content. To observe that draw,
+the probe wraps the text view class's `drawRect:` at the first edit, because AppKit
+publishes no drawing event. In
 registration Mock Mail Sessions, the synthetic relay also appends the uptime of
 each provider body request, with no URL or message content. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
