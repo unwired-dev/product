@@ -95,6 +95,30 @@ type PendingChange = Pick<PendingAction, 'action' | 'message'>;
 // The most folders Move to lists for one mailbox.
 const folderLimit = 250;
 
+// The new Inbox mail one delta page brought: unread, not already cached, and received no earlier
+// than the previous round began, so an update to a listed message or mail moved back in is not.
+// A full cache has dropped its oldest messages, so an uncached one no newer than the oldest kept
+// may have been listed or reported before, as when Graph repeats an ID after newer mail.
+const deltaArrivals = (
+  document: MailboxDocument,
+  changed: ReadonlyArray<readonly [string, GmailMessage | undefined]>,
+) => {
+  const known = new Set(document.messages.map(({ id }) => id));
+  const since = newMailSince(document.synchronizedAt, document.messages);
+  const evictedUntil =
+    document.messages.length === cacheLimit
+      ? (document.messages.at(-1)?.receivedAt ?? '')
+      : '';
+  return changed.flatMap(([id, message]) =>
+    message?.unread === true &&
+    !known.has(id) &&
+    message.receivedAt >= since &&
+    message.receivedAt > evictedUntil
+      ? [message]
+      : [],
+  );
+};
+
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
   { kind: 'graph-listing' | 'graph-current' }
@@ -207,15 +231,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
       link,
       ...(last ? {} : { started }),
     } as const;
-    // New mail is unread, not yet cached, and received no earlier than the previous round's
-    // synchronization began: an update to a listed message, or mail moved back in, is not.
-    const known = new Set(document.messages.map(({ id }) => id));
-    const since = newMailSince(document.synchronizedAt, document.messages);
-    const brought = changed.flatMap(([id, message]) =>
-      message?.unread === true && !known.has(id) && message.receivedAt >= since
-        ? [message]
-        : [],
-    );
+    const brought = deltaArrivals(document, changed);
     const applied =
       document.messages.length === cacheLimit && merged.length < cacheLimit
         ? yield* listGraph(scope, document, current)

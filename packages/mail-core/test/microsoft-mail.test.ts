@@ -79,14 +79,28 @@ const deltaReply = (url: string, value: readonly unknown[] | undefined) =>
       }
     : undefined;
 
-// Graph whose next delta round, once split, arrives over two pages: the first ID alone, then the
-// rest with the round's link.
+// The newest Inbox messages a Microsoft mailbox keeps on this device.
+const cacheLimit = 200;
+
+// Graph whose next delta round, once split, arrives page by page: the first page's IDs, then each
+// later page's from a continuation, the last with the round's link. A single page is followed by
+// an empty final one.
 const splitRound = (graph: ReturnType<typeof createSyntheticGraph>) => {
   const continuation = `https://graph.microsoft.com/v1.0/me/mailfolders('inbox')/messages/delta?$skiptoken=rest`;
-  let pages: readonly string[] | undefined = undefined;
-  let rest: string | undefined = undefined;
+  let pages: ReadonlyArray<readonly string[]> = [];
+  let later: ReadonlyArray<readonly string[]> = [];
+  let link: string | undefined = undefined;
+  const page = (ids: readonly string[], last: boolean) => ({
+    status: 200,
+    body: JSON.stringify({
+      value: ids.map((id) => ({ id })),
+      ...(last
+        ? { '@odata.deltaLink': link }
+        : { '@odata.nextLink': continuation }),
+    }),
+  });
   return {
-    split: (ids: readonly string[]) => {
+    split: (...ids: ReadonlyArray<readonly string[]>) => {
       pages = ids;
     },
     native: {
@@ -95,30 +109,21 @@ const splitRound = (graph: ReturnType<typeof createSyntheticGraph>) => {
         url: string,
         scope: Parameters<typeof graph.native.graphRequest>[1],
       ) => {
-        if (rest !== undefined && url === continuation) {
-          const body = rest;
-          rest = undefined;
-          return { status: 200, body };
+        if (later.length > 0 && url === continuation) {
+          const [next = [], ...remaining] = later;
+          later = remaining;
+          return page(next, remaining.length === 0);
         }
         const reply = await graph.native.graphRequest(url, scope);
-        if (pages === undefined || !url.includes('$deltatoken')) {
+        if (pages.length === 0 || !url.includes('$deltatoken')) {
           return reply;
         }
-        const [first = '', ...others] = pages;
-        pages = undefined;
-        rest = JSON.stringify({
-          value: others.map((id) => ({ id })),
-          '@odata.deltaLink': /"@odata\.deltaLink":"(?<link>[^"]+)"/u.exec(
-            reply.body,
-          )?.groups?.link,
-        });
-        return {
-          status: 200,
-          body: JSON.stringify({
-            value: [{ id: first }],
-            '@odata.nextLink': continuation,
-          }),
-        };
+        const [first = [], ...rest] = pages;
+        pages = [];
+        later = rest.length === 0 ? [[]] : rest;
+        link = /"@odata\.deltaLink":"(?<link>[^"]+)"/u.exec(reply.body)?.groups
+          ?.link;
+        return page(first, false);
       },
     },
   };
@@ -423,7 +428,7 @@ describe('reading Microsoft mail through Graph', () => {
       graph.restore(filtered);
       graph.restore(updated);
       // Newer mail on the round's first page does not hide older new mail on its second.
-      round.split([newer, older, read, moved, filtered, updated]);
+      round.split([newer], [older, read, moved, filtered, updated]);
       await inbox.load();
       expect(arrivals).toStrictEqual([['New arrival'], ['Older arrival']]);
       // Synchronizing again reports nothing twice.
@@ -505,6 +510,52 @@ describe('reading Microsoft mail through Graph', () => {
         ['Before interruption'],
         ['During interruption'],
       ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports no message a full cache dropped, whether Graph changes it or names it again later in a round', async () => {
+    expect.hasAssertions();
+    const at = (minute: number) => Date.UTC(2026, 9, 1, 9, minute);
+    vi.useFakeTimers({ now: at(30), toFake: ['Date'] });
+    try {
+      const graph = createSyntheticGraph({ pageSize: 100 });
+      // Received just before the first synchronization, all within the clock allowance; the
+      // oldest does not fit the cache.
+      const listed = Array.from({ length: cacheLimit + 1 }, (_, index) =>
+        graph.deliver({
+          subject: `Listed ${index}`,
+          at: at(26) + index * 1000,
+        }),
+      );
+      const round = splitRound(graph);
+      const arrivals: string[][] = [];
+      const inbox = createGmailInbox(round.native, {
+        provider: 'microsoft-graph',
+        arrived: (messages) => {
+          arrivals.push(messages.map(({ subject }) => subject));
+        },
+      });
+      await inbox.load();
+      // A change to the dropped message is not new mail.
+      const [dropped = ''] = listed;
+      graph.restore(dropped);
+      await inbox.load();
+      expect(arrivals).toStrictEqual([]);
+
+      // One arrival, then enough newer ones to drop it from the cache, then Graph names it again.
+      vi.setSystemTime(at(40));
+      const first = graph.deliver({ subject: 'First arrival', at: at(31) });
+      const newer = Array.from({ length: cacheLimit }, (_, index) =>
+        graph.deliver({ subject: `Newer ${index}`, at: at(32) + index * 1000 }),
+      );
+      round.split([first], newer, [first]);
+      await inbox.load();
+      expect(arrivals.flat()).toHaveLength(cacheLimit + 1);
+      expect(
+        arrivals.flat().filter((subject) => subject === 'First arrival'),
+      ).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }

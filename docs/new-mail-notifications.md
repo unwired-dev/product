@@ -56,16 +56,22 @@ running behind this device's.
   above the previously committed UIDNEXT under an unchanged UIDVALIDITY, received
   (INTERNALDATE) no earlier than that allowance. The first listing, a UIDVALIDITY
   change or reset and cache refills never notify. Mail moved in keeps its
-  INTERNALDATE, so it notifies only when it reached another folder after the previous
-  synchronization began, which IMAP cannot tell apart from delivery. IDLE, polling
-  and activation reach the same classification.
+  INTERNALDATE, so mail received before the allowance never notifies when moved in.
+  IDLE, polling and activation reach the same classification.
 - **Microsoft 365:** each committed page of a delta round reports the unread Inbox
   messages it names that were not already cached and were received no earlier than
   the allowance; a round's pages share one boundary, including after interruption
-  and relaunch. The initial listing, listing
-  again after Graph expired the delta link, updates to messages already listed and
-  mail moved back into the Inbox never notify; as for IMAP, mail that reached
-  another folder after the previous synchronization began and was then moved in can.
+  and relaunch. Once the 200-message cache is full, a message no newer than its
+  oldest entry may have been dropped from it, so it is not new either; this covers a
+  change to such a message and Graph naming a message again later in a round. The
+  initial listing, listing again after Graph expired the delta link and updates to
+  messages already listed never notify, nor does mail received before the allowance
+  that is moved back into the Inbox.
+
+Neither provider tells delivery apart from a move, so mail received no earlier than
+the allowance can still notify when it is moved into the Inbox: from another folder it
+reached after the previous synchronization began, or back in after this device saw it
+in the last five minutes before that synchronization.
 
 Before posting, after reading this device's settings, the device checks again that the
 connection still belongs to the same Product Account and incarnation and that its switch
