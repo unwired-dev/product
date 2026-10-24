@@ -329,6 +329,41 @@ describe('organizing Gmail mail', () => {
     ]);
   });
 
+  it('creates a label in Gmail and applies it, reusing a listed name and reporting failures', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const travel = gmail.createLabel('Travel');
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+
+    await expect(inbox.createLabel(target, 'Lisbon trip')).resolves.toBe(true);
+    const lisbon = required(
+      ready(inbox.getSnapshot()).labels.find(
+        ({ name }) => name === 'Lisbon trip',
+      ),
+      'the new label',
+    );
+    expect(gmail.labelsOf(target.id)).toContain(lisbon.id);
+    expect(message(inbox, target.id).labels).toContain(lisbon.id);
+
+    // A name the mailbox already lists, ignoring case, applies that label without creating one.
+    await expect(inbox.createLabel(target, 'TRAVEL')).resolves.toBe(true);
+    expect(gmail.labelsOf(target.id)).toContain(travel);
+    expect(ready(inbox.getSnapshot()).labels).toHaveLength(2);
+
+    // A name Gmail refuses, or Gmail out of reach, creates and applies nothing.
+    const modifies = gmail.modifies.length;
+    gmail.failCreateLabel({ status: 409 }, { code: 'unavailable' });
+    await expect(inbox.createLabel(target, 'Work')).resolves.toBe(false);
+    await expect(inbox.createLabel(target, 'Work')).resolves.toBe(false);
+    expect(gmail.modifies).toHaveLength(modifies);
+    expect(ready(inbox.getSnapshot()).labels).toHaveLength(2);
+  });
+
   it('fences a late body admission while action reconciliation removes its message', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

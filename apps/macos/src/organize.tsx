@@ -1,15 +1,13 @@
 import type { Translate } from '@private-email/localization';
-import type {
-  MenuItem,
-  MenuSection,
-} from '@private-email/mail-core/context-menu';
+import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
+import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type {
   ImapAction,
   ImapInbox,
 } from '@private-email/mail-core/imap-inbox';
 import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 import {
   commandTarget,
@@ -38,6 +36,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -52,6 +51,8 @@ import {
 import { RegisterCommands } from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
 import {
+  askForText,
+  askInSheet,
   GlassGroup,
   MenuButton,
   Notice,
@@ -235,11 +236,14 @@ function Toolbar({
   move,
   more,
   children,
+  ref,
 }: {
   readonly actions: readonly Named[];
   readonly move?: ReactNode;
   readonly more: readonly MenuSection[];
   readonly children: ReactNode;
+  // The view a sheet asked from the toolbar attaches to.
+  readonly ref?: Ref<View>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -258,7 +262,10 @@ function Toolbar({
     ({ name }) => name !== 'archive' && name !== 'trash',
   );
   return (
-    <View style={styles.toolbar}>
+    <View
+      ref={ref}
+      collapsable={false}
+      style={styles.toolbar}>
       {placing.length === 0 && move === undefined ? null : (
         <GlassGroup>
           {placing.map(button)}
@@ -286,8 +293,8 @@ function Toolbar({
 type Folder = Readonly<{ id: string; name: string; symbol?: string }>;
 
 // The More menu's items the design orders: Mark as Read or Unread, Move to and, for Gmail, Labels,
-// each applied label checked. Keys carry the mailbox and message, so a late choice acts only on
-// the message the menu opened for.
+// each applied label checked, then New Label…. Keys carry the mailbox and message, so a late
+// choice acts only on the message the menu opened for.
 const moreMenu = (
   t: Translate,
   target: string,
@@ -295,12 +302,13 @@ const moreMenu = (
     actions,
     folders,
     onMove,
-    labels = [],
+    labels,
   }: {
     readonly actions: readonly Named[];
     readonly folders: readonly Folder[];
     readonly onMove: (folder: string) => void;
-    readonly labels?: readonly MenuItem[];
+    // Gmail's Labels submenu, in groups.
+    readonly labels?: readonly MenuSection[] | undefined;
   },
 ): readonly MenuSection[] => [
   {
@@ -329,13 +337,13 @@ const moreMenu = (
               })),
             },
           ]),
-      ...(labels.length === 0
+      ...(labels === undefined
         ? []
         : [
             {
               title: t('gmailActions.labels'),
               symbol: 'tag',
-              items: labels,
+              sections: labels,
             },
           ]),
     ],
@@ -534,7 +542,46 @@ function GmailMessageActions({
   const store = useInboxActions();
   const { t } = useLocalization();
   const mailbox = useMailbox();
+  const colors = usePalette();
   const provider = mailbox?.provider ?? 'gmail';
+  const anchor = useRef<View>(null);
+  // The message New Label… was chosen for, while its sheet asks for a name.
+  const [naming, setNaming] = useState<GmailMessage>();
+  // Asks for a name, then creates the label in Gmail and applies it; a failure is explained. The
+  // sheet closes with the reader.
+  useEffect(() => {
+    if (naming === undefined || !('createLabel' in store)) {
+      return undefined;
+    }
+    const question = askForText(anchor.current, {
+      title: t('gmailActions.newLabelTitle'),
+      detail: t('gmailActions.newLabelDetail'),
+      buttons: [t('gmailActions.addLabel'), t('common.cancel')],
+      symbol: { name: 'tag', color: colors.textSecondary },
+      field: t('gmailActions.labelName'),
+    });
+    let asking = true;
+    const answer = async () => {
+      const choice = await question.answer;
+      if (!asking) {
+        return;
+      }
+      setNaming(undefined);
+      const name = choice?.index === 0 ? choice.text.trim() : '';
+      if (name !== '' && !(await store.createLabel(naming, name))) {
+        askInSheet(anchor.current, {
+          title: t('gmailActions.labelNotCreated', { label: name }),
+          detail: t('gmailActions.labelNotCreatedDetail'),
+          buttons: [t('common.ok')],
+        });
+      }
+    };
+    void answer();
+    return () => {
+      asking = false;
+      question.retire();
+    };
+  }, [colors, naming, store, t]);
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
   useLayoutEffect(() => {
     if (opened === inboxFolder || !('retainView' in store)) {
@@ -599,6 +646,7 @@ function GmailMessageActions({
         }
       />
       <Toolbar
+        ref={anchor}
         actions={buttons}
         move={
           <MoveMenu
@@ -626,20 +674,36 @@ function GmailMessageActions({
           onMove: move,
           labels:
             provider === 'gmail'
-              ? state.labels.map(({ id: label, name }) => ({
-                  key: `${target}\nlabel\n${label}`,
-                  title: name,
-                  symbol: '',
-                  checked: applied.has(label),
-                  run: () => {
-                    act(
-                      applied.has(label)
-                        ? gmailAction.unlabel(label)
-                        : gmailAction.label(label),
-                    );
+              ? [
+                  {
+                    items: state.labels.map(({ id: label, name }) => ({
+                      key: `${target}\nlabel\n${label}`,
+                      title: name,
+                      symbol: '',
+                      checked: applied.has(label),
+                      run: () => {
+                        act(
+                          applied.has(label)
+                            ? gmailAction.unlabel(label)
+                            : gmailAction.label(label),
+                        );
+                      },
+                    })),
                   },
-                }))
-              : [],
+                  {
+                    items: [
+                      {
+                        key: `${target}\nnewLabel`,
+                        title: t('gmailActions.newLabel'),
+                        symbol: '',
+                        run: () => {
+                          setNaming(message);
+                        },
+                      },
+                    ],
+                  },
+                ]
+              : undefined,
         })}>
         {children}
       </Toolbar>

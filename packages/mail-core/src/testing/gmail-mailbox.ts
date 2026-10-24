@@ -199,6 +199,7 @@ export function createSyntheticGmail({
   const sendFailures: SendFailure[] = [];
   const userLabels = new Map<string, string>();
   let nextLabel = 0;
+  const labelFailures: Failure[] = [];
   const commits: string[] = [];
   let cache: { revision: number; address: string; document: string } | null =
     null;
@@ -638,6 +639,12 @@ export function createSyntheticGmail({
   const current = (owner: Readonly<{ address: string; generation: string }>) =>
     owner.address === address && owner.generation === String(generation);
   const remote = createSyntheticRemoteContent(current, () => address);
+  const createLabel = (name: string) => {
+    nextLabel += 1;
+    const id = `Label_${nextLabel}`;
+    userLabels.set(id, name);
+    return id;
+  };
   const attachments = createSyntheticAttachments(current);
   const native = {
     gmailRequest: (path, query, owner) => {
@@ -672,6 +679,30 @@ export function createSyntheticGmail({
       return 'code' in failure
         ? rejection(failure.code)
         : { status: failure.status, body: failure.body ?? '{}' };
+    },
+    // Gmail's labels.create: a blank name is a bad request, and one that another label has,
+    // ignoring case, conflicts.
+    gmailCreateLabel: async (name, owner) => {
+      if (!current(owner)) {
+        return rejection('mailbox-invalidated');
+      }
+      const failure = labelFailures.shift();
+      if (failure !== undefined) {
+        return 'code' in failure
+          ? rejection(failure.code)
+          : { status: failure.status, body: failure.body ?? '{}' };
+      }
+      if (name.trim() === '') {
+        return { status: 400, body: '{}' };
+      }
+      if (
+        [...systemLabels, ...userLabels.values()].some(
+          (taken) => taken.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        return { status: 409, body: '{}' };
+      }
+      return respond({ id: createLabel(name), name, type: 'user' });
     },
     gmailSend: async ({ segments, threadId }, owner) => {
       if (!current(owner)) {
@@ -817,12 +848,7 @@ export function createSyntheticGmail({
     deliver,
     labelsOf: (id: string) => [...(messages.get(id)?.labels ?? [])],
     // A label created in Gmail; its ID never matches its name.
-    createLabel: (name: string) => {
-      nextLabel += 1;
-      const id = `Label_${nextLabel}`;
-      userLabels.set(id, name);
-      return id;
-    },
+    createLabel,
     deleteLabel: (id: string) => {
       userLabels.delete(id);
       for (const message of messages.values()) {
@@ -889,6 +915,9 @@ export function createSyntheticGmail({
     },
     failModify: (...next: readonly ModifyFailure[]) => {
       modifyFailures.push(...next);
+    },
+    failCreateLabel: (...next: readonly Failure[]) => {
+      labelFailures.push(...next);
     },
     failBodyOpen: (code: string) => {
       bodyFailures.push(code);

@@ -39,6 +39,7 @@
   "common": {
     "retry": "Try again",
     "cancel": "Cancel",
+    "ok": "OK",
     "allowAccess": "Allow {{provider}} access"
   },
   "storage": {
@@ -641,6 +642,13 @@
     "labels": "Labels",
     "hideLabels": "Hide labels",
     "noLabels": "This Gmail mailbox has no labels of its own yet.",
+    "newLabel": "New Label…",
+    "newLabelTitle": "New Label",
+    "newLabelDetail": "The label is created in Gmail and added to this message.",
+    "labelName": "Label name",
+    "addLabel": "Add Label",
+    "labelNotCreated": "“{{label}}” could not be created in Gmail",
+    "labelNotCreatedDetail": "Gmail may already have a label with this name, or it could not be reached. Try another name, or try again later.",
     "folders": "Folders",
     "hideFolders": "Hide folders",
     "noFolders": "This Microsoft mailbox has no folders of its own yet.",

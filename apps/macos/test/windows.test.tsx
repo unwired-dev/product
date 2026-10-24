@@ -55,8 +55,13 @@ import {
   InboxWindow as RegisteredWindow,
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
-import { chooseSheetButton, sheetsShown } from './native-alert.ts';
-import { chooseMenuItem, chooseSubmenuItem, menuItems } from './native-menu.ts';
+import { chooseSheetButton, sheetShown, sheetsShown } from './native-alert.ts';
+import {
+  chooseMenuItem,
+  chooseSubmenuItem,
+  menuItems,
+  submenuItems,
+} from './native-menu.ts';
 import { MacWindows, settingsWindow } from './settings-window.tsx';
 import { started } from './started.ts';
 
@@ -1251,7 +1256,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('adds and removes Gmail labels from the reader’s More menu and moves from its folder menu', async () => {
+  it('adds, removes and creates Gmail labels from the reader’s More menu and moves from its folder menu', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const travel = gmail.createLabel('Travel');
@@ -1291,9 +1296,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
         },
         {
           title: 'Labels',
-          items: [
-            { title: 'Receipts', checked: false },
-            { title: 'Travel', checked: true },
+          sections: [
+            {
+              items: [
+                { title: 'Receipts', checked: false },
+                { title: 'Travel', checked: true },
+              ],
+            },
+            { items: [{ title: 'New Label…' }] },
           ],
         },
       ]);
@@ -1302,17 +1312,57 @@ describe('mac windows over a connected Gmail mailbox', () => {
         expect(gmail.labelsOf(id)).toContain(receipts);
       });
       await fireEvent.press(more);
-      expect(
-        menuItems().find(({ title }) => title === 'Labels')?.items,
-      ).toMatchObject([
+      expect(submenuItems('Labels')).toMatchObject([
         { title: 'Receipts', checked: true },
         { title: 'Travel', checked: true },
+        { title: 'New Label…' },
       ]);
       await chooseSubmenuItem('Labels', 'Travel');
       await waitFor(() => {
         expect(gmail.labelsOf(id)).not.toContain(travel);
       });
       expect(gmail.labelsOf(id)).toContain('INBOX');
+      // New Label… asks for a name, then creates the label in Gmail and applies it.
+      await fireEvent.press(more);
+      await chooseSubmenuItem('Labels', 'New Label…');
+      expect(sheetShown()).toMatchObject({
+        title: 'New Label',
+        detail: 'The label is created in Gmail and added to this message.',
+        buttons: ['Add Label', 'Cancel'],
+        symbol: { name: 'tag' },
+        field: 'Label name',
+      });
+      await act(async () => {
+        chooseSheetButton('Add Label', '  Lisbon trip ');
+      });
+      await fireEvent.press(more);
+      await waitFor(() => {
+        expect(submenuItems('Labels')).toContainEqual(
+          expect.objectContaining({ title: 'Lisbon trip', checked: true }),
+        );
+      });
+      await chooseSubmenuItem('Labels', 'New Label…');
+      await act(async () => {
+        chooseSheetButton('Cancel', 'Ignored');
+      });
+      // A name Gmail refuses is explained, and nothing is applied.
+      const labels = gmail.labelsOf(id);
+      gmail.failCreateLabel({ status: 409 });
+      await fireEvent.press(more);
+      await chooseSubmenuItem('Labels', 'New Label…');
+      await act(async () => {
+        chooseSheetButton('Add Label', 'Work');
+      });
+      await waitFor(() => {
+        expect(sheetShown()).toMatchObject({
+          title: '“Work” could not be created in Gmail',
+          buttons: ['OK'],
+        });
+      });
+      await act(async () => {
+        chooseSheetButton('OK');
+      });
+      expect(gmail.labelsOf(id)).toStrictEqual(labels);
       // The folder button's Move menu moves the message out of the Inbox, closing the reader.
       await fireEvent.press(window.getByRole('button', { name: 'Folders' }));
       await chooseMenuItem('Travel');

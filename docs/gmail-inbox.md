@@ -312,7 +312,15 @@ the message, while Escape or a click outside closes the menu without moving it.
 A note that the mailbox has no folders or labels of its own, or that some were left out, shows
 as an unavailable item. **More** opens the system menu with **Mark as Read** (or
 **Unread**), **Move to** and, for Gmail mail only, **Labels**: a submenu listing each
-label, checked when the message has it. Choosing a label adds or removes it. iPad's fixed toolbar holds **Archive**, **Labels**
+label, checked when the message has it. Choosing a label adds or removes it. Below a
+separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253))
+asks for a name in a native alert sheet on the window: **Add Label** creates the label in
+Gmail and applies it to the message the menu opened for, as choosing a label does, and
+**Cancel** or a blank name changes nothing. A name the mailbox already lists, ignoring case,
+applies that label instead. Creation needs Gmail to answer: when Gmail refuses the name or
+cannot be reached, an alert says the label could not be created and nothing is applied.
+The new label joins **Labels** and the Move menus with the synchronization that sends the
+change. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Folders**, **Reply** and
 **More**, beside a separate circular New Message button. Reply
@@ -1233,7 +1241,8 @@ mailbox's work never reaches another's credential or cache, including another
 Google account that reuses the same address, which is a separate mailbox.
 
 Gmail tokens and refresh credentials never enter JavaScript or Convex. Each Gmail
-write changes only the selected message's labels. Message metadata and bodies stay
+write changes only the selected message's labels or creates a user label from its
+name alone. Message metadata and bodies stay
 on the device and are never uploaded. Logs carry only allow-listed
 codes, HTTP statuses and failing decode paths, never mail content or addresses.
 
@@ -1312,7 +1321,10 @@ confirmed a trash, labels changed in Gmail, changes bound to their mailbox, inta
 during a blocked history read, lost local save replies, changes saved under each
 step of a long listing and during action preparation and settlement, mailbox
 changes during conflict reopening, preserving labels on Undo, five-attempt
-stopping and resolution, revoked access, and the cache upgrade. Shared
+stopping and resolution, revoked access, and the cache upgrade. Label creation tests
+cover creating and applying a label, reusing a listed name, and a refused or unreachable
+Gmail creating and applying nothing; the Mac journey covers **New Label…**, Cancel and
+the failure alert. Shared
 registration tests cover queued foreground verification, concurrent sign-out and
 deletion after a mailbox removal hand-off.
 
@@ -1434,7 +1446,7 @@ iPhone/iPad WebKit journeys supply the native evidence described below. Mac
 runtime and protected accessibility qualification remain deferred.
 
 The hosted native storage suite checks the Gmail path allow-list, the label
-change's identifiers and body, query encoding,
+change's identifiers and body, a new label's name validation and body, query encoding,
 cache revision and address rules, ciphertext, and removal on reselection and
 purge. For bodies, it checks:
 

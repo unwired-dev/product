@@ -382,8 +382,9 @@ static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destr
   menuItem.state = [item[@"checked"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
   menuItem.enabled = ![item[@"disabled"] boolValue];
   NSArray<NSDictionary *> *items = item[@"items"];
-  if (items != nil) {
-    menuItem.submenu = UnwiredMenuOf(item[@"title"], @[@{@"items": items}], target, destructiveColor);
+  NSArray<NSDictionary *> *sections = item[@"sections"];
+  if (items != nil || sections != nil) {
+    menuItem.submenu = UnwiredMenuOf(item[@"title"], sections ?: @[@{@"items": items}], target, destructiveColor);
   } else {
     menuItem.target = target;
     menuItem.action = @selector(select:);
@@ -417,10 +418,17 @@ static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections,
 }
 @end
 #else
+static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSString *identifier));
+
 static UIMenuElement *UnwiredMenuElement(NSDictionary *item, void (^select)(NSString *identifier))
 {
   NSString *symbol = item[@"symbol"];
   UIImage *image = symbol.length > 0 ? [UIImage systemImageNamed:symbol] : nil;
+  NSArray<NSDictionary *> *sections = item[@"sections"];
+  if (sections != nil) {
+    return [UIMenu menuWithTitle:item[@"title"] image:image identifier:nil options:0
+                        children:UnwiredMenu(sections, select).children];
+  }
   NSArray<NSDictionary *> *items = item[@"items"];
   if (items != nil) {
     NSMutableArray<UIMenuElement *> *children = [NSMutableArray new];
@@ -607,7 +615,8 @@ static NSScrollView *UnwiredPassage(NSString *text)
 
 // The first button is the default. `cancel`, the last unless given, answers Escape, and
 // `destructive` reads as destructive. A `symbol` replaces the app icon, and a `passage` shows
-// below the detail.
+// below the detail. A `field` placeholder adds a focused text field, and the answer becomes
+// `{ index, text }`.
 RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
                   request:(nonnull NSNumber *)request
                   question:(NSDictionary *)question
@@ -637,6 +646,14 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
         imageWithSymbolConfiguration:look];
   }
   if (RCTNilIfNull(question[@"passage"])) alert.accessoryView = UnwiredPassage([RCTConvert NSString:question[@"passage"]]);
+  NSTextField *field = nil;
+  if (RCTNilIfNull(question[@"field"])) {
+    field = [NSTextField textFieldWithString:@""];
+    field.placeholderString = [RCTConvert NSString:question[@"field"]];
+    field.accessibilityLabel = field.placeholderString;
+    field.frame = NSMakeRect(0, 0, 220, NSHeight(field.frame));
+    alert.accessoryView = field;
+  }
   // A first Cancel is also the default. AppKit gives a button titled Cancel Escape in place of
   // Return, so it takes Return here, and its sheet maps Escape to it whatever its title.
   id escape = nil;
@@ -656,10 +673,12 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     if (escape != nil) [NSEvent removeMonitor:escape];
     [self.shown removeObjectForKey:request];
     NSInteger index = response - NSAlertFirstButtonReturn;
-    resolve(index >= 0 && index < (NSInteger)buttons.count ? @(index) : [NSNull null]);
+    if (index < 0 || index >= (NSInteger)buttons.count) resolve([NSNull null]);
+    else resolve(field != nil ? @{@"index": @(index), @"text": field.stringValue} : @(index));
   }];
   // The passage would take focus and swallow Return; the alert itself keeps it, as without one.
-  if (alert.accessoryView != nil) [alert.window makeFirstResponder:nil];
+  // A field takes focus, and Return in it still chooses the default button.
+  if (alert.accessoryView != nil) [alert.window makeFirstResponder:field];
 }
 
 // Withdraws a question whose asker has moved on; it answers nothing.

@@ -77,6 +77,7 @@ export interface NativeGmailMailboxes {
     change: Parameters<NativeGmailMailbox['graphModify']>[0],
     mailbox: Scope,
   ) => Promise<unknown>;
+  readonly gmailCreateLabel: (name: string, mailbox: Scope) => Promise<unknown>;
   readonly gmailSend: (
     message: Parameters<NativeGmailMailbox['gmailSend']>[0],
     mailbox: Scope,
@@ -228,6 +229,8 @@ const bound = (
       native.gmailModify(change, scope(mailbox)),
     graphModify: (change, mailbox) =>
       native.graphModify(change, scope(mailbox)),
+    gmailCreateLabel: (name, mailbox) =>
+      native.gmailCreateLabel(name, scope(mailbox)),
     gmailSend: (message, mailbox) => native.gmailSend(message, scope(mailbox)),
     graphSend: (message, mailbox) => native.graphSend(message, scope(mailbox)),
     openMailbox: () => native.openMailbox(connection),

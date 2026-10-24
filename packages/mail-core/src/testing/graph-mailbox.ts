@@ -566,6 +566,7 @@ export function createSyntheticGraph({
     ...storage.native,
     gmailRequest: () => rejection('unavailable'),
     gmailModify: () => rejection('unavailable'),
+    gmailCreateLabel: () => rejection('unavailable'),
     gmailSend: () => rejection('unavailable'),
     // Graph's sendMail answers 202 Accepted with no body.
     graphSend: async (outgoing) => {

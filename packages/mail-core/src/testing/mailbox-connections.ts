@@ -60,6 +60,8 @@ export function syntheticConnections(
       of(mailbox.connection)?.gmailModify(change, mailbox) ?? missing(),
     graphModify: (change, mailbox) =>
       of(mailbox.connection)?.graphModify(change, mailbox) ?? missing(),
+    gmailCreateLabel: (name, mailbox) =>
+      of(mailbox.connection)?.gmailCreateLabel(name, mailbox) ?? missing(),
     gmailSend: (message, mailbox) =>
       of(mailbox.connection)?.gmailSend(message, mailbox) ?? missing(),
     graphSend: (message, mailbox) =>
