@@ -57,11 +57,12 @@ export function Action({
         setFocused(true);
       }}
       onPress={onPress}
-      style={[styles.target, variant === 'reader' ? styles.outset : null]}>
+      style={styles.target}>
       {({ pressed }) => (
         <View
           style={[
             styles.capsule,
+            variant === 'reader' ? styles.outset : null,
             {
               backgroundColor: pressed
                 ? colors.accentSelectionSubtle
