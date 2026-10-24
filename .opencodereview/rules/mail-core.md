@@ -11,6 +11,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- `mailbox-motion.ts` retaining a message's attribution because another message
+  in the same mailbox has unfinished work. Exercise two queued removals: let
+  the first confirm while the second stays pending or blocked, then restore the
+  first from another client and synchronize. Retire ownership by the exact
+  messages the provider snapshot still names as unfinished, including IMAP's
+  post-move destination refresh, or unrelated work animates a confirmed message's
+  external restoration.
+- `mailbox-motion.ts.advanceRowMotion` treating a cleared notice as a new action
+  that interrupts returning rows. Exercise Discard with an existing notice and
+  every intermediate store publication; a later notice-clear update must not
+  cancel the entrance that reconciliation just started.
 - `gmail-inbox.resolvePending`, IMAP's `drain` or `discardPending`, and
   `mailbox-motion.advanceRowMotion` relying only on notice identity for
   restoration. IMAP Undo can publish its notice before the destination refresh,

@@ -79,10 +79,8 @@ const shownRows = (
   sections,
   keyOf,
   outcomes: [outcome],
-  concerned: new Map(
-    concerned.map((identity) => [identity, { outcome, mailbox: 'm' }]),
-  ),
-  working: concerned.length > 0 ? ['m'] : [],
+  concerned: new Map(concerned.map((identity) => [identity, outcome])),
+  working: concerned,
   scope: [],
   covered: false,
 });
@@ -156,6 +154,48 @@ describe('organizing row continuity', () => {
     } finally {
       motion.stop();
       relaunched.forget();
+    }
+  });
+
+  it('retires a confirmed removal while another message in its mailbox remains blocked', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Confirmed removal' });
+    gmail.deliver({ subject: 'Blocked removal' });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const motion = observe(inbox);
+    try {
+      const state = inbox.getSnapshot();
+      ok(state.kind === 'ready');
+      const confirmed = state.messages.find((message) => message.id === id);
+      const blocked = state.messages.find((message) => message.id !== id);
+      ok(confirmed !== undefined);
+      ok(blocked !== undefined);
+      gmail.failModify({ code: 'unavailable' });
+      await inbox.organize(confirmed, gmailAction.archive);
+      // The provider confirms the first removal while the second remains unfinished.
+      gmail.archive(id);
+      gmail.failModify(
+        ...Array.from({ length: 5 }, () => ({ code: 'unavailable' })),
+      );
+      await inbox.organize(blocked, gmailAction.archive);
+      for (let attempt = 1; attempt < 5; attempt += 1) {
+        await inbox.load();
+      }
+      motion.settle();
+      gmail.setLabel(id, 'INBOX', true);
+      await inbox.load();
+      expect(motion.keys()).toContain(`connection\n${id}`);
+      expect([...motion.state().returning]).toStrictEqual([]);
+      // Clearing the old notice after Discard must not interrupt the restored row's entrance.
+      await inbox.resolvePending('discard');
+      expect([...motion.state().returning]).toStrictEqual([
+        `connection\n${blocked.id}`,
+      ]);
+    } finally {
+      motion.stop();
+      inbox.forget();
     }
   });
 
@@ -371,14 +411,14 @@ describe('organizing row continuity', () => {
     const shown = {
       ...shownRows(rows, old),
       outcomes: [old, undefined],
-      concerned: new Map([['a', { outcome: old, mailbox: 'm' }]]),
+      concerned: new Map([['a', old]]),
     };
     const changed = {
       ...shown,
       outcomes: [old, other],
       concerned: new Map([
-        ['a', { outcome: old, mailbox: 'm' }],
-        ['b', { outcome: other, mailbox: 'n' }],
+        ['a', old],
+        ['b', other],
       ]),
     };
     const notified = advanceRowMotion(restingRowMotion(shown), changed);
@@ -395,8 +435,8 @@ describe('organizing row continuity', () => {
       sections: [{ key: 'today', data: ['b'] }],
       outcomes: [next, other],
       concerned: new Map([
-        ['a', { outcome: next, mailbox: 'm' }],
-        ['b', { outcome: other, mailbox: 'n' }],
+        ['a', next],
+        ['b', other],
       ]),
     });
     expect(again.leaving.map(({ key }) => key)).toStrictEqual(['a']);

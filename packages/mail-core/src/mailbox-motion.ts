@@ -10,21 +10,18 @@ type Leaving<I> = Readonly<{
   wait: boolean;
 }>;
 
-// An organizing outcome or blocked change, and the mailbox whose work it is.
-type Concern = Readonly<{ outcome: unknown; mailbox: string }>;
-
 export type RowMotionState<I> = Readonly<{
   order: readonly string[];
   sections: ReadonlyArray<RowSection<I>>;
   outcomes: readonly unknown[];
-  concerned: ReadonlyMap<string, Concern>;
+  concerned: ReadonlyMap<string, unknown>;
   working: readonly string[];
   scope: readonly unknown[];
   covered: boolean;
-  // Messages an outcome took away, by mailbox, while that mailbox's organizing work is unfinished:
+  // Messages an outcome took away while their organizing work is unfinished:
   // a withdrawn or discarded change, or an Undo the server is still moving back, returns them.
   // Finished work owns nothing, so another client's later restoration stays quiet.
-  attributed: ReadonlyMap<string, string>;
+  attributed: ReadonlySet<string>;
   leaving: ReadonlyArray<Leaving<I>>;
   returning: ReadonlySet<string>;
 }>;
@@ -38,8 +35,8 @@ export type ShownRows<I> = Readonly<{
   outcomes: readonly unknown[];
   // The messages those outcomes and any blocked change concern, with each outcome's identity so
   // the same notice cannot repeatedly attribute motion.
-  concerned: ReadonlyMap<string, Concern>;
-  // The shown mailboxes whose organizing work is unfinished.
+  concerned: ReadonlyMap<string, unknown>;
+  // The messages whose organizing work is unfinished, keyed like the rows.
   working: readonly string[];
   // View/search/filter choices and the live mailbox owners. Replacing them retires row motion.
   scope: readonly unknown[];
@@ -62,10 +59,7 @@ type OrganizingMailbox = Readonly<{
     Readonly<{
       notice?: Named | undefined;
       blockedAction?: Named | undefined;
-      pending?: number | undefined;
-      saving?: number | undefined;
-      blocked?: boolean | string | undefined;
-      restoring?: true | undefined;
+      organizing?: readonly string[] | undefined;
     }>;
 }>;
 
@@ -81,33 +75,23 @@ export const motionIdentityOf = ({
 }: Readonly<{ mailbox: Listed; message: Readonly<{ id: string }> }>) =>
   motionIdentity(mailbox, message.id);
 
-// Changes the provider has not confirmed, a blocked change, or an Undo not yet listed again.
-const unfinished = ({ state }: OrganizingMailbox) =>
-  (state.pending ?? 0) > 0 ||
-  (state.saving ?? 0) > 0 ||
-  (state.blocked !== undefined && state.blocked !== false) ||
-  state.restoring === true;
-
 // The shown mailboxes' organizing outcomes, the messages they and any blocked change concern, and
-// which mailboxes still have organizing work to finish.
+// which messages still have organizing work to finish.
 export const organizingWork = (mailboxes: readonly OrganizingMailbox[]) => ({
   outcomes: mailboxes.map(({ state }) => state.notice),
   concerned: new Map(
     mailboxes.flatMap((mailbox) =>
       [mailbox.state.notice, mailbox.state.blockedAction].flatMap(
-        (outcome): Array<[string, Concern]> =>
+        (outcome): Array<[string, unknown]> =>
           outcome === undefined
             ? []
-            : [
-                [
-                  motionIdentity(mailbox, outcome.message.id),
-                  { outcome, mailbox: mailbox.id },
-                ],
-              ],
+            : [[motionIdentity(mailbox, outcome.message.id), outcome]],
       ),
     ),
   ),
-  working: mailboxes.filter(unfinished).map(({ id }) => id),
+  working: mailboxes.flatMap((mailbox) =>
+    (mailbox.state.organizing ?? []).map((id) => motionIdentity(mailbox, id)),
+  ),
 });
 
 // The same mailboxes show the same outcomes; a changed set of mailboxes is not an outcome.
@@ -145,8 +129,7 @@ const unchanged = <I>(tracked: RowMotionState<I>, shown: ShownRows<I>) =>
   sameValues(shown.working, tracked.working) &&
   shown.concerned.size === tracked.concerned.size &&
   [...shown.concerned].every(
-    ([identity, { outcome }]) =>
-      tracked.concerned.get(identity)?.outcome === outcome,
+    ([identity, outcome]) => tracked.concerned.get(identity) === outcome,
   ) &&
   shown.sections.length === tracked.sections.length &&
   shown.sections.every((section, index) => {
@@ -160,14 +143,13 @@ const unchanged = <I>(tracked: RowMotionState<I>, shown: ShownRows<I>) =>
 
 // What unfinished work keeps owning: the messages it took away that are still absent.
 const stillAttributed = <I>(
-  owned: ReadonlyMap<string, string>,
+  owned: ReadonlySet<string>,
   shown: ShownRows<I>,
   present: ReadonlySet<string>,
 ) =>
-  new Map(
+  new Set(
     [...owned].filter(
-      ([identity, mailbox]) =>
-        !present.has(identity) && shown.working.includes(mailbox),
+      (identity) => !present.has(identity) && shown.working.includes(identity),
     ),
   );
 
@@ -183,12 +165,7 @@ export const restingRowMotion = <I>(shown: ShownRows<I>): RowMotionState<I> => {
     scope: shown.scope,
     covered: shown.covered,
     attributed: stillAttributed(
-      new Map(
-        [...shown.concerned].map(([identity, { mailbox }]) => [
-          identity,
-          mailbox,
-        ]),
-      ),
+      new Set(shown.concerned.keys()),
       shown,
       new Set(order),
     ),
@@ -216,17 +193,11 @@ export function advanceRowMotion<I>(
   const fresh = new Set(
     [...shown.concerned]
       .filter(
-        ([identity, { outcome }]) =>
-          tracked.concerned.get(identity)?.outcome !== outcome,
+        ([identity, outcome]) => tracked.concerned.get(identity) !== outcome,
       )
       .map(([identity]) => identity),
   );
-  const owned = new Map([
-    ...tracked.attributed,
-    ...[...shown.concerned]
-      .filter(([identity]) => fresh.has(identity))
-      .map(([identity, { mailbox }]): [string, string] => [identity, mailbox]),
-  ]);
+  const owned = new Set([...tracked.attributed, ...fresh]);
   const positions = new Map(tracked.order.map((key, index) => [key, index]));
   const left = tracked.sections.flatMap((section) =>
     section.data.flatMap((item): Array<Leaving<I>> => {
@@ -250,6 +221,11 @@ export function advanceRowMotion<I>(
     tracked.leaving.filter(({ key }) => now.has(key)).map(({ key }) => key),
   );
   const sameOutcome = sameOrganizingOutcomes(shown.outcomes, tracked.outcomes);
+  // Clearing a notice after reconciliation is not another action that interrupts its entrance.
+  const newOutcome = shown.outcomes.some(
+    (outcome, index) =>
+      outcome !== undefined && outcome !== tracked.outcomes[index],
+  );
   const still = tracked.leaving.filter(
     ({ key }) => !now.has(key) && (sameOutcome || fresh.has(key)),
   );
@@ -267,9 +243,9 @@ export function advanceRowMotion<I>(
     attributed: stillAttributed(owned, shown, now),
     leaving: [...still, ...left],
     returning: new Set([
-      ...(sameOutcome
-        ? [...tracked.returning].filter((key) => now.has(key))
-        : []),
+      ...(newOutcome
+        ? []
+        : [...tracked.returning].filter((key) => now.has(key))),
       ...back,
     ]),
   };

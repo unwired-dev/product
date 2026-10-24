@@ -271,8 +271,8 @@ export type ImapInboxState =
       readonly pending: number;
       readonly blocked: string | undefined;
       readonly notice?: ImapNotice;
-      // An Undo is moving a message back, and the folder it returns to has not been read since.
-      readonly restoring?: true;
+      // Messages with unfinished changes, including Undo until its destination is read again.
+      readonly organizing?: readonly string[];
       // The ID each message a verified move gave a new UID was first shown with, so its row stays
       // the same row when an Undo moves it back.
       readonly originalIds?: ReadonlyMap<string, string>;
@@ -755,7 +755,7 @@ export function createImapInbox(
   let notice: ImapNotice | undefined = undefined;
   let originalIds: ReadonlyMap<string, string> = new Map();
   // Undo changes, until the folder they move a message back to is read again.
-  const restoring = new Set<string>();
+  const restoring = new Map<string, string>();
   // The change the notice reports, and where the server moved its message, which Undo reverses.
   let noticed:
     | Readonly<{ id: string; original: ImapMessage; restore?: ImapMessage }>
@@ -1065,6 +1065,10 @@ export function createImapInbox(
     }
     reportBlocked();
     shownStatus = authenticationRejected ? 'authentication' : next;
+    const organizing = [
+      ...changes().map(({ message }) => message.id),
+      ...restoring.values(),
+    ];
     state = {
       kind: 'ready',
       address: opened.address,
@@ -1075,7 +1079,7 @@ export function createImapInbox(
       pending: changes().length,
       blocked: blockedChange()?.id,
       ...(notice === undefined ? {} : { notice }),
-      ...(restoring.size === 0 ? {} : { restoring: true }),
+      ...(organizing.length === 0 ? {} : { organizing }),
       ...(originalIds.size === 0 ? {} : { originalIds }),
       undo: undoable(),
       imap: true,
@@ -1527,7 +1531,7 @@ export function createImapInbox(
       yield* synchronizeFolder(name);
       showFolder(name, 'current');
     }
-    for (const id of restoring) {
+    for (const id of restoring.keys()) {
       if (!changes().some((change) => change.id === id)) {
         restoring.delete(id);
       }
@@ -1561,7 +1565,7 @@ export function createImapInbox(
         const id = `${yield* Random.nextInt}:${yield* Random.nextInt}`;
         queued = [...queued, { id, action, message, attempts: 0 }];
         if (action.kind === 'restore') {
-          restoring.add(id);
+          restoring.set(id, message.id);
         }
         notice = {
           kind: 'done',
