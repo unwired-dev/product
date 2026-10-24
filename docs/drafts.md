@@ -25,7 +25,8 @@ Trusted Devices through Private Sync.
   keeps the Draft in the overlay. The New Message window has its own command bar
   and the composer's Close; closing the window or quitting asks as an Inbox
   window's composer does. Several New Message windows can be open, and AppKit
-  does not restore them. The Inbox column stays
+  does not restore them. A New Message window closes if its Product Account is
+  replaced or its Inbox becomes unavailable. The Inbox column stays
   interactive beneath the overlay while the covered reader waits. Selecting
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout

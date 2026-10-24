@@ -134,15 +134,20 @@ function useRegistrationActivation(store: Registration, preview = false) {
   }, [preview, store, reporting]);
 }
 
-// A window that shows only Inbox content closes once no Inbox can open.
+// A Draft window belongs to the account it opened in, even across foreground verification.
 function useInboxOnlyClose(
   onClose: (() => void) | undefined,
   destination: RegistrationScreen['destination'],
+  account: string | undefined,
 ) {
+  const [owner, setOwner] = useState(account);
+  if (owner === undefined && account !== undefined) {
+    setOwner(account);
+  }
   const closing =
     onClose !== undefined &&
-    destination !== 'inbox' &&
-    destination !== 'restoring';
+    destination !== 'restoring' &&
+    (destination !== 'inbox' || (owner !== undefined && owner !== account));
   useEffect(() => {
     if (closing) {
       onClose?.();
@@ -164,7 +169,7 @@ function RegistrationGateContent({
 }: {
   readonly children: ReactNode;
   // A window that shows only Inbox content, such as a New Message window, opens the Inbox whenever
-  // one can open and closes instead of showing account pages.
+  // one can open and closes instead of showing account pages or changing Product Account.
   readonly onClose?: (() => void) | undefined;
   readonly store?: Registration;
   // This build can authorize Microsoft mail.
@@ -197,6 +202,7 @@ function RegistrationGateContent({
   const closing = useInboxOnlyClose(
     onClose,
     preview ? 'inbox' : screen.destination,
+    choices?.inbox.account,
   );
   const assistanceAccount = useMailAssistanceAccount(
     registrationState,
