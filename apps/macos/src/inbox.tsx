@@ -779,7 +779,7 @@ export function Inbox({
   });
   // Rows an organizing outcome takes away keep leaving, and rows it brings back return.
   const motion = useRowMotion({
-    items: sections.flatMap(({ data }) => data),
+    sections,
     keyOf: rowKey,
     outcomes: shown.map(({ state }) =>
       state.kind === 'ready' && 'notice' in state ? state.notice : undefined,
@@ -995,7 +995,7 @@ export function Inbox({
             );
           }}
           contentContainerStyle={styles.list}
-          sections={motion.place(sections)}
+          sections={motion.place()}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => {
             if (section.key === 'outbox') {

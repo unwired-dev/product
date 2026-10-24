@@ -126,17 +126,24 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `inbox.tsx` or `organize-motion` retaining a removed row under a different
+  section key. Installed `VirtualizedSectionList` prefixes the item key with its
+  section key, so keeping `keyExtractor` alone does not preserve the instance.
+  Exercise removal and Undo of the last row in a date section, including the
+  last message in the list; retain the original section while its row leaves,
+  or collapse and reversal restart from a remounted row. Check adjacent removed
+  rows and sections preserve their original order too.
 - `organize-motion` admitting unrelated synchronization through a time window
   after an action. Trace eligibility through the native commit that changes the
   rows and its retirement, including synchronization immediately afterwards;
   otherwise a correct action animation also animates background arrivals.
   A subscription-time worklet probe does not establish native mount ordering.
-- `organize-motion` closing eligibility for future worklets while leaving an
-  already-started exit running after scroll or selection. Trace the installed
-  engine's animation ownership and the interrupting handlers against the approved
-  motion contract; otherwise input acts immediately but the leaving row keeps
-  moving instead of finishing at once. Retargeting on another layout alone does
-  not cover an interruption that changes no row layout.
+- `organize-motion` dropping future animation eligibility while leaving an
+  already-started exit running after scroll or selection. Trace retained rows,
+  the installed engine's animation ownership and the interrupting handlers
+  against the approved motion contract; otherwise input acts immediately but
+  the leaving row keeps moving instead of finishing at once. Retargeting on
+  another layout alone does not cover an interruption that changes no row layout.
 - `inbox.tsx` enabling `maintainVisibleContentPosition` without checking the
   installed VirtualizedList's render-window adjustment on prepended sections.
   Exercise a long list with Drafts or Outbox inserted at the top as well as

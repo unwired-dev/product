@@ -2217,6 +2217,25 @@ describe('organizing motion', () => {
     });
   });
 
+  it('keeps the last row in its date section mounted through removal and Undo', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Only message today' });
+    await renderConnected(gmail.native);
+    const original = await screen.findByText('Only message today');
+
+    await archive('Only message today');
+    const leaving = screen.getByText('Only message today', {
+      includeHiddenElements: true,
+    });
+    await undo();
+
+    expect([
+      leaving === original,
+      screen.getByText('Only message today') === original,
+    ]).toStrictEqual([true, true]);
+  });
+
   it('finishes a leaving row at once when a scroll or a selection interrupts it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
