@@ -484,6 +484,8 @@ form accessories, keyboards, status bar).
   Unread shows a stronger sender and subject weight and an accent
   dot. On iPhone and iPad, search uses regular sender and subject text with only
   the query's matching words emphasized; unread results retain the dot.
+  A hairline separator ends each row, except a selected row and a row directly
+  above a date divider.
   Selected is the graphite fill with white text. No generated initials and
   no hover actions; a real contact photo may appear, per the
   [list requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
