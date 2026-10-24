@@ -93,6 +93,10 @@ export interface NativeGmailMailboxes {
     message: Parameters<NativeGmailMailbox['graphSend']>[0],
     mailbox: Scope,
   ) => Promise<unknown>;
+  readonly graphPrepare: (
+    draft: Parameters<NativeGmailMailbox['graphPrepare']>[0],
+    mailbox: Scope,
+  ) => Promise<unknown>;
   readonly openMailbox: (connection: string) => Promise<unknown>;
   readonly commitMailbox: (
     mailbox: Scope,
@@ -238,6 +242,8 @@ const bound = (
       native.graphModify(change, scope(mailbox)),
     gmailSend: (message, mailbox) => native.gmailSend(message, scope(mailbox)),
     graphSend: (message, mailbox) => native.graphSend(message, scope(mailbox)),
+    graphPrepare: (draft, mailbox) =>
+      native.graphPrepare(draft, scope(mailbox)),
     openMailbox: () => native.openMailbox(connection),
     commitMailbox: (mailbox, expectedRevision, document) =>
       native.commitMailbox(scope(mailbox), expectedRevision, document),

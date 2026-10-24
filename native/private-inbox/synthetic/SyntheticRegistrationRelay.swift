@@ -250,6 +250,10 @@
           "contentType": contentType,
         ])
     }
+    // Mock Mail Sessions send only messages that fit one Graph request.
+    func upload(url: URL, body: Data, range: String) async throws -> (Int, Data) {
+      throw RegistrationError.unavailable
+    }
   }
 
   // The fields of a backend call the synthetic backend reads; tokens and credentials stay here.

@@ -31,7 +31,7 @@ import type {
   GmailPart,
   MessagePresentation,
 } from './message-body.ts';
-import type { MessageSegment } from './outgoing-message.ts';
+import type { DraftFile, MessageSegment } from './outgoing-message.ts';
 import type { MailGrantProvider } from './registration-snapshot.ts';
 import type {
   NativeRemoteContentCache,
@@ -73,6 +73,7 @@ import {
   sameCheckpoint,
   sameMailbox,
 } from './mailbox-document.ts';
+import { GraphId } from './mailbox-message.ts';
 import {
   decodeResponse,
   GmailNotFound,
@@ -104,6 +105,7 @@ import {
   withinMetadataBudgets,
 } from './message-body.ts';
 import { graphChange } from './microsoft-graph.ts';
+import { messageIdOf } from './outgoing-message.ts';
 import {
   createRemoteContentLoader,
   shownRemote,
@@ -925,6 +927,8 @@ const restartLimit = (restarts: number) =>
 export type OutgoingSend = Readonly<{
   segments: readonly MessageSegment[];
   threadId?: string;
+  // The Outlook draft a Microsoft message too large for one Graph request was kept as.
+  draft?: string;
 }>;
 
 // What became of a message handed to its provider: sent, accepted by SMTP with its Sent copy still
@@ -936,8 +940,22 @@ export type SendOutcome =
   | Readonly<{ kind: 'queued' | 'failed'; problem: DeliveryProblem }>
   | Readonly<{ kind: 'unknown' }>;
 
+// What became of keeping a Microsoft message as an Outlook draft to send: its draft, or why it waits
+// or failed. Nothing was delivered either way.
+export type Prepared =
+  | Readonly<{ kind: 'prepared'; draft: string }>
+  | Readonly<{ kind: 'queued' | 'failed'; problem: DeliveryProblem }>;
+// Graph's answer without a draft may still have kept one, which the next attempt replaces.
+const notPrepared = (outcome: SendOutcome): Prepared =>
+  outcome.kind === 'queued' || outcome.kind === 'failed'
+    ? outcome
+    : { kind: 'queued', problem: 'offline' };
+
 const decodeSent = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Struct({ id: GmailId })),
+);
+const decodeDraft = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ id: GraphId })),
 );
 
 // Native code rejects with 'delivery-unknown' once the request may have reached the provider; every
@@ -3808,6 +3826,56 @@ export function createGmailInbox(
       );
     });
 
+  // One request handing a message to the provider from the open generation; a mailbox not open yet
+  // reaches no provider, so the message waits. A rejection is itself an outcome, and a refused
+  // Microsoft grant, as for a connection authorized before sending was offered, asks for Microsoft
+  // again as a refused read does.
+  const handOff = async <T extends SendOutcome | Prepared>(
+    request: (scope: MailboxScope) => Promise<unknown>,
+    answer: (reply: unknown) => Effect.Effect<T>,
+  ): Promise<T | SendOutcome> => {
+    const scope = opened;
+    if (scope === undefined || forgotten) {
+      return { kind: 'queued', problem: 'offline' };
+    }
+    const reading = owner;
+    let invalidated = false;
+    const result = await runLogged(
+      Effect.tryPromise({
+        try: () => request(scope),
+        catch: (cause) => {
+          invalidated = rejectionCode(cause) === 'mailbox-invalidated';
+          return sendRejection(cause);
+        },
+      }).pipe(
+        Effect.flatMap(answer),
+        Effect.match({
+          onFailure: (outcome): T | SendOutcome => outcome,
+          onSuccess: (outcome): T | SendOutcome => outcome,
+        }),
+        Effect.tap((outcome) =>
+          Effect.sync(() => {
+            if (
+              graph !== undefined &&
+              outcome.kind === 'failed' &&
+              outcome.problem === 'authorization' &&
+              owner === reading &&
+              opened !== undefined
+            ) {
+              authenticationRejected = true;
+              settle('authentication');
+            }
+          }),
+        ),
+      ),
+    );
+    // Reopen for the next retry without delaying persistence of known non-delivery.
+    if (invalidated && owner === reading && !forgotten) {
+      void load();
+    }
+    return result;
+  };
+
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -3959,63 +4027,56 @@ export function createGmailInbox(
     attachmentFile: attachments.attachmentFile,
     // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
     // provider, so the message waits.
-    send: async (message: OutgoingSend): Promise<SendOutcome> => {
-      const scope = opened;
-      if (scope === undefined || forgotten) {
-        return {
-          kind: 'queued',
-          problem: 'offline',
-        };
-      }
-      const reading = owner;
-      let invalidated = false;
-      const result = await runLogged(
-        Effect.tryPromise({
+    send: (message: OutgoingSend): Promise<SendOutcome> =>
+      handOff(
+        (scope) =>
           // Microsoft threads a reply by its headers; Graph has no thread to join.
-          try: () =>
-            graph === undefined
-              ? native.gmailSend(message, scope)
-              : native.graphSend({ segments: message.segments }, scope),
-          catch: (cause) => {
-            invalidated = rejectionCode(cause) === 'mailbox-invalidated';
-            return sendRejection(cause);
-          },
-        }).pipe(
-          Effect.flatMap((reply) =>
-            decodeResponse(reply).pipe(
-              Effect.map(sendStatus),
-              // A reply that cannot be read may follow acceptance.
-              Effect.orElseSucceed((): SendOutcome => ({ kind: 'unknown' })),
-            ),
+          graph === undefined
+            ? native.gmailSend(message, scope)
+            : native.graphSend(
+                message.draft === undefined
+                  ? { segments: message.segments }
+                  : { draft: message.draft },
+                scope,
+              ),
+        (reply) =>
+          decodeResponse(reply).pipe(
+            Effect.map(sendStatus),
+            // A reply that cannot be read may follow acceptance.
+            Effect.orElseSucceed((): SendOutcome => ({ kind: 'unknown' })),
           ),
-          // A rejection is itself an outcome.
-          Effect.match({
-            onFailure: (outcome) => outcome,
-            onSuccess: (outcome) => outcome,
-          }),
-          // Microsoft refusing the grant, as for a connection authorized before sending was
-          // offered, asks for Microsoft again as a refused read does.
-          Effect.tap((outcome) =>
-            Effect.sync(() => {
-              if (
-                graph !== undefined &&
-                outcome.kind === 'failed' &&
-                outcome.problem === 'authorization' &&
-                owner === reading &&
-                opened !== undefined
-              ) {
-                authenticationRejected = true;
-                settle('authentication');
-              }
-            }),
-          ),
-        ),
-      );
-      // Reopen for the next retry without delaying persistence of known non-delivery.
-      if (invalidated && owner === reading && !forgotten) {
-        void load();
+      ),
+    // Keeps a Microsoft message too large for one Graph request as an Outlook draft with its files,
+    // which `send` then sends. Resolves the draft's ID, or why the message waits or failed.
+    prepare: async (
+      message: OutgoingSend,
+      files: readonly DraftFile[],
+    ): Promise<Prepared> => {
+      const messageId = messageIdOf(message.segments);
+      if (graph === undefined || messageId === undefined) {
+        return { kind: 'failed', problem: 'refused' };
       }
-      return result;
+      const outcome = await handOff(
+        (scope) =>
+          native.graphPrepare(
+            { segments: message.segments, messageId, files },
+            scope,
+          ),
+        (reply) =>
+          decodeResponse(reply).pipe(
+            Effect.map((answer): Prepared => {
+              if (answer.status < 200 || answer.status >= 300) {
+                return notPrepared(sendStatus(answer));
+              }
+              return Option.match(decodeDraft(answer.body), {
+                onNone: () => notPrepared({ kind: 'unknown' }),
+                onSome: ({ id }) => ({ kind: 'prepared', draft: id }),
+              });
+            }),
+            Effect.orElseSucceed(() => notPrepared({ kind: 'unknown' })),
+          ),
+      );
+      return outcome.kind === 'prepared' ? outcome : notPrepared(outcome);
     },
     // Looks for a message whose handoff had no answer in this mailbox's Sent messages: Gmail's by
     // its MIME boundary, Microsoft's by its Message-ID. Resolves sent, unknown when the provider

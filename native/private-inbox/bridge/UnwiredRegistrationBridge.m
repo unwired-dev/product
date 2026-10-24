@@ -67,6 +67,7 @@ RCT_EXTERN_METHOD(gmailModify:(NSDictionary *)change mailbox:(NSDictionary *)mai
 RCT_EXTERN_METHOD(graphModify:(NSDictionary *)change mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(gmailSend:(NSDictionary *)message mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(graphSend:(NSDictionary *)message mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(graphPrepare:(NSDictionary *)draft mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapSend:(NSDictionary *)message mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapFileSent:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapFindSent:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

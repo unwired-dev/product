@@ -91,6 +91,51 @@ async function microsoftSender() {
   };
 }
 
+// Larger than Graph's single request, with files of both sizes.
+const planSize = 3_500_000;
+// A reply to Sam with an inline chart and a plan too large for one sendMail request, admitted to
+// the Outbox; resolves its Draft and the chart's Content-ID.
+async function large(sending: Awaited<ReturnType<typeof microsoftSender>>) {
+  const id = await sending.addressed();
+  const created = sending.draft(id);
+  sending.storage.addFile('file:///plan.pdf', 'p'.repeat(planSize));
+  sending.storage.addFile('file:///chart.png', 'chart bytes');
+  const plan = sending.drafts.prepare({
+    name: 'plan.pdf',
+    type: 'application/pdf',
+  });
+  const chart = sending.drafts.prepare({
+    name: 'chart.png',
+    type: 'image/png',
+  });
+  await sending.drafts.update(
+    {
+      ...created,
+      body: insertImage(created.body, { start: 3, end: 3 }, chart).document,
+      attachments: [plan],
+      response: {
+        kind: 'reply',
+        message: 'AAMkAGI2-0001_x=',
+        thread: { connection: outlook.id, id: 'conversation-1' },
+        inReplyTo: '<m-1@example.invalid>',
+        references: ['<m-0@example.invalid>', '<m-1@example.invalid>'],
+      },
+    },
+    created,
+  );
+  await sending.drafts.importAsset(plan, {
+    kind: 'file',
+    uri: 'file:///plan.pdf',
+  });
+  await sending.drafts.importAsset(chart, {
+    kind: 'file',
+    uri: 'file:///chart.png',
+  });
+  await expect(
+    sending.outbox.send(() => sending.draft(id)),
+  ).resolves.toBeUndefined();
+  return { id, chart: `${chart.id}@unwired.invalid` };
+}
 describe('sending Microsoft mail through Graph', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
   beforeEach(() => {
@@ -358,7 +403,156 @@ describe('sending Microsoft mail through Graph', () => {
     },
   );
 
-  it('refuses a message over Graph’s request limit at Send, under Gmail’s', async () => {
+  it('sends a message over Graph’s request limit once, as an Outlook draft its files are attached to', async () => {
+    expect.hasAssertions();
+    const sending = await microsoftSender();
+    try {
+      const { chart } = await large(sending);
+      later(undoSendWindow);
+      await sending.outbox.process();
+
+      const [sent, ...others] = sending.graph.sends;
+      expect(others).toStrictEqual([]);
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(sending.graph.drafts.size).toBe(0);
+      // The draft's MIME carries the envelope and threading headers; its files are attached.
+      const message = await PostalMime.parse(present(sent, 'a send').raw);
+      expect({
+        to: message.to?.map(({ address }) => address),
+        bcc: message.bcc?.map(({ address }) => address),
+        inReplyTo: message.inReplyTo,
+        references: message.references,
+        files: message.attachments.length,
+        html: message.html?.includes(`cid:${chart}`),
+      }).toStrictEqual({
+        to: ['sam@example.invalid'],
+        bcc: ['jo@example.invalid'],
+        inReplyTo: '<m-1@example.invalid>',
+        references: '<m-0@example.invalid> <m-1@example.invalid>',
+        files: 0,
+        html: true,
+      });
+      expect(message.messageId).toMatch(/@contoso\.example\.invalid>$/u);
+      expect(
+        sent?.attachments.map(
+          ({ name, contentType, isInline, contentId, bytes }) => [
+            name,
+            contentType,
+            isInline,
+            contentId,
+            bytes.length,
+          ],
+        ),
+      ).toStrictEqual([
+        ['chart.png', 'image/png', true, chart, 11],
+        ['plan.pdf', 'application/pdf', undefined, undefined, planSize],
+      ]);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it.each([
+    { step: 'the draft was created', after: 0 },
+    { step: 'part of its files were attached', after: 1 },
+    { step: 'every file was attached', after: 2 },
+  ])(
+    'recovers a send interrupted after $step without a second delivery or a leftover draft',
+    async ({ after }) => {
+      expect.hasAssertions();
+      const sending = await microsoftSender();
+      try {
+        const { id } = await large(sending);
+        later(undoSendWindow);
+        sending.graph.failPrepare({ after, interrupted: true });
+        await sending.outbox.process();
+        // Nothing was handed off: the message waits with its claim, and the draft stays behind.
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: 'queued', claim: 'held' },
+        ]);
+        expect(sending.graph.drafts.size).toBe(1);
+        expect(sending.graph.sends).toStrictEqual([]);
+
+        await sending.relaunch();
+        await sending.outbox.process();
+        expect(sending.drafts.getOutbox()).toStrictEqual([]);
+        expect(sending.graph.sends).toHaveLength(1);
+        expect(sending.graph.drafts.size).toBe(0);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
+  it('never sends a draft again after a lost answer and confirms it from Sent Items', async () => {
+    expect.hasAssertions();
+    const sending = await microsoftSender();
+    try {
+      const { id } = await large(sending);
+      later(undoSendWindow);
+      sending.graph.holdSentCopies();
+      sending.graph.failSend({ lost: true });
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+      await sending.relaunch();
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+      sending.graph.fileSentCopies();
+      await expect(sending.outbox.check(id)).resolves.toBe(true);
+      expect(sending.graph.sends).toHaveLength(1);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it.each([
+    {
+      failure: { status: 413 },
+      entry: { state: 'failed', problem: 'too-large' },
+      sends: 0,
+    },
+    {
+      failure: { status: 403 },
+      entry: { state: 'failed', problem: 'authorization' },
+      sends: 0,
+    },
+    {
+      failure: { status: 429 },
+      entry: { state: 'queued', problem: 'rate-limited' },
+      sends: 1,
+    },
+    // Nothing was sent, so even a server error only tries again.
+    {
+      failure: { status: 503 },
+      entry: { state: 'queued', problem: 'offline' },
+      sends: 1,
+    },
+  ])(
+    'records a refused draft as $entry.state, deleting it, and tries only a retry again',
+    async ({ failure, entry, sends }) => {
+      expect.hasAssertions();
+      const sending = await microsoftSender();
+      try {
+        const { id } = await large(sending);
+        later(undoSendWindow);
+        sending.graph.failPrepare({ after: 1, ...failure });
+        await sending.outbox.process();
+        expect(sending.drafts.getOutbox()).toMatchObject([{ id, ...entry }]);
+        expect(sending.graph.drafts.size).toBe(0);
+        later(30_000);
+        await sending.outbox.process();
+        expect(sending.graph.sends).toHaveLength(sends);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
+  it('refuses a message whose text alone is over Graph’s request limit at Send', async () => {
     expect.hasAssertions();
     const sending = await microsoftSender();
     try {

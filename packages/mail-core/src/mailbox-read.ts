@@ -3,7 +3,7 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { GraphChange } from './microsoft-graph.ts';
-import type { MessageSegment } from './outgoing-message.ts';
+import type { DraftFile, MessageSegment } from './outgoing-message.ts';
 
 import {
   decodeDiagnostic,
@@ -30,11 +30,27 @@ export interface NativeGraphMailbox {
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
   // Sends one message through Graph's sendMail as MIME, inserting each asset segment's verified
-  // bytes. Resolves `{ status, body }` once Graph answers. Rejects with 'delivery-unknown' when the
-  // request may have reached Graph without an answer; any other rejection means it never left
-  // this device.
+  // bytes, or sends the Outlook draft `draft` that graphPrepare kept. Resolves `{ status, body }`
+  // once Graph answers. Rejects with 'delivery-unknown' when the request may have reached Graph
+  // without an answer; any other rejection means it never left this device.
   readonly graphSend: (
-    message: Readonly<{ segments: readonly MessageSegment[] }>,
+    message: Readonly<
+      { segments: readonly MessageSegment[] } | { draft: string }
+    >,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Keeps a message too large for one sendMail request as an Outlook draft in the person's Drafts
+  // folder: first deletes the drafts an interrupted attempt left with the same `messageId`, saves
+  // the MIME `segments` without files, then attaches each file with its verified bytes, through an
+  // upload session when it is too large for one request. Resolves `{ status, body }`: Graph's
+  // draft once every file is attached, or the first refused request's answer after deleting the
+  // new draft. Nothing is sent, so a failure only tries again.
+  readonly graphPrepare: (
+    draft: Readonly<{
+      segments: readonly MessageSegment[];
+      messageId: string;
+      files: readonly DraftFile[];
+    }>,
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
 }

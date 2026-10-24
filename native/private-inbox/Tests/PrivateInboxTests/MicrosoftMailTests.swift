@@ -64,6 +64,11 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
   // a request interrupted after it started.
   var graphSends: [(url: String, body: Data)] = []
   var sendReply: () throws -> (Int, Data) = { (202, Data()) }
+  // Answers every Graph request in place of the replies above when set: method, URL and body.
+  var graphReply: ((String, URL, Data?) throws -> (Int, Data))?
+  // Upload session ranges as Microsoft receives them, and its answer to each.
+  var uploads: [(url: URL, range: String, body: Data)] = []
+  var uploadReply: () throws -> (Int, Data) = { (200, Data()) }
 
   private func identity() -> MicrosoftMailIdentity {
     MicrosoftMailIdentity(
@@ -86,6 +91,7 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
   func graph(
     _ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?, contentType: String
   ) async throws -> (Int, Data) {
+    if let graphReply { return try graphReply(method, url, body) }
     guard let body else {
       graphRequests.append(url)
       return (200, Data(#"{"value":[]}"#.utf8))
@@ -98,6 +104,10 @@ private final class ControlledMicrosoftHTTP: URLProtocol, @unchecked Sendable {
       (method, url.absoluteString,
        try JSONSerialization.jsonObject(with: body) as? [String: Any] ?? [:]))
     return (200, Data(#"{"id":"AAMk-id=","parentFolderId":"AQMk-archive=","isRead":true}"#.utf8))
+  }
+  func upload(url: URL, body: Data, range: String) async throws -> (Int, Data) {
+    uploads.append((url, range, body))
+    return try uploadReply()
   }
 }
 
@@ -407,6 +417,15 @@ extension PrivateInboxTests {
     let send = try #require(ControlledMicrosoftHTTP.probe.requests().last)
     #expect(send.httpMethod == "POST")
     #expect(send.value(forHTTPHeaderField: "Content-Type") == "text/plain")
+    // An upload session's range goes to its own pre-authorized URL without the Graph token.
+    let uploadURL = "https://outlook.office.com/api/v2.0/me/Messages('AAMk-id=')/AttachmentSessions('s')?authtoken=t"
+    _ = try await provider.upload(
+      url: #require(URL(string: uploadURL)), body: Data([1, 2, 3]), range: "bytes 0-2/3")
+    let range = try #require(ControlledMicrosoftHTTP.probe.requests().last)
+    #expect(range.url?.absoluteString == uploadURL && range.httpMethod == "PUT")
+    #expect(range.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(range.value(forHTTPHeaderField: "Content-Range") == "bytes 0-2/3")
+    #expect(range.value(forHTTPHeaderField: "Content-Type") == "application/octet-stream")
     let graph = ControlledMicrosoftHTTP.probe.requests().filter {
       $0.url?.host == "graph.microsoft.com" && $0.httpMethod == "GET"
     }
@@ -441,4 +460,172 @@ extension PrivateInboxTests {
       #expect(try RegistrationStore.graphURL("https://graph.microsoft.com" + path).host == "graph.microsoft.com")
     }
   }
+
+  // A message too large for one sendMail request becomes an Outlook draft before its handoff: the
+  // drafts an interrupted attempt left under its Message-ID are deleted, its MIME without files is
+  // saved, a small file is attached in one request and a large one through an upload session,
+  // which never receives the Graph token. A refusal deletes the new draft; only sending the draft
+  // can be unknown.
+  @Test @MainActor func largeMicrosoftMessagesBecomeDraftsWithVerifiedFiles() async throws {
+    let service = "dev.unwired.microsoft-drafts.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let keys = DeviceKeychain(service: service)
+    let account = "account-synthetic-subject"
+    defer {
+      try? keys.remove("registration")
+      try? keys.remove("product-sync." + account)
+      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    let microsoft = SyntheticMicrosoftMailProvider()
+    microsoft.scopes = ["Mail.ReadWrite", "Mail.Send", "User.Read", "offline_access"]
+    let backend = SyntheticProductSyncBackend()
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: google, microsoft: microsoft, productSync: backend.backend,
+      deviceRevoked: { _ in false }, transport: { try backend.transport($0) },
+      mailCache: PrivateInboxStore(directory: directory, service: service),
+      connect: { identity, device, _ in
+        try backend.connect("account-" + identity.subject, device: device)
+      })
+    _ = try await store.signIn()
+    let owner = try #require(try store.load()?.product?.productAccountId)
+    _ = try await store.signInMailbox(nil, suggest: true, provider: .microsoftGraph)
+    let id = try #require(try await store.verifyMailbox()["connection"] as? String)
+    try await store.retryMailboxCleanup()
+    try store.storeMailbox()
+    let generation = store.mailboxGeneration(id).uuidString
+    let address = microsoft.address
+
+    func imported(_ asset: String, _ bytes: Data) async throws -> [String: Any] {
+      let stored = try await store.importDraftAsset(
+        owner: owner, id: asset,
+        source: ["kind": "data", "uri": "data:image/png;base64," + bytes.base64EncodedString()])
+      return ["id": asset, "digest": try #require(stored["digest"] as? String)]
+    }
+    let small = Data((0..<200).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+    let large = Data((0..<(RegistrationStore.graphUploadRange + 10)).map {
+      UInt8(truncatingIfNeeded: $0 &* 13)
+    })
+    let files: [Any] = [
+      [
+        "asset": try await imported("assetsmall1", small), "name": "chart.png", "type": "image/png",
+        "contentId": "assetsmall1@unwired.invalid",
+      ],
+      ["asset": try await imported("assetlarge1", large), "name": "plan.pdf", "type": "application/pdf"],
+    ]
+    let mime = "From: casey@example.invalid\r\nMessage-ID: <m1.b1@example.invalid>\r\n\r\nHello\r\n"
+    let messages = "https://graph.microsoft.com/v1.0/me/messages"
+    var writes: [(request: String, body: Data?)] = []
+    var leftover = true
+    microsoft.graphReply = { method, url, body in
+      writes.append(("\(method) \(url.absoluteString)", body))
+      switch (method, url.path) {
+      case ("GET", "/v1.0/me/mailFolders/drafts/messages"):
+        return (200, Data((leftover ? #"{"value":[{"id":"AAMk-left="}]}"# : #"{"value":[]}"#).utf8))
+      case ("DELETE", _): return (204, Data())
+      case ("POST", "/v1.0/me/messages"): return (201, Data(#"{"id":"AAMk-draft="}"#.utf8))
+      case ("POST", "/v1.0/me/messages/AAMk-draft=/attachments"): return (201, Data("{}".utf8))
+      case ("POST", "/v1.0/me/messages/AAMk-draft=/attachments/createUploadSession"):
+        return (201, Data(#"{"uploadUrl":"https://outlook.office.com/api/v2.0/Messages('AAMk-draft=')/AttachmentSessions('s1')?authtoken=t"}"#.utf8))
+      case ("POST", "/v1.0/me/messages/AAMk-draft=/send"): return try microsoft.sendReply()
+      default: return (400, Data())
+      }
+    }
+    func prepare(_ files: [Any]) async throws -> [String: Any] {
+      try await store.graphPrepare(
+        segments: [["text": mime]], messageId: "m1.b1@example.invalid", files: files,
+        connection: id, address: address, generation: generation)
+    }
+
+    let kept = try await prepare(files)
+    #expect(kept["status"] as? Int == 201 && kept["body"] as? String == #"{"id":"AAMk-draft="}"#)
+    #expect(writes.map(\.request) == [
+      "GET https://graph.microsoft.com/v1.0/me/mailFolders/drafts/messages?$filter=internetMessageId%20eq%20'%3Cm1.b1@example.invalid%3E'&$select=id",
+      "DELETE \(messages)/AAMk-left=",
+      "POST \(messages)",
+      "POST \(messages)/AAMk-draft=/attachments",
+      "POST \(messages)/AAMk-draft=/attachments/createUploadSession",
+    ])
+    #expect(writes[2].body.flatMap { Data(base64Encoded: $0) } == Data(mime.utf8))
+    func json(_ index: Int) throws -> NSDictionary {
+      let body = try #require(writes[index].body)
+      return try #require(try JSONSerialization.jsonObject(with: body) as? NSDictionary)
+    }
+    #expect(try json(3) == [
+      "@odata.type": "#microsoft.graph.fileAttachment", "name": "chart.png",
+      "contentType": "image/png", "isInline": true, "contentId": "assetsmall1@unwired.invalid",
+      "contentBytes": small.base64EncodedString(),
+    ])
+    #expect(try json(4) == [
+      "AttachmentItem": [
+        "attachmentType": "file", "name": "plan.pdf", "contentType": "application/pdf",
+        "isInline": false, "size": large.count,
+      ],
+    ])
+    #expect(microsoft.uploads.map(\.range) == [
+      "bytes 0-\(RegistrationStore.graphUploadRange - 1)/\(large.count)",
+      "bytes \(RegistrationStore.graphUploadRange)-\(large.count - 1)/\(large.count)",
+    ])
+    #expect(microsoft.uploads.reduce(Data()) { $0 + $1.body } == large)
+    #expect(microsoft.uploads.allSatisfy { $0.url.host == "outlook.office.com" })
+
+    // Sending the draft is the only request whose outcome may be unknown.
+    let sent = try await store.graphSendDraft(
+      draft: "AAMk-draft=", connection: id, address: address, generation: generation)
+    #expect(sent["status"] as? Int == 202 && writes.last?.request == "POST \(messages)/AAMk-draft=/send")
+    microsoft.sendReply = { throw GmailRequestInterrupted() }
+    await #expect(throws: PrivateInboxError.deliveryUnknown) {
+      _ = try await store.graphSendDraft(
+        draft: "AAMk-draft=", connection: id, address: address, generation: generation)
+    }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.graphSendDraft(
+        draft: "../send", connection: id, address: address, generation: generation)
+    }
+
+    // A refused range returns Microsoft's answer and deletes the new draft; an upload URL outside
+    // Microsoft, or a file whose bytes no longer verify, reaches nothing and deletes it too.
+    leftover = false
+    microsoft.uploadReply = { (500, Data("busy".utf8)) }
+    writes = []
+    let refused = try await prepare(files)
+    #expect(refused["status"] as? Int == 500 && refused["body"] as? String == "busy")
+    #expect(writes.last?.request == "DELETE \(messages)/AAMk-draft=")
+    microsoft.uploadReply = { (200, Data()) }
+    let reply = try #require(microsoft.graphReply)
+    microsoft.graphReply = { method, url, body in
+      url.path.hasSuffix("/createUploadSession")
+        ? (201, Data(#"{"uploadUrl":"https://uploads.example.invalid/s?authtoken=t"}"#.utf8))
+        : try reply(method, url, body)
+    }
+    let uploaded = microsoft.uploads.count
+    writes = []
+    await #expect(throws: RegistrationError.unavailable) { _ = try await prepare(files) }
+    #expect(microsoft.uploads.count == uploaded)
+    #expect(writes.last?.request == "DELETE \(messages)/AAMk-draft=")
+    writes = []
+    let missing: [Any] = [[
+      "asset": ["id": "assetsmall1", "digest": String(repeating: "0", count: 64)],
+      "name": "chart.png", "type": "image/png",
+    ]]
+    await #expect(throws: PrivateInboxError.attachmentMissing) { _ = try await prepare(missing) }
+    #expect(writes.last?.request == "DELETE \(messages)/AAMk-draft=")
+    // Malformed files or Message-IDs are refused before any request.
+    writes = []
+    for invalid: [Any] in [
+      [["asset": ["id": "../x", "digest": String(repeating: "0", count: 64)], "name": "a", "type": "image/png"]],
+      [["asset": ["id": "assetsmall1", "digest": String(repeating: "0", count: 64)], "name": "a", "type": "image png"]],
+    ] {
+      await #expect(throws: RegistrationError.unavailable) { _ = try await prepare(invalid) }
+    }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.graphPrepare(
+        segments: [["text": mime]], messageId: "m1' or 1 eq 1", files: [], connection: id,
+        address: address, generation: generation)
+    }
+    #expect(writes.isEmpty)
+  }
+
 }

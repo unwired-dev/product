@@ -21,7 +21,9 @@ import { sendingStateOf, threadOf, unsendableAssets } from './drafts.ts';
 import { imapRoleFolder } from './imap-actions.ts';
 import {
   boundaryOf,
+  draftFiles,
   gmailMessageLimit,
+  graphDraftLimit,
   graphMessageLimit,
   messageIdOf,
   outgoingMessage,
@@ -83,30 +85,48 @@ const ownerOf = (registration: Pick<Registration, 'getSnapshot'>) => {
     : undefined;
 };
 
-// An SMTP or Microsoft message names its own Message-ID, which its Sent copy keeps for replies to
-// thread with and Microsoft's Sent Items are searched by; Gmail assigns one itself.
-const messageOf = (draft: Draft, named: boolean) => {
+// Renders a Draft once its date and boundary are chosen. An SMTP or Microsoft message names its
+// own Message-ID, which its Sent copy keeps for replies to thread with and Microsoft's Sent Items
+// are searched by; Gmail assigns one itself.
+const renderer = (draft: Draft, provider: MailProvider | undefined) => {
+  const date = Date.now();
   const boundary = Math.random().toString(36).slice(2, 14);
-  const { segments, size } = outgoingMessage(draft, {
-    date: Date.now(),
-    boundary,
-    ...(named
-      ? {
-          messageId: `${Date.now().toString(36)}.${boundary}@${draft.from.split('@').at(-1) ?? ''}`,
-        }
-      : {}),
-  });
-  const thread = threadOf(draft);
-  return {
-    segments,
-    size,
-    ...(thread === undefined ? {} : { threadId: thread }),
-  };
+  const named =
+    provider === 'gmail'
+      ? {}
+      : {
+          messageId: `${date.toString(36)}.${boundary}@${draft.from.split('@').at(-1) ?? ''}`,
+        };
+  return (withoutFiles: boolean) =>
+    outgoingMessage(draft, { date, boundary, ...named, withoutFiles });
 };
 
 // The largest message a provider takes; SMTP has no known limit, so it is held to Gmail's.
 const limitOf = (provider: MailProvider | undefined) =>
-  provider === 'microsoft-graph' ? graphMessageLimit : gmailMessageLimit;
+  provider === 'microsoft-graph' ? graphDraftLimit : gmailMessageLimit;
+
+// The message admitted for a Draft, or undefined when it is over its provider's limit. A Microsoft
+// message too large for one Graph request keeps only its MIME without files, which becomes an
+// Outlook draft that its files are attached to; its size stays the whole message's.
+const messageOf = (draft: Draft, provider: MailProvider | undefined) => {
+  const render = renderer(draft, provider);
+  const whole = render(false);
+  const drafted =
+    provider === 'microsoft-graph' && whole.size > graphMessageLimit;
+  const sent = drafted ? render(true) : whole;
+  if (
+    whole.size > limitOf(provider) ||
+    (drafted && sent.size > graphMessageLimit)
+  ) {
+    return undefined;
+  }
+  const thread = threadOf(draft);
+  return {
+    segments: sent.segments,
+    size: whole.size,
+    ...(thread === undefined ? {} : { threadId: thread }),
+  };
+};
 
 const withState = (
   entry: OutboxEntry,
@@ -382,8 +402,12 @@ export function createOutbox({
     return true;
   };
 
-  // Invokes the current provider with the frozen message and its original envelope.
-  const submit = async (entry: OutboxEntry): Promise<SendOutcome> => {
+  // Invokes the current provider with the frozen message and its original envelope, or sends the
+  // Outlook draft it was kept as.
+  const submit = async (
+    entry: OutboxEntry,
+    draft: string | undefined,
+  ): Promise<SendOutcome> => {
     const mailbox = connectionOf(entry.draft.connection);
     if (mailbox === undefined) {
       return { kind: 'queued', problem: 'offline' };
@@ -394,11 +418,48 @@ export function createOutbox({
           entry.message,
           [...to, ...cc, ...bcc].map(({ address }) => address),
         )
-      : mailbox.inbox.send(entry.message);
+      : mailbox.inbox.send(
+          draft === undefined ? entry.message : { ...entry.message, draft },
+        );
   };
 
-  // Hands a claimed message to Gmail once, after its durable handoff.
-  const handOff = async (id: string, current: () => boolean) => {
+  // A Microsoft message too large for one Graph request first becomes an Outlook draft with its
+  // files, before its durable handoff. Nothing is delivered yet, so a refusal or an interruption
+  // only leaves the message queued, and the next attempt replaces the draft it left. Resolves the
+  // draft's ID, undefined for any other message, or false when the message waits or failed.
+  const prepare = async (id: string, current: () => boolean) => {
+    const entry = entryOf(id);
+    const mailbox = entry && connectionOf(entry.draft.connection);
+    if (
+      entry === undefined ||
+      mailbox?.provider !== 'microsoft-graph' ||
+      entry.message.size <= graphMessageLimit
+    ) {
+      return undefined;
+    }
+    const prepared = await mailbox.inbox.prepare(
+      entry.message,
+      draftFiles(entry.draft),
+    );
+    if (prepared.kind === 'prepared') {
+      return current() && prepared.draft;
+    }
+    await drafts.deliver(
+      id,
+      step('queued', (each) =>
+        withState(each, prepared.kind, prepared.problem),
+      ),
+    );
+    return false;
+  };
+
+  // Hands a claimed message to Gmail once, after its durable handoff, or the Outlook draft it was
+  // kept as.
+  const handOff = async (
+    id: string,
+    current: () => boolean,
+    draft: string | undefined,
+  ) => {
     const account = ownerOf(registration);
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
     const handed = await drafts.deliver(id, (each) =>
@@ -430,9 +491,17 @@ export function createOutbox({
       });
       return;
     }
-    const outcome = await submit(sending);
+    const outcome = await submit(sending, draft);
     if (account === ownerOf(registration)) {
       await keep(id, outcome);
+    }
+  };
+
+  // Keeps a large Microsoft message as an Outlook draft first; only a prepared one is handed off.
+  const deliver = async (id: string, current: () => boolean) => {
+    const draft = await prepare(id, current);
+    if (draft !== false) {
+      await handOff(id, current, draft);
     }
   };
 
@@ -611,7 +680,7 @@ export function createOutbox({
       return;
     }
     if (await holdClaim(account, entry, current)) {
-      await handOff(entry.id, current);
+      await deliver(entry.id, current);
       const accepted = entryOf(entry.id);
       if (current() && accepted?.state === 'filing') {
         await file(accepted, current);
@@ -885,9 +954,8 @@ export function createOutbox({
       if (late !== undefined) {
         return late;
       }
-      const provider = providerOf(draft);
-      const message = messageOf(draft, provider !== 'gmail');
-      if (message.size > limitOf(provider)) {
+      const message = messageOf(draft, providerOf(draft));
+      if (message === undefined) {
         return 'too-large';
       }
       const sendAt = Date.now() + undoSendWindow;

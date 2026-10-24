@@ -137,12 +137,31 @@ Items**, which Microsoft files afterwards:
   **Not sent** with **Edit**. Neither the message's mailbox nor this device as its
   Delivery Owner changes.
 
-Graph accepts a message in one request of at most 4 MB, so a Microsoft mailbox sends
-messages of up to 3 MB here, files included; Send refuses a larger one and keeps the
-Draft open. Larger messages, which need Outlook drafts and attachment upload
-sessions, remain unimplemented in [#917](https://github.com/unwired-dev/product/issues/917).
-They are now required for the [confirmed launch](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24),
-within the selected mailbox's supported limits.
+Graph accepts a message in one request of at most 4 MB, so `sendMail` takes
+messages of up to 3 MB, files included. A larger message, up to 150 MB, is sent as
+an Outlook draft instead
+([#917](https://github.com/unwired-dev/product/issues/917)):
+
+- after the claim, and before the recorded handoff, this device saves the message
+  without its files in the mailbox's **Drafts** folder, then attaches each file.
+  A file under 3 MB is attached in one request; a larger one goes through an
+  attachment upload session in ranges. Only Microsoft's pre-authorized upload URL
+  receives those ranges; the Graph token never does. File bytes stay in native code.
+- nothing is delivered while the draft is prepared, so a refusal or interruption
+  leaves the message waiting or **Not sent** as before, and it is never
+  **Delivery unknown**. A refused step deletes the new draft. A draft left behind
+  when the app stopped carries the message's Message-ID, and the next attempt
+  deletes it before saving a new one.
+- the handoff is then recorded and the draft is sent once. Its outcome follows the
+  rules below: an unknown one is confirmed only from Sent Items by Message-ID, and
+  its draft is left alone because Microsoft may be sending it.
+- the mailbox's own size limit is Microsoft's to enforce: a message it refuses as
+  too large is **Not sent**. Send refuses a message over 150 MB, or one whose text
+  alone is over 3 MB, and keeps the Draft open.
+
+Real Graph behavior for drafts saved from MIME, upload sessions and their size
+refusals remains a release check in
+[#637](https://github.com/unwired-dev/product/issues/637).
 
 ## Credentials
 
