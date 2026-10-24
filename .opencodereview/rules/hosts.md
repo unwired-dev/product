@@ -967,6 +967,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 - An Inbox row's removal action in `src/inbox.tsx` that leaves the selected message ID in its owning route or window after Archive, Trash or Spam. Trace accessibility actions as well as reader buttons through the owner's close callback; otherwise the row disappears while the reader reports unavailable. Undo restores mail without reopening that reader or changing another window's selection.
 - `OrganizeStatus` announcing one shared `OrganizeNotice` once per mounted window or again on a late mount, or deduplicating solely by announcement text. One notice identity owns one accessibility announcement across the shared runtime; a later distinct notice with identical words must still announce. Trace every active announcement channel, including explicit calls and platform-supported live regions, rather than checking only the explicit call count. Preserve refusal alert semantics when removing an announcement channel. Verify the installed renderer's role and notification behavior before treating an `alert` role as automatic speech; component props alone do not qualify native VoiceOver behavior.
 
+- `outbox.tsx` or another host's process-wide announcement bookkeeping retaining
+  subjects, recipients or other private message text after its owning outcome
+  retires. Keep only the identity and minimal state needed for deduplication,
+  and trace retirement through the shared store/account lifecycle, including
+  delivery, Undo and sign-out. A window unmount alone must not clear another
+  window's active outcome. Otherwise private text accumulates for the process
+  lifetime, or cleanup reintroduces duplicate speech across windows.
+
 - `RegistrationGate` retaining an Inbox/Account destination choice after the Product
   Account changes or Inbox eligibility is lost. Discard that choice before
   rendering so new Recovery Key, enrollment or authorization steps govern landing.

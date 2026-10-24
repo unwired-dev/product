@@ -23,7 +23,14 @@ import {
   profileMailboxes,
   resultKey,
 } from '@private-email/mail-core/mailboxes';
-import { use, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { KeyboardAvoidingView, SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -70,7 +77,7 @@ import {
 } from './mailbox.tsx';
 import { MovingRow, useRowMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
-import { OutboxHeading, OutboxRow } from './outbox.tsx';
+import { OutboxHeading, OutboxRow, forgetRetired } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
@@ -597,6 +604,9 @@ export function Inbox({
   };
   const draftState = useDrafts();
   const outbox = useOutboxEntries();
+  useEffect(() => {
+    forgetRetired(outbox);
+  }, [outbox]);
   const drafts = listedDrafts(draftState, onCompose !== undefined);
   const openDraft = useOpenDraft(composing, onCompose ?? composeNothing);
   const reload = useReloadMailboxes();
