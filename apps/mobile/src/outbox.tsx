@@ -36,20 +36,36 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.s },
 });
 
-// The words last announced for each Outbox row's status and Check Again answer. VoiceOver hears
-// each change once, however many windows show the row; iOS and macOS ignore live regions.
+// Where each send last stood when announced, and its last Check Again answer, keyed by the send;
+// no subject or recipients. VoiceOver hears each change once, however many windows show the row;
+// iOS and macOS ignore live regions.
 const announced = new Map<string, string>();
-function useAnnouncement(key: string, words: string | undefined) {
+const sendOf = ({ id, sendAt }: OutboxSnapshotEntry) => `${id}:${sendAt}`;
+function useAnnouncement(
+  key: string,
+  heard: string | undefined,
+  words = heard,
+) {
   useEffect(() => {
-    if (words === undefined) {
+    if (heard === undefined) {
       announced.delete(key);
-    } else if (announced.get(key) !== words) {
-      announced.set(key, words);
-      AccessibilityInfo.announceForAccessibilityWithOptions(words, {
+    } else if (announced.get(key) !== heard) {
+      announced.set(key, heard);
+      AccessibilityInfo.announceForAccessibilityWithOptions(words ?? heard, {
         queue: true,
       });
     }
-  }, [key, words]);
+  }, [key, heard, words]);
+}
+
+// Forgets sends that have left the Outbox: delivered, undone, or edited after a refusal.
+export function forgetRetired(entries: readonly OutboxSnapshotEntry[]) {
+  const current = new Set(entries.map(sendOf));
+  for (const key of announced.keys()) {
+    if (!current.has(key.replace(/:check$/u, ''))) {
+      announced.delete(key);
+    }
+  }
 }
 
 // The way out of an unknown outcome: check the Sent mailbox again, or, after a warning that the
@@ -71,7 +87,7 @@ function UnknownRecovery({
   // Only the window that opened it asks before editing.
   const [confirming, setConfirming] = useState(false);
   const notice = confirming ? editWarning : unconfirmed;
-  useAnnouncement(`${entry.id}:${entry.sendAt}:check`, unconfirmed);
+  useAnnouncement(`${sendOf(entry)}:check`, unconfirmed);
   return (
     <View style={styles.recovery}>
       {notice === undefined ? null : (
@@ -143,7 +159,7 @@ export function OutboxRow({
   );
   const label = t('outbox.rowLabel', { subject, recipients, status });
   // A message sent again after Undo has a new deadline, so its words are heard again.
-  useAnnouncement(`${entry.id}:${entry.sendAt}`, label);
+  useAnnouncement(sendOf(entry), status, label);
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {
     void (async () => {
