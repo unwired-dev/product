@@ -15,13 +15,9 @@ import {
 import { use } from 'react';
 import { Text, TextInput, View } from 'react-native';
 
+import { Action } from './action.tsx';
 import { FormatBar, PopUp } from './composer-controls.tsx';
-import {
-  Action,
-  composerStyles,
-  Recipients,
-  rewriteLabel,
-} from './composer.tsx';
+import { composerStyles, Recipients, rewriteLabel } from './composer.tsx';
 import { ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { AssistanceContext } from './message-summary.tsx';
@@ -210,6 +206,7 @@ export function DraftFields({
         'to',
         copiesShown ? undefined : (
           <Action
+            variant="composer"
             disabled={!editable}
             accessibilityLabel={t('drafts.showCcBcc')}
             label={t('drafts.ccBcc')}

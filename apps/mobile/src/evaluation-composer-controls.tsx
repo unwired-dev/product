@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 
+import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
   blockControls,
@@ -31,7 +32,6 @@ import {
   MenuItem,
 } from './composer-controls.tsx';
 import {
-  Action,
   ComposerLayoutContext,
   composerStyles,
   Recipients,
@@ -682,6 +682,7 @@ export function DraftFields({
         'to',
         copiesShown ? undefined : (
           <Action
+            variant="composer"
             disabled={!editable}
             accessibilityLabel={t('drafts.showCcBcc')}
             label={t('drafts.ccBcc')}
