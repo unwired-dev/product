@@ -273,7 +273,8 @@ extension PrivateInboxTests {
         "addLabelIds": ["TRASH", "Label_12"], "removeLabelIds": ["INBOX"],
       ])
     #expect(revocationQueries == queriesBeforeReads + 1)
-    // Creating a label sends only its name; native code writes the body.
+    // Creating a label sends only its name; native code writes the body. Control characters are
+    // refused, while format characters such as an emoji's zero-width joiner are kept.
     for name in ["", "   ", "Line\nbreak", String(repeating: "x", count: 226)] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.gmailCreateLabel(
@@ -282,8 +283,9 @@ extension PrivateInboxTests {
       }
     }
     #expect(google.gmailRequests.count == 1)
+    let name = "Lisbon \"trip\" \u{1F468}\u{200D}\u{1F467} \u{200F}"
     let created = try await store.gmailCreateLabel(
-      name: "Lisbon \"trip\"", connection: first, address: google.address,
+      name: name, connection: first, address: google.address,
       generation: store.generation(firstSubject))
     #expect(created["status"] as? Int == 200)
     #expect(
@@ -292,8 +294,7 @@ extension PrivateInboxTests {
     let label = try JSONSerialization.jsonObject(with: try #require(google.gmailBodies.last ?? nil))
     #expect(
       label as? [String: String] == [
-        "name": "Lisbon \"trip\"", "labelListVisibility": "labelShow",
-        "messageListVisibility": "show",
+        "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show",
       ])
     #expect(revocationQueries == queriesBeforeReads + 2)
     // Failed revalidation leaves the action unsent; cached read availability cannot authorize it.

@@ -262,12 +262,12 @@ extension RegistrationStore {
 
   // A new user label that Gmail lists and shows on messages. This file writes the body, so only
   // the name crosses from TypeScript: up to 225 characters, not blank and without control
-  // characters.
+  // characters. Format characters, such as an emoji's zero-width joiner, stay allowed.
   func gmailCreateLabel(name: String, connection: String, address: String, generation: String)
     async throws -> [String: Any]
   {
     guard name.count <= 225, !name.trimmingCharacters(in: .whitespaces).isEmpty,
-      name.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
+      name.unicodeScalars.allSatisfy({ $0.properties.generalCategory != .control }),
       let url = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/labels")
     else { throw RegistrationError.unavailable }
     let body = try JSONSerialization.data(withJSONObject: [

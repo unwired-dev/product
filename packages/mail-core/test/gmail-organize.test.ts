@@ -350,9 +350,11 @@ describe('organizing Gmail mail', () => {
     expect(gmail.labelsOf(target.id)).toContain(lisbon.id);
     expect(message(inbox, target.id).labels).toContain(lisbon.id);
 
-    // A duplicate name is refused without applying the existing label.
+    // A duplicate name is refused without applying the existing label or changing the Inbox.
+    const { sync } = ready(inbox.getSnapshot());
     await expect(inbox.createLabel(target, 'TRAVEL')).resolves.toBe(false);
     expect(gmail.labelsOf(target.id)).not.toContain(travel);
+    expect(ready(inbox.getSnapshot()).sync).toBe(sync);
     expect(ready(inbox.getSnapshot()).labels).toHaveLength(2);
 
     // A name Gmail refuses, or Gmail out of reach, creates and applies nothing.

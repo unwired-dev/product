@@ -3897,12 +3897,15 @@ export function createGmailInbox(
     );
   };
 
-  // A failed creation that changed access recovers the Inbox, unless its owner already left.
+  // A failed creation that changed access recovers the Inbox, unless its owner already left. Gmail
+  // refusing the name (409 Conflict) leaves the Inbox as it was.
   const labelNotCreated = (
-    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
+    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic' | 'cause'>>,
     requestedFor: number,
   ) =>
-    requestedFor !== ownership || failure.kind === 'invalidated'
+    requestedFor !== ownership ||
+    failure.kind === 'invalidated' ||
+    failure.cause === 409
       ? Effect.succeedNone
       : recover(failure).pipe(Effect.as(Option.none()));
 
