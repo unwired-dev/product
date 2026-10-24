@@ -138,8 +138,9 @@ function useRegistrationActivation(store: Registration, preview = false) {
 function useInboxOnlyClose(
   onClose: (() => void) | undefined,
   destination: RegistrationScreen['destination'],
-  account: string | undefined,
+  choices: RegistrationScreen['choices'],
 ) {
+  const account = choices?.inbox.account;
   const [owner, setOwner] = useState(account);
   if (owner === undefined && account !== undefined) {
     setOwner(account);
@@ -202,7 +203,7 @@ function RegistrationGateContent({
   const closing = useInboxOnlyClose(
     onClose,
     preview ? 'inbox' : screen.destination,
-    choices?.inbox.account,
+    choices,
   );
   const assistanceAccount = useMailAssistanceAccount(
     registrationState,
