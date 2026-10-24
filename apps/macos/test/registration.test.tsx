@@ -931,9 +931,12 @@ describe('product registration', () => {
       screen.queryByRole('button', { name: /Quarterly invoice/u }),
     ).toBeNull();
     await press('Undo');
-    await expect(
-      screen.findByRole('button', { name: /Quarterly invoice/u }),
-    ).resolves.toBeVisible();
+    // The row grows back into view as it returns.
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /Quarterly invoice/u }),
+      ).toBeVisible();
+    });
     expect(imap.server.changes.at(-1)).toBe('move Archived Mail 1 INBOX');
 
     // Trash offers Move to Inbox, which closes the reader and offers no Undo.

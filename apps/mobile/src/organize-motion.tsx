@@ -1,0 +1,255 @@
+import type {
+  RowMotionState,
+  ShownRows,
+} from '@private-email/mail-core/mailboxes';
+import type { ReactNode } from 'react';
+import type { LayoutChangeEvent } from 'react-native';
+
+import {
+  advanceRowMotion,
+  placeLeavingRows,
+  restingRowMotion,
+} from '@private-email/mail-core/mailboxes';
+import { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
+
+import { ipad } from './inbox-styles.ts';
+
+// The approved removal and Undo motion. Rows apply Reduce Motion themselves, so Reanimated's own
+// reading of it must not skip the fade that remains.
+const timing = {
+  duration: 200,
+  easing: Easing.bezier(0.23, 1, 0.32, 1),
+  reduceMotion: ReduceMotion.Never,
+};
+const reducedFade = { ...timing, duration: 150 };
+
+export type RowMotion = Readonly<{
+  kind: 'leaving' | 'returning';
+  // The native list column has not finished appearing.
+  wait: boolean;
+  reduced: boolean;
+}>;
+
+type Shown<I> = Omit<ShownRows<I>, 'covered'> &
+  Readonly<{
+    visible: boolean;
+    selected:
+      | Readonly<{ mailbox: string; id: string; folder?: string }>
+      | undefined;
+  }>;
+
+// Reduce Motion, following changes while the list is shown.
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    let current = true;
+    const read = async () => {
+      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+      if (current) {
+        setReduced(enabled);
+      }
+    };
+    void read();
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      (enabled) => {
+        current = false;
+        setReduced(enabled);
+      },
+    );
+    return () => {
+      current = false;
+      subscription.remove();
+    };
+  }, []);
+  return reduced;
+}
+
+// Removal and Undo continuity for a list: the sections with leaving rows still in place, each
+// row's motion, and the interruptions that finish rows still leaving.
+export function useRowMotion<I>(shown: Shown<I>) {
+  const reduced = useReducedMotion();
+  const [tracked, setTracked] = useState<RowMotionState<I>>(() =>
+    restingRowMotion({ ...shown, covered: !shown.visible && !ipad }),
+  );
+  const next = advanceRowMotion(tracked, {
+    ...shown,
+    covered: !shown.visible && !ipad,
+  });
+  if (next !== tracked) {
+    setTracked(next);
+  }
+  // Notification navigation can select without the row handler. Clearing a removed reader keeps
+  // that action's own exit; a new selected message finishes it.
+  const { selected } = shown;
+  const [previousSelection, setPreviousSelection] = useState(selected);
+  if (
+    selected?.mailbox !== previousSelection?.mailbox ||
+    selected?.id !== previousSelection?.id ||
+    selected?.folder !== previousSelection?.folder
+  ) {
+    setPreviousSelection(selected);
+    if (selected !== undefined) {
+      setTracked((current) =>
+        current.leaving.length === 0 ? current : { ...current, leaving: [] },
+      );
+    }
+  }
+  const leaving = new Map(tracked.leaving.map((row) => [row.key, row]));
+  return {
+    place: () => placeLeavingRows(shown.sections, tracked.leaving, shown.keyOf),
+    motionOf: (key: string): RowMotion | undefined => {
+      const row = leaving.get(key);
+      if (row !== undefined) {
+        return { kind: 'leaving', wait: row.wait && !shown.visible, reduced };
+      }
+      return tracked.returning.has(key)
+        ? { kind: 'returning', wait: false, reduced }
+        : undefined;
+    },
+    // A row finished leaving or returning.
+    settle: (key: string) => {
+      setTracked((current) => ({
+        ...current,
+        leaving: current.leaving.filter((row) => row.key !== key),
+        returning: new Set([...current.returning].filter((k) => k !== key)),
+      }));
+    },
+    // A scroll or a selection takes effect at once, so rows still leaving finish.
+    interrupt: () => {
+      setTracked((current) =>
+        current.leaving.length === 0 ? current : { ...current, leaving: [] },
+      );
+    },
+  };
+}
+
+const styles = StyleSheet.create({
+  clip: { overflow: 'hidden' },
+  // A moving row's content keeps its own height while the row around it changes.
+  moving: { position: 'absolute', top: 0, left: 0, right: 0 },
+  collapsed: { height: 0, opacity: 0 },
+});
+
+// A returning row stays collapsed until its content is measured; a leaving one keeps its height.
+const unmeasured = (kind: RowMotion['kind'] | undefined) =>
+  kind === 'returning' ? styles.collapsed : undefined;
+
+// A list row that collapses and fades as it leaves, and grows back from its current height when it
+// returns. Reduce Motion removes a leaving row at once and only fades a returning one in.
+export function MovingRow({
+  motion,
+  onSettled,
+  children,
+}: {
+  readonly motion: RowMotion | undefined;
+  readonly onSettled: () => void;
+  readonly children: ReactNode;
+}) {
+  const kind = motion?.kind;
+  const wait = motion?.wait === true;
+  const reduced = motion?.reduced === true;
+  // The content's own height once measured, and the share of it the row shows.
+  const [natural, setNatural] = useState<number>();
+  const size = useSharedValue(kind === 'returning' ? 0 : 1);
+  const opacity = useSharedValue(kind === 'returning' ? 0 : 1);
+  const settle = useRef(onSettled);
+  // The animated style stays bound only while the row moves; a resting row binds none, so the
+  // list stays idle. Reanimated keeps the properties it applied on a view after its style
+  // detaches, so a row that comes to rest, or whose motion another outcome clears, mounts a fresh
+  // view at its own height, which later Dynamic Type, width and mailbox-detail changes still lay
+  // out.
+  const [bound, setBound] = useState(kind !== undefined);
+  const [rested, setRested] = useState(0);
+  if (kind !== undefined && !bound) {
+    setBound(true);
+  }
+  if (kind === undefined && bound) {
+    setBound(false);
+    setRested(rested + 1);
+  }
+  useEffect(() => {
+    settle.current = onSettled;
+  });
+  useEffect(() => {
+    if (kind === undefined) {
+      // The next motion starts from a whole row.
+      size.set(1);
+      opacity.set(1);
+      return;
+    }
+    let current = true;
+    const settled = () => {
+      // A completed exit can reach RN after Undo has already started another motion.
+      if (current) {
+        settle.current();
+      }
+    };
+    const done = (finished?: boolean) => {
+      'worklet';
+      if (finished === true) {
+        scheduleOnRN(settled);
+      }
+    };
+    if (kind === 'leaving') {
+      if (reduced) {
+        settled();
+      } else if (wait) {
+        cancelAnimation(size);
+        cancelAnimation(opacity);
+      } else {
+        size.set(withTiming(0, timing));
+        opacity.set(withTiming(0, timing, done));
+      }
+    } else if (reduced) {
+      size.set(1);
+      opacity.set(withTiming(1, reducedFade, done));
+    } else {
+      size.set(withTiming(1, timing));
+      opacity.set(withTiming(1, timing, done));
+    }
+    return () => {
+      current = false;
+    };
+  }, [kind, wait, reduced, size, opacity, settle]);
+  const shown = useAnimatedStyle(
+    () => ({ height: (natural ?? 0) * size.value, opacity: opacity.value }),
+    [natural],
+  );
+  const measure = ({ nativeEvent }: LayoutChangeEvent) => {
+    setNatural(nativeEvent.layout.height);
+  };
+  // A resting row keeps its own height and binds no animated style, so the list stays idle. A
+  // moving row follows its animation once measured; until then, a returning row stays collapsed.
+  let moving = undefined;
+  if (bound) {
+    // The measured height holds the row until the animated style takes over on the UI thread.
+    moving =
+      natural === undefined ? unmeasured(kind) : [{ height: natural }, shown];
+  }
+  const gone = kind === 'leaving';
+  return (
+    <Animated.View
+      key={rested}
+      style={[styles.clip, moving]}
+      pointerEvents={gone ? 'none' : 'auto'}
+      accessibilityElementsHidden={gone}
+      importantForAccessibility={gone ? 'no-hide-descendants' : 'auto'}>
+      <View
+        style={bound ? styles.moving : undefined}
+        onLayout={measure}>
+        {children}
+      </View>
+    </Animated.View>
+  );
+}

@@ -252,7 +252,8 @@ export type ImapFolderView =
 export type ImapNotice = Readonly<{
   kind: 'done' | 'rejected' | 'blocked';
   action: ImapAction;
-  message: Readonly<{ subject: string }>;
+  // The message as shown when the change was made.
+  message: ImapMessage;
 }>;
 
 export type ImapInboxState =
@@ -270,6 +271,11 @@ export type ImapInboxState =
       readonly pending: number;
       readonly blocked: string | undefined;
       readonly notice?: ImapNotice;
+      // Messages with unfinished changes, including Undo until its destination is read again.
+      readonly organizing?: readonly string[];
+      // The ID each message a verified move gave a new UID was first shown with, so its row stays
+      // the same row when an Undo moves it back.
+      readonly originalIds?: ReadonlyMap<string, string>;
       // Whether Undo can still reverse the notice's move.
       readonly undo: boolean;
       // Marks an IMAP Inbox among other providers'.
@@ -491,6 +497,15 @@ const movedTo = (
         uidValidity: answer.uidValidity,
         uid: answer.uid,
       }
+    : undefined;
+
+// The ID a move the server mapped to a new UID gave the message, Undo's included.
+const movedId = ({ action }: ImapPending, answer: Answer) =>
+  answer.outcome === 'moved' &&
+  answer.uid !== undefined &&
+  answer.uidValidity !== undefined &&
+  moves(action)
+    ? messageId(action.destination, answer.uidValidity, answer.uid)
     : undefined;
 
 // Listings with the changes the server has not applied yet: read state and the star show at once,
@@ -738,6 +753,12 @@ export function createImapInbox(
   // The change being dispatched; its pending move cannot be withdrawn.
   let sending: string | undefined = undefined;
   let notice: ImapNotice | undefined = undefined;
+  let originalIds: ReadonlyMap<string, string> = new Map();
+  // Undo changes, until the folder they move a message back to is read again.
+  const restoring = new Map<
+    string,
+    Readonly<{ message: string; destination: string }>
+  >();
   // The change the notice reports, and where the server moved its message, which Undo reverses.
   let noticed:
     | Readonly<{ id: string; original: ImapMessage; restore?: ImapMessage }>
@@ -1029,7 +1050,7 @@ export function createImapInbox(
       notice = {
         kind: 'blocked',
         action: blocked.action,
-        message: { subject: blocked.message.subject },
+        message: blocked.message,
       };
       noticed = undefined;
     }
@@ -1041,6 +1062,18 @@ export function createImapInbox(
     moves(notice.action) &&
     notice.action.kind !== 'restore' &&
     (noticed.restore !== undefined || unsent(noticed.id));
+  // What row motion reads: messages whose organizing work is unfinished, and the ID each verified
+  // move started from.
+  const motionFacts = () => {
+    const organizing = [
+      ...changes().map(({ message }) => message.id),
+      ...[...restoring.values()].map(({ message }) => message),
+    ];
+    return {
+      ...(organizing.length === 0 ? {} : { organizing }),
+      ...(originalIds.size === 0 ? {} : { originalIds }),
+    };
+  };
   const render = (next: Sync = shownStatus) => {
     if (forgotten || opened === undefined || document === undefined) {
       return;
@@ -1057,6 +1090,7 @@ export function createImapInbox(
       pending: changes().length,
       blocked: blockedChange()?.id,
       ...(notice === undefined ? {} : { notice }),
+      ...motionFacts(),
       undo: undoable(),
       imap: true,
     };
@@ -1207,6 +1241,17 @@ export function createImapInbox(
     );
   });
 
+  // An Undo whose move the server applied finishes once the folder it returns to is read again.
+  const retireRestorations = (folder: string) => {
+    for (const [id, restoration] of restoring) {
+      if (
+        restoration.destination === folder &&
+        !changes().some((change) => change.id === id)
+      ) {
+        restoring.delete(id);
+      }
+    }
+  };
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -1252,6 +1297,7 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
+    retireRestorations(name);
     if (name === inboxFolder) {
       yield* reportArrivals(
         arrived,
@@ -1268,6 +1314,8 @@ export function createImapInbox(
       return Effect.void;
     }
     if (closesAccess(kind)) {
+      originalIds = new Map();
+      restoring.clear();
       authenticationRejected = false;
       lifetime += 1;
       opened = undefined;
@@ -1316,7 +1364,7 @@ export function createImapInbox(
     notice = {
       kind: 'rejected',
       action,
-      message: { subject: message.subject },
+      message,
     };
     noticed = undefined;
   };
@@ -1449,6 +1497,16 @@ export function createImapInbox(
       return {};
     }
     yield* commit(settle(document, head, answer));
+    if (!applied(answer)) {
+      restoring.delete(head.id);
+    }
+    const moved = movedId(head, answer);
+    if (moved !== undefined) {
+      originalIds = new Map([
+        ...originalIds,
+        [moved, originalIds.get(head.message.id) ?? head.message.id],
+      ]);
+    }
     settleViews(head, answer);
     announce(head, answer);
     render();
@@ -1492,6 +1550,12 @@ export function createImapInbox(
         received.add(sent.delivered);
       }
     }
+    // A completed Undo whose destination read failed still needs that read on the next drain.
+    for (const [id, restoration] of restoring) {
+      if (!changes().some((change) => change.id === id)) {
+        received.add(restoration.destination);
+      }
+    }
     for (const name of [...received].filter(
       (folder) => cacheOf(folder) !== undefined,
     )) {
@@ -1526,10 +1590,16 @@ export function createImapInbox(
         }
         const id = `${yield* Random.nextInt}:${yield* Random.nextInt}`;
         queued = [...queued, { id, action, message, attempts: 0 }];
+        if (action.kind === 'restore') {
+          restoring.set(id, {
+            message: message.id,
+            destination: action.destination,
+          });
+        }
         notice = {
           kind: 'done',
           action,
-          message: { subject: message.subject },
+          message,
         };
         noticed = { id, original: message };
         render();
@@ -2700,6 +2770,8 @@ export function createImapInbox(
       withdrawals.clear();
       notice = undefined;
       noticed = undefined;
+      originalIds = new Map();
+      restoring.clear();
       shared.images.delete(imageOwner);
       shared.waiting.delete(imageOwner);
       state = { kind: 'loading' };

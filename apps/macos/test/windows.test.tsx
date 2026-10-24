@@ -39,6 +39,7 @@ import {
 import {
   AccessibilityInfo,
   Alert,
+  Animated,
   AppState,
   ScrollView,
   TurboModuleRegistry,
@@ -826,6 +827,114 @@ describe('mac windows over a connected Gmail mailbox', () => {
       expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
     } finally {
       await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('keeps a removed row leaving in each window until Undo or a scroll there, never for synchronization', async () => {
+    expect.hasAssertions();
+    // These assertions inspect unfinished motion; native frames must not finish it between inputs.
+    const frames = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockReturnValue(0);
+    const timing = jest.spyOn(Animated, 'timing');
+    const stopListening: Array<() => void> = [];
+    const gmail = createSyntheticGmail();
+    const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    const inbox = createGmailInbox(gmail.native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await first.findByRole('button', { name: /Lunch on Friday/u });
+      // Each window's rows that stay on screen only while they leave, hidden from VoiceOver.
+      const leaving = (subject: string) =>
+        [first, second].map(
+          (window) =>
+            window.queryAllByText(subject, { includeHiddenElements: true })
+              .length - window.queryAllByText(subject).length,
+        );
+
+      gmail.archive(elsewhere);
+      gmail.deliver({ subject: 'Arrives quietly' });
+      await act(inbox.load);
+      await first.findByRole('button', { name: /Arrives quietly/u });
+      const synchronized = leaving('Archived elsewhere');
+
+      await act(async () => {
+        await fireEvent(
+          second.getByRole('button', { name: /Lunch on Friday/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      const archived = leaving('Lunch on Friday');
+      // A scroll finishes the rows still leaving in its own window.
+      await fireEvent.scroll(first.getByLabelText('Inbox messages'), {
+        nativeEvent: { contentOffset: { x: 0, y: 0 } },
+      });
+      const scrolled = leaving('Lunch on Friday');
+      await act(async () => {
+        await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
+      });
+      await first.findByRole('button', { name: /Lunch on Friday/u });
+
+      // Supply an unfinished animation frame at the native boundary. Another action must leave
+      // the restored row fully visible, rather than freezing its height and opacity halfway.
+      const restoredFrames = new Map<Animated.Value, number>();
+      await act(() => {
+        for (const [value] of timing.mock.calls.filter(
+          ([, config]) => config.toValue === 1,
+        )) {
+          ok(value instanceof Animated.Value);
+          const listener = value.addListener(({ value: frame }) => {
+            restoredFrames.set(value, frame);
+          });
+          stopListening.push(() => {
+            value.removeListener(listener);
+          });
+          value.setValue(0.5);
+        }
+      });
+      expect({
+        synchronized,
+        archived,
+        scrolled,
+        undone: leaving('Lunch on Friday'),
+      }).toStrictEqual({
+        synchronized: [0, 0],
+        archived: [1, 1],
+        scrolled: [0, 1],
+        undone: [0, 0],
+      });
+      await act(async () => {
+        await fireEvent(
+          first.getByRole('button', { name: /Arrives quietly/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      expect([...restoredFrames.values()]).toStrictEqual([1, 1, 1, 1]);
+      await fireEvent.changeText(
+        first.getByLabelText('Search senders and subjects'),
+        'Lunch on Friday',
+      );
+      // Replacing a query retires its old rows only in that window.
+      expect(leaving('Arrives quietly')).toStrictEqual([0, 1]);
+    } finally {
+      await app.unmount();
+      for (const stop of stopListening) {
+        stop();
+      }
+      timing.mockRestore();
+      frames.mockRestore();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
     }
   });

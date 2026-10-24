@@ -40,6 +40,14 @@ import { canOpenInbox } from './registration.ts';
 export { filterMessages, matchedRanges } from './mailbox-matching.ts';
 export type { InboxFilter } from './mailbox-matching.ts';
 export type { MailboxProblem } from './mailbox-views.ts';
+export type { RowMotionState, ShownRows } from './mailbox-motion.ts';
+export {
+  advanceRowMotion,
+  motionIdentityOf,
+  organizingWork,
+  placeLeavingRows,
+  restingRowMotion,
+} from './mailbox-motion.ts';
 export {
   createGmailViewEntries,
   failedFolders,
