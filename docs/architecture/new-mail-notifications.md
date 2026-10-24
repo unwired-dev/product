@@ -29,22 +29,26 @@ a transactional notification-center delivery journal.
 
 IMAP's encrypted folder cache retains UIDVALIDITY, UIDNEXT and the read's start.
 New unread UIDs under the same validity are candidates only within the previous
-read's receipt-time allowance. Persisted IMAP instants are decoded before use.
+read's receipt-time allowance. Persisted IMAP instants are decoded before use;
+a cache without one first commits a read silently to establish its boundary.
 The operational guide owns the five-minute clock allowance and accepted
 move/flood limitations.
 
 Graph applies only delta-page candidates after commit. The bounded cache's
 oldest receipt excludes previously evicted messages. A refill requests only
-messages no newer than the oldest remaining entry, or the previous cache's oldest
-when none remain, so pending arrivals cannot crowd older refill rows out. Newer
+messages no newer than the previous cache's oldest entry, so removing that entry
+cannot admit pending arrivals or let them crowd older refill rows out. Newer
 mail enters through its delta page. Initial and expired-link listings remain
 silent. Graph keeps no notification timestamps or candidate-ID state, and an
 unchanged quiet-round link commits nothing.
 
-Gmail and Graph commits retain ordinary CAS rebasing. After a rebase, arrivals
-already present in the competing store's saved document are left out before
-reporting. A page's candidates remain transient and are reported only after that
-page commits; Graph associates them with the produced document through a WeakMap.
+Gmail and Graph commits restart synchronization when a CAS conflict reveals
+changed provider progress, compared through the checkpoint schema's equivalence.
+This prevents stale metadata from replacing another store's later pages.
+Unchanged checkpoints retain ordinary intent rebasing for concurrent action
+intake. Reopening advanced progress suppresses already reported arrivals. A page's candidates
+remain transient and are reported only after that page commits; Graph associates
+them with the produced document through a WeakMap.
 
 The host awaits settings and posting before completing a synchronization/wake.
 TypeScript rechecks the captured account/connection/address/epoch owner and switch

@@ -70,6 +70,7 @@ import {
   HistoryId,
   merge,
   newestFirst,
+  sameCheckpoint,
   sameMailbox,
 } from './mailbox-document.ts';
 import {
@@ -771,19 +772,6 @@ export const reportArrivals = Effect.fnUntraced(function* <M>(
   }
 });
 
-// Arrivals still to report once their page committed. A commit rebased over another store's saved
-// document leaves out mail that store already saved, and so reported.
-const unreported = (
-  brought: readonly GmailMessage[],
-  read: MailboxDocument | undefined,
-  { base }: Readonly<{ base: MailboxDocument | undefined }>,
-) => {
-  const saved = new Set(
-    base === read ? [] : (base?.messages ?? []).map(({ id }) => id),
-  );
-  return brought.filter(({ id }) => !saved.has(id));
-};
-
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -1157,8 +1145,8 @@ export function createGmailInbox(
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
     removed?: (() => void) | undefined;
-    // Called once a committed history page or Microsoft delta round brought unread messages newly
-    // into the Inbox. Listing, backfill and messages moved into the Inbox never arrive.
+    // Called once a committed history or Microsoft delta page brought unread messages newly into
+    // the Inbox. Listings and backfill never arrive; Graph also creates moved-in mail anew.
     arrived?:
       | ((messages: readonly GmailMessage[]) => void | Promise<void>)
       | undefined;
@@ -2954,7 +2942,12 @@ export function createGmailInbox(
   }>) {
     const latest = yield* storage(native.openMailbox);
     const saved = Option.getOrUndefined(yield* documentOf(latest));
-    if (!sameMailbox(latest, cache) || saved === undefined) {
+    if (
+      !sameMailbox(latest, cache) ||
+      saved === undefined ||
+      base === undefined ||
+      !sameCheckpoint(base.checkpoint, saved.checkpoint)
+    ) {
       return yield* new SyncFailure({
         kind: 'invalidated',
         cause: 'mailbox',
@@ -2968,8 +2961,9 @@ export function createGmailInbox(
     };
   });
 
-  // Intake saves intent under its own permit, so a synchronization commit can meet a newer
-  // revision. Rebase it, and keep commit, pruning and publication together against body admission.
+  // Intake saves intent under its own permit, so a commit can meet a newer revision. Rebase only
+  // unchanged provider progress; otherwise synchronization restarts from the durable checkpoint.
+  // Keep commit, pruning and publication together against body admission.
   const commitOver = Effect.fnUntraced(function* (
     cache: Cache,
     base: MailboxDocument | undefined,
@@ -2989,11 +2983,7 @@ export function createGmailInbox(
       );
       if (Option.isSome(saved)) {
         yield* ready(saved.value, target.document, sync);
-        return {
-          cache: saved.value,
-          document: target.document,
-          base: target.base,
-        };
+        return { cache: saved.value, document: target.document };
       }
       target = yield* rebased(target);
     }
@@ -3472,9 +3462,8 @@ export function createGmailInbox(
       yield* restartLimit(restarts);
       const brought =
         graph === undefined ? arrivals : graph.arrivals(next.value);
-      const committed = yield* commitOver(cache, document, next.value);
-      yield* reportArrivals(arrived, unreported(brought, document, committed));
-      ({ cache, document } = committed);
+      ({ cache, document } = yield* commitOver(cache, document, next.value));
+      yield* reportArrivals(arrived, brought);
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }

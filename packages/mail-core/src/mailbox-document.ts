@@ -92,6 +92,9 @@ const MailboxDocumentSchema = Schema.Struct({
   ]),
 });
 export type MailboxDocument = typeof MailboxDocumentSchema.Type;
+export const sameCheckpoint = Schema.toEquivalence(
+  MailboxDocumentSchema.fields.checkpoint,
+);
 export const decodeDocument = Schema.decodeUnknownEffect(
   Schema.fromJsonString(MailboxDocumentSchema),
 );

@@ -497,6 +497,38 @@ describe('connecting IMAP mailboxes', () => {
     expect(imap.cache.commits).toBe(committed);
   });
 
+  it('establishes an arrival boundary silently for a cache saved before synchronization times', async () => {
+    expect.hasAssertions();
+    const at = (hour: number) => Date.UTC(2026, 9, 1, hour);
+    vi.useFakeTimers({ now: at(9), toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Cached', received: at(8) });
+    await createImapInbox(imap.native).load();
+    assert.ok(imap.cache.document !== null);
+    expect(imap.cache.document).toContain('synchronizedAt');
+    imap.cache.document = imap.cache.document.replace(
+      /,"synchronizedAt":"[^"]+"/u,
+      '',
+    );
+    const arrivals: string[][] = [];
+    const inbox = createImapInbox(imap.native, {
+      arrived: (messages) => {
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    });
+    vi.setSystemTime(at(12));
+    imap.deliver('INBOX', { subject: 'Moved in', received: at(10) });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([]);
+    vi.setSystemTime(at(13));
+    imap.deliver('INBOX', { subject: 'New mail', received: at(13) });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New mail']]);
+  });
+
   it('refuses an unidentified folder before caching messages and retries with established UIDVALIDITY', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

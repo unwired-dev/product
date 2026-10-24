@@ -1,5 +1,7 @@
 import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
 
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
+
 import type { NativeHostModule } from '../src/host.ts';
 
 import { createHost } from '../src/host.ts';
@@ -16,7 +18,6 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '../src/testing/gmail-mailbox.ts';
-import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 import {
   createSyntheticDevice,
   createSyntheticProductSyncBackend,

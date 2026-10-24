@@ -572,23 +572,28 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   deliveries can be suppressed.
 
 - `graph-inbox.ts.listGraph` allowing newer mail into a cache refill before its
-  delta page classifies it. Request only mail no newer than the retained cache's
-  oldest entry, using the previous cache's oldest when none remain. Filter at the
+  delta page classifies it. Request only mail no newer than the previous cache's
+  oldest entry, including when that entry leaves. Filter at the
   provider so pending arrivals cannot crowd out older rows and disable the
   full-cache eviction guard. Exercise deletion/refill followed by a historical
   update and an arrival, including relaunch. Otherwise refills can swallow later
   arrivals or updates to evicted historical messages can notify.
 
-- `gmail-inbox.ts` reporting arrivals already saved by a competing store when a
-  page commit rebases. Exclude candidates present in that saved document before
-  reporting, for Gmail and Graph. Retain ordinary intake rebases and quiet rounds
-  with unchanged links that commit nothing. Otherwise two stores can report the
-  same arrival or repeatedly commit quiet rounds until the page limit.
+- `gmail-inbox.ts` rebasing a stale synchronization page over another store's
+  later committed pages. Restart from the durable checkpoint when provider progress
+  changed, using schema-derived equivalence for Gmail and Graph while preserving
+  ordinary rebases for concurrent action intake with unchanged progress. Exercise a
+  store finishing multiple pages before the stale first page commits, alongside
+  same-page races and quiet rounds with unchanged links that commit nothing.
+  Otherwise stale metadata can rewind progress and report an arrival twice even
+  when a filter drops candidates present at the first conflicting commit.
 
 - Persisted synchronization instants in `imap-model.ts`
   accepted as arbitrary strings before `mailbox-message.ts.newMailSince` converts
   them unsafely. Reject malformed values at decoding, or synchronization can
-  reject outside typed recovery and leave the Inbox permanently syncing.
+  reject outside typed recovery and leave the Inbox permanently syncing. A cache
+  lacking that instant must establish its boundary silently; substituting its
+  newest receipt can classify much older moved-in mail as an arrival.
 
 - `gmail-inbox.ts.settled` merging confirmed action metadata into the Inbox or
   another cached view without enforcing `cacheLimit` before commit/publication.

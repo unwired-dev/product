@@ -200,7 +200,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
 
   // Applies one page of later changes. Graph cannot name the unchanged older message that now
   // fits after a full cache loses one, so the Inbox is listed again then for messages no newer than
-  // the oldest kept; newer listed mail is left to the delta page that classifies it.
+  // the oldest previously kept; newer listed mail is left to the delta page that classifies it.
   const applyDelta = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument,
@@ -222,8 +222,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
     let messages = merged.slice(0, cacheLimit);
     if (document.messages.length === cacheLimit && merged.length < cacheLimit) {
       const kept = new Set(merged.map(({ id }) => id));
-      const edge =
-        merged.at(-1)?.receivedAt ?? document.messages.at(-1)?.receivedAt ?? '';
+      const edge = document.messages.at(-1)?.receivedAt ?? '';
       // Filter at the provider so pending newer arrivals cannot crowd older refill rows out.
       const listed = yield* listGraph(scope, document, {
         checkpoint: current,

@@ -681,6 +681,78 @@ describe('reading Microsoft mail through Graph', () => {
     ]).toStrictEqual(['current', 'current']);
   });
 
+  it('keeps pending arrivals out of a refill when the oldest cached message leaves', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ pageSize: 100 });
+    const at = (index: number) => Date.UTC(2026, 9, 1) + index * 1000;
+    for (let index = 0; index <= cacheLimit; index += 1) {
+      graph.deliver({ subject: `Listed ${index}`, at: at(index) });
+    }
+    const round = splitRound(graph);
+    const arrivals: string[][] = [];
+    const inbox = createGmailInbox(round.native, {
+      provider: 'microsoft-graph',
+      arrived: (messages) => {
+        arrivals.push(messages.map(({ id }) => id));
+      },
+    });
+    await inbox.load();
+    const oldest = ready(inbox.getSnapshot()).messages.at(-1);
+    assert.ok(oldest !== undefined);
+    graph.remove(oldest.id);
+    // Graph creates moved-in mail anew. Its receipt is newer than the committed cache edge.
+    const moved = graph.deliver({ subject: 'Moved in', at: at(1.5) });
+    round.split([oldest.id], [moved]);
+    await inbox.load();
+    expect(arrivals).toStrictEqual([[moved]]);
+  });
+
+  it('keeps later committed pages when another store finishes the round before a stale page commits', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ messages: 1 });
+    await microsoftInbox(graph).load();
+    const firstArrival = graph.deliver({ subject: 'First arrival' });
+    const laterArrival = graph.deliver({ subject: 'Later arrival' });
+    const slowRound = splitRound(graph);
+    const fastRound = splitRound(graph);
+    slowRound.split([firstArrival], [laterArrival]);
+    fastRound.split([firstArrival], [laterArrival]);
+    const held = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let paused = false;
+    const native = {
+      ...slowRound.native,
+      graphRequest: async (
+        ...args: Parameters<typeof graph.native.graphRequest>
+      ) => {
+        const reply = await slowRound.native.graphRequest(...args);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the stale store's first delta page while the other commits the round.
+        if (!paused && args[0].includes('$deltatoken')) {
+          paused = true;
+          held.resolve(undefined);
+          await release.promise;
+        }
+        return reply;
+      },
+    };
+    const arrivals: string[][] = [];
+    const options = {
+      provider: 'microsoft-graph' as const,
+      arrived: (messages: ReadonlyArray<{ readonly id: string }>) => {
+        arrivals.push(messages.map(({ id }) => id));
+      },
+    };
+    const slow = createGmailInbox(native, options);
+    const fast = createGmailInbox(fastRound.native, options);
+    const loading = slow.load();
+    await held.promise;
+    await fast.load();
+    release.resolve(undefined);
+    await loading;
+    expect(arrivals).toStrictEqual([[firstArrival], [laterArrival]]);
+    expect(ready(slow.getSnapshot()).sync).toBe('current');
+  });
+
   it('lists again when Graph expires the delta link, showing saved mail meanwhile', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 3, pageSize: 2 });

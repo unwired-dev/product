@@ -53,7 +53,8 @@ decides on its own to alert.
   device's. A committed Inbox read reports the unread messages whose UIDs are at or
   above the previously committed UIDNEXT under an unchanged UIDVALIDITY, received
   (INTERNALDATE) no earlier than that allowance. The first listing, a UIDVALIDITY
-  change or reset and cache refills never notify. Mail moved in keeps its
+  change or reset and cache refills never notify. A cache saved before read times
+  were recorded establishes that boundary silently on its first read. Mail moved in keeps its
   INTERNALDATE, so mail received before the allowance never notifies when moved in;
   IMAP cannot tell later moved-in mail from delivery. A device clock more than five
   minutes ahead of the server's can miss arrivals. IDLE, polling and activation reach
@@ -62,7 +63,7 @@ decides on its own to alert.
   names that were not already cached. Mail enters the cache only through the listing
   that starts a mailbox or follows an expired delta link, which never notifies, and
   through the delta page that classifies it. When a full cache refills after losing a
-  message, it requests only messages no newer than its oldest entry and leaves newer ones
+  message, it requests only messages no newer than its previously cached oldest entry and leaves newer ones
   to their delta page. Once the 200-message cache is full, a message no newer than its
   oldest entry may have been dropped from it, so it is not new either; this covers a
   change to such a message and Graph naming a message again later in a round. Updates
@@ -71,8 +72,10 @@ decides on its own to alert.
   full cache's oldest entry. A round with more than 200 arrivals can under-report
   rather than report an evicted message twice.
 
-When another store of the same mailbox committed first, a page's arrivals that store
-already saved, and so reported, are left out.
+When another store of the same mailbox advanced its checkpoint first, the stale
+page does not overwrite its progress. Synchronization restarts from the saved
+checkpoint, so already committed arrivals are not reported again. Concurrent
+action intake with unchanged provider progress stays in the page's commit.
 
 Before posting, after reading this device's settings, the device checks again that the
 connection still belongs to the same Product Account and incarnation and that its switch

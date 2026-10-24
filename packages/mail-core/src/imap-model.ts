@@ -374,12 +374,13 @@ export function arrivedMessages(
 ) {
   if (
     cached === undefined ||
+    cached.synchronizedAt === undefined ||
     read.reset ||
     cached.uidValidity !== read.uidValidity
   ) {
     return [];
   }
-  const since = newMailSince(cached.synchronizedAt, cached.messages);
+  const since = newMailSince(cached.synchronizedAt);
   return next.messages.filter(
     ({ uid, unread, receivedAt }) =>
       unread && uid >= cached.uidNext && receivedAt >= since,
