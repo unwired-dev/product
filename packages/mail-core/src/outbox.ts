@@ -85,22 +85,6 @@ const ownerOf = (registration: Pick<Registration, 'getSnapshot'>) => {
     : undefined;
 };
 
-// Renders a Draft once its date and boundary are chosen. An SMTP or Microsoft message names its
-// own Message-ID, which its Sent copy keeps for replies to thread with and Microsoft's Sent Items
-// are searched by; Gmail assigns one itself.
-const renderer = (draft: Draft, provider: MailProvider | undefined) => {
-  const date = Date.now();
-  const boundary = Math.random().toString(36).slice(2, 14);
-  const named =
-    provider === 'gmail'
-      ? {}
-      : {
-          messageId: `${date.toString(36)}.${boundary}@${draft.from.split('@').at(-1) ?? ''}`,
-        };
-  return (withoutFiles: boolean) =>
-    outgoingMessage(draft, { date, boundary, ...named, withoutFiles });
-};
-
 // The largest message a provider takes; SMTP has no known limit, so it is held to Gmail's.
 const limitOf = (provider: MailProvider | undefined) =>
   provider === 'microsoft-graph' ? graphDraftLimit : gmailMessageLimit;
@@ -109,11 +93,24 @@ const limitOf = (provider: MailProvider | undefined) =>
 // message too large for one Graph request keeps only its MIME without files, which becomes an
 // Outlook draft that its files are attached to; its size stays the whole message's.
 const messageOf = (draft: Draft, provider: MailProvider | undefined) => {
-  const render = renderer(draft, provider);
-  const whole = render(false);
+  const date = Date.now();
+  const boundary = Math.random().toString(36).slice(2, 14);
+  const options = {
+    date,
+    boundary,
+    // Gmail assigns its Message-ID; SMTP and Microsoft keep ours for replies and Sent lookup.
+    ...(provider === 'gmail'
+      ? {}
+      : {
+          messageId: `${date.toString(36)}.${boundary}@${draft.from.split('@').at(-1) ?? ''}`,
+        }),
+  };
+  const whole = outgoingMessage(draft, options);
   const drafted =
     provider === 'microsoft-graph' && whole.size > graphMessageLimit;
-  const sent = drafted ? render(true) : whole;
+  const sent = drafted
+    ? outgoingMessage(draft, { ...options, withoutFiles: true })
+    : whole;
   if (
     whole.size > limitOf(provider) ||
     (drafted && sent.size > graphMessageLimit)

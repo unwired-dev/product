@@ -538,6 +538,12 @@ extension PrivateInboxTests {
         segments: [["text": mime]], messageId: "m1.b1@example.invalid", files: files,
         connection: id, address: address, generation: generation)
     }
+    func rangeReply() throws -> (Int, Data) {
+      let range = try #require(microsoft.uploads.last?.range)
+      let final = "bytes \(RegistrationStore.graphUploadRange)-\(large.count - 1)/\(large.count)"
+      return (range == final ? 201 : 200, Data())
+    }
+    microsoft.uploadReply = rangeReply
 
     let kept = try await prepare(files)
     #expect(kept["status"] as? Int == 201 && kept["body"] as? String == #"{"id":"AAMk-draft="}"#)
@@ -585,6 +591,15 @@ extension PrivateInboxTests {
         draft: "../send", connection: id, address: address, generation: generation)
     }
 
+    // Only Graph's final 201 confirms the attachment. An incomplete or unexpected success must
+    // not make the draft sendable without its file.
+    for status in [200, 201, 202, 204] {
+      microsoft.uploadReply = { (status, Data()) }
+      writes = []
+      await #expect(throws: RegistrationError.unavailable) { _ = try await prepare(files) }
+      #expect(writes.last?.request == "DELETE \(messages)/AAMk-draft=")
+    }
+
     // A refused range returns Microsoft's answer and deletes the new draft; an upload URL outside
     // Microsoft, or a file whose bytes no longer verify, reaches nothing and deletes it too.
     leftover = false
@@ -593,7 +608,7 @@ extension PrivateInboxTests {
     let refused = try await prepare(files)
     #expect(refused["status"] as? Int == 500 && refused["body"] as? String == "busy")
     #expect(writes.last?.request == "DELETE \(messages)/AAMk-draft=")
-    microsoft.uploadReply = { (200, Data()) }
+    microsoft.uploadReply = rangeReply
     let reply = try #require(microsoft.graphReply)
     microsoft.graphReply = { method, url, body in
       url.path.hasSuffix("/createUploadSession")

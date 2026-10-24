@@ -304,6 +304,10 @@ extension RegistrationStore {
         guard (200..<300).contains(status) else {
           return ["status": status, "body": String(decoding: data, as: UTF8.self)]
         }
+        // Only the final 201 confirms the attachment; an upload still in progress cannot be sent.
+        guard status == (end == bytes.count ? 201 : 200) else {
+          throw RegistrationError.unavailable
+        }
         start = end
       }
       return nil
