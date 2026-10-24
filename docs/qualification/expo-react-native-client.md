@@ -22,6 +22,94 @@ Hardware nomination and published Apple Intelligence eligibility do not prove
 runtime API readiness or passing qualification. Measurements remain outstanding
 under #625, #626, #822 and #830; this update records no test run.
 
+## Mac next-frame draw timing slice, 2026-10-24
+
+This extends the earlier storage-only evidence for
+[#626](https://github.com/unwired-dev/product/issues/626) with the
+[Mac performance journey](../agents/native-validation.md#mac-performance-journey)'s
+first post-edit draw. It records app drawing against a constant-refresh frame
+grid, without observing window-server compositing or display presentation. It
+does not establish a passing Mac baseline or complete #626.
+
+The implementation run used task snapshot `e6ffe2d1b` with root lockfile SHA-256
+`98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The reference was the Mac mini M4 with 16 GB memory, `Mac16,10`, on macOS 27.0.1
+(`26A434`), using Xcode 27.1 (`27A9275`), Node 24.21.0, pnpm 11.5.2 and React
+Native macOS 0.81.9. The signed `Testing` app uses Release optimization, packaged
+JavaScript and the build-time `registration-performance` Mock Mail Session.
+Release omits the probe. The two synthetic mailboxes, encrypted-cache priming,
+20 plain keys, 11 marked keys, 12 selected-word shortcuts and 12 format bar
+clicks follow the journey described in the guide.
+
+The implementation build passed, and one XCTest passed with zero failures in
+191.144 seconds. Evidence is retained in `artifacts/macos-inbox/journey.SSqViL/`,
+with the combined runner log in `scratchpad/journey-1.log`. The OCR reviewer
+independently matched all 55 samples' storage durations, draw durations, late
+frame counts and group flags to the raw lifecycle records. Counting intervening
+frame boundaries separately agreed for every sample. All 57 draw records had
+positive frame origins and intervals of approximately 8.333 ms.
+
+| Interaction                  | Samples | Draw p50 ms | Draw p95 ms | p95 frames late | Next-frame group flag |
+| ---------------------------- | ------: | ----------: | ----------: | --------------: | --------------------- |
+| Plain typing                 |      20 |         6.5 |        11.7 |               0 | True                  |
+| Typing after bold at caret   |      11 |       437.6 |       728.9 |              87 | False                 |
+| Selected-word mark shortcuts |      12 |       147.3 |       603.9 |              71 | False                 |
+| Format bar mark clicks       |      12 |       100.4 |       113.1 |              13 | False                 |
+
+The independent OCR reviewer rebuilt merged runtime source `87fab99fc`, whose
+root lockfile SHA-256 is
+`78deea83cfca33a11ad7566182526cabe62a8a83bbec502165acdfd42421de95`.
+The task's native probe and journey are unchanged from `e6ffe2d1b`; the rebuild
+also includes the intervening main-branch changes. Reviewer corrections affect
+documentation only. The same host and toolchain were used. From the repository
+root, the build used `pnpm --filter @private-email/macos native:build Testing`
+under mise, with `DEVELOPER_DIR` selecting Xcode 27.1,
+`UNWIRED_MOCK_SCENARIO=registration-performance`, `Apple Development` signing
+and the installed Mac and storage profiles. The separate build log spans about
+51.4 seconds including setup, and reports `BUILD SUCCEEDED`.
+
+The rebuilt app then ran through the guide's `testWarmCachePerformance` command,
+with the installed mock profile. One XCTest passed with zero failures in
+192.390 seconds. Evidence is `artifacts/macos-inbox/journey.CoNQ1V/`, including
+the raw lifecycle records, `xcodebuild.log`, xcresult, ownership and successful
+cleanup result. Build and combined journey logs, source/lockfile/executable/bundle
+hashes and both independent sample audits are retained in `scratchpad/review/`
+as `ocr-build-r1.log`, `ocr-native-r1.log`, `ocr-provenance-r1.json`,
+`ocr-audit-initial.json` and `ocr-audit-rerun.json`. All 55 rerun samples matched
+again, and the latest text/mark state before each matched draw still contained
+the expected result. All 60 draw records had positive frame origins and
+approximately 8.333 ms intervals.
+
+| Interaction                  | Samples | Draw p50 ms | Draw p95 ms | p95 frames late | Next-frame group flag |
+| ---------------------------- | ------: | ----------: | ----------: | --------------: | --------------------- |
+| Plain typing                 |      20 |         6.5 |        11.9 |               0 | True                  |
+| Typing after bold at caret   |      11 |       305.6 |       695.8 |              83 | False                 |
+| Selected-word mark shortcuts |      12 |        99.7 |       417.6 |              49 | False                 |
+| Format bar mark clicks       |      12 |       112.3 |       126.2 |              15 | False                 |
+
+Each run had one plain-typing sample one frame late; the flag compares p95 and
+does not promise every input met the target. The rerun's storage p95 values
+were 10.8, 688.3, 416.6 and 119.1 ms for these four groups. Marked typing and
+formatting remain outside the next-frame target, tracked by
+[#1228](https://github.com/unwired-dev/product/issues/1228). The measurement is
+limited to this text-view class, window and constant-refresh display.
+
+Other rerun p95 upper bounds were launch 1519.5 ms, mailbox switch 303.4 ms,
+cached Microsoft/Gmail bodies 390.5/529.8 ms, empty composer 404.4 ms and saved
+Draft composer 164.8 ms. Query overhead was 38.4 ms median. Only the saved Draft
+composer met its duration budget. The five recorded session delays were 141.9,
+147.8, 164.5, 103.4 and 119.0 ms; the 164.5 ms delay overlapped launch and the
+103.4 ms delay overlapped a cached-body sample. No key or format bar sample
+overlapped a recorded delay. The sampled probe does not qualify the absolute
+stall cap or startup before installation. This shared-desktop journey exceeds
+the two-minute focused-feedback target and establishes no CI feedback p95.
+
+Runner cleanup succeeded, removing the owned app, helper, container and probe
+build directory; the unrelated idle mock app was preserved. Mail View switching,
+physical iPhone/iPad baselines, owner-operated VoiceOver/dictation and separate
+provider/network latency remain required. Synthetic providers do not qualify
+live authentication or transport. No legacy coverage is retired.
+
 ## Mac format bar text-storage timing slice, 2026-10-24
 
 This extends the composer timing evidence below for

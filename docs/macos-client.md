@@ -268,9 +268,7 @@ display frame start and the frame interval, and observed main-queue delays of 10
 or longer, with their uptime and duration where applicable, for the
 [performance journey](agents/native-validation.md#mac-performance-journey). In
 text-edit records it includes the text and its per-UTF-16-unit bold, italic and
-underline marks; the journey uses synthetic composer content. To observe that draw,
-the probe wraps the text view class's `drawRect:` at the first edit, because AppKit
-publishes no drawing event. In
+underline marks; the journey uses synthetic composer content. In
 registration Mock Mail Sessions, the synthetic relay also appends the uptime of
 each provider body request, with no URL or message content. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
