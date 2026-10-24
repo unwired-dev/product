@@ -4,7 +4,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Glass, SFSymbol } from './design.tsx';
+import { Button, Glass, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -156,13 +156,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     borderCurve: 'continuous',
   },
-  button: {
-    minHeight: 28,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.m,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
+  button: { alignSelf: 'flex-start' },
 });
 
 // The Mail Profile and account monogram: the first letter on brand graphite.
@@ -556,80 +550,19 @@ export function SettingsBlock({ children }: { readonly children: ReactNode }) {
 export function settingsButton(busy: boolean): SettingsButton {
   return function SettingsPushButton(label, action, options) {
     return (
-      <PushButton
+      <View
         key={label}
-        busy={busy}
-        label={label}
-        title={options?.title ?? label}
-        tone={options?.tone}
-        onPress={() => {
-          void action();
-        }}
-      />
+        style={styles.button}>
+        <Button
+          accessibilityLabel={label}
+          destructive={options?.tone === 'destructive'}
+          disabled={busy}
+          label={options?.title ?? label}
+          onPress={() => {
+            void action();
+          }}
+        />
+      </View>
     );
   };
-}
-
-function PushButton({
-  busy,
-  label,
-  title,
-  tone,
-  onPress,
-}: {
-  readonly busy: boolean;
-  readonly label: string;
-  readonly title: string;
-  readonly tone: 'destructive' | undefined;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
-  const [focused, setFocused] = useState(false);
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: busy }}
-      disabled={busy}
-      focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          alignSelf: 'flex-start',
-          backgroundColor:
-            tone === 'destructive' ? 'transparent' : colors.fillQuiet,
-          borderWidth: 2,
-          borderColor: focused ? colors.accentInk : 'transparent',
-          opacity: busy ? 0.4 : 1,
-        },
-        pressed &&
-          tone !== 'destructive' && {
-            backgroundColor: colors.accentSelectionSubtle,
-          },
-      ]}>
-      {({ pressed }) => (
-        <Text
-          style={[
-            textStyles.body,
-            {
-              textDecorationLine:
-                pressed && tone === 'destructive' ? 'underline' : 'none',
-              color:
-                tone === 'destructive'
-                  ? colors.statusDestructive
-                  : colors.textPrimary,
-            },
-          ]}>
-          {title}
-        </Text>
-      )}
-    </Pressable>
-  );
 }

@@ -69,6 +69,16 @@ activation starts the existing Apple registration. The Mac button of
 its style per view, and the package adds a second Apple authorization module.
 Remove the adapter when React Native macOS or a maintained package offers the
 system button with an enabled state and both styles.
+Push buttons are AppKit `NSButton`s through `UnwiredPushButton`. AppKit draws
+their bezel and its pressed, focused and disabled states, and VoiceOver reads them
+as native buttons with a press action. A view's main action, such as Send, takes the
+graphite `accent/fill` bezel tint with a semibold title. Welcome's Continue takes the
+cinnabar `brand/seal` tint. The others keep the standard bezel, and Destructive also
+draws its title in `status/destructive`. In Dark, an `accent/ink` ring replaces the
+system focus ring. No push button takes Return as its key equivalent, so Return never
+sends an open Draft. React Native macOS
+0.81.9's `Button` is a `TouchableOpacity`. Remove the adapter when React Native macOS
+offers an `NSButton`.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
