@@ -11,6 +11,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- IMAP `drain` retiring a completed Undo's attribution when its destination
+  refresh failed. Retain the destination with the message, retry its read on
+  later drains, and retire only after that destination commits or the provider
+  definitely refuses restoration. Exercise a successful inverse move, failed
+  refresh and unrelated action before the next load; otherwise the later row
+  appears without its Undo entrance.
 - `mailbox-motion.ts` retaining a message's attribution because another message
   in the same mailbox has unfinished work. Exercise two queued removals: let
   the first confirm while the second stays pending or blocked, then restore the

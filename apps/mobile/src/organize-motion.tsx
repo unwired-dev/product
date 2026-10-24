@@ -168,8 +168,12 @@ export function MovingRow({
       opacity.set(1);
       return;
     }
+    let current = true;
     const settled = () => {
-      settle.current();
+      // A completed exit can reach RN after Undo has already started another motion.
+      if (current) {
+        settle.current();
+      }
     };
     const done = (finished?: boolean) => {
       'worklet';
@@ -180,20 +184,21 @@ export function MovingRow({
     if (kind === 'leaving') {
       if (reduced) {
         settled();
-        return;
+      } else {
+        const delay = wait ? backTransition : 0;
+        size.set(withDelay(delay, withTiming(0, timing)));
+        opacity.set(withDelay(delay, withTiming(0, timing, done)));
       }
-      const delay = wait ? backTransition : 0;
-      size.set(withDelay(delay, withTiming(0, timing)));
-      opacity.set(withDelay(delay, withTiming(0, timing, done)));
-      return;
-    }
-    if (reduced) {
+    } else if (reduced) {
       size.set(1);
       opacity.set(withTiming(1, reducedFade, done));
-      return;
+    } else {
+      size.set(withTiming(1, timing));
+      opacity.set(withTiming(1, timing, done));
     }
-    size.set(withTiming(1, timing));
-    opacity.set(withTiming(1, timing, done));
+    return () => {
+      current = false;
+    };
   }, [kind, wait, reduced, size, opacity, settle]);
   const shown = useAnimatedStyle(
     () => ({ height: (natural ?? 0) * size.value, opacity: opacity.value }),

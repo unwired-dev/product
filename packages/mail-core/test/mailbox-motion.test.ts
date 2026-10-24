@@ -251,6 +251,79 @@ describe('organizing row continuity', () => {
     }
   });
 
+  it('returns an IMAP Undo after its destination refresh fails and another action drains', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.deliver('INBOX', { subject: 'Restored' });
+    imap.deliver('INBOX', { subject: 'Unrelated' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const motion = observe(inbox);
+    try {
+      const state = inbox.getSnapshot();
+      ok(state.kind === 'ready');
+      const restored = state.messages.find(
+        (message) => message.subject === 'Restored',
+      );
+      const unrelated = state.messages.find(
+        (message) => message.subject === 'Unrelated',
+      );
+      ok(restored !== undefined);
+      ok(unrelated !== undefined);
+      const key = motionIdentityOf({
+        mailbox: { id: 'connection', state },
+        message: restored,
+      });
+      await inbox.organize(restored, {
+        kind: 'archive',
+        destination: 'Archive',
+      });
+      motion.settle();
+      vi.spyOn(imap.native, 'imapSynchronize').mockRejectedValueOnce({
+        code: 'offline',
+      });
+      await inbox.undo();
+      await inbox.organize(unrelated, { kind: 'star' });
+      await inbox.load();
+      expect(motion.keys()).toContain(key);
+      expect([...motion.state().returning]).toStrictEqual([key]);
+      expect(motion.state().attributed.size).toBe(0);
+    } finally {
+      motion.stop();
+      inbox.forget();
+    }
+  });
+
+  it('retires an IMAP restoration the provider refuses instead of retrying its destination', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.deliver('INBOX', { subject: 'Not restored' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const motion = observe(inbox);
+    try {
+      await inbox.organize(firstMessage(inbox), {
+        kind: 'archive',
+        destination: 'Archive',
+      });
+      motion.settle();
+      vi.spyOn(imap.native, 'imapModify').mockRejectedValueOnce({
+        code: 'imap-rejected',
+      });
+      await inbox.undo();
+      const state = inbox.getSnapshot();
+      ok(state.kind === 'ready');
+      expect(state.notice?.kind).toBe('rejected');
+      expect(state.organizing).toBeUndefined();
+      expect(motion.state().attributed.size).toBe(0);
+    } finally {
+      motion.stop();
+      inbox.forget();
+    }
+  });
+
   it('moves only the rows an outcome concerns, never synchronization', () => {
     expect.hasAssertions();
     const resting = restingRowMotion(

@@ -40,6 +40,8 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { withTiming } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import type { ipad } from '../src/inbox-styles.ts';
 import type { Selection } from '../src/inbox.tsx';
@@ -69,6 +71,26 @@ jest.mock('../src/private-storage.ts', () => ({
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires string module names.
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Only the external animation completion and cross-runtime queue are controlled.
+jest.mock('react-native-reanimated', () => {
+  const actual = jest.requireActual('react-native-reanimated');
+  return {
+    ...actual,
+    __esModule: true,
+    withTiming: jest.fn(actual.withTiming),
+  };
+});
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Keep real Worklets except the controllable RN completion queue.
+jest.mock('react-native-worklets', () => {
+  const actual = jest.requireActual('react-native-worklets');
+  return {
+    ...actual,
+    __esModule: true,
+    scheduleOnRN: jest.fn(actual.scheduleOnRN),
+  };
+});
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -2322,6 +2344,45 @@ describe('organizing motion', () => {
         resting === moving,
         StyleSheet.flatten(resting?.props.style),
       ]).toStrictEqual([76, false, { overflow: 'hidden' }]);
+    });
+  });
+
+  it('ignores an exit completion delivered after Undo has reversed the row', async () => {
+    expect.hasAssertions();
+    await holdingFrames(async () => {
+      const jobs: Array<() => void> = [];
+      const scheduled = jest
+        .mocked(scheduleOnRN)
+        .mockImplementation((fun, ...args) => {
+          jobs.push(() => fun(...args));
+        });
+      const timings = jest.mocked(withTiming).mockClear();
+      try {
+        const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+        gmail.deliver({ subject: 'Lunch on Friday' });
+        await renderConnected(gmail.native);
+        await screen.findByText('Lunch on Friday');
+        await archive('Lunch on Friday');
+        const completed = timings.mock.calls.findLast(
+          (call) => call[2] !== undefined,
+        )?.[2];
+        await act(() => completed?.(true));
+        const [exitJob] = jobs;
+        await undo();
+        const reversing = rowFrame('Lunch on Friday');
+        await act(() => exitJob?.());
+
+        expect(completed).toBeDefined();
+        expect(exitJob).toBeDefined();
+        expect(rowFrame('Lunch on Friday')).toBe(reversing);
+      } finally {
+        await cleanup();
+        scheduled.mockImplementation(
+          jest.requireActual<{ scheduleOnRN: typeof scheduleOnRN }>(
+            'react-native-worklets',
+          ).scheduleOnRN,
+        );
+      }
     });
   });
 

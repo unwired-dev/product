@@ -755,7 +755,10 @@ export function createImapInbox(
   let notice: ImapNotice | undefined = undefined;
   let originalIds: ReadonlyMap<string, string> = new Map();
   // Undo changes, until the folder they move a message back to is read again.
-  const restoring = new Map<string, string>();
+  const restoring = new Map<
+    string,
+    Readonly<{ message: string; destination: string }>
+  >();
   // The change the notice reports, and where the server moved its message, which Undo reverses.
   let noticed:
     | Readonly<{ id: string; original: ImapMessage; restore?: ImapMessage }>
@@ -1067,7 +1070,7 @@ export function createImapInbox(
     shownStatus = authenticationRejected ? 'authentication' : next;
     const organizing = [
       ...changes().map(({ message }) => message.id),
-      ...restoring.values(),
+      ...[...restoring.values()].map(({ message }) => message),
     ];
     state = {
       kind: 'ready',
@@ -1276,6 +1279,14 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
+    for (const [id, restoration] of restoring) {
+      if (
+        restoration.destination === name &&
+        !changes().some((change) => change.id === id)
+      ) {
+        restoring.delete(id);
+      }
+    }
     if (name === inboxFolder) {
       yield* reportArrivals(
         arrived,
@@ -1475,6 +1486,9 @@ export function createImapInbox(
       return {};
     }
     yield* commit(settle(document, head, answer));
+    if (!applied(answer)) {
+      restoring.delete(head.id);
+    }
     const moved = movedId(head, answer);
     if (moved !== undefined) {
       originalIds = new Map([
@@ -1525,16 +1539,17 @@ export function createImapInbox(
         received.add(sent.delivered);
       }
     }
+    // A completed Undo whose destination read failed still needs that read on the next drain.
+    for (const [id, restoration] of restoring) {
+      if (!changes().some((change) => change.id === id)) {
+        received.add(restoration.destination);
+      }
+    }
     for (const name of [...received].filter(
       (folder) => cacheOf(folder) !== undefined,
     )) {
       yield* synchronizeFolder(name);
       showFolder(name, 'current');
-    }
-    for (const id of restoring.keys()) {
-      if (!changes().some((change) => change.id === id)) {
-        restoring.delete(id);
-      }
     }
     render();
   });
@@ -1565,7 +1580,10 @@ export function createImapInbox(
         const id = `${yield* Random.nextInt}:${yield* Random.nextInt}`;
         queued = [...queued, { id, action, message, attempts: 0 }];
         if (action.kind === 'restore') {
-          restoring.set(id, message.id);
+          restoring.set(id, {
+            message: message.id,
+            destination: action.destination,
+          });
         }
         notice = {
           kind: 'done',

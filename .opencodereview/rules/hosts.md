@@ -138,6 +138,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   rows and its retirement, including synchronization immediately afterwards;
   otherwise a correct action animation also animates background arrivals.
   A subscription-time worklet probe does not establish native mount ordering.
+- Mobile `organize-motion.MovingRow` accepting an old exit's RN completion after
+  Undo starts returning the same row. Reanimated cancellation cannot revoke a
+  completion already queued through Worklets; retire each effect's completion
+  when its motion changes or unmounts. Exercise completion queued before Undo
+  but delivered afterwards, or the old callback snaps the new entrance whole.
 - `organize-motion.MovingRow` dropping its motion kind while retaining animated
   height or opacity. Exercise Undo followed by another action during restoration,
   and a view change that keeps the same message and section key. Reset a retained

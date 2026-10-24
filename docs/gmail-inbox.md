@@ -338,7 +338,9 @@ with visible focus rings. After a removal, **Undo** appears in the Inbox. For ev
 row that leaves the list collapses and fades in 200 ms while the rows below follow it up, and
 Undo, a refused or rolled-back change, or a discarded one grows it back from its current height
 without selecting it. Rows follow provider message IDs, so an IMAP message that Undo moves back
-under a new UID keeps its row, and mail that only looks the same never moves. A removal the
+under a new UID keeps its row, and mail that only looks the same never moves. If that IMAP
+destination refresh fails, the next refresh still gives the restored row its Undo motion.
+A removal the
 provider has confirmed moves nothing later: a message another client restores appears without
 motion. A scroll, a selection or another action finishes a row still leaving, and
 on iPhone a row leaves once the reader's Back transition has shown the list. With Reduce Motion
