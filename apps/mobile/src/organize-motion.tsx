@@ -114,10 +114,6 @@ export function useSettledMotion() {
   });
 }
 
-const readReducedMotion = async () => {
-  reduced.value = await AccessibilityInfo.isReduceMotionEnabled();
-};
-
 // The organizing outcome a mailbox shows, which only an action, its Undo or its reconciliation
 // changes; synchronization keeps it.
 const outcome = (state: InboxMailbox['state']) =>
@@ -128,10 +124,18 @@ const outcome = (state: InboxMailbox['state']) =>
 // change the list without motion. Returns the unsubscribe function.
 export function animateOrganizing(mailboxes: MailboxList) {
   let shown = mailboxes.getSnapshot();
-  void readReducedMotion();
+  let current = true;
+  const read = async () => {
+    const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+    if (current) {
+      reduced.value = enabled;
+    }
+  };
+  void read();
   const preference = AccessibilityInfo.addEventListener(
     'reduceMotionChanged',
     (enabled) => {
+      current = false;
       reduced.value = enabled;
     },
   );
@@ -152,6 +156,7 @@ export function animateOrganizing(mailboxes: MailboxList) {
     }
   });
   return () => {
+    current = false;
     moving.value = false;
     preference.remove();
     unsubscribe();

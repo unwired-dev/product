@@ -339,8 +339,9 @@ row that leaves the list fades while the rows below close over it in 200 ms, and
 refused or rolled-back change, or a discarded one returns it the reverse way without selecting
 it. With Reduce Motion the row leaves at once and a returning row only fades in over 150 ms.
 Synchronization and changing the view, search or Filter never move rows, and new mail keeps the
-topmost visible row of a scrolled list in place. A scroll or a selection finishes a leaving row
-at once. The Mac moves rows only while the app shows one window; with several Inbox or
+topmost visible row of a scrolled list in place. On iPhone and iPad, a scroll or a selection
+finishes a leaving row at once; the Mac's leaving row continues its fade. The Mac moves rows
+only while the app shows one window; with several Inbox or
 Settings windows open, every window changes without motion. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. In Trash or Spam, **Move to Inbox**

@@ -2333,6 +2333,35 @@ describe('organizing motion', () => {
     });
   });
 
+  it('ignores a late Reduce Motion reply from a retired Inbox follower', async () => {
+    expect.hasAssertions();
+    const initial = Promise.withResolvers<boolean>();
+    const preference = jest
+      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+      .mockReturnValueOnce(initial.promise)
+      .mockResolvedValue(true);
+    try {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Lunch on Friday' });
+      await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
+      await screen.unmount();
+      const connected = await renderConnected(gmail.native);
+      await screen.findByRole('button', { name: /Lunch on Friday/u });
+      await act(async () => {
+        initial.resolve(false);
+        await initial.promise;
+      });
+      const archived = await during(connected.store(), () =>
+        archive('Lunch on Friday'),
+      );
+      expect(archived.published[0]).toBe('still opacity');
+    } finally {
+      initial.resolve(false);
+      preference.mockRestore();
+    }
+  });
+
   it('removes a row at once and fades its return in under Reduce Motion', async () => {
     expect.hasAssertions();
     const reduced = jest
