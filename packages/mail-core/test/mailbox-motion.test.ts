@@ -6,6 +6,31 @@ import {
 } from '@private-email/mail-core/mailboxes';
 
 describe('organizing row continuity', () => {
+  it('retires returning motion when synchronization removes its row before the animation settles', () => {
+    expect.hasAssertions();
+    const tracked: RowMotionState<string> = {
+      order: ['a', 'b'],
+      sections: [{ key: 'today', data: ['a', 'b'] }],
+      outcomes: ['undone'],
+      scope: [],
+      covered: false,
+      leaving: [],
+      returning: new Set(['a', 'b']),
+    };
+    const keyOf = (key: string) => key;
+    const removed = advanceRowMotion(tracked, {
+      ...tracked,
+      keyOf,
+      sections: [{ key: 'today', data: ['b'] }],
+    });
+    const synchronized = advanceRowMotion(removed, { ...tracked, keyOf });
+
+    expect([removed.returning, synchronized.returning]).toStrictEqual([
+      new Set(['b']),
+      new Set(['b']),
+    ]);
+  });
+
   it('tracks a midnight section change even when the row order stays the same', () => {
     expect.hasAssertions();
     const tracked: RowMotionState<string> = {

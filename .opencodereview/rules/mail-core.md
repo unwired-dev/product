@@ -11,6 +11,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- `mailbox-motion.ts.advanceRowMotion` retaining a returning key after
+  synchronization removes its row before the animation settles. Retire motion
+  for absent rows while preserving the returning rows still shown; otherwise a
+  later synchronization arrival replays an obsolete Undo entrance.
 - `mailbox-motion.ts.advanceRowMotion` comparing outcome arrays without the
   mailbox owners and view/search/Filter scope. A mailbox switch can replace one
   notice with another at the same array index, and a new query can retain the

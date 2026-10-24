@@ -100,6 +100,7 @@ export function advanceRowMotion<I>(
       ...tracked,
       ...next,
       leaving: tracked.leaving.filter(({ key }) => !now.has(key)),
+      returning: new Set([...tracked.returning].filter((key) => now.has(key))),
     };
   }
   const before = new Set(tracked.order);

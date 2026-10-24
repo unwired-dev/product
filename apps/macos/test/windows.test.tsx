@@ -833,6 +833,10 @@ describe('mac windows over a connected Gmail mailbox', () => {
 
   it('keeps a removed row leaving in each window until Undo or a scroll there, never for synchronization', async () => {
     expect.hasAssertions();
+    // These assertions inspect unfinished motion; native frames must not finish it between inputs.
+    const frames = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockReturnValue(0);
     const timing = jest.spyOn(Animated, 'timing');
     const stopListening: Array<() => void> = [];
     const gmail = createSyntheticGmail();
@@ -930,6 +934,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         stop();
       }
       timing.mockRestore();
+      frames.mockRestore();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
     }
   });
