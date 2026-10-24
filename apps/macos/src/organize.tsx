@@ -552,20 +552,27 @@ function GmailMessageActions({
     },
     [],
   );
-  // The message New Label… was chosen for, while its sheet asks for a name.
-  const [naming, setNaming] = useState<GmailMessage>();
+  // Capture the question's presentation so an appearance or language change cannot replace its field.
+  const [naming, setNaming] = useState<
+    Readonly<{
+      message: GmailMessage;
+      t: Translate;
+      accentInk: ReturnType<typeof usePalette>['accentInk'];
+    }>
+  >();
   // Asks for a name, then creates the label in Gmail and applies it; a failure is explained. The
   // sheet closes with the reader.
   useEffect(() => {
     if (naming === undefined || !('createLabel' in store)) {
       return undefined;
     }
+    const { message, t: translate, accentInk } = naming;
     const question = askForText(anchor.current, {
-      title: t('gmailActions.newLabelTitle'),
-      detail: t('gmailActions.newLabelDetail'),
-      buttons: [t('gmailActions.addLabel'), t('common.cancel')],
-      symbol: { name: 'tag', color: colors.accentInk },
-      field: t('gmailActions.labelName'),
+      title: translate('gmailActions.newLabelTitle'),
+      detail: translate('gmailActions.newLabelDetail'),
+      buttons: [translate('gmailActions.addLabel'), translate('common.cancel')],
+      symbol: { name: 'tag', color: accentInk },
+      field: translate('gmailActions.labelName'),
     });
     let asking = true;
     const answer = async () => {
@@ -575,12 +582,12 @@ function GmailMessageActions({
       }
       setNaming(undefined);
       const name = choice?.index === 0 ? choice.text.trim() : '';
-      if (name !== '' && !(await store.createLabel(naming, name))) {
+      if (name !== '' && !(await store.createLabel(message, name))) {
         failure.current?.retire();
         failure.current = askInSheet(anchor.current, {
-          title: t('gmailActions.labelNotCreated', { label: name }),
-          detail: t('gmailActions.labelNotCreatedDetail'),
-          buttons: [t('common.ok')],
+          title: translate('gmailActions.labelNotCreated', { label: name }),
+          detail: translate('gmailActions.labelNotCreatedDetail'),
+          buttons: [translate('common.ok')],
         });
       }
     };
@@ -589,7 +596,7 @@ function GmailMessageActions({
       asking = false;
       question.retire();
     };
-  }, [colors, naming, store, t]);
+  }, [naming, store]);
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
   useLayoutEffect(() => {
     if (opened === inboxFolder || !('retainView' in store)) {
@@ -705,7 +712,11 @@ function GmailMessageActions({
                         title: t('gmailActions.newLabel'),
                         symbol: '',
                         run: () => {
-                          setNaming(message);
+                          setNaming({
+                            message,
+                            t,
+                            accentInk: colors.accentInk,
+                          });
                         },
                       },
                     ],

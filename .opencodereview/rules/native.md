@@ -212,6 +212,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `RegistrationStore.gmailCreateLabel` or another provider-name validator using
+  a broad Foundation character set as if it matched one Unicode general category.
+  Check the admitted scalar categories against the provider contract, including
+  format characters used by joined emoji and right-to-left names as well as
+  forbidden controls. `CharacterSet.controlCharacters` includes format characters;
+  otherwise valid user names are refused before the provider can evaluate them.
+  Exercise both permitted names and forbidden scalars through the native operation.
+
 - `UnwiredNotifications.postNotifications` admitting a captured preview or
   connection solely from its provider-derived local identifier. Recheck the
   originating Product Account, connection incarnation and current preview

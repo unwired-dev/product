@@ -357,6 +357,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   invalidation fences and distinguish quota/transient failures from refused
   grants; otherwise cached mail stays visible after lock or removal, or the
   authorization notice waits for an unrelated synchronization.
+  Distinguish an operation's definite input refusal from an Inbox lifecycle
+  failure before invoking that recovery, including `createLabel` receiving HTTP
+  409 for a duplicate name. Assert the existing Inbox sync state as well as the
+  failed operation's result; otherwise a refused name creates a misleading
+  retry/authentication notice for an otherwise current Inbox. Keep actual lock,
+  revocation, grant, quota and transport failures on their owning recovery paths.
 
 #### Running programs and shared state
 

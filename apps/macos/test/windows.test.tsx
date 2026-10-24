@@ -58,7 +58,12 @@ import {
   InboxWindow as RegisteredWindow,
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
-import { chooseSheetButton, sheetShown, sheetsShown } from './native-alert.ts';
+import {
+  chooseSheetButton,
+  enterSheetText,
+  sheetShown,
+  sheetsShown,
+} from './native-alert.ts';
 import {
   chooseMenuItem,
   chooseSubmenuItem,
@@ -1478,6 +1483,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
         <InboxWindow windowId="first" />
       </RegistrationGate>,
     );
+    const paletteSpy = jest
+      .spyOn(
+        jest.requireActual<{ usePalette: typeof usePalette }>(
+          '../src/theme.ts',
+        ),
+        'usePalette',
+      )
+      .mockReturnValue(palette.light);
     try {
       const window = within(await app.findByTestId('inbox-window-first'));
       await fireEvent.press(
@@ -1530,8 +1543,18 @@ describe('mac windows over a connected Gmail mailbox', () => {
         symbol: { name: 'tag' },
         field: 'Label name',
       });
+      // Appearance changes must keep the native field and the name already typed into it.
+      enterSheetText('  Lisbon trip ');
+      paletteSpy.mockReturnValue(palette.dark);
+      await app.rerender(
+        <RegistrationGate
+          store={started(registration)}
+          preview={false}>
+          <InboxWindow windowId="first" />
+        </RegistrationGate>,
+      );
       await act(async () => {
-        chooseSheetButton('Add Label', '  Lisbon trip ');
+        chooseSheetButton('Add Label');
       });
       await fireEvent.press(more);
       await waitFor(() => {
@@ -1579,6 +1602,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ).toBeVisible();
     } finally {
       await app.unmount();
+      paletteSpy.mockRestore();
     }
   });
 
