@@ -771,6 +771,19 @@ export const reportArrivals = Effect.fnUntraced(function* <M>(
   }
 });
 
+// Arrivals still to report once their page committed. A commit rebased over another store's saved
+// document leaves out mail that store already saved, and so reported.
+const unreported = (
+  brought: readonly GmailMessage[],
+  read: MailboxDocument | undefined,
+  { base }: Readonly<{ base: MailboxDocument | undefined }>,
+) => {
+  const saved = new Set(
+    base === read ? [] : (base?.messages ?? []).map(({ id }) => id),
+  );
+  return brought.filter(({ id }) => !saved.has(id));
+};
+
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -1586,14 +1599,13 @@ export function createGmailInbox(
   const advance = (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
-    // This synchronization's step, and when it began; Microsoft's delta rounds record the latter.
-    round: Readonly<{ step: number; started: string }>,
+    step: number,
   ): Effect.Effect<
     Option.Option<MailboxDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
   > => {
     if (graph !== undefined) {
-      return graph.advance(scope, document, round);
+      return graph.advance(scope, document, step);
     }
     if (document === undefined) {
       return startListing(scope, undefined).pipe(Effect.asSome);
@@ -1627,7 +1639,7 @@ export function createGmailInbox(
     if (listing !== undefined) {
       return listView(scope, document, listing).pipe(
         Effect.filterOrElse(Option.isSome, () =>
-          advance(scope, document, round),
+          advance(scope, document, step),
         ),
       );
     }
@@ -2949,19 +2961,10 @@ export function createGmailInbox(
         diagnostic: 'another mailbox',
       });
     }
-    if (graph !== undefined && !graph.canRebase(base, saved)) {
-      return yield* new SyncFailure({
-        kind: 'conflict',
-        cause: 'delta',
-        diagnostic: 'delta checkpoint changed',
-      });
-    }
-    const next = rebasedOnto(base, saved, document);
-    graph?.rebase(document, next);
     return {
       cache: latest,
       base: saved,
-      document: next,
+      document: rebasedOnto(base, saved, document),
     };
   });
 
@@ -2986,7 +2989,11 @@ export function createGmailInbox(
       );
       if (Option.isSome(saved)) {
         yield* ready(saved.value, target.document, sync);
-        return { cache: saved.value, document: target.document };
+        return {
+          cache: saved.value,
+          document: target.document,
+          base: target.base,
+        };
       }
       target = yield* rebased(target);
     }
@@ -3441,7 +3448,6 @@ export function createGmailInbox(
     let cache = yield* storage(native.openMailbox);
     const { address, generation } = cache;
     selectionReference = yield* DateTime.now;
-    const started = DateTime.formatIso(selectionReference);
     if (!forgotten) {
       opened = { address, generation };
     }
@@ -3458,7 +3464,7 @@ export function createGmailInbox(
         ({ cache, document } = yield* sendPending(cache, document));
       }
       arrivals = [];
-      const next = yield* advance(cache, document, { step, started });
+      const next = yield* advance(cache, document, step);
       if (Option.isNone(next)) {
         break;
       }
@@ -3466,8 +3472,9 @@ export function createGmailInbox(
       yield* restartLimit(restarts);
       const brought =
         graph === undefined ? arrivals : graph.arrivals(next.value);
-      ({ cache, document } = yield* commitOver(cache, document, next.value));
-      yield* reportArrivals(arrived, brought);
+      const committed = yield* commitOver(cache, document, next.value);
+      yield* reportArrivals(arrived, unreported(brought, document, committed));
+      ({ cache, document } = committed);
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }

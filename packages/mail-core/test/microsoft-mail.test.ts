@@ -82,22 +82,6 @@ const deltaReply = (url: string, value: readonly unknown[] | undefined) =>
 // The newest Inbox messages a Microsoft mailbox keeps on this device.
 const cacheLimit = 200;
 
-// Corrupt one persisted timestamp at the native storage boundary.
-const invalidGraphTime = (document: string | null, field: string) => {
-  if (document === null) {
-    throw new Error('Expected a saved Graph document');
-  }
-  return field === 'synchronizedAt'
-    ? document.replace(
-        /"synchronizedAt":"[^"]+"/u,
-        '"synchronizedAt":"invalid"',
-      )
-    : document.replace(
-        '"kind":"graph-current"',
-        '"kind":"graph-current","started":"invalid"',
-      );
-};
-
 // Graph whose next delta round, once split, arrives page by page: the first page's IDs, then each
 // later page's from a continuation, the last with the round's link. A single page is followed by
 // an empty final one.
@@ -375,10 +359,10 @@ describe('reading Microsoft mail through Graph', () => {
     expect(updated.messages.find(({ id }) => id === read)?.unread).toBe(false);
     expect(updated.messages).toHaveLength(5);
 
-    // An unchanged Inbox returning the same link still commits its synchronization boundary.
+    // An unchanged Inbox returning the same link commits nothing.
     const commits = graph.commits.length;
     await relaunched.load();
-    expect(graph.commits).toHaveLength(commits + 1);
+    expect(graph.commits).toHaveLength(commits);
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
 
     // A fresh link from an empty round is saved, once per synchronization, and used next time.
@@ -386,7 +370,7 @@ describe('reading Microsoft mail through Graph', () => {
     graph.requests.length = 0;
     await relaunched.load();
     expect(reads(graph)).toStrictEqual(['changes']);
-    expect(graph.commits).toHaveLength(commits + 2);
+    expect(graph.commits).toHaveLength(commits + 1);
     expect(graph.commits.at(-1)).toContain('$deltatoken=');
     expect(graph.commits.at(-1)).toContain('r1');
     await relaunched.load();
@@ -394,116 +378,74 @@ describe('reading Microsoft mail through Graph', () => {
     expect(messageReads(graph).at(-1)?.searchParams.get('$deltatoken')).toMatch(
       /r1$/u,
     );
-    expect(graph.commits).toHaveLength(commits + 3);
+    expect(graph.commits).toHaveLength(commits + 2);
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
   });
 
-  it('reports only unread mail newly arriving in the Inbox, once each, after its delta round commits', async () => {
+  it('reports only unread mail newly arriving in the Inbox, once each, after its delta page commits', async () => {
     expect.hasAssertions();
     const at = (hour: number, minute = 0) => Date.UTC(2026, 9, 1, hour, minute);
-    // Each synchronization begins at the device time set before it.
-    vi.useFakeTimers({ now: at(9, 30), toFake: ['Date'] });
-    try {
-      const graph = createSyntheticGraph({ messages: 3 });
-      // Delivered before the first synchronization but outside the Inbox until moved in later.
-      const filtered = graph.deliver({ subject: 'Filtered', at: at(9, 10) });
-      graph.remove(filtered);
-      const round = splitRound(graph);
-      const arrivals: string[][] = [];
-      const committed: boolean[] = [];
-      const inbox = createGmailInbox(round.native, {
-        provider: 'microsoft-graph',
-        arrived: (messages) => {
-          committed.push(
-            messages.every(({ id }) => graph.commits.at(-1)?.includes(id)),
-          );
-          arrivals.push(messages.map(({ subject }) => subject));
-        },
-      });
-      // The first listing and its delta round are historical.
-      await inbox.load();
-      expect(arrivals).toStrictEqual([]);
+    const graph = createSyntheticGraph({ messages: 3 });
+    // In the Inbox only after the first synchronization.
+    const movedIn = graph.deliver({ subject: 'Moved in', at: at(9, 10) });
+    graph.remove(movedIn);
+    const round = splitRound(graph);
+    const arrivals: string[][] = [];
+    const committed: boolean[] = [];
+    const inbox = createGmailInbox(round.native, {
+      provider: 'microsoft-graph',
+      arrived: (messages) => {
+        committed.push(
+          messages.every(({ id }) => graph.commits.at(-1)?.includes(id)),
+        );
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    });
+    // The first listing and its delta round are historical.
+    await inbox.load();
+    expect(arrivals).toStrictEqual([]);
 
-      vi.setSystemTime(at(9, 40));
-      const [moved = '', updated = ''] = ready(inbox.getSnapshot())
-        .messages.filter(({ unread }) => unread)
-        .map(({ id }) => id);
-      graph.remove(moved);
-      await inbox.load();
-      vi.setSystemTime(at(10, 30));
-      const older = graph.deliver({ subject: 'Older arrival', at: at(10) });
-      const newer = graph.deliver({ subject: 'New arrival', at: at(10, 10) });
-      const read = graph.deliver({
-        subject: 'Read elsewhere',
-        at: at(10, 5),
-        isRead: true,
-      });
-      // Mail moved back into the Inbox, mail moved in that reached another folder before the last
-      // synchronization, and a change to a listed message are not new mail.
-      graph.restore(moved);
-      graph.restore(filtered);
-      graph.restore(updated);
-      // Newer mail on the round's first page does not hide older new mail on its second.
-      round.split([newer], [older, read, moved, filtered, updated]);
-      await inbox.load();
-      expect(arrivals).toStrictEqual([['New arrival'], ['Older arrival']]);
-      // Synchronizing again reports nothing twice.
-      await inbox.load();
-      expect(arrivals).toHaveLength(2);
+    const [updated = ''] = ready(inbox.getSnapshot())
+      .messages.filter(({ unread }) => unread)
+      .map(({ id }) => id);
+    const older = graph.deliver({ subject: 'Older arrival', at: at(10) });
+    const newer = graph.deliver({ subject: 'New arrival', at: at(10, 10) });
+    const read = graph.deliver({
+      subject: 'Read elsewhere',
+      at: at(10, 5),
+      isRead: true,
+    });
+    // Graph creates a moved message anew in the Inbox, so it is new mail; a change to a listed
+    // message is not.
+    graph.restore(movedIn);
+    graph.restore(updated);
+    // Newer mail on the round's first page does not hide older new mail on its second.
+    round.split([newer], [older, read, movedIn, updated]);
+    await inbox.load();
+    expect(arrivals).toStrictEqual([
+      ['New arrival'],
+      ['Older arrival', 'Moved in'],
+    ]);
+    // Synchronizing again reports nothing twice.
+    await inbox.load();
+    expect(arrivals).toHaveLength(2);
 
-      // Mail found by listing again after Graph expired the delta link is not reported.
-      vi.setSystemTime(at(11));
-      graph.expireDelta();
-      graph.deliver({
-        subject: 'Arrived while the link expired',
-        at: at(10, 40),
-      });
-      await inbox.load();
-      expect(arrivals).toHaveLength(2);
-      vi.setSystemTime(at(11, 30));
-      graph.deliver({ subject: 'Later arrival', at: at(11, 10) });
-      await inbox.load();
-      expect(arrivals).toStrictEqual([
-        ['New arrival'],
-        ['Older arrival'],
-        ['Later arrival'],
-      ]);
-      expect(committed).toStrictEqual([true, true, true]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('advances the arrival boundary after a quiet round returning the same delta link', async () => {
-    expect.hasAssertions();
-    const at = (hour: number, minute = 0) => Date.UTC(2026, 9, 1, hour, minute);
-    vi.useFakeTimers({ now: at(9), toFake: ['Date'] });
-    try {
-      const graph = createSyntheticGraph();
-      const filtered = graph.deliver({ subject: 'Filtered', at: at(8, 58) });
-      graph.remove(filtered);
-      const arrivals: string[][] = [];
-      const options = {
-        provider: 'microsoft-graph' as const,
-        arrived: (messages: ReadonlyArray<{ readonly subject: string }>) => {
-          arrivals.push(messages.map(({ subject }) => subject));
-        },
-      };
-      const inbox = createGmailInbox(graph.native, options);
-      await inbox.load();
-      vi.setSystemTime(at(10));
-      await inbox.load();
-
-      // The quiet round must advance the boundary durably, even though its link stayed the same.
-      vi.setSystemTime(at(11));
-      graph.restore(filtered);
-      graph.deliver({ subject: 'New arrival', at: at(10, 30) });
-      const relaunched = createGmailInbox(graph.native, options);
-      await relaunched.load();
-      expect(arrivals).toStrictEqual([['New arrival']]);
-    } finally {
-      vi.useRealTimers();
-    }
+    // Mail found by listing again after Graph expired the delta link is not reported.
+    graph.expireDelta();
+    graph.deliver({
+      subject: 'Arrived while the link expired',
+      at: at(10, 40),
+    });
+    await inbox.load();
+    expect(arrivals).toHaveLength(2);
+    graph.deliver({ subject: 'Later arrival', at: at(11, 10) });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([
+      ['New arrival'],
+      ['Older arrival', 'Moved in'],
+      ['Later arrival'],
+    ]);
+    expect(committed).toStrictEqual([true, true, true]);
   });
 
   it('retains the start of an interrupted delta round so later deliveries notify after relaunch', async () => {
@@ -609,7 +551,7 @@ describe('reading Microsoft mail through Graph', () => {
     }
   });
 
-  it('reports an arrival first cached by a refill when its later delta page resumes after relaunch', async () => {
+  it('reports an arrival a refill listed when its later delta page resumes after relaunch', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: cacheLimit });
     const round = splitRound(graph);
@@ -650,9 +592,10 @@ describe('reading Microsoft mail through Graph', () => {
     });
     round.split([removed], [delivered]);
     await inbox.load();
+    // The refill keeps the arrival for its own delta page.
     expect(
       ready(inbox.getSnapshot()).messages.some(({ id }) => id === delivered),
-    ).toBe(true);
+    ).toBe(false);
     expect(arrivals).toStrictEqual([]);
     const relaunched = createGmailInbox(native, options);
     await relaunched.load();
@@ -701,31 +644,6 @@ describe('reading Microsoft mail through Graph', () => {
       ready(second.getSnapshot()).sync,
     ]).toStrictEqual(['current', 'current']);
   });
-
-  it.each(['synchronizedAt', 'started'])(
-    'rejects an invalid saved %s without leaving synchronization running',
-    async (field) => {
-      expect.hasAssertions();
-      const graph = createSyntheticGraph({ messages: 1 });
-      await microsoftInbox(graph).load();
-      graph.deliver({ subject: 'Later', at: Date.now() });
-      const inbox = createGmailInbox(
-        {
-          ...graph.native,
-          openMailbox: async () => {
-            const cache = await graph.native.openMailbox();
-            return {
-              ...cache,
-              document: invalidGraphTime(cache.document, field),
-            };
-          },
-        },
-        { provider: 'microsoft-graph' },
-      );
-      await expect(inbox.load()).resolves.toBeUndefined();
-      expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
-    },
-  );
 
   it('lists again when Graph expires the delta link, showing saved mail meanwhile', async () => {
     expect.hasAssertions();

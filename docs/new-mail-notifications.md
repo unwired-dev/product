@@ -47,38 +47,32 @@ and cache refills never notify. Push wakes, background refresh, activation and t
 foreground poll all reach the same synchronization; the content-free push never
 decides on its own to alert.
 
-IMAP and Microsoft 365 report no history of how mail reached the Inbox, so the device
-also compares each message's receipt time with the moment its previous completed
-synchronization of that mailbox began, allowing five minutes for a provider clock
-running behind this device's.
-
-- **IMAP:** a committed Inbox read reports the unread messages whose UIDs are at or
+- **IMAP:** the server reports no history of how mail reached the Inbox, so the device
+  also compares each message's receipt time with the moment its previous
+  synchronization of the folder began, allowing five minutes for a provider clock running behind this
+  device's. A committed Inbox read reports the unread messages whose UIDs are at or
   above the previously committed UIDNEXT under an unchanged UIDVALIDITY, received
   (INTERNALDATE) no earlier than that allowance. The first listing, a UIDVALIDITY
   change or reset and cache refills never notify. Mail moved in keeps its
-  INTERNALDATE, so mail received before the allowance never notifies when moved in.
-  IDLE, polling and activation reach the same classification.
-- **Microsoft 365:** each committed page of a delta round reports the unread Inbox
-  messages it names that were not already cached and were received no earlier than
-  the allowance; a round's pages share one boundary, including after interruption
-  and relaunch. A completed empty round advances that boundary even if its delta
-  link is unchanged. Once the 200-message cache is full, a message no newer than its
+  INTERNALDATE, so mail received before the allowance never notifies when moved in;
+  IMAP cannot tell later moved-in mail from delivery. A device clock more than five
+  minutes ahead of the server's can miss arrivals. IDLE, polling and activation reach
+  the same classification.
+- **Microsoft 365:** each committed delta page reports the unread Inbox messages it
+  names that were not already cached. Mail enters the cache only through the listing
+  that starts a mailbox or follows an expired delta link, which never notifies, and
+  through the delta page that classifies it. When a full cache refills after losing a
+  message, it takes only messages no newer than its oldest entry and leaves newer ones
+  to their delta page. Once the 200-message cache is full, a message no newer than its
   oldest entry may have been dropped from it, so it is not new either; this covers a
-  change to such a message and Graph naming a message again later in a round. The
-  cache may refill before a later delta page names an arrival; that arrival stays
-  eligible until its page commits, including after relaunch. Concurrent readers
-  resume the latest committed progress before reporting the same page. The
-  initial listing, listing again after Graph expired the delta link and updates to
-  messages already listed never notify, nor does mail received before the allowance
-  that is moved back into the Inbox.
+  change to such a message and Graph naming a message again later in a round. Updates
+  to listed messages never notify. Graph creates a moved message anew in the Inbox,
+  so moved-in mail counts as created there and notifies unless it is no newer than a
+  full cache's oldest entry. A round with more than 200 arrivals can under-report
+  rather than report an evicted message twice.
 
-Neither provider tells delivery apart from a move, so mail received no earlier than
-the allowance can still notify when it is moved into the Inbox: from another folder it
-reached after the previous synchronization began, or back in after this device saw it
-in the last five minutes before that synchronization.
-If this device's clock is more than five minutes ahead of the provider's, arrivals
-can be missed. A round with more than 200 arrivals can also under-report to avoid
-reporting an evicted message twice.
+When another store of the same mailbox committed first, a page's arrivals that store
+already saved, and so reported, are left out.
 
 Before posting, after reading this device's settings, the device checks again that the
 connection still belongs to the same Product Account and incarnation and that its switch
