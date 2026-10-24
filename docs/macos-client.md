@@ -88,6 +88,14 @@ Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 and the reader. The **Show Sidebar** / **Hide Sidebar** button before the list title
 toggles the sidebar; a window at most 900pt wide starts without it.
 
+The Profile Switcher keeps its monogram trigger. It and the reader's More menu
+button use `accent/selection-subtle` while pressed or while their menu is open.
+In Light, AppKit draws its system focus ring. In Dark, `MenuButton`
+(`apps/macos/src/design.tsx`) turns that ring off and draws an `accent/ink`
+outline instead. Native focus captures remain deferred
+alongside the keyboard-navigation work in
+[#849](https://github.com/unwired-dev/product/issues/849).
+
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and
 update all windows without changing their selections.
