@@ -144,6 +144,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   row to full height and opacity when it no longer owns motion, cancelling its
   prior animation; otherwise Mac can freeze a partially restored row and mobile
   can continue collapsing a message the replacement view still lists.
+- Mobile `organize-motion.MovingRow` binding a Reanimated style to every resting
+  virtualized row or writing shared values on ordinary idle mounts without native
+  idle evidence. With the installed Reanimated 4.5.1, a persistent animated-style
+  binding kept the iPad Inbox from idling and XCUITest waited 60 seconds per
+  action. Keep resting rows static and bind the animated style only while a row
+  moves; retain its measured height until the UI thread takes over. Check the
+  owning native journey for idle completion as well as collapse and Undo. Jest
+  mocks and a static `Animated.View` do not establish that a bound worklet idles.
 - Mac `organize-motion.MovingRow` hiding retained leaving rows with only core
   `View` accessibility props. Installed Fabric excludes
   `accessibilityElementsHidden` on macOS, and `importantForAccessibility` is an
