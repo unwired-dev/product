@@ -67,6 +67,12 @@ verification status is **static only**: native press, focus, gesture and motion
 quality stay unqualified until their owner records native evidence. Native
 qualification is tracked by [#626](https://github.com/unwired-dev/product/issues/626).
 
+Push buttons use the existing native accessibility element to observe iOS Full
+Keyboard Access focus; the installed iOS `Pressable` does not emit its keyboard
+focus through `onFocus` and `onBlur`. Press handling remains with `Pressable`.
+The new focus path still needs native keyboard and VoiceOver verification in
+Light and Dark on iPhone and iPad; component event tests do not qualify it.
+
 Each row is classified as:
 
 - **Native**: a system control or presenter owns its feedback and motion.

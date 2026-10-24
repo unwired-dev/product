@@ -1,5 +1,14 @@
 Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the host TypeScript in `apps/mobile` and `apps/macos`.
 
+- A custom keyboard-focus ring in `apps/mobile/src/design.tsx` or `action.tsx`
+  driven only by `Pressable.onFocus`/`onBlur` without checking the installed iOS
+  emitter and enabled feature flags. Trace Full Keyboard Access through its
+  native accessibility-focus source to the styled element; React Native's
+  imperative first-responder events and TV-only focus bridge do not establish
+  that path. Otherwise a ring can pass manually fired component events while
+  never appearing during mobile keyboard navigation. Keep native interaction
+  evidence distinct from a substituted event-boundary test.
+
 A host owns views and native adapters. It renders shared stores from `@private-email/mail-core` and passes native modules into them. `apps/mobile` is Expo on iOS and iPadOS (Hermes, Expo Router split view); `apps/macos` is React Native macOS, where AppKit owns windows and each window mounts its own React root over one JavaScript runtime. The two hosts pin different React and React Native versions.
 
 Apply `docs/agents/native-components.md` to UI selection and migration. Checks

@@ -27,6 +27,16 @@ const renderedRoot = () => {
   return root;
 };
 
+const buttonFocusObserver = (button: ReturnType<typeof screen.getByRole>) => {
+  const [focus] = button.queryAll(
+    (element) => element.type === 'UnwiredButtonFocus',
+  );
+  if (focus === undefined) {
+    throw new Error('Expected the native button focus observer');
+  }
+  return focus;
+};
+
 describe('design components', () => {
   it.each(['light', 'dark'] as const)(
     'shows the primary fill at 80% with legible text while pressed in %s appearance',
@@ -73,6 +83,44 @@ describe('design components', () => {
       } finally {
         paletteSpy.mockRestore();
       }
+    },
+  );
+
+  it.each(['regular', 'compact'] as const)(
+    'shows and clears the %s button ring from native accessibility focus',
+    async (size) => {
+      expect.hasAssertions();
+      const colors = palette.light;
+      const app = await render(
+        <Button
+          label="Retry"
+          size={size}
+          onPress={() => undefined}
+        />,
+      );
+      const button = screen.getByRole('button', { name: 'Retry' });
+      const focus = buttonFocusObserver(button);
+      const fill = screen.getByText('Retry').parent;
+      await fireEvent(focus, 'focusChange', { nativeEvent: { focused: true } });
+      expect(fill).toHaveStyle({
+        outlineColor: colors.accentInk,
+        outlineWidth: 2,
+      });
+      await fireEvent(focus, 'focusChange', {
+        nativeEvent: { focused: false },
+      });
+      expect(fill).toHaveStyle({ outlineColor: 'transparent' });
+      await fireEvent(focus, 'focusChange', { nativeEvent: { focused: true } });
+      await app.rerender(
+        <Button
+          label="Retry"
+          size={size}
+          disabled
+          onPress={() => undefined}
+        />,
+      );
+      expect(fill).toHaveStyle({ outlineColor: 'transparent' });
+      expect(button).toHaveStyle({ opacity: 0.4 });
     },
   );
 

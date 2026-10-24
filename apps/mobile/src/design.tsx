@@ -39,6 +39,14 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
+const NativeButtonFocus = requireNativeComponent<
+  ViewProps & {
+    readonly onFocusChange: (
+      event: NativeSyntheticEvent<{ focused: boolean }>,
+    ) => void;
+  }
+>('UnwiredButtonFocus');
+
 export function Glass({
   cornerRadius,
   interactive = false,
@@ -181,6 +189,7 @@ const styles = StyleSheet.create({
   },
   chipTarget: { minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
   buttonTarget: { minHeight: 44, justifyContent: 'center' },
+  buttonFocus: { position: 'absolute', width: 0, height: 0 },
   buttonFill: {
     minHeight: 28,
     justifyContent: 'center',
@@ -611,24 +620,28 @@ export function Button({
       accessibilityState={{ disabled }}
       disabled={disabled}
       focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
       onPress={onPress}
       style={({ pressed }) => [
         compact ? styles.buttonTarget : [styles.button, fillOf(pressed)],
         { opacity: disabled ? 0.4 : 1 },
       ]}>
-      {({ pressed }) =>
-        compact ? (
-          <View style={[styles.buttonFill, fillOf(pressed)]}>{text}</View>
-        ) : (
-          text
-        )
-      }
+      {({ pressed }) => (
+        <>
+          <NativeButtonFocus
+            accessible={false}
+            pointerEvents="none"
+            onFocusChange={({ nativeEvent }) => {
+              setFocused(nativeEvent.focused);
+            }}
+            style={styles.buttonFocus}
+          />
+          {compact ? (
+            <View style={[styles.buttonFill, fillOf(pressed)]}>{text}</View>
+          ) : (
+            text
+          )}
+        </>
+      )}
     </Pressable>
   );
 }

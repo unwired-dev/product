@@ -138,6 +138,54 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 
 typedef UIView UnwiredPlatformView;
 
+// RN's iOS Pressable does not emit focus events for Full Keyboard Access. Observe its existing
+// accessible ancestor without replacing its touch handling or adding another accessibility item.
+@interface UnwiredButtonFocusView : UIView
+@property (nonatomic, copy) RCTDirectEventBlock onFocusChange;
+@end
+
+@implementation UnwiredButtonFocusView {
+  BOOL _focused;
+}
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+  [center removeObserver:self name:UIAccessibilityElementFocusedNotification object:nil];
+  if (self.window != nil) {
+    [center addObserver:self selector:@selector(focusChanged:)
+                   name:UIAccessibilityElementFocusedNotification object:nil];
+  }
+  [self updateFocus:self.window == nil ? nil : UIAccessibilityFocusedElement(nil)];
+}
+- (void)dealloc
+{
+  [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+- (void)focusChanged:(NSNotification *)notification
+{
+  [self updateFocus:notification.userInfo[UIAccessibilityFocusedElementKey]];
+}
+- (void)updateFocus:(id)element
+{
+  UIView *button = self.superview;
+  while (button != nil && !button.isAccessibilityElement) button = button.superview;
+  BOOL focused = button != nil && element == button;
+  if (_focused == focused) return;
+  _focused = focused;
+  if (self.onFocusChange) self.onFocusChange(@{ @"focused" : @(focused) });
+}
+@end
+
+@interface UnwiredButtonFocusManager : RCTViewManager
+@end
+
+@implementation UnwiredButtonFocusManager
+RCT_EXPORT_MODULE(UnwiredButtonFocus)
+RCT_EXPORT_VIEW_PROPERTY(onFocusChange, RCTDirectEventBlock)
+- (UIView *)view { return [UnwiredButtonFocusView new]; }
+@end
+
 @interface UnwiredSymbolView : UIImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
