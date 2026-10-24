@@ -77,6 +77,7 @@ import {
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
+import { MovingRow, useRowMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize.tsx';
 import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -129,6 +130,19 @@ const keepView = () => undefined;
 // While the list is scrolled, synchronization keeps its topmost visible row in place; at the top,
 // new mail, Drafts and the Outbox appear above what was shown.
 const keepTopRow = { minIndexForVisible: 0 };
+
+// A list row's identity, which a row keeps while it leaves and when it returns.
+const rowKey = (
+  item:
+    | Readonly<{ outbox: OutboxSnapshotEntry }>
+    | Readonly<{ draft: Draft }>
+    | Parameters<typeof resultKey>[0],
+) => {
+  if ('outbox' in item) {
+    return `outbox\n${item.outbox.id}`;
+  }
+  return 'draft' in item ? `draft\n${item.draft.id}` : resultKey(item);
+};
 
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
 const minute = 60_000;
@@ -763,6 +777,14 @@ export function Inbox({
     online,
     searching: results !== undefined,
   });
+  // Rows an organizing outcome takes away keep leaving, and rows it brings back return.
+  const motion = useRowMotion({
+    items: sections.flatMap(({ data }) => data),
+    keyOf: rowKey,
+    outcomes: shown.map(({ state }) =>
+      state.kind === 'ready' && 'notice' in state ? state.notice : undefined,
+    ),
+  });
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),
@@ -966,12 +988,14 @@ export function Inbox({
           accessibilityLabel={t('inbox.messages')}
           maintainVisibleContentPosition={keepPosition}
           onScroll={({ nativeEvent }) => {
+            // A scroll takes effect at once, so rows still leaving finish.
+            motion.interrupt();
             setKeepPosition(
               nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,
             );
           }}
           contentContainerStyle={styles.list}
-          sections={sections}
+          sections={motion.place(sections)}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => {
             if (section.key === 'outbox') {
@@ -999,14 +1023,7 @@ export function Inbox({
             );
           }}
           extraData={rows}
-          keyExtractor={(item) => {
-            if ('outbox' in item) {
-              return `outbox\n${item.outbox.id}`;
-            }
-            return 'draft' in item
-              ? `draft\n${item.draft.id}`
-              : resultKey(item);
-          }}
+          keyExtractor={rowKey}
           ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
           ListFooterComponent={
             <>
@@ -1054,32 +1071,39 @@ export function Inbox({
                 selected={composing === item.draft.id}
               />
             ) : (
-              <MessageRow
-                mailbox={several ? item.mailbox.address : undefined}
-                message={item.message}
-                actions={
-                  section.key === 'gmail'
-                    ? undefined
-                    : rowActions(item.mailbox, item.message)
-                }
-                now={now}
-                onSelect={() => {
-                  void select({
-                    mailbox: item.mailbox.id,
-                    id: item.message.id,
-                    ...(section.key === 'gmail' ? {} : selection),
-                  });
-                }}
-                selected={
-                  selected?.mailbox === item.mailbox.id &&
-                  selected.id === item.message.id
-                }
-                status={
-                  section.key === 'gmail' || results === undefined
-                    ? undefined
-                    : savedStatus(t, saved?.get(resultKey(item)))
-                }
-              />
+              <MovingRow
+                motion={motion.motionOf(resultKey(item))}
+                onSettled={() => {
+                  motion.settle(resultKey(item));
+                }}>
+                <MessageRow
+                  mailbox={several ? item.mailbox.address : undefined}
+                  message={item.message}
+                  actions={
+                    section.key === 'gmail'
+                      ? undefined
+                      : rowActions(item.mailbox, item.message)
+                  }
+                  now={now}
+                  onSelect={() => {
+                    motion.interrupt();
+                    void select({
+                      mailbox: item.mailbox.id,
+                      id: item.message.id,
+                      ...(section.key === 'gmail' ? {} : selection),
+                    });
+                  }}
+                  selected={
+                    selected?.mailbox === item.mailbox.id &&
+                    selected.id === item.message.id
+                  }
+                  status={
+                    section.key === 'gmail' || results === undefined
+                      ? undefined
+                      : savedStatus(t, saved?.get(resultKey(item)))
+                  }
+                />
+              </MovingRow>
             );
           }}
         />

@@ -28,7 +28,6 @@ import { useLocalization } from './localization.ts';
 import {
   InboxProvider,
   ProfileScope,
-  useAppWindow,
   useMailboxes,
   useProfile,
   useLeaveComposer,
@@ -479,7 +478,6 @@ export function SettingsWindowRoot(
   >,
 ) {
   const request = useSettingsRequest();
-  useAppWindow();
   return (
     <CommandPaletteProvider
       windowId="settings"

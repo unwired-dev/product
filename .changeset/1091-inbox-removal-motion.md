@@ -3,4 +3,4 @@
 '@private-email/macos': minor
 ---
 
-Animate Inbox rows that an organizing action, its Undo, or a refused, rolled-back or discarded change takes away or brings back on iPhone, iPad and when one Mac window is open. With several Mac Inbox or Settings windows open, rows change without motion. Synchronization keeps the list still and requests preservation of the topmost visible row (#1091).
+Keep an Inbox row that an organizing action removes on screen while it collapses and fades, and grow it back from its current height on Undo or when a refused, rolled-back or discarded change returns it, in every window. A scroll, a selection or another action finishes a leaving row; synchronization never moves rows and keeps a scrolled list's topmost visible row in place (#1091).

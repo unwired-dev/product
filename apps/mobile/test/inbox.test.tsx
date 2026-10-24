@@ -39,7 +39,6 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { ReduceMotion, ReducedMotionConfig } from 'react-native-reanimated';
 
 import type { ipad } from '../src/inbox-styles.ts';
 import type { Selection } from '../src/inbox.tsx';
@@ -2160,50 +2159,10 @@ const listedMessage = (
 };
 
 describe('organizing motion', () => {
-  // Reanimated's timing animation, stepped by hand.
-  type AnimationProbe = {
-    current: number;
-    onStart: (
-      ...start: [
-        animation: AnimationProbe,
-        value: number,
-        now: number,
-        previous: undefined,
-      ]
-    ) => void;
-    onFrame: (animation: AnimationProbe, now: number) => boolean;
-  };
-  const movingCell = () => {
-    type Node = ReturnType<typeof screen.getByLabelText>;
-    const cell = (function find(node: Node): Node | undefined {
-      if (typeof node.props.exiting === 'function') {
-        return node;
-      }
-      for (const child of node.children) {
-        const found = typeof child === 'string' ? undefined : find(child);
-        if (found !== undefined) {
-          return found;
-        }
-      }
-      return undefined;
-    })(screen.getByLabelText('Inbox messages'));
-    if (cell === undefined) {
-      throw new Error('Expected an animated Inbox cell');
-    }
-    return cell;
-  };
-  // What the Inbox's first cell would do if it left or returned now.
-  const cellMotion = () => {
-    const cell = movingCell();
-    const motion = (animation: () => { animations: Record<string, unknown> }) =>
-      animation().animations;
-    const leaves = motion(cell.props.exiting);
-    const enters = motion(cell.props.entering);
-    return [
-      Object.keys(leaves).join(',') || 'still',
-      Object.keys(enters).join(',') || 'still',
-    ];
-  };
+  // Rows still on screen only while they leave, hidden from VoiceOver and touch.
+  const leavingRows = (subject: string) =>
+    screen.queryAllByText(subject, { includeHiddenElements: true }).length -
+    screen.queryAllByText(subject).length;
   const archive = async (subject: string) => {
     await act(async () => {
       await fireEvent(
@@ -2213,82 +2172,48 @@ describe('organizing motion', () => {
       );
     });
   };
+
   const undo = async () => {
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
     });
   };
-  // A cell's motion as each of the step's store changes publishes, before its commit mounts, then
-  // once the step settles.
-  const during = async (
-    store: Readonly<{ subscribe: (listener: () => void) => () => void }>,
-    step: () => Promise<void>,
-  ) => {
-    const published: string[] = [];
-    const stop = store.subscribe(() => {
-      published.push(cellMotion().join(' '));
-    });
-    try {
-      await step();
-    } finally {
-      stop();
-    }
-    return { published, settled: cellMotion().join(' ') };
-  };
 
-  // The entering fade of the first cell as the step's first store change publishes.
-  const firstFade = async (
-    store: Readonly<{ subscribe: (listener: () => void) => () => void }>,
-    step: () => Promise<void>,
-    kind: 'entering' | 'exiting' = 'entering',
-  ): Promise<AnimationProbe> => {
-    const fades: AnimationProbe[] = [];
-    const stop = store.subscribe(() => {
-      fades.push(movingCell().props[kind]().animations.opacity);
-    });
-    try {
-      await step();
-    } finally {
-      stop();
-    }
-    const [fade] = fades;
-    if (fade === undefined) {
-      throw new Error(`Expected an ${kind} fade`);
-    }
-    return fade;
-  };
-
-  it('moves rows for an action and its Undo, but not for synchronization', async () => {
+  it('keeps a row leaving for an action and returns it with Undo, never for synchronization', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
     gmail.deliver({ subject: 'Lunch on Friday' });
     const connected = await renderConnected(gmail.native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
-    const store = connected.store();
-    const sync = async (subject: string) => {
-      gmail.deliver({ subject });
-      await act(store.load);
-      await screen.findByText(subject);
-    };
 
-    const quiet = await during(store, () => sync('Arrives quietly'));
-    const archived = await during(store, () => archive('Lunch on Friday'));
-    // Synchronization right after an action's commit stays still.
-    const after = await during(store, () =>
-      sync('Sync immediately after Archive'),
-    );
-    const undone = await during(store, undo);
+    // Synchronization adds and removes rows without keeping any.
+    gmail.archive(elsewhere);
+    gmail.deliver({ subject: 'Arrives quietly' });
+    await act(connected.store().load);
+    await screen.findByText('Arrives quietly');
+    const synchronized = leavingRows('Archived elsewhere');
+
+    await archive('Lunch on Friday');
+    const archived = [
+      leavingRows('Lunch on Friday'),
+      screen.queryByText('Lunch on Friday'),
+    ];
+    const leaving = screen.getByText('Lunch on Friday', {
+      includeHiddenElements: true,
+    });
+    // Undo brings the same row back, reversing from where it is.
+    await undo();
+    const restored = screen.getByText('Lunch on Friday');
 
     expect({
-      quiet: [...new Set(quiet.published)],
-      archived: [archived.published[0], archived.settled],
-      after: [...new Set(after.published)],
-      undone: [undone.published[0], undone.settled],
+      synchronized,
+      archived,
+      restored: [leavingRows('Lunch on Friday'), restored === leaving],
     }).toStrictEqual({
-      quiet: ['still still'],
-      archived: ['opacity opacity', 'still still'],
-      after: ['still still'],
-      undone: ['opacity opacity', 'still still'],
+      synchronized: 0,
+      archived: [1, null],
+      restored: [0, true],
     });
   });
 
@@ -2298,94 +2223,40 @@ describe('organizing motion', () => {
     gmail.deliver({ subject: 'Lunch on Friday' });
     gmail.deliver({ subject: 'Dinner on Saturday' });
     gmail.deliver({ subject: 'Breakfast on Sunday' });
-    const connected = await renderConnected(gmail.native);
+    await renderConnected(gmail.native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
-    const store = connected.store();
-    // Each fade's opacity and whether it finished, one frame into the fade and one after the
-    // interruption.
-    const interrupted = async (
-      subject: string,
-      interrupt: () => Promise<void>,
-    ) => {
-      const fade = await firstFade(store, () => archive(subject), 'exiting');
-      fade.onStart(fade, 1, 1000, undefined);
-      const early = fade.onFrame(fade, 1016);
-      await interrupt();
-      const finished = fade.onFrame(fade, 1032);
-      return [early, finished, fade.current];
-    };
 
-    const scrolled = await interrupted('Lunch on Friday', async () => {
-      await fireEvent(
-        screen.getByLabelText('Inbox messages'),
-        'scrollBeginDrag',
-      );
-    });
-    const selected = await interrupted('Dinner on Saturday', async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: /Breakfast on Sunday/u }),
-      );
-    });
+    await archive('Lunch on Friday');
+    const beforeScroll = leavingRows('Lunch on Friday');
+    await fireEvent(screen.getByLabelText('Inbox messages'), 'scrollBeginDrag');
+    const scrolled = leavingRows('Lunch on Friday');
+    await archive('Dinner on Saturday');
+    const beforeSelection = leavingRows('Dinner on Saturday');
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Breakfast on Sunday/u }),
+    );
 
-    expect({ scrolled, selected }).toStrictEqual({
-      scrolled: [false, true, 0],
-      selected: [false, true, 0],
-    });
+    expect([
+      beforeScroll,
+      scrolled,
+      beforeSelection,
+      leavingRows('Dinner on Saturday'),
+    ]).toStrictEqual([1, 0, 1, 0]);
   });
 
-  it('ignores a late Reduce Motion reply from a retired Inbox follower', async () => {
+  it('removes a leaving row at once under Reduce Motion', async () => {
     expect.hasAssertions();
-    const initial = Promise.withResolvers<boolean>();
-    const preference = jest
+    const reduced = jest
       .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
-      .mockReturnValueOnce(initial.promise)
       .mockResolvedValue(true);
     try {
       const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
       gmail.deliver({ subject: 'Lunch on Friday' });
       await renderConnected(gmail.native);
       await screen.findByRole('button', { name: /Lunch on Friday/u });
-      await screen.unmount();
-      const connected = await renderConnected(gmail.native);
-      await screen.findByRole('button', { name: /Lunch on Friday/u });
-      await act(async () => {
-        initial.resolve(false);
-        await initial.promise;
-      });
-      const archived = await during(connected.store(), () =>
-        archive('Lunch on Friday'),
-      );
-      expect(archived.published[0]).toBe('still opacity');
-    } finally {
-      initial.resolve(false);
-      preference.mockRestore();
-    }
-  });
 
-  it('removes a row at once and fades its return in under Reduce Motion', async () => {
-    expect.hasAssertions();
-    const reduced = jest
-      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
-      .mockResolvedValue(true);
-    try {
-      // The native preference also reaches Reanimated independently of AccessibilityInfo.
-      await render(<ReducedMotionConfig mode={ReduceMotion.Always} />);
-      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-      gmail.deliver({ subject: 'Lunch on Friday' });
-      const connected = await renderConnected(gmail.native);
-      await screen.findByRole('button', { name: /Lunch on Friday/u });
-      const store = connected.store();
-
-      const archived = await during(store, () => archive('Lunch on Friday'));
-      expect(archived.published[0]).toBe('still opacity');
-      // The returning row's fade, as its commit mounts.
-      const returning = await firstFade(store, undo);
-      returning.onStart(returning, 0, 1000, undefined);
-      returning.onFrame(returning, 1075);
-      expect(returning.current).toBeGreaterThan(0);
-      expect(returning.current).toBeLessThan(1);
-      const finished = returning.onFrame(returning, 1150);
-      expect([finished, returning.current]).toStrictEqual([true, 1]);
+      await archive('Lunch on Friday');
+      expect(leavingRows('Lunch on Friday')).toBe(0);
     } finally {
       reduced.mockRestore();
     }

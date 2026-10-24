@@ -40,7 +40,6 @@ import {
   AccessibilityInfo,
   Alert,
   AppState,
-  LayoutAnimation,
   ScrollView,
   TurboModuleRegistry,
   View,
@@ -831,69 +830,67 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('animates organizing in a lone window, never synchronization or several windows', async () => {
+  it('keeps a removed row leaving in each window until Undo or a scroll there, never for synchronization', async () => {
     expect.hasAssertions();
-    const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
     const gmail = createSyntheticGmail();
+    const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
     gmail.deliver({ subject: 'Lunch on Friday' });
     const inbox = createGmailInbox(gmail.native);
     showMailboxes(singleMailbox(inbox, alex));
     const app = await render(
       <Windows
         first
-        second={false}
+        second
       />,
     );
-    const archive = async (window: ReturnType<typeof within>) => {
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      await first.findByRole('button', { name: /Lunch on Friday/u });
+      // Each window's rows that stay on screen only while they leave, hidden from VoiceOver.
+      const leaving = (subject: string) =>
+        [first, second].map(
+          (window) =>
+            window.queryAllByText(subject, { includeHiddenElements: true })
+              .length - window.queryAllByText(subject).length,
+        );
+
+      gmail.archive(elsewhere);
+      gmail.deliver({ subject: 'Arrives quietly' });
+      await act(inbox.load);
+      await first.findByRole('button', { name: /Arrives quietly/u });
+      const synchronized = leaving('Archived elsewhere');
+
       await act(async () => {
         await fireEvent(
-          await window.findByRole('button', { name: /Lunch on Friday/u }),
+          second.getByRole('button', { name: /Lunch on Friday/u }),
           'accessibilityAction',
           { nativeEvent: { actionName: 'archive' } },
         );
       });
-    };
-    try {
-      const first = within(app.getByTestId('inbox-window-first'));
-      await first.findByRole('button', { name: /Lunch on Friday/u });
-      // The animation requests after each step.
-      const steps: number[] = [];
-      gmail.deliver({ subject: 'Arrives quietly' });
-      await act(inbox.load);
-      await first.findByRole('button', { name: /Arrives quietly/u });
-      steps.push(configureNext.mock.calls.length);
-      await archive(first);
-      steps.push(configureNext.mock.calls.length);
+      const archived = leaving('Lunch on Friday');
+      // A scroll finishes the rows still leaving in its own window.
+      await fireEvent.scroll(first.getByLabelText('Inbox messages'), {
+        nativeEvent: { contentOffset: { x: 0, y: 0 } },
+      });
+      const scrolled = leaving('Lunch on Friday');
       await act(async () => {
-        await fireEvent.press(first.getByRole('button', { name: 'Undo' }));
+        await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
       });
-      steps.push(configureNext.mock.calls.length);
-      // A second window could take the one configured animation, so neither window gets it.
-      await app.rerender(
-        <Windows
-          first
-          second
-        />,
-      );
-      await archive(within(app.getByTestId('inbox-window-second')));
-      await waitFor(() => {
-        expect(
-          first.queryByRole('button', { name: /Lunch on Friday/u }),
-        ).toBeNull();
-      });
-      steps.push(configureNext.mock.calls.length);
+      await first.findByRole('button', { name: /Lunch on Friday/u });
 
-      expect(steps).toStrictEqual([0, 1, 2, 2]);
-      expect(configureNext.mock.calls[0]).toStrictEqual([
-        {
-          duration: 200,
-          create: { type: 'easeOut', property: 'opacity' },
-          update: { type: 'easeOut' },
-          delete: { type: 'easeOut', property: 'opacity' },
-        },
-      ]);
+      expect({
+        synchronized,
+        archived,
+        scrolled,
+        undone: leaving('Lunch on Friday'),
+      }).toStrictEqual({
+        synchronized: [0, 0],
+        archived: [1, 1],
+        scrolled: [0, 1],
+        undone: [0, 0],
+      });
     } finally {
-      configureNext.mockRestore();
       await app.unmount();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
     }

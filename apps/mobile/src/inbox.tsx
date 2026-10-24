@@ -68,11 +68,7 @@ import {
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
-import {
-  interruptMotion,
-  MovingCell,
-  useSettledMotion,
-} from './organize-motion.tsx';
+import { MovingRow, useRowMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
 import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -123,6 +119,19 @@ const keepView = () => undefined;
 // While the list is scrolled, synchronization keeps its topmost visible row in place; at the top,
 // new mail, Drafts and the Outbox appear above what was shown.
 const keepTopRow = { minIndexForVisible: 0 };
+
+// A list row's identity, which a row keeps while it leaves and when it returns.
+const rowKey = (
+  item:
+    | Readonly<{ outbox: OutboxSnapshotEntry }>
+    | Readonly<{ draft: Draft }>
+    | Parameters<typeof resultKey>[0],
+) => {
+  if ('outbox' in item) {
+    return `outbox\n${item.outbox.id}`;
+  }
+  return 'draft' in item ? `draft\n${item.draft.id}` : resultKey(item);
+};
 
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
 const minute = 60_000;
@@ -576,7 +585,6 @@ export function Inbox({
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
   const select = async (selection: Selection) => {
-    interruptMotion();
     if (onSelectBehindComposer !== undefined) {
       reporting.breadcrumb({ operation: 'reader', stage: 'open' });
       onSelectBehindComposer(selection);
@@ -676,6 +684,15 @@ export function Inbox({
     online,
     searching,
   });
+  // Rows an organizing outcome takes away keep leaving, and rows it brings back return.
+  const motion = useRowMotion({
+    items: sections.flatMap(({ data }) => data),
+    keyOf: rowKey,
+    outcomes: shown.map(({ state }) =>
+      state.kind === 'ready' && 'notice' in state ? state.notice : undefined,
+    ),
+    reading: selected !== undefined,
+  });
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),
@@ -698,7 +715,6 @@ export function Inbox({
     t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title');
   // Set while the list is scrolled from its top, so synchronization keeps the reading position.
   const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
-  useSettledMotion();
   // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
   // again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
@@ -874,8 +890,9 @@ export function Inbox({
           <SectionList
             accessibilityLabel={t('inbox.messages')}
             maintainVisibleContentPosition={keepPosition}
-            CellRendererComponent={MovingCell}
-            onScrollBeginDrag={interruptMotion}
+            onScrollBeginDrag={() => {
+              motion.interrupt();
+            }}
             onScroll={({ nativeEvent }) => {
               setKeepPosition(
                 nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,
@@ -886,7 +903,7 @@ export function Inbox({
             onRefresh={() => {
               void refresh();
             }}
-            sections={sections}
+            sections={motion.place(sections)}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {
               if (section.key === 'outbox') {
@@ -935,14 +952,7 @@ export function Inbox({
               );
             }}
             extraData={rows}
-            keyExtractor={(item) => {
-              if ('outbox' in item) {
-                return `outbox\n${item.outbox.id}`;
-              }
-              return 'draft' in item
-                ? `draft\n${item.draft.id}`
-                : resultKey(item);
-            }}
+            keyExtractor={rowKey}
             ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
             ListFooterComponent={
               searching ? (
@@ -987,33 +997,40 @@ export function Inbox({
                   selected={composing === item.draft.id}
                 />
               ) : (
-                <MessageRow
-                  mailbox={several ? item.mailbox.address : undefined}
-                  message={item.message}
-                  actions={
-                    section.key === 'gmail'
-                      ? undefined
-                      : rowActions(item.mailbox, item.message)
-                  }
-                  now={now}
-                  query={searching ? searched : undefined}
-                  onSelect={() => {
-                    void select({
-                      mailbox: item.mailbox.id,
-                      id: item.message.id,
-                      ...(section.key === 'gmail' ? {} : origin.selection),
-                    });
-                  }}
-                  selected={
-                    selected?.mailbox === item.mailbox.id &&
-                    selected.id === item.message.id
-                  }
-                  status={
-                    section.key === 'gmail' || !searching
-                      ? undefined
-                      : savedStatus(t, saved?.get(resultKey(item)))
-                  }
-                />
+                <MovingRow
+                  motion={motion.motionOf(resultKey(item))}
+                  onSettled={() => {
+                    motion.settle(resultKey(item));
+                  }}>
+                  <MessageRow
+                    mailbox={several ? item.mailbox.address : undefined}
+                    message={item.message}
+                    actions={
+                      section.key === 'gmail'
+                        ? undefined
+                        : rowActions(item.mailbox, item.message)
+                    }
+                    now={now}
+                    query={searching ? searched : undefined}
+                    onSelect={() => {
+                      motion.interrupt();
+                      void select({
+                        mailbox: item.mailbox.id,
+                        id: item.message.id,
+                        ...(section.key === 'gmail' ? {} : origin.selection),
+                      });
+                    }}
+                    selected={
+                      selected?.mailbox === item.mailbox.id &&
+                      selected.id === item.message.id
+                    }
+                    status={
+                      section.key === 'gmail' || !searching
+                        ? undefined
+                        : savedStatus(t, saved?.get(resultKey(item)))
+                    }
+                  />
+                </MovingRow>
               );
             }}
           />

@@ -335,14 +335,13 @@ label checkboxes under a **Labels** heading. Menu panels, including the Mac's Gm
 **Labels** panel, ease in from their toolbar and fade out on iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
 button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. For every provider, a
-row that leaves the list fades while the rows below close over it in 200 ms, and Undo, a
-refused or rolled-back change, or a discarded one returns it the reverse way without selecting
-it. With Reduce Motion the row leaves at once and a returning row only fades in over 150 ms.
-Synchronization and changing the view, search or Filter never move rows, and new mail keeps the
-topmost visible row of a scrolled list in place. On iPhone and iPad, a scroll or a selection
-finishes a leaving row at once; the Mac's leaving row continues its fade. The Mac moves rows
-only while the app shows one window; with several Inbox or
-Settings windows open, every window changes without motion. VoiceOver also offers read, star, archive, trash and spam as actions on each
+row that leaves the list collapses and fades in 200 ms while the rows below follow it up, and
+Undo, a refused or rolled-back change, or a discarded one grows it back from its current height
+without selecting it. A scroll, a selection or another action finishes a row still leaving, and
+on iPhone a row leaves once the reader's Back transition has shown the list. With Reduce Motion
+the row leaves at once and a returning row only fades in over 150 ms. Synchronization and
+changing the view, search or Filter never move rows, and new mail keeps the topmost visible row
+of a scrolled list in place. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. In Trash or Spam, **Move to Inbox**
 takes the place of Archive, Move to Trash and Report spam, and **Undo** of the

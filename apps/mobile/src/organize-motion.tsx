@@ -1,164 +1,317 @@
 import type { ReactNode } from 'react';
-import type { LayoutChangeEvent, StyleProp, ViewStyle } from 'react-native';
-import type {
-  AnimationObject,
-  EntryExitAnimationFunction,
-  LayoutAnimationFunction,
-} from 'react-native-reanimated';
+import type { LayoutChangeEvent } from 'react-native';
 
-import { useLayoutEffect } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import Animated, {
   Easing,
-  LinearTransition,
-  makeMutable,
   ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
   withTiming,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
-import type { InboxMailbox, MailboxList } from './private-storage.ts';
+import { ipad } from './inbox-styles.ts';
 
-// Reanimated replaces Fabric's layout animation delegate, so React Native's LayoutAnimation does
-// nothing here; the Inbox's cells animate through Reanimated instead.
-const timing = { duration: 200, easing: Easing.bezier(0.23, 1, 0.32, 1) };
-// This opacity-only alternative must still fade when Reanimated reads the system preference.
-const reducedTiming = {
-  ...timing,
-  duration: 150,
+// The approved removal and Undo motion. Rows apply Reduce Motion themselves, so Reanimated's own
+// reading of it must not skip the fade that remains.
+const timing = {
+  duration: 200,
+  easing: Easing.bezier(0.23, 1, 0.32, 1),
   reduceMotion: ReduceMotion.Never,
 };
-const shift = LinearTransition.duration(timing.duration)
-  .easing(timing.easing)
-  .build();
-// Set from an organizing outcome until the Inbox lays out the commit that shows it; the cells'
-// worklets read it on the UI thread as that commit mounts.
-const moving = makeMutable(false);
-const reduced = makeMutable(false);
-const still = { initialValues: {}, animations: {} };
+const reducedFade = { ...timing, duration: 150 };
+// The reader's Back transition on iPhone, which shows the list again before a row leaves it.
+const backTransition = 350;
 
-// Counts interruptions: a new outcome, a scroll or a selection takes effect at once, so a row still
-// leaving from an earlier one finishes on its next frame.
-const interruptions = makeMutable(0);
-export const interruptMotion = () => {
-  interruptions.value += 1;
-};
+export type RowMotion = Readonly<{
+  kind: 'leaving' | 'returning';
+  // The reader covered the list when the row left.
+  wait: boolean;
+  reduced: boolean;
+}>;
 
-// A leaving row fades while the rows below close over it; Reduce Motion removes it at once.
-const leave: EntryExitAnimationFunction = () => {
-  'worklet';
-  if (!moving.value || reduced.value) {
-    return still;
-  }
-  const started = interruptions.value;
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- withTiming's public type hides the animation object it returns.
-  const fade = withTiming(0, timing) as unknown as AnimationObject<number>;
-  const frame = fade.onFrame;
-  fade.onFrame = (animation: AnimationObject<number>, now: number) => {
-    'worklet';
-    if (interruptions.value === started) {
-      return frame(animation, now);
+type Leaving<I> = Readonly<{
+  item: I;
+  key: string;
+  // The neighbours it had, which place it while it leaves.
+  after: string | undefined;
+  before: string | undefined;
+  wait: boolean;
+}>;
+
+type Tracked<I> = Readonly<{
+  order: readonly string[];
+  items: readonly I[];
+  outcomes: readonly unknown[];
+  covered: boolean;
+  leaving: ReadonlyArray<Leaving<I>>;
+  returning: ReadonlySet<string>;
+}>;
+
+type Shown<I> = Readonly<{
+  items: readonly I[];
+  keyOf: (item: I) => string;
+  // Each shown mailbox's organizing outcome. Only an action, its Undo or their reconciliation
+  // changes one; synchronization and view changes never do.
+  outcomes: readonly unknown[];
+  // Whether a message is open in the reader, which covers the list on iPhone.
+  reading: boolean;
+}>;
+
+// The same mailboxes show the same outcomes; a changed set of mailboxes is not an outcome.
+const sameOutcomes = (a: readonly unknown[], b: readonly unknown[]) =>
+  a.length !== b.length || a.every((outcome, index) => outcome === b[index]);
+
+// The nearest key on one side of `index` that the list still shows.
+const neighbour = (
+  {
+    order,
+    shown,
+  }: Readonly<{ order: readonly string[]; shown: ReadonlySet<string> }>,
+  index: number,
+  step: -1 | 1,
+) => {
+  for (let at = index + step; at >= 0 && at < order.length; at += step) {
+    const key = order[at];
+    if (key !== undefined && shown.has(key)) {
+      return key;
     }
-    animation.current = 0;
-    return true;
-  };
-  return {
-    initialValues: { opacity: 1 },
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Layout animations take that object where the type says number.
-    animations: { opacity: fade as unknown as number },
-  };
-};
-// A returning row fades in as the rows below part; Reduce Motion only fades it in.
-const enter: EntryExitAnimationFunction = () => {
-  'worklet';
-  return moving.value
-    ? {
-        initialValues: { opacity: 0 },
-        animations: {
-          opacity: withTiming(1, reduced.value ? reducedTiming : timing),
-        },
-      }
-    : still;
-};
-const move: LayoutAnimationFunction = (values) => {
-  'worklet';
-  return moving.value && !reduced.value ? shift(values) : still;
+  }
+  return undefined;
 };
 
-// The Inbox list's cell, which moves only with an organizing outcome.
-export function MovingCell({
-  style,
-  onLayout,
+// The list after a render. Rows an outcome removed keep leaving and rows it brought back return;
+// a new outcome finishes rows still leaving, unless they return. Other changes replace the list.
+function advance<I>(tracked: Tracked<I>, shown: Shown<I>): Tracked<I> {
+  const order = shown.items.map(shown.keyOf);
+  const now = new Set(order);
+  const next = {
+    order,
+    items: shown.items,
+    outcomes: shown.outcomes,
+    covered: shown.reading && !ipad,
+  };
+  if (sameOutcomes(shown.outcomes, tracked.outcomes)) {
+    return {
+      ...tracked,
+      ...next,
+      leaving: tracked.leaving.filter(({ key }) => !now.has(key)),
+    };
+  }
+  const before = new Set(tracked.order);
+  const leaving = tracked.order.flatMap((key, index): Array<Leaving<I>> => {
+    const item = tracked.items[index];
+    return now.has(key) || item === undefined
+      ? []
+      : [
+          {
+            item,
+            key,
+            after: neighbour({ order: tracked.order, shown: now }, index, -1),
+            before: neighbour({ order: tracked.order, shown: now }, index, 1),
+            wait: tracked.covered,
+          },
+        ];
+  });
+  const reversing = new Set(
+    tracked.leaving.filter(({ key }) => now.has(key)).map(({ key }) => key),
+  );
+  return {
+    ...next,
+    leaving,
+    returning: new Set(
+      order.filter((key) => !before.has(key) || reversing.has(key)),
+    ),
+  };
+}
+
+// The sections with each leaving row beside the neighbours it had.
+function place<I, S extends Readonly<{ key: string; data: readonly I[] }>>(
+  sections: readonly S[],
+  leaving: ReadonlyArray<Leaving<I>>,
+  keyOf: (item: I) => string,
+): S[] {
+  if (leaving.length === 0) {
+    return [...sections];
+  }
+  const placed = sections.map((section) => ({
+    ...section,
+    data: [...section.data],
+  }));
+  for (const row of leaving) {
+    const anchor = row.after ?? row.before;
+    const section =
+      placed.find(({ data }) => data.some((item) => keyOf(item) === anchor)) ??
+      placed.at(-1);
+    if (section !== undefined) {
+      const index = section.data.findIndex((item) => keyOf(item) === anchor);
+      const offset = row.after === undefined ? 0 : 1;
+      section.data.splice(
+        index === -1 ? section.data.length : index + offset,
+        0,
+        row.item,
+      );
+    }
+  }
+  return placed;
+}
+
+// Reduce Motion, following changes while the list is shown.
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    let current = true;
+    const read = async () => {
+      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+      if (current) {
+        setReduced(enabled);
+      }
+    };
+    void read();
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      (enabled) => {
+        current = false;
+        setReduced(enabled);
+      },
+    );
+    return () => {
+      current = false;
+      subscription.remove();
+    };
+  }, []);
+  return reduced;
+}
+
+// Removal and Undo continuity for a list: the sections with leaving rows still in place, each
+// row's motion, and the interruptions that finish rows still leaving.
+export function useRowMotion<I>(shown: Shown<I>) {
+  const reduced = useReducedMotion();
+  const [tracked, setTracked] = useState<Tracked<I>>(() => ({
+    order: shown.items.map(shown.keyOf),
+    items: shown.items,
+    outcomes: shown.outcomes,
+    covered: shown.reading && !ipad,
+    leaving: [],
+    returning: new Set(),
+  }));
+  if (
+    shown.items.map(shown.keyOf).join('\n') !== tracked.order.join('\n') ||
+    !sameOutcomes(shown.outcomes, tracked.outcomes) ||
+    (shown.reading !== tracked.covered && !ipad)
+  ) {
+    setTracked(advance(tracked, shown));
+  }
+  const leaving = new Map(tracked.leaving.map((row) => [row.key, row]));
+  return {
+    place: <S extends Readonly<{ key: string; data: readonly I[] }>>(
+      sections: readonly S[],
+    ) => place(sections, tracked.leaving, shown.keyOf),
+    motionOf: (key: string): RowMotion | undefined => {
+      const row = leaving.get(key);
+      if (row !== undefined) {
+        return { kind: 'leaving', wait: row.wait, reduced };
+      }
+      return tracked.returning.has(key)
+        ? { kind: 'returning', wait: false, reduced }
+        : undefined;
+    },
+    // A row finished leaving or returning.
+    settle: (key: string) => {
+      setTracked((current) => ({
+        ...current,
+        leaving: current.leaving.filter((row) => row.key !== key),
+        returning: new Set([...current.returning].filter((k) => k !== key)),
+      }));
+    },
+    // A scroll or a selection takes effect at once, so rows still leaving finish.
+    interrupt: () => {
+      setTracked((current) =>
+        current.leaving.length === 0 ? current : { ...current, leaving: [] },
+      );
+    },
+  };
+}
+
+const styles = StyleSheet.create({ clip: { overflow: 'hidden' } });
+
+// A list row that collapses and fades as it leaves, and grows back from its current height when it
+// returns. Reduce Motion removes a leaving row at once and only fades a returning one in.
+export function MovingRow({
+  motion,
+  onSettled,
   children,
 }: {
-  readonly style?: StyleProp<ViewStyle> | undefined;
-  readonly onLayout?: ((event: LayoutChangeEvent) => void) | undefined;
-  readonly children?: ReactNode;
+  readonly motion: RowMotion | undefined;
+  readonly onSettled: () => void;
+  readonly children: ReactNode;
 }) {
+  const kind = motion?.kind;
+  const wait = motion?.wait === true;
+  const reduced = motion?.reduced === true;
+  // The content's own height, and the share of it the row shows.
+  const natural = useSharedValue(-1);
+  const size = useSharedValue(kind === 'returning' ? 0 : 1);
+  const opacity = useSharedValue(kind === 'returning' ? 0 : 1);
+  const settle = useRef(onSettled);
+  useEffect(() => {
+    settle.current = onSettled;
+  });
+  useEffect(() => {
+    if (kind === undefined) {
+      return;
+    }
+    const settled = () => {
+      settle.current();
+    };
+    const done = (finished?: boolean) => {
+      'worklet';
+      if (finished === true) {
+        scheduleOnRN(settled);
+      }
+    };
+    if (kind === 'leaving') {
+      if (reduced) {
+        settled();
+        return;
+      }
+      const delay = wait ? backTransition : 0;
+      size.set(withDelay(delay, withTiming(0, timing)));
+      opacity.set(withDelay(delay, withTiming(0, timing, done)));
+      return;
+    }
+    if (reduced) {
+      size.set(1);
+      opacity.set(withTiming(1, reducedFade, done));
+      return;
+    }
+    size.set(withTiming(1, timing));
+    opacity.set(withTiming(1, timing, done));
+  }, [kind, wait, reduced, size, opacity, settle]);
+  // Until the content is measured, a row that returns stays collapsed and any other row keeps its
+  // own height.
+  const shown = useAnimatedStyle(() => {
+    if (natural.value >= 0) {
+      return { height: natural.value * size.value, opacity: opacity.value };
+    }
+    return size.value < 1
+      ? { height: 0, opacity: opacity.value }
+      : { opacity: opacity.value };
+  });
+  const measure = ({ nativeEvent }: LayoutChangeEvent) => {
+    natural.set(nativeEvent.layout.height);
+  };
+  const gone = kind === 'leaving';
   return (
     <Animated.View
-      entering={enter}
-      exiting={leave}
-      layout={move}
-      style={style}
-      onLayout={onLayout}>
-      {children}
+      style={[styles.clip, shown]}
+      pointerEvents={gone ? 'none' : 'auto'}
+      accessibilityElementsHidden={gone}
+      importantForAccessibility={gone ? 'no-hide-descendants' : 'auto'}>
+      <Animated.View onLayout={measure}>{children}</Animated.View>
     </Animated.View>
   );
-}
-
-// Only the commit that shows an organizing outcome moves rows: once the Inbox has laid it out,
-// later synchronization and view changes replace the list without motion.
-export function useSettledMotion() {
-  useLayoutEffect(() => {
-    moving.value = false;
-  });
-}
-
-// The organizing outcome a mailbox shows, which only an action, its Undo or its reconciliation
-// changes; synchronization keeps it.
-const outcome = (state: InboxMailbox['state']) =>
-  state.kind === 'ready' && 'notice' in state ? state.notice : undefined;
-
-// Moves the rows each organizing outcome changes, in the commit that shows it: a removal, its
-// Undo, a refused or rolled-back change and a discarded one. Synchronization and switching views
-// change the list without motion. Returns the unsubscribe function.
-export function animateOrganizing(mailboxes: MailboxList) {
-  let shown = mailboxes.getSnapshot();
-  let current = true;
-  const read = async () => {
-    const enabled = await AccessibilityInfo.isReduceMotionEnabled();
-    if (current) {
-      reduced.value = enabled;
-    }
-  };
-  void read();
-  const preference = AccessibilityInfo.addEventListener(
-    'reduceMotionChanged',
-    (enabled) => {
-      current = false;
-      reduced.value = enabled;
-    },
-  );
-  const unsubscribe = mailboxes.subscribe(() => {
-    const next = mailboxes.getSnapshot();
-    const changed = next.some((mailbox) => {
-      const before = shown.find(({ id }) => id === mailbox.id);
-      return (
-        before?.state.kind === 'ready' &&
-        mailbox.state.kind === 'ready' &&
-        outcome(before.state) !== outcome(mailbox.state)
-      );
-    });
-    shown = next;
-    if (changed) {
-      interruptMotion();
-      moving.value = true;
-    }
-  });
-  return () => {
-    current = false;
-    moving.value = false;
-    preference.remove();
-    unsubscribe();
-  };
 }
