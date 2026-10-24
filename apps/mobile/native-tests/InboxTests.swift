@@ -326,7 +326,8 @@ final class InboxTests: XCTestCase {
 
   // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
   // the Startup Profile and offers Add Mail Profile…, the Startup Profile's system pop-up menu and
-  // each mailbox's Mail Profile pop-up. Open Inbox returns to the Mailboxes the switcher sits in.
+  // each mailbox's Mail Profile pop-up. Open Inbox shows the kept Inbox (#1069), whose Back returns
+  // to the switcher's Mailboxes.
   private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) {
     switcher.tap()
     let manage = app.buttons["Manage Mail Profiles…"]
@@ -396,9 +397,11 @@ final class InboxTests: XCTestCase {
       }, timeout: 10)
     }
     app.buttons["Open Inbox"].tap()
-    if UIDevice.current.userInterfaceIdiom == .pad
-      && (!switcher.exists || !switcher.isHittable)
-    {
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let back = app.buttons["Back to Mailboxes"]
+      waitUntil { back.isHittable && !switcher.isHittable }
+      back.tap()
+    } else if !switcher.exists || !switcher.isHittable {
       app.navigationBars.buttons.firstMatch.tap()
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
@@ -639,6 +642,26 @@ final class InboxTests: XCTestCase {
     mailboxes.name = "Mailboxes after swiping back from Settings"
     mailboxes.lifetime = .keepAlways
     add(mailboxes)
+    // #1069: Open Inbox from a pushed destination shows the kept list rather than Mailboxes, and
+    // Settings reopens on its list of destinations, not the one left open.
+    account.tap()
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.tap()
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    destination.buttons["Open Inbox"].tap()
+    waitUntil { back.isHittable && !account.isHittable && !destination.exists }
+    XCTAssertTrue(thread.exists)
+    let inbox = XCTAttachment(screenshot: app.screenshot())
+    inbox.name = "Kept Inbox after Open Inbox from Settings"
+    inbox.lifetime = .keepAlways
+    add(inbox)
+    back.tap()
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    XCTAssertFalse(destination.exists)
+    edgeSwipe(app, completing: true)
+    waitUntil { account.isHittable && !settings.exists }
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -839,10 +862,6 @@ final class InboxTests: XCTestCase {
     assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
     app.buttons["Open Inbox"].tap()
-    // iPhone returns to the Mailboxes column that Account was opened from.
-    if UIDevice.current.userInterfaceIdiom == .phone {
-      app.buttons["Inbox. In other@example.invalid"].tap()
-    }
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
     let body = app.webViews.textViews["Message body"]
