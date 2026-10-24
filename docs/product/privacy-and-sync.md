@@ -30,6 +30,13 @@ implemented.
 
 ## Local storage and background freshness
 
+The [confirmed launch requirements](power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+supersede the Private Sync Draft content and asset transport below with canonical
+provider-hosted Drafts and encrypted local offline copies. Automatic verified
+migration is required and remains unimplemented. Other Private Sync data keeps
+its end-to-end encryption boundary; the product backend still receives no
+readable Draft content or provider credentials.
+
 - **Durable Message Metadata** is retained separately from the **Bounded Encrypted Body Cache**
 - **Durable Message Metadata** is read locally before mailbox synchronization updates it
 - **Initial Mailbox Availability** requires the newest 50 message metadata, or all provider-visible messages when fewer exist, and does not wait for full history

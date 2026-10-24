@@ -575,6 +575,14 @@ Profile creation in #920.
 
 ## Synchronized Draft records and assets
 
+This section records the current Private Sync Draft implementation.
+[ADR 0074](../adr/0074-use-provider-hosted-drafts-for-cross-client-editing.md)
+supersedes this transport for the maintained launch target. Provider authority,
+encrypted offline copies and automatic verified migration remain unimplemented;
+the [launch contract](../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+owns the observable requirements. Other Private Sync data retains its existing
+encryption boundary.
+
 Issue #614 keeps merge orchestration in the framework-independent TypeScript Draft
 store; native `DraftSync` seals/opens and moves ciphertext, with keys retained in
 Apple code. Draft identifiers are account-specific HMAC addresses under `draft.`.

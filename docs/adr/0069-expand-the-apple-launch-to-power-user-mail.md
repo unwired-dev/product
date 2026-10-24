@@ -4,6 +4,18 @@ status: accepted
 
 # Expand the Apple launch to power-user mail
 
+## Continued interview amendment, 2026-10-24
+
+The owner confirmed the [additional launch requirements](../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24),
+including larger Microsoft sends, invitation responses with separate optional
+calendar addition, automatic valid organizer updates for opted-in events and
+lossless provider-hosted Draft editing. [ADR 0074](0074-use-provider-hosted-drafts-for-cross-client-editing.md)
+records the changed Draft authority and privacy tradeoff.
+[ADR 0045](0045-keep-contact-and-event-content-out-of-product-sync.md#invitation-launch-amendment-2026-10-24)
+records the narrow supersession of repeated Calendar review. Other privacy,
+delivery and platform requirements remain in force. Runtime work remains pending;
+the specification owns qualification coverage.
+
 ## Context
 
 The product owner completed the feature-gap interview on 2026-10-11 and
