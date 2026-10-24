@@ -8,7 +8,6 @@ import type { LayoutChangeEvent } from 'react-native';
 import {
   advanceRowMotion,
   placeLeavingRows,
-  sameOrganizingOutcomes,
 } from '@private-email/mail-core/mailboxes';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -18,6 +17,11 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+
+import { ModalBackground } from './design.tsx';
+
+// Core macOS views ignore accessibilityElementsHidden; the existing native container hides its subtree.
+const AnimatedRow = Animated.createAnimatedComponent(ModalBackground);
 
 // The approved removal and Undo motion. Height is a layout property, so it runs on the JavaScript
 // driver.
@@ -70,16 +74,14 @@ export function useRowMotion<I>(shown: Shown<I>) {
     order: shown.sections.flatMap(({ data }) => data.map(shown.keyOf)),
     sections: shown.sections,
     outcomes: shown.outcomes,
+    scope: shown.scope,
     covered: false,
     leaving: [],
     returning: new Set(),
   }));
-  if (
-    shown.sections.flatMap(({ data }) => data.map(shown.keyOf)).join('\n') !==
-      tracked.order.join('\n') ||
-    !sameOrganizingOutcomes(shown.outcomes, tracked.outcomes)
-  ) {
-    setTracked(advanceRowMotion(tracked, { ...shown, covered: false }));
+  const next = advanceRowMotion(tracked, { ...shown, covered: false });
+  if (next !== tracked) {
+    setTracked(next);
   }
   const leaving = new Map(tracked.leaving.map((row) => [row.key, row]));
   return {
@@ -145,6 +147,8 @@ export function MovingRow({
   });
   useEffect(() => {
     if (kind === undefined) {
+      size.setValue(1);
+      opacity.setValue(1);
       return undefined;
     }
     const settled = ({ finished }: Readonly<{ finished: boolean }>) => {
@@ -189,7 +193,7 @@ export function MovingRow({
       : size.interpolate({ inputRange: [0, 1], outputRange: [0, natural] });
   const gone = kind === 'leaving';
   return (
-    <Animated.View
+    <AnimatedRow
       style={[styles.clip, { height, opacity }]}
       pointerEvents={gone ? 'none' : 'auto'}
       accessibilityElementsHidden={gone}
@@ -199,6 +203,6 @@ export function MovingRow({
         onLayout={measure}>
         {children}
       </View>
-    </Animated.View>
+    </AnimatedRow>
   );
 }

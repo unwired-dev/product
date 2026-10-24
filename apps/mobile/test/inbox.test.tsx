@@ -2280,6 +2280,25 @@ describe('organizing motion', () => {
       reduced.mockRestore();
     }
   });
+
+  it('retires leaving rows when search replaces the list', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    gmail.deliver({ subject: 'Dinner on Saturday' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    await archive('Lunch on Friday');
+    expect(leavingRows('Lunch on Friday')).toBe(1);
+
+    await fireEvent(
+      screen.getByLabelText('Search senders and subjects'),
+      'focus',
+    );
+    expect(
+      screen.queryByText('Lunch on Friday', { includeHiddenElements: true }),
+    ).toBeNull();
+  });
 });
 
 describe('command palette', () => {

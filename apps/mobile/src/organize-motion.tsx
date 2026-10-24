@@ -8,7 +8,6 @@ import type { LayoutChangeEvent } from 'react-native';
 import {
   advanceRowMotion,
   placeLeavingRows,
-  sameOrganizingOutcomes,
 } from '@private-email/mail-core/mailboxes';
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, StyleSheet, View } from 'react-native';
@@ -79,19 +78,17 @@ export function useRowMotion<I>(shown: Shown<I>) {
     order: shown.sections.flatMap(({ data }) => data.map(shown.keyOf)),
     sections: shown.sections,
     outcomes: shown.outcomes,
+    scope: shown.scope,
     covered: shown.reading && !ipad,
     leaving: [],
     returning: new Set(),
   }));
-  if (
-    shown.sections.flatMap(({ data }) => data.map(shown.keyOf)).join('\n') !==
-      tracked.order.join('\n') ||
-    !sameOrganizingOutcomes(shown.outcomes, tracked.outcomes) ||
-    (shown.reading !== tracked.covered && !ipad)
-  ) {
-    setTracked(
-      advanceRowMotion(tracked, { ...shown, covered: shown.reading && !ipad }),
-    );
+  const next = advanceRowMotion(tracked, {
+    ...shown,
+    covered: shown.reading && !ipad,
+  });
+  if (next !== tracked) {
+    setTracked(next);
   }
   const leaving = new Map(tracked.leaving.map((row) => [row.key, row]));
   return {
@@ -153,6 +150,8 @@ export function MovingRow({
   });
   useEffect(() => {
     if (kind === undefined) {
+      size.set(1);
+      opacity.set(1);
       return;
     }
     const settled = () => {

@@ -9,6 +9,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
 
+#### Organizing row continuity
+
+- `mailbox-motion.ts.advanceRowMotion` comparing outcome arrays without the
+  mailbox owners and view/search/Filter scope. A mailbox switch can replace one
+  notice with another at the same array index, and a new query can retain the
+  preceding view's leaving rows. Retire motion on scope or access replacement
+  before comparing outcomes, or unrelated mailbox content animates together and
+  rows excluded by the new view remain rendered.
+- Row-motion bookkeeping considering only flattened row order and outcomes when
+  deciding whether sections changed. A midnight date-group change can preserve
+  both while changing every cell's section-prefixed identity. Track the current
+  section keys before a later removal, or the leaving row is reinserted into a
+  stale section and its mounted instance and Undo reversal are lost.
+
 #### Reporting consent and failure observation
 
 - `error-reporting.ts.flush` or `deliverQueue` discarding a capture retry delay or

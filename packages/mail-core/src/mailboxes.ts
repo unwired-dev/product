@@ -41,11 +41,7 @@ export { filterMessages, matchedRanges } from './mailbox-matching.ts';
 export type { InboxFilter } from './mailbox-matching.ts';
 export type { MailboxProblem } from './mailbox-views.ts';
 export type { RowMotionState, ShownRows } from './mailbox-motion.ts';
-export {
-  advanceRowMotion,
-  placeLeavingRows,
-  sameOrganizingOutcomes,
-} from './mailbox-motion.ts';
+export { advanceRowMotion, placeLeavingRows } from './mailbox-motion.ts';
 export {
   createGmailViewEntries,
   failedFolders,

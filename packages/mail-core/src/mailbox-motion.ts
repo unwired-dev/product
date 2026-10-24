@@ -14,6 +14,7 @@ export type RowMotionState<I> = Readonly<{
   order: readonly string[];
   sections: ReadonlyArray<RowSection<I>>;
   outcomes: readonly unknown[];
+  scope: readonly unknown[];
   covered: boolean;
   leaving: ReadonlyArray<Leaving<I>>;
   returning: ReadonlySet<string>;
@@ -25,15 +26,18 @@ export type ShownRows<I> = Readonly<{
   // Each shown mailbox's organizing outcome. Only an action, its Undo or their reconciliation
   // changes one; synchronization and view changes never do.
   outcomes: readonly unknown[];
+  // View/search/filter choices and the live mailbox owners. Replacing them retires row motion.
+  scope: readonly unknown[];
   // Whether a native reader transition must finish before the leaving row starts.
   covered: boolean;
 }>;
 
 // The same mailboxes show the same outcomes; a changed set of mailboxes is not an outcome.
-export const sameOrganizingOutcomes = (
-  a: readonly unknown[],
-  b: readonly unknown[],
-) => a.length !== b.length || a.every((outcome, index) => outcome === b[index]);
+const sameOrganizingOutcomes = (a: readonly unknown[], b: readonly unknown[]) =>
+  a.length !== b.length || a.every((outcome, index) => outcome === b[index]);
+
+const sameValues = (a: readonly unknown[], b: readonly unknown[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
 
 // The nearest key on one side of `index` that the list still shows.
 const neighbour = (
@@ -60,13 +64,37 @@ export function advanceRowMotion<I>(
   shown: ShownRows<I>,
 ): RowMotionState<I> {
   const order = shown.sections.flatMap(({ data }) => data.map(shown.keyOf));
+  const sameScope = sameValues(shown.scope, tracked.scope);
+  if (
+    sameScope &&
+    shown.covered === tracked.covered &&
+    sameValues(shown.outcomes, tracked.outcomes) &&
+    shown.sections.length === tracked.sections.length &&
+    shown.sections.every((section, index) => {
+      const previous = tracked.sections[index];
+      return (
+        previous !== undefined &&
+        section.key === previous.key &&
+        sameValues(
+          section.data.map(shown.keyOf),
+          previous.data.map(shown.keyOf),
+        )
+      );
+    })
+  ) {
+    return tracked;
+  }
   const now = new Set(order);
   const next = {
     order,
     sections: shown.sections,
     outcomes: shown.outcomes,
+    scope: shown.scope,
     covered: shown.covered,
   };
+  if (!sameScope) {
+    return { ...next, leaving: [], returning: new Set() };
+  }
   if (sameOrganizingOutcomes(shown.outcomes, tracked.outcomes)) {
     return {
       ...tracked,

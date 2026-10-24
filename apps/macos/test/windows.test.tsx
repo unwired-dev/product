@@ -39,6 +39,7 @@ import {
 import {
   AccessibilityInfo,
   Alert,
+  Animated,
   AppState,
   ScrollView,
   TurboModuleRegistry,
@@ -832,6 +833,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
 
   it('keeps a removed row leaving in each window until Undo or a scroll there, never for synchronization', async () => {
     expect.hasAssertions();
+    const timing = jest.spyOn(Animated, 'timing');
+    const stopListening: Array<() => void> = [];
     const gmail = createSyntheticGmail();
     const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
     gmail.deliver({ subject: 'Lunch on Friday' });
@@ -879,6 +882,23 @@ describe('mac windows over a connected Gmail mailbox', () => {
       });
       await first.findByRole('button', { name: /Lunch on Friday/u });
 
+      // Supply an unfinished animation frame at the native boundary. Another action must leave
+      // the restored row fully visible, rather than freezing its height and opacity halfway.
+      const restoredFrames = new Map<Animated.Value, number>();
+      await act(() => {
+        for (const [value] of timing.mock.calls.filter(
+          ([, config]) => config.toValue === 1,
+        )) {
+          ok(value instanceof Animated.Value);
+          const listener = value.addListener(({ value: frame }) => {
+            restoredFrames.set(value, frame);
+          });
+          stopListening.push(() => {
+            value.removeListener(listener);
+          });
+          value.setValue(0.5);
+        }
+      });
       expect({
         synchronized,
         archived,
@@ -890,8 +910,26 @@ describe('mac windows over a connected Gmail mailbox', () => {
         scrolled: [0, 1],
         undone: [0, 0],
       });
+      await act(async () => {
+        await fireEvent(
+          first.getByRole('button', { name: /Arrives quietly/u }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      expect([...restoredFrames.values()]).toStrictEqual([1, 1, 1, 1]);
+      await fireEvent.changeText(
+        first.getByLabelText('Search senders and subjects'),
+        'Lunch on Friday',
+      );
+      // Replacing a query retires its old rows only in that window.
+      expect(leaving('Arrives quietly')).toStrictEqual([0, 1]);
     } finally {
       await app.unmount();
+      for (const stop of stopListening) {
+        stop();
+      }
+      timing.mockRestore();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
     }
   });

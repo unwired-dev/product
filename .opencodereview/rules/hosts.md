@@ -138,6 +138,19 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   rows and its retirement, including synchronization immediately afterwards;
   otherwise a correct action animation also animates background arrivals.
   A subscription-time worklet probe does not establish native mount ordering.
+- `organize-motion.MovingRow` dropping its motion kind while retaining animated
+  height or opacity. Exercise Undo followed by another action during restoration,
+  and a view change that keeps the same message and section key. Reset a retained
+  row to full height and opacity when it no longer owns motion, cancelling its
+  prior animation; otherwise Mac can freeze a partially restored row and mobile
+  can continue collapsing a message the replacement view still lists.
+- Mac `organize-motion.MovingRow` hiding retained leaving rows with only core
+  `View` accessibility props. Installed Fabric excludes
+  `accessibilityElementsHidden` on macOS, and `importantForAccessibility` is an
+  Android property. Use the existing `ModalBackground` native container for
+  subtree hiding, or VoiceOver can still reach stale row actions while Jest's
+  generic hidden-element queries claim they are gone. Native VoiceOver evidence
+  remains separate from the rendered prop assertion.
 - `organize-motion` dropping future animation eligibility while leaving an
   already-started exit running after scroll or selection. Trace retained rows,
   the installed engine's animation ownership and the interrupting handlers
