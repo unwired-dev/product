@@ -19,8 +19,13 @@ const outcome = (state: InboxMailbox['state']) =>
 
 // Animates the rows each organizing outcome moves, in the commit that shows it: a removal, its
 // Undo, a refused or rolled-back change and a discarded one. Synchronization and switching views
-// change the list without motion. Returns the unsubscribe function.
-export function animateOrganizing(mailboxes: MailboxList) {
+// change the list without motion. React Native configures the next layout animation for whichever
+// window mounts first, so the motion runs only while the app shows one window; with several, every
+// window changes without it. Returns the unsubscribe function.
+export function animateOrganizing(
+  mailboxes: MailboxList,
+  alone: () => boolean,
+) {
   let reduced = false;
   let shown = mailboxes.getSnapshot();
   const read = async () => {
@@ -44,7 +49,7 @@ export function animateOrganizing(mailboxes: MailboxList) {
       );
     });
     shown = next;
-    if (changed) {
+    if (changed && alone()) {
       LayoutAnimation.configureNext(reduced ? reducedMotion : motion);
     }
   });

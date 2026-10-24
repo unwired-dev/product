@@ -160,10 +160,11 @@ verification status applies to these transitions.
 | Mac sidebar show and hide in `window.tsx`                                                                                                                          | Instant mount and unmount                                                                                                                                                                                  | Migration: #1058                                                                                                   |
 | Notices (synchronization, authorization, storage, organize outcomes): `inbox.tsx`, `design.tsx`; Mac `organize.tsx`, mobile `organize-status.tsx`                  | Mount instantly; outcomes announce once, with alerts for refused or blocked changes                                                                                                                        | Sufficient                                                                                                         |
 
-The #1091 review found two remaining continuity gaps: Mac motion currently reaches at most
-one native window surface per action, and an ongoing mobile row exit continues after scroll
-or selection instead of finishing immediately. The implemented rows above do not qualify
-those cases. Reduce Motion and scrolled synchronization still need native qualification.
+A scroll or a selection finishes a row still leaving, and a new outcome finishes the previous
+one's. React Native's Mac layout animation applies to whichever window mounts next, so the Mac
+moves rows only while the app shows one window; with several Inbox or Settings windows open,
+every window changes without motion, a difference from the approved frames. Reduce Motion and
+scrolled synchronization still need native qualification.
 
 ## Proposed motion specification
 

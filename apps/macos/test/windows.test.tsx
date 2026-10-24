@@ -831,7 +831,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('requests one animation for an action in either window, but not for synchronization', async () => {
+  it('animates organizing in a lone window, never synchronization or several windows', async () => {
     expect.hasAssertions();
     const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
     const gmail = createSyntheticGmail();
@@ -841,39 +841,56 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const app = await render(
       <Windows
         first
-        second
+        second={false}
       />,
     );
-    try {
-      const first = within(app.getByTestId('inbox-window-first'));
-      const second = within(app.getByTestId('inbox-window-second'));
-      await first.findByRole('button', { name: /Lunch on Friday/u });
-      gmail.deliver({ subject: 'Arrives quietly' });
-      await act(inbox.load);
-      await expect(
-        second.findByRole('button', { name: /Arrives quietly/u }),
-      ).resolves.toBeVisible();
-      expect(configureNext).not.toHaveBeenCalled();
-
+    const archive = async (window: ReturnType<typeof within>) => {
       await act(async () => {
         await fireEvent(
-          second.getByRole('button', { name: /Lunch on Friday/u }),
+          await window.findByRole('button', { name: /Lunch on Friday/u }),
           'accessibilityAction',
           { nativeEvent: { actionName: 'archive' } },
         );
       });
-      expect(
-        first.queryByRole('button', { name: /Lunch on Friday/u }),
-      ).toBeNull();
-      expect(configureNext.mock.calls).toStrictEqual([
-        [
-          {
-            duration: 200,
-            create: { type: 'easeOut', property: 'opacity' },
-            update: { type: 'easeOut' },
-            delete: { type: 'easeOut', property: 'opacity' },
-          },
-        ],
+    };
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      await first.findByRole('button', { name: /Lunch on Friday/u });
+      // The animation requests after each step.
+      const steps: number[] = [];
+      gmail.deliver({ subject: 'Arrives quietly' });
+      await act(inbox.load);
+      await first.findByRole('button', { name: /Arrives quietly/u });
+      steps.push(configureNext.mock.calls.length);
+      await archive(first);
+      steps.push(configureNext.mock.calls.length);
+      await act(async () => {
+        await fireEvent.press(first.getByRole('button', { name: 'Undo' }));
+      });
+      steps.push(configureNext.mock.calls.length);
+      // A second window could take the one configured animation, so neither window gets it.
+      await app.rerender(
+        <Windows
+          first
+          second
+        />,
+      );
+      await archive(within(app.getByTestId('inbox-window-second')));
+      await waitFor(() => {
+        expect(
+          first.queryByRole('button', { name: /Lunch on Friday/u }),
+        ).toBeNull();
+      });
+      steps.push(configureNext.mock.calls.length);
+
+      expect(steps).toStrictEqual([0, 1, 2, 2]);
+      expect(configureNext.mock.calls[0]).toStrictEqual([
+        {
+          duration: 200,
+          create: { type: 'easeOut', property: 'opacity' },
+          update: { type: 'easeOut' },
+          delete: { type: 'easeOut', property: 'opacity' },
+        },
       ]);
     } finally {
       configureNext.mockRestore();

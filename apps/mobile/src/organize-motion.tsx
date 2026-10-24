@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { LayoutChangeEvent, StyleProp, ViewStyle } from 'react-native';
 import type {
+  AnimationObject,
   EntryExitAnimationFunction,
   LayoutAnimationFunction,
 } from 'react-native-reanimated';
@@ -35,15 +36,36 @@ const moving = makeMutable(false);
 const reduced = makeMutable(false);
 const still = { initialValues: {}, animations: {} };
 
+// Counts interruptions: a new outcome, a scroll or a selection takes effect at once, so a row still
+// leaving from an earlier one finishes on its next frame.
+const interruptions = makeMutable(0);
+export const interruptMotion = () => {
+  interruptions.value += 1;
+};
+
 // A leaving row fades while the rows below close over it; Reduce Motion removes it at once.
 const leave: EntryExitAnimationFunction = () => {
   'worklet';
-  return moving.value && !reduced.value
-    ? {
-        initialValues: { opacity: 1 },
-        animations: { opacity: withTiming(0, timing) },
-      }
-    : still;
+  if (!moving.value || reduced.value) {
+    return still;
+  }
+  const started = interruptions.value;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- withTiming's public type hides the animation object it returns.
+  const fade = withTiming(0, timing) as unknown as AnimationObject<number>;
+  const frame = fade.onFrame;
+  fade.onFrame = (animation: AnimationObject<number>, now: number) => {
+    'worklet';
+    if (interruptions.value === started) {
+      return frame(animation, now);
+    }
+    animation.current = 0;
+    return true;
+  };
+  return {
+    initialValues: { opacity: 1 },
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Layout animations take that object where the type says number.
+    animations: { opacity: fade as unknown as number },
+  };
 };
 // A returning row fades in as the rows below part; Reduce Motion only fades it in.
 const enter: EntryExitAnimationFunction = () => {
@@ -125,6 +147,7 @@ export function animateOrganizing(mailboxes: MailboxList) {
     });
     shown = next;
     if (changed) {
+      interruptMotion();
       moving.value = true;
     }
   });

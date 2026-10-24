@@ -76,6 +76,19 @@ const followOnce = (store: object, follow: () => () => void) => {
   };
 };
 
+// The app's open windows, Inbox and Settings alike: each is a native surface that a mailbox change
+// can render again.
+let openWindows = 0;
+export function useAppWindow() {
+  useEffect(() => {
+    openWindows += 1;
+    return () => {
+      openWindows -= 1;
+    };
+  }, []);
+}
+const aloneInApp = () => openWindows === 1;
+
 export function InboxProvider({
   children,
   mailboxes = defaultMailboxes,
@@ -90,6 +103,7 @@ export function InboxProvider({
 }) {
   const refreshInbox = use(AccountContext)?.refreshInbox;
   const navigation = useMemo(() => createComposerNavigation(), []);
+  useAppWindow();
   useEffect(() => {
     void drafts.load();
     // Returning picks up other devices' Draft changes; leaving publishes this device's.
@@ -116,7 +130,7 @@ export function InboxProvider({
               : refreshInbox(mailboxes.load));
           }
         });
-        const stopAnimating = animateOrganizing(mailboxes);
+        const stopAnimating = animateOrganizing(mailboxes, aloneInApp);
         return () => {
           subscription.remove();
           stopAnimating();

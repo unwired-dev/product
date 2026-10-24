@@ -68,7 +68,11 @@ import {
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
-import { MovingCell, useSettledMotion } from './organize-motion.tsx';
+import {
+  interruptMotion,
+  MovingCell,
+  useSettledMotion,
+} from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
 import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -572,6 +576,7 @@ export function Inbox({
   const mailboxes = useMailboxes();
   const leave = useLeaveComposer();
   const select = async (selection: Selection) => {
+    interruptMotion();
     if (onSelectBehindComposer !== undefined) {
       reporting.breadcrumb({ operation: 'reader', stage: 'open' });
       onSelectBehindComposer(selection);
@@ -870,6 +875,7 @@ export function Inbox({
             accessibilityLabel={t('inbox.messages')}
             maintainVisibleContentPosition={keepPosition}
             CellRendererComponent={MovingCell}
+            onScrollBeginDrag={interruptMotion}
             onScroll={({ nativeEvent }) => {
               setKeepPosition(
                 nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,

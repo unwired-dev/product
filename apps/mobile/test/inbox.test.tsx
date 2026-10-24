@@ -2240,10 +2240,11 @@ describe('organizing motion', () => {
   const firstFade = async (
     store: Readonly<{ subscribe: (listener: () => void) => () => void }>,
     step: () => Promise<void>,
+    kind: 'entering' | 'exiting' = 'entering',
   ): Promise<AnimationProbe> => {
     const fades: AnimationProbe[] = [];
     const stop = store.subscribe(() => {
-      fades.push(movingCell().props.entering().animations.opacity);
+      fades.push(movingCell().props[kind]().animations.opacity);
     });
     try {
       await step();
@@ -2252,7 +2253,7 @@ describe('organizing motion', () => {
     }
     const [fade] = fades;
     if (fade === undefined) {
-      throw new Error('Expected the returning row to fade');
+      throw new Error(`Expected an ${kind} fade`);
     }
     return fade;
   };
@@ -2288,6 +2289,47 @@ describe('organizing motion', () => {
       archived: ['opacity opacity', 'still still'],
       after: ['still still'],
       undone: ['opacity opacity', 'still still'],
+    });
+  });
+
+  it('finishes a leaving row at once when a scroll or a selection interrupts it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    gmail.deliver({ subject: 'Dinner on Saturday' });
+    gmail.deliver({ subject: 'Breakfast on Sunday' });
+    const connected = await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    const store = connected.store();
+    // Each fade's opacity and whether it finished, one frame into the fade and one after the
+    // interruption.
+    const interrupted = async (
+      subject: string,
+      interrupt: () => Promise<void>,
+    ) => {
+      const fade = await firstFade(store, () => archive(subject), 'exiting');
+      fade.onStart(fade, 1, 1000, undefined);
+      const early = fade.onFrame(fade, 1016);
+      await interrupt();
+      const finished = fade.onFrame(fade, 1032);
+      return [early, finished, fade.current];
+    };
+
+    const scrolled = await interrupted('Lunch on Friday', async () => {
+      await fireEvent(
+        screen.getByLabelText('Inbox messages'),
+        'scrollBeginDrag',
+      );
+    });
+    const selected = await interrupted('Dinner on Saturday', async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: /Breakfast on Sunday/u }),
+      );
+    });
+
+    expect({ scrolled, selected }).toStrictEqual({
+      scrolled: [false, true, 0],
+      selected: [false, true, 0],
     });
   });
 
