@@ -68,6 +68,7 @@ import {
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
+import { MovingCell } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
 import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -867,6 +868,7 @@ export function Inbox({
           <SectionList
             accessibilityLabel={t('inbox.messages')}
             maintainVisibleContentPosition={keepPosition}
+            CellRendererComponent={MovingCell}
             onScroll={({ nativeEvent }) => {
               setKeepPosition(
                 nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,

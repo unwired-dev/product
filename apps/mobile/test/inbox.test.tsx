@@ -35,7 +35,6 @@ import {
   AccessibilityInfo,
   AppState,
   Dimensions,
-  LayoutAnimation,
   Linking,
   StyleSheet,
   View,
@@ -2160,11 +2159,32 @@ const listedMessage = (
 };
 
 describe('organizing motion', () => {
-  const moved = {
-    duration: 200,
-    create: { type: 'easeOut', property: 'opacity' },
-    update: { type: 'easeOut' },
-    delete: { type: 'easeOut', property: 'opacity' },
+  // What the Inbox's first cell would do if it left or returned now.
+  const cellMotion = () => {
+    type Node = ReturnType<typeof screen.getByLabelText>;
+    const cell = (function find(node: Node): Node | undefined {
+      if (typeof node.props.exiting === 'function') {
+        return node;
+      }
+      for (const child of node.children) {
+        const found = typeof child === 'string' ? undefined : find(child);
+        if (found !== undefined) {
+          return found;
+        }
+      }
+      return undefined;
+    })(screen.getByLabelText('Inbox messages'));
+    if (cell === undefined) {
+      throw new Error('Expected an animated Inbox cell');
+    }
+    const motion = (animation: () => { animations: Record<string, unknown> }) =>
+      animation().animations;
+    const leaves = motion(cell.props.exiting);
+    const enters = motion(cell.props.entering);
+    return [
+      Object.keys(leaves).join(',') || 'still',
+      Object.keys(enters).join(',') || 'still',
+    ];
   };
   const archive = async (subject: string) => {
     await act(async () => {
@@ -2175,52 +2195,44 @@ describe('organizing motion', () => {
       );
     });
   };
-
-  it('moves rows for an action, its Undo and a refusal, but not for synchronization', async () => {
-    expect.hasAssertions();
-    const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
-    try {
-      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-      gmail.deliver({ subject: 'Lunch on Friday' });
-      const connected = await renderConnected(gmail.native);
-      await screen.findByRole('button', { name: /Lunch on Friday/u });
-      // After each step: the animated commits so far, and whether the row is listed.
-      const steps: Array<readonly [number, boolean]> = [];
-      const step = () => {
-        steps.push([
-          configureNext.mock.calls.length,
-          screen.queryByText('Lunch on Friday') !== null,
-        ]);
-      };
-
-      gmail.deliver({ subject: 'Arrives quietly' });
-      await act(connected.store().load);
-      await screen.findByText('Arrives quietly');
-      step();
-      await archive('Lunch on Friday');
-      step();
-      await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+  // The motion window closes once the outcome's commit has mounted.
+  const settle = async () => {
+    await act(async () => {
+      // oxlint-disable-next-line promise/avoid-new -- Real time, past the motion window.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 450);
       });
-      step();
-      // A refused change returns its row the way Undo does.
-      gmail.failModify({ status: 400 });
-      await archive('Lunch on Friday');
-      await screen.findByRole('alert', { name: /Gmail could not archive/u });
-      step();
+    });
+  };
 
-      expect(steps).toStrictEqual([
-        [0, true],
-        [1, false],
-        [2, true],
-        [4, true],
-      ]);
-      expect(configureNext.mock.calls).toStrictEqual(
-        Array.from({ length: 4 }, () => [moved]),
-      );
-    } finally {
-      configureNext.mockRestore();
-    }
+  it('moves rows for an action and its Undo, but not for synchronization', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    const connected = await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    const steps = [];
+
+    gmail.deliver({ subject: 'Arrives quietly' });
+    await act(connected.store().load);
+    await screen.findByText('Arrives quietly');
+    steps.push(cellMotion());
+    await archive('Lunch on Friday');
+    steps.push(cellMotion());
+    await settle();
+    steps.push(cellMotion());
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+    });
+    await screen.findByText('Lunch on Friday');
+    steps.push(cellMotion());
+
+    expect(steps).toStrictEqual([
+      ['still', 'still'],
+      ['opacity', 'opacity'],
+      ['still', 'still'],
+      ['opacity', 'opacity'],
+    ]);
   });
 
   it('removes a row at once and fades its return in under Reduce Motion', async () => {
@@ -2228,7 +2240,6 @@ describe('organizing motion', () => {
     const reduced = jest
       .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
       .mockResolvedValue(true);
-    const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
     try {
       const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
       gmail.deliver({ subject: 'Lunch on Friday' });
@@ -2236,12 +2247,10 @@ describe('organizing motion', () => {
       await screen.findByRole('button', { name: /Lunch on Friday/u });
 
       await archive('Lunch on Friday');
-      expect(configureNext.mock.calls).toStrictEqual([
-        [{ duration: 150, create: { type: 'easeOut', property: 'opacity' } }],
-      ]);
+      expect(cellMotion()).toStrictEqual(['still', 'opacity']);
     } finally {
-      configureNext.mockRestore();
       reduced.mockRestore();
+      await settle();
     }
   });
 });
