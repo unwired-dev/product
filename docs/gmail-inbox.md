@@ -1064,6 +1064,11 @@ next verification, and leaves polling enabled. Only verified routes covering eve
 usable mailbox with a current registered device token suppress the Mac interval,
 and only while the Mac app is not active.
 
+The relay accepts Gmail notification history IDs as nonempty strings or
+nonnegative safe JSON integers. It normalizes numeric IDs to strings before
+matching watch proofs. Fractional, negative and unsafe numeric IDs are rejected;
+large IDs supplied as strings keep their exact value.
+
 The watch renews within a day of expiring, and each renewal also renews the
 relay's record of this device. The identity token, access token, address and
 history ID exist only in those requests; none enters JavaScript or is stored. A
