@@ -2116,6 +2116,7 @@ describe('product registration', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  /* oxlint-disable vitest/max-expects -- One journey proves search, saved bodies, the reader's wheel routing and stale answers. */
   it('searches saved senders and subjects across mailboxes, shows saved bodies, and keeps only the current answer', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-success');
@@ -2347,6 +2348,25 @@ describe('product registration', () => {
       expect(body.props.source.html).toContain('Coffee');
       expect(screen.getByLabelText('Message')).toBeVisible();
     });
+    expect(body.props).toMatchObject({ scrollEnabled: false });
+    // Wider content, such as unwrappable text, scrolls sideways inside the view. Without bounce,
+    // the native view passes vertical wheel scrolling of a normal-height document to the reader;
+    // a document above the height cap keeps every wheel direction inside the view.
+    await act(async () => {
+      await fireEvent(body, 'layout', {
+        nativeEvent: { layout: { width: 320 } },
+      });
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 686, height: 120 } },
+      });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: true, bounces: false });
+    await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 320, height: 25_000 } },
+      });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: true, bounces: true });
     await press('Close reader');
     await waitFor(() => {
       expect(rows()).toStrictEqual([
@@ -2367,6 +2387,7 @@ describe('product registration', () => {
       ]);
     });
   });
+  /* oxlint-enable vitest/max-expects */
 
   /* oxlint-disable vitest/max-expects -- One journey proves asking, reading, failures and stale answers. */
   it('searches Gmail online when asked, opens a result, keeps saved results through an outage, and drops a stale answer', async () => {
