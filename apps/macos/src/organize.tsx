@@ -545,6 +545,13 @@ function GmailMessageActions({
   const colors = usePalette();
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
+  const failure = useRef<ReturnType<typeof askInSheet>>(undefined);
+  useEffect(
+    () => () => {
+      failure.current?.retire();
+    },
+    [],
+  );
   // The message New Label… was chosen for, while its sheet asks for a name.
   const [naming, setNaming] = useState<GmailMessage>();
   // Asks for a name, then creates the label in Gmail and applies it; a failure is explained. The
@@ -569,7 +576,8 @@ function GmailMessageActions({
       setNaming(undefined);
       const name = choice?.index === 0 ? choice.text.trim() : '';
       if (name !== '' && !(await store.createLabel(naming, name))) {
-        askInSheet(anchor.current, {
+        failure.current?.retire();
+        failure.current = askInSheet(anchor.current, {
           title: t('gmailActions.labelNotCreated', { label: name }),
           detail: t('gmailActions.labelNotCreatedDetail'),
           buttons: [t('common.ok')],

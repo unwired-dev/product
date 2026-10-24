@@ -1267,12 +1267,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
     });
     gmail.setLabel(id, travel, true);
     const { registration } = await connectedRegistration();
-    showMailboxes(
-      createMailboxes(
-        syntheticConnections({ [alex]: { native: gmail.native } }),
-        registration,
-      ),
+    const list = createMailboxes(
+      syntheticConnections({ [alex]: { native: gmail.native } }),
+      registration,
     );
+    showMailboxes(list);
     const app = await render(
       <RegistrationGate
         store={started(registration)}
@@ -1359,8 +1358,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
           buttons: ['OK'],
         });
       });
+      // Locking the Inbox retires its failure sheet before the reader can reopen.
+      gmail.failOpen('locked');
       await act(async () => {
-        chooseSheetButton('OK');
+        await list.load();
+      });
+      expect(sheetsShown()).toStrictEqual([]);
+      await act(async () => {
+        await list.load();
       });
       expect(gmail.labelsOf(id)).toStrictEqual(labels);
       // The folder button's Move menu moves the message out of the Inbox, closing the reader.

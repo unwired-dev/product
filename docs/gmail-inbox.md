@@ -316,7 +316,8 @@ label, checked when the message has it. Choosing a label adds or removes it. Bel
 separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253))
 asks for a name in a native alert sheet on the window: **Add Label** creates the label in
 Gmail and applies it to the message the menu opened for, as choosing a label does, and
-**Cancel** or a blank name changes nothing. Creation needs Gmail to answer: when Gmail refuses the name, including an existing label's name, or
+**Cancel** or a blank name changes nothing. The name and failure sheets close with
+their reader. Creation needs Gmail to answer: when Gmail refuses the name, including an existing label's name, or
 cannot be reached, an alert says the label could not be created and nothing is applied.
 The new label joins **Labels** and the Move menus as soon as Gmail creates it, and is saved
 with the message's pending label change without waiting for synchronization. iPad's fixed toolbar holds **Archive**, **Labels**

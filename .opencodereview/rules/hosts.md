@@ -1054,6 +1054,10 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   selection change with the panel open, while preserving it on an ordinary
   rerender of the same message; presenter-availability cleanup alone cannot
   detect an owner change while the toolbar stays available.
+  For Mac `askForText`/`askInSheet` flows such as `GmailMessageActions`, retain
+  retirement of follow-up failure sheets after the original question completes.
+  Exercise access loss while that failure is open; otherwise native presentation
+  retains private text and a modal sheet after its reader disappears or locks.
 
 - `message-detail.tsx.PanelDismissal` or another outside-dismissal backdrop
   relying on its bounds or sibling order without tracing foreground hit testing.
