@@ -1372,9 +1372,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   reader is gone, not only that the field exists; otherwise the command runs
   with no visible effect. The decision panel chose leaving the detail whenever
   one is open rather than tracking the alpha split view's collapse events.
-  The Mac's expanded composer covers the Inbox column too: `inbox.tsx` Search
-  Mail must collapse it through `window.tsx`'s `onReveal` before focusing (a
-  #903 panel chose collapsing over leaving), or focus lands in a hidden field.
+  Mac Expand instead saves and hands the Draft to a native New Message window
+  under ADR 0057's Mac amendment; it closes the overlay and offers no Collapse.
+  Search Mail reveals only the Inbox's hidden floating bar, without closing its
+  overlay Draft. Do not reintroduce the superseded in-window expanded state or
+  its `onReveal` collapse callback.
   Mobile Search Mail instead awaits the registered composer Close through
   `onLeave` before `onClose`; `_layout.tsx`'s composer callback clears expansion
   and `composing.current` before the reader callback chooses its route. Test an
@@ -1400,7 +1402,7 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 - `inbox.tsx` showing its floating search/New Message bar by default while composing,
   or unmounting it to hide it and losing New Message command registration. Preserve
   the hidden bar's guarded command, and the explicit Mac Search Mail reveal that
-  collapses an expanded composer without closing its Draft. Focus search after the
+  shows that bar without closing its Draft. Focus search after the
   revealed bar commits; otherwise command availability or keyboard entry breaks.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent

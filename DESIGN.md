@@ -362,8 +362,8 @@ styles) so the file stays editable.
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On compact layouts it spans the screen width. Rows scroll
   under it behind a 72pt scroll edge fade. It hides while the composer is open;
-  on Mac, explicitly invoking Search Mail reveals it and collapses an expanded
-  composer while keeping the Draft open.
+  on Mac, explicitly invoking Search Mail reveals it while keeping the overlay
+  Draft open.
 - **Command Palette:** on the Mac a 36pt glass command input (command
   symbol, "Commands", ⌘P key cap) stays in a bar at the top of the window; open,
   it becomes the focused query with an esc key cap and a 460pt glass panel with
@@ -412,8 +412,9 @@ styles) so the file stays editable.
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
   field reveals together. The sender is a From pop-up beside Send. The reference
   mockups still show a 60% inline composer.
-  One composer per window keeps expand/collapse visible on regular width, Close
-  directly accessible and destructive Discard in overflow. The sidebar and list
+  One composer per window keeps Expand visible in the Mac overlay and
+  expand/collapse visible on regular-width iPad; the Mac New Message window
+  omits both. Close stays directly accessible and destructive Discard in overflow. The sidebar and list
   remain interactive beneath the overlay; save failures appear inline.
   In the approved compose design ([iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140),
   [iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=295-50811),

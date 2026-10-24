@@ -22,8 +22,10 @@ results never appear in the palette. The vocabulary lives in the
   Inbox search field. On iPhone and iPad, where a reader or
   composer can cover the Inbox, Search Mail first leaves the open reader or
   composer through the same checks as closing them. Search Mail and Go To Inbox
-  also bring the message list forward where Mailboxes covers it. On the Mac they
-  first collapse an expanded composer, keeping its Draft open.
+  also bring the message list forward where Mailboxes covers it. On the Mac,
+  Search Mail reveals the Inbox window's floating search bar while keeping its
+  overlay Draft open. Expand moves that Draft into a separate New Message
+  window, which has no Inbox search field or Collapse action.
 - **Go To:** Inbox, which leaves the reader or composer through the same
   checks as closing them, and Account, which opens Settings while a Product
   Account is signed in. The palette stays available in Settings and on the
