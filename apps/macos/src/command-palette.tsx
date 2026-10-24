@@ -337,6 +337,7 @@ export function OutsideClickLayer() {
   return close === undefined ? null : (
     <Pressable
       accessible={false}
+      focusable={false}
       onPress={close}
       testID="palette-outside-click"
       style={[StyleSheet.absoluteFill, styles.scrim]}
