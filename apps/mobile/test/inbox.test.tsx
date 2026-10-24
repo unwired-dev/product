@@ -2160,6 +2160,19 @@ const listedMessage = (
 };
 
 describe('organizing motion', () => {
+  // Reanimated's timing animation, stepped by hand.
+  type AnimationProbe = {
+    current: number;
+    onStart: (
+      ...start: [
+        animation: AnimationProbe,
+        value: number,
+        now: number,
+        previous: undefined,
+      ]
+    ) => void;
+    onFrame: (animation: AnimationProbe, now: number) => boolean;
+  };
   const movingCell = () => {
     type Node = ReturnType<typeof screen.getByLabelText>;
     const cell = (function find(node: Node): Node | undefined {
@@ -2200,14 +2213,45 @@ describe('organizing motion', () => {
       );
     });
   };
-  // The motion window closes once the outcome's commit has mounted.
-  const settle = async () => {
+  const undo = async () => {
     await act(async () => {
-      // oxlint-disable-next-line promise/avoid-new -- Real time, past the motion window.
-      await new Promise((resolve) => {
-        setTimeout(resolve, 450);
-      });
+      await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
     });
+  };
+  // A cell's motion as each of the step's store changes publishes, before its commit mounts, then
+  // once the step settles.
+  const during = async (
+    store: Readonly<{ subscribe: (listener: () => void) => () => void }>,
+    step: () => Promise<void>,
+  ) => {
+    const published: string[] = [];
+    const stop = store.subscribe(() => {
+      published.push(cellMotion().join(' '));
+    });
+    try {
+      await step();
+    } finally {
+      stop();
+    }
+    return { published, settled: cellMotion().join(' ') };
+  };
+
+  // The entering fade of the first cell as the step's first store change publishes.
+  const firstFade = async (
+    store: Readonly<{ subscribe: (listener: () => void) => () => void }>,
+    step: () => Promise<void>,
+  ): Promise<AnimationProbe> => {
+    const fades: AnimationProbe[] = [];
+    const stop = store.subscribe(() => {
+      fades.push(movingCell().props.entering().animations.opacity);
+    });
+    await step();
+    stop();
+    const [fade] = fades;
+    if (fade === undefined) {
+      throw new Error('Expected the returning row to fade');
+    }
+    return fade;
   };
 
   it('moves rows for an action and its Undo, but not for synchronization', async () => {
@@ -2216,28 +2260,32 @@ describe('organizing motion', () => {
     gmail.deliver({ subject: 'Lunch on Friday' });
     const connected = await renderConnected(gmail.native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
-    const steps = [];
+    const store = connected.store();
+    const sync = async (subject: string) => {
+      gmail.deliver({ subject });
+      await act(store.load);
+      await screen.findByText(subject);
+    };
 
-    gmail.deliver({ subject: 'Arrives quietly' });
-    await act(connected.store().load);
-    await screen.findByText('Arrives quietly');
-    steps.push(cellMotion());
-    await archive('Lunch on Friday');
-    steps.push(cellMotion());
-    await settle();
-    steps.push(cellMotion());
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+    const quiet = await during(store, () => sync('Arrives quietly'));
+    const archived = await during(store, () => archive('Lunch on Friday'));
+    // Synchronization right after an action's commit stays still.
+    const after = await during(store, () =>
+      sync('Sync immediately after Archive'),
+    );
+    const undone = await during(store, undo);
+
+    expect({
+      quiet: [...new Set(quiet.published)],
+      archived: [archived.published[0], archived.settled],
+      after: [...new Set(after.published)],
+      undone: [undone.published[0], undone.settled],
+    }).toStrictEqual({
+      quiet: ['still still'],
+      archived: ['opacity opacity', 'still still'],
+      after: ['still still'],
+      undone: ['opacity opacity', 'still still'],
     });
-    await screen.findByText('Lunch on Friday');
-    steps.push(cellMotion());
-
-    expect(steps).toStrictEqual([
-      ['still', 'still'],
-      ['opacity', 'opacity'],
-      ['still', 'still'],
-      ['opacity', 'opacity'],
-    ]);
   });
 
   it('removes a row at once and fades its return in under Reduce Motion', async () => {
@@ -2250,25 +2298,22 @@ describe('organizing motion', () => {
       await render(<ReducedMotionConfig mode={ReduceMotion.Always} />);
       const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
       gmail.deliver({ subject: 'Lunch on Friday' });
-      await renderConnected(gmail.native);
+      const connected = await renderConnected(gmail.native);
       await screen.findByRole('button', { name: /Lunch on Friday/u });
+      const store = connected.store();
 
-      await archive('Lunch on Friday');
-      expect(cellMotion()).toStrictEqual(['still', 'opacity']);
-      await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
-      });
-      await screen.findByText('Lunch on Friday');
-      const fade = movingCell().props.entering().animations.opacity;
-      fade.onStart(fade, 0, 1000, undefined);
-      fade.onFrame(fade, 1075);
-      expect(fade.current).toBeGreaterThan(0);
-      expect(fade.current).toBeLessThan(1);
-      const finished = fade.onFrame(fade, 1150);
-      expect([finished, fade.current]).toStrictEqual([true, 1]);
+      const archived = await during(store, () => archive('Lunch on Friday'));
+      expect(archived.published[0]).toBe('still opacity');
+      // The returning row's fade, as its commit mounts.
+      const returning = await firstFade(store, undo);
+      returning.onStart(returning, 0, 1000, undefined);
+      returning.onFrame(returning, 1075);
+      expect(returning.current).toBeGreaterThan(0);
+      expect(returning.current).toBeLessThan(1);
+      const finished = returning.onFrame(returning, 1150);
+      expect([finished, returning.current]).toStrictEqual([true, 1]);
     } finally {
       reduced.mockRestore();
-      await settle();
     }
   });
 });

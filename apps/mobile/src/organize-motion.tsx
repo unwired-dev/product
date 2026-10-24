@@ -5,6 +5,7 @@ import type {
   LayoutAnimationFunction,
 } from 'react-native-reanimated';
 
+import { useLayoutEffect } from 'react';
 import { AccessibilityInfo } from 'react-native';
 import Animated, {
   Easing,
@@ -28,12 +29,10 @@ const reducedTiming = {
 const shift = LinearTransition.duration(timing.duration)
   .easing(timing.easing)
   .build();
-// Set while the commit that shows an organizing outcome can still mount; the cells' worklets read
-// it on the UI thread.
+// Set from an organizing outcome until the Inbox lays out the commit that shows it; the cells'
+// worklets read it on the UI thread as that commit mounts.
 const moving = makeMutable(false);
 const reduced = makeMutable(false);
-// Longer than a commit of the Inbox takes to reach the UI thread.
-const outcomeWindow = 400;
 const still = { initialValues: {}, animations: {} };
 
 // A leaving row fades while the rows below close over it; Reduce Motion removes it at once.
@@ -85,6 +84,14 @@ export function MovingCell({
   );
 }
 
+// Only the commit that shows an organizing outcome moves rows: once the Inbox has laid it out,
+// later synchronization and view changes replace the list without motion.
+export function useSettledMotion() {
+  useLayoutEffect(() => {
+    moving.value = false;
+  });
+}
+
 const readReducedMotion = async () => {
   reduced.value = await AccessibilityInfo.isReduceMotionEnabled();
 };
@@ -99,7 +106,6 @@ const outcome = (state: InboxMailbox['state']) =>
 // change the list without motion. Returns the unsubscribe function.
 export function animateOrganizing(mailboxes: MailboxList) {
   let shown = mailboxes.getSnapshot();
-  let settle: ReturnType<typeof setTimeout> | undefined = undefined;
   void readReducedMotion();
   const preference = AccessibilityInfo.addEventListener(
     'reduceMotionChanged',
@@ -120,14 +126,9 @@ export function animateOrganizing(mailboxes: MailboxList) {
     shown = next;
     if (changed) {
       moving.value = true;
-      clearTimeout(settle);
-      settle = setTimeout(() => {
-        moving.value = false;
-      }, outcomeWindow);
     }
   });
   return () => {
-    clearTimeout(settle);
     moving.value = false;
     preference.remove();
     unsubscribe();

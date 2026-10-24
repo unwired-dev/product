@@ -68,7 +68,7 @@ import {
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
-import { MovingCell } from './organize-motion.tsx';
+import { MovingCell, useSettledMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
 import { OutboxHeading, OutboxRow } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -693,6 +693,7 @@ export function Inbox({
     t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title');
   // Set while the list is scrolled from its top, so synchronization keeps the reading position.
   const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
+  useSettledMotion();
   // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
   // again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
