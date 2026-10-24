@@ -389,9 +389,13 @@ describe('reading Microsoft mail through Graph', () => {
       graph.remove(filtered);
       const round = splitRound(graph);
       const arrivals: string[][] = [];
+      const committed: boolean[] = [];
       const inbox = createGmailInbox(round.native, {
         provider: 'microsoft-graph',
         arrived: (messages) => {
+          committed.push(
+            messages.every(({ id }) => graph.commits.at(-1)?.includes(id)),
+          );
           arrivals.push(messages.map(({ subject }) => subject));
         },
       });
@@ -442,6 +446,64 @@ describe('reading Microsoft mail through Graph', () => {
         ['New arrival'],
         ['Older arrival'],
         ['Later arrival'],
+      ]);
+      expect(committed).toStrictEqual([true, true, true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains the start of an interrupted delta round so later deliveries notify after relaunch', async () => {
+    expect.hasAssertions();
+    const at = (hour: number) => Date.UTC(2026, 9, 1, hour);
+    vi.useFakeTimers({ now: at(9), toFake: ['Date'] });
+    try {
+      const graph = createSyntheticGraph();
+      const round = splitRound(graph);
+      let interrupted = false;
+      const native = {
+        ...round.native,
+        graphRequest: (
+          url: string,
+          scope: Parameters<typeof graph.native.graphRequest>[1],
+        ) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Interrupt only the round's first continuation, before the provider answers.
+          if (!interrupted && url.includes('$skiptoken=rest')) {
+            interrupted = true;
+            return Promise.reject(
+              Object.assign(new Error('Synthetic interruption'), {
+                code: 'unavailable',
+              }),
+            );
+          }
+          return round.native.graphRequest(url, scope);
+        },
+      };
+      const arrivals: string[][] = [];
+      const options = {
+        provider: 'microsoft-graph' as const,
+        arrived: (messages: ReadonlyArray<{ readonly subject: string }>) => {
+          arrivals.push(messages.map(({ subject }) => subject));
+        },
+      };
+      const inbox = createGmailInbox(native, options);
+      await inbox.load();
+      vi.setSystemTime(at(10));
+      round.split([
+        graph.deliver({ subject: 'Before interruption', at: at(10) }),
+      ]);
+      await inbox.load();
+      expect(arrivals).toStrictEqual([['Before interruption']]);
+
+      graph.deliver({ subject: 'During interruption', at: at(11) });
+      vi.setSystemTime(at(12));
+      const relaunched = createGmailInbox(native, options);
+      await relaunched.load();
+      // The old round's empty final page ends that synchronization; the next one reads later mail.
+      await relaunched.load();
+      expect(arrivals).toStrictEqual([
+        ['Before interruption'],
+        ['During interruption'],
       ]);
     } finally {
       vi.useRealTimers();

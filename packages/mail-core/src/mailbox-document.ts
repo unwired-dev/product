@@ -43,8 +43,8 @@ const MailboxDocumentSchema = Schema.Struct({
   messages: Schema.Array(GmailMessageSchema),
   // The latest Gmail history already considered for notifications, independent of view replay.
   notificationHistoryId: Schema.optionalKey(HistoryId),
-  // When the synchronization that completed Microsoft's last listing or delta round began, as an
-  // ISO instant on this device's clock.
+  // When Microsoft's last completed listing or delta round began, as an ISO instant on this
+  // device's clock.
   synchronizedAt: Schema.optionalKey(Schema.String),
   // Provider-confirmed messages stay in `messages`; requested changes wait here, in order.
   pending: Schema.optionalKey(Schema.Array(PendingActionSchema)),
@@ -91,6 +91,8 @@ const MailboxDocumentSchema = Schema.Struct({
     Schema.Struct({
       kind: Schema.Literal('graph-current'),
       link: GraphDeltaLink,
+      // A continuation retains the round's original start through interruption and relaunch.
+      started: Schema.optionalKey(Schema.String),
     }),
   ]),
 });

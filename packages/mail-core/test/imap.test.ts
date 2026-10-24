@@ -424,8 +424,12 @@ describe('connecting IMAP mailboxes', () => {
         received: at(9, 10),
       });
       const arrivals: string[][] = [];
+      const committed: boolean[] = [];
       const inbox = createImapInbox(imap.native, {
         arrived: (messages) => {
+          committed.push(
+            messages.every(({ id }) => imap.cache.document?.includes(id)),
+          );
           arrivals.push(messages.map(({ subject }) => subject));
         },
       });
@@ -471,6 +475,7 @@ describe('connecting IMAP mailboxes', () => {
       imap.deliver('INBOX', { subject: 'After renumbering', received: at(12) });
       await inbox.load();
       expect(arrivals).toHaveLength(2);
+      expect(committed).toStrictEqual([true, true]);
     } finally {
       vi.useRealTimers();
     }

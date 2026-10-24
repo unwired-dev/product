@@ -61,7 +61,8 @@ running behind this device's.
   and activation reach the same classification.
 - **Microsoft 365:** each committed page of a delta round reports the unread Inbox
   messages it names that were not already cached and were received no earlier than
-  the allowance; a round's pages share one boundary. The initial listing, listing
+  the allowance; a round's pages share one boundary, including after interruption
+  and relaunch. The initial listing, listing
   again after Graph expired the delta link, updates to messages already listed and
   mail moved back into the Inbox never notify; as for IMAP, mail that reached
   another folder after the previous synchronization began and was then moved in can.

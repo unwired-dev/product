@@ -202,7 +202,11 @@ export function createGraphReader(native: NativeGraphMailbox) {
       { concurrency: 4 },
     );
     const merged = merge(document.messages, changed);
-    const current = { kind: 'graph-current', link } as const;
+    const current = {
+      kind: 'graph-current',
+      link,
+      ...(last ? {} : { started }),
+    } as const;
     // New mail is unread, not yet cached, and received no earlier than the previous round's
     // synchronization began: an update to a listed message, or mail moved back in, is not.
     const known = new Set(document.messages.map(({ id }) => id));
@@ -429,7 +433,13 @@ export function createGraphReader(native: NativeGraphMailbox) {
         }),
       );
     }
-    return advanceRound(scope, document, started);
+    return advanceRound(
+      scope,
+      document,
+      document?.checkpoint.kind === 'graph-current'
+        ? (document.checkpoint.started ?? started)
+        : started,
+    );
   };
 
   // The mailbox's well-known folders by ID, read once per open mailbox; a mailbox without one, such
