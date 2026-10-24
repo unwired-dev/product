@@ -258,11 +258,14 @@ and rejects zero-test success. XCTest terminates its launched app on failure.
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
 probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the test supplies `UNWIRED_LIFECYCLE_PATH`;
 the application never creates a test-control server or accepts reset commands.
-Records contain only lifecycle event names, process/session identity, window
+Lifecycle records contain event names, process/session identity, window
 counts and tick counts. With that path, the probe also records each primary mouse
-press and release and observed main-queue delays of 100 ms or longer, with their uptime
-and duration, for the
+press and release, key press with the display's maximum-refresh interval, focused
+non-field-editor text edit, and observed main-queue delays of 100 ms or longer, with
+their uptime and duration where applicable, for the
 [performance journey](agents/native-validation.md#mac-performance-journey). In
+text-edit records it includes the text and its per-UTF-16-unit bold, italic and
+underline marks; the journey uses synthetic composer content. In
 registration Mock Mail Sessions, the synthetic relay also appends the uptime of
 each provider body request, with no URL or message content. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.

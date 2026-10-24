@@ -78,7 +78,9 @@ the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md)
 ### Mac performance journey
 
 On the Mac, the `testWarmCachePerformance` journey measures the budgets above
-except Mail View switching, which remains deferred. Build the `Testing` configuration, which
+except Mail View switching and next-rendered-frame typing and formatting feedback,
+which remain deferred. It records typing and formatting text-storage update timings
+as described below. Build the `Testing` configuration, which
 is Release-optimized with packaged JavaScript plus the test-only probes, with
 `UNWIRED_MOCK_SCENARIO=registration-performance`, then run it with the
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
@@ -105,7 +107,7 @@ cached-body sample requested one, or if priming recorded none.
 
 A click sample runs from the mouse release, recorded by the app on the same
 uptime clock, until an accessibility query finds the rendered result. A launch
-sample runs from the launch request. Every sample includes XCUITest's event
+sample runs from the launch request. Click and launch samples include XCUITest's event
 completion and queries, about 35–45 ms each, so it is an upper bound: a sample
 within budget passes, but an overrun only shows that the budget is not proven.
 The app records main-queue probe delays of 100 ms or longer; the report names
@@ -116,12 +118,15 @@ A key sample runs from the key press the app records to the first edit of the
 focused body's text storage that begins with the expected text and the bold,
 italic and underline marks of each of its characters, so a later key press
 cannot hide a late result. Both times come from the app, so a key
-sample excludes XCUITest. Its budget is the frame interval of the key window's
-display, from `maximumFramesPerSecond`: a change that reaches the text storage
-within it is drawn in the display pass before the following frame. The sample
-ends before AppKit lays out and draws the text, so it does not measure the
-display pass itself. A key press or expected edit missing from the evidence
-fails the journey.
+sample excludes XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
+of the key window's display, the interval at the display's maximum supported refresh
+rate. The edit notification fires before layout managers receive the change;
+the sample does not observe layout, drawing or display presentation. A key group's
+`withinBudget` result therefore describes only the text-storage update and does
+not prove next-rendered-frame feedback. Measuring that requirement remains open
+on [#626](https://github.com/unwired-dev/product/issues/626). The probe's synchronous
+key-event logging also adds work before the edit. A key press or expected edit
+missing from the evidence fails the journey.
 The probe samples every 10 ms after its launch setup. No recorded delay means no
 observed stall; it does not prove the absolute stall cap for every main-thread
 task or for startup before the probe begins.
