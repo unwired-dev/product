@@ -62,6 +62,7 @@ export function MessageRow({
   onSelect,
   actions = noActions,
   now,
+  beforeDivider = false,
   query,
 }: {
   readonly message: Message | GmailMessage | ImapMessage;
@@ -75,6 +76,8 @@ export function MessageRow({
   readonly actions?: readonly RowAction[] | undefined;
   // When the list was last read, which names the day the message arrived.
   readonly now: number;
+  // The last row above the next day's divider, which draws no separator.
+  readonly beforeDivider?: boolean | undefined;
   // The search that listed it, whose matched words the sender and subject mark.
   readonly query?: string | undefined;
 }) {
@@ -216,8 +219,9 @@ export function MessageRow({
                 ]}
               />
             ) : null}
-            {selected ? null : (
+            {selected || beforeDivider ? null : (
               <View
+                testID="row-separator"
                 style={[
                   styles.separator,
                   { backgroundColor: colors.separator },
