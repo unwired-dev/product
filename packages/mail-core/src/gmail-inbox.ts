@@ -533,6 +533,20 @@ const cachedMessages = (document: MailboxDocument) => [
   ).values(),
 ];
 
+// Microsoft's next delta page refills a full cache a settlement shortened, and still classifies the
+// mail it names; until then the cache keeps its previous oldest receipt as its edge.
+const awaitingRefill = (
+  before: MailboxDocument,
+  after: MailboxDocument,
+  checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'graph-current' }>,
+): MailboxDocument => ({
+  ...after,
+  checkpoint: {
+    ...checkpoint,
+    refillUntil: before.messages.at(-1)?.receivedAt ?? '',
+  },
+});
+
 // History and delta cannot name the older message that now fits after a settlement removes one, so a
 // full Inbox or view it shortened is listed again from the history already applied.
 const withRefills = (
@@ -543,10 +557,7 @@ const withRefills = (
   const shortened =
     before.messages.length === cacheLimit && after.messages.length < cacheLimit;
   if (checkpoint.kind === 'graph-current' && shortened) {
-    return {
-      ...after,
-      checkpoint: { kind: 'graph-listing', link: checkpoint.link },
-    };
+    return awaitingRefill(before, after, checkpoint);
   }
   if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
     return after;

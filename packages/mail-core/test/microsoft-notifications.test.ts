@@ -1,5 +1,6 @@
 import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
+import { gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
@@ -327,6 +328,36 @@ describe('new Inbox notifications for Microsoft mail', () => {
     );
     await inbox.load();
     expect(arrivals).toStrictEqual([[delivered]]);
+    expect(ready(inbox.getSnapshot()).messages).toHaveLength(cacheLimit);
+  });
+
+  it('reports arrivals named after an archive shortened a full cache, and refills it', async () => {
+    expect.hasAssertions();
+    const at = (minute: number) => Date.UTC(2026, 9, 1, 9, minute);
+    const graph = createSyntheticGraph({ pageSize: 100 });
+    const unlisted = graph.deliver({ subject: 'Unlisted', at: at(0) - 1000 });
+    for (const index of Array.from(
+      { length: cacheLimit + 1 },
+      (_, value) => value,
+    )) {
+      graph.deliver({ subject: `Listed ${index}`, at: at(0) + index * 1000 });
+    }
+    const arrivals: string[][] = [];
+    const inbox = createGmailInbox(graph.native, {
+      provider: 'microsoft-graph',
+      arrived: (messages) => {
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    });
+    await inbox.load();
+    const [archived] = pair(ready(inbox.getSnapshot()).messages);
+    // Named by the same delta round that settles the archive and refills the cache.
+    graph.deliver({ subject: 'Arrived after the archive', at: at(30) });
+    // A change to a message the full cache never kept is still not new mail.
+    graph.restore(unlisted);
+    await inbox.organize(archived, gmailAction.archive);
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['Arrived after the archive']]);
     expect(ready(inbox.getSnapshot()).messages).toHaveLength(cacheLimit);
   });
 

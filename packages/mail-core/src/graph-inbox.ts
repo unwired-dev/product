@@ -103,10 +103,7 @@ const deltaArrivals = (
   changed: ReadonlyArray<readonly [string, GmailMessage | undefined]>,
 ) => {
   const known = new Set(document.messages.map(({ id }) => id));
-  const evictedUntil =
-    document.messages.length === cacheLimit
-      ? (document.messages.at(-1)?.receivedAt ?? '')
-      : '';
+  const evictedUntil = cacheEdge(document) ?? '';
   return changed.flatMap(([id, message]) =>
     message?.unread === true &&
     !known.has(id) &&
@@ -115,6 +112,20 @@ const deltaArrivals = (
       : [],
   );
 };
+
+// The oldest receipt a full cache keeps, also while an action-shortened cache awaits its refill;
+// none while the cache holds the whole Inbox.
+function cacheEdge({ checkpoint, messages }: MailboxDocument) {
+  if (
+    checkpoint.kind === 'graph-current' &&
+    checkpoint.refillUntil !== undefined
+  ) {
+    return checkpoint.refillUntil;
+  }
+  return messages.length === cacheLimit
+    ? (messages.at(-1)?.receivedAt ?? '')
+    : undefined;
+}
 
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
@@ -220,9 +231,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const merged = merge(document.messages, changed);
     const current = { kind: 'graph-current', link } as const;
     let messages = merged.slice(0, cacheLimit);
-    if (document.messages.length === cacheLimit && merged.length < cacheLimit) {
+    const edge = cacheEdge(document);
+    if (edge !== undefined && merged.length < cacheLimit) {
       const kept = new Set(merged.map(({ id }) => id));
-      const edge = document.messages.at(-1)?.receivedAt ?? '';
       // Filter at the provider so pending newer arrivals cannot crowd older refill rows out.
       const listed = yield* listGraph(scope, document, {
         checkpoint: current,
@@ -255,7 +266,10 @@ export function createGraphReader(native: NativeGraphMailbox) {
     }
     const current: MailboxDocument = {
       ...document,
-      checkpoint: { kind: 'graph-current', link },
+      checkpoint:
+        document.checkpoint.kind === 'graph-current'
+          ? { ...document.checkpoint, link }
+          : { kind: 'graph-current', link },
     };
     quiet.add(current);
     return Option.some(current);

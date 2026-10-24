@@ -88,6 +88,9 @@ const MailboxDocumentSchema = Schema.Struct({
     Schema.Struct({
       kind: Schema.Literal('graph-current'),
       link: GraphDeltaLink,
+      // An action shortened the full cache, whose oldest receipt this was; the next delta page
+      // refills it while the cache still counts as full.
+      refillUntil: Schema.optionalKey(Schema.String),
     }),
   ]),
 });
