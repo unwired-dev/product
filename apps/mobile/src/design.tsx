@@ -39,14 +39,6 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
-const NativeButtonFocus = requireNativeComponent<
-  ViewProps & {
-    readonly onFocusChange: (
-      event: NativeSyntheticEvent<{ focused: boolean }>,
-    ) => void;
-  }
->('UnwiredButtonFocus');
-
 export function Glass({
   cornerRadius,
   interactive = false,
@@ -189,12 +181,10 @@ const styles = StyleSheet.create({
   },
   chipTarget: { minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
   buttonTarget: { minHeight: 44, justifyContent: 'center' },
-  buttonFocus: { position: 'absolute', width: 0, height: 0 },
   buttonFill: {
     minHeight: 28,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
-    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -230,7 +220,6 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
-    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -594,7 +583,6 @@ export function Button({
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
-  const [focused, setFocused] = useState(false);
   const primary = fill === 'accent';
   const compact = size === 'compact';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
@@ -610,7 +598,6 @@ export function Button({
   }
   const fillOf = (pressed: boolean) => ({
     backgroundColor: pressed ? pressedFill : idle,
-    outlineColor: focused && !disabled ? colors.accentInk : 'transparent',
   });
   const text = <Text style={[labelStyle, { color }]}>{label}</Text>;
   return (
@@ -625,23 +612,13 @@ export function Button({
         compact ? styles.buttonTarget : [styles.button, fillOf(pressed)],
         { opacity: disabled ? 0.4 : 1 },
       ]}>
-      {({ pressed }) => (
-        <>
-          <NativeButtonFocus
-            accessible={false}
-            pointerEvents="none"
-            onFocusChange={({ nativeEvent }) => {
-              setFocused(nativeEvent.focused);
-            }}
-            style={styles.buttonFocus}
-          />
-          {compact ? (
-            <View style={[styles.buttonFill, fillOf(pressed)]}>{text}</View>
-          ) : (
-            text
-          )}
-        </>
-      )}
+      {({ pressed }) =>
+        compact ? (
+          <View style={[styles.buttonFill, fillOf(pressed)]}>{text}</View>
+        ) : (
+          text
+        )
+      }
     </Pressable>
   );
 }
