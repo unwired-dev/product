@@ -159,8 +159,8 @@ verification status applies to these transitions.
 
 ## Motion specification
 
-Approved by the owner on 24 October 2026. It specifies only missing or changed
-feedback. Each Figma section shows Light and Dark, and its
+The specification covers only missing or changed feedback. Each Figma section
+shows Light and Dark, and its
 Archive frames are linked as a click-through prototype:
 
 - [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=481-57440)
@@ -247,7 +247,7 @@ The [reader body-reveal contract](messages-and-delivery.md#thread-identity-and-r
 remains unchanged: preserve the topmost visible message and its text offset as
 bodies and images resolve, reveal each visible body once beneath its anchored
 header without a cross-fade, and reserve sanitized image dimensions when
-available. This proposal adds no body entrance animation. The ledger's static
+available. This specification adds no body entrance animation. The ledger's static
 inspection does not qualify this behavior on a native device.
 
 Visible changes beyond the existing frames follow the
