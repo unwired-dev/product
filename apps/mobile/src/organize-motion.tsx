@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
 
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, StyleSheet } from 'react-native';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   ReduceMotion,
@@ -236,7 +236,12 @@ export function useRowMotion<I>(shown: Shown<I>) {
   };
 }
 
-const styles = StyleSheet.create({ clip: { overflow: 'hidden' } });
+const styles = StyleSheet.create({
+  clip: { overflow: 'hidden' },
+  // A moving row's content keeps its own height while the row around it changes.
+  moving: { position: 'absolute', top: 0, left: 0, right: 0 },
+  collapsed: { height: 0, opacity: 0 },
+});
 
 // A list row that collapses and fades as it leaves, and grows back from its current height when it
 // returns. Reduce Motion removes a leaving row at once and only fades a returning one in.
@@ -252,8 +257,8 @@ export function MovingRow({
   const kind = motion?.kind;
   const wait = motion?.wait === true;
   const reduced = motion?.reduced === true;
-  // The content's own height, and the share of it the row shows.
-  const natural = useSharedValue(-1);
+  // The content's own height once measured, and the share of it the row shows.
+  const [natural, setNatural] = useState<number>();
   const size = useSharedValue(kind === 'returning' ? 0 : 1);
   const opacity = useSharedValue(kind === 'returning' ? 0 : 1);
   const settle = useRef(onSettled);
@@ -291,27 +296,28 @@ export function MovingRow({
     size.set(withTiming(1, timing));
     opacity.set(withTiming(1, timing, done));
   }, [kind, wait, reduced, size, opacity, settle]);
-  // Until the content is measured, a row that returns stays collapsed and any other row keeps its
-  // own height.
-  const shown = useAnimatedStyle(() => {
-    if (natural.value >= 0) {
-      return { height: natural.value * size.value, opacity: opacity.value };
-    }
-    return size.value < 1
-      ? { height: 0, opacity: opacity.value }
-      : { opacity: opacity.value };
-  });
+  const shown = useAnimatedStyle(
+    () => ({ height: (natural ?? 0) * size.value, opacity: opacity.value }),
+    [natural],
+  );
   const measure = ({ nativeEvent }: LayoutChangeEvent) => {
-    natural.set(nativeEvent.layout.height);
+    setNatural(nativeEvent.layout.height);
   };
+  // Until its content is measured, a returning row stays collapsed and any other row keeps its own
+  // height.
+  const unmeasured = kind === 'returning' ? styles.collapsed : undefined;
   const gone = kind === 'leaving';
   return (
     <Animated.View
-      style={[styles.clip, shown]}
+      style={[styles.clip, natural === undefined ? unmeasured : shown]}
       pointerEvents={gone ? 'none' : 'auto'}
       accessibilityElementsHidden={gone}
       importantForAccessibility={gone ? 'no-hide-descendants' : 'auto'}>
-      <Animated.View onLayout={measure}>{children}</Animated.View>
+      <View
+        style={kind === undefined ? undefined : styles.moving}
+        onLayout={measure}>
+        {children}
+      </View>
     </Animated.View>
   );
 }

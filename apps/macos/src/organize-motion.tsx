@@ -224,7 +224,11 @@ export function useRowMotion<I>(shown: Shown<I>) {
 const unmeasured = (kind: RowMotion['kind'] | undefined) =>
   kind === 'returning' ? 0 : undefined;
 
-const styles = StyleSheet.create({ clip: { overflow: 'hidden' } });
+const styles = StyleSheet.create({
+  clip: { overflow: 'hidden' },
+  // A moving row's content keeps its own height while the row around it changes.
+  moving: { position: 'absolute', top: 0, left: 0, right: 0 },
+});
 
 // A list row that collapses and fades as it leaves, and grows back from its current height when it
 // returns. Reduce Motion removes a leaving row at once and only fades a returning one in.
@@ -299,7 +303,11 @@ export function MovingRow({
       pointerEvents={gone ? 'none' : 'auto'}
       accessibilityElementsHidden={gone}
       importantForAccessibility={gone ? 'no-hide-descendants' : 'auto'}>
-      <View onLayout={measure}>{children}</View>
+      <View
+        style={kind === undefined ? undefined : styles.moving}
+        onLayout={measure}>
+        {children}
+      </View>
     </Animated.View>
   );
 }
