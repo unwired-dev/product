@@ -79,8 +79,8 @@ the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md)
 
 On the Mac, the `testWarmCachePerformance` journey measures the budgets above
 except Mail View switching and next-rendered-frame typing and formatting feedback,
-which remain deferred. It records typing and formatting text-storage update timings
-as described below. Build the `Testing` configuration, which
+which remain deferred. It records typing, formatting shortcut and format bar
+text-storage update timings as described below. Build the `Testing` configuration, which
 is Release-optimized with packaged JavaScript plus the test-only probes, with
 `UNWIRED_MOCK_SCENARIO=registration-performance`, then run it with the
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
@@ -101,7 +101,9 @@ composer currently crashes the Mac host
 sample is the first composer of a relaunched process. In a new message it then
 types 20 characters into the body, turns bold on at the caret with Command-B and
 types 11 bold characters, then selects the last word and presses Command-B, B,
-I, I, U, U twice, so each mark toggles on that word and back. The synthetic relay
+I, I, U, U twice, so each mark toggles on that word and back. It then clicks the
+format bar's Bold, Bold, Italic, Italic, Underline and Underline buttons twice
+over on the same word. The synthetic relay
 records each provider body request in the probe evidence; the journey fails if a
 cached-body sample requested one, or if priming recorded none.
 
@@ -117,16 +119,17 @@ probe evidence, including a click sample without its mouse events, fails the jou
 A key sample runs from the key press the app records to the first edit of the
 focused body's text storage that begins with the expected text and the bold,
 italic and underline marks of each of its characters, so a later key press
-cannot hide a late result. Both times come from the app, so a key
-sample excludes XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
+cannot hide a late result. A format bar sample runs the same way from the mouse
+release the app records. Both times come from the app, so these samples exclude
+XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
 of the key window's display, the interval at the display's maximum supported refresh
 rate. The edit notification fires before layout managers receive the change;
-the sample does not observe layout, drawing or display presentation. A key group's
+the sample does not observe layout, drawing or display presentation. A key or format bar group's
 `withinBudget` result therefore describes only the text-storage update and does
 not prove next-rendered-frame feedback. Measuring that requirement remains open
 on [#626](https://github.com/unwired-dev/product/issues/626). The probe's synchronous
-key-event logging also adds work before the edit. A key press or expected edit
-missing from the evidence fails the journey.
+key-event logging also adds work before the edit. A key press, button release
+or expected edit missing from the evidence fails the journey.
 The probe samples every 10 ms after its launch setup. No recorded delay means no
 observed stall; it does not prove the absolute stall cap for every main-thread
 task or for startup before the probe begins.
@@ -135,8 +138,8 @@ The journey writes one `PERFORMANCE` JSON line per interaction to
 `xcodebuild.log` and the same lines as an XCTest attachment. Each line has the
 samples, p50, p95, maximum, budget and stalls. The final line has the
 query overhead, the synthetic press duration and every session stall. It
-measures neither Mail View switching, keyboard or accessibility journeys, format
-bar clicks, nor the iPhone and iPad references.
+measures neither Mail View switching, keyboard or accessibility journeys, nor the
+iPhone and iPad references.
 
 ### Mac keyboard and accessibility journey
 
