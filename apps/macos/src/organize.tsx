@@ -557,7 +557,7 @@ function GmailMessageActions({
       title: t('gmailActions.newLabelTitle'),
       detail: t('gmailActions.newLabelDetail'),
       buttons: [t('gmailActions.addLabel'), t('common.cancel')],
-      symbol: { name: 'tag', color: colors.textSecondary },
+      symbol: { name: 'tag', color: colors.accentInk },
       field: t('gmailActions.labelName'),
     });
     let asking = true;
