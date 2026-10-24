@@ -1,5 +1,8 @@
 import type { Translate } from '@private-email/localization';
-import type { MenuSection } from '@private-email/mail-core/context-menu';
+import type {
+  MenuItem,
+  MenuSection,
+} from '@private-email/mail-core/context-menu';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type {
   ImapAction,
@@ -295,9 +298,7 @@ const moreMenu = (
     readonly actions: readonly Named[];
     readonly folders: readonly Folder[];
     readonly onMove: (folder: string) => void;
-    readonly labels?: ReadonlyArray<
-      Readonly<{ id: string; name: string; applied: boolean; run: () => void }>
-    >;
+    readonly labels?: readonly MenuItem[];
   },
 ): readonly MenuSection[] => [
   {
@@ -332,13 +333,7 @@ const moreMenu = (
             {
               title: t('gmailActions.labels'),
               symbol: 'tag',
-              items: labels.map(({ id, name, applied, run }) => ({
-                key: `${target}\nlabel\n${id}`,
-                title: name,
-                symbol: '',
-                checked: applied,
-                run,
-              })),
+              items: labels,
             },
           ]),
     ],
@@ -630,9 +625,10 @@ function GmailMessageActions({
           labels:
             provider === 'gmail'
               ? state.labels.map(({ id: label, name }) => ({
-                  id: label,
-                  name,
-                  applied: applied.has(label),
+                  key: `${target}\nlabel\n${label}`,
+                  title: name,
+                  symbol: '',
+                  checked: applied.has(label),
                   run: () => {
                     act(
                       applied.has(label)
