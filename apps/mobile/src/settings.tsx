@@ -13,11 +13,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ScreenStack,
+  ScreenStackHeaderCenterView,
   ScreenStackHeaderRightView,
   ScreenStackItem,
 } from 'react-native-screens';
 
 import { AccountHeader } from './account-page.tsx';
+import { usePaletteHeader } from './command-palette.tsx';
 import { Glass, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -305,6 +307,7 @@ export function SettingsWorkspace({
   account,
   destination,
   onDestination,
+  navigation,
   accessory,
   onWelcome,
   children,
@@ -316,6 +319,12 @@ export function SettingsWorkspace({
   readonly onDestination: (
     destination: SettingsDestination | undefined,
   ) => void;
+  readonly navigation?: Readonly<{
+    // Closes the iPhone list over what Settings covered; setup has nothing beneath it.
+    onBack: (() => void) | undefined;
+    onInbox: () => void;
+    disabled: boolean;
+  }>;
   // Shown in the header, such as an activity indicator and the way back to the Inbox.
   readonly accessory?: ReactNode;
   readonly onWelcome?: () => void;
@@ -326,6 +335,7 @@ export function SettingsWorkspace({
   const colors = usePalette();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  const header = usePaletteHeader();
   const content = (
     <ScrollView contentContainerStyle={styles.content}>{children}</ScrollView>
   );
@@ -433,28 +443,37 @@ export function SettingsWorkspace({
   if (onWelcome !== undefined) {
     return content;
   }
-  // A pushed page's system navigation bar owns Back and its edge swipe; the accessory keeps its
-  // own glass. The bar's title takes no palette swipe, which stays on the list's title.
-  const bar = (title: string) => ({
+  // UIKit owns the bar controls; only the list's React title opens the palette.
+  const bar = (title: string, titleView?: ReactNode) => ({
     title,
     backgroundColor: colors.surfaceContent,
     color: colors.textPrimary,
     titleColor: colors.textPrimary,
     hideShadow: true,
     backButtonDisplayMode: 'minimal' as const,
-    children:
-      accessory === undefined ? undefined : (
+    headerRightBarButtonItems:
+      navigation === undefined
+        ? undefined
+        : [
+            {
+              type: 'button' as const,
+              icon: { type: 'sfSymbol' as const, name: 'tray' },
+              accessibilityLabel: t('registration.openInbox'),
+              onPress: navigation.onInbox,
+              disabled: navigation.disabled,
+            },
+          ],
+    children: (
+      <>
+        {titleView}
         <ScreenStackHeaderRightView hidesSharedBackground>
           {accessory}
         </ScreenStackHeaderRightView>
-      ),
+      </>
+    ),
   });
   const list = (
     <View style={styles.page}>
-      <AccountHeader
-        title={t('settings.title')}
-        accessory={accessory}
-      />
       <ScrollView contentContainerStyle={styles.content}>
         {/* `children` are the shown destination's groups once one is pushed. */}
         {destination === undefined ? children : null}
@@ -520,7 +539,34 @@ export function SettingsWorkspace({
         screenId="settings-list"
         activityState={2}
         freezeOnBlur={false}
-        headerConfig={{ hidden: true, title: t('settings.title') }}>
+        headerConfig={{
+          ...bar(
+            t('settings.title'),
+            <ScreenStackHeaderCenterView>
+              <View {...header.swipe}>
+                <Text
+                  accessibilityRole="header"
+                  numberOfLines={1}
+                  style={[textStyles.headline, { color: colors.textPrimary }]}
+                  {...header.action}>
+                  {t('settings.title')}
+                </Text>
+              </View>
+            </ScreenStackHeaderCenterView>,
+          ),
+          headerLeftBarButtonItems:
+            navigation?.onBack === undefined
+              ? undefined
+              : [
+                  {
+                    type: 'button',
+                    icon: { type: 'sfSymbol', name: 'chevron.left' },
+                    accessibilityLabel: t('settings.back'),
+                    onPress: navigation.onBack,
+                    disabled: navigation.disabled,
+                  },
+                ],
+        }}>
         <View
           style={styles.page}
           accessibilityElementsHidden={destination !== undefined}

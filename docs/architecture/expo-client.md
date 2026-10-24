@@ -29,6 +29,10 @@ record the current implementation, not requirements to retain them.
   UIKit's dismissal event retires that Settings request. The mail shell and composer
   keep their route and mounted state beneath the push; iPad retains the two-column
   Settings workspace over its mounted shell.
+  The nested Settings stack uses screens' system headers for its list and pushed
+  destinations. The list's React center title retains the Command Palette swipe
+  and accessibility action. Native bar-button items close the list over the mail
+  or show the kept Inbox; a root screen needs an explicit item to close its cover.
 
 - React Native `StyleSheet` and framework-independent light/dark tokens in
   `packages/mail-core`. System text, accessible buttons, selection state and

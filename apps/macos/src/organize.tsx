@@ -1,3 +1,8 @@
+import type { Translate } from '@private-email/localization';
+import type {
+  MenuItem,
+  MenuSection,
+} from '@private-email/mail-core/context-menu';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type {
   ImapAction,
@@ -39,7 +44,6 @@ import {
 import {
   AccessibilityInfo,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -49,7 +53,7 @@ import { RegisterCommands } from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
 import {
   GlassGroup,
-  GlassPanel,
+  MenuButton,
   Notice,
   SFSymbol,
   ToolbarButton,
@@ -71,11 +75,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  panels: { maxHeight: 280, flexGrow: 0 },
-  floatingPanels: {
-    position: 'absolute',
-    top: 36 + spacing.m,
-    right: spacing.l,
+  more: {
+    minWidth: 32,
+    minHeight: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
   },
   button: {
     minHeight: 28,
@@ -90,35 +96,24 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   label: { ...textStyles.body, flexShrink: 1 },
-  panel: { gap: 4, padding: spacing.l },
-  labelRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.s,
-  },
-  labelName: { flexGrow: 1, flexShrink: 1, minWidth: 28 },
   secondary: { ...textStyles.body },
   status: { paddingHorizontal: spacing.xl, paddingBottom: spacing.s },
 });
 
-// A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
+// A keyboard-focusable control that shows where focus is.
 function ActionButton({
   label,
   onPress,
-  checked,
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly checked?: boolean;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityLabel={label}
-      accessibilityRole={checked === undefined ? 'button' : 'checkbox'}
-      accessibilityState={checked === undefined ? undefined : { checked }}
+      accessibilityRole="button"
       focusable
       onBlur={() => {
         setFocused(false);
@@ -136,12 +131,6 @@ function ActionButton({
           borderColor: focused ? colors.accentInk : 'transparent',
         },
       ]}>
-      {checked === true ? (
-        <SFSymbol
-          name="checkmark"
-          color={colors.textPrimary}
-        />
-      ) : null}
       <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
     </Pressable>
   );
@@ -225,19 +214,35 @@ export function MessageActionsNotice({ id }: { readonly id: string }) {
 
 type Named = Readonly<{ name: string; label: string; onPress: () => void }>;
 
-// The toolbar groups, with the Move control after Archive and Delete, and the label panel the
-// Gmail Labels button opened.
+// A provider's quick actions as toolbar buttons that run them.
+const named = <Action,>(
+  actions: ReadonlyArray<
+    Readonly<{ name: string; label: string; action: Action }>
+  >,
+  act: (action: Action) => void,
+): Named[] =>
+  actions.map(({ name, label, action }) => ({
+    name,
+    label,
+    onPress: () => {
+      act(action);
+    },
+  }));
+
+// The toolbar groups, with the Move control after Archive and Delete, and the More menu last.
 function Toolbar({
   actions,
   move,
-  panel,
+  more,
   children,
 }: {
   readonly actions: readonly Named[];
   readonly move?: ReactNode;
-  readonly panel?: ReactNode;
+  readonly more: readonly MenuSection[];
   readonly children: ReactNode;
 }) {
+  const colors = usePalette();
+  const { t } = useLocalization();
   const button = ({ name, label, onPress }: Named) => (
     <ToolbarButton
       key={name}
@@ -253,27 +258,89 @@ function Toolbar({
     ({ name }) => name !== 'archive' && name !== 'trash',
   );
   return (
-    <>
-      <View style={styles.toolbar}>
-        {placing.length === 0 && move === undefined ? null : (
-          <GlassGroup>
-            {placing.map(button)}
-            {move}
-          </GlassGroup>
-        )}
-        {children}
-        {rest.length === 0 ? null : <GlassGroup>{rest.map(button)}</GlassGroup>}
-      </View>
-      {panel === undefined ? null : (
-        <View
-          pointerEvents="box-none"
-          style={styles.floatingPanels}>
-          {panel}
-        </View>
+    <View style={styles.toolbar}>
+      {placing.length === 0 && move === undefined ? null : (
+        <GlassGroup>
+          {placing.map(button)}
+          {move}
+        </GlassGroup>
       )}
-    </>
+      {children}
+      <GlassGroup>
+        {rest.map(button)}
+        <MenuButton
+          accessibilityLabel={t('message.more')}
+          sections={more}
+          style={styles.more}>
+          <SFSymbol
+            name="ellipsis"
+            size={16}
+            color={colors.textPrimary}
+          />
+        </MenuButton>
+      </GlassGroup>
+    </View>
   );
 }
+
+type Folder = Readonly<{ id: string; name: string; symbol?: string }>;
+
+// The More menu's items the design orders: Mark as Read or Unread, Move to and, for Gmail, Labels,
+// each applied label checked. Keys carry the mailbox and message, so a late choice acts only on
+// the message the menu opened for.
+const moreMenu = (
+  t: Translate,
+  target: string,
+  {
+    actions,
+    folders,
+    onMove,
+    labels = [],
+  }: {
+    readonly actions: readonly Named[];
+    readonly folders: readonly Folder[];
+    readonly onMove: (folder: string) => void;
+    readonly labels?: readonly MenuItem[];
+  },
+): readonly MenuSection[] => [
+  {
+    items: [
+      ...actions
+        .filter(({ name }) => name === 'read' || name === 'unread')
+        .map(({ name, onPress }) => ({
+          key: `${target}\n${name}`,
+          title: t(name === 'read' ? 'contextMenu.read' : 'contextMenu.unread'),
+          symbol: icons[name] ?? 'envelope',
+          run: onPress,
+        })),
+      ...(folders.length === 0
+        ? []
+        : [
+            {
+              title: t('contextMenu.moveTo'),
+              symbol: 'folder',
+              items: folders.map(({ id, name, symbol = 'folder' }) => ({
+                key: `${target}\nmove\n${id}`,
+                title: name,
+                symbol,
+                run: () => {
+                  onMove(id);
+                },
+              })),
+            },
+          ]),
+      ...(labels.length === 0
+        ? []
+        : [
+            {
+              title: t('gmailActions.labels'),
+              symbol: 'tag',
+              items: labels,
+            },
+          ]),
+    ],
+  },
+];
 
 // Move to a folder from the system menu dropped below the Move button; notes are disabled items.
 // Keys carry the mailbox and message, so a late choice moves only the message the menu opened for.
@@ -285,9 +352,7 @@ function MoveMenu({
 }: {
   // The mailbox and message, as their command target names them.
   readonly target: string;
-  readonly folders: ReadonlyArray<
-    Readonly<{ id: string; name: string; symbol?: string }>
-  >;
+  readonly folders: readonly Folder[];
   readonly notes?: readonly string[];
   readonly onMove: (folder: string) => void;
 }) {
@@ -409,6 +474,8 @@ function ImapMessageActions({
     act({ kind: 'move', destination });
   };
   const actions = imapQuickActions(t, message, state);
+  const buttons = named(actions, act);
+  const target = commandTarget(mailbox?.id, message).id;
   return (
     <>
       <RegisterCommands
@@ -429,22 +496,21 @@ function ImapMessageActions({
         }
       />
       <Toolbar
-        actions={actions.map(({ name, label, action }) => ({
-          name,
-          label,
-          onPress: () => {
-            act(action);
-          },
-        }))}
+        actions={buttons}
         move={
           folders.length === 0 ? undefined : (
             <MoveMenu
-              target={commandTarget(mailbox?.id, message).id}
+              target={target}
               folders={folders}
               onMove={move}
             />
           )
-        }>
+        }
+        more={moreMenu(t, target, {
+          actions: buttons,
+          folders,
+          onMove: move,
+        })}>
         {children}
       </Toolbar>
     </>
@@ -466,9 +532,7 @@ function GmailMessageActions({
 }) {
   const state = useInbox();
   const store = useInboxActions();
-  const colors = usePalette();
   const { t } = useLocalization();
-  const [labeling, setLabeling] = useState(false);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
@@ -510,6 +574,8 @@ function GmailMessageActions({
     unavailableActions: state.unavailableActions,
     view,
   });
+  const buttons = named(actions, act);
+  const target = commandTarget(mailbox?.id, message).id;
   const limited =
     state.labelsLimited === true
       ? t('gmailActions.foldersLimited', { count: state.labels.length })
@@ -533,87 +599,48 @@ function GmailMessageActions({
         }
       />
       <Toolbar
-        actions={actions.map(({ name, label, action }) => ({
-          name,
-          label,
-          onPress: () => {
-            act(action);
-          },
-        }))}
-        // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
+        actions={buttons}
         move={
-          provider === 'gmail' ? (
-            <ToolbarButton
-              icon="folder"
-              label={t(
-                labeling ? 'gmailActions.hideLabels' : 'gmailActions.labels',
-              )}
-              expanded={labeling}
-              onPress={() => {
-                setLabeling(!labeling);
-              }}
-            />
-          ) : (
-            <MoveMenu
-              target={commandTarget(mailbox?.id, message).id}
-              folders={state.labels}
-              notes={[
-                ...(state.labels.length === 0
-                  ? [t('gmailActions.noFolders')]
-                  : []),
-                ...(limited === undefined ? [] : [limited]),
-              ]}
-              onMove={move}
-            />
-          )
+          <MoveMenu
+            target={target}
+            folders={state.labels}
+            notes={[
+              ...(state.labels.length === 0
+                ? [
+                    t(
+                      provider === 'gmail'
+                        ? 'gmailActions.noLabels'
+                        : 'gmailActions.noFolders',
+                    ),
+                  ]
+                : []),
+              ...(limited === undefined ? [] : [limited]),
+            ]}
+            onMove={move}
+          />
         }
-        panel={
-          provider === 'gmail' ? (
-            <GlassPanel open={labeling}>
-              <ScrollView
-                style={styles.panels}
-                contentContainerStyle={styles.panel}>
-                {state.labels.length === 0 ? (
-                  <Text
-                    style={[styles.secondary, { color: colors.textSecondary }]}>
-                    {t('gmailActions.noLabels')}
-                  </Text>
-                ) : null}
-                {limited === undefined ? null : (
-                  <Text
-                    style={[styles.secondary, { color: colors.textSecondary }]}>
-                    {limited}
-                  </Text>
-                )}
-                {state.labels.map((label) => (
-                  <View
-                    key={label.id}
-                    style={styles.labelRow}>
-                    <View style={styles.labelName}>
-                      <ActionButton
-                        checked={applied.has(label.id)}
-                        label={label.name}
-                        onPress={() => {
-                          act(
-                            applied.has(label.id)
-                              ? gmailAction.unlabel(label.id)
-                              : gmailAction.label(label.id),
-                          );
-                        }}
-                      />
-                    </View>
-                    <ActionButton
-                      label={t('gmailActions.moveTo', { label: label.name })}
-                      onPress={() => {
-                        move(label.id);
-                      }}
-                    />
-                  </View>
-                ))}
-              </ScrollView>
-            </GlassPanel>
-          ) : undefined
-        }>
+        // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
+        more={moreMenu(t, target, {
+          actions: buttons,
+          folders: state.labels,
+          onMove: move,
+          labels:
+            provider === 'gmail'
+              ? state.labels.map(({ id: label, name }) => ({
+                  key: `${target}\nlabel\n${label}`,
+                  title: name,
+                  symbol: '',
+                  checked: applied.has(label),
+                  run: () => {
+                    act(
+                      applied.has(label)
+                        ? gmailAction.unlabel(label)
+                        : gmailAction.label(label),
+                    );
+                  },
+                }))
+              : [],
+        })}>
         {children}
       </Toolbar>
     </>

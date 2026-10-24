@@ -1312,11 +1312,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   the Mac reveal policy on mobile.
 - `app/_layout.tsx` asking its split view for a column by its two-column name.
   Mailboxes is the `primary` column and the message list `supplementary`: when a
-  reader, Thread or composer closes, including the compact reader's own Back
-  that hides the native navigation bar, and on first mount, show
-  `supplementary`. Assert the requested column in the routing journey; otherwise
-  iPhone returns to Mailboxes instead of the list, and iPad portrait opens the
-  sidebar over it.
+  reader or Thread closes, including the compact reader's own Back that hides
+  the native navigation bar, and on first mount, show `supplementary`. A compact
+  composer covers its originating column: opening and closing New Message from
+  Mailboxes must keep Mailboxes beneath it, while one opened from the Inbox
+  keeps the list. Assert the return destination in the affected routing or native
+  journey; otherwise iPhone returns to the wrong column, and iPad portrait can
+  open the sidebar over the list.
 - `app/_layout.tsx` placing a composer overlay from a leading column's local
   `onLayout` alone. UIKit can move that column without changing its child bounds;
   derive the overlay edge from the native reading column's current width, including

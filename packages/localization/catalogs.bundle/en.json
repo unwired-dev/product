@@ -167,6 +167,7 @@
     "chooseMailbox": "Choose another Google mailbox"
   },
   "settings": {
+    "back": "Back",
     "title": "Settings",
     "sections": {
       "accounts": "Accounts",
@@ -1054,6 +1055,7 @@
     "read": "Mark as Read",
     "unread": "Mark as Unread",
     "moveMessage": "Move Message",
+    "moveTo": "Move to…",
     "openLink": "Open Link",
     "copyLink": "Copy Link",
     "quickLook": "Quick Look",

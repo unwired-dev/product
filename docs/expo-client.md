@@ -6,7 +6,8 @@ The review agent owns the separate [architecture companion](architecture/expo-cl
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
 a deterministic Inbox and message detail for iPhone and iPad. The shell is a native
 split view: a Mailboxes sidebar column (**All inboxes**, each Mailbox Connection with
-its Inbox and IMAP folders, and **Account**), the message list with a floating
+its Inbox and IMAP folders, and **Account**; on iPhone, Account sits in its header and a
+floating **New Message** at its bottom corner), the message list with a floating
 **Filter**, search and **New Message** bar, which rises above the software keyboard while its
 search field is in use, and the reader. Search opens a search mode with **Close Search**
 and a scope choice, and Filter narrows the Inbox

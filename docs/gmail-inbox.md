@@ -36,8 +36,9 @@ the app menu's **Settings…** (Command-,) also opens; opening it again brings t
 window forward on the destination asked for, or where the person left it. Closing
 it leaves every Inbox window as it was, and its Command Palette's Inbox brings an
 Inbox window forward. On iPhone, Settings pushes onto the native navigation stack;
-edge-back returns to where it opened, such as Mailboxes or the kept Inbox,
-reader or composer. When Settings opened from Mailboxes (**Account**, **Manage
+edge-back and the list of destinations' **Back** return to where it opened, such as
+Mailboxes or the kept Inbox, reader or composer. Mailboxes offers **Account** in
+its header. When Settings opened from Mailboxes (**Account**, **Manage
 Mail Profiles** or an IMAP password repair), **Open Inbox** shows the kept Inbox.
 Reopening **Account** starts Settings on its list of destinations. iPad
 opens its two-column workspace over that same kept content, with **Open Inbox**
@@ -290,26 +291,28 @@ Gmail's label semantics. These are **Provider Mail Actions** for Gmail only; fut
 IMAP or Microsoft connections need their own actions rather than pretending to match
 Gmail's labels.
 
-| Action                            | Gmail change                                                                                                                             |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Mark as read** / **unread**     | Removes or adds `UNREAD`                                                                                                                 |
-| **Star** / **Remove star**        | Adds or removes `STARRED`                                                                                                                |
-| **Archive**                       | Removes `INBOX`; offered only for mail in the Inbox                                                                                      |
-| **Move to Trash**                 | Adds `TRASH`, removes `INBOX`                                                                                                            |
-| **Report spam**                   | Adds `SPAM`, removes `INBOX`                                                                                                             |
-| A label checkbox under **Labels** | Adds or removes that label                                                                                                               |
-| **Move to** a label               | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
-| **Undo**                          | Reverses the latest removal from the Inbox                                                                                               |
+| Action                        | Gmail change                                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mark as read** / **unread** | Removes or adds `UNREAD`                                                                                                                 |
+| **Star** / **Remove star**    | Adds or removes `STARRED`                                                                                                                |
+| **Archive**                   | Removes `INBOX`; offered only for mail in the Inbox                                                                                      |
+| **Move to Trash**             | Adds `TRASH`, removes `INBOX`                                                                                                            |
+| **Report spam**               | Adds `SPAM`, removes `INBOX`                                                                                                             |
+| A label under **Labels**      | Adds or removes that label                                                                                                               |
+| **Move to** a label           | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
+| **Undo**                      | Reverses the latest removal from the Inbox                                                                                               |
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
 above the reading pane groups **Archive**, **Move
-to Trash** and **Labels** (or **Folders**), then Reply, Reply All and Forward,
-then the remaining actions. The Mac's **Folders** for IMAP and Microsoft mail opens
-the system menu below the button, one folder per item with its symbol. A choice moves
+to Trash** and **Folders**, then Reply, Reply All and Forward,
+then the remaining actions and **More**. The Mac's **Folders** opens
+the system menu below the button, one folder or label per item with its symbol. A choice moves
 the message, while Escape or a click outside closes the menu without moving it.
-Microsoft's note that the mailbox has no folders, or that some were left out, shows
-as an unavailable item. iPad's fixed toolbar holds **Archive**, **Labels**
+A note that the mailbox has no folders or labels of its own, or that some were left out, shows
+as an unavailable item. **More** opens the system menu with **Mark as Read** (or
+**Unread**), **Move to** and, for Gmail mail only, **Labels**: a submenu listing each
+label, checked when the message has it. Choosing a label adds or removes it. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Folders**, **Reply** and
 **More**, beside a separate circular New Message button. Reply
@@ -331,8 +334,7 @@ knows it. A search lists the folders that can hold mail by their full path, such
 account; choosing the account returns to its folders, and **Cancel** closes the picker
 without moving anything. Choosing a folder moves the message and closes the picker. More
 lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
-label checkboxes under a **Labels** heading. Menu panels, including the Mac's Gmail
-**Labels** panel, ease in from their toolbar and fade out on iPhone, iPad and Mac, and the Reply sheet and Move picker shrink back toward their
+label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad, and the Reply sheet and Move picker shrink back toward their
 button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
