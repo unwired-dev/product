@@ -227,8 +227,8 @@ approval. Native migrations remain with
 [#849](https://github.com/unwired-dev/product/issues/849) owns keyboard and
 bulk-action capability, and [#981](https://github.com/unwired-dev/product/issues/981)
 owns blinking autosave feedback. [#1089](https://github.com/unwired-dev/product/issues/1089)
-owned this ledger and the specification's approval; #1090, #1091 and #1092
-implement it. Native accessibility and
+owns this ledger and the approval; #1090, #1091 and #1092 implement the
+specification. Native accessibility and
 responsiveness qualification remains with #626, using the visual evidence work in
 #1061 through #1065 where applicable.
 
