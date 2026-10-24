@@ -41,6 +41,7 @@ import {
   Alert,
   Animated,
   AppState,
+  DeviceEventEmitter,
   ScrollView,
   TurboModuleRegistry,
   View,
@@ -53,12 +54,18 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { profileChoices } from '../src/profile-choices.ts';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import {
+  ComposerWindow,
   InboxWindow as RegisteredWindow,
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
 import { chooseSheetButton, sheetsShown } from './native-alert.ts';
 import { chooseMenuItem, chooseSubmenuItem, menuItems } from './native-menu.ts';
-import { MacWindows, settingsWindow } from './settings-window.tsx';
+import {
+  closedWindows,
+  composerWindows,
+  MacWindows,
+  settingsWindow,
+} from './settings-window.tsx';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -197,8 +204,8 @@ describe('mac window selection with the shared mock mailbox', () => {
     showMailboxes(singleMailbox(fixture, 'preview'));
   });
 
-  /* oxlint-disable vitest/max-expects -- One editor crosses expansion, reader changes and durable Close. */
-  it('keeps the open Draft and history while selecting the reader beneath its overlay', async () => {
+  /* oxlint-disable vitest/max-expects -- One Draft crosses reader changes, Undo and Expand into its window. */
+  it('keeps the open Draft and history beneath its overlay until Expand moves it into a New Message window', async () => {
     expect.hasAssertions();
     const connection = {
       id: alex,
@@ -227,17 +234,17 @@ describe('mac window selection with the shared mock mailbox', () => {
       'drafts',
       drafts,
     );
+    const accountActions = {
+      mailboxes: [connection],
+      openAccount: () => undefined,
+      authorizeMailbox: () => Promise.resolve(),
+      refreshInbox: (load: () => Promise<void>) => load(),
+      account: 'synthetic-product-account',
+      profiles: [{ id: 'work', name: 'Work' }],
+      createProfile: () => Promise.resolve(undefined),
+    };
     const app = await render(
-      <AccountContext
-        value={{
-          mailboxes: [connection],
-          openAccount: () => undefined,
-          authorizeMailbox: () => Promise.resolve(),
-          refreshInbox: (load) => load(),
-          account: 'synthetic-product-account',
-          profiles: [{ id: 'work', name: 'Work' }],
-          createProfile: () => Promise.resolve(undefined),
-        }}>
+      <AccountContext value={accountActions}>
         <InboxWindow windowId="compose" />
       </AccountContext>,
     );
@@ -283,21 +290,6 @@ describe('mac window selection with the shared mock mailbox', () => {
         }),
       );
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
-      await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
-      expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
-      // Search Mail collapses the expanded composer to reveal the Inbox search field, keeping the Draft.
-      await fireEvent.press(
-        app.getByRole('button', { name: 'Open Command Palette' }),
-      );
-      await act(async () => {
-        await fireEvent.press(
-          within(app.getByTestId('command-palette')).getByRole('button', {
-            name: 'Search Mail',
-          }),
-        );
-      });
-      expect(app.getByLabelText('Search senders and subjects')).toBeVisible();
-      expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
       await fireEvent.press(app.getByRole('button', { name: oliver }));
       expect(app.getByLabelText('Message body')).toHaveTextContent(
         'Keep this draft.',
@@ -315,9 +307,107 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Keep this draft.',
       );
       await fireEvent.press(app.getByRole('button', { name: 'Redo' }));
-      await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
+      // A concurrent storage writer wins the original identifier while Expand is saving.
+      const before = drafts.getSnapshot();
+      ok(before.kind === 'ready');
+      const [original] = before.drafts;
+      ok(original);
+      const writer = createDrafts(storage.native, {
+        subscribe: () => () => undefined,
+        getSnapshot: () => account,
+      });
+      await writer.load();
+      await writer.update({ ...original, subject: 'Other writer' }, original);
+      storage.hold();
+      try {
+        await fireEvent.changeText(
+          app.getByLabelText('Subject'),
+          'Moving editor',
+        );
+        // Expand waits for saving, typed recipient text included, and follows its conflict copy.
+        await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
+        expect(app.getByTestId('composer-overlay')).toBeVisible();
+      } finally {
+        storage.release();
+      }
+      await waitFor(() => {
+        expect(app.queryByTestId('composer-overlay')).toBeNull();
+      });
       await expect(app.findByText('oliver@example.com')).resolves.toBeVisible();
-      expect(app.queryByLabelText('Message body')).toBeNull();
+      const [opened] = composerWindows();
+      ok(opened !== undefined);
+      expect(opened.draft).not.toBe(original.id);
+      expect(drafts.getSnapshot()).toMatchObject({
+        drafts: expect.arrayContaining([
+          {
+            ...original,
+            subject: 'Other writer',
+            updatedAt: expect.any(Number),
+          },
+        ]),
+      });
+      expect(composerWindows()).toStrictEqual([
+        { draft: opened.draft, profile: defaultProfile },
+      ]);
+      // AppKit shows the New Message window beside the Inbox window.
+      await app.rerender(
+        <AccountContext value={accountActions}>
+          <InboxWindow windowId="compose" />
+          <View testID="composer-window">
+            <ComposerWindow
+              windowId="1"
+              draft={opened.draft}
+              profile={opened.profile}
+            />
+          </View>
+        </AccountContext>,
+      );
+      const window = within(app.getByTestId('composer-window'));
+      await expect(
+        window.findByLabelText('Message body'),
+      ).resolves.toHaveTextContent('Keep this draft.');
+      expect(window.getByLabelText('To')).toHaveProp('value', 'unfinished');
+      expect(window.queryByRole('button', { name: 'Expand' })).toBeNull();
+      // Native Close and Quit must reach this editor's leave guard, including unfinished entries.
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'composer-window-1',
+        });
+      });
+      expect(
+        window.getByRole('alert', {
+          name: 'Correct or remove the invalid address to close this Draft.',
+        }),
+      ).toBeVisible();
+      expect(closedWindows()).toStrictEqual([]);
+      await fireEvent.changeText(window.getByLabelText('To'), '');
+      storage.setLocked(true);
+      await fireEvent.changeText(
+        window.getByLabelText('Subject'),
+        'Unsaved window edit',
+      );
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'composer-window-1',
+        });
+      });
+      expect(
+        window.getByText(
+          'This Draft could not be saved, so it stays open. Try again, or discard it.',
+        ),
+      ).toBeVisible();
+      expect(closedWindows()).toStrictEqual([]);
+      storage.setLocked(false);
+      await fireEvent.press(window.getByRole('button', { name: 'Close' }));
+      await waitFor(() => {
+        expect(closedWindows()).toStrictEqual(['composer-window-1']);
+      });
+      await app.rerender(
+        <AccountContext value={accountActions}>
+          <InboxWindow windowId="compose" />
+        </AccountContext>,
+      );
       await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
       expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();

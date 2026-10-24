@@ -106,6 +106,7 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
+import { useCloseGuard } from './command-palette.tsx';
 import { ComposerActions, FormatBar, PopUp } from './composer-controls.tsx';
 import {
   Notice as Banner,
@@ -1335,7 +1336,6 @@ function Editor({
   onClose,
   onClosedAfterRemoval,
   onRebind,
-  expanded = false,
   onExpand,
 }: {
   readonly initial: Draft;
@@ -1343,9 +1343,8 @@ function Editor({
   readonly onClosedAfterRemoval: (id: string) => void;
   // Another editor changed this Draft first, so this editor's version is now the copy `id`.
   readonly onRebind: (id: string) => void;
-  // Whether the composer takes over the window, and the control that toggles it when offered.
-  readonly expanded?: boolean | undefined;
-  readonly onExpand?: (() => void) | undefined;
+  // Moves the saved Draft into its own window, when offered.
+  readonly onExpand?: ((id: string) => void) | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
@@ -1783,7 +1782,31 @@ function Editor({
     update,
   ]);
   const navigation = useComposerNavigation();
+  useCloseGuard(navigation.leave);
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
+  // Expand hands the Draft over once every edit is saved; a failed save keeps it here.
+  const expand = async () => {
+    if (discarded.current || lifetime.current.finishing > 0) {
+      return;
+    }
+    setClosing('saving');
+    let saved = false;
+    lifetime.current.finishing += 1;
+    try {
+      saved = await store.save();
+    } catch {
+      // An unexpected storage rejection keeps the composer open and retryable too.
+    }
+    finishOperation();
+    if (!lifetime.current.mounted) {
+      return;
+    }
+    if (saved) {
+      onExpand?.(authored.current.id);
+    } else {
+      setClosing('blocked');
+    }
+  };
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     deletion.current = undefined;
     if (sendingNow.current) {
@@ -1958,13 +1981,12 @@ function Editor({
         </View>
         {onExpand === undefined ? null : (
           <ToolbarButton
-            icon={
-              expanded
-                ? 'arrow.down.right.and.arrow.up.left'
-                : 'arrow.up.left.and.arrow.down.right'
-            }
-            label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
-            onPress={onExpand}
+            disabled={lockedUnless(closing !== 'saving')}
+            icon="arrow.up.left.and.arrow.down.right"
+            label={t('drafts.expand')}
+            onPress={() => {
+              void expand();
+            }}
           />
         )}
         <ComposerActions
@@ -2294,15 +2316,13 @@ export function Composer({
   id,
   onClose,
   onRebind,
-  expanded,
   onExpand,
 }: {
   readonly id: string;
   readonly onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   readonly onRebind: (id: string) => void;
-  readonly expanded?: boolean | undefined;
-  readonly onExpand?: (() => void) | undefined;
+  readonly onExpand?: ((id: string) => void) | undefined;
 }) {
   const state = useDrafts();
   const store = useDraftStore();
@@ -2342,7 +2362,6 @@ export function Composer({
       <Editor
         key={editor.key}
         initial={draft}
-        expanded={expanded}
         onClose={onClose}
         onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}

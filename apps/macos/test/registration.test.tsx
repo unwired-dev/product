@@ -345,6 +345,57 @@ const settings = async (destination: string) => {
 };
 
 describe('product registration', () => {
+  it('opens a New Message window on the Inbox while setup waits, and closes it on sign-out', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn({ confirmKey: false });
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    const close = jest.fn<undefined, []>();
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}
+        onClose={close}>
+        <Text>Composer</Text>
+      </RegistrationGate>,
+    );
+    // An Inbox window would show the account page first; this window never does.
+    await expect(screen.findByText('Composer')).resolves.toBeVisible();
+    expect(close).not.toHaveBeenCalled();
+    await setup.signOut();
+    await act(async () => {
+      await store.restore();
+    });
+    expect(screen.queryByText('Composer')).toBeNull();
+    expect(close.mock.calls).toStrictEqual([[]]);
+  });
+
+  it('closes a Draft window when foreground verification replaces its Product Account', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    const close = jest.fn<undefined, []>();
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}
+        onClose={close}>
+        <Text>Original account Draft</Text>
+      </RegistrationGate>,
+    );
+    await screen.findByText('Original account Draft');
+    // Another window replaced the native account while this window was inactive.
+    await setup.signOut();
+    await setup.register('apple');
+    await setup.addMailbox();
+    await act(async () => {
+      await store.resume();
+    });
+    expect(screen.queryByText('Original account Draft')).toBeNull();
+    expect(close.mock.calls).toStrictEqual([[]]);
+  });
+
   it('keeps IMAP provider navigation blocked while another mailbox authorization is pending', async () => {
     expect.hasAssertions();
     const account = await signedIn();

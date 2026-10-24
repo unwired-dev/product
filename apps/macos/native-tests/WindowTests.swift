@@ -1339,6 +1339,52 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(second.waitForNonExistence(timeout: 10))
     front("inbox-window-1")
     XCTAssertTrue(typed.exists)
+
+    // #1266: Expand saves the Draft and moves it into its own New Message window, closing the
+    // overlay; Command-W closes that window, and the app keeps running.
+    window.buttons["Expand"].click()
+    let composer = app.windows["composer-window-1"]
+    XCTAssertTrue(composer.waitForExistence(timeout: 15))
+    XCTAssertEqual(composer.title, "New Message")
+    let windowBody = composer.textViews.matching(
+      NSPredicate(format: "value CONTAINS %@", "Keyboard reply")
+    ).firstMatch
+    XCTAssertTrue(windowBody.waitForExistence(timeout: 15))
+    XCTAssertEqual(windowBody.value as? String, "Keyboard replyKeyboard reply")
+    XCTAssertTrue(typed.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(composer.buttons["Expand"].exists)
+    // Both native exits must reach the regular editor's recipient/save guard.
+    let to = composer.textFields.matching(NSPredicate(format: "label == %@", "To")).firstMatch
+    XCTAssertTrue(to.waitForExistence(timeout: 10))
+    to.click()
+    to.typeText("unfinished")
+    waitUntil { to.value as? String == "unfinished" }
+    composer.typeKey("w", modifierFlags: .command)
+    let invalid = text("Correct or remove the invalid address to close this Draft.", in: composer)
+    XCTAssertTrue(invalid.waitForExistence(timeout: 10))
+    composer.typeKey("q", modifierFlags: .command)
+    XCTAssertTrue(invalid.exists)
+    XCTAssertEqual(app.state, .runningForeground)
+    to.click()
+    composer.typeKey("a", modifierFlags: .command)
+    composer.typeKey(.delete, modifierFlags: [])
+    waitUntil { (to.value as? String ?? "").isEmpty }
+    composer.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    // A composer unmount aborted the host within seconds before (#1174).
+    Thread.sleep(forTimeInterval: 5)
+    XCTAssertEqual(app.state, .runningForeground)
+    XCTAssertTrue(row("Draft. Re: Outlook update 003").exists)
+    // The refused Quit was cancelled, so it did not terminate after the later successful Close.
+    // A fresh New Message window also permits Quit through its own successful save/close guard.
+    row("Draft. Re: Outlook update 003").click()
+    XCTAssertTrue(typed.waitForExistence(timeout: 15))
+    window.buttons["Expand"].click()
+    let quittingComposer = app.windows["composer-window-2"]
+    XCTAssertTrue(quittingComposer.waitForExistence(timeout: 15))
+    XCTAssertTrue(quittingComposer.buttons["Close"].waitForExistence(timeout: 15))
+    quittingComposer.typeKey("q", modifierFlags: .command)
+    XCTAssertTrue(app.wait(for: .notRunning, timeout: 15))
   }
 
   // Opens the key window's Command Palette, narrows it to one command and runs it with Return.

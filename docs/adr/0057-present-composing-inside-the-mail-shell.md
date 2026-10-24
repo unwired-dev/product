@@ -4,6 +4,21 @@ status: accepted
 
 # Present composing inside the mail shell
 
+## Mac composer window amendment, 2026-10-24
+
+The owner-approved [#1058 design](https://github.com/unwired-dev/product/issues/1058)
+and [#1266 slice](https://github.com/unwired-dev/product/issues/1266) supersede the
+Mac expansion and collapse clauses below. The Mac composer starts in the same
+nonmodal overlay. Expand saves the Draft, opens it in its own native New Message
+window and closes the overlay, with no return or Collapse action. Failed saving
+keeps the overlay open. The new window starts a new editor and Undo history,
+retains Close/Save guards, and is not restored by AppKit. The Inbox remains usable
+and several New Message windows may be open. AppKit owns window identity,
+resizing, lifetime and command routing. The iPad and compact iPhone contracts
+below are unchanged. [The Draft guide](../drafts.md#composing) owns the observable
+contract. Draft storage, Product Account and Profile ownership, encryption and
+delivery boundaries remain unchanged.
+
 Composing is navigation-owned editor state rather than modal presentation. On iPad, Mac, and other regular-width layouts, a new message, reply, forward, or product-authored Draft starts in a bottom-anchored nonmodal overlay contained by the detail column, leaving the sidebar and thread list visible and interactive. Expanding the same composition session takes over the entire app surface rather than only the detail column; collapsing restores the detail-column overlay without recreating the editor or Draft. On compact iPhone layouts, the mail shell pushes the composer into its existing navigation stack as an editor destination. Adaptive layout changes preserve the same composition identity, Semantic Message Document, selection, focus, undo history, and autosave state. The client does not use a sheet or full-screen cover for these composer states, and selecting a product-authored Draft enters editing directly with no read-only Draft screen.
 
 While the regular-width composer is collapsed, the sidebar and Thread list remain interactive and the covered detail column does not. Selecting another Thread updates the reader behind the composer without dismissing or resetting its Draft. Closing reveals the latest selected Thread; expanding temporarily makes the composer the app-wide interaction surface.
