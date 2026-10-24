@@ -144,7 +144,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   row to full height and opacity when it no longer owns motion, cancelling its
   prior animation; otherwise Mac can freeze a partially restored row and mobile
   can continue collapsing a message the replacement view still lists.
-- Mobile `organize-motion.MovingRow` binding a Reanimated style to every resting
+  Follow the native binding as well as the shared value: Reanimated 4.5.1 does
+  not unset detached styles, so a passive reset after descriptor removal never
+  reaches the row and its settled props can still override React styles. Verify
+  interruption through the installed driver or retain core Animated values; a
+  web/Jest worklet value assertion alone misses this native failure.
+- When mobile `organize-motion.MovingRow` uses Reanimated, binding its style to every resting
   virtualized row or writing shared values on ordinary idle mounts without native
   idle evidence. With the installed Reanimated 4.5.1, a persistent animated-style
   binding kept the iPad Inbox from idling and XCUITest waited 60 seconds per

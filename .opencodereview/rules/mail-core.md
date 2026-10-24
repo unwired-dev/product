@@ -11,6 +11,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- `gmail-inbox.resolvePending`, IMAP's `drain` or `discardPending`, and
+  `mailbox-motion.advanceRowMotion` relying only on notice identity for
+  restoration. IMAP Undo can publish its notice before the destination refresh,
+  and Discard after relaunch can keep an absent notice. Publish reconciliation
+  attribution with the rows it restores and scope it to the shown folder;
+  otherwise restoration snaps or another window's exit ends on an unrelated
+  destination refresh. Keep ordinary synchronization quiet and existing spoken
+  notices unchanged.
 - `mailbox-motion.ts.advanceRowMotion` retaining a returning key after
   synchronization removes its row before the animation settles. Retire motion
   for absent rows while preserving the returning rows still shown; otherwise a
