@@ -78,8 +78,7 @@ the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md)
 ### Mac performance journey
 
 On the Mac, the `testWarmCachePerformance` journey measures the budgets above
-except Mail View switching and typing and formatting feedback, which remain
-deferred. Build the `Testing` configuration, which
+except Mail View switching, which remains deferred. Build the `Testing` configuration, which
 is Release-optimized with packaged JavaScript plus the test-only probes, with
 `UNWIRED_MOCK_SCENARIO=registration-performance`, then run it with the
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
@@ -97,7 +96,10 @@ lists, 21 switches between both Inboxes and All inboxes, 10 body openings per
 mailbox and 10 openings each of an empty composer and a saved Draft. Closing a
 composer currently crashes the Mac host
 ([#1174](https://github.com/unwired-dev/product/issues/1174)), so each composer
-sample is the first composer of a relaunched process. The synthetic relay
+sample is the first composer of a relaunched process. In a new message it then
+types 20 characters into the body, turns bold on at the caret with Command-B and
+types 11 bold characters, then selects the last word and presses Command-B, B,
+I, I, U, U twice, so each mark toggles on that word and back. The synthetic relay
 records each provider body request in the probe evidence; the journey fails if a
 cached-body sample requested one, or if priming recorded none.
 
@@ -109,6 +111,17 @@ within budget passes, but an overrun only shows that the budget is not proven.
 The app records main-queue probe delays of 100 ms or longer; the report names
 stalls overlapping sample windows and in the whole session. Missing or malformed
 probe evidence, including a click sample without its mouse events, fails the journey.
+
+A key sample runs from the key press the app records to the first edit of the
+focused body's text storage that begins with the expected text and the bold,
+italic and underline marks of each of its characters, so a later key press
+cannot hide a late result. Both times come from the app, so a key
+sample excludes XCUITest. Its budget is the frame interval of the key window's
+display, from `maximumFramesPerSecond`: a change that reaches the text storage
+within it is drawn in the display pass before the following frame. The sample
+ends before AppKit lays out and draws the text, so it does not measure the
+display pass itself. A key press or expected edit missing from the evidence
+fails the journey.
 The probe samples every 10 ms after its launch setup. No recorded delay means no
 observed stall; it does not prove the absolute stall cap for every main-thread
 task or for startup before the probe begins.
@@ -117,8 +130,8 @@ The journey writes one `PERFORMANCE` JSON line per interaction to
 `xcodebuild.log` and the same lines as an XCTest attachment. Each line has the
 samples, p50, p95, maximum, budget and stalls. The final line has the
 query overhead, the synthetic press duration and every session stall. It
-measures neither Mail View switching, typing nor formatting feedback, keyboard or
-accessibility journeys, nor the iPhone and iPad references.
+measures neither Mail View switching, keyboard or accessibility journeys, format
+bar clicks, nor the iPhone and iPad references.
 
 ### Mac keyboard and accessibility journey
 
