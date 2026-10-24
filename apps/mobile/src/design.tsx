@@ -586,6 +586,8 @@ export function Button({
   const primary = fill === 'accent';
   const compact = size === 'compact';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  // Pressed, the accent fill shows at 80% (CC) and the quiet fill takes the selection tint.
+  const pressedFill = primary ? `${idle}CC` : colors.accentSelectionSubtle;
   let color = primary ? colors.accentOnFill : colors.textPrimary;
   if (destructive) {
     color = colors.statusDestructive;
@@ -595,7 +597,7 @@ export function Button({
     labelStyle = textStyles.subheadline;
   }
   const fillOf = (pressed: boolean) => ({
-    backgroundColor: pressed && !primary ? colors.accentSelectionSubtle : idle,
+    backgroundColor: pressed ? pressedFill : idle,
   });
   const text = <Text style={[labelStyle, { color }]}>{label}</Text>;
   return (
@@ -608,7 +610,7 @@ export function Button({
       onPress={onPress}
       style={({ pressed }) => [
         compact ? styles.buttonTarget : [styles.button, fillOf(pressed)],
-        { opacity: disabled ? 0.5 : 1 },
+        { opacity: disabled ? 0.4 : 1 },
       ]}>
       {({ pressed }) =>
         compact ? (
