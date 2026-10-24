@@ -206,9 +206,12 @@ replacements under #1057/#1058 keep system feedback and motion.
 - Interruption: a new action, Undo, scroll or selection takes effect
   immediately. A leaving row finishes at once, and Undo reverses from the
   current height.
-- Failure: a change that is refused or discarded returns its row with the Undo
-  motion and keeps the existing Retry and Discard notice. Nothing implies
-  success before the change is saved.
+- Failure: motion follows provider reconciliation. When a refused or discarded
+  change leaves the message in the shown view again, its row returns with the
+  Undo motion; when the message no longer exists or belongs elsewhere, no row
+  returns. The existing outcome notices stay unchanged, as the
+  [organizing rules](../gmail-inbox.md) require. Nothing implies success before
+  the change is saved.
 
 **Lists and outcomes** (#1091, #1092):
 
