@@ -242,6 +242,17 @@ confirmation path. Rich content follows the app appearance under the
 by [#977](https://github.com/unwired-dev/product/issues/977), superseding the
 fixed light canvas.
 
+The Mac reader enables WebKit scrolling for a document wider than its column.
+WebKit consumes vertical wheel input while scrolling is enabled, even when its
+document fits vertically. For a document at or below the 20,000-point presentation
+cap, the patched `RNCWKWebView` therefore splits each wheel event by axis: WebKit
+receives only horizontal deltas and the next responder receives only vertical
+deltas. Both copies retain the event's phase and momentum metadata. The host's
+`bounces` prop distinguishes this vertically pinned state from documents above
+the cap, which keep both axes inside WebKit. The
+[operational presentation contract](../gmail-inbox.md#presentation-accessibility-and-fallback)
+owns the required scrolling behavior.
+
 Recent-body prefetch runs in one lane per Inbox, sharing the two-load semaphore
 and coalescing an explicit open with an in-flight speculative read of the same
 ID. It samples the selection instant once per synchronization, selects an
