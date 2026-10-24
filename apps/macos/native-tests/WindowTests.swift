@@ -684,6 +684,54 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(relaunched.textFields["Recovery Key"].exists)
   }
 
+  // #1130: a link asks in an AppKit sheet on its own window, showing the full destination as
+  // selectable text. Escape and Cancel close it without acting, and Command-P stays closed behind
+  // it. A flagged link's first button, Cancel, is the default and answers Escape too. Nothing is
+  // opened or copied: either would reach the desktop's browser or pasteboard.
+  private func linkSheetJourney(_ app: XCUIApplication, window: XCUIElement) throws {
+    let sheet = window.sheets.firstMatch
+    // AppKit exposes the alert's texts as values.
+    func shows(_ value: String) -> Bool {
+      sheet.descendants(matching: .any).matching(NSPredicate(format: "value == %@", value))
+        .firstMatch.exists
+    }
+    func ask(_ link: String, title: String, destination: String, buttons: [String]) {
+      window.links["Open link: \(link)"].click()
+      XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+      XCTAssertTrue(shows(title))
+      XCTAssertTrue(shows(destination))
+      // AppKit lists the buttons in no fixed order, beside an untitled scroller.
+      XCTAssertEqual(
+        Set(sheet.buttons.allElementsBoundByIndex.map(\.title).filter { !$0.isEmpty }), Set(buttons))
+    }
+    let garden = "https://example.invalid/garden"
+    ask("garden plan", title: "Open this link in your browser?", destination: garden,
+        buttons: ["Open link", "Cancel"])
+    app.typeKey("p", modifierFlags: .command)
+    XCTAssertFalse(window.textFields["Type a command"].waitForExistence(timeout: 2))
+    XCTAssertTrue(sheet.exists)
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    ask("garden plan", title: "Open this link in your browser?", destination: garden,
+        buttons: ["Open link", "Cancel"])
+    sheet.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    let flagged = "https://garden.example.invalid/order"
+    let seeds = "https://seeds.example.invalid/order"
+    let caution = "This link may not be what it seems"
+    for key in [XCUIKeyboardKey.escape, .return] {
+      ask(flagged, title: caution, destination: seeds, buttons: ["Cancel", "Copy link", "Proceed"])
+      if key == .escape { try audit(app, "Link sheet") }
+      app.typeKey(key, modifierFlags: [])
+      XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    }
+    // Focus returns to the window, whose Command Palette opens again.
+    app.typeKey("p", modifierFlags: .command)
+    XCTAssertTrue(window.textFields["Type a command"].waitForExistence(timeout: 10))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(window.textFields["Type a command"].waitForNonExistence(timeout: 10))
+  }
+
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
     XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
@@ -1149,6 +1197,10 @@ final class WindowTests: XCTestCase {
       app.typeText(query)
       XCTAssertTrue(row(query).waitForExistence(timeout: 15))
     }
+    searchFor("Garden plans for spring")
+    row("Garden plans for spring").click()
+    XCTAssertTrue(body("seed order", in: window).waitForExistence(timeout: 15))
+    try linkSheetJourney(app, window: window)
     searchFor("Quarterly planning")
     row("Quarterly planning").click()
     let agenda = body("Agenda for Thursday.", in: window)
@@ -1278,20 +1330,22 @@ final class WindowTests: XCTestCase {
   // Secondary text that fails or nearly fails the contrast audit (#1195). The audits cover every
   // open window, so this lists labels rather than screens.
   private let contrastGaps: Set<String> = [
-    "", "Account & Devices", "Accounts", "All Inboxes. All inboxes · 2 unread", "App",
-    "Application", "Automation", "Colleague 003, colleague003@example.invalid",
+    "", "30 September 2025 at 08:00 UTC", "Account & Devices", "Accounts",
+    "All Inboxes. All inboxes · 2 unread", "App", "Application", "Automation",
+    "Colleague 003, colleague003@example.invalid",
     "Encrypted mailbox list: casey@example.invalid, other@example.invalid.", "Favorites",
     "Gmail · other@example.invalid", "Go To", "Mailboxes", "Microsoft · casey@example.invalid",
-    "October 2025", "Private sync is on", "Search. 1 message · All inboxes",
-    "Select a message to start reading.", "Selected Message", "September 2025",
-    "Sign-in methods", "Signed in with Apple.",
+    "October 2025", "Private sync is on", "Rowan Hale, rowan@example.invalid",
+    "Search. 1 message · All inboxes", "Select a message to start reading.", "Selected Message",
+    "September 2025", "Sign-in methods", "Signed in with Apple.",
     "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
     "casey@example.invalid, other@example.invalid are connected on this device.",
     "relay@privaterelay.example.invalid",
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
-  // Every React Native button lacks a press action until #1194, so that gap is not listed per button.
+  // Every React Native button and message link control lacks a press action until #1194, so that gap
+  // is not listed per control.
   private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
@@ -1301,7 +1355,7 @@ final class WindowTests: XCTestCase {
     switch issue.auditType {
     case .contrast where type == .staticText && contrastGaps.contains(label):
       return "#1195"
-    case .action where type == .button:
+    case .action where type == .button || (type == .link && label.hasPrefix("Open link: ")):
       return "#1194"
     case .parentChild where issue.element == nil:
       return "#1194"
@@ -1316,6 +1370,18 @@ final class WindowTests: XCTestCase {
       && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
         .contains(label):
       return "email address"
+    // A message link whose text is a web address reads as that address.
+    case .sufficientElementDescription
+    where type == .link && issue.element?.title.hasPrefix("https://") == true:
+      return "web address"
+    case .sufficientElementDescription
+    where issue.compactDescription == "Label duplicates role description"
+      && ((type == .image && label == "Image not loaded")
+        || (type == .link && label.hasPrefix("Open link: "))):
+      return "#1220"
+    // The same placeholder shows "Image" under that label.
+    case .elementDetection where type == .image && label == "Image not loaded":
+      return "#1220"
     default:
       return nil
     }

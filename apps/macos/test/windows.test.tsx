@@ -40,7 +40,6 @@ import {
   AccessibilityInfo,
   Alert,
   AppState,
-  DeviceEventEmitter,
   ScrollView,
   TurboModuleRegistry,
   View,
@@ -56,6 +55,7 @@ import {
   InboxWindow as RegisteredWindow,
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
+import { chooseSheetButton, sheetsShown } from './native-alert.ts';
 import { chooseMenuItem } from './native-menu.ts';
 import { MacWindows, settingsWindow } from './settings-window.tsx';
 import { started } from './started.ts';
@@ -887,75 +887,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('keeps Command-P from opening behind a link confirmation in its window', async () => {
-    expect.hasAssertions();
-    const menu: TurboModule &
-      Readonly<{
-        addListener: () => void;
-        removeListeners: () => void;
-        saveFocus: ReturnType<typeof jest.fn>;
-        restoreFocus: () => void;
-        setWindowProfile: () => void;
-      }> = {
-      addListener: () => undefined,
-      removeListeners: () => undefined,
-      saveFocus: jest.fn(),
-      restoreFocus: () => undefined,
-      setWindowProfile: () => undefined,
-    };
-    const module = commandModule(menu);
-    try {
-      const gmail = createSyntheticGmail();
-      gmail.deliver({
-        subject: 'Garden plan',
-        content: {
-          html: '<a href="https://example.invalid/plan">the plan</a>',
-        },
-      });
-      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
-      const app = await render(
-        <Windows
-          first
-          second
-        />,
-      );
-      const first = within(app.getByTestId('inbox-window-first'));
-      const second = within(app.getByTestId('inbox-window-second'));
-      await fireEvent.press(
-        await first.findByRole('button', { name: /Garden plan/u }),
-      );
-      await fireEvent.press(
-        await first.findByRole('link', { name: 'Open link: the plan' }),
-      );
-      await act(() => {
-        DeviceEventEmitter.emit('openCommandPalette', {
-          window: 'inbox-window-first',
-        });
-      });
-      expect(
-        first.queryByPlaceholderText('Type a command', {
-          includeHiddenElements: true,
-        }),
-      ).toBeNull();
-      expect(menu.saveFocus).not.toHaveBeenCalled();
-      await act(() => {
-        DeviceEventEmitter.emit('openCommandPalette', {
-          window: 'inbox-window-second',
-        });
-      });
-      expect(second.getByPlaceholderText('Type a command')).toBeVisible();
-      await fireEvent.press(first.getByRole('button', { name: 'Cancel' }));
-      await act(() => {
-        DeviceEventEmitter.emit('openCommandPalette', {
-          window: 'inbox-window-first',
-        });
-      });
-      expect(first.getByPlaceholderText('Type a command')).toBeVisible();
-    } finally {
-      module.mockRestore();
-    }
-  });
-
   it('keeps confirmations window-local and rejects queued links after replacing a message', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -990,24 +921,13 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(
       await first.findByRole('link', { name: 'Open link: the plan' }),
     );
-    expect({
-      firstDestination:
-        first.queryByText('https://example.invalid/plan') !== null,
-      secondDestination: second.queryByText('https://example.invalid/plan'),
-      backgroundRow: first.queryByRole('button', {
-        name: /Not downloaded yet/u,
-      }),
-    }).toStrictEqual({
-      firstDestination: true,
-      secondDestination: null,
-      backgroundRow: null,
+    expect(sheetsShown().map(({ passage }) => passage)).toStrictEqual([
+      'https://example.invalid/plan',
+    ]);
+    await act(() => {
+      chooseSheetButton('Cancel');
     });
-    await fireEvent(first.getByRole('button', { name: 'Cancel' }), 'keyDown', {
-      nativeEvent: { key: 'Escape' },
-    });
-    expect(
-      first.getByRole('button', { name: /Not downloaded yet/u }),
-    ).toBeVisible();
+    expect(sheetsShown()).toStrictEqual([]);
     await fireEvent.press(
       first.getByRole('link', { name: 'Open link: the plan' }),
     );
@@ -1030,21 +950,18 @@ describe('mac windows over a connected Gmail mailbox', () => {
         navigationType: 'click',
       });
     });
-    expect({
-      firstDestination: first.queryByText('https://example.invalid/plan'),
-      firstConfirmation: first.queryByText('Open this link in your browser?'),
-    }).toStrictEqual({ firstDestination: null, firstConfirmation: null });
+    expect(sheetsShown().map(({ passage }) => passage)).toStrictEqual([
+      'https://example.invalid/other',
+    ]);
     await app.rerender(
       <Windows
         first={false}
         second
       />,
     );
-    expect(
-      within(app.getByTestId('inbox-window-second')).getByText(
-        'https://example.invalid/other',
-      ),
-    ).toBeVisible();
+    expect(sheetsShown().map(({ passage }) => passage)).toStrictEqual([
+      'https://example.invalid/other',
+    ]);
   });
 
   /* oxlint-disable vitest/max-expects -- One journey proves both windows across the synchronization states. */

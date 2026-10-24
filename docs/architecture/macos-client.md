@@ -57,9 +57,10 @@ legacy-view interop. This adds no autolinked package and preserves the existing
 third-party module allowlist. Native visual and accessibility qualification is
 separate from compilation and JavaScript bundle verification.
 
-Link confirmations belong to the window above its sidebar and both columns,
+Link confirmations use the owned `UnwiredAlert` presenter on their anchor's window,
 while its selected mailbox store and message retain presentation ownership.
-The first-party `UnwiredModalBackground` view suppresses the covered accessibility
+AppKit owns the sheet's focus and modal accessibility. The first-party
+`UnwiredModalBackground` view still suppresses the covered onboarding accessibility
 subtree in AppKit because React Native macOS omits its core modal accessibility
 properties.
 

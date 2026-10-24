@@ -243,13 +243,22 @@ type SheetQuestion = Readonly<{
   title: string;
   detail: string;
   buttons: readonly string[];
+  // The button Escape answers; the last unless given.
+  cancel?: number;
+  destructive?: number;
+  // An SF Symbol in place of the app icon.
+  symbol?: Readonly<{ name: string; color: ColorValue }>;
+  // A complete selectable text below the detail that scrolls beyond a few lines.
+  passage?: string;
 }>;
 
 interface NativeAlert extends TurboModule {
   readonly show: (
     anchor: number,
     request: number,
-    question: SheetQuestion,
+    question: Omit<SheetQuestion, 'symbol'> & {
+      readonly symbol?: Readonly<{ name: string; color: unknown }>;
+    },
   ) => Promise<unknown>;
   readonly retire: (request: number) => void;
 }
@@ -257,7 +266,7 @@ interface NativeAlert extends TurboModule {
 let alertRequests = 0;
 
 // Asks in an AppKit alert sheet on `anchor`'s window. `answer` resolves the chosen button's index;
-// the first button is the default and the last, Cancel, answers Escape. `retire` closes the sheet
+// the first button is the default and `cancel` answers Escape. `retire` closes the sheet
 // and ignores later native results. The caller must still check its lifetime after awaiting `answer`.
 export function askInSheet(anchor: View | null, question: SheetQuestion) {
   const alert = TurboModuleRegistry.getEnforcing<NativeAlert>('UnwiredAlert');
@@ -269,7 +278,17 @@ export function askInSheet(anchor: View | null, question: SheetQuestion) {
     if (tag === null) {
       return null;
     }
-    const chosen = await alert.show(tag, request, question);
+    const { symbol } = question;
+    const chosen = await alert.show(
+      tag,
+      request,
+      symbol === undefined
+        ? question
+        : {
+            ...question,
+            symbol: { name: symbol.name, color: processColor(symbol.color) },
+          },
+    );
     return current && isAlertChoice(chosen) ? chosen : null;
   };
   return {

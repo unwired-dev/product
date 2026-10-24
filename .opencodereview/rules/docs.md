@@ -20,6 +20,15 @@ Documentation here is product truth that agents execute: an implementer follows 
   unexercised interactions as deferred, or release qualification can accept
   missing measurements behind a broader coverage claim.
 
+- A native-journey description in `docs/agents/native-validation.md` or a
+  qualification record claiming keyboard activation or focus restoration from a
+  keyboard-accessible control's name or the journey's title. Trace the helper
+  and its caller to the actual input events and assertions, including
+  `WindowTests.linkSheetJourney` and its message-opening caller. Distinguish
+  pointer clicks from key events and window command handling from focus on the
+  originating control; otherwise a passing journey can falsely qualify an
+  unexercised keyboard or focus contract.
+
 - Qualification procedures such as `docs/assistance-qualification.md` removing
   the app, credentials or evidence before later manual checks need them. Walk
   the whole procedure in order, including runner cleanup, hold options and

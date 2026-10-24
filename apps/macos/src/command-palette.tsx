@@ -62,9 +62,6 @@ const PaletteContext = createContext<
   identifier: 'inbox-window-',
 });
 
-// A window's confirmation keeps command entry from taking focus behind its modal background.
-export const CommandEntryBlockedContext = createContext(false);
-
 // Offers commands while it is mounted, with the same handlers the owning screen's buttons use.
 // They are built outside rendering, so a handler may read a ref.
 export function RegisterCommands({
@@ -317,11 +314,6 @@ export function CommandPaletteProvider({
 // window's screen.
 export function CommandBar() {
   const { registry, identifier } = use(PaletteContext);
-  const entryBlocked = use(CommandEntryBlockedContext);
-  const blocked = useRef(entryBlocked);
-  useLayoutEffect(() => {
-    blocked.current = entryBlocked;
-  }, [entryBlocked]);
   const colors = usePalette();
   const { t } = useLocalization();
   // The commands as listed when the palette opened, while it is open.
@@ -331,7 +323,7 @@ export function CommandBar() {
   const pillFocused = useRef(false);
   const refocusPill = useRef(false);
   const open = useCallback(() => {
-    if (opened !== undefined || blocked.current) {
+    if (opened !== undefined) {
       return;
     }
     refocusPill.current = pillFocused.current;
