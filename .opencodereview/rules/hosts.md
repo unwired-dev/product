@@ -186,6 +186,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   and 28pt Mac targets; otherwise most of a seemingly tappable row does nothing.
   Preserve the approved row geometry while enlarging the interactive control.
 
+- `action.tsx` or another compact control applying a feedback capsule's negative
+  margins to its interactive target. Compare its occupied layout width with the
+  previous control for labels narrower than the target minimum, including
+  adjacent actions in a row on both hosts. A target can retain its `minWidth`
+  while its margins reduce the space reserved by its parent; otherwise neighboring
+  labels shift or rows wrap differently despite passing minimum-hit-size checks.
+
 - `SettingsWorkspace` or another route reusing `AccountHeader`'s default back
   label after changing its return target. Trace the callback to the retained
   destination, including signed-out privacy opened from Welcome or Sign In;
