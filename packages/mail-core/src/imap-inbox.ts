@@ -1213,6 +1213,7 @@ export function createImapInbox(
       return;
     }
     const cached = cacheOf(name);
+    const started = DateTime.formatIso(yield* DateTime.now);
     const read = yield* decodeFolderRead(
       yield* call(() =>
         native.imapSynchronize(scope, {
@@ -1237,7 +1238,13 @@ export function createImapInbox(
     const others = current.mailboxes.filter((entry) => entry.name !== name);
     const inbox = others.filter((entry) => entry.name === inboxFolder);
     const rest = others.filter((entry) => entry.name !== inboxFolder);
-    const entry = { name, cache: applyFolderRead(name, cached, read) };
+    const entry = {
+      name,
+      cache: {
+        ...applyFolderRead(name, cached, read),
+        synchronizedAt: started,
+      },
+    };
     yield* commit({
       ...current,
       mailboxes:

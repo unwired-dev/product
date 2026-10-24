@@ -755,30 +755,21 @@ const latestNotificationHistory = (
 
 // Reports new Inbox mail after its commit. Awaited so a background opportunity covers posting; its
 // failure never ends synchronization.
-export const reportArrivals = <M>(
+export const reportArrivals = Effect.fnUntraced(function* <M>(
   arrived: ((messages: readonly M[]) => void | Promise<void>) | undefined,
   messages: readonly M[],
-) =>
-  arrived === undefined || messages.length === 0
-    ? Effect.void
-    : Effect.tryPromise(() => Promise.resolve(arrived(messages))).pipe(
-        Effect.catch((error) =>
-          Effect.logError(
-            'New mail notifications failed:',
-            rejectionDiagnostic(error),
-          ),
+) {
+  if (arrived !== undefined && messages.length > 0) {
+    yield* Effect.tryPromise(() => Promise.resolve(arrived(messages))).pipe(
+      Effect.catch((error) =>
+        Effect.logError(
+          'New mail notifications failed:',
+          rejectionDiagnostic(error),
         ),
-      );
-
-// The later of two Microsoft receipts already considered for notifications, as a document field.
-const latestNotificationReceipt = (
-  saved: string | undefined,
-  next: string | undefined,
-): Pick<MailboxDocument, 'notificationReceivedAt'> => {
-  const later =
-    saved === undefined || (next !== undefined && next > saved) ? next : saved;
-  return later === undefined ? {} : { notificationReceivedAt: later };
-};
+      ),
+    );
+  }
+});
 
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
@@ -799,10 +790,6 @@ const rebasedOnto = (
       ...latestNotificationHistory(
         saved.notificationHistoryId,
         next.notificationHistoryId,
-      ),
-      ...latestNotificationReceipt(
-        saved.notificationReceivedAt,
-        next.notificationReceivedAt,
       ),
       pending: [
         // A stale label read or Discard cannot remove a newly prepared attempt or Retry.
@@ -1599,13 +1586,14 @@ export function createGmailInbox(
   const advance = (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
-    step: number,
+    // This synchronization's step, and when it began; Microsoft's delta rounds record the latter.
+    round: Readonly<{ step: number; started: string }>,
   ): Effect.Effect<
     Option.Option<MailboxDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
   > => {
     if (graph !== undefined) {
-      return graph.advance(scope, document, step);
+      return graph.advance(scope, document, round);
     }
     if (document === undefined) {
       return startListing(scope, undefined).pipe(Effect.asSome);
@@ -1639,7 +1627,7 @@ export function createGmailInbox(
     if (listing !== undefined) {
       return listView(scope, document, listing).pipe(
         Effect.filterOrElse(Option.isSome, () =>
-          advance(scope, document, step),
+          advance(scope, document, round),
         ),
       );
     }
@@ -3444,6 +3432,7 @@ export function createGmailInbox(
     let cache = yield* storage(native.openMailbox);
     const { address, generation } = cache;
     selectionReference = yield* DateTime.now;
+    const started = DateTime.formatIso(selectionReference);
     if (!forgotten) {
       opened = { address, generation };
     }
@@ -3460,7 +3449,7 @@ export function createGmailInbox(
         ({ cache, document } = yield* sendPending(cache, document));
       }
       arrivals = [];
-      const next = yield* advance(cache, document, step);
+      const next = yield* advance(cache, document, { step, started });
       if (Option.isNone(next)) {
         break;
       }

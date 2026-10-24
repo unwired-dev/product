@@ -47,29 +47,24 @@ and cache refills never notify. Push wakes, background refresh, activation and t
 foreground poll all reach the same synchronization; the content-free push never
 decides on its own to alert.
 
-- **IMAP:** a committed Inbox read reports the unread messages whose UIDs are at or
-  above the previously committed UIDNEXT under an unchanged UIDVALIDITY, and whose
-  INTERNALDATE is later than any the cache has considered. That boundary never
-  moves back, even when the Inbox empties. The first listing, a UIDVALIDITY change
-  or reset, cache refills and mail moved in, which keeps its INTERNALDATE, never
-  notify. IDLE, polling and activation reach the same classification.
-- **Microsoft 365:** a committed delta round reports the unread Inbox messages it
-  names whose received time is later than any the mailbox has considered, with the
-  same never-rewinding boundary. The initial listing, listing again after Graph
-  expired the delta link, updates to messages already listed and mail moved back
-  into the Inbox never notify.
+IMAP and Microsoft 365 report no history of how mail reached the Inbox, so the device
+also compares each message's receipt time with the moment its previous completed
+synchronization of that mailbox began, allowing five minutes for a provider clock
+running behind this device's.
 
-Before posting, after reading this device's settings, the device checks again that the
-connection still belongs to the same Product Account and incarnation and that its switch
-is on. Native posting must recheck the originating Product Account and connection
-incarnation before handing an alert to the system. An acknowledged preview opt-out
-also suppresses queued sender/subject content. Revoked devices,
-removed connections and other Product Accounts therefore post nothing. Each
-notification carries only opaque account, connection, incarnation and message
-identifiers. Background synchronization waits for notification posting before
-finishing the operating system's opportunity.
-Removing a connection withdraws its delivered notifications; signing out or a purge
-withdraws all of them.
+- **IMAP:** a committed Inbox read reports the unread messages whose UIDs are at or
+  above the previously committed UIDNEXT under an unchanged UIDVALIDITY, received
+  (INTERNALDATE) no earlier than that allowance. The first listing, a UIDVALIDITY
+  change or reset and cache refills never notify. Mail moved in keeps its
+  INTERNALDATE, so it notifies only when it reached another folder after the previous
+  synchronization began, which IMAP cannot tell apart from delivery. IDLE, polling
+  and activation reach the same classification.
+- **Microsoft 365:** each committed page of a delta round reports the unread Inbox
+  messages it names that were not already cached and were received no earlier than
+  the allowance; a round's pages share one boundary. The initial listing, listing
+  again after Graph expired the delta link, updates to messages already listed and
+  mail moved back into the Inbox never notify; as for IMAP, mail that reached
+  another folder after the previous synchronization began and was then moved in can.
 
 ## How a notification looks
 

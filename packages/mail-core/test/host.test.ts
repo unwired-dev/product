@@ -336,6 +336,11 @@ describe('the host assembly', () => {
 
   it('posts New Mail Notifications for an IMAP connection turned on, and archives or marks as read from them', async () => {
     expect.hasAssertions();
+    const at = (hour: number) => Date.UTC(2026, 9, 1, hour);
+    vi.useFakeTimers({ now: at(9), toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const { host, shared, imapServers, notified, notificationActions } =
       syntheticHost(undefined, true);
     const imap = createSyntheticImap();
@@ -363,13 +368,14 @@ describe('the host assembly', () => {
     await host.registration.notifyMailbox(mailbox.id, true);
     host.followNotificationActions();
 
+    vi.setSystemTime(at(11));
     const archived = imap.deliver('INBOX', {
       subject: 'Archive me',
-      received: Date.UTC(2026, 9, 1, 9),
+      received: at(9),
     });
     const read = imap.deliver('INBOX', {
       subject: 'Read me',
-      received: Date.UTC(2026, 9, 1, 10),
+      received: at(10),
     });
     await host.gmailMailboxes.load();
     const id = (uid: number) => `7.${uid}.INBOX`;

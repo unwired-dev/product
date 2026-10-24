@@ -2,6 +2,8 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
+import { newMailSince } from './mailbox-message.ts';
+
 // ponytail: the newest messages kept per folder, as for Gmail's Inbox; older ones stay on the
 // server until Historical Metadata Backfill.
 export const window = 200;
@@ -83,9 +85,9 @@ const FolderCacheSchema = Schema.Struct({
   uidValidity: Validity,
   uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   messages: Schema.Array(ImapMessageSchema),
-  // The newest INTERNALDATE already considered for notifications; it never moves back, so mail
-  // that leaves and returns does not count as new. Absent from caches saved before it was kept.
-  notificationReceivedAt: Schema.optionalKey(Schema.String),
+  // When this device began the read that produced the cache, as an ISO instant; absent from caches
+  // saved before it was kept.
+  synchronizedAt: Schema.optionalKey(Schema.String),
 });
 type FolderCache = typeof FolderCacheSchema.Type;
 
@@ -326,16 +328,6 @@ const newestReceived = Order.combine(
 export const newestFirst = (messages: readonly ImapMessage[]) =>
   Arr.sort(messages, newestReceived);
 
-// The newest INTERNALDATE a folder's cache, and any messages read since, have considered.
-const latestReceived = (
-  cache: FolderCache | undefined,
-  messages: readonly ImapMessage[] = [],
-) =>
-  [...(cache?.messages ?? []), ...messages].reduce(
-    (latest, { receivedAt }) => (receivedAt > latest ? receivedAt : latest),
-    cache?.notificationReceivedAt ?? '',
-  );
-
 // Applies one folder synchronization to its cache: a reset or a new UIDVALIDITY replaces it, and
 // otherwise known messages keep only those still present, with the flags read now.
 export function applyFolderRead(
@@ -364,19 +356,17 @@ export function applyFolderRead(
     [...kept, ...fresh.filter(({ uid }) => !known.has(uid))],
     byUid,
   ).slice(0, window);
-  const considered = latestReceived(cached, merged);
   return {
     uidValidity: read.uidValidity,
     uidNext: read.uidNext,
     messages: newestFirst(merged),
-    ...(considered === '' ? {} : { notificationReceivedAt: considered }),
   };
 }
 
 // The unread mail a read brought newly into the folder: UIDs from the cached UIDNEXT on, under the
-// same UIDVALIDITY, received after everything the cache considered. A first listing, a reset or
-// new UIDVALIDITY, refilled older mail and mail moved in, which keeps its INTERNALDATE, never
-// arrive.
+// same UIDVALIDITY, with an INTERNALDATE no earlier than the previous read began. A first listing,
+// a reset or new UIDVALIDITY and refilled older mail never arrive, nor does mail moved in, which
+// keeps its INTERNALDATE, unless it reached another folder since the previous read.
 export function arrivedMessages(
   cached: FolderCache | undefined,
   read: FolderRead,
@@ -389,9 +379,9 @@ export function arrivedMessages(
   ) {
     return [];
   }
-  const considered = latestReceived(cached);
+  const since = newMailSince(cached.synchronizedAt, cached.messages);
   return next.messages.filter(
     ({ uid, unread, receivedAt }) =>
-      unread && uid >= cached.uidNext && receivedAt > considered,
+      unread && uid >= cached.uidNext && receivedAt >= since,
   );
 }

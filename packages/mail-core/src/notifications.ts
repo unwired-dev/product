@@ -389,6 +389,7 @@ const imapChange = (
 // Archives or marks as read a listed message through the reader toolbar's queued change; a message
 // no longer listed changes nothing.
 async function organizeListed(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Inbox stores are mutable; only their actions are called.
   open: OpenInbox,
   id: string,
   action: 'archive' | 'read',

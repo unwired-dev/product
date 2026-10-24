@@ -22,6 +22,7 @@ import {
   newestFirst,
   sameMailbox,
 } from './mailbox-document.ts';
+import { newMailSince } from './mailbox-message.ts';
 import {
   GmailNotFound,
   providerRead,
@@ -94,23 +95,6 @@ type PendingChange = Pick<PendingAction, 'action' | 'message'>;
 // The most folders Move to lists for one mailbox.
 const folderLimit = 250;
 
-// The newest receipt a mailbox, and any messages read since, have considered for notifications.
-const latestReceived = (
-  document: MailboxDocument | undefined,
-  messages: readonly GmailMessage[] = [],
-) =>
-  [...(document?.messages ?? []), ...messages].reduce(
-    (latest, { receivedAt }) => (receivedAt > latest ? receivedAt : latest),
-    document?.notificationReceivedAt ?? '',
-  );
-const considering = (
-  document: MailboxDocument | undefined,
-  messages: readonly GmailMessage[],
-): Pick<MailboxDocument, 'notificationReceivedAt'> => {
-  const latest = latestReceived(document, messages);
-  return latest === '' ? {} : { notificationReceivedAt: latest };
-};
-
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
   { kind: 'graph-listing' | 'graph-current' }
@@ -174,7 +158,6 @@ export function createGraphReader(native: NativeGraphMailbox) {
         );
         return {
           ...previous,
-          ...considering(previous, listed),
           version: 1,
           messages: listed,
           checkpoint,
@@ -190,11 +173,22 @@ export function createGraphReader(native: NativeGraphMailbox) {
   });
 
   // Applies one page of later changes. Graph cannot name the unchanged older message that now
-  // fits after a full cache loses one, so the Inbox is listed again then.
+  // fits after a full cache loses one, so the Inbox is listed again then. The round's last page
+  // records when this synchronization `started`.
   const applyDelta = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument,
-    { items, link }: Readonly<{ items: DeltaItems; link: string }>,
+    {
+      items,
+      link,
+      last,
+      started,
+    }: Readonly<{
+      items: DeltaItems;
+      link: string;
+      last: boolean;
+      started: string;
+    }>,
   ) {
     const changed = yield* Effect.forEach(
       deltaIds(items),
@@ -209,35 +203,41 @@ export function createGraphReader(native: NativeGraphMailbox) {
     );
     const merged = merge(document.messages, changed);
     const current = { kind: 'graph-current', link } as const;
-    // Only unread mail received after everything already considered is new; an update to a known
-    // message, or mail moved back into the Inbox, is not.
-    const considered = latestReceived(document);
-    const brought = changed.flatMap(([, message]) =>
-      message !== undefined && message.unread && message.receivedAt > considered
+    // New mail is unread, not yet cached, and received no earlier than the previous round's
+    // synchronization began: an update to a listed message, or mail moved back in, is not.
+    const known = new Set(document.messages.map(({ id }) => id));
+    const since = newMailSince(document.synchronizedAt, document.messages);
+    const brought = changed.flatMap(([id, message]) =>
+      message?.unread === true && !known.has(id) && message.receivedAt >= since
         ? [message]
         : [],
     );
-    const next =
+    const applied =
       document.messages.length === cacheLimit && merged.length < cacheLimit
         ? yield* listGraph(scope, document, current)
         : ({
             ...document,
-            ...considering(document, merged),
             messages: merged.slice(0, cacheLimit),
             checkpoint: current,
           } satisfies MailboxDocument);
+    const next = last ? { ...applied, synchronizedAt: started } : applied;
     arrivals.set(next, brought);
     return next;
   });
 
   // An unchanged Inbox still saves the round's link, as Graph asks, so a quiet mailbox never waits
   // on an expiring one; saving it ends this synchronization.
-  const quietRound = (document: MailboxDocument, link: string) => {
+  const quietRound = (
+    document: MailboxDocument,
+    link: string,
+    synchronizedAt: string,
+  ) => {
     if ('link' in document.checkpoint && document.checkpoint.link === link) {
       return Option.none();
     }
     const current: MailboxDocument = {
       ...document,
+      synchronizedAt,
       checkpoint: { kind: 'graph-current', link },
     };
     quiet.add(current);
@@ -246,17 +246,24 @@ export function createGraphReader(native: NativeGraphMailbox) {
 
   // A Microsoft Inbox lists its newest messages, runs one delta round to the link for later
   // changes and lists again, so nothing changed during the round is missed. Each later round
-  // applies its pages; an expired link starts over with the cached messages still shown.
+  // applies its pages; an expired link starts over with the cached messages still shown. A completed
+  // listing or round records `started`, when this synchronization began.
   const advanceRound = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
+    started: string,
   ): Effect.fn.Return<
     Option.Option<MailboxDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
   > {
     const listing = { kind: 'graph-listing' } as const;
+    // A completed listing records when this synchronization began.
+    const settled = { synchronizedAt: started };
     if (document === undefined || !isGraphCheckpoint(document.checkpoint)) {
-      return Option.some(yield* listGraph(scope, document, listing));
+      return Option.some({
+        ...(yield* listGraph(scope, document, listing)),
+        ...settled,
+      });
     }
     const { checkpoint } = document;
     const page = yield* graphRead(scope)(
@@ -267,22 +274,36 @@ export function createGraphReader(native: NativeGraphMailbox) {
       Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
     );
     if (Option.isNone(page)) {
-      return Option.some(yield* listGraph(scope, document, listing));
+      return Option.some({
+        ...(yield* listGraph(scope, document, listing)),
+        ...settled,
+      });
     }
     const next = page.value['@odata.nextLink'];
     const link = yield* pageLink(page.value);
     if (checkpoint.kind === 'graph-listing') {
       return Option.some(
         next === undefined
-          ? yield* listGraph(scope, document, { kind: 'graph-current', link })
+          ? {
+              ...(yield* listGraph(scope, document, {
+                kind: 'graph-current',
+                link,
+              })),
+              ...settled,
+            }
           : { ...document, checkpoint: { kind: 'graph-listing', link } },
       );
     }
     return page.value.value.length > 0 || next !== undefined
       ? Option.some(
-          yield* applyDelta(scope, document, { items: page.value.value, link }),
+          yield* applyDelta(scope, document, {
+            items: page.value.value,
+            link,
+            last: next === undefined,
+            started,
+          }),
         )
-      : quietRound(document, link);
+      : quietRound(document, link, started);
   });
 
   // A Graph attachment's bytes. Graph declares approximate attachment sizes, so the decoded bytes
@@ -379,10 +400,11 @@ export function createGraphReader(native: NativeGraphMailbox) {
   });
 
   // A document that saved a quiet round's link is current until the next synchronization.
+  // `round` counts this synchronization's steps and names when it began.
   const advance = (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
-    step: number,
+    { step, started }: Readonly<{ step: number; started: string }>,
   ) => {
     if (document !== undefined && quiet.has(document)) {
       return Effect.succeedNone;
@@ -407,7 +429,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
         }),
       );
     }
-    return advanceRound(scope, document);
+    return advanceRound(scope, document, started);
   };
 
   // The mailbox's well-known folders by ID, read once per open mailbox; a mailbox without one, such

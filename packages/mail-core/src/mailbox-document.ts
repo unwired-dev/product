@@ -43,8 +43,9 @@ const MailboxDocumentSchema = Schema.Struct({
   messages: Schema.Array(GmailMessageSchema),
   // The latest Gmail history already considered for notifications, independent of view replay.
   notificationHistoryId: Schema.optionalKey(HistoryId),
-  // The newest Microsoft Inbox receipt already considered for notifications; it never moves back.
-  notificationReceivedAt: Schema.optionalKey(Schema.String),
+  // When the synchronization that completed Microsoft's last listing or delta round began, as an
+  // ISO instant on this device's clock.
+  synchronizedAt: Schema.optionalKey(Schema.String),
   // Provider-confirmed messages stay in `messages`; requested changes wait here, in order.
   pending: Schema.optionalKey(Schema.Array(PendingActionSchema)),
   // The mailbox's own labels, for labeling and moving, or its folders for moving.
