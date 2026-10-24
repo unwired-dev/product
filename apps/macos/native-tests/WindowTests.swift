@@ -1375,8 +1375,15 @@ final class WindowTests: XCTestCase {
     Thread.sleep(forTimeInterval: 5)
     XCTAssertEqual(app.state, .runningForeground)
     XCTAssertTrue(row("Draft. Re: Outlook update 003").exists)
-    // The refused Quit was cancelled, so it must not terminate after a later successful Close.
-    app.typeKey("q", modifierFlags: .command)
+    // The refused Quit was cancelled, so it did not terminate after the later successful Close.
+    // A fresh New Message window also permits Quit through its own successful save/close guard.
+    row("Draft. Re: Outlook update 003").click()
+    XCTAssertTrue(typed.waitForExistence(timeout: 15))
+    window.buttons["Expand"].click()
+    let quittingComposer = app.windows["composer-window-2"]
+    XCTAssertTrue(quittingComposer.waitForExistence(timeout: 15))
+    XCTAssertTrue(quittingComposer.buttons["Close"].waitForExistence(timeout: 15))
+    quittingComposer.typeKey("q", modifierFlags: .command)
     XCTAssertTrue(app.wait(for: .notRunning, timeout: 15))
   }
 
