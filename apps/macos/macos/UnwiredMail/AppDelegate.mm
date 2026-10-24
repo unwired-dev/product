@@ -3,6 +3,10 @@
 #import <React/RCTBundleURLProvider.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
 #import <os/log.h>
+#if UNWIRED_NATIVE_TESTING
+#import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
+#endif
 #import <GoogleSignIn/GoogleSignIn.h>
 
 // UnwiredCommands.m: a window whose composer holds unsaved edits asks it before closing.
@@ -39,6 +43,10 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
 @property(nonatomic) NSUInteger workTicks;
 @property(nonatomic, copy) NSString *sessionID;
 @property(nonatomic, strong) dispatch_source_t stallProbe;
+@property(nonatomic, strong) CADisplayLink *frameLink;
+@property(nonatomic) double frameStart;
+@property(nonatomic) double frameInterval;
+@property(nonatomic, weak) NSTextView *editedText;
 #endif
 - (NSWindow *)openWindowWithProfile:(NSString *)profile;
 @end
@@ -339,6 +347,7 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
 #if UNWIRED_NATIVE_TESTING
   [self.workTimer invalidate];
   if (self.stallProbe) dispatch_source_cancel(self.stallProbe);
+  [self.frameLink invalidate];
 #endif
   [self recordLifecycle:@"quit"];
 }
@@ -415,7 +424,7 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
 #if UNWIRED_NATIVE_TESTING
 // Records each main-thread stall of 100 ms or longer: a background clock asks the main queue every
 // 10 ms and measures how long the answer took. `uptime` is when it asked, on CLOCK_UPTIME_RAW.
-// Also records each primary mouse press and release, key press and focused text edit.
+// Also records each primary mouse press and release, key press, focused text edit and its draw.
 - (void)watchMainThread
 {
   if (NSProcessInfo.processInfo.environment[@"UNWIRED_LIFECYCLE_PATH"].length == 0) return;
@@ -440,6 +449,7 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
   // Timing journeys measure from the input itself; the event's timestamp is on the same clock.
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp
       handler:^NSEvent *(NSEvent *event) {
+    [weakSelf followFrames];
     [weakSelf recordLifecycle:event.type == NSEventTypeLeftMouseDown ? @"mouse-down" : @"mouse-up"
         extra:@{@"uptime": @(event.timestamp * 1000)}];
     return event;
@@ -448,6 +458,7 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
   // that shows its result in the focused text view: the text and each UTF-16 unit's marks as a
   // digit, bold 1 + italic 2 + underline 4.
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+    [weakSelf followFrames];
     NSScreen *screen = NSApp.keyWindow.screen ?: NSScreen.mainScreen;
     [weakSelf recordLifecycle:@"key-down" extra:@{@"uptime": @(event.timestamp * 1000),
         @"milliseconds": @(1000.0 / MAX(screen.maximumFramesPerSecond, 1))}];
@@ -468,7 +479,43 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
       for (NSUInteger unit = 0; unit < range.length; unit++) [marks appendFormat:@"%d", mark];
     }];
     [weakSelf recordLifecycle:@"text-edit" extra:@{@"uptime": @(edited), @"text": storage.string.copy, @"marks": marks}];
+    weakSelf.editedText = view;
+    static dispatch_once_t hooked;
+    dispatch_once(&hooked, ^{ [weakSelf recordDrawsOf:view.class]; });
   }];
+}
+
+// Display frame starts on the same clock, so a journey can place each draw in its frame.
+- (void)followFrames
+{
+  if (self.frameLink != nil) return;
+  NSScreen *screen = NSApp.keyWindow.screen ?: NSScreen.mainScreen;
+  self.frameLink = [screen displayLinkWithTarget:self selector:@selector(recordFrame:)];
+  [self.frameLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+
+- (void)recordFrame:(CADisplayLink *)link
+{
+  self.frameStart = link.timestamp * 1000;
+  self.frameInterval = (link.targetTimestamp - link.timestamp) * 1000;
+}
+
+// Records the end of the edited text view's first draw after each edit, with a recent frame start.
+// AppKit posts nothing when a view draws, and text view edits leave needsDisplay unset, so this
+// wraps the text view class's drawRect:.
+- (void)recordDrawsOf:(Class)textClass
+{
+  __weak AppDelegate *weakSelf = self;
+  __block IMP draw = NULL;
+  draw = method_setImplementation(class_getInstanceMethod(textClass, @selector(drawRect:)),
+      imp_implementationWithBlock(^(NSTextView *view, NSRect dirty) {
+    ((void (*)(id, SEL, NSRect))draw)(view, @selector(drawRect:), dirty);
+    AppDelegate *owner = weakSelf;
+    if (view != owner.editedText) return;
+    owner.editedText = nil;
+    [owner recordLifecycle:@"text-drawn" extra:@{@"uptime": @(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6),
+        @"frameStart": @(owner.frameStart), @"milliseconds": @(owner.frameInterval)}];
+  }));
 }
 #endif
 
