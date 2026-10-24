@@ -32,6 +32,7 @@ export function MessageRow({
   onSelect,
   actions = noActions,
   now,
+  beforeDivider = false,
 }: {
   readonly message: Message | GmailMessage | ImapMessage;
   // Shown when the Inbox holds more than one mailbox.
@@ -44,6 +45,8 @@ export function MessageRow({
   readonly actions?: readonly RowAction[] | undefined;
   // When the list was last read, which names the day the message arrived.
   readonly now: number;
+  // The last row above the next day's divider, which draws no separator.
+  readonly beforeDivider?: boolean | undefined;
 }) {
   const colors = usePalette();
   const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
@@ -175,8 +178,9 @@ export function MessageRow({
                 ]}
               />
             ) : null}
-            {selected ? null : (
+            {selected || beforeDivider ? null : (
               <View
+                testID="row-separator"
                 style={[
                   styles.separator,
                   { backgroundColor: colors.separator },
