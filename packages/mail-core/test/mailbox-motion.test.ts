@@ -18,7 +18,7 @@ const shownRows = (
   keyOf,
   identityOf,
   outcomes: [outcome],
-  concerned,
+  concerned: new Map(concerned.map((identity) => [identity, outcome])),
   scope: [],
   covered: false,
 });
@@ -106,9 +106,55 @@ describe('organizing row continuity', () => {
       shownRows([{ key: 'today', data: ['b@1'] }], 'undone', ['a', 'b']),
     );
 
-    expect([[...removed.returning], [...synchronized.returning]]).toStrictEqual(
-      [['a@1'], []],
+    const arrivedAgain = advanceRowMotion(
+      synchronized,
+      shownRows([{ key: 'today', data: ['a@1', 'b@1'] }], 'undone', ['a', 'b']),
     );
+    expect([
+      [...removed.returning],
+      [...synchronized.returning],
+      synchronized.leaving,
+      [...arrivedAgain.returning],
+    ]).toStrictEqual([['a@1'], [], [], []]);
+  });
+
+  it('does not rearm a present message from an old notice when another mailbox has an outcome', () => {
+    expect.hasAssertions();
+    const rows = [{ key: 'today', data: ['a@1', 'b@1'] }];
+    const old = { message: 'a' };
+    const other = { message: 'b' };
+    const shown = {
+      ...shownRows(rows, old),
+      outcomes: [old, undefined],
+      concerned: new Map([['a', old]]),
+    };
+    const changed = {
+      ...shown,
+      outcomes: [old, other],
+      concerned: new Map([
+        ['a', old],
+        ['b', other],
+      ]),
+    };
+    const notified = advanceRowMotion(restingRowMotion(shown), changed);
+    const synchronized = advanceRowMotion(notified, {
+      ...changed,
+      sections: [{ key: 'today', data: ['b@1'] }],
+    });
+
+    expect(synchronized.leaving).toStrictEqual([]);
+    // A later action on that same message still owns its removal.
+    const next = { message: 'a' };
+    const again = advanceRowMotion(notified, {
+      ...changed,
+      sections: [{ key: 'today', data: ['b@1'] }],
+      outcomes: [next, other],
+      concerned: new Map([
+        ['a', next],
+        ['b', other],
+      ]),
+    });
+    expect(again.leaving.map(({ key }) => key)).toStrictEqual(['a@1']);
   });
 
   it('tracks a midnight section change even when the row order stays the same', () => {

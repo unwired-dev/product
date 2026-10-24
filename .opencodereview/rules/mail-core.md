@@ -14,8 +14,8 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `gmail-inbox.resolvePending`, IMAP's `drain` or `discardPending`, and
   `mailbox-motion.advanceRowMotion` relying only on notice identity for
   restoration. IMAP Undo can publish its notice before the destination refresh,
-  and Discard after relaunch can keep an absent notice. Publish reconciliation
-  attribution with the rows it restores and scope it to the shown folder;
+  and Discard after relaunch can keep an absent notice. Track per-message
+  attribution across those publications and scope it to the shown folder;
   otherwise restoration snaps or another window's exit ends on an unrelated
   destination refresh. Keep ordinary synchronization quiet and existing spoken
   notices unchanged.
@@ -23,6 +23,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   synchronization removes its row before the animation settles. Retire motion
   for absent rows while preserving the returning rows still shown; otherwise a
   later synchronization arrival replays an obsolete Undo entrance.
+- `mailbox-motion.ts` treating a persistent notice as fresh attribution on every
+  row change. Consume each message's outcome identity and retire its attribution
+  when the message is present again, including at mount or scope replacement.
+  Exercise synchronization after Undo and an outcome in another mailbox;
+  otherwise an old notice animates later server-side removals and arrivals.
 - `mailbox-motion.ts.advanceRowMotion` comparing outcome arrays without the
   mailbox owners and view/search/Filter scope. A mailbox switch can replace one
   notice with another at the same array index, and a new query can retain the

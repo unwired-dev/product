@@ -2183,7 +2183,7 @@ describe('organizing motion', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
-    gmail.deliver({ subject: 'Lunch on Friday' });
+    const lunch = gmail.deliver({ subject: 'Lunch on Friday' });
     const connected = await renderConnected(gmail.native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
 
@@ -2215,6 +2215,11 @@ describe('organizing motion', () => {
       archived: [1, null],
       restored: [0, true],
     });
+
+    // The Undo notice stays visible, but does not attribute a later server-side removal.
+    gmail.archive(lunch);
+    await act(connected.store().load);
+    expect(leavingRows('Lunch on Friday')).toBe(0);
   });
 
   it('keeps the last row in its date section mounted through removal and Undo', async () => {

@@ -16,11 +16,11 @@ export type RowMotionState<I> = Readonly<{
   order: readonly string[];
   sections: ReadonlyArray<RowSection<I>>;
   outcomes: readonly unknown[];
-  concerned: readonly string[];
+  concerned: ReadonlyMap<string, unknown>;
   scope: readonly unknown[];
   covered: boolean;
-  // Messages an organizing outcome concerns, by `motionIdentity`: those the current outcomes name
-  // and those that left with one and have not returned. Only their rows move.
+  // Messages absent under an organizing outcome, until they return. A persistent notice must not
+  // rearm a present message for later synchronization.
   attributed: ReadonlySet<string>;
   leaving: ReadonlyArray<Leaving<I>>;
   returning: ReadonlySet<string>;
@@ -34,8 +34,9 @@ export type ShownRows<I> = Readonly<{
   // Each shown mailbox's organizing outcome. Only an action, its Undo or their reconciliation
   // changes one; synchronization and view changes never do.
   outcomes: readonly unknown[];
-  // The messages those outcomes and any blocked change concern, by `motionIdentity`.
-  concerned: readonly string[];
+  // The messages those outcomes and any blocked change concern, by `motionIdentity`, with each
+  // outcome's identity so the same notice cannot repeatedly attribute motion.
+  concerned: ReadonlyMap<string, unknown>;
   // View/search/filter choices and the live mailbox owners. Replacing them retires row motion.
   scope: readonly unknown[];
   // Whether a native reader transition must finish before the leaving row starts.
@@ -75,13 +76,18 @@ export const motionIdentityOf = (item: object) =>
 // The messages each ready mailbox's organizing outcome and blocked change concern.
 export const organizingConcerns = (
   mailboxes: ReadonlyArray<Readonly<{ id: string; state: object }>>,
-): string[] =>
-  mailboxes.flatMap(({ id, state }) =>
-    [
-      'notice' in state ? messageOf(state.notice) : undefined,
-      'blockedAction' in state ? messageOf(state.blockedAction) : undefined,
-    ].flatMap((message) =>
-      message === undefined ? [] : [motionIdentity(id, message)],
+): ReadonlyMap<string, unknown> =>
+  new Map(
+    mailboxes.flatMap(({ id, state }) =>
+      [
+        'notice' in state ? state.notice : undefined,
+        'blockedAction' in state ? state.blockedAction : undefined,
+      ].flatMap((outcome): Array<[string, unknown]> => {
+        const message = messageOf(outcome);
+        return message === undefined
+          ? []
+          : [[motionIdentity(id, message), outcome]];
+      }),
     ),
   );
 
@@ -114,7 +120,12 @@ const unchanged = <I>(tracked: RowMotionState<I>, shown: ShownRows<I>) =>
   sameValues(shown.scope, tracked.scope) &&
   shown.covered === tracked.covered &&
   sameValues(shown.outcomes, tracked.outcomes) &&
-  sameValues(shown.concerned, tracked.concerned) &&
+  shown.concerned.size === tracked.concerned.size &&
+  [...shown.concerned].every(
+    ([identity, outcome]) =>
+      tracked.concerned.has(identity) &&
+      tracked.concerned.get(identity) === outcome,
+  ) &&
   shown.sections.length === tracked.sections.length &&
   shown.sections.every((section, index) => {
     const previous = tracked.sections[index];
@@ -135,14 +146,21 @@ export const restingRowMotion = <I>(
   concerned: shown.concerned,
   scope: shown.scope,
   covered: shown.covered,
-  attributed: new Set(shown.concerned),
+  attributed: new Set(
+    [...shown.concerned.keys()].filter(
+      (identity) =>
+        !shown.sections.some(({ data }) =>
+          data.some((item) => shown.identityOf(item) === identity),
+        ),
+    ),
+  ),
   leaving: [],
   returning: new Set(),
 });
 
-// The list after a render. A row an organizing outcome concerns keeps leaving when it goes and
-// returns when it comes back, whenever its outcome's publication and its row's arrive. Every other
-// row changes without motion. A new outcome finishes rows still leaving, unless they return.
+// The list after a render. An outcome's removed row keeps leaving, and its absent message stays
+// attributed until it returns, even after a later provider refresh. Every other row changes
+// without motion. A new outcome finishes rows still leaving, unless they return.
 export function advanceRowMotion<I>(
   tracked: RowMotionState<I>,
   shown: ShownRows<I>,
@@ -156,7 +174,15 @@ export function advanceRowMotion<I>(
   const order = shown.sections.flatMap(({ data }) => data.map(shown.keyOf));
   const now = new Set(order);
   const before = new Set(tracked.order);
-  const owned = new Set([...tracked.attributed, ...shown.concerned]);
+  const owned = new Set([
+    ...tracked.attributed,
+    ...[...shown.concerned].flatMap(([identity, outcome]) =>
+      !tracked.concerned.has(identity) ||
+      tracked.concerned.get(identity) !== outcome
+        ? [identity]
+        : [],
+    ),
+  ]);
   const concerns = (item: I) => {
     const identity = shown.identityOf(item);
     return identity !== undefined && owned.has(identity);
@@ -210,10 +236,9 @@ export function advanceRowMotion<I>(
     concerned: shown.concerned,
     scope: shown.scope,
     covered: shown.covered,
-    attributed: new Set([
-      ...shown.concerned,
-      ...[...owned].filter((identity) => !present.has(identity)),
-    ]),
+    attributed: new Set(
+      [...owned].filter((identity) => !present.has(identity)),
+    ),
     leaving: [...still, ...left],
     returning: new Set([
       ...(sameOutcome
