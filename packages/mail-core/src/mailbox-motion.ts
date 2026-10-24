@@ -30,6 +30,8 @@ export type ShownRows<I> = Readonly<{
   sections: ReadonlyArray<RowSection<I>>;
   // A row's key; a message row's is its `motionIdentityOf`, which outcomes name.
   keyOf: (item: I) => string;
+  // The immutable displayed content, excluding a host's temporary row wrapper.
+  contentOf: (item: I) => unknown;
   // Each shown mailbox's organizing outcome. Only an action, its Undo or their reconciliation
   // changes one; synchronization and view changes never do.
   outcomes: readonly unknown[];
@@ -137,7 +139,14 @@ const unchanged = <I>(tracked: RowMotionState<I>, shown: ShownRows<I>) =>
     return (
       previous !== undefined &&
       section.key === previous.key &&
-      sameValues(section.data.map(shown.keyOf), previous.data.map(shown.keyOf))
+      sameValues(
+        section.data.map(shown.keyOf),
+        previous.data.map(shown.keyOf),
+      ) &&
+      sameValues(
+        section.data.map(shown.contentOf),
+        previous.data.map(shown.contentOf),
+      )
     );
   });
 

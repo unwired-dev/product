@@ -11,3 +11,5 @@ Expose the shared organizing-row continuity projection through mail-core/mailbox
 Preserve Undo motion after a failed IMAP destination refresh and ignore a mobile exit completion delivered after the same row has started returning.
 
 Wait for the native iPhone Inbox column to finish appearing before its row exits, so a slower Back transition cannot conceal the removal.
+
+Finish leaving rows when notification navigation selects another message, and preserve synchronized message details throughout a later removal. The shared projection takes each row's stable displayed content through `ShownRows.contentOf`.

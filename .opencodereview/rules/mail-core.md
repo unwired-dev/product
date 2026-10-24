@@ -11,6 +11,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- `mailbox-motion.ts.unchanged` comparing row keys without retaining the latest
+  displayed items. Synchronize unread or star metadata without changing row
+  membership, then remove that message through an organizing action. Its leaving
+  row must use the synchronized details; otherwise the retained snapshot briefly
+  restores stale styling while it collapses. Compare stable content rather than
+  temporary host row wrappers, or render-time tracking can update forever when
+  Draft or Outbox wrappers are recreated.
 - IMAP `drain` retiring a completed Undo's attribution when its destination
   refresh failed. Retain the destination with the message, retry its read on
   later drains, and retire only after that destination commits or the provider

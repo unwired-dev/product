@@ -177,6 +177,9 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 - `organize-motion` dropping future animation eligibility while leaving an
   already-started exit running after scroll or selection. Trace retained rows,
   the installed engine's animation ownership and the interrupting handlers
+  including selection updates from notification opens outside the row handler.
+  A new selected message must finish an exit; clearing the removed reader must
+  preserve that action's own exit. Exercise both paths through the shown Inbox
   against the approved motion contract; otherwise input acts immediately but
   the leaving row keeps moving instead of finishing at once. Retargeting on
   another layout alone does not cover an interruption that changes no row layout.

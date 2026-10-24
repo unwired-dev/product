@@ -31,6 +31,8 @@ const observe = (inbox: GmailInbox | ImapInbox) => {
         },
       ],
       keyOf: motionIdentityOf,
+      contentOf: ({ message }: Parameters<typeof motionIdentityOf>[0]) =>
+        message,
       ...organizingWork([mailbox]),
       scope: [inbox],
       covered: false,
@@ -78,6 +80,7 @@ const shownRows = (
 ): ShownRows<string> => ({
   sections,
   keyOf,
+  contentOf: keyOf,
   outcomes: [outcome],
   concerned: new Map(concerned.map((identity) => [identity, outcome])),
   working: concerned,
@@ -86,6 +89,26 @@ const shownRows = (
 });
 
 describe('organizing row continuity', () => {
+  it('keeps synchronized message details when the row later leaves', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Read elsewhere' });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const motion = observe(inbox);
+    try {
+      gmail.setLabel(id, 'UNREAD', false);
+      await inbox.load();
+      await inbox.organize(firstMessage(inbox), gmailAction.archive);
+      expect(
+        motion.state().leaving.map(({ item }) => item.message.unread),
+      ).toStrictEqual([false]);
+    } finally {
+      motion.stop();
+      inbox.forget();
+    }
+  });
+
   it('keeps finished removals quiet when another client restores them or similar mail arrives', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

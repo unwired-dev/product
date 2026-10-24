@@ -299,6 +299,32 @@ describe('profile-scoped mobile routes', () => {
         started: true,
         reader: null,
       });
+      const { mailboxes } = jest.requireMock<{ mailboxes: MailboxList }>(
+        '../src/private-storage.ts',
+      );
+      const [mailbox] = mailboxes.getSnapshot();
+      ok(mailbox?.state.kind === 'ready');
+      const river = mailbox.state.messages.find(
+        (message) => message.subject === 'River plan',
+      );
+      ok(river !== undefined);
+      // Notification navigation selects directly, without the Inbox's row handler.
+      await act(() => {
+        route.router.replace({
+          pathname: '/message/[id]',
+          params: {
+            profileId: defaultProfile,
+            mailbox: 'garden',
+            id: river.id,
+          },
+        });
+      });
+      expect(
+        screen.queryByText('Garden plan', { includeHiddenElements: true }),
+      ).toBeNull();
+      await expect(
+        screen.findByText('Synthetic river body.'),
+      ).resolves.toBeVisible();
     } finally {
       await cleanup();
       frames.mockRestore();

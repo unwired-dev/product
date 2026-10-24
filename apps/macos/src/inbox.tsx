@@ -147,6 +147,14 @@ const rowKey = (
   return 'draft' in item ? `draft\n${item.draft.id}` : motionIdentityOf(item);
 };
 
+// The displayed content is stable even when a Draft or Outbox row wrapper is recreated.
+const rowContent = (item: Parameters<typeof rowKey>[0]) => {
+  if ('outbox' in item) {
+    return item.outbox;
+  }
+  return 'draft' in item ? item.draft : item.message;
+};
+
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
 const minute = 60_000;
 const subscribeMinute = (notify: () => void) => {
@@ -795,6 +803,8 @@ export function Inbox({
       ...shown.map(({ state }) => state.kind === 'ready'),
     ],
     keyOf: rowKey,
+    contentOf: rowContent,
+    selected,
     ...organizingWork(shown),
   });
   // The rows the list shows, with leaving rows beside their former neighbours.

@@ -39,7 +39,12 @@ export type RowMotion = Readonly<{
   reduced: boolean;
 }>;
 
-type Shown<I> = Omit<ShownRows<I>, 'covered'>;
+type Shown<I> = Omit<ShownRows<I>, 'covered'> &
+  Readonly<{
+    selected:
+      | Readonly<{ mailbox: string; id: string; folder?: string }>
+      | undefined;
+  }>;
 
 // Reduce Motion, following changes while the list is shown.
 function useReducedMotion() {
@@ -78,6 +83,22 @@ export function useRowMotion<I>(shown: Shown<I>) {
   const next = advanceRowMotion(tracked, { ...shown, covered: false });
   if (next !== tracked) {
     setTracked(next);
+  }
+  // Notification navigation can select without the row handler. Clearing a removed reader keeps
+  // that action's own exit; a new selected message finishes it.
+  const { selected } = shown;
+  const [previousSelection, setPreviousSelection] = useState(selected);
+  if (
+    selected?.mailbox !== previousSelection?.mailbox ||
+    selected?.id !== previousSelection?.id ||
+    selected?.folder !== previousSelection?.folder
+  ) {
+    setPreviousSelection(selected);
+    if (selected !== undefined) {
+      setTracked((current) =>
+        current.leaving.length === 0 ? current : { ...current, leaving: [] },
+      );
+    }
   }
   const leaving = new Map(tracked.leaving.map((row) => [row.key, row]));
   return {
