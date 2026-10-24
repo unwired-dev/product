@@ -1578,6 +1578,12 @@ final class WindowTests: XCTestCase {
           let draw = try XCTUnwrap(
             draws.first { ($0.uptime ?? 0) >= end }, "No draw after \(shown) for \(group.name)")
           let drawEnd = try XCTUnwrap(draw.uptime)
+          // A draw shows the body's latest edit; a result a later input replaced first never showed.
+          let drawnEdit = edits.last { ($0.uptime ?? 0) <= drawEnd }
+          XCTAssertTrue(
+            drawnEdit?.text?.hasPrefix(shown.text) == true
+              && drawnEdit?.marks?.hasPrefix(shown.marks) == true,
+            "\(shown) for \(group.name) was replaced before it was drawn")
           let frameStart = try XCTUnwrap(draw.frameStart)
           let interval = try XCTUnwrap(draw.milliseconds)
           XCTAssertGreaterThan(frameStart, 0, "No display frame before \(group.name)")

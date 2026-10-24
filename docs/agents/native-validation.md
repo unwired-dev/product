@@ -127,7 +127,9 @@ of the key window's display, the interval at the display's maximum supported ref
 rate. The edit notification fires before layout managers receive the change, so a
 key or format bar group's `withinBudget` result describes only the text-storage update.
 
-Next-rendered-frame feedback comes from the body's first draw after that edit. A
+Next-rendered-frame feedback comes from the body's first draw after that edit. The
+body's latest edit before that draw must still show the expected text and marks;
+a result that a later input replaced before any draw fails the journey. A
 display link records display frame starts on the same clock. The journey places
 the end of that draw in the frame that started last before it, counting frames from any recorded
 start at the link's frame interval, and reports `framesLate`: the frames that
