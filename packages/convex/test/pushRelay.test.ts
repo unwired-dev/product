@@ -3316,6 +3316,30 @@ describe('gmail push relay', () => {
     });
   });
 
+  it.each([
+    { historyId: 0, expected: '0' },
+    { historyId: 9_007_199_254_740_991, expected: '9007199254740991' },
+    { historyId: '18446744073709551615', expected: '18446744073709551615' },
+  ])(
+    'preserves exact push history ID $expected at numeric boundaries',
+    ({ historyId, expected }) => {
+      expect.assertions(1);
+
+      expect(
+        decodeGmailPushEnvelope({
+          message: {
+            data: btoa(
+              JSON.stringify({
+                emailAddress: 'matching@example.com',
+                historyId,
+              }),
+            ),
+          },
+        }).historyId,
+      ).toBe(expected);
+    },
+  );
+
   it('preserves UTF-8 Gmail addresses from Pub/Sub in either base64 alphabet', () => {
     expect.assertions(2);
 
@@ -3372,16 +3396,18 @@ describe('gmail push relay', () => {
       const malformedStatuses = await Promise.all(
         [
           { message: {} },
-          {
-            message: {
-              data: btoa(
-                JSON.stringify({
-                  emailAddress: 'matching@example.com',
-                  historyId: '',
-                }),
-              ),
-            },
-          },
+          ...['', -1, 1.5, 9_007_199_254_740_992, null, false, {}, []].map(
+            (historyId) => ({
+              message: {
+                data: btoa(
+                  JSON.stringify({
+                    emailAddress: 'matching@example.com',
+                    historyId,
+                  }),
+                ),
+              },
+            }),
+          ),
         ].map(async (envelope) => {
           const response = await t.fetch('/gmail/push?token=push-secret', {
             body: JSON.stringify(envelope),
@@ -3390,13 +3416,68 @@ describe('gmail push relay', () => {
           return response.status;
         }),
       );
-      expect(malformedStatuses).toStrictEqual([400, 400]);
+      expect(malformedStatuses).toStrictEqual([
+        400, 400, 400, 400, 400, 400, 400, 400, 400,
+      ]);
 
       const accepted = await t.fetch('/gmail/push?token=push-secret', {
         body: JSON.stringify({ message: { data: metadata } }),
         method: 'POST',
       });
       expect(accepted.status).toBe(204);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('verifies a pending Gmail watch from a numeric-history HTTP notification', async () => {
+    expect.assertions(3);
+
+    vi.stubEnv('GMAIL_PUSH_VERIFICATION_TOKEN', 'push-secret');
+    vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
+    vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await connectTrusted(t, asUser, {
+        deviceIdentifier: 'numeric-history-device',
+        platform: 'ios',
+      });
+      await registerGmailConnection(asUser, {
+        emailAddress: 'matching@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      const proof = {
+        gmailIdentityToken: matchingIdentityToken,
+        opaqueConnectionId: opaqueConnectionIdFromIdentityToken(
+          matchingIdentityToken,
+        ),
+        historyId: '1234567890',
+        trustedDeviceId: device.trustedDeviceId,
+      };
+      await expect(
+        asUser.action(api.pushRelay.verifyGmailWatch, proof),
+      ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
+
+      const response = await t.fetch('/gmail/push?token=push-secret', {
+        body: JSON.stringify({
+          message: {
+            data: btoa(
+              JSON.stringify({
+                emailAddress: 'matching@example.com',
+                historyId: 1_234_567_890,
+              }),
+            ),
+          },
+        }),
+        method: 'POST',
+      });
+      expect(response.status).toBe(204);
+      await expect(
+        asUser.action(api.pushRelay.verifyGmailWatch, proof),
+      ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     } finally {
       vi.unstubAllEnvs();
     }

@@ -3,7 +3,11 @@ import * as Schema from 'effect/Schema';
 
 const GmailMinimalPushMetadataSchema = Schema.Struct({
   emailAddress: Schema.NonEmptyString,
-  historyId: Schema.NonEmptyString,
+  // Gmail also emits JSON integers; watch proofs retain their canonical string IDs.
+  historyId: Schema.Union([
+    Schema.NonEmptyString,
+    Schema.Natural.pipe(Schema.decodeTo(Schema.flip(Schema.FiniteFromString))),
+  ]),
 });
 export type GmailMinimalPushMetadata =
   typeof GmailMinimalPushMetadataSchema.Type;
