@@ -1031,7 +1031,7 @@ export function Inbox({
               ? empty
               : null
           }
-          renderItem={({ item, section }) => {
+          renderItem={({ item, section, index }) => {
             if ('outbox' in item) {
               return (
                 <OutboxRow
@@ -1056,6 +1056,13 @@ export function Inbox({
                     : rowActions(item.mailbox, item.message)
                 }
                 now={now}
+                // The next day's divider follows a day's last row.
+                beforeDivider={
+                  index === section.data.length - 1 &&
+                  sections[sections.indexOf(section) + 1]?.key.startsWith(
+                    'saved\n',
+                  ) === true
+                }
                 onSelect={() => {
                   void select({
                     mailbox: item.mailbox.id,
