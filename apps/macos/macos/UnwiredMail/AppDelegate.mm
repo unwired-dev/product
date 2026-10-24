@@ -415,7 +415,7 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
 #if UNWIRED_NATIVE_TESTING
 // Records each main-thread stall of 100 ms or longer: a background clock asks the main queue every
 // 10 ms and measures how long the answer took. `uptime` is when it asked, on CLOCK_UPTIME_RAW.
-// Also records each primary mouse press and release.
+// Also records each primary mouse press and release, key press and focused text edit.
 - (void)watchMainThread
 {
   if (NSProcessInfo.processInfo.environment[@"UNWIRED_LIFECYCLE_PATH"].length == 0) return;
@@ -443,6 +443,31 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
     [weakSelf recordLifecycle:event.type == NSEventTypeLeftMouseDown ? @"mouse-down" : @"mouse-up"
         extra:@{@"uptime": @(event.timestamp * 1000)}];
     return event;
+  }];
+  // Typing journeys measure from each key press, against its display's frame interval, to the edit
+  // that shows its result in the focused text view: the text and each UTF-16 unit's marks as a
+  // digit, bold 1 + italic 2 + underline 4.
+  [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+    NSScreen *screen = NSApp.keyWindow.screen ?: NSScreen.mainScreen;
+    [weakSelf recordLifecycle:@"key-down" extra:@{@"uptime": @(event.timestamp * 1000),
+        @"milliseconds": @(1000.0 / MAX(screen.maximumFramesPerSecond, 1))}];
+    return event;
+  }];
+  [NSNotificationCenter.defaultCenter addObserverForName:NSTextStorageDidProcessEditingNotification
+      object:nil queue:nil usingBlock:^(NSNotification *notification) {
+    double edited = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6;
+    NSTextStorage *storage = notification.object;
+    NSTextView *view = (NSTextView *)NSApp.keyWindow.firstResponder;
+    if (![view isKindOfClass:NSTextView.class] || view.isFieldEditor || view.textStorage != storage) return;
+    NSMutableString *marks = [NSMutableString stringWithCapacity:storage.length];
+    [storage enumerateAttributesInRange:NSMakeRange(0, storage.length) options:0
+        usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attributes, NSRange range, BOOL *stop) {
+      NSFontDescriptorSymbolicTraits traits = [attributes[NSFontAttributeName] fontDescriptor].symbolicTraits;
+      int mark = (traits & NSFontDescriptorTraitBold ? 1 : 0) | (traits & NSFontDescriptorTraitItalic ? 2 : 0)
+          | ([attributes[NSUnderlineStyleAttributeName] integerValue] != 0 ? 4 : 0);
+      for (NSUInteger unit = 0; unit < range.length; unit++) [marks appendFormat:@"%d", mark];
+    }];
+    [weakSelf recordLifecycle:@"text-edit" extra:@{@"uptime": @(edited), @"text": storage.string.copy, @"marks": marks}];
   }];
 }
 #endif
