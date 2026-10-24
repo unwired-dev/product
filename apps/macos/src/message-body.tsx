@@ -407,16 +407,17 @@ function RichDocument({
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
 }) {
-  // The laid-out width; a later different width lays the document out and measures it again.
   const colors = usePalette();
   const { t } = useLocalization();
-  const width = useRef<number>(undefined);
+  // The laid-out width; a later different width lays the document out and measures it again.
+  const [width, setWidth] = useState<number>();
   // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
   const [source] = useState(() => ({ html: rich.initialDocument }));
   const container = useRef<View>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
   const [height, setHeight] = useState<number>();
+  const [contentWidth, setContentWidth] = useState(0);
   const [positions, setPositions] = useState<
     ReturnType<typeof decodeRemoteImagePositions>
   >([]);
@@ -461,6 +462,8 @@ function RichDocument({
       unsubscribe();
     };
   }, [viewport, height, positions, rich, onNear]);
+  // Wider content, such as unwrappable text, scrolls sideways inside the view.
+  const wide = width !== undefined && contentWidth > width;
   const choose = ({ url, navigationType }: ShouldStartLoadRequest) => {
     if (url === 'about:blank') {
       return navigationType === 'other';
@@ -478,11 +481,11 @@ function RichDocument({
       ref={container}
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
-        if (width.current !== undefined && width.current !== next) {
+        if (width !== undefined && width !== next) {
           setHeight(undefined);
           setLayout((count) => count + 1);
         }
-        width.current = next;
+        setWidth(next);
       }}>
       {height === undefined ? (
         <ActivityIndicator accessibilityLabel={t('messageBody.opening')} />
@@ -505,13 +508,17 @@ function RichDocument({
             if (measured !== undefined) {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured.height);
+              setContentWidth(measured.width);
             }
           }}
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
           // Every URL reaches `choose`; the wrapper would otherwise open unlisted origins itself.
           originWhitelist={['*']}
-          scrollEnabled={height !== undefined && height > heightCap}
+          // Without bounce, the view keeps only sideways wheel scrolling; vertical scrolling of a
+          // normal-height document goes to the reader.
+          bounces={height !== undefined && height > heightCap}
+          scrollEnabled={height !== undefined && (height > heightCap || wide)}
           setSupportMultipleWindows={false}
           source={source}
           nativeConfig={{ props: { remoteImageUpdates: rich.remote.updates } }}

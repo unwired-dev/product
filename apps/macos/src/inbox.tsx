@@ -28,6 +28,7 @@ import {
 import {
   use,
   useDeferredValue,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -78,7 +79,7 @@ import {
   useSavedBodies,
 } from './mailbox.tsx';
 import { OrganizeStatus } from './organize.tsx';
-import { OutboxHeading, OutboxRow } from './outbox.tsx';
+import { OutboxHeading, OutboxRow, forgetRetired } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
@@ -686,6 +687,9 @@ export function Inbox({
   };
   const draftState = useDrafts();
   const outbox = useOutboxEntries();
+  useEffect(() => {
+    forgetRetired(outbox);
+  }, [outbox]);
   const drafts = listedDrafts(draftState, onCompose !== undefined);
   const openDraft = useOpenDraft(composing, onCompose ?? composeNothing);
   const reload = useReloadMailboxes();
