@@ -75,7 +75,6 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
-  panel: { borderRadius: radius.menu, maxWidth: '100%' },
   toolbarButton: {
     minWidth: 32,
     minHeight: 28,
@@ -424,45 +423,12 @@ export function MenuPresence({
   );
 }
 
-// Menus float independently of their toolbar, with the deeper menu shadow.
-export function GlassPanel({
-  open,
-  children,
-  origin = 'top right',
-}: {
-  readonly open: boolean;
-  readonly children: ReactNode;
-  // Where the panel grows from: the control or window edge that opened it.
-  readonly origin?: string;
-}) {
-  const colors = usePalette();
-  return (
-    <MenuPresence
-      open={open}
-      origin={origin}
-      style={[
-        styles.panel,
-        {
-          boxShadow: colors.menuGlassShadow,
-          backgroundColor: colors.surfaceContent,
-        },
-      ]}>
-      <Glass
-        cornerRadius={radius.menu}
-        style={StyleSheet.absoluteFill}
-      />
-      {children}
-    </MenuPresence>
-  );
-}
-
 // An icon button on a toolbar's glass: the label is for accessibility, the SF Symbol for sight.
 export function ToolbarButton({
   label,
   icon,
   onPress,
   disabled = false,
-  expanded,
   selected,
   destructive = false,
   accessibilityHint,
@@ -471,8 +437,6 @@ export function ToolbarButton({
   readonly icon: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
-  // A control that reveals a panel reports whether the panel is open.
-  readonly expanded?: boolean;
   // A toggle, such as a format bar mark, reports whether it is on; it is outlined, not by fill alone.
   readonly selected?: boolean;
   readonly destructive?: boolean;
@@ -487,7 +451,6 @@ export function ToolbarButton({
       accessibilityRole="button"
       accessibilityState={{
         disabled,
-        ...(expanded === undefined ? {} : { expanded }),
         ...(selected === undefined ? {} : { selected }),
       }}
       disabled={disabled}
@@ -503,7 +466,7 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || expanded === true || selected === true
+            pressed || selected === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,

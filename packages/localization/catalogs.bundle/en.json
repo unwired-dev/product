@@ -1054,6 +1054,7 @@
     "read": "Mark as Read",
     "unread": "Mark as Unread",
     "moveMessage": "Move Message",
+    "moveTo": "Move to…",
     "openLink": "Open Link",
     "copyLink": "Copy Link",
     "quickLook": "Quick Look",
