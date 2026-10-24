@@ -22,6 +22,105 @@ Hardware nomination and published Apple Intelligence eligibility do not prove
 runtime API readiness or passing qualification. Measurements remain outstanding
 under #625, #626, #822 and #830; this update records no test run.
 
+## Mac composer text-storage timing slice, 2026-10-24
+
+This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),
+using the [Mac performance journey](../agents/native-validation.md#mac-performance-journey).
+It measures key-to-text-storage updates. It does not establish next-rendered-frame
+feedback or a passing Mac performance baseline, and does not complete #626.
+
+The implementation run used runtime source `c36e908ad`, with root lockfile SHA-256
+`98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
+The Mac reference was the Mac mini M4 with 16 GB memory, `Mac16,10`, on
+macOS 27.0.1 (`26A434`), using Xcode 27.1 (`27A9275`), Node 24.21.0,
+pnpm 11.5.2 and React Native macOS 0.81.9. The supplied signed `Testing` app
+uses Release optimization, packaged JavaScript and the build-time
+`registration-performance` Mock Mail Session. The fixture and encrypted-cache
+priming are the same as the warm-cache journey below. Release omits the probe.
+
+In a new message's regular composer body, the journey types 20 plain characters,
+types 11 characters after Command-B at the caret, then selects the last word
+and toggles bold, italic and underline twice each, repeated for 12 formatting
+samples. The app records each key press and the first subsequent focused-body
+text-storage edit with the expected text and per-UTF-16-unit marks. Missing key
+or expected-edit evidence fails the journey; budget overruns are reported.
+The display's recorded maximum-refresh interval was 16.67 ms.
+
+The implementation run passed one selected XCTest with zero failures in 218.4
+seconds. Its log is `scratchpad/626-journey-pass.log`, and its key/edit records
+are `scratchpad/626-pass-run-keys-edits.jsonl`. Storage-update results were:
+
+| Interaction                  | Samples | p50 ms | p95 ms | Maximum ms |
+| ---------------------------- | ------: | -----: | -----: | ---------: |
+| Plain typing                 |      20 |    1.5 |    6.6 |        8.0 |
+| Typing after bold at caret   |      11 |  200.9 |  622.8 |      622.8 |
+| Selected-word mark shortcuts |      12 |  107.4 |  140.6 |      140.6 |
+
+Both endpoints use app timestamps, excluding XCUITest completion/query overhead.
+Synchronous key-event logging adds work before the edit. The text-storage
+notification precedes layout, drawing and display presentation. The comparison
+uses the screen's maximum supported refresh rate rather than an observed frame
+deadline. Even plain typing within this interval does not prove next-frame
+feedback. Formatting and marked typing already exceed the interval at storage;
+[#1228](https://github.com/unwired-dev/product/issues/1228) tracks that latency.
+The separate stale-selection defect found during journey development is tracked
+in [#1229](https://github.com/unwired-dev/product/issues/1229).
+
+The implementation run's other p95 upper bounds were launch 903.9 ms, mailbox
+switch 267.7 ms, cached Microsoft/Gmail body 357.2/509.5 ms, empty composer
+413.5 ms and saved Draft composer 156.9 ms. Click and launch samples include
+XCUITest; an overrun leaves the budget unproven. No main-queue delay of at least
+100 ms was recorded in that session. The sampled probe cannot prove the absolute
+stall cap or startup before installation. Each composer-opening sample is still
+the first composer after relaunch because of
+[#1174](https://github.com/unwired-dev/product/issues/1174).
+
+The independent OCR reviewer reran the journey at source snapshot `09afcd3e8`
+using the supplied Testing app without rebuilding it. Native probe and journey
+source are unchanged from `c36e908ad`. The command from the repository root was:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  UNWIRED_SIGNING_IDENTITY='Apple Development' \
+  UNWIRED_MOCK_PROFILE="$HOME/.config/unwired/signing/mock.provisionprofile" \
+  mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testWarmCachePerformance
+```
+
+It passed one selected XCTest with zero failures in 219.6 seconds. Evidence is
+`artifacts/macos-inbox/journey.EqreHO/`, including `xcodebuild.log`,
+`lifecycle.jsonl`, `WindowProbe.xcresult`, `ownership.json` and `result.json`.
+Source, lockfile, executable and packaged-JavaScript hashes are retained in
+`scratchpad/review/ocr-r1-provenance.json`; the combined runner log is
+`scratchpad/review/ocr-r1-native.log`. The reviewer independently matched all 43
+raw key/edit durations to the emitted samples in both runs.
+
+| Interaction                  | Samples | p50 ms | p95 ms | Maximum ms |
+| ---------------------------- | ------: | -----: | -----: | ---------: |
+| Plain typing                 |      20 |    1.4 |    9.5 |       17.0 |
+| Typing after bold at caret   |      11 |  205.7 |  751.6 |      751.6 |
+| Selected-word mark shortcuts |      12 |  108.3 |  126.3 |      126.3 |
+
+The frame-interval comparison remained 16.67 ms. Group flags compare p95;
+`typing` reported `withinBudget: true` even though its slowest sample, 16.964 ms,
+exceeded that interval. This is neither an every-key guarantee nor display proof.
+The rerun recorded no main-queue delay of at least 100 ms. Other p95 upper bounds
+were launch 959.7 ms, mailbox switch 281.4 ms, cached Microsoft/Gmail body
+381.1/503.9 ms, empty composer 518.4 ms and saved Draft composer 158.4 ms.
+XCTest reported desktop notification dialogs during composer-opening samples;
+these shared-desktop results are not an isolated rendering benchmark. Query
+overhead was 36.7 ms median. Runner cleanup succeeded, and its disposable app,
+helper, container and probe build directory were removed. The unrelated idle
+mock app from another worktree was preserved.
+
+Next-rendered-frame proof, format-bar clicks, Mail View switching, physical
+iPhone/iPad performance, owner-operated VoiceOver/dictation and provider/network
+latency remain required under #626 and its related qualification work. Synthetic
+providers do not establish live authentication or transport. No legacy coverage
+is retired, and this optional journey exceeding two minutes does not establish
+CI feedback-time p95.
+
 ## Mac keyboard and accessibility slice, 2026-10-23
 
 This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),
