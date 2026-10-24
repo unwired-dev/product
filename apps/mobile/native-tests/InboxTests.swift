@@ -325,8 +325,8 @@ final class InboxTests: XCTestCase {
   }
 
   // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
-  // the Startup Profile and offers Add Mail Profile… and the Startup Profile's system pop-up menu.
-  // Open Inbox returns to the Mailboxes the switcher sits in.
+  // the Startup Profile and offers Add Mail Profile…, the Startup Profile's system pop-up menu and
+  // each mailbox's Mail Profile pop-up. Open Inbox returns to the Mailboxes the switcher sits in.
   private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) {
     switcher.tap()
     let manage = app.buttons["Manage Mail Profiles…"]
@@ -368,6 +368,26 @@ final class InboxTests: XCTestCase {
     item?.tap()
     waitUntil({ named.count == 1 }, timeout: 10)
     XCTAssertEqual(primary.value as? String, "Startup Profile")
+    // Beneath the selected Primary Profile, each mailbox names its Profile in a system pop-up.
+    // The Primary Profile cannot be removed.
+    XCTAssertFalse(app.buttons["Remove Mail Profile…"].exists)
+    let move = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Mail Profile for "))
+      .firstMatch
+    XCTAssertTrue(move.waitForExistence(timeout: 10))
+    XCTAssertEqual(move.value as? String, "Primary Profile")
+    XCTAssertGreaterThanOrEqual(move.frame.height, 44)
+    move.tap()
+    waitUntil({ named.count > 1 }, timeout: 10)
+    let moveMenu = XCTAttachment(screenshot: app.screenshot())
+    moveMenu.name = "Move mailbox pop-up menu"
+    moveMenu.lifetime = .keepAlways
+    add(moveMenu)
+    // Choosing the mailbox's own Profile again moves nothing and closes the menu.
+    let owner = (0..<named.count).map { named.element(boundBy: $0) }.first { $0.frame != row }
+    XCTAssertNotNil(owner)
+    owner?.tap()
+    waitUntil({ named.count == 1 }, timeout: 10)
+    XCTAssertEqual(move.value as? String, "Primary Profile")
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCUIDevice.shared.orientation = .portrait
       waitUntil({

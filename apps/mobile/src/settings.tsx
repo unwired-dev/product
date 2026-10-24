@@ -661,6 +661,7 @@ export function SettingsRow({
   icon,
   title,
   titleTone,
+  titleNumberOfLines,
   disabled = false,
   subtitle,
   subtitleTone,
@@ -668,7 +669,8 @@ export function SettingsRow({
 }: {
   readonly icon?: string;
   readonly title: string;
-  readonly titleTone?: 'accent';
+  readonly titleTone?: 'accent' | 'destructive';
+  readonly titleNumberOfLines?: number;
   readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
@@ -688,11 +690,17 @@ export function SettingsRow({
       )}
       <View style={[styles.rowText, disabled && { opacity: 0.45 }]}>
         <Text
+          numberOfLines={titleNumberOfLines}
           style={[
             type.title,
             {
               color:
-                titleTone === 'accent' ? colors.accentInk : colors.textPrimary,
+                titleTone === undefined
+                  ? colors.textPrimary
+                  : {
+                      accent: colors.accentInk,
+                      destructive: colors.statusDestructive,
+                    }[titleTone],
             },
           ]}>
           {title}

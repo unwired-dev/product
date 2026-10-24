@@ -8,6 +8,7 @@ import type {
   MailboxConnection,
   MailProfile,
 } from './registration-snapshot.ts';
+import type { ProfileFailure } from './registration.ts';
 
 import { savedPreference, savePreference } from './commands.ts';
 import { runLogged } from './diagnostics.ts';
@@ -77,6 +78,54 @@ export const profileConnections = (
         .reduce((names, provider) =>
           t('profiles.connections', { connections: names, provider }),
         );
+};
+
+// The question asked before removing a Mail Profile, naming the mailboxes removed with it.
+export const profileRemoval = (
+  t: Translate,
+  name: string,
+  owned: readonly MailboxConnection[],
+) => {
+  const [only] = owned;
+  if (only === undefined) {
+    return {
+      title: t('profiles.removeQuestion', { name }),
+      message: t('profiles.removeEmpty', { name }),
+    };
+  }
+  return {
+    title: t('profiles.removeQuestionMailboxes', { name }),
+    message: t('profiles.removeMailboxes', {
+      count: owned.length,
+      addresses: owned.map(({ address }) => address).join(', '),
+      provider:
+        only.provider === 'imap'
+          ? t('profiles.mailServer')
+          : t(`mailProviders.${only.provider}`),
+    }),
+  };
+};
+
+// Why a Mail Profile change did not complete.
+export const profileRefusalText = (
+  t: Translate,
+  change: 'new' | 'rename' | 'move' | 'remove',
+  failure: ProfileFailure,
+) => {
+  if (failure === 'upgrade-required') {
+    return {
+      title: t('profiles.upgradeTitle'),
+      message: t(
+        change === 'new' ? 'profiles.upgradeMessage' : 'profiles.upgradeRetry',
+      ),
+    };
+  }
+  return {
+    title: t(`profiles.${change}Title`),
+    message: t(
+      failure === 'failed' ? `profiles.${change}Failed` : 'profiles.changed',
+    ),
+  };
 };
 
 // The Profile Menu: every Mail Profile with its connections and unread mail, the window's own
