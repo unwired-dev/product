@@ -18,6 +18,13 @@ after a relaunch and reconciles uncertain ones with Gmail's Sent mailbox. Sendin
 with Mac windows closed and pausing within mobile execution limits is
 [#618](https://github.com/unwired-dev/product/issues/618).
 
+The [confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+add [provider Draft retirement after durable Outbox admission and restoration on Undo #1275](https://github.com/unwired-dev/product/issues/1275),
+and [larger Microsoft messages #917](https://github.com/unwired-dev/product/issues/917).
+Those changes remain unimplemented. The current
+behavior and limits below remain accurate; the existing originating-device and
+uncertain-outcome protections also apply to the launch target.
+
 ## Application execution
 
 The application owns Outbox processing independently of any Inbox screen or Mac

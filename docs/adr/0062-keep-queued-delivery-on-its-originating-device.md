@@ -4,6 +4,16 @@ status: accepted
 
 # Keep queued delivery on its originating device
 
+## Provider Draft amendment, 2026-10-24
+
+[ADR 0074](0074-use-provider-hosted-drafts-for-cross-client-editing.md) replaces
+the Private Sync Draft content and asset transport below with provider-hosted
+Drafts for the maintained launch clients. Originating-device delivery ownership,
+content-free atomic send admission and unknown-outcome safety remain required.
+The [launch contract](../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+owns provider Draft retirement and Undo recovery. These are unimplemented target
+changes, not a global lock on external mail clients.
+
 ## Device-credential claim amendment — 2026-10-22
 
 For [#983](https://github.com/unwired-dev/product/issues/983), the product owner

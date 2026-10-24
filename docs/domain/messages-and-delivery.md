@@ -44,7 +44,7 @@ A product-owned queue containing outgoing messages awaiting delivery or recovery
 _Avoid_: Sent Mailbox, sent folder
 
 **Draft**:
-An editable, unsent outgoing message retained by the product until it is explicitly discarded or durably admitted to the **Outbox**. Selecting a product-authored Draft opens it directly for editing; it has no read-only presentation.
+An editable, unsent outgoing message.
 _Avoid_: Outbox message, temporary composer
 
 **Semantic Message Document**:
