@@ -351,6 +351,9 @@ styles) so the file stays editable.
   All Messages first and second, then up to three configured Category views
   (Orders, Newsletters & Promotions and Flights for new users).
   The reference mockups show an earlier System Category row with All selected.
+  On iPhone the title and subtitle sit centered in the system navigation bar,
+  whose Back returns to Mailboxes; the bar hides while searching. The frames'
+  **…** menu and List/Chat toggle beside them have no feature behind them yet.
 - **Search bar:** search and New Message share one floating glass bar at the
   bottom of the window, as the [organization requirements](docs/product/organization.md)
   specify. The search field is 400pt wide and centered, with New Message pinned

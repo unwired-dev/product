@@ -110,8 +110,8 @@ interface InboxProps {
     | undefined;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
-  // Returns to Mailboxes on iPhone, where the list replaces the native navigation bar.
-  readonly onBack?: (() => void) | undefined;
+  // iPhone's single column, whose navigation bar shows the title and returns to Mailboxes.
+  readonly bar?: boolean;
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
   readonly onCompose?: ((id: string) => void) | undefined;
   readonly composing?: string | undefined;
@@ -565,7 +565,7 @@ export function Inbox({
   onSelect,
   onSelectBehindComposer,
   onClose,
-  onBack,
+  bar,
   onCompose,
   composing,
   view = allInboxes,
@@ -815,12 +815,13 @@ export function Inbox({
             account={account}
             detail={selected !== undefined || composing !== undefined}
             onClose={onClose}
-            onBack={onBack}
+            bar={bar}
+            searching={searching}
             onLeave={leave}
             onSearch={ready ? searchState.open : undefined}>
             <SearchHeading search={searchState}>
               <HeadingTitle
-                onBack={onBack}
+                bar={bar}
                 title={title}
                 subtitle={t('inbox.subtitleLabel', {
                   scope: scopeName,

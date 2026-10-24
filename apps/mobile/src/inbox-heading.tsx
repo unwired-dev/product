@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 
 import {
   CommandInput,
@@ -9,60 +9,51 @@ import {
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
-import { Glass, NavigationChrome, SFSymbol } from './design.tsx';
-import { styles } from './inbox-styles.ts';
+import { NavigationChrome } from './design.tsx';
+import { barInset, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
 
-// The Inbox's title and status line, centered between Back and its balancing space on iPhone.
+// The Inbox's title and status line, centered in iPhone's navigation bar clear of its Back.
 export function HeadingTitle({
   title,
   subtitle,
-  onBack,
+  bar,
 }: {
   readonly title: string;
   readonly subtitle: string;
-  readonly onBack?: (() => void) | undefined;
+  readonly bar: boolean | undefined;
 }) {
   const colors = usePalette();
-  const { t } = useLocalization();
   const header = usePaletteHeader();
-  return (
-    <View style={styles.heading}>
-      {onBack === undefined ? null : (
-        <Pressable
-          accessibilityLabel={t('mailboxes.back')}
-          accessibilityRole="button"
-          onPress={onBack}
-          style={[styles.back, { boxShadow: colors.smallGlassShadow }]}>
-          <Glass cornerRadius={22} />
-          <SFSymbol
-            name="chevron.left"
-            size={17}
-            color={colors.textPrimary}
-          />
-        </Pressable>
-      )}
-      <View style={styles.headingText}>
+  const { width } = useWindowDimensions();
+  const text = (
+    // The bar takes one native view as its title, so layout must not flatten this one away.
+    <View
+      collapsable={false}
+      style={
+        bar
+          ? [styles.barTitle, { width: width - 2 * barInset }]
+          : styles.headingText
+      }>
+      <Text
+        accessibilityRole="header"
+        numberOfLines={1}
+        style={[styles.title, { color: colors.textPrimary }]}
+        {...header.action}>
+        {title}
+      </Text>
+      <View style={styles.subtitle}>
         <Text
-          accessibilityRole="header"
+          accessibilityLiveRegion="polite"
           numberOfLines={1}
-          style={[styles.title, { color: colors.textPrimary }]}
-          {...header.action}>
-          {title}
+          style={[styles.subtitleText, { color: colors.textSecondary }]}>
+          {subtitle}
         </Text>
-        <View style={styles.subtitle}>
-          <Text
-            accessibilityLiveRegion="polite"
-            numberOfLines={1}
-            style={[styles.subtitleText, { color: colors.textSecondary }]}>
-            {subtitle}
-          </Text>
-        </View>
       </View>
-      {onBack === undefined ? null : <View style={styles.back} />}
     </View>
   );
+  return bar ? text : <View style={styles.heading}>{text}</View>;
 }
 
 // Search's choice between the shown mailbox and every Inbox of the Profile.
@@ -118,25 +109,30 @@ export function InboxHeading({
   detail,
   account,
   onClose,
-  onBack,
+  bar,
+  searching,
   onLeave,
   onSearch,
 }: {
   // The title, or search's scope while searching.
   readonly children: ReactNode;
+  // On iPhone's single column, the system navigation bar shows the title and owns Back to
+  // Mailboxes and its edge swipe; searching hides it.
+  readonly bar: boolean | undefined;
+  readonly searching: boolean;
   // Whether a reader or composer is open; Search Mail leaves it first, since on iPhone and in
   // compact iPad layouts it covers the Inbox.
   readonly detail: boolean;
   readonly account: Readonly<{ openAccount: () => void }> | undefined;
   readonly onClose: (() => void) | undefined;
-  // Present while the Inbox replaces the native navigation bar with its own Back.
-  readonly onBack: (() => void) | undefined;
   readonly onLeave: () => Promise<boolean>;
   // Opens search; absent until the Inbox can search.
   readonly onSearch: (() => void) | undefined;
 }) {
   const { t } = useLocalization();
+  const colors = usePalette();
   const header = usePaletteHeader();
+  const inBar = bar === true && !searching;
   return (
     <>
       <RegisterCommands
@@ -172,10 +168,17 @@ export function InboxHeading({
           })
         }
       />
-      {onBack === undefined ? null : <NavigationChrome />}
+      {/* The bar's title stays inside the swipe's responder, which follows React's tree. */}
       <View {...header.swipe}>
+        {bar === true ? (
+          <NavigationChrome
+            backLabel={inBar ? t('mailboxes.back') : undefined}
+            surface={colors.surfaceContent}>
+            {inBar ? children : null}
+          </NavigationChrome>
+        ) : null}
         <CommandInput style={styles.commands} />
-        {children}
+        {inBar ? null : children}
       </View>
       <PaletteHint />
     </>

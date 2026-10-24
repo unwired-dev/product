@@ -167,16 +167,62 @@ typedef UIView UnwiredPlatformView;
 #endif
 
 #if !TARGET_OS_OSX
-// The compact Inbox supplies its own Back pill; restore native chrome when it leaves. The compact
-// reader keeps the system bar, whose Back is named backLabel and shows backCount beside the
-// chevron, with surface behind the bar.
+// The bar's title view, sized as React Native lays out its content.
+@interface UnwiredBarTitleView : UIView
+@property (nonatomic, strong) UIView *content;
+@end
+
+@implementation UnwiredBarTitleView
+- (instancetype)initWithFrame:(CGRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    self.translatesAutoresizingMaskIntoConstraints = NO;
+  }
+  return self;
+}
+- (void)dealloc { [_content removeObserver:self forKeyPath:@"bounds"]; }
+- (void)setContent:(UIView *)content
+{
+  [_content removeObserver:self forKeyPath:@"bounds"];
+  if (_content.superview == self) [_content removeFromSuperview];
+  _content = content;
+  if (content != nil) {
+    [content addObserver:self forKeyPath:@"bounds" options:0 context:nil];
+    [self addSubview:content];
+  }
+  [self invalidateIntrinsicContentSize];
+}
+- (CGSize)intrinsicContentSize { return self.content.bounds.size; }
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary *)change
+                       context:(void *)context
+{
+  [self invalidateIntrinsicContentSize];
+}
+@end
+
+// Hides the native navigation bar while a compact screen shows its own header. A screen that names
+// its Back in backLabel keeps the system bar instead, with backCount beside the chevron, surface
+// behind the bar and its React Native child as the bar's title.
 @interface UnwiredNavigationChromeView : UIView
 @property (nonatomic, weak) UINavigationController *navigation;
 @property (nonatomic, weak) UINavigationController *stack;
 @property (nonatomic) BOOL previousHidden;
+@property (nonatomic, strong) UnwiredBarTitleView *title;
 @property (nonatomic, copy) NSString *backLabel;
 @property (nonatomic, copy) NSString *backCount;
 @property (nonatomic, strong) UIColor *surface;
+@end
+
+// UIKit fills a held Back's history menu from the screens' titles, which these columns leave empty,
+// so it showed a blank capsule (#968); Back offers no menu, as react-native-screens'
+// disableBackButtonMenu does.
+@interface UnwiredBackItem : UIBarButtonItem
+@end
+
+@implementation UnwiredBackItem
+- (void)setMenu:(UIMenu *)menu {}
 @end
 
 // The count on a disk, as Mail's Back shows unread mail; the template image takes the bar's tint
@@ -211,6 +257,9 @@ static UIImage *UnwiredCountDisk(NSString *count)
     if (![self.stack.viewControllers containsObject:self.navigation]
         || self.stack.topViewController == self.navigation) {
       [self.navigation setNavigationBarHidden:self.previousHidden animated:NO];
+      if (self.navigation.navigationItem.titleView == self.title) {
+        self.navigation.navigationItem.titleView = nil;
+      }
       self.navigation = nil;
     }
     return;
@@ -230,15 +279,36 @@ static UIImage *UnwiredCountDisk(NSString *count)
   if (navigation != nil && navigation != self.navigation) {
     self.navigation = navigation;
     self.previousHidden = navigation.navigationBarHidden;
-    // UIKit pops a collapsed split view's screen by the edge swipe only while its bar shows.
-    [navigation setNavigationBarHidden:self.backLabel == nil || stack == navigation animated:NO];
+    [self updateHidden];
   }
   [self updateBack];
 }
 
 - (void)didSetProps:(NSArray<NSString *> *)changedProps
 {
+  // Only an uncovered screen sets the shared bar.
+  if ([changedProps containsObject:@"backLabel"] && self.stack.topViewController == self.navigation) {
+    [self updateHidden];
+  }
   [self updateBack];
+}
+
+// React Native's child is the bar's title view rather than a subview of this zero-sized view.
+- (void)didUpdateReactSubviews
+{
+  UIView *content = self.reactSubviews.firstObject;
+  if (content != self.title.content) {
+    if (self.title == nil) self.title = [UnwiredBarTitleView new];
+    self.title.content = content;
+  }
+  [self updateBack];
+}
+
+// UIKit pops a collapsed split view's screen by the edge swipe only while its bar shows.
+- (void)updateHidden
+{
+  [self.navigation setNavigationBarHidden:self.backLabel == nil || self.stack == self.navigation
+                                 animated:NO];
 }
 
 // The Back to the screen beneath is that screen's backBarButtonItem.
@@ -249,9 +319,10 @@ static UIImage *UnwiredCountDisk(NSString *count)
   if (self.backLabel == nil || self.window == nil || index == NSNotFound || index == 0) return;
   // React Native owns the screen's own background; its column's view lies behind the bar too.
   self.navigation.view.backgroundColor = self.surface;
+  self.navigation.navigationItem.titleView = self.title.content == nil ? nil : self.title;
   UIBarButtonItem *back = self.backCount.length == 0
-      ? [[UIBarButtonItem alloc] initWithTitle:@"" style:UIBarButtonItemStylePlain target:nil action:nil]
-      : [[UIBarButtonItem alloc] initWithImage:UnwiredCountDisk(self.backCount)
+      ? [[UnwiredBackItem alloc] initWithTitle:@"" style:UIBarButtonItemStylePlain target:nil action:nil]
+      : [[UnwiredBackItem alloc] initWithImage:UnwiredCountDisk(self.backCount)
                                          style:UIBarButtonItemStylePlain
                                         target:nil
                                         action:nil];
