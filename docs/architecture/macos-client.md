@@ -57,6 +57,8 @@ legacy-view interop. This adds no autolinked package and preserves the existing
 third-party module allowlist. Native visual and accessibility qualification is
 separate from compilation and JavaScript bundle verification.
 
+A hidden copy of the title sizes each push button.
+
 Link confirmations use the owned `UnwiredAlert` presenter on their anchor's window,
 while its selected mailbox store and message retain presentation ownership.
 AppKit owns the sheet's focus and modal accessibility. The first-party

@@ -77,7 +77,6 @@ export function SignedOutPage({
               <OnboardingAction
                 key={`${offer}-${provider}`}
                 disabled={busy}
-                fill="quiet"
                 label={label}
                 onPress={register}
               />
