@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -10,7 +10,6 @@ import {
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
-import { GlassGroup, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -40,18 +39,15 @@ export function AccountPage({
 }
 
 // A page's title as a fixed header that opens the palette by a downward swipe, its
-// accessibility action or, on iPad, the command input. iPhone centers the title between the
-// leading control, such as Back, and the accessory. The gate renders outside any screen, so on
-// iPhone the header clears the status bar with the root's insets, as the palette sheet does; the
-// iPad workspace has already cleared it.
+// accessibility action or, on iPad, the command input. iPhone centers the title between an empty
+// slot and the accessory. The gate renders outside any screen, so on iPhone the header clears
+// the status bar with the root's insets, as the palette sheet does; the iPad workspace has
+// already cleared it.
 export function AccountHeader({
   title,
-  leading,
   accessory,
 }: {
   readonly title: string;
-  // Shown before the title on iPhone.
-  readonly leading?: ReactNode;
   readonly accessory?: ReactNode;
 }) {
   const colors = usePalette();
@@ -71,7 +67,7 @@ export function AccountHeader({
       ]}
       {...header.swipe}>
       <View style={styles.accountHeading}>
-        {pad ? null : <View style={styles.phoneHeaderSlot}>{leading}</View>}
+        {pad ? null : <View style={styles.phoneHeaderSlot} />}
         <Text
           accessibilityRole="header"
           numberOfLines={1}
@@ -94,37 +90,5 @@ export function AccountHeader({
         <CommandInput />
       </View>
     </View>
-  );
-}
-
-// A 44pt interactive glass circle in a page's header, such as Back or Open Inbox.
-export function HeaderButton({
-  label,
-  icon,
-  disabled = false,
-  onPress,
-}: {
-  readonly label: string;
-  readonly icon: string;
-  readonly disabled?: boolean;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
-  return (
-    <GlassGroup style={[styles.headerButton, disabled && styles.dimmed]}>
-      <Pressable
-        accessibilityLabel={label}
-        accessibilityRole="button"
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        onPress={onPress}
-        style={styles.back}>
-        <SFSymbol
-          name={icon}
-          size={20}
-          color={colors.textPrimary}
-        />
-      </Pressable>
-    </GlassGroup>
   );
 }

@@ -28,9 +28,8 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { InboxMailbox } from './private-storage.ts';
 import type { SettingsDestination } from './settings.tsx';
 
-import { HeaderButton } from './account-page.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
-import { MenuButton, SFSymbol } from './design.tsx';
+import { GlassGroup, MenuButton, SFSymbol } from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -64,6 +63,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   headingSlot: { width: 44 },
+  accountGlass: {
+    padding: 0,
+    borderRadius: 22,
+    backgroundColor: 'transparent',
+  },
+  accountButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   title: { ...textStyles.headline, textAlign: 'center' },
   grow: { flex: 1 },
   list: { paddingHorizontal: spacing.s, paddingBottom: spacing.l },
@@ -455,13 +465,21 @@ export function Mailboxes({
             {t('mailboxes.title')}
           </Text>
           {compact && account !== undefined ? (
-            <HeaderButton
-              label={t('inbox.account')}
-              icon="gearshape"
-              onPress={() => {
-                openSettings();
-              }}
-            />
+            <GlassGroup style={styles.accountGlass}>
+              <Pressable
+                accessibilityLabel={t('inbox.account')}
+                accessibilityRole="button"
+                onPress={() => {
+                  openSettings();
+                }}
+                style={styles.accountButton}>
+                <SFSymbol
+                  name="gearshape"
+                  size={20}
+                  color={colors.textPrimary}
+                />
+              </Pressable>
+            </GlassGroup>
           ) : null}
         </View>
         <ScrollView
@@ -558,6 +576,7 @@ export function Mailboxes({
               <NewMessageButton
                 onCompose={onCompose}
                 scope={undefined}
+                registerCommand={false}
               />
             }>
             <BarSpacer />

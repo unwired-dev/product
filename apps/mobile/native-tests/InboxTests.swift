@@ -420,6 +420,12 @@ final class InboxTests: XCTestCase {
       ).firstMatch
       XCTAssertTrue(back.waitForExistence(timeout: 15))
       XCTAssertTrue(app.buttons["Open Inbox"].exists)
+      XCTAssertTrue(app.navigationBars["Settings"].exists)
+      // The React title in the system bar retains the Command Palette's downward swipe.
+      openPalette(app, header: app.staticTexts["Settings"].firstMatch)
+      XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 10))
+      app.buttons["Cancel"].tap()
+      XCTAssertTrue(app.textFields["Type a command"].waitForNonExistence(timeout: 10))
       let settings = XCTAttachment(screenshot: app.screenshot())
       settings.name = "Settings over Mailboxes with Back"
       settings.lifetime = .keepAlways

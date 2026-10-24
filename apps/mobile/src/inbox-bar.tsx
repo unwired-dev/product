@@ -109,10 +109,13 @@ const styles = StyleSheet.create({
 export function NewMessageButton({
   onCompose,
   scope,
+  registerCommand = true,
 }: {
   readonly onCompose: (id: string) => void;
   // The mailbox the Inbox shows, which a new message sends from when it can.
   readonly scope: string | undefined;
+  // The mounted Inbox owns the shared command; another column can reuse only its button.
+  readonly registerCommand?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -157,7 +160,7 @@ export function NewMessageButton({
   };
   return (
     <>
-      {disabled ? null : (
+      {disabled || !registerCommand ? null : (
         <RegisterCommands
           offer={() => [
             composeCommand(t, () => {

@@ -41,7 +41,7 @@ import { ScreenStack, ScreenStackItem } from 'react-native-screens';
 
 import type { SettingsDestination } from './settings.tsx';
 
-import { AccountPage, HeaderButton } from './account-page.tsx';
+import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
 import { Button, Notice } from './design.tsx';
 import {
@@ -457,16 +457,7 @@ function SettingsPage({
         destination={selectedDestination}
         onDestination={setDestination}
         detail={detail}
-        leading={
-          onBack === undefined ? undefined : (
-            <HeaderButton
-              label={t('settings.back')}
-              icon="chevron.left"
-              disabled={busy}
-              onPress={onBack}
-            />
-          )
-        }
+        navigation={{ onBack, onInbox, disabled: busy }}
         accessory={
           <>
             {busy ? (
@@ -474,19 +465,12 @@ function SettingsPage({
                 accessibilityLabel={t('registration.connecting')}
               />
             ) : null}
-            {settingsColumns ? (
-              button(t('registration.openInbox'), () => {
-                onInbox();
-                return Promise.resolve();
-              })
-            ) : (
-              <HeaderButton
-                label={t('registration.openInbox')}
-                icon="tray"
-                disabled={busy}
-                onPress={onInbox}
-              />
-            )}
+            {settingsColumns
+              ? button(t('registration.openInbox'), () => {
+                  onInbox();
+                  return Promise.resolve();
+                })
+              : null}
           </>
         }>
         {failed || actions.signIn.length > 0 ? (
