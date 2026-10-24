@@ -16,6 +16,9 @@ const subheadline = ipad
   ? typography.ipadList.subheadline
   : textStyles.subheadline;
 
+// The bar's title keeps clear of its 44pt Back, and of the same width at the trailing edge.
+export const barInset = spacing.l + 44 + spacing.m;
+
 // iPad keeps the scaled Mac list recipe in both orientations; iPhone uses its touch layout.
 export const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -29,13 +32,7 @@ export const styles = StyleSheet.create({
     paddingBottom: ipad ? 10 * scale : spacing.m,
   },
   headingText: { flex: 1, alignItems: ipad ? 'flex-start' : 'center' },
-  back: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-  },
+  barTitle: { position: 'absolute', alignItems: 'center' },
   // iPad's command input takes its own row above the heading, as the frames place it, so the
   // heading's top padding is the gap beneath it.
   commands: {

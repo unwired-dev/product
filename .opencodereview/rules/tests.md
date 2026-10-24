@@ -25,6 +25,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A timed-feedback matcher such as `WindowTests.reportPerformance` crediting an
+  observation to an input by timestamp alone. Verify the observed state still
+  contains that input's expected result, including text and per-character marks
+  for a composer draw. Compatible later typing can preserve an earlier prefix;
+  a later toggle can replace it before drawing. Reject superseded results that
+  never appeared, or one later draw can falsely qualify both formatting states.
+
 - A native journey spanning size classes, such as
   `InboxTests.keyboardAndAccessibilityJourney`, waiting for a column's heading
   after returning from Settings. Check which split-view columns the host exposes

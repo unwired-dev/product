@@ -18,9 +18,12 @@ record the current implementation, not requirements to retain them.
   edge-swipe transitions. A leading column's `onDidAppear` lets the route follow a
   completed Back when collapsed and no composer is open; a cancelled swipe keeps
   the reader. The column API exposes no navigation item or bar configuration, so
-  `UnwiredNavigationChrome` retains only bar visibility, reader surface fill and
-  the counted system Back. It no longer detects pops. Route parameters identify
-  the selected message. The iPhone registration gate owns an outer
+  `UnwiredNavigationChrome` retains bar visibility, surface fill, system Back
+  items without a history menu, and the collapsed iPhone Inbox's React title
+  view. React Native lays out that title and owns its Command Palette entry;
+  UIKit owns the bar and Back transitions. Remove these adapter parts when Split
+  columns expose the required header configuration. It no longer detects pops.
+  Route parameters identify the selected message. The iPhone registration gate owns an outer
   `react-native-screens` native stack, retaining
   the split-view mail shell as its first screen and pushing Settings as the second.
   UIKit's dismissal event retires that Settings request. The mail shell and composer

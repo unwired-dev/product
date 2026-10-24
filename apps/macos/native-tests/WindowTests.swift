@@ -1527,6 +1527,7 @@ final class WindowTests: XCTestCase {
       let uptime: Double?
       let text: String?
       let marks: String?
+      let frameStart: Double?
     }
     let records = try String(contentsOf: evidence, encoding: .utf8)
       .split(separator: "\n")
@@ -1536,6 +1537,7 @@ final class WindowTests: XCTestCase {
     }
     let keys = records.filter { $0.event == "key-down" }
     let edits = records.filter { $0.event == "text-edit" }
+    let draws = records.filter { $0.event == "text-drawn" }
     let presses = try times("mouse-down")
     let releases = try times("mouse-up")
     // Body requests the synthetic providers answered; priming the cache must have made some.
@@ -1546,9 +1548,18 @@ final class WindowTests: XCTestCase {
     }
     var lines: [String] = []
     var pressToRelease: [Double] = []
+    // Nearest-rank percentiles.
+    func percentile<Value>(_ sorted: [Value], _ rank: Double) -> Value {
+      sorted[max(0, Int((rank * Double(sorted.count)).rounded(.up)) - 1)]
+    }
     for var group in groups {
       // A key group runs from each recorded key press, and the format bar group from each
-      // recorded release, to the first edit showing its result.
+      // recorded release, to the first edit showing its result. The body's first draw after that
+      // edit falls in the display frame that started last before it; display frames start every
+      // interval from any recorded start. Frames late counts the frames that started after the
+      // input and before that one: 0 is the next rendered frame.
+      var drawn: [Double] = []
+      var framesLate: [Int] = []
       if !group.shows.isEmpty {
         let inputs = group.name == "format-bar" ? releases : try times("key-down")
         let starts = try group.windows.map { window in
@@ -1563,7 +1574,24 @@ final class WindowTests: XCTestCase {
               ($0.uptime ?? 0) >= start && $0.text?.hasPrefix(shown.text) == true
                 && $0.marks?.hasPrefix(shown.marks) == true
             }, "No edit showed \(shown) for \(group.name)")
-          return (start, try XCTUnwrap(edit.uptime))
+          let end = try XCTUnwrap(edit.uptime)
+          let draw = try XCTUnwrap(
+            draws.first { ($0.uptime ?? 0) >= end }, "No draw after \(shown) for \(group.name)")
+          let drawEnd = try XCTUnwrap(draw.uptime)
+          // A draw shows the body's latest edit; a result a later input replaced first never showed.
+          let drawnEdit = edits.last { ($0.uptime ?? 0) <= drawEnd }
+          XCTAssertTrue(
+            drawnEdit?.text?.hasPrefix(shown.text) == true
+              && drawnEdit?.marks?.hasPrefix(shown.marks) == true,
+            "\(shown) for \(group.name) was replaced before it was drawn")
+          let frameStart = try XCTUnwrap(draw.frameStart)
+          let interval = try XCTUnwrap(draw.milliseconds)
+          XCTAssertGreaterThan(frameStart, 0, "No display frame before \(group.name)")
+          let frame = ((drawEnd - frameStart) / interval).rounded(.down)
+          let next = ((start - frameStart) / interval).rounded(.up)
+          drawn.append(drawEnd - start)
+          framesLate.append(max(0, Int(frame - next)))
+          return (start, end)
         }
       }
       // A click selects on release: its sample starts at the release of its last press.
@@ -1585,19 +1613,21 @@ final class WindowTests: XCTestCase {
           "\(group.name) requested a provider body")
       }
       let samples = windows.map { $0.end - $0.start }.sorted()
-      // Nearest-rank percentiles.
-      func percentile(_ rank: Double) -> Double {
-        samples[max(0, Int((rank * Double(samples.count)).rounded(.up)) - 1)]
-      }
       let during = stalls.filter { stall in
         windows.contains { stall.uptime <= $0.end && stall.uptime + stall.milliseconds >= $0.start }
       }.map(\.milliseconds)
-      let record: [String: Any] = [
+      var record: [String: Any] = [
         "interaction": group.name, "budgetMs": group.budget, "samplesMs": samples,
-        "p50Ms": percentile(0.5), "p95Ms": percentile(0.95), "maxMs": samples.last ?? 0,
-        "withinBudget": percentile(0.95) <= group.budget, "stallsMs": during,
-        "resultsOnFirstQuery": group.firstQuery,
+        "p50Ms": percentile(samples, 0.5), "p95Ms": percentile(samples, 0.95),
+        "maxMs": samples.last ?? 0, "withinBudget": percentile(samples, 0.95) <= group.budget,
+        "stallsMs": during, "resultsOnFirstQuery": group.firstQuery,
       ]
+      if !framesLate.isEmpty {
+        framesLate.sort()
+        record["drawnMs"] = drawn.sorted()
+        record["framesLate"] = framesLate
+        record["nextRenderedFrame"] = percentile(framesLate, 0.95) == 0
+      }
       lines.append(json(record))
     }
     pressToRelease.sort()

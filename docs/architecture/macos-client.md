@@ -67,6 +67,22 @@ properties.
 The native build phase exports and verifies the bundle before
 copying it into the app.
 
+## Testing-only draw observation
+
+The [Mac performance journey](../agents/native-validation.md#mac-performance-journey)
+observes the focused composer body's first draw after a text-storage edit. The
+probe wraps the first edited text view class's `drawRect:` once, calls the saved
+implementation first, and records completion only for the pending edited view.
+React Native macOS 0.81.9's `RCTUITextView` owns that method; AppKit provides no
+after-draw notification. The journey uses that one text-view class and one window
+on one display. It does not qualify another class or movement between displays.
+
+The screen's `CADisplayLink` supplies a recent frame start and the interval to
+its target timestamp. The journey extrapolates that grid to the draw's completion
+time, assuming constant refresh. This observes app drawing, not window-server
+compositing or display presentation. The probe and runtime hook compile only in
+`Testing`; Release omits them.
+
 ## Isolated categorization research
 
 Issue #831 authorizes an isolated, build-time `categorization-spike` Mock Mail
