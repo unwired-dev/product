@@ -403,13 +403,15 @@ styles) so the file stays editable.
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
   reading pane with 12pt outer insets and 70% of the available height, clamped
-  from 420 to 720pt. Expanding it takes over the whole app window, beneath the
-  Mac's command bar, with the same
-  Draft; there is no separate Compose window and no freeform resizing. Compact
+  from 420 to 720pt. On iPad, expanding it takes over the whole app window with
+  the same Draft. On the Mac, Expand saves the Draft and moves it into its own
+  New Message window, closing the overlay with no way back
+  ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).
+  There is no freeform resizing of the overlay. Compact
   layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
   field reveals together. The sender is a From pop-up beside Send. The reference
-  mockups still show an earlier separate window and a 60% inline composer.
+  mockups still show a 60% inline composer.
   One composer per window keeps expand/collapse visible on regular width, Close
   directly accessible and destructive Discard in overflow. The sidebar and list
   remain interactive beneath the overlay; save failures appear inline.

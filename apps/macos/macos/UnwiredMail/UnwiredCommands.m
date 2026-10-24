@@ -49,6 +49,11 @@ NSString *UnwiredGuardedWindow(void)
   return nil;
 }
 
+// AppDelegate.mm opens each New Message window.
+@protocol UnwiredComposerWindows
+- (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile;
+@end
+
 @interface UnwiredCommands : RCTEventEmitter <RCTBridgeModule>
 @end
 
@@ -143,7 +148,15 @@ RCT_EXPORT_METHOD(finishClose:(NSString *)identifier allowed:(BOOL)allowed)
     return;
   }
   [guardedWindows() removeObject:identifier];
-  [windowNamed(identifier) performClose:nil];
+  NSWindow *window = windowNamed(identifier);
+  // A window already closed, as when a New Message window's composer closed it first, has no content.
+  if (window.contentViewController != nil) [window performClose:nil];
+}
+
+// Expand moves a composer's saved Draft into its own New Message window.
+RCT_EXPORT_METHOD(openComposer:(NSString *)draft profile:(NSString *)profile)
+{
+  [(id<UnwiredComposerWindows>)NSApp.delegate openComposerForDraft:draft profile:profile];
 }
 
 // Every Inbox window's Settings entry points open the one Settings window, as Command-, does.

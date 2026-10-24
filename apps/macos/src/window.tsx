@@ -9,7 +9,14 @@ import { followOpenedNotifications } from '@private-email/mail-core/notification
 import { windowProfile } from '@private-email/mail-core/profile-windows';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
@@ -51,7 +58,7 @@ const narrowWindow = 900;
 const sidebarWidth = 236;
 const listWidth = 340;
 // The composer overlays the reading pane with 12pt insets at 70% of the panes' height,
-// clamped from 420 to 720pt; expanded, it takes over the panes beneath the command bar.
+// clamped from 420 to 720pt.
 const composerInset = spacing.m;
 const composerHeight = (panesHeight: number) =>
   Math.min(
@@ -250,7 +257,6 @@ function WindowContents({
   );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
-  const [expanded, setExpanded] = useState(false);
   const [height, setHeight] = useState(0);
   const [view, setView] = useState<MailboxView>({});
   const [width, setWidth] = useState<number>();
@@ -326,8 +332,7 @@ function WindowContents({
               setHeight(nativeEvent.layout.height);
             }}
             style={styles.panes}>
-            {/* The expanded composer covers the panes, so the glass sidebar steps aside. */}
-            {sidebarShown && !expanded ? (
+            {sidebarShown ? (
               <GlassGroup
                 style={[
                   styles.sidebar,
@@ -343,8 +348,6 @@ function WindowContents({
               </GlassGroup>
             ) : null}
             <View
-              pointerEvents={expanded ? 'none' : 'auto'}
-              accessibilityElementsHidden={expanded}
               style={[
                 styles.list,
                 {
@@ -364,9 +367,6 @@ function WindowContents({
                 }
                 selected={selected}
                 onClose={close}
-                onReveal={() => {
-                  setExpanded(false);
-                }}
                 onCompose={compose}
                 onSelectBehindComposer={
                   composing === undefined ? undefined : setSelected
@@ -405,32 +405,26 @@ function WindowContents({
                 testID="composer-overlay"
                 style={[
                   styles.composer,
-                  expanded
-                    ? StyleSheet.absoluteFill
-                    : [
-                        styles.composerOverlay,
-                        {
-                          left:
-                            (sidebarShown ? sidebarWidth + 2 * spacing.s : 0) +
-                            listWidth +
-                            composerInset,
-                          height: composerHeight(height),
-                        },
-                      ],
+                  styles.composerOverlay,
                   {
+                    left:
+                      (sidebarShown ? sidebarWidth + 2 * spacing.s : 0) +
+                      listWidth +
+                      composerInset,
+                    height: composerHeight(height),
                     borderColor: colors.separator,
                     boxShadow: colors.menuShadow,
                   },
                 ]}>
                 <DraftComposer
                   id={composing}
-                  expanded={expanded}
                   onClose={() => {
                     setComposing(undefined);
-                    setExpanded(false);
                   }}
-                  onExpand={() => {
-                    setExpanded((current) => !current);
+                  // Expand moves the saved Draft into its own New Message window.
+                  onExpand={(id) => {
+                    windowHost()?.openComposer(id, profile);
+                    setComposing(undefined);
                   }}
                   onRebind={setComposing}
                 />
@@ -459,6 +453,58 @@ export function InboxWindow({ windowId, profile }: WindowProps) {
         />
       </RegistrationGate>
     </CommandPaletteProvider>
+  );
+}
+
+// A New Message window: the Draft Expand moved out of an Inbox window's composer, alone in its own
+// window. Closing it runs the composer's own Close guards, as in the Inbox window.
+export function ComposerWindow({
+  windowId,
+  draft,
+  profile,
+}: {
+  readonly windowId: string;
+  readonly draft: string;
+  readonly profile: string;
+}) {
+  const identifier = `composer-window-${windowId}`;
+  const [id, setId] = useState(draft);
+  const colors = usePalette();
+  return (
+    <CommandPaletteProvider
+      windowId={windowId}
+      identifier={identifier}>
+      <InboxProvider>
+        <ProfileScope profile={profile}>
+          <View
+            style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
+            <CommandBar />
+            <DraftComposer
+              id={id}
+              onClose={() => {
+                windowHost()?.finishClose(identifier, true);
+              }}
+              onRebind={setId}
+            />
+          </View>
+        </ProfileScope>
+      </InboxProvider>
+    </CommandPaletteProvider>
+  );
+}
+
+// The New Message window closes, rather than showing account pages, once no Inbox can open.
+export function ComposerWindowRoot(
+  props: Parameters<typeof ComposerWindow>[0],
+) {
+  const identifier = `composer-window-${props.windowId}`;
+  const close = useCallback(() => {
+    windowHost()?.finishClose(identifier, true);
+  }, [identifier]);
+  return (
+    <RegistrationGate onClose={close}>
+      <ComposerWindow {...props} />
+    </RegistrationGate>
   );
 }
 

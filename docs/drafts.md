@@ -17,18 +17,24 @@ Trusted Devices through Private Sync.
   the detail column: a route of its own on iPhone and a bottom-anchored overlay
   over the reader on regular-width iPad and in a Mac window, inset 12pt at 70% of
   the window's height (420 to 720pt); a docked iPad software keyboard leaves it the
-  height above the keyboard. **Expand** takes the composer over the whole
-  window with the same Draft and **Collapse** returns it; on the Mac, the overlay
-  and the expanded composer stay beneath the window's
-  [command bar](command-palette.md#entry-points). The Inbox column stays
+  height above the keyboard. On iPad, **Expand** takes the composer over the whole
+  window with the same Draft and **Collapse** returns it. On the Mac, the overlay
+  stays beneath the window's [command bar](command-palette.md#entry-points), and
+  **Expand** saves the Draft, then moves it into its own **New Message** window and
+  closes the overlay; there is no way back into the Inbox window. A failed save
+  keeps the Draft in the overlay. The New Message window has its own command bar
+  and the composer's Close; closing the window or quitting asks as an Inbox
+  window's composer does. Several New Message windows can be open, and AppKit
+  does not restore them. The Inbox column stays
   interactive beneath the overlay while the covered reader waits. Selecting
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout
-  retain the same editor and Undo history. Each window has one composer.
+  retain the same editor and Undo history; the Mac's New Message window starts a
+  new editor and Undo history. Each window has one composer.
   The floating search and New Message bar hides while composing. On Mac,
-  **Search Mail** reveals it and collapses an expanded composer without closing
-  the Draft; New Message remains available through the Command Palette and
-  finishes saving before switching the editor.
+  **Search Mail** reveals it without closing the Draft; New Message remains
+  available through the Command Palette and finishes saving before switching the
+  editor.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. If its mailbox stops being able to send, or the Product
   Account changes, while the open composer is saving, no Draft starts. Refused navigation leaves it available to try again.

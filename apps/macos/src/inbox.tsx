@@ -116,8 +116,6 @@ interface InboxProps {
     | undefined;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
-  // Collapses an expanded composer that covers the Inbox, so Search Mail can show its field.
-  readonly onReveal?: (() => void) | undefined;
   // Opens a Draft in the composer; without it the Inbox offers no Drafts.
   readonly onCompose?: ((id: string) => void) | undefined;
   readonly composing?: string | undefined;
@@ -691,7 +689,6 @@ export function Inbox({
   onSelect,
   onSelectBehindComposer,
   onClose,
-  onReveal,
   onCompose,
   composing,
   view = allInboxes,
@@ -923,7 +920,6 @@ export function Inbox({
               // The search field, once the Inbox can search.
               search: ready
                 ? () => {
-                    onReveal?.();
                     composeSearch.reveal();
                   }
                 : undefined,

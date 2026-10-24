@@ -257,6 +257,40 @@ describe('the Tiptap evaluation composer', () => {
     expect(draftsOf(reopened.getSnapshot())).toHaveLength(1);
   });
 
+  it('saves unsaved page edits on Expand and hands the Draft to its own window', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const expanded: string[] = [];
+    await render(
+      <App
+        drafts={drafts}
+        onExpand={(id) => {
+          expanded.push(id);
+        }}
+      />,
+    );
+    await press('New Message');
+    const { typed } = simulatedPage();
+    await typed('Moved by Expand');
+    // Storage that refuses the save keeps the Draft here to try again.
+    storage.setLocked(true);
+    await press('Expand');
+    expect(screen.getByText(saveBlocked)).toBeOnTheScreen();
+    expect(expanded).toStrictEqual([]);
+    storage.setLocked(false);
+    await press('Expand');
+    await waitFor(() => {
+      expect(screen.queryByTestId('message-webview')).toBeNull();
+    });
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    expect(expanded).toStrictEqual([saved.id]);
+    expect(saved.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Moved by Expand' }] },
+    ]);
+  });
+
   it('includes queued page edits before Save and locks editing until storage finishes', async () => {
     expect.hasAssertions();
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');

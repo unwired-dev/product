@@ -53,12 +53,18 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { profileChoices } from '../src/profile-choices.ts';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import {
+  ComposerWindow,
   InboxWindow as RegisteredWindow,
   PreviewWindow as InboxWindow,
 } from '../src/window.tsx';
 import { chooseSheetButton, sheetsShown } from './native-alert.ts';
 import { chooseMenuItem, chooseSubmenuItem, menuItems } from './native-menu.ts';
-import { MacWindows, settingsWindow } from './settings-window.tsx';
+import {
+  closedWindows,
+  composerWindows,
+  MacWindows,
+  settingsWindow,
+} from './settings-window.tsx';
 import { started } from './started.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -197,8 +203,8 @@ describe('mac window selection with the shared mock mailbox', () => {
     showMailboxes(singleMailbox(fixture, 'preview'));
   });
 
-  /* oxlint-disable vitest/max-expects -- One editor crosses expansion, reader changes and durable Close. */
-  it('keeps the open Draft and history while selecting the reader beneath its overlay', async () => {
+  /* oxlint-disable vitest/max-expects -- One Draft crosses reader changes, Undo and Expand into its window. */
+  it('keeps the open Draft and history beneath its overlay until Expand moves it into a New Message window', async () => {
     expect.hasAssertions();
     const connection = {
       id: alex,
@@ -227,17 +233,17 @@ describe('mac window selection with the shared mock mailbox', () => {
       'drafts',
       drafts,
     );
+    const accountActions = {
+      mailboxes: [connection],
+      openAccount: () => undefined,
+      authorizeMailbox: () => Promise.resolve(),
+      refreshInbox: (load: () => Promise<void>) => load(),
+      account: 'synthetic-product-account',
+      profiles: [{ id: 'work', name: 'Work' }],
+      createProfile: () => Promise.resolve(undefined),
+    };
     const app = await render(
-      <AccountContext
-        value={{
-          mailboxes: [connection],
-          openAccount: () => undefined,
-          authorizeMailbox: () => Promise.resolve(),
-          refreshInbox: (load) => load(),
-          account: 'synthetic-product-account',
-          profiles: [{ id: 'work', name: 'Work' }],
-          createProfile: () => Promise.resolve(undefined),
-        }}>
+      <AccountContext value={accountActions}>
         <InboxWindow windowId="compose" />
       </AccountContext>,
     );
@@ -283,21 +289,6 @@ describe('mac window selection with the shared mock mailbox', () => {
         }),
       );
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
-      await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
-      expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
-      // Search Mail collapses the expanded composer to reveal the Inbox search field, keeping the Draft.
-      await fireEvent.press(
-        app.getByRole('button', { name: 'Open Command Palette' }),
-      );
-      await act(async () => {
-        await fireEvent.press(
-          within(app.getByTestId('command-palette')).getByRole('button', {
-            name: 'Search Mail',
-          }),
-        );
-      });
-      expect(app.getByLabelText('Search senders and subjects')).toBeVisible();
-      expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
       await fireEvent.press(app.getByRole('button', { name: oliver }));
       expect(app.getByLabelText('Message body')).toHaveTextContent(
         'Keep this draft.',
@@ -315,9 +306,47 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Keep this draft.',
       );
       await fireEvent.press(app.getByRole('button', { name: 'Redo' }));
-      await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
+      // Expand saves the Draft, typed recipient text included, and moves it into its own window.
+      await fireEvent.press(app.getByRole('button', { name: 'Expand' }));
+      await waitFor(() => {
+        expect(app.queryByTestId('composer-overlay')).toBeNull();
+      });
       await expect(app.findByText('oliver@example.com')).resolves.toBeVisible();
-      expect(app.queryByLabelText('Message body')).toBeNull();
+      const [opened] = composerWindows();
+      ok(opened !== undefined);
+      expect(composerWindows()).toStrictEqual([
+        { draft: opened.draft, profile: defaultProfile },
+      ]);
+      // AppKit shows the New Message window beside the Inbox window.
+      await app.rerender(
+        <AccountContext value={accountActions}>
+          <InboxWindow windowId="compose" />
+          <View testID="composer-window">
+            <ComposerWindow
+              windowId="1"
+              draft={opened.draft}
+              profile={opened.profile}
+            />
+          </View>
+        </AccountContext>,
+      );
+      const window = within(app.getByTestId('composer-window'));
+      await expect(
+        window.findByLabelText('Message body'),
+      ).resolves.toHaveTextContent('Keep this draft.');
+      expect(window.getByLabelText('To')).toHaveProp('value', 'unfinished');
+      expect(window.queryByRole('button', { name: 'Expand' })).toBeNull();
+      await fireEvent.changeText(window.getByLabelText('To'), '');
+      await fireEvent.press(window.getByRole('button', { name: 'Close' }));
+      await waitFor(() => {
+        expect(closedWindows()).toStrictEqual(['composer-window-1']);
+      });
+      await app.rerender(
+        <AccountContext value={accountActions}>
+          <InboxWindow windowId="compose" />
+        </AccountContext>,
+      );
       await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
       expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();

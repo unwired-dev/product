@@ -95,7 +95,8 @@
     "view": "View",
     "commands": "Commands…",
     "settings": "Settings…",
-    "settingsTitle": "Settings"
+    "settingsTitle": "Settings",
+    "newMessageTitle": "New Message"
   },
   "providers": {
     "google": "Google",

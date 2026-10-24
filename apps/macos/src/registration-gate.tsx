@@ -134,6 +134,23 @@ function useRegistrationActivation(store: Registration, preview = false) {
   }, [preview, store, reporting]);
 }
 
+// A window that shows only Inbox content closes once no Inbox can open.
+function useInboxOnlyClose(
+  onClose: (() => void) | undefined,
+  destination: RegistrationScreen['destination'],
+) {
+  const closing =
+    onClose !== undefined &&
+    destination !== 'inbox' &&
+    destination !== 'restoring';
+  useEffect(() => {
+    if (closing) {
+      onClose?.();
+    }
+  }, [closing, onClose]);
+  return closing;
+}
+
 function RegistrationGateContent({
   children,
   store = registration,
@@ -143,8 +160,12 @@ function RegistrationGateContent({
   mailAssistance = deviceMailAssistance,
   assistance = nativeAssistance,
   translation = nativeTranslation,
+  onClose,
 }: {
   readonly children: ReactNode;
+  // A window that shows only Inbox content, such as a New Message window, opens the Inbox whenever
+  // one can open and closes instead of showing account pages.
+  readonly onClose?: (() => void) | undefined;
   readonly store?: Registration;
   // This build can authorize Microsoft mail.
   readonly microsoft?: boolean;
@@ -168,9 +189,15 @@ function RegistrationGateContent({
   const screen = registrationScreen(t, registrationState, choice);
   const { choices } = screen;
   // A choice the shared rule no longer applies is forgotten, so an earlier snapshot cannot revive it.
-  if (screen.choice !== choice) {
-    setChoice(screen.choice);
+  const kept =
+    screen.choice ?? (onClose === undefined ? undefined : choices?.inbox);
+  if (kept !== choice) {
+    setChoice(kept);
   }
+  const closing = useInboxOnlyClose(
+    onClose,
+    preview ? 'inbox' : screen.destination,
+  );
   const assistanceAccount = useMailAssistanceAccount(
     registrationState,
     mailAssistance,
@@ -200,6 +227,9 @@ function RegistrationGateContent({
     [store, screen.mailboxes, choices, profiles],
   );
   useRegistrationActivation(store, preview);
+  if (closing) {
+    return null;
+  }
   // The preview Inbox has no Product Account; its Mock Mail Session answers assistance.
   if (preview) {
     return (

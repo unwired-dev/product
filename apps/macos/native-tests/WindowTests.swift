@@ -1339,6 +1339,26 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(second.waitForNonExistence(timeout: 10))
     front("inbox-window-1")
     XCTAssertTrue(typed.exists)
+
+    // #1266: Expand saves the Draft and moves it into its own New Message window, closing the
+    // overlay; Command-W closes that window, and the app keeps running.
+    window.buttons["Expand"].click()
+    let composer = app.windows["composer-window-1"]
+    XCTAssertTrue(composer.waitForExistence(timeout: 15))
+    XCTAssertEqual(composer.title, "New Message")
+    let windowBody = composer.textViews.matching(
+      NSPredicate(format: "value CONTAINS %@", "Keyboard reply")
+    ).firstMatch
+    XCTAssertTrue(windowBody.waitForExistence(timeout: 15))
+    XCTAssertEqual(windowBody.value as? String, "Keyboard replyKeyboard reply")
+    XCTAssertTrue(typed.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(composer.buttons["Expand"].exists)
+    composer.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    // A composer unmount aborted the host within seconds before (#1174).
+    Thread.sleep(forTimeInterval: 5)
+    XCTAssertEqual(app.state, .runningForeground)
+    XCTAssertTrue(row("Draft. Re: Outlook update 003").exists)
   }
 
   // Opens the key window's Command Palette, narrows it to one command and runs it with Return.
