@@ -211,9 +211,11 @@ export function MenuButton({
   ...props
 }: ViewProps & { readonly sections: readonly MenuSection[] }) {
   const colors = usePalette();
+  const dark = useColorScheme() === 'dark';
   const anchor = useRef<View>(null);
   const latest = useRef(menuState(sections));
   const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   useLayoutEffect(() => {
     latest.current = menuState(sections);
     return () => {
@@ -246,13 +248,26 @@ export function MenuButton({
       ref={anchor}
       collapsable={false}
       accessibilityRole="button"
+      // In Dark, an accent/ink ring replaces the system focus ring.
+      enableFocusRing={!dark}
       focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={() => {
         void show();
       }}
       style={({ pressed }) => [
         style,
-        pressed || open ? { backgroundColor: colors.fillQuiet } : null,
+        pressed || open
+          ? { backgroundColor: colors.accentSelectionSubtle }
+          : null,
+        dark && focused
+          ? { outlineWidth: 3, outlineColor: colors.accentInk }
+          : null,
       ]}>
       {children}
     </Pressable>
