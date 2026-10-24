@@ -1,4 +1,4 @@
-# Local rich-text Drafts
+# Drafts
 
 Setup, coding rules, validation and observable requirements remain in this file.
 
@@ -10,6 +10,46 @@ mailbox. [#614](https://github.com/unwired-dev/product/issues/614)
 [synchronizes Drafts](#continuing-on-another-device) between the Product Account's
 Trusted Devices through Private Sync.
 
+This guide describes the current implementation. The
+[confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+replace its provider read-only boundary and Private Sync Draft content transport
+with editable provider-hosted Drafts, an encrypted offline copy, automatic verified
+migration and lossless editing. Those requirements remain unimplemented; the
+formatting and synchronization limits below do not satisfy the launch target.
+
+## Provider-hosted Draft launch plan
+
+The [launch specification](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+owns the confirmed target behavior. The provider will hold the canonical Draft,
+including Drafts started in another compatible mail client; Unwired will retain
+encrypted local content for offline editing and pending uploads. The provider
+receives that content before Send, while the product backend remains unable to
+read it. Existing product-owned Drafts must survive automatic verified migration.
+
+The approved delivery slices are published:
+
+- Lossless production editing: [rich formatting #1267](https://github.com/unwired-dev/product/issues/1267)
+  and [tables #1268](https://github.com/unwired-dev/product/issues/1268).
+- Online provider Drafts: [Gmail #1269](https://github.com/unwired-dev/product/issues/1269),
+  [Microsoft #1270](https://github.com/unwired-dev/product/issues/1270), and
+  [IMAP #1271](https://github.com/unwired-dev/product/issues/1271).
+- Offline edits, known conflicts and recovery after external sending or deletion:
+  [Gmail #1272](https://github.com/unwired-dev/product/issues/1272),
+  [Microsoft #1273](https://github.com/unwired-dev/product/issues/1273), and
+  [IMAP #1274](https://github.com/unwired-dev/product/issues/1274).
+- Provider Draft retirement and restoration through Outbox and Undo:
+  [#1275](https://github.com/unwired-dev/product/issues/1275).
+- Automatic verified migration and retirement of the superseded Private Sync
+  Draft-content transport: [#1276](https://github.com/unwired-dev/product/issues/1276).
+- Real-provider and packaged-client qualification:
+  [#1282](https://github.com/unwired-dev/product/issues/1282), within the existing
+  expanded launch gate [#855](https://github.com/unwired-dev/product/issues/855).
+
+GitHub owns completion and native blocking relationships. Publishing these
+tickets does not establish implementation or qualification. The rest of this
+guide describes the current local Drafts, restricted formatting, Private Sync
+transport and known native exit gaps.
+
 ## Composing
 
 - **New Message**, at the trailing edge of the Inbox's floating bar, starts a Draft from the
@@ -17,18 +57,25 @@ Trusted Devices through Private Sync.
   the detail column: a route of its own on iPhone and a bottom-anchored overlay
   over the reader on regular-width iPad and in a Mac window, inset 12pt at 70% of
   the window's height (420 to 720pt); a docked iPad software keyboard leaves it the
-  height above the keyboard. **Expand** takes the composer over the whole
-  window with the same Draft and **Collapse** returns it; on the Mac, the overlay
-  and the expanded composer stay beneath the window's
-  [command bar](command-palette.md#entry-points). The Inbox column stays
+  height above the keyboard. On iPad, **Expand** takes the composer over the whole
+  window with the same Draft and **Collapse** returns it. On the Mac, the overlay
+  stays beneath the window's [command bar](command-palette.md#entry-points), and
+  **Expand** saves the Draft, then moves it into its own **New Message** window and
+  closes the overlay; there is no way back into the Inbox window. A failed save
+  keeps the Draft in the overlay. The New Message window has its own command bar
+  and the composer's Close; closing the window or quitting asks as an Inbox
+  window's composer does. Several New Message windows can be open, and AppKit
+  does not restore them. A New Message window closes if its Product Account is
+  replaced or its Inbox becomes unavailable. The Inbox column stays
   interactive beneath the overlay while the covered reader waits. Selecting
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout
-  retain the same editor and Undo history. Each window has one composer.
+  retain the same editor and Undo history; the Mac's New Message window starts a
+  new editor and Undo history. Each window has one composer.
   The floating search and New Message bar hides while composing. On Mac,
-  **Search Mail** reveals it and collapses an expanded composer without closing
-  the Draft; New Message remains available through the Command Palette and
-  finishes saving before switching the editor.
+  **Search Mail** reveals it without closing the Draft; New Message remains
+  available through the Command Palette and finishes saving before switching the
+  editor.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. If its mailbox stops being able to send, or the Product
   Account changes, while the open composer is saving, no Draft starts. Refused navigation leaves it available to try again.
@@ -133,8 +180,8 @@ later events from the editor that discarded it.
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. The compact iPhone system **Back**, Mac window
-close and Mac **Quit** currently have the separate native limitations below.
+composer stays open and says so. Mac window close and **Quit** use this same leave guard. The compact iPhone
+system **Back** still has the separate native limitation below.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
@@ -594,18 +641,15 @@ before release, covering the Back button and swipe, pending/failed/locked saves,
 unfinished recipients, selecting the same Draft to reveal it again, and successful
 retry.
 
-Mac window close and **Quit** also bypass the composer's leave guard. Closing a
-window keeps unsaved changes in memory while the app runs, even after its last
-window closes. A pending autosave can still finish; if saving fails or storage is
-locked, every Inbox window, including a reopened one, shows the warning and
-**Save Drafts**. Unfinished recipient text is included when the Draft is saved.
-Closed composers stop following later conflict copies, while their unsaved edits
-remain available to **Save Drafts**. A confirmed Discard already waiting for a save
-still finishes against its own conflicting version after the window closes.
-Quitting before the latest changes are stored loses them, including while a save
-is pending, failed or locked. The warning and retry do not prevent close or Quit.
-Add and qualify native close and quit protection before release, covering
-unfinished recipients, pending/failed/locked saves, multiple windows, closing the
-last window, and successful retry. These native exit gaps are tracked in
-[#778](https://github.com/unwired-dev/product/issues/778). The component tests do not
-satisfy these native checks.
+Mac window close, Command-W and **Quit** ask each open composer to finish before
+closing its window. Unfinished recipients and pending, failed or locked saves
+keep the window open; a refusal also cancels Quit. After a successful save or
+explicit discard, Quit continues through the remaining guarded windows. Closing
+the last window keeps the application running; Quit stops it. Forced account or
+device invalidation still removes private editor state.
+
+Native release qualification remains required for failed/locked saves, multiple
+guarded windows, last-window close and Quit with no windows, alongside successful
+retry. [#778](https://github.com/unwired-dev/product/issues/778) tracks remaining
+native exit qualification and the compact iPhone Back gap. Component tests do not
+satisfy those native checks.

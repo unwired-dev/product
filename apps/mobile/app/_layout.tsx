@@ -232,6 +232,7 @@ function MailShell() {
     composing.current = draft;
   }, [draft]);
   const reading = showsReader(id, draft, collapsed);
+  const [inboxVisible, setInboxVisible] = useState(false);
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
 
@@ -361,9 +362,16 @@ function MailShell() {
               </Split.Column>
               <Split.Column
                 testID="inbox-column"
-                onDidAppear={followBack}>
+                onWillDisappear={() => {
+                  setInboxVisible(false);
+                }}
+                onDidAppear={() => {
+                  setInboxVisible(true);
+                  followBack();
+                }}>
                 <SafeAreaProvider>
                   <Inbox
+                    visible={inboxVisible}
                     composing={draft}
                     onClose={closeReader}
                     bar={phone && collapsed}

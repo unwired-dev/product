@@ -26,6 +26,7 @@ import {
   StyleSheet,
   Text,
   TurboModuleRegistry,
+  useColorScheme,
   View,
 } from 'react-native';
 
@@ -40,6 +41,19 @@ const NativeSymbol = requireNativeComponent<
     readonly color: ColorValue;
   }
 >('UnwiredSymbol');
+
+const NativePushButton = requireNativeComponent<
+  ViewProps & {
+    readonly text: string;
+    readonly label: string;
+    readonly tint: ReturnType<typeof processColor>;
+    readonly textColor: ReturnType<typeof processColor>;
+    readonly focusColor: ReturnType<typeof processColor>;
+    readonly destructive: boolean;
+    readonly enabled: boolean;
+    readonly onPress: () => void;
+  }
+>('UnwiredPushButton');
 
 const NativeGlass = requireNativeComponent<
   ViewProps & { readonly cornerRadius: number }
@@ -110,13 +124,11 @@ const styles = StyleSheet.create({
     paddingLeft: 16 + spacing.s,
   },
   button: {
-    minHeight: 28,
+    height: 28,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
-    outlineWidth: 2,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
   },
+  buttonSizing: { opacity: 0 },
 });
 
 // An SF Symbol at regular weight. It is decorative: the control around it carries the label.
@@ -199,9 +211,11 @@ export function MenuButton({
   ...props
 }: ViewProps & { readonly sections: readonly MenuSection[] }) {
   const colors = usePalette();
+  const dark = useColorScheme() === 'dark';
   const anchor = useRef<View>(null);
   const latest = useRef(menuState(sections));
   const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   useLayoutEffect(() => {
     latest.current = menuState(sections);
     return () => {
@@ -234,13 +248,26 @@ export function MenuButton({
       ref={anchor}
       collapsable={false}
       accessibilityRole="button"
+      // In Dark, an accent/ink ring replaces the system focus ring.
+      enableFocusRing={!dark}
       focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={() => {
         void show();
       }}
       style={({ pressed }) => [
         style,
-        pressed || open ? { backgroundColor: colors.fillQuiet } : null,
+        pressed || open
+          ? { backgroundColor: colors.accentSelectionSubtle }
+          : null,
+        dark && focused
+          ? { outlineWidth: 3, outlineColor: colors.accentInk }
+          : null,
       ]}>
       {children}
     </Pressable>
@@ -581,7 +608,8 @@ export function Notice({
   );
 }
 
-// A push button, 28pt tall: the accent fill carries the view's main action, the quiet fill the rest.
+// A push button, 28pt tall, that AppKit draws: the accent tint carries the view's main action and
+// the brand tint Welcome's Continue; the others take the standard bezel.
 export function Button({
   label,
   onPress,
@@ -592,52 +620,46 @@ export function Button({
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly fill?: 'accent' | 'quiet';
+  readonly fill?: 'accent' | 'brand' | 'quiet';
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
-  const [focused, setFocused] = useState(false);
-  const primary = fill === 'accent';
-  const idle = primary ? colors.accentFill : colors.fillQuiet;
-  // Pressed, the accent fill shows at 80% (CC) and the quiet fill takes the selection tint.
-  const pressedFill = primary ? `${idle}CC` : colors.accentSelectionSubtle;
-  let color = primary ? colors.accentOnFill : colors.textPrimary;
-  if (destructive) {
-    color = colors.statusDestructive;
-  }
+  const dark = useColorScheme() === 'dark';
+  const tints = {
+    accent: [colors.accentFill, colors.accentOnFill],
+    brand: [colors.brandSeal, colors.brandOnSeal],
+    quiet: [undefined, destructive ? colors.statusDestructive : undefined],
+  } as const;
+  const [tint, textColor] = tints[fill];
   return (
-    <Pressable
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      enableFocusRing={false}
-      focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: pressed ? pressedFill : idle,
-          outlineColor: focused && !disabled ? colors.accentInk : 'transparent',
-          opacity: disabled ? 0.4 : 1,
-        },
-      ]}>
+    <View style={styles.button}>
+      {/* The hidden title sizes the button, which AppKit draws over it. */}
       <Text
         style={[
-          primary ? textStyles.bodyEmphasized : textStyles.body,
-          { color },
+          tint === undefined ? textStyles.body : textStyles.bodyEmphasized,
+          styles.buttonSizing,
         ]}>
         {label}
       </Text>
-    </Pressable>
+      {/* The accessibility props serve Testing Library; VoiceOver reads the AppKit button. */}
+      <NativePushButton
+        accessible
+        accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        destructive={destructive}
+        enabled={!disabled}
+        focusColor={dark ? processColor(colors.accentInk) : undefined}
+        onPress={onPress}
+        style={StyleSheet.absoluteFill}
+        label={accessibilityLabel ?? label}
+        text={label}
+        textColor={processColor(textColor)}
+        tint={processColor(tint)}
+      />
+    </View>
   );
 }
 

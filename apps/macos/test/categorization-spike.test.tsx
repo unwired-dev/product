@@ -255,10 +255,10 @@ describe('categorization spike page', () => {
     await fireEvent.press(screen.getByText('Classify'));
     expect(precision).toBeDisabled();
     await chooseMenuItem('INT8');
-    expect(precision).toHaveTextContent('FP16');
+    expect(precision).toHaveAccessibilityValue({ text: 'FP16' });
     await settle(pending, requestAt(pending, 0), classified);
     expect(screen.getByText('RESULT · ORDERS AND FLIGHTS')).toBeVisible();
-    expect(precision).toHaveTextContent('FP16');
+    expect(precision).toHaveAccessibilityValue({ text: 'FP16' });
   });
 
   it('rejects a result that won the native race with Cancel', async () => {

@@ -41,13 +41,22 @@ reviewed Swift packages, SwiftMail and swift-log, at the revisions
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
-`UnwiredMenu` and `UnwiredAlert` presenters, and `UnwiredAppleIDButton`. The composer's Text style, From, actions
-and Writing tools pop-ups open an AppKit `NSMenu` through `UnwiredMenu`: the system owns presentation, keyboard
-navigation, Escape and click-outside dismissal. Each menu drops below its control and
-checks the current choice. Writing tools retain
-their localized selection/body descriptions for accessibility. React Native
-macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or destructive items. Remove
-the presenter when the host provides an anchored menu with those states. Follow
+`UnwiredMenu` and `UnwiredAlert` presenters, `UnwiredAppleIDButton`,
+`UnwiredPushButton` and `UnwiredPopUpButton`. Pop-up controls are AppKit `NSPopUpButton`s through
+`UnwiredPopUpButton`. Settings rows, the IMAP security field and the composer's From
+and Text style show their current choice and open their menu over it, with the choice
+checked. The reader's Folders and the composer's actions and Writing tools are
+pull-down buttons that show their SF Symbol and drop their menu below. AppKit draws,
+focuses and opens each one, and owns keyboard navigation, Escape and click-outside
+dismissal. VoiceOver reads a pop-up button with its label and current choice, or a
+menu button with its label.
+Writing tools retain their localized selection/body descriptions for accessibility.
+React Native macOS 0.81.9 has no pop-up button; remove the adapter when it offers one
+with checked, disabled and destructive items. Other menus, such as the reader's More
+and the Profile Switcher, open from their own control through `UnwiredMenu` and drop
+below it. React Native macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or
+destructive items. Remove the presenter when the host provides an anchored menu with
+those states. Follow
 [native component selection](agents/native-components.md): prefer provided
 React Native macOS/AppKit controls and presenters over custom equivalents, and
 retain a minimal native adapter only for a documented host API gap. Expo UI
@@ -69,6 +78,16 @@ activation starts the existing Apple registration. The Mac button of
 its style per view, and the package adds a second Apple authorization module.
 Remove the adapter when React Native macOS or a maintained package offers the
 system button with an enabled state and both styles.
+Push buttons are AppKit `NSButton`s through `UnwiredPushButton`. AppKit draws
+their bezel and its pressed, focused and disabled states, and VoiceOver reads them
+as native buttons with a press action. A view's main action, such as Send, takes the
+graphite `accent/fill` bezel tint with a semibold title. Welcome's Continue takes the
+cinnabar `brand/seal` tint. The others keep the standard bezel, and Destructive also
+draws its title in `status/destructive`. In Dark, an `accent/ink` ring replaces the
+system focus ring. No push button takes Return as its key equivalent, so Return never
+sends an open Draft. React Native macOS
+0.81.9's `Button` is a `TouchableOpacity`. Remove the adapter when React Native macOS
+offers an `NSButton`.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
@@ -78,14 +97,23 @@ Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 and the reader. The **Show Sidebar** / **Hide Sidebar** button before the list title
 toggles the sidebar; a window at most 900pt wide starts without it.
 
+The Profile Switcher keeps its monogram trigger. It and the reader's More menu
+button use `accent/selection-subtle` while pressed or while their menu is open.
+In Light, AppKit draws its system focus ring. In Dark, `MenuButton`
+(`apps/macos/src/design.tsx`) turns that ring off and draws an `accent/ink`
+outline instead. Native focus captures remain deferred
+alongside the keyboard-navigation work in
+[#849](https://github.com/unwired-dev/product/issues/849).
+
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and
 update all windows without changing their selections.
 A window's one composer overlays the reader as described in
 [composing](drafts.md#composing); opening a Draft keeps the selected message
 behind it, selecting another message updates that reader without closing the
-Draft, and Expand takes the composer over the window's panes beneath its
-command bar.
+Draft, and Expand saves the Draft and moves it into its own New Message window,
+closing the overlay. AppKit does not restore New Message windows; closing one
+or quitting asks its composer first, as an Inbox window does.
 
 | Command                                | Behavior                                            |
 | -------------------------------------- | --------------------------------------------------- |

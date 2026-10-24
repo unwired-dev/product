@@ -187,7 +187,14 @@ readback. It runs Reply from the palette,
 types into the reply and pastes into it. After relaunch, it checks that the
 saved Draft reopens with that text. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
-windows while the first window keeps its Draft. Opening a message, placing the
+windows while the first window keeps its Draft. Expand then moves that saved
+Draft into a New Message window, removes the overlay and omits Expand there.
+Unfinished recipient text keeps that window open after Command-W and cancels
+Quit. Clearing it permits Command-W and the Inbox retains the Draft. Reopening
+that Draft and expanding again permits Quit from the new guarded window, stopping
+the app. This checks the regular editor's recipient guard
+and successful save/close; failed or locked native saves and multiple guarded
+windows remain deferred. Opening a message, placing the
 caret in the new reply and Send still use the pointer (see
 [#849](https://github.com/unwired-dev/product/issues/849)). The journey never
 sends, because Send crashes the host

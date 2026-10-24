@@ -26,7 +26,7 @@ maintenance route. Publication of a plan does not prove implementation or releas
 - [On-device translation](message-translation.md)
 - [On-device Draft rewrites and reply suggestions](draft-assistance.md)
 - [On-device assistance qualification on physical hardware](assistance-qualification.md)
-- [Local rich-text Drafts and the composer](drafts.md)
+- [Drafts, the composer and provider-hosted launch work](drafts.md)
 - [Tiptap Draft editor evaluation on iPhone, iPad and Mac](draft-editor-evaluation.md)
 - [DeBERTa categorization spike in the native Mac host](categorization-spike.md)
 - [System Category model benchmark for English and Czech (spike #828)](../tools/system-category-benchmark/README.md)

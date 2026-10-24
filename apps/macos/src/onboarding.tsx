@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 
-import { ModalBackground, SFSymbol } from './design.tsx';
+import { Button, ModalBackground, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -67,8 +67,6 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   apple: { height: 40 },
-  brandAction: { minHeight: 36 },
-  actionLabel: { ...textStyles.bodyEmphasized },
   providers: {
     overflow: 'hidden',
     borderRadius: radius.card,
@@ -240,7 +238,7 @@ export function Welcome({
               ))}
             </View>
             <View style={styles.continue}>
-              <OnboardingAction
+              <Button
                 disabled={restoring}
                 fill="brand"
                 label={t('onboarding.welcome.continue')}
@@ -333,29 +331,17 @@ export function FinePrint({ children }: { readonly children: string }) {
   );
 }
 
-// An onboarding action: Welcome's brand Continue, or quiet.
+// A sign-in action, as tall as the Sign in with Apple button beside it.
 export function OnboardingAction({
   label,
   onPress,
-  fill,
   disabled = false,
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly fill: 'brand' | 'quiet';
   readonly disabled?: boolean;
 }) {
   const colors = usePalette();
-  const fills = {
-    brand: [
-      colors.brandSeal,
-      colors.brandOnSeal,
-      styles.brandAction,
-      styles.actionLabel,
-    ],
-    quiet: [colors.fillQuiet, colors.textPrimary, undefined, textStyles.body],
-  } as const;
-  const [background, ink, shape, type] = fills[fill];
   return (
     <Pressable
       accessibilityLabel={label}
@@ -366,10 +352,11 @@ export function OnboardingAction({
       onPress={onPress}
       style={[
         styles.action,
-        shape,
-        { backgroundColor: background, opacity: disabled ? 0.4 : 1 },
+        { backgroundColor: colors.fillQuiet, opacity: disabled ? 0.4 : 1 },
       ]}>
-      <Text style={[type, { color: ink }]}>{label}</Text>
+      <Text style={[textStyles.body, { color: colors.textPrimary }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }

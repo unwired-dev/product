@@ -17,6 +17,10 @@ export const settingsHost = () =>
 interface WindowHost extends TurboModule {
   // AppKit saves the window's Mail Profile with its restorable state.
   readonly setWindowProfile: (window: string, profile: string) => void;
+  // Opens a New Message window editing the Draft, in the Mail Profile's scope.
+  readonly openComposer: (draft: string, profile: string) => void;
+  // Closes the window once its composer allows it; a refusal cancels a pending Quit.
+  readonly finishClose: (window: string, allowed: boolean) => void;
 }
 
 export const windowHost = () =>

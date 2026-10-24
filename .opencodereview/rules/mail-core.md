@@ -9,6 +9,61 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
 
+#### Organizing row continuity
+
+- `mailbox-motion.ts.unchanged` comparing row keys without retaining the latest
+  displayed items. Synchronize unread or star metadata without changing row
+  membership, then remove that message through an organizing action. Its leaving
+  row must use the synchronized details; otherwise the retained snapshot briefly
+  restores stale styling while it collapses. Compare stable content rather than
+  temporary host row wrappers, or render-time tracking can update forever when
+  Draft or Outbox wrappers are recreated.
+- IMAP `drain` retiring a completed Undo's attribution when its destination
+  refresh failed. Retain the destination with the message, retry its read on
+  later drains, and retire only after that destination commits or the provider
+  definitely refuses restoration. Exercise a successful inverse move, failed
+  refresh and unrelated action before the next load; otherwise the later row
+  appears without its Undo entrance.
+- `mailbox-motion.ts` retaining a message's attribution because another message
+  in the same mailbox has unfinished work. Exercise two queued removals: let
+  the first confirm while the second stays pending or blocked, then restore the
+  first from another client and synchronize. Retire ownership by the exact
+  messages the provider snapshot still names as unfinished, including IMAP's
+  post-move destination refresh, or unrelated work animates a confirmed message's
+  external restoration.
+- `mailbox-motion.ts.advanceRowMotion` treating a cleared notice as a new action
+  that interrupts returning rows. Exercise Discard with an existing notice and
+  every intermediate store publication; a later notice-clear update must not
+  cancel the entrance that reconciliation just started.
+- `gmail-inbox.resolvePending`, IMAP's `drain` or `discardPending`, and
+  `mailbox-motion.advanceRowMotion` relying only on notice identity for
+  restoration. IMAP Undo can publish its notice before the destination refresh,
+  and Discard after relaunch can keep an absent notice. Track per-message
+  attribution across those publications and scope it to the shown folder;
+  otherwise restoration snaps or another window's exit ends on an unrelated
+  destination refresh. Keep ordinary synchronization quiet and existing spoken
+  notices unchanged.
+- `mailbox-motion.ts.advanceRowMotion` retaining a returning key after
+  synchronization removes its row before the animation settles. Retire motion
+  for absent rows while preserving the returning rows still shown; otherwise a
+  later synchronization arrival replays an obsolete Undo entrance.
+- `mailbox-motion.ts` treating a persistent notice as fresh attribution on every
+  row change. Consume each message's outcome identity and retire its attribution
+  when the message is present again, including at mount or scope replacement.
+  Exercise synchronization after Undo and an outcome in another mailbox;
+  otherwise an old notice animates later server-side removals and arrivals.
+- `mailbox-motion.ts.advanceRowMotion` comparing outcome arrays without the
+  mailbox owners and view/search/Filter scope. A mailbox switch can replace one
+  notice with another at the same array index, and a new query can retain the
+  preceding view's leaving rows. Retire motion on scope or access replacement
+  before comparing outcomes, or unrelated mailbox content animates together and
+  rows excluded by the new view remain rendered.
+- Row-motion bookkeeping considering only flattened row order and outcomes when
+  deciding whether sections changed. A midnight date-group change can preserve
+  both while changing every cell's section-prefixed identity. Track the current
+  section keys before a later removal, or the leaving row is reinserted into a
+  stale section and its mounted instance and Undo reversal are lost.
+
 #### Reporting consent and failure observation
 
 - `error-reporting.ts.flush` or `deliverQueue` discarding a capture retry delay or

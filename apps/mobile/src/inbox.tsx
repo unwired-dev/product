@@ -20,6 +20,8 @@ import {
   inboxChoice,
   inboxMessages,
   messageDateSections,
+  motionIdentityOf,
+  organizingWork,
   profileMailboxes,
   resultKey,
 } from '@private-email/mail-core/mailboxes';
@@ -75,6 +77,7 @@ import {
   useReloadMailboxes,
   useSavedBodies,
 } from './mailbox.tsx';
+import { MovingRow, useRowMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
 import { OutboxHeading, OutboxRow, forgetRetired } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -102,6 +105,8 @@ export type Selection = Readonly<{
 }>;
 
 interface InboxProps {
+  // The native list column has finished appearing.
+  readonly visible?: boolean;
   readonly selected: Selection | undefined;
   readonly onSelect: (selection: Selection) => void;
   // A collapsed overlay keeps editing while the reader's selection changes beneath it.
@@ -122,6 +127,30 @@ interface InboxProps {
 
 const allInboxes: MailboxView = {};
 const keepView = () => undefined;
+// While the list is scrolled, synchronization keeps its topmost visible row in place; at the top,
+// new mail, Drafts and the Outbox appear above what was shown.
+const keepTopRow = { minIndexForVisible: 0 };
+
+// A list row's identity, which a row keeps while it leaves and when it returns.
+const rowKey = (
+  item:
+    | Readonly<{ outbox: OutboxSnapshotEntry }>
+    | Readonly<{ draft: Draft }>
+    | Parameters<typeof motionIdentityOf>[0],
+) => {
+  if ('outbox' in item) {
+    return `outbox\n${item.outbox.id}`;
+  }
+  return 'draft' in item ? `draft\n${item.draft.id}` : motionIdentityOf(item);
+};
+
+// The displayed content is stable even when a Draft or Outbox row wrapper is recreated.
+const rowContent = (item: Parameters<typeof rowKey>[0]) => {
+  if ('outbox' in item) {
+    return item.outbox;
+  }
+  return 'draft' in item ? item.draft : item.message;
+};
 
 // The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
 const minute = 60_000;
@@ -561,6 +590,7 @@ function InboxFooter({
 }
 
 export function Inbox({
+  visible,
   selected,
   onSelect,
   onSelectBehindComposer,
@@ -677,6 +707,29 @@ export function Inbox({
     online,
     searching,
   });
+  // Rows an organizing outcome takes away keep leaving, and rows it brings back return.
+  const motion = useRowMotion({
+    sections,
+    scope: [
+      profile,
+      scope,
+      folder,
+      searching,
+      searched,
+      searchState.searchesAll,
+      filtering.on,
+      filtering.filter,
+      ...shown.map(({ inbox }) => inbox),
+      ...shown.map(({ state }) => state.kind === 'ready'),
+    ],
+    keyOf: rowKey,
+    contentOf: rowContent,
+    selected,
+    ...organizingWork(shown),
+    visible: visible !== false,
+  });
+  // The rows the list shows, with leaving rows beside their former neighbours.
+  const placed = motion.place();
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),
@@ -697,6 +750,8 @@ export function Inbox({
   const title =
     folderName ??
     t(ipad && scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title');
+  // Set while the list is scrolled from its top, so synchronization keeps the reading position.
+  const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
   // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
   // again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
@@ -872,12 +927,21 @@ export function Inbox({
           </View>
           <SectionList
             accessibilityLabel={t('inbox.messages')}
+            maintainVisibleContentPosition={keepPosition}
+            onScrollBeginDrag={() => {
+              motion.interrupt();
+            }}
+            onScroll={({ nativeEvent }) => {
+              setKeepPosition(
+                nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,
+              );
+            }}
             contentContainerStyle={styles.list}
             refreshing={refreshing}
             onRefresh={() => {
               void refresh();
             }}
-            sections={sections}
+            sections={placed}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {
               if (section.key === 'outbox') {
@@ -926,14 +990,7 @@ export function Inbox({
               );
             }}
             extraData={rows}
-            keyExtractor={(item) => {
-              if ('outbox' in item) {
-                return `outbox\n${item.outbox.id}`;
-              }
-              return 'draft' in item
-                ? `draft\n${item.draft.id}`
-                : resultKey(item);
-            }}
+            keyExtractor={rowKey}
             ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
             ListFooterComponent={
               searching ? (
@@ -978,40 +1035,47 @@ export function Inbox({
                   selected={composing === item.draft.id}
                 />
               ) : (
-                <MessageRow
-                  mailbox={several ? item.mailbox.address : undefined}
-                  message={item.message}
-                  actions={
-                    section.key === 'gmail'
-                      ? undefined
-                      : rowActions(item.mailbox, item.message)
-                  }
-                  now={now}
-                  // The next day's divider follows a day's last row.
-                  beforeDivider={
-                    index === section.data.length - 1 &&
-                    sections[sections.indexOf(section) + 1]?.key.startsWith(
-                      'saved\n',
-                    ) === true
-                  }
-                  query={searching ? searched : undefined}
-                  onSelect={() => {
-                    void select({
-                      mailbox: item.mailbox.id,
-                      id: item.message.id,
-                      ...(section.key === 'gmail' ? {} : origin.selection),
-                    });
-                  }}
-                  selected={
-                    selected?.mailbox === item.mailbox.id &&
-                    selected.id === item.message.id
-                  }
-                  status={
-                    section.key === 'gmail' || !searching
-                      ? undefined
-                      : savedStatus(t, saved?.get(resultKey(item)))
-                  }
-                />
+                <MovingRow
+                  motion={motion.motionOf(rowKey(item))}
+                  onSettled={() => {
+                    motion.settle(rowKey(item));
+                  }}>
+                  <MessageRow
+                    mailbox={several ? item.mailbox.address : undefined}
+                    message={item.message}
+                    actions={
+                      section.key === 'gmail'
+                        ? undefined
+                        : rowActions(item.mailbox, item.message)
+                    }
+                    now={now}
+                    // The next day's divider follows a day's last row.
+                    beforeDivider={
+                      index === section.data.length - 1 &&
+                      placed[placed.indexOf(section) + 1]?.key.startsWith(
+                        'saved\n',
+                      ) === true
+                    }
+                    query={searching ? searched : undefined}
+                    onSelect={() => {
+                      motion.interrupt();
+                      void select({
+                        mailbox: item.mailbox.id,
+                        id: item.message.id,
+                        ...(section.key === 'gmail' ? {} : origin.selection),
+                      });
+                    }}
+                    selected={
+                      selected?.mailbox === item.mailbox.id &&
+                      selected.id === item.message.id
+                    }
+                    status={
+                      section.key === 'gmail' || !searching
+                        ? undefined
+                        : savedStatus(t, saved?.get(resultKey(item)))
+                    }
+                  />
+                </MovingRow>
               );
             }}
           />

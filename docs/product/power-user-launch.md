@@ -102,6 +102,74 @@ reader [#809](https://github.com/unwired-dev/product/issues/809).
 These tickets cover parts of the launch requirement, not the complete
 multi-provider implementation or qualification.
 
+## Confirmed scope additions from 2026-10-24
+
+The continued feature-gap interview confirmed these additional launch
+requirements. They describe the target behavior, not current implementation or
+passing qualification.
+
+- Support sending Microsoft messages larger than the current 3 MB total-message
+  limit, including attachments, within the selected mailbox's supported limits.
+  Existing [#917](https://github.com/unwired-dev/product/issues/917) is required
+  for launch.
+- Let people explicitly Accept, Tentatively Accept, or Decline meeting
+  invitations and send the response to the organizer. Adding an event to a
+  calendar alone does not satisfy invitation-response support. Adding the event
+  to a selected calendar is a separate optional choice requiring explicit
+  calendar permission; responding must not require adding it to a calendar.
+  For events the person chose to add, automatically apply valid organizer
+  updates and cancellations without requiring review each time. Match the
+  original invitation and organizer, avoid duplicate events, and do not apply
+  inferred changes from ordinary message prose. Unwired's optional Add action
+  does not override the Mail Provider's own invitation-processing settings.
+- Use provider-hosted Drafts for Gmail, Microsoft mail, and IMAP/SMTP connections.
+  People must be able to continue those Drafts in Unwired and compatible mail
+  clients, including Drafts started outside Unwired. This supersedes the earlier
+  launch boundary that kept provider Drafts read-only. The provider's Draft is
+  the canonical synchronized copy. Keep an encrypted device-local copy for
+  offline editing and pending uploads, and replace Private Sync as the transport
+  for Draft content.
+- Preserve both versions when concurrent edits from Unwired and another mail
+  client are detected, and ask the person to resolve them rather than silently
+  overwriting either known version.
+- If a Draft was sent or deleted elsewhere while Unwired held offline edits,
+  preserve those edits as a separate recovered Draft. Do not restore the
+  original provider Draft or send anything automatically.
+- Once a message is durably admitted to Unwired's Outbox, retire its provider
+  Draft. Undo restores an editable Draft locally and synchronizes it to the
+  provider when access is available. Recovery must preserve content and avoid
+  duplicate submissions by Unwired when either transition is interrupted or its
+  provider outcome is uncertain.
+- Automatically migrate existing Unwired Drafts to their owning providers.
+  Retain the encrypted local content until each upload is confirmed, and wait
+  safely while offline or provider authorization is unavailable.
+- Require fully lossless editing of provider-hosted Drafts at launch, including
+  Drafts created in other clients. Preserve all content and visible formatting,
+  including tables, fonts, colors, alignment, links, Inline Images, and
+  Attachments. The underlying HTML or MIME encoding may change; byte-identical
+  source preservation is not required. Opening or editing a Draft must not
+  silently strip content, and a conversion that discards unsupported formatting
+  is not the accepted fallback. This supersedes earlier formatting restrictions
+  wherever they would prevent lossless editing, while retaining the existing
+  message safety and remote-content boundaries. Lossless editing does not
+  authorize executing unsafe message content or fetching remote resources.
+
+Conflict recovery preserves versions known to Unwired; it cannot recover edits
+another client never exposes. Outbox safety governs Unwired's own submissions
+and does not promise a global send lock across other mail clients.
+
+The provider receives Draft content before sending. Provider credentials and
+readable Draft content must still stay outside the product backend. The current
+[Draft guide](../drafts.md) continues to describe the implemented product-owned
+Drafts and their Private Sync behavior until the replacement is implemented.
+The [published delivery slices](#provider-draft-and-invitation-delivery-slices)
+cover these additions; GitHub owns completion and native blocking relationships.
+Their publication does not establish implementation or qualification.
+Qualification must cover cross-client continuation and formatting,
+concurrent and offline edits, remote sending and deletion, migration, interrupted
+Draft/Outbox transitions, larger Microsoft sends, and invitation responses with
+and without optional calendar addition and later organizer changes.
+
 ## Power-user workflows
 
 - Keyboard navigation and shortcuts, bulk actions and undo.
@@ -214,3 +282,35 @@ Optional Profiles use the existing migration sequence
 [#669](https://github.com/unwired-dev/product/issues/669) must wait for the
 expanded launch qualification; it remains separate from the intermediate
 TestFlight milestone [#628](https://github.com/unwired-dev/product/issues/628).
+
+## Provider Draft and invitation delivery slices
+
+The owner approved this breakdown on 2026-10-24. Each implementation slice owns
+its complete affected journey, tests, native evidence and documentation.
+Dependencies are recorded as native GitHub blocking relationships. Existing
+launch, calendar and qualification parent issue bodies remain unchanged.
+
+| Delivery slice                                                  | Issue                                                                                                                               |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Preserve rich Draft formatting while editing                    | [#1267](https://github.com/unwired-dev/product/issues/1267)                                                                         |
+| Edit tables without flattening Drafts                           | [#1268](https://github.com/unwired-dev/product/issues/1268)                                                                         |
+| Create and continue Gmail provider Drafts                       | [#1269](https://github.com/unwired-dev/product/issues/1269)                                                                         |
+| Create and continue Microsoft provider Drafts                   | [#1270](https://github.com/unwired-dev/product/issues/1270)                                                                         |
+| Create and continue IMAP provider Drafts                        | [#1271](https://github.com/unwired-dev/product/issues/1271)                                                                         |
+| Recover offline Gmail Draft edits                               | [#1272](https://github.com/unwired-dev/product/issues/1272)                                                                         |
+| Recover offline Microsoft Draft edits                           | [#1273](https://github.com/unwired-dev/product/issues/1273)                                                                         |
+| Recover offline IMAP Draft edits                                | [#1274](https://github.com/unwired-dev/product/issues/1274)                                                                         |
+| Move provider Drafts through Outbox and Undo safely             | [#1275](https://github.com/unwired-dev/product/issues/1275)                                                                         |
+| Migrate existing Drafts and retire their Private Sync transport | [#1276](https://github.com/unwired-dev/product/issues/1276)                                                                         |
+| Send larger Microsoft messages, reusing the existing ticket     | [#917](https://github.com/unwired-dev/product/issues/917)                                                                           |
+| Respond to Gmail meeting invitations                            | [#1277](https://github.com/unwired-dev/product/issues/1277)                                                                         |
+| Respond to Microsoft meeting invitations                        | [#1278](https://github.com/unwired-dev/product/issues/1278)                                                                         |
+| Respond to IMAP meeting invitations                             | [#1279](https://github.com/unwired-dev/product/issues/1279)                                                                         |
+| Optionally add invitations to a selected calendar               | [#1280](https://github.com/unwired-dev/product/issues/1280), sub-issue of [#657](https://github.com/unwired-dev/product/issues/657) |
+| Apply organizer updates to opted-in calendar events             | [#1281](https://github.com/unwired-dev/product/issues/1281)                                                                         |
+| Qualify provider Drafts, larger sends and invitation workflows  | [#1282](https://github.com/unwired-dev/product/issues/1282), sub-issue of [#855](https://github.com/unwired-dev/product/issues/855) |
+
+The new tickets carry `ready-for-agent`; only tickets whose blockers are complete
+are on the implementation frontier. The reused Microsoft-send ticket is also
+marked ready for an agent and required for launch. The calendar sub-slice leaves
+its parent's broader prose-candidate follow-up scope intact.

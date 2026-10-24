@@ -254,7 +254,7 @@ final class WindowTests: XCTestCase {
   private func composerMenuJourney(_ app: XCUIApplication, first: XCUIElement) {
     func compose(in window: XCUIElement) -> XCUIElement {
       window.buttons["New Message"].click()
-      let style = window.buttons["Text style"]
+      let style = window.popUpButtons["Text style"]
       XCTAssertTrue(style.waitForExistence(timeout: 15))
       return style
     }
@@ -281,7 +281,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(heading.waitForNonExistence(timeout: 5))
     shows(style, "Heading 1")
     // The sender menu lists the Profile's mailboxes.
-    let from = first.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send from"))
+    let from = first.popUpButtons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send from"))
       .firstMatch
     XCTAssertTrue(from.waitForExistence(timeout: 5))
     let sender = from.label.replacingOccurrences(of: "Send from ", with: "")
@@ -302,13 +302,13 @@ final class WindowTests: XCTestCase {
     shows(style, "Heading 1")
     // Discard is the destructive action and asks before removing the Draft.
     first.click()
-    first.buttons["Compose actions"].click()
+    first.menuButtons["Compose actions"].click()
     let discard = app.menuItems["Discard"]
     XCTAssertTrue(discard.waitForExistence(timeout: 5))
     discard.click()
     XCTAssertTrue(first.buttons["Discard Draft"].waitForExistence(timeout: 5))
     first.buttons["Keep Editing"].click()
-    XCTAssertTrue(second.buttons["Text style"].exists)
+    XCTAssertTrue(second.popUpButtons["Text style"].exists)
     // Closing a composer crashes the host (#1174), so the journey ends with both still open.
     app.terminate()
   }
@@ -475,7 +475,7 @@ final class WindowTests: XCTestCase {
   private func writingTool(
     _ name: String, in window: XCUIElement, of app: XCUIApplication
   ) -> XCUIElement {
-    let tools = window.buttons["Writing tools"]
+    let tools = window.menuButtons["Writing tools"]
     XCTAssertTrue(tools.waitForExistence(timeout: 30))
     let action = app.menuItems[name]
     for _ in 0..<5 {
@@ -1219,7 +1219,7 @@ final class WindowTests: XCTestCase {
     try audit(app, "Settings")
     // #1196: a remote-content policy is a pop-up whose AppKit menu owns the choice and dismissal.
     settings.buttons["Privacy & Data"].click()
-    let policy = settings.buttons["On this device"]
+    let policy = settings.popUpButtons["On this device"]
     XCTAssertTrue(policy.waitForExistence(timeout: 15))
     XCTAssertEqual(policy.value as? String, "Ask")
     policy.click()
@@ -1253,7 +1253,7 @@ final class WindowTests: XCTestCase {
     row("Quarterly planning").click()
     let agenda = body("Agenda for Thursday.", in: window)
     XCTAssertTrue(agenda.waitForExistence(timeout: 15))
-    let move = window.buttons["Folders"]
+    let move = window.menuButtons["Folders"]
     let projects = app.menuItems["Projects"]
     move.click()
     XCTAssertTrue(projects.waitForExistence(timeout: 5))
@@ -1339,6 +1339,52 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(second.waitForNonExistence(timeout: 10))
     front("inbox-window-1")
     XCTAssertTrue(typed.exists)
+
+    // #1266: Expand saves the Draft and moves it into its own New Message window, closing the
+    // overlay; Command-W closes that window, and the app keeps running.
+    window.buttons["Expand"].click()
+    let composer = app.windows["composer-window-1"]
+    XCTAssertTrue(composer.waitForExistence(timeout: 15))
+    XCTAssertEqual(composer.title, "New Message")
+    let windowBody = composer.textViews.matching(
+      NSPredicate(format: "value CONTAINS %@", "Keyboard reply")
+    ).firstMatch
+    XCTAssertTrue(windowBody.waitForExistence(timeout: 15))
+    XCTAssertEqual(windowBody.value as? String, "Keyboard replyKeyboard reply")
+    XCTAssertTrue(typed.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(composer.buttons["Expand"].exists)
+    // Both native exits must reach the regular editor's recipient/save guard.
+    let to = composer.textFields.matching(NSPredicate(format: "label == %@", "To")).firstMatch
+    XCTAssertTrue(to.waitForExistence(timeout: 10))
+    to.click()
+    to.typeText("unfinished")
+    waitUntil { to.value as? String == "unfinished" }
+    composer.typeKey("w", modifierFlags: .command)
+    let invalid = text("Correct or remove the invalid address to close this Draft.", in: composer)
+    XCTAssertTrue(invalid.waitForExistence(timeout: 10))
+    composer.typeKey("q", modifierFlags: .command)
+    XCTAssertTrue(invalid.exists)
+    XCTAssertEqual(app.state, .runningForeground)
+    to.click()
+    composer.typeKey("a", modifierFlags: .command)
+    composer.typeKey(.delete, modifierFlags: [])
+    waitUntil { (to.value as? String ?? "").isEmpty }
+    composer.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    // A composer unmount aborted the host within seconds before (#1174).
+    Thread.sleep(forTimeInterval: 5)
+    XCTAssertEqual(app.state, .runningForeground)
+    XCTAssertTrue(row("Draft. Re: Outlook update 003").exists)
+    // The refused Quit was cancelled, so it did not terminate after the later successful Close.
+    // A fresh New Message window also permits Quit through its own successful save/close guard.
+    row("Draft. Re: Outlook update 003").click()
+    XCTAssertTrue(typed.waitForExistence(timeout: 15))
+    window.buttons["Expand"].click()
+    let quittingComposer = app.windows["composer-window-2"]
+    XCTAssertTrue(quittingComposer.waitForExistence(timeout: 15))
+    XCTAssertTrue(quittingComposer.buttons["Close"].waitForExistence(timeout: 15))
+    quittingComposer.typeKey("q", modifierFlags: .command)
+    XCTAssertTrue(app.wait(for: .notRunning, timeout: 15))
   }
 
   // Opens the key window's Command Palette, narrows it to one command and runs it with Return.

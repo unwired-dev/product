@@ -30,18 +30,27 @@ implemented.
 
 ## Prototype composer presentation
 
-- On regular-width layouts, composing starts as a bottom-anchored, nonmodal overlay contained by the detail column; expanding that composer takes over the entire app surface while preserving the same editor and Draft state
+- On regular-width layouts, composing starts as a bottom-anchored, nonmodal overlay contained by the detail column; expanding that composer takes over the entire app surface while preserving the same editor and Draft state; on the Mac, expanding instead saves the Draft and moves it into its own New Message window, closing the overlay with no way back
 - While that composer is not expanded, the sidebar and Thread list remain interactive, the covered detail column does not, and changing Thread selection updates the reader behind the composer without dismissing or resetting its Draft; closing reveals the latest selection
-- The regular-width composer spans the detail column with 12-point outer insets and uses 70 percent of available height clamped from 420 through 720 points; it has only overlay and full-app states, not freeform drag resizing
+- The regular-width composer spans the detail column with 12-point outer insets and uses 70 percent of available height clamped from 420 through 720 points; it has only overlay and full-app states (on the Mac, overlay and New Message window), not freeform drag resizing
 - On compact layouts, composing is an editor destination pushed into the existing navigation stack rather than a sheet or full-screen modal
 - Composer expansion is transient to the open editor and never changes how a later Draft opens; the legacy synchronized partial-or-full opening preference is ignored after migration.
 - Selecting a product-authored **Draft** enters that same editor directly; Drafts have no read-only reader state
 - Each mail window has one active composer. Its `x` closes only after the latest autosave succeeds and never discards the Draft; Discard remains an explicit destructive overflow action
 - Starting another message or selecting another product-authored Draft autosaves and parks the current Draft, then switches the same editor to the requested Draft; a save failure blocks the switch and remains visible inline
-- The expand or collapse control remains directly visible in both regular-width states and is absent on compact iPhone, where the composer already fills its navigation destination
+- The expand or collapse control remains directly visible in both regular-width states and is absent on compact iPhone, where the composer already fills its navigation destination, and in the Mac New Message window
 - The **Formatting Toolbar Preference** synchronizes globally and hides only the formatting toolbar; Markdown, keyboard, context-menu, document, and delivery formatting remain available
 
 ## Provider submission and Draft lifetime
+
+The Draft storage and Private Sync rules in this section describe the current
+product-owned Draft implementation. The [2026-10-24 launch requirements](power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+replace Draft content and asset transport throughout these notes with canonical
+provider-hosted Drafts and an encrypted local offline copy. Existing Drafts must
+survive automatic, verified migration. The launch specification also owns
+conflict recovery, lossless editing, and the provider Draft's transition into
+and back out of the Outbox. Current implementation is documented in the
+[Draft guide](../drafts.md).
 
 - After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
 
@@ -51,7 +60,7 @@ implemented.
 - The Apple Share Extension binds explicit shared content to the device-local **Startup Profile** and its Default Sending Identity, authenticates before revealing a locked Profile, and opens the normal composer without a direct-send path or backend-readable copy.
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which retains its complete content and assets until the attempt becomes terminal or is cancelled.
 - **Draft Assets** synchronize through **Private Sync**. Send remains unavailable until every required asset is complete and valid on the sending device.
-- Product-authored Drafts are distinct from provider-hosted Draft mailboxes: provider Draft messages remain read-only provider mail in v1 and are not imported, mirrored, or retired by Private Sync Draft operations
+- The current implementation keeps product-authored Drafts separate from provider-hosted Draft mailboxes: provider Draft messages remain read-only and are not imported, mirrored, or retired by Private Sync Draft operations. The launch requirements above supersede that read-only boundary.
 - Discarding a **Draft** or durably admitting it to the **Outbox** preserves the sent or discarded state across devices. A conflicting offline edit becomes a user-visible conflicted Draft copy whose assets remain retained until it is resolved or discarded.
 
 ## Historical cross-device scheduling
@@ -82,6 +91,12 @@ delivery or establish that scheduling is implemented. Use the
 - Deleting the Product Account warns the user, lists every Scheduled Send and Send Reminder and requires confirmation to cancel them as part of deleting the account and its data.
 
 ## Authored content and delivery attempts
+
+The [provider-hosted Draft launch requirements](power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+supersede the formatting exclusions below wherever they would prevent lossless
+editing of provider-hosted Drafts. The confirmed target preserves content and
+visible formatting without requiring byte-identical HTML or MIME encoding; the
+rules below do not establish that this target is implemented.
 
 - The **Outgoing Content Store** has a non-evicting 100 MB device-wide limit shared by Drafts, Send Reminders, Scheduled Sends, and their documents and assets
 - Markdown syntax acts as an input shortcut over the **Semantic Message Document** rather than becoming the stored or sent message format

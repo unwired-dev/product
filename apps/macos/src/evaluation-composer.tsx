@@ -88,15 +88,13 @@ function EvaluationEditor({
   initial,
   onClose,
   onRebind,
-  expanded = false,
   onExpand,
 }: {
   readonly page: string;
   readonly initial: Draft;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
-  readonly expanded?: boolean | undefined;
-  readonly onExpand?: (() => void) | undefined;
+  readonly onExpand?: ((id: string) => void) | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
@@ -373,9 +371,9 @@ function EvaluationEditor({
     setDraft(finished);
     return finished.entries === undefined;
   };
-  // Runs one Save, Don't Save or Send; `finish` resolves whether the editor may close. One that
-  // fails without explaining why offers to try saving again.
-  const finishing = async (finish: () => Promise<boolean>) => {
+  // Runs one Save, Don't Save, Send or Expand; `finish` resolves whether the editor may close,
+  // which `done` then does. One that fails without explaining why offers to try saving again.
+  const finishing = async (finish: () => Promise<boolean>, done = onClose) => {
     if (busy.current) {
       return false;
     }
@@ -416,7 +414,7 @@ function EvaluationEditor({
     }
     if (closed && mounted.current) {
       mounted.current = false;
-      onClose();
+      done();
     } else if (!closed) {
       setClosing((current) => (current === 'saving' ? 'blocked' : current));
     }
@@ -434,6 +432,18 @@ function EvaluationEditor({
       stored.current = authored.current;
       return store.save();
     });
+  // Expand saves this editor's version as Save does, then moves the Draft into its own window.
+  const expand = () =>
+    finishing(
+      async () => {
+        void store.update(authored.current, stored.current, rebind);
+        stored.current = authored.current;
+        return store.save();
+      },
+      () => {
+        onExpand?.(authored.current.id);
+      },
+    );
   const deleteDraft = () =>
     finishing(async () => {
       if (
@@ -610,13 +620,12 @@ function EvaluationEditor({
         </View>
         {onExpand === undefined ? null : (
           <ToolbarButton
-            icon={
-              expanded
-                ? 'arrow.down.right.and.arrow.up.left'
-                : 'arrow.up.left.and.arrow.down.right'
-            }
-            label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
-            onPress={onExpand}
+            disabled={closing === 'saving'}
+            icon="arrow.up.left.and.arrow.down.right"
+            label={t('drafts.expand')}
+            onPress={() => {
+              void expand();
+            }}
           />
         )}
       </View>
@@ -801,15 +810,13 @@ function EvaluationComposer({
   id,
   onClose,
   onRebind,
-  expanded,
   onExpand,
 }: {
   readonly page: string;
   readonly id: string;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
-  readonly expanded?: boolean | undefined;
-  readonly onExpand?: (() => void) | undefined;
+  readonly onExpand?: ((id: string) => void) | undefined;
 }) {
   const state = useDrafts();
   const draft = draftOf(state, id);
@@ -836,7 +843,6 @@ function EvaluationComposer({
     return (
       <Composer
         id={id}
-        expanded={expanded}
         onClose={onClose}
         onExpand={onExpand}
         onRebind={onRebind}
@@ -848,7 +854,6 @@ function EvaluationComposer({
       key={editor.key}
       page={page}
       initial={opened}
-      expanded={expanded}
       onClose={onClose}
       onExpand={onExpand}
       onRebind={rebind}
@@ -861,9 +866,8 @@ type ComposerProps = Readonly<{
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;
-  // The window-level expand control.
-  expanded?: boolean | undefined;
-  onExpand?: (() => void) | undefined;
+  // Moves the saved Draft into its own window, when offered.
+  onExpand?: ((id: string) => void) | undefined;
 }>;
 
 // `registration-draft-editor` builds open Drafts in the Tiptap evaluation editor; every other

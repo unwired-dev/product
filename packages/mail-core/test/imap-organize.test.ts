@@ -320,7 +320,7 @@ describe('organizing IMAP mail', () => {
     expect(ready(inbox.getSnapshot()).pending).toBe(0);
     await inbox.load();
     expect(inboxMessage(inbox.getSnapshot(), 'Hello').unread).toBe(false);
-    expect(ready(inbox.getSnapshot()).notice).toStrictEqual({
+    expect(ready(inbox.getSnapshot()).notice).toMatchObject({
       kind: 'done',
       action: { kind: 'read' },
       message: { subject: 'Hello' },

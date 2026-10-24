@@ -133,6 +133,105 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
   if (self.onPress) self.onPress(@{});
 }
 @end
+
+// A push button that AppKit draws, presses and focuses. A focus colour replaces the system focus
+// ring, as Dark's accent/ink does.
+@interface UnwiredFocusButton : NSButton
+@property (nonatomic, copy) NSColor *focusColor;
+@end
+
+@implementation UnwiredFocusButton
+- (void)setFocusColor:(NSColor *)focusColor
+{
+  _focusColor = [focusColor copy];
+  self.focusRingType = focusColor == nil ? NSFocusRingTypeDefault : NSFocusRingTypeNone;
+  [self showFocus:self.window.firstResponder == self];
+}
+- (BOOL)becomeFirstResponder
+{
+  BOOL became = [super becomeFirstResponder];
+  if (became) [self showFocus:YES];
+  return became;
+}
+- (BOOL)resignFirstResponder
+{
+  BOOL resigned = [super resignFirstResponder];
+  if (resigned) [self showFocus:NO];
+  return resigned;
+}
+- (void)showFocus:(BOOL)focused
+{
+  self.layer.cornerRadius = NSHeight(self.bounds) / 2;
+  self.layer.borderWidth = focused && self.focusColor != nil ? 3 : 0;
+  self.layer.borderColor = self.focusColor.CGColor;
+}
+@end
+
+// The push button inside a plain view, so that React Native's wrapper stays out of accessibility and
+// VoiceOver reaches only the button. A tint is the bezel colour of a primary or brand button, whose
+// title is semibold. React Native macOS 0.81.9's Button is a TouchableOpacity; remove this view when
+// React Native macOS offers an NSButton.
+@interface UnwiredPushButtonView : NSView
+@property (nonatomic, copy) NSString *text;
+@property (nonatomic, copy) NSString *label;
+@property (nonatomic, copy) NSColor *tint;
+@property (nonatomic, copy) NSColor *textColor;
+@property (nonatomic, copy) NSColor *focusColor;
+@property (nonatomic) BOOL destructive;
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onPress;
+@end
+
+@implementation UnwiredPushButtonView {
+  UnwiredFocusButton *_button;
+}
+- (instancetype)initWithFrame:(NSRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _enabled = YES;
+    _button = [UnwiredFocusButton new];
+    _button.bezelStyle = NSBezelStylePush;
+    _button.controlSize = NSControlSizeLarge;
+    _button.wantsLayer = YES;
+    _button.target = self;
+    _button.action = @selector(press);
+    _button.frame = self.bounds;
+    _button.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [self addSubview:_button];
+  }
+  return self;
+}
+// React Native forwards its accessibility props here, and its wrapper reports what this view does.
+- (BOOL)isAccessibilityElement { return NO; }
+- (void)setText:(NSString *)text { _text = [text copy]; [self render]; }
+- (void)setLabel:(NSString *)label { _label = [label copy]; _button.accessibilityLabel = label; }
+- (void)setTint:(NSColor *)tint { _tint = [tint copy]; [self render]; }
+- (void)setTextColor:(NSColor *)textColor { _textColor = [textColor copy]; [self render]; }
+- (void)setFocusColor:(NSColor *)focusColor { _focusColor = [focusColor copy]; _button.focusColor = focusColor; }
+- (void)setDestructive:(BOOL)destructive { _destructive = destructive; _button.hasDestructiveAction = destructive; }
+- (void)setEnabled:(BOOL)enabled { _enabled = enabled; [self render]; }
+- (void)render
+{
+  _button.enabled = self.enabled;
+  _button.bezelColor = self.tint;
+  _button.tintProminence = self.tint ? NSTintProminencePrimary : NSTintProminenceAutomatic;
+  NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
+  paragraph.alignment = NSTextAlignmentCenter;
+  NSColor *color = self.textColor ?: NSColor.controlTextColor;
+  _button.attributedTitle = [[NSAttributedString alloc]
+      initWithString:self.text ?: @""
+          attributes:@{
+            NSFontAttributeName : [NSFont systemFontOfSize:13
+                                                     weight:self.tint ? NSFontWeightSemibold : NSFontWeightRegular],
+            NSForegroundColorAttributeName : self.enabled ? color : [color colorWithAlphaComponent:0.4],
+            NSParagraphStyleAttributeName : paragraph,
+          }];
+}
+- (void)press
+{
+  if (self.onPress) self.onPress(@{});
+}
+@end
 #else
 #import <UIKit/UIKit.h>
 
@@ -573,6 +672,70 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 }
 @end
 
+// A pop-up button that AppKit draws, focuses and opens: with a symbol, a pull-down showing it;
+// otherwise a pop-up showing `text`, its chosen item's title. The button sits inside a plain view,
+// so that React Native's wrapper stays out of accessibility and VoiceOver reaches only the button.
+// React Native macOS 0.81.9 has no pop-up button; remove this view when it offers one.
+@interface UnwiredPopUpButtonView : NSView
+@property (nonatomic, copy) NSArray<NSDictionary *> *items;
+@property (nonatomic, copy) NSString *text;
+@property (nonatomic, copy) NSString *symbol;
+@property (nonatomic, copy) NSString *label;
+@property (nonatomic, copy) NSColor *destructiveColor;
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@end
+
+@implementation UnwiredPopUpButtonView {
+  NSPopUpButton *_button;
+}
+- (instancetype)initWithFrame:(NSRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _enabled = YES;
+    _button = [[NSPopUpButton alloc] initWithFrame:self.bounds pullsDown:NO];
+    _button.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _button.autoenablesItems = NO;
+    [self addSubview:_button];
+  }
+  return self;
+}
+- (BOOL)isAccessibilityElement { return NO; }
+- (void)setLabel:(NSString *)label { _label = [label copy]; _button.accessibilityLabel = label; }
+- (void)setEnabled:(BOOL)enabled { _enabled = enabled; _button.enabled = enabled; }
+// React Native applies the whole prop batch before rebuilding the menu.
+- (void)didSetProps:(NSArray<NSString *> *)changedProps { [self render]; }
+// The menu always shows the items React Native last gave it; a choice only reports their id.
+- (void)render
+{
+  NSMenu *menu = UnwiredMenuOf(@"", @[@{@"items": self.items ?: @[]}], self,
+                               self.destructiveColor ?: NSColor.systemRedColor);
+  NSMenuItem *shown = [[NSMenuItem alloc] initWithTitle:self.text ?: @"" action:nil keyEquivalent:@""];
+  if (self.symbol.length > 0) {
+    shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
+  }
+  // A pull-down shows its first item, which its menu leaves out.
+  _button.pullsDown = self.symbol.length > 0;
+  if (_button.pullsDown) [menu insertItem:shown atIndex:0];
+  _button.menu = menu;
+  NSPopUpButtonCell *cell = _button.cell;
+  cell.usesItemFromMenu = _button.pullsDown;
+  if (!_button.pullsDown) {
+    NSInteger checked = [menu.itemArray indexOfObjectPassingTest:^BOOL(NSMenuItem *item, NSUInteger i, BOOL *stop) {
+      return item.state == NSControlStateValueOn;
+    }];
+    [_button selectItemAtIndex:checked == NSNotFound ? -1 : checked];
+    cell.menuItem = shown;
+  }
+}
+// AppKit selects the chosen item after this action, so the shown items return once it has.
+- (void)select:(NSMenuItem *)sender
+{
+  if (self.onSelect) self.onSelect(@{@"id": sender.representedObject});
+  dispatch_async(dispatch_get_main_queue(), ^{ [self render]; });
+}
+@end
+
 // A question in a sheet on its anchor's window, answering the chosen button's index. React Native
 // macOS's Alert asks over the key window and cannot withdraw a question its asker no longer owns.
 @interface UnwiredAlert : NSObject <RCTBridgeModule>
@@ -762,5 +925,36 @@ RCT_EXPORT_MODULE(UnwiredAppleIDButton)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredAppleIDButtonView new]; }
+@end
+
+@interface UnwiredPushButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredPushButtonManager
+RCT_EXPORT_MODULE(UnwiredPushButton)
+RCT_EXPORT_VIEW_PROPERTY(text, NSString)
+RCT_EXPORT_VIEW_PROPERTY(label, NSString)
+RCT_EXPORT_VIEW_PROPERTY(tint, NSColor)
+RCT_EXPORT_VIEW_PROPERTY(textColor, NSColor)
+RCT_EXPORT_VIEW_PROPERTY(focusColor, NSColor)
+RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }
+@end
+
+@interface UnwiredPopUpButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredPopUpButtonManager
+RCT_EXPORT_MODULE(UnwiredPopUpButton)
+RCT_EXPORT_VIEW_PROPERTY(items, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(text, NSString)
+RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
+RCT_EXPORT_VIEW_PROPERTY(label, NSString)
+RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredPopUpButtonView new]; }
 @end
 #endif

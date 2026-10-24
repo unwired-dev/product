@@ -34,9 +34,11 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
 @interface AppDelegate () <NSWindowRestoration>
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
+@property(nonatomic, strong) NSMutableArray<NSWindowController *> *composerWindows;
 @property(nonatomic, strong) NSWindowController *settingsWindow;
 @property(nonatomic, strong) NSNumber *settingsRequestSerial;
 @property(nonatomic) NSUInteger nextWindowNumber;
+@property(nonatomic) NSUInteger nextComposerNumber;
 @property(nonatomic, copy) NSString *quittingWindow;
 #if UNWIRED_NATIVE_TESTING
 @property(nonatomic, strong) NSTimer *workTimer;
@@ -61,6 +63,7 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
   self.dependencyProvider = [RCTAppDependencyProvider new];
   self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
   self.inboxWindows = [NSMutableArray new];
+  self.composerWindows = [NSMutableArray new];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
@@ -200,6 +203,38 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
   return window;
 }
 
+// Expand in an Inbox window's composer moves its Draft into a New Message window of its own, which
+// AppKit does not restore; closing it asks the composer as an Inbox window does.
+- (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile
+{
+  self.nextComposerNumber += 1;
+  NSString *windowID = [NSString stringWithFormat:@"%lu", (unsigned long)self.nextComposerNumber];
+  NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 760, 640)
+      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+      backing:NSBackingStoreBuffered defer:NO];
+  window.title = UnwiredNativeText(@"newMessageTitle");
+  window.identifier = [@"composer-window-" stringByAppendingString:windowID];
+  window.restorable = NO;
+  window.accessibilityIdentifier = window.identifier;
+  // As short as the in-window composer's 420pt minimum.
+  window.minSize = NSMakeSize(480, 420);
+  window.releasedWhenClosed = NO;
+  window.delegate = self;
+  window.autorecalculatesKeyViewLoop = YES;
+  NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredComposer"
+      initialProperties:@{@"windowId": windowID, @"draft": draft, @"profile": profile}];
+  rootView.frame = window.contentView.bounds;
+  NSViewController *content = [NSViewController new];
+  content.view = rootView;
+  window.contentViewController = content;
+  NSWindowController *controller = [[NSWindowController alloc] initWithWindow:window];
+  [self.composerWindows addObject:controller];
+  [window center];
+  [controller showWindow:self];
+  [window makeKeyAndOrderFront:self];
+  [NSApp addWindowsItem:window title:window.title filename:NO];
+}
+
 // Command-, and every Inbox window's Settings entry points open the one Settings window, or bring
 // it forward.
 - (void)showSettings:(id)sender
@@ -316,6 +351,10 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
         return controller.window == window;
       }];
   [self.inboxWindows removeObjectsAtIndexes:closed];
+  [self.composerWindows removeObjectsAtIndexes:[self.composerWindows indexesOfObjectsPassingTest:
+      ^BOOL(NSWindowController *controller, NSUInteger index, BOOL *stop) {
+        return controller.window == window;
+      }]];
   // Destroy this React surface while the application factory and JS runtime remain alive.
   window.contentViewController = nil;
   [self recordLifecycle:@"window-close"];
@@ -364,6 +403,10 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
     NSString *number = [window.identifier substringFromIndex:@"inbox-window-".length];
     window.title = [UnwiredNativeText(@"windowTitle") stringByReplacingOccurrencesOfString:@"{{number}}" withString:number];
     [NSApp addWindowsItem:window title:window.title filename:NO];
+  }
+  for (NSWindowController *controller in self.composerWindows) {
+    controller.window.title = UnwiredNativeText(@"newMessageTitle");
+    [NSApp addWindowsItem:controller.window title:controller.window.title filename:NO];
   }
   NSWindow *settings = self.settingsWindow.window;
   if (settings != nil) {

@@ -313,6 +313,8 @@ export type GmailInboxState =
       readonly saving: number;
       readonly blocked: boolean;
       readonly blockedAction?: PendingAction;
+      // Messages with organizing changes still being saved or awaiting provider confirmation.
+      readonly organizing?: readonly string[];
       // False while only the saved Inbox is open, before Gmail access verifies again; nothing can
       // be saved then.
       readonly organize: boolean;
@@ -1814,6 +1816,9 @@ export function createGmailInbox(
         : { unavailableActions: graph.unavailableActions() }),
       pending: durable.length,
       saving: queued.length,
+      ...(changes.length === 0
+        ? {}
+        : { organizing: changes.map(({ message }) => message.id) }),
       ...presented(durable),
     };
   };

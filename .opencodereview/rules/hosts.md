@@ -126,6 +126,69 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- Mobile `organize-motion` starting a reader action's exit after an estimated
+  Back duration or route closure. Follow the native Split column's completed
+  appearance through `_layout.tsx` and Inbox, and exercise a delayed appearance;
+  otherwise the row can finish leaving while UIKit still covers the list. Keep
+  Reduce Motion immediate and iPad's visible-list exit free of this wait.
+- `inbox.tsx` or `organize-motion` retaining a removed row under a different
+  section key. Installed `VirtualizedSectionList` prefixes the item key with its
+  section key, so keeping `keyExtractor` alone does not preserve the instance.
+  Exercise removal and Undo of the last row in a date section, including the
+  last message in the list; retain the original section while its row leaves,
+  or collapse and reversal restart from a remounted row. Check adjacent removed
+  rows and sections preserve their original order too.
+- `organize-motion` admitting unrelated synchronization through a time window
+  after an action. Trace eligibility through the native commit that changes the
+  rows and its retirement, including synchronization immediately afterwards;
+  otherwise a correct action animation also animates background arrivals.
+  A subscription-time worklet probe does not establish native mount ordering.
+- Mobile `organize-motion.MovingRow` accepting an old exit's RN completion after
+  Undo starts returning the same row. Reanimated cancellation cannot revoke a
+  completion already queued through Worklets; retire each effect's completion
+  when its motion changes or unmounts. Exercise completion queued before Undo
+  but delivered afterwards, or the old callback snaps the new entrance whole.
+- `organize-motion.MovingRow` dropping its motion kind while retaining animated
+  height or opacity. Exercise Undo followed by another action during restoration,
+  and a view change that keeps the same message and section key. Reset a retained
+  row to full height and opacity when it no longer owns motion, cancelling its
+  prior animation; otherwise Mac can freeze a partially restored row and mobile
+  can continue collapsing a message the replacement view still lists.
+  Follow the native binding as well as the shared value: Reanimated 4.5.1 does
+  not unset detached styles, so a passive reset after descriptor removal never
+  reaches the row and its settled props can still override React styles. Verify
+  interruption through the installed driver or retain core Animated values; a
+  web/Jest worklet value assertion alone misses this native failure.
+- When mobile `organize-motion.MovingRow` uses Reanimated, binding its style to every resting
+  virtualized row or writing shared values on ordinary idle mounts without native
+  idle evidence. With the installed Reanimated 4.5.1, a persistent animated-style
+  binding kept the iPad Inbox from idling and XCUITest waited 60 seconds per
+  action. Keep resting rows static and bind the animated style only while a row
+  moves; retain its measured height until the UI thread takes over. Check the
+  owning native journey for idle completion as well as collapse and Undo. Jest
+  mocks and a static `Animated.View` do not establish that a bound worklet idles.
+- Mac `organize-motion.MovingRow` hiding retained leaving rows with only core
+  `View` accessibility props. Installed Fabric excludes
+  `accessibilityElementsHidden` on macOS, and `importantForAccessibility` is an
+  Android property. Use the existing `ModalBackground` native container for
+  subtree hiding, or VoiceOver can still reach stale row actions while Jest's
+  generic hidden-element queries claim they are gone. Native VoiceOver evidence
+  remains separate from the rendered prop assertion.
+- `organize-motion` dropping future animation eligibility while leaving an
+  already-started exit running after scroll or selection. Trace retained rows,
+  the installed engine's animation ownership and the interrupting handlers
+  including selection updates from notification opens outside the row handler.
+  A new selected message must finish an exit; clearing the removed reader must
+  preserve that action's own exit. Exercise both paths through the shown Inbox
+  against the approved motion contract; otherwise input acts immediately but
+  the leaving row keeps moving instead of finishing at once. Retargeting on
+  another layout alone does not cover an interruption that changes no row layout.
+- `inbox.tsx` enabling `maintainVisibleContentPosition` without checking the
+  installed VirtualizedList's render-window adjustment on prepended sections.
+  Exercise a long list with Drafts or Outbox inserted at the top as well as
+  scrolled synchronization; otherwise native anchoring can preserve the previous
+  first-item key in JavaScript while the new leading rows are not rendered.
+
 - `inbox.tsx.Inbox` or another host action clearing aggregate progress when the
   first parallel operation rejects while sibling work remains pending. Trace
   the returned promises, including failure paths, and keep progress until every
@@ -970,6 +1033,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### Platform behavior
 
+- `organize-motion` relying on `LayoutAnimation.configureNext` without tracing
+  its delegate in the installed renderer and native dependencies. Reanimated can
+  replace Fabric's delegate with one that ignores that API; a call-count test
+  then passes while the app has no motion. On Mac, trace request consumption
+  across independent window surfaces: one global next-animation configuration
+  can be consumed by the first surface and leave other windows unchanged. One
+  test-renderer root containing two windows cannot qualify multiple surfaces.
+
 - `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
   migrated native header relying on the presenter's default appearance without
   comparing settled Light and Dark captures with DESIGN.md and the frames.
@@ -1305,9 +1376,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   reader is gone, not only that the field exists; otherwise the command runs
   with no visible effect. The decision panel chose leaving the detail whenever
   one is open rather than tracking the alpha split view's collapse events.
-  The Mac's expanded composer covers the Inbox column too: `inbox.tsx` Search
-  Mail must collapse it through `window.tsx`'s `onReveal` before focusing (a
-  #903 panel chose collapsing over leaving), or focus lands in a hidden field.
+  Mac Expand instead saves and hands the Draft to a native New Message window
+  under ADR 0057's Mac amendment; it closes the overlay and offers no Collapse.
+  Search Mail reveals only the Inbox's hidden floating bar, without closing its
+  overlay Draft. Do not reintroduce the superseded in-window expanded state or
+  its `onReveal` collapse callback.
   Mobile Search Mail instead awaits the registered composer Close through
   `onLeave` before `onClose`; `_layout.tsx`'s composer callback clears expansion
   and `composing.current` before the reader callback chooses its route. Test an
@@ -1333,7 +1406,7 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 - `inbox.tsx` showing its floating search/New Message bar by default while composing,
   or unmounting it to hide it and losing New Message command registration. Preserve
   the hidden bar's guarded command, and the explicit Mac Search Mail reveal that
-  collapses an expanded composer without closing its Draft. Focus search after the
+  shows that bar without closing its Draft. Focus search after the
   revealed bar commits; otherwise command availability or keyboard entry breaks.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent

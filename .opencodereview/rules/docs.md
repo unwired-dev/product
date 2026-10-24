@@ -4,6 +4,13 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- A native-control description in `docs/macos-client.md` or another feature
+  guide that omits or misassigns Apple versus TypeScript ownership of the
+  presentation it describes. Trace both the host component and native control,
+  including appearance-specific focus-ring suppression and replacement in
+  `MenuButton`. Name who owns the system state and who supplies its replacement;
+  otherwise later changes can target the wrong layer or render both states.
+
 - Launch and **Open Inbox** gating lists in `docs/gmail-inbox.md` or
   `docs/private-product-sync.md` conflating automatic landing, deferrable setup
   and Inbox eligibility. Trace each listed condition

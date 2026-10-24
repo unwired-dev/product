@@ -13,6 +13,9 @@ let focused = 0;
 let requestSerial = 0;
 let holdOpen = false;
 let pendingOpen: (() => void) | undefined = undefined;
+// The New Message windows Expand asked AppKit to open, and the windows JavaScript closed.
+const composers: Array<{ draft: string; profile: string }> = [];
+const closed: string[] = [];
 const listeners = new Set<() => void>();
 const show = (next: boolean) => {
   shown = next;
@@ -46,8 +49,15 @@ const host = {
   saveFocus: () => undefined,
   restoreFocus: () => undefined,
   guardClose: () => undefined,
-  finishClose: () => undefined,
+  finishClose: (window: string, allowed: boolean) => {
+    if (allowed) {
+      closed.push(window);
+    }
+  },
   setWindowProfile: () => undefined,
+  openComposer: (draft: string, profile: string) => {
+    composers.push({ draft, profile });
+  },
 };
 
 const { get } = TurboModuleRegistry;
@@ -64,6 +74,8 @@ afterEach(() => {
   requestSerial = 0;
   holdOpen = false;
   pendingOpen = undefined;
+  composers.length = 0;
+  closed.length = 0;
 });
 
 // The app's windows: the given Inbox window, and the Settings window while it is open.
@@ -99,6 +111,12 @@ export const settingsWindow = () =>
 
 export const settingsOpen = () =>
   screen.queryByTestId('settings-window') !== null;
+
+export const composerWindows = (): ReadonlyArray<{
+  readonly draft: string;
+  readonly profile: string;
+}> => composers;
+export const closedWindows = (): readonly string[] => closed;
 
 // How often the Settings window brought an Inbox window forward.
 export const inboxFocused = () => focused;

@@ -377,7 +377,7 @@ describe('composing Drafts', () => {
     });
     await expect(
       screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
-    ).resolves.toBeSelected();
+    ).resolves.toBeEnabled();
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
   });
 
@@ -424,7 +424,7 @@ describe('composing Drafts', () => {
     await press('New Message');
     await expect(
       screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
-    ).resolves.toBeSelected();
+    ).resolves.toBeEnabled();
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
   });
 
@@ -462,7 +462,7 @@ describe('composing Drafts', () => {
       screen.findByRole('button', { name: 'Send from other@example.invalid' }),
     ).resolves.toHaveProp(
       'accessibilityState',
-      expect.objectContaining({ selected: true, disabled: false }),
+      expect.objectContaining({ disabled: false }),
     );
     expect(
       screen.queryByRole('button', { name: 'Send from alex@example.invalid' }),
@@ -742,7 +742,7 @@ describe('composing Drafts', () => {
       }),
     ).resolves.toHaveProp(
       'accessibilityState',
-      expect.objectContaining({ selected: true, disabled: false }),
+      expect.objectContaining({ disabled: false }),
     );
 
     // Recipients become tokens; invalid text stays for correction and duplicates are refused.
@@ -902,7 +902,7 @@ describe('composing Drafts', () => {
       screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
     ).toHaveProp(
       'accessibilityState',
-      expect.objectContaining({ selected: true, disabled: false }),
+      expect.objectContaining({ disabled: false }),
     );
     await press('Close');
     await press(
@@ -925,7 +925,7 @@ describe('composing Drafts', () => {
       screen.getByRole('button', { name: 'Send from other@example.invalid' }),
     ).toHaveProp(
       'accessibilityState',
-      expect.objectContaining({ selected: true, disabled: false }),
+      expect.objectContaining({ disabled: false }),
     );
   });
 

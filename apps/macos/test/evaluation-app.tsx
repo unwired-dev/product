@@ -47,11 +47,14 @@ function NavigationProbe({
 export function App({
   drafts,
   onNavigation,
+  onExpand,
 }: {
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly onNavigation?: (
     navigation: ReturnType<typeof useComposerNavigation>,
   ) => void;
+  // Offers Expand, which hands the Draft to its own window and closes the composer here.
+  readonly onExpand?: (id: string) => void;
 }) {
   const mailboxes = useMemo(
     () =>
@@ -90,6 +93,14 @@ export function App({
               setComposing(undefined);
             }}
             onRebind={setComposing}
+            {...(onExpand === undefined
+              ? {}
+              : {
+                  onExpand: (id: string) => {
+                    onExpand(id);
+                    setComposing(undefined);
+                  },
+                })}
           />
         )}
       </InboxProvider>
