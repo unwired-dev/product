@@ -9,6 +9,7 @@ const styles = StyleSheet.create({
   // A reader action's capsule reaches past its label, which stays aligned with the text around it.
   outset: { marginHorizontal: -8 },
   capsule: {
+    alignSelf: 'flex-start',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderWidth: 2,
@@ -47,6 +48,7 @@ export function Action({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled }}
       disabled={disabled}
+      enableFocusRing={false}
       focusable
       onBlur={() => {
         setFocused(false);
