@@ -163,10 +163,10 @@ failure and Undo feedback at `cf070fb71` from static source inspection, plus the
 rendered component journeys in each host's `test/send.test.tsx`. Native VoiceOver
 qualification remains with #626.
 
-React Native implements `accessibilityLiveRegion` only on Android. On iOS and
-macOS, `accessibilityRole="alert"` adds no trait and posts no notification, so an
-alert or live-region message is read only when the person moves to it. VoiceOver
-hears an outcome as it appears only through `AccessibilityInfo.announceForAccessibility`.
+In the installed React Native 0.86.3 and react-native-macos 0.81.9,
+`accessibilityLiveRegion` does not announce changes on Apple hosts, and
+`accessibilityRole="alert"` does not post an announcement. This slice uses
+`AccessibilityInfo.announceForAccessibility` to announce outcomes as they appear.
 
 | Operation                                                                                                                                                                                                      | Pending                                                                                                                            | Outcome and recovery                                                                                                              | Classification                                                                                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
