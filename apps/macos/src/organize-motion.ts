@@ -5,12 +5,7 @@ import { AccessibilityInfo, LayoutAnimation } from 'react-native';
 import type { InboxMailbox, MailboxList } from './private-storage.ts';
 
 // A leaving row fades while the rows below close over it; a returning row fades in as they part.
-const motion: LayoutAnimationConfig = {
-  duration: 200,
-  create: { type: 'easeOut', property: 'opacity' },
-  update: { type: 'easeOut' },
-  delete: { type: 'easeOut', property: 'opacity' },
-};
+const motion = LayoutAnimation.create(200, 'easeOut', 'opacity');
 // Reduce Motion removes a row at once and only fades a returning one in.
 const reducedMotion: LayoutAnimationConfig = {
   duration: 150,

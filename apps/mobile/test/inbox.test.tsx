@@ -39,6 +39,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { ReduceMotion, ReducedMotionConfig } from 'react-native-reanimated';
 
 import type { ipad } from '../src/inbox-styles.ts';
 import type { Selection } from '../src/inbox.tsx';
@@ -2159,8 +2160,7 @@ const listedMessage = (
 };
 
 describe('organizing motion', () => {
-  // What the Inbox's first cell would do if it left or returned now.
-  const cellMotion = () => {
+  const movingCell = () => {
     type Node = ReturnType<typeof screen.getByLabelText>;
     const cell = (function find(node: Node): Node | undefined {
       if (typeof node.props.exiting === 'function') {
@@ -2177,6 +2177,11 @@ describe('organizing motion', () => {
     if (cell === undefined) {
       throw new Error('Expected an animated Inbox cell');
     }
+    return cell;
+  };
+  // What the Inbox's first cell would do if it left or returned now.
+  const cellMotion = () => {
+    const cell = movingCell();
     const motion = (animation: () => { animations: Record<string, unknown> }) =>
       animation().animations;
     const leaves = motion(cell.props.exiting);
@@ -2241,6 +2246,8 @@ describe('organizing motion', () => {
       .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
       .mockResolvedValue(true);
     try {
+      // The native preference also reaches Reanimated independently of AccessibilityInfo.
+      await render(<ReducedMotionConfig mode={ReduceMotion.Always} />);
       const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
       gmail.deliver({ subject: 'Lunch on Friday' });
       await renderConnected(gmail.native);
@@ -2248,6 +2255,17 @@ describe('organizing motion', () => {
 
       await archive('Lunch on Friday');
       expect(cellMotion()).toStrictEqual(['still', 'opacity']);
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+      });
+      await screen.findByText('Lunch on Friday');
+      const fade = movingCell().props.entering().animations.opacity;
+      fade.onStart(fade, 0, 1000, undefined);
+      fade.onFrame(fade, 1075);
+      expect(fade.current).toBeGreaterThan(0);
+      expect(fade.current).toBeLessThan(1);
+      const finished = fade.onFrame(fade, 1150);
+      expect([finished, fade.current]).toStrictEqual([true, 1]);
     } finally {
       reduced.mockRestore();
       await settle();

@@ -8,7 +8,9 @@ import type {
 import { AccessibilityInfo } from 'react-native';
 import Animated, {
   Easing,
+  LinearTransition,
   makeMutable,
+  ReduceMotion,
   withTiming,
 } from 'react-native-reanimated';
 
@@ -17,7 +19,15 @@ import type { InboxMailbox, MailboxList } from './private-storage.ts';
 // Reanimated replaces Fabric's layout animation delegate, so React Native's LayoutAnimation does
 // nothing here; the Inbox's cells animate through Reanimated instead.
 const timing = { duration: 200, easing: Easing.bezier(0.23, 1, 0.32, 1) };
-const reducedTiming = { ...timing, duration: 150 };
+// This opacity-only alternative must still fade when Reanimated reads the system preference.
+const reducedTiming = {
+  ...timing,
+  duration: 150,
+  reduceMotion: ReduceMotion.Never,
+};
+const shift = LinearTransition.duration(timing.duration)
+  .easing(timing.easing)
+  .build();
 // Set while the commit that shows an organizing outcome can still mount; the cells' worklets read
 // it on the UI thread.
 const moving = makeMutable(false);
@@ -50,22 +60,7 @@ const enter: EntryExitAnimationFunction = () => {
 };
 const move: LayoutAnimationFunction = (values) => {
   'worklet';
-  return moving.value && !reduced.value
-    ? {
-        initialValues: {
-          originX: values.currentOriginX,
-          originY: values.currentOriginY,
-          width: values.currentWidth,
-          height: values.currentHeight,
-        },
-        animations: {
-          originX: withTiming(values.targetOriginX, timing),
-          originY: withTiming(values.targetOriginY, timing),
-          width: withTiming(values.targetWidth, timing),
-          height: withTiming(values.targetHeight, timing),
-        },
-      }
-    : still;
+  return moving.value && !reduced.value ? shift(values) : still;
 };
 
 // The Inbox list's cell, which moves only with an organizing outcome.
