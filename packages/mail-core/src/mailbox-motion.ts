@@ -273,6 +273,33 @@ export function placeLeavingRows<I>(
     ...section,
     data: [...section.data],
   }));
+  const holding = (key: string | undefined) =>
+    placed.findIndex(({ data }) => data.some((item) => keyOf(item) === key));
+  // Where a row's own section returns once it left with its last row: before the section holding
+  // the row's later neighbour, else after the one holding its earlier neighbour.
+  const sectionIndexFor = (row: Leaving<I>, afterKey: string | undefined) => {
+    const beforeSection = holding(row.before);
+    if (beforeSection !== -1) {
+      return beforeSection;
+    }
+    const afterSection = holding(afterKey);
+    return afterSection === -1 ? placed.length : afterSection + 1;
+  };
+  // Where a row goes among its section's rows: after its earlier neighbour, else before its later
+  // one.
+  const rowIndexFor = (
+    data: readonly I[],
+    row: Leaving<I>,
+    afterKey: string | undefined,
+  ) => {
+    const index = data.findIndex(
+      (item) => keyOf(item) === (afterKey ?? row.before),
+    );
+    if (index === -1) {
+      return row.before === undefined ? data.length : 0;
+    }
+    return index + (row.after === undefined ? 0 : 1);
+  };
   const after = new Map<string, string>();
   for (const row of leaving) {
     const afterKey =
@@ -281,25 +308,9 @@ export function placeLeavingRows<I>(
     if (section === undefined) {
       // SectionList includes the section key in each cell's identity, even for its last row.
       section = { key: row.section, data: [] };
-      const beforeSection = placed.findIndex(({ data }) =>
-        data.some((item) => keyOf(item) === row.before),
-      );
-      const afterSection = placed.findIndex(({ data }) =>
-        data.some((item) => keyOf(item) === afterKey),
-      );
-      let sectionIndex = beforeSection;
-      if (sectionIndex === -1) {
-        sectionIndex = afterSection === -1 ? placed.length : afterSection + 1;
-      }
-      placed.splice(sectionIndex, 0, section);
+      placed.splice(sectionIndexFor(row, afterKey), 0, section);
     }
-    const anchor = afterKey ?? row.before;
-    const index = section.data.findIndex((item) => keyOf(item) === anchor);
-    let at = index + (row.after === undefined ? 0 : 1);
-    if (index === -1) {
-      at = row.before === undefined ? section.data.length : 0;
-    }
-    section.data.splice(at, 0, row.item);
+    section.data.splice(rowIndexFor(section.data, row, afterKey), 0, row.item);
     if (row.after !== undefined) {
       after.set(row.after, row.key);
     }

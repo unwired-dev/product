@@ -1062,16 +1062,24 @@ export function createImapInbox(
     moves(notice.action) &&
     notice.action.kind !== 'restore' &&
     (noticed.restore !== undefined || unsent(noticed.id));
+  // What row motion reads: messages whose organizing work is unfinished, and the ID each verified
+  // move started from.
+  const motionFacts = () => {
+    const organizing = [
+      ...changes().map(({ message }) => message.id),
+      ...[...restoring.values()].map(({ message }) => message),
+    ];
+    return {
+      ...(organizing.length === 0 ? {} : { organizing }),
+      ...(originalIds.size === 0 ? {} : { originalIds }),
+    };
+  };
   const render = (next: Sync = shownStatus) => {
     if (forgotten || opened === undefined || document === undefined) {
       return;
     }
     reportBlocked();
     shownStatus = authenticationRejected ? 'authentication' : next;
-    const organizing = [
-      ...changes().map(({ message }) => message.id),
-      ...[...restoring.values()].map(({ message }) => message),
-    ];
     state = {
       kind: 'ready',
       address: opened.address,
@@ -1082,8 +1090,7 @@ export function createImapInbox(
       pending: changes().length,
       blocked: blockedChange()?.id,
       ...(notice === undefined ? {} : { notice }),
-      ...(organizing.length === 0 ? {} : { organizing }),
-      ...(originalIds.size === 0 ? {} : { originalIds }),
+      ...motionFacts(),
       undo: undoable(),
       imap: true,
     };
@@ -1234,6 +1241,17 @@ export function createImapInbox(
     );
   });
 
+  // An Undo whose move the server applied finishes once the folder it returns to is read again.
+  const retireRestorations = (folder: string) => {
+    for (const [id, restoration] of restoring) {
+      if (
+        restoration.destination === folder &&
+        !changes().some((change) => change.id === id)
+      ) {
+        restoring.delete(id);
+      }
+    }
+  };
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -1279,14 +1297,7 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
-    for (const [id, restoration] of restoring) {
-      if (
-        restoration.destination === name &&
-        !changes().some((change) => change.id === id)
-      ) {
-        restoring.delete(id);
-      }
-    }
+    retireRestorations(name);
     if (name === inboxFolder) {
       yield* reportArrivals(
         arrived,
