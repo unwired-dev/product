@@ -44,7 +44,9 @@ function useAnnouncement(key: string, words: string | undefined) {
       announced.delete(key);
     } else if (announced.get(key) !== words) {
       announced.set(key, words);
-      AccessibilityInfo.announceForAccessibility(words);
+      AccessibilityInfo.announceForAccessibilityWithOptions(words, {
+        queue: true,
+      });
     }
   }, [key, words]);
 }

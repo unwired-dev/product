@@ -562,7 +562,11 @@ describe('sending a Draft', () => {
     expect.hasAssertions();
     const sender = device();
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const queued = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
     announce.mockClear();
+    queued.mockClear();
     try {
       await act(async () => {
         await sender.mailboxes.load();
@@ -681,23 +685,28 @@ describe('sending a Draft', () => {
         'Delivery unknown. Check Sent in Gmail before sending it again.';
       const unconfirmed =
         'Gmail did not confirm this message. Check Sent in Gmail.';
+      expect(queued.mock.calls).toStrictEqual([
+        [row('Refused', 'Sending soon'), { queue: true }],
+        [row('Refused', 'Sending…'), { queue: true }],
+        [
+          row('Refused', 'Not sent. Gmail refused this message.'),
+          { queue: true },
+        ],
+        [row('Lost', 'Sending soon'), { queue: true }],
+        [row('Unknown', 'Sending soon'), { queue: true }],
+        [row('Lost', 'Sending…'), { queue: true }],
+        [row('Lost', unknown), { queue: true }],
+        [row('Unknown', 'Sending…'), { queue: true }],
+        [row('Unknown', unknown), { queue: true }],
+        [unconfirmed, { queue: true }],
+        [unconfirmed, { queue: true }],
+      ]);
       expect(announce.mock.calls.map(([words]) => words)).toStrictEqual([
         'Add a recipient before sending.',
         'Add a recipient before sending.',
         'Discard this Draft? It is deleted from this device.',
-        row('Refused', 'Sending soon'),
-        row('Refused', 'Sending…'),
-        row('Refused', 'Not sent. Gmail refused this message.'),
         'Discard this Draft? It is deleted from this device.',
-        row('Lost', 'Sending soon'),
-        row('Unknown', 'Sending soon'),
-        row('Lost', 'Sending…'),
-        row('Lost', unknown),
-        row('Unknown', 'Sending…'),
-        row('Unknown', unknown),
-        unconfirmed,
         warning,
-        unconfirmed,
         warning,
       ]);
     } finally {
