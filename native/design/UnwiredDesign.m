@@ -594,12 +594,10 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   return self;
 }
 - (BOOL)isAccessibilityElement { return NO; }
-- (void)setItems:(NSArray<NSDictionary *> *)items { _items = [items copy]; [self render]; }
-- (void)setText:(NSString *)text { _text = [text copy]; [self render]; }
-- (void)setSymbol:(NSString *)symbol { _symbol = [symbol copy]; [self render]; }
 - (void)setLabel:(NSString *)label { _label = [label copy]; _button.accessibilityLabel = label; }
-- (void)setDestructiveColor:(NSColor *)color { _destructiveColor = [color copy]; [self render]; }
 - (void)setEnabled:(BOOL)enabled { _enabled = enabled; _button.enabled = enabled; }
+// React Native applies the whole prop batch before rebuilding the menu.
+- (void)didSetProps:(NSArray<NSString *> *)changedProps { [self render]; }
 // The menu always shows the items React Native last gave it; a choice only reports their id.
 - (void)render
 {
