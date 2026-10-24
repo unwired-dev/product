@@ -500,6 +500,60 @@ describe('organizing Gmail mail', () => {
     expect(gmail.modifies).toStrictEqual([]);
   });
 
+  it('discards a late label creation after an old catalog refresh and mailbox reopening', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    gmail.createLabel('Travel');
+    const catalogEntered = Promise.withResolvers<undefined>();
+    const catalogRelease = Promise.withResolvers<undefined>();
+    const creationEntered = Promise.withResolvers<undefined>();
+    const creationRelease = Promise.withResolvers<undefined>();
+    let holdCatalog = true;
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      gmailRequest: async (...args) => {
+        const reply = await gmail.native.gmailRequest(...args);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold the first catalog reply after messages publish.
+        if (args[0] === 'labels' && holdCatalog) {
+          holdCatalog = false;
+          catalogEntered.resolve(undefined);
+          await catalogRelease.promise;
+        }
+        return reply;
+      },
+      gmailCreateLabel: async (...args) => {
+        const reply = await gmail.native.gmailCreateLabel(...args);
+        creationEntered.resolve(undefined);
+        await creationRelease.promise;
+        return reply;
+      },
+    });
+    const loading = inbox.load();
+    await catalogEntered.promise;
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    const creating = inbox.createLabel(target, 'Previous owner');
+    try {
+      await creationEntered.promise;
+      inbox.forget();
+      catalogRelease.resolve(undefined);
+      // The old refresh commits its catalog after forgetting the Inbox.
+      await loading;
+      expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+      await inbox.load();
+      expect(message(inbox, target.id).labels).not.toContain('Label_2');
+    } finally {
+      catalogRelease.resolve(undefined);
+      creationRelease.resolve(undefined);
+    }
+    await expect(creating).resolves.toBe(false);
+    expect(gmail.labelsOf(target.id)).not.toContain('Label_2');
+    expect(message(inbox, target.id).labels).not.toContain('Label_2');
+    expect(gmail.modifies).toStrictEqual([]);
+  });
+
   it('fences a late body admission while action reconciliation removes its message', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

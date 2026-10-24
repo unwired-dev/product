@@ -3905,7 +3905,7 @@ export function createGmailInbox(
   // decides whether the name is available; a refused name never applies an existing label.
   const createLabel = async (message: GmailMessage, name: string) => {
     const scope = shown?.scope;
-    // An owned message is one of the open, verified mailbox's; a new owner disowns it.
+    // Only a message shown by the open, verified mailbox can start creation.
     if (
       scope === undefined ||
       graph !== undefined ||
@@ -3926,7 +3926,12 @@ export function createGmailInbox(
         ),
       ),
     );
-    if (Option.isNone(created) || !ownsMessage(message)) {
+    // A late catalog refresh may reclaim this object; it cannot renew this request.
+    if (
+      requestedFor !== ownership ||
+      Option.isNone(created) ||
+      !ownsMessage(message)
+    ) {
       return false;
     }
     await organize(message, gmailAction.label(created.value.id), created.value);
