@@ -103,7 +103,9 @@ enrollment and recovery only with the latest confirmed key. The two-Profile sess
 `createTwoProfileRegistration`, connects alex@example.invalid in the Default
 Profile and other@example.invalid in a published Work Profile, for the Profile
 Switcher journeys. Native builds cannot select it yet. The native registration
-journey opens the Profile Menu and New Mail Profile prompt, then cancels. Creating
+journey opens the Profile Menu and New Mail Profile prompt, then cancels. On iPhone it
+then opens Settings from the Mailboxes header's Account, returns with the list's Back
+to Mailboxes, and closes a New Message started there back to Mailboxes. Creating
 and switching after relaunch remain deferred under [#1188](https://github.com/unwired-dev/product/issues/1188)
 because Profile writes need this launch's verified Product Sign-In. A relay test
 covers the synthetic Convex Profile fence and atomic Profile writes for an account

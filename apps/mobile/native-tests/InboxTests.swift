@@ -405,6 +405,43 @@ final class InboxTests: XCTestCase {
       app.navigationBars.buttons.firstMatch.tap()
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      // #1246: the header's Account opens Settings over Mailboxes, and the list's Back returns to
+      // Mailboxes, not the Inbox. New Message composes over Mailboxes, and Close returns there.
+      app.buttons["Account"].tap()
+      // Pending Gmail changes open Account & Devices, whose system Back returns to the list.
+      let pushed = app.navigationBars["Account & Devices"]
+      if pushed.waitForExistence(timeout: 10) {
+        pushed.buttons["BackButton"].tap()
+        XCTAssertTrue(pushed.waitForNonExistence(timeout: 10))
+      }
+      let back = app.buttons.matching(
+        NSPredicate(format: "label == %@ AND identifier != %@", "Back", "BackButton")
+      ).firstMatch
+      XCTAssertTrue(back.waitForExistence(timeout: 15))
+      XCTAssertTrue(app.buttons["Open Inbox"].exists)
+      XCTAssertTrue(app.navigationBars["Settings"].exists)
+      // The React title in the system bar retains the Command Palette's downward swipe.
+      openPalette(app, header: app.staticTexts["Settings"].firstMatch)
+      XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 10))
+      app.buttons["Cancel"].tap()
+      XCTAssertTrue(app.textFields["Type a command"].waitForNonExistence(timeout: 10))
+      let settings = XCTAttachment(screenshot: app.screenshot())
+      settings.name = "Settings over Mailboxes with Back"
+      settings.lifetime = .keepAlways
+      add(settings)
+      back.tap()
+      waitUntil { switcher.isHittable && !back.exists }
+      let mailboxes = XCTAttachment(screenshot: app.screenshot())
+      mailboxes.name = "Mailboxes with Account and New Message"
+      mailboxes.lifetime = .keepAlways
+      add(mailboxes)
+      app.buttons["New Message"].tap()
+      let composer = app.otherElements["composer-overlay"]
+      XCTAssertTrue(composer.waitForExistence(timeout: 15))
+      app.buttons["Close"].tap()
+      waitUntil { !composer.exists && switcher.isHittable }
+    }
   }
 
   // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged

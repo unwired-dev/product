@@ -216,6 +216,7 @@ function App({
   onCompose = ignore,
   initialDraft,
   profile,
+  composeFrom = 'inbox',
 }: {
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
@@ -225,6 +226,7 @@ function App({
   readonly onCompose?: (id: string) => void;
   readonly initialDraft?: string;
   readonly profile?: string;
+  readonly composeFrom?: 'inbox' | 'mailboxes' | 'both';
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -248,6 +250,10 @@ function App({
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
   const [selected, setSelected] = useState<Selection>();
   const [view, setView] = useState<MailboxView>({});
+  const compose = (id: string) => {
+    setComposing(id);
+    onCompose(id);
+  };
   return (
     <CommandPaletteProvider>
       <AccountContext
@@ -265,16 +271,14 @@ function App({
           mailboxes={mailboxes}>
           <ProfileScope profile={profile}>
             <Mailboxes
+              {...(composeFrom === 'inbox' ? {} : { onCompose: compose })}
               view={view}
               onView={setView}
               onProfile={() => undefined}
             />
             <Inbox
               composing={composing}
-              onCompose={(id) => {
-                setComposing(id);
-                onCompose(id);
-              }}
+              onCompose={composeFrom === 'mailboxes' ? undefined : compose}
               onSelect={setSelected}
               onView={setView}
               selected={selected}
@@ -384,6 +388,7 @@ describe('composing Drafts', () => {
       <App
         drafts={drafts}
         registration={registration}
+        composeFrom="both"
         mailboxes={{
           ...connections,
           getSnapshot: connections.getConnections,
@@ -400,8 +405,14 @@ describe('composing Drafts', () => {
       return within(screen.getByTestId('command-palette'));
     };
     await press('Inbox. In imap@example.invalid');
-    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
-    await press('New Message');
+    const newMessage = screen.getByRole('button', {
+      name: 'New Message',
+      disabled: true,
+    });
+    expect(newMessage).toBeDisabled();
+    await act(async () => {
+      await fireEvent.press(newMessage);
+    });
     const receiveOnly = await palette();
     expect(
       receiveOnly.queryByRole('button', { name: 'New Message' }),
@@ -467,54 +478,60 @@ describe('composing Drafts', () => {
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(alex);
   });
 
-  it('creates a unified Inbox Draft only from the window’s Profile', async () => {
-    expect.hasAssertions();
-    const initial = connected([
-      'alex@example.invalid',
-      'other@example.invalid',
-    ]);
-    const registration = account({
-      ...initial,
-      mailboxes: JSON.stringify([
-        { id: alex, address: 'alex@example.invalid', state: 'connected' },
-        {
-          id: other,
-          address: 'other@example.invalid',
-          state: 'connected',
-          profile: 'work',
-        },
-      ]),
-    });
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
-    const view = (profile: string) => (
-      <App
-        drafts={drafts}
-        registration={registration}
-        profile={profile}
-      />
-    );
-    const app = await render(view('work'));
-    await press('New Message');
-    await expect(
-      screen.findByRole('button', {
-        name: 'Send from other@example.invalid',
-      }),
-    ).resolves.toHaveProp(
-      'accessibilityState',
-      // The From pop-up also reports whether its menu is open.
-      expect.objectContaining({ selected: true, disabled: false }),
-    );
-    expect(
-      screen.queryByRole('button', {
-        name: 'Send from alex@example.invalid',
-      }),
-    ).toBeNull();
-    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
-    await press('Close');
-    await app.rerender(view('unknown'));
-    expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
-  });
+  it.each(['inbox', 'mailboxes'] as const)(
+    'creates a Draft from %s only in the window’s Profile',
+    async (origin) => {
+      expect.hasAssertions();
+      const initial = connected([
+        'alex@example.invalid',
+        'other@example.invalid',
+      ]);
+      const registration = account({
+        ...initial,
+        mailboxes: JSON.stringify([
+          { id: alex, address: 'alex@example.invalid', state: 'connected' },
+          {
+            id: other,
+            address: 'other@example.invalid',
+            state: 'connected',
+            profile: 'work',
+          },
+        ]),
+      });
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const view = (profile: string) => (
+        <App
+          composeFrom={origin}
+          drafts={drafts}
+          registration={registration}
+          profile={profile}
+        />
+      );
+      const app = await render(view('work'));
+      await press('New Message');
+      await expect(
+        screen.findByRole('button', {
+          name: 'Send from other@example.invalid',
+        }),
+      ).resolves.toHaveProp(
+        'accessibilityState',
+        // The From pop-up also reports whether its menu is open.
+        expect.objectContaining({ selected: true, disabled: false }),
+      );
+      expect(
+        screen.queryByRole('button', {
+          name: 'Send from alex@example.invalid',
+        }),
+      ).toBeNull();
+      expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
+      await press('Close');
+      await app.rerender(view('unknown'));
+      expect(
+        screen.getByRole('button', { name: 'New Message' }),
+      ).toBeDisabled();
+    },
+  );
 
   it('lists only the window Profile’s Drafts', async () => {
     expect.hasAssertions();

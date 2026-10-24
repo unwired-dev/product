@@ -29,7 +29,8 @@ import type { InboxMailbox } from './private-storage.ts';
 import type { SettingsDestination } from './settings.tsx';
 
 import { usePaletteHeader } from './command-palette.tsx';
-import { MenuButton, SFSymbol } from './design.tsx';
+import { GlassGroup, MenuButton, SFSymbol } from './design.tsx';
+import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useAllMailboxes,
@@ -53,9 +54,31 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   heading: { paddingHorizontal: spacing.xl, paddingVertical: spacing.l },
+  // iPhone's title sits centered between an empty slot and Account.
+  compactHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.xs,
+  },
+  headingSlot: { width: 44 },
+  accountGlass: {
+    padding: 0,
+    borderRadius: 22,
+    backgroundColor: 'transparent',
+  },
+  accountButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   title: { ...textStyles.headline, textAlign: 'center' },
+  grow: { flex: 1 },
   list: { paddingHorizontal: spacing.s, paddingBottom: spacing.l },
-  compactList: { paddingHorizontal: spacing.l },
+  // The last rows scroll clear of the floating New Message.
+  compactList: { paddingHorizontal: spacing.l, paddingBottom: 72 },
   group: {
     borderRadius: radius.mailboxGroup,
     borderCurve: 'continuous',
@@ -383,11 +406,14 @@ export function Mailboxes({
   view,
   onView,
   onProfile,
+  onCompose,
 }: {
   readonly view: MailboxView;
   readonly onView: (view: MailboxView) => void;
   // Switches the window to another Mail Profile.
   readonly onProfile: (profile: string) => void;
+  // Opens a new Draft's composer from iPhone's New Message; none where Mailboxes offers no composer.
+  readonly onCompose?: (id: string) => void;
 }) {
   const mailboxes = useMailboxes();
   const account = use(AccountContext);
@@ -425,14 +451,36 @@ export function Mailboxes({
         style={styles.fill}>
         {/* The header opens the Command Palette by a downward swipe or its accessibility action. */}
         <View
-          style={styles.heading}
+          style={compact ? styles.compactHeading : styles.heading}
           {...header.swipe}>
+          {compact ? <View style={styles.headingSlot} /> : null}
           <Text
             accessibilityRole="header"
-            style={[styles.title, { color: colors.textPrimary }]}
+            style={[
+              styles.title,
+              compact && styles.grow,
+              { color: colors.textPrimary },
+            ]}
             {...header.action}>
             {t('mailboxes.title')}
           </Text>
+          {compact && account !== undefined ? (
+            <GlassGroup style={styles.accountGlass}>
+              <Pressable
+                accessibilityLabel={t('inbox.account')}
+                accessibilityRole="button"
+                onPress={() => {
+                  openSettings();
+                }}
+                style={styles.accountButton}>
+                <SFSymbol
+                  name="gearshape"
+                  size={20}
+                  color={colors.textPrimary}
+                />
+              </Pressable>
+            </GlassGroup>
+          ) : null}
         </View>
         <ScrollView
           style={styles.fill}
@@ -521,7 +569,21 @@ export function Mailboxes({
             );
           })}
         </ScrollView>
-        {account === undefined ? null : (
+        {compact && onCompose !== undefined ? (
+          <FloatingBar
+            paddingBottom={spacing.xs}
+            leading={null}
+            trailing={
+              <NewMessageButton
+                onCompose={onCompose}
+                scope={undefined}
+                registerCommand={false}
+              />
+            }>
+            <BarSpacer />
+          </FloatingBar>
+        ) : null}
+        {compact || account === undefined ? null : (
           <View style={styles.footer}>
             <Item
               icon="gearshape"

@@ -138,6 +138,17 @@ function OpenedNotifications() {
   return null;
 }
 
+// Whether the split view shows its reading column: the reader, or beside the list a composer. A
+// collapsed one's composer covers the window, so the column beneath stays, such as Mailboxes for
+// its New Message.
+function showsReader(
+  reader: string | undefined,
+  draft: string | undefined,
+  collapsed: boolean,
+) {
+  return reader !== undefined || (draft !== undefined && !collapsed);
+}
+
 // Presentation choices live below WindowProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
@@ -220,16 +231,16 @@ function MailShell() {
   useLayoutEffect(() => {
     composing.current = draft;
   }, [draft]);
-  const detail = Boolean(id) || Boolean(draft);
+  const reading = showsReader(id, draft, collapsed);
   const [inboxVisible, setInboxVisible] = useState(false);
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
 
-  // A collapsed split view keeps showing a column until told otherwise, so leaving the reader or
-  // composer returns to the message list.
+  // A collapsed split view keeps showing a column until told otherwise, so leaving the reader
+  // returns to the message list.
   useEffect(() => {
-    splitView.current?.show(detail ? 'secondary' : 'supplementary');
-  }, [detail]);
+    splitView.current?.show(reading ? 'secondary' : 'supplementary');
+  }, [reading]);
 
   function selectMessage(selection: Selection) {
     reader.current = {
@@ -330,7 +341,7 @@ function MailShell() {
               preferredDisplayMode="automatic"
               preferredSplitBehavior="tile"
               primaryBackgroundStyle="sidebar"
-              topColumnForCollapsing={detail ? 'secondary' : 'supplementary'}>
+              topColumnForCollapsing={reading ? 'secondary' : 'supplementary'}>
               <Split.Column
                 testID="mailboxes-column"
                 onDidAppear={followBack}>
@@ -345,6 +356,7 @@ function MailShell() {
                       // On iPhone a Mailbox opens its list; beside it, the list is already shown.
                       splitView.current?.show('supplementary');
                     }}
+                    onCompose={compose}
                   />
                 </SafeAreaProvider>
               </Split.Column>

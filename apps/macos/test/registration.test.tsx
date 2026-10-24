@@ -64,7 +64,12 @@ import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
-import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
+import {
+  chooseMenuItem,
+  chooseSubmenuItem,
+  dismissMenu,
+  menuItems,
+} from './native-menu.ts';
 import {
   MacWindows,
   closeSettings,
@@ -880,6 +885,13 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
+    // IMAP folders have no labels: the More menu offers the read state and Move to only.
+    await press('More');
+    expect(menuItems().map(({ title }) => title)).toStrictEqual([
+      'Mark as Unread',
+      'Move to…',
+    ]);
+    await dismissMenu();
     // Star sets the server's \Flagged flag, keeps the reader open and flags the row.
     await press('Star');
     await waitFor(() => {
@@ -1893,7 +1905,14 @@ describe('product registration', () => {
         accessibilityLabel: 'Move to Travel / Lisbon',
       },
     ]);
-    await chooseMenuItem('Travel / Lisbon');
+    await dismissMenu();
+    // A Microsoft message is in one folder: its More menu moves it but offers no Labels.
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(menuItems().map(({ title }) => title)).toStrictEqual([
+      'Mark as Read',
+      'Move to…',
+    ]);
+    await chooseSubmenuItem('Move to…', 'Travel / Lisbon');
     await waitFor(() => {
       expect(graph.folderOf(plans)).toBe(lisbon);
     });

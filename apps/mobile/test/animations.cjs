@@ -15,15 +15,60 @@ Modal.prototype.componentDidUpdate = function (previous) {
 // Without a native stack, a stack screen appears once it mounts.
 jest.mock('react-native-screens', () => {
   const React = require('react');
+  const { Pressable } = require('react-native');
   const screens = jest.requireActual('react-native-screens');
-  function ScreenStackItem({ onAppear, ...props }) {
+  function ScreenStack({ children, ...props }) {
+    const pages = React.Children.toArray(children).filter(React.isValidElement);
+    return React.createElement(
+      screens.ScreenStack,
+      props,
+      pages.map((page, index) =>
+        React.cloneElement(page, { headerActive: index === pages.length - 1 }),
+      ),
+    );
+  }
+  function ScreenStackItem({
+    onAppear,
+    headerActive = true,
+    headerConfig,
+    children,
+    ...props
+  }) {
     const appear = React.useRef(onAppear);
     React.useEffect(() => {
       appear.current?.();
     }, []);
-    return React.createElement(screens.ScreenStackItem, props);
+    // UIKit shows only the top screen's bar and dispatches its native item actions.
+    const buttons = headerActive
+      ? [
+          ...(headerConfig?.headerLeftBarButtonItems ?? []),
+          ...(headerConfig?.headerRightBarButtonItems ?? []),
+        ]
+      : [];
+    return React.createElement(
+      screens.ScreenStackItem,
+      {
+        ...props,
+        headerConfig: headerActive
+          ? headerConfig
+          : { ...headerConfig, children: undefined },
+      },
+      children,
+      buttons?.map((item, index) =>
+        item.type === 'button'
+          ? React.createElement(Pressable, {
+              key: index,
+              accessibilityRole: 'button',
+              accessibilityLabel: item.accessibilityLabel ?? item.title,
+              accessibilityState: { disabled: item.disabled === true },
+              disabled: item.disabled,
+              onPress: item.onPress,
+            })
+          : null,
+      ),
+    );
   }
-  return { ...screens, ScreenStackItem };
+  return { ...screens, ScreenStack, ScreenStackItem };
 });
 
 // Component journeys substitute the native animation driver with its completed frame.
