@@ -185,6 +185,7 @@ const styles = StyleSheet.create({
     minHeight: 28,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
+    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -220,6 +221,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
+    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -583,9 +585,12 @@ export function Button({
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
+  const [focused, setFocused] = useState(false);
   const primary = fill === 'accent';
   const compact = size === 'compact';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  // Pressed, the accent fill shows at 80% (CC) and the quiet fill takes the selection tint.
+  const pressedFill = primary ? `${idle}CC` : colors.accentSelectionSubtle;
   let color = primary ? colors.accentOnFill : colors.textPrimary;
   if (destructive) {
     color = colors.statusDestructive;
@@ -595,7 +600,8 @@ export function Button({
     labelStyle = textStyles.subheadline;
   }
   const fillOf = (pressed: boolean) => ({
-    backgroundColor: pressed && !primary ? colors.accentSelectionSubtle : idle,
+    backgroundColor: pressed ? pressedFill : idle,
+    outlineColor: focused && !disabled ? colors.accentInk : 'transparent',
   });
   const text = <Text style={[labelStyle, { color }]}>{label}</Text>;
   return (
@@ -605,10 +611,16 @@ export function Button({
       accessibilityState={{ disabled }}
       disabled={disabled}
       focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={onPress}
       style={({ pressed }) => [
         compact ? styles.buttonTarget : [styles.button, fillOf(pressed)],
-        { opacity: disabled ? 0.5 : 1 },
+        { opacity: disabled ? 0.4 : 1 },
       ]}>
       {({ pressed }) =>
         compact ? (
