@@ -18,7 +18,6 @@ import Animated, {
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -187,8 +186,8 @@ export function MovingRow({
         cancelAnimation(size);
         cancelAnimation(opacity);
       } else {
-        size.set(withDelay(0, withTiming(0, timing)));
-        opacity.set(withDelay(0, withTiming(0, timing, done)));
+        size.set(withTiming(0, timing));
+        opacity.set(withTiming(0, timing, done));
       }
     } else if (reduced) {
       size.set(1);

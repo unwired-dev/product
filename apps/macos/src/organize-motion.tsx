@@ -10,12 +10,13 @@ import {
   placeLeavingRows,
   restingRowMotion,
 } from '@private-email/mail-core/mailboxes';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
   Easing,
   StyleSheet,
+  useAnimatedValue,
   View,
 } from 'react-native';
 
@@ -133,8 +134,8 @@ export function MovingRow({
   const reduced = motion?.reduced === true;
   // The content's own height once measured, and the share of it the row shows.
   const [natural, setNatural] = useState<number>();
-  const size = useMemo(() => new Animated.Value(1), []);
-  const opacity = useMemo(() => new Animated.Value(1), []);
+  const size = useAnimatedValue(1);
+  const opacity = useAnimatedValue(1);
   const measured = useRef(false);
   const settle = useRef(onSettled);
   // Whether this row has moved since it last rested.
