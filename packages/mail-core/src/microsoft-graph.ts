@@ -18,9 +18,9 @@ const graphRoot = 'https://graph.microsoft.com/v1.0';
 const listed =
   'id,conversationId,receivedDateTime,subject,bodyPreview,from,isRead';
 
-// The newest Inbox messages, newest first.
-export const graphInbox = (limit: number) =>
-  `${graphRoot}/me/mailFolders/inbox/messages?$select=${listed}&$orderby=receivedDateTime%20desc&$top=${limit}`;
+// The newest Inbox messages, or older mail for a cache refill, newest first.
+export const graphInbox = (limit: number, until?: string) =>
+  `${graphRoot}/me/mailFolders/inbox/messages?$select=${listed}&$orderby=receivedDateTime%20desc&$top=${limit}${until === undefined ? '' : `&$filter=receivedDateTime%20le%20${encodeURIComponent(until)}`}`;
 
 // A full delta round over the Inbox; its last page links to the changes after it.
 export const graphInboxDelta = `${graphRoot}/me/mailFolders/inbox/messages/delta?$select=${listed}&$orderby=receivedDateTime%20desc`;

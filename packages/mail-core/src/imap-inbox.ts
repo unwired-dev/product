@@ -47,12 +47,14 @@ import {
 import {
   createBodyLoads,
   downloadFailure,
+  reportArrivals,
   sendRejection,
 } from './gmail-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import {
   applyFolderRead,
+  arrivedMessages,
   cachedFolders,
   decodeBodyCommit,
   decodeCache,
@@ -658,11 +660,16 @@ export function createImapInbox(
   native: NativeImapMailbox,
   {
     removed,
+    arrived,
     shared = createBodyLoads(),
     connection = '',
   }: Readonly<{
     // Called after native code purged this device because another device removed it.
     removed?: (() => void) | undefined;
+    // Called once a committed Inbox read brought unread mail newly into it; see arrivedMessages.
+    arrived?:
+      | ((messages: readonly ImapMessage[]) => void | Promise<void>)
+      | undefined;
     shared?: Readonly<ReturnType<typeof createBodyLoads>>;
     connection?: string;
   }> = {},
@@ -1206,6 +1213,7 @@ export function createImapInbox(
       return;
     }
     const cached = cacheOf(name);
+    const started = DateTime.formatIso(yield* DateTime.now);
     const read = yield* decodeFolderRead(
       yield* call(() =>
         native.imapSynchronize(scope, {
@@ -1230,7 +1238,13 @@ export function createImapInbox(
     const others = current.mailboxes.filter((entry) => entry.name !== name);
     const inbox = others.filter((entry) => entry.name === inboxFolder);
     const rest = others.filter((entry) => entry.name !== inboxFolder);
-    const entry = { name, cache: applyFolderRead(name, cached, read) };
+    const entry = {
+      name,
+      cache: {
+        ...applyFolderRead(name, cached, read),
+        synchronizedAt: started,
+      },
+    };
     yield* commit({
       ...current,
       mailboxes:
@@ -1238,6 +1252,12 @@ export function createImapInbox(
           ? [entry, ...rest]
           : [...inbox, entry, ...rest].slice(0, cachedFolders + 1),
     });
+    if (name === inboxFolder) {
+      yield* reportArrivals(
+        arrived,
+        arrivedMessages(cached, read, entry.cache),
+      );
+    }
     yield* pruneBodies;
   });
 

@@ -2,8 +2,9 @@
 
 Reviewer-only companion to [the operational guide](../new-mail-notifications.md),
 under the [implementation and review workflow](../agents/implementation-review.md).
-Issue #619 implements ADR 0063's Gmail slice. IMAP/Microsoft expansion remains
-#1094, Quiet/Profile Lock #648, filtering #853 and presentation expansion #908.
+Issue #619 implements ADR 0063's Gmail slice; #1094 extends it to IMAP and
+Microsoft. Quiet/Profile Lock remains #648, filtering #853 and presentation
+expansion #908.
 
 ## Policy and execution
 
@@ -25,6 +26,29 @@ reporting arrivals. Rebase retains the greater saved boundary. Older caches seed
 it before opening a view. Listing, backfill, expired-history relisting and moved
 messages produce no arrival. Notifications remain best effort; this does not add
 a transactional notification-center delivery journal.
+
+IMAP's encrypted folder cache retains UIDVALIDITY, UIDNEXT and the read's start.
+New unread UIDs under the same validity are candidates only within the previous
+read's receipt-time allowance. Persisted IMAP instants are decoded before use;
+a cache without one first commits a read silently to establish its boundary.
+The operational guide owns the five-minute clock allowance and accepted
+move/flood limitations.
+
+Graph applies only delta-page candidates after commit. The bounded cache's
+oldest receipt excludes previously evicted messages. A refill requests only
+messages no newer than the previous cache's oldest entry, so removing that entry
+cannot admit pending arrivals or let them crowd older refill rows out. Newer
+mail enters through its delta page. Initial and expired-link listings remain
+silent. Graph keeps no notification timestamps or candidate-ID state, and an
+unchanged quiet-round link commits nothing.
+
+Gmail and Graph commits restart synchronization when a CAS conflict reveals
+changed provider progress, compared through the checkpoint schema's equivalence.
+This prevents stale metadata from replacing another store's later pages.
+Unchanged checkpoints retain ordinary intent rebasing for concurrent action
+intake. Reopening advanced progress suppresses already reported arrivals. A page's candidates
+remain transient and are reported only after that page commits; Graph associates
+them with the produced document through a WeakMap.
 
 The host awaits settings and posting before completing a synchronization/wake.
 TypeScript rechecks the captured account/connection/address/epoch owner and switch

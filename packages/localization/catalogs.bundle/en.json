@@ -1108,7 +1108,7 @@
     "perMailbox": "Per Mailbox",
     "mailbox": "{{provider}} · {{address}}",
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",
-    "noMailboxes": "Notifications are available for Gmail mailboxes.",
+    "noMailboxes": "Add a mailbox to choose its notifications.",
     "changeFailed": "Notifications could not be changed. Try again later."
   },
   "profiles": {

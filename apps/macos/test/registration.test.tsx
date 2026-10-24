@@ -1191,9 +1191,11 @@ describe('product registration', () => {
     const gmail = createSyntheticGmail({ messages: 1 });
     const { synthetic, setup } = await signedIn();
     await setup.addMailbox();
+    await setup.addMailbox('microsoft-graph');
     const store = createRegistration(synthetic.vault);
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: gmail.native },
+      [syntheticMailboxes['casey@example.invalid']]: createSyntheticGraph(),
     });
     const device = { authorization: 'undetermined', previews: false };
     const requests: string[] = [];
@@ -1237,13 +1239,16 @@ describe('product registration', () => {
     const mailbox = await settingsWindow().findByRole('switch', {
       name: 'Gmail · alex@example.invalid',
     });
-    // Off until turned on, with generic content by default.
+    // Off until turned on, with generic content by default; every provider has its own switch.
     expect({
       mailbox: mailbox.props.value,
+      microsoft: settingsWindow().getByRole('switch', {
+        name: 'Microsoft · casey@example.invalid',
+      }).props.value,
       previews: settingsWindow().getByRole('switch', {
         name: 'Show Sender and Subject',
       }).props.value,
-    }).toStrictEqual({ mailbox: false, previews: false });
+    }).toStrictEqual({ mailbox: false, microsoft: false, previews: false });
     await act(async () => {
       await fireEvent(mailbox, 'valueChange', true);
     });
@@ -1258,7 +1263,7 @@ describe('product registration', () => {
       }).props.value,
     }).toStrictEqual({
       requests: ['permission'],
-      notifying: [true],
+      notifying: [true, undefined],
       shown: true,
     });
   });
