@@ -564,36 +564,31 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   posting, or iOS can suspend the process after the history checkpoint advances
   but before its alert reaches the system.
 
-- `graph-inbox.ts.quietRound` skipping the notification-time commit because an
-  empty round returned the same delta link. Persist the completed round's start
-  independently of whether its link changed, and exercise quiet synchronization
-  followed by relaunch and moved-in mail. Otherwise a stale arrival boundary can
-  report mail received before the latest synchronization's clock allowance.
-
 - `graph-inbox.ts` equating absence from the bounded cache with a new arrival.
   Exercise updates to evicted messages and repeated delta IDs after newer pages
-  evict them, retaining the oldest-kept receipt guard. Keep all pages of a round
-  on its previous completed boundary and persist the round's start across
-  interruption/relaunch. Otherwise cached-history updates can alert, arrivals
-  can repeat, or later-page deliveries can be suppressed.
+  evict them, retaining the oldest-kept receipt guard. Exercise later-page
+  arrivals and interruption/relaunch without adding a notification-time boundary.
+  Otherwise cached-history updates can alert, arrivals can repeat, or later-page
+  deliveries can be suppressed.
 
-- `graph-inbox.ts.listGraph` treating mail discovered by a cache refill as already
-  considered for notifications. Preserve bounded arrival eligibility until that
-  message's delta entry commits, including interruption/relaunch and quiet
-  rounds. Otherwise a deletion page's refill can swallow an arrival from a later
-  delta page without exceeding the cache limit.
+- `graph-inbox.ts.listGraph` allowing newer mail into a cache refill before its
+  delta page classifies it. Request only mail no newer than the retained cache's
+  oldest entry, using the previous cache's oldest when none remain. Filter at the
+  provider so pending arrivals cannot crowd out older rows and disable the
+  full-cache eviction guard. Exercise deletion/refill followed by a historical
+  update and an arrival, including relaunch. Otherwise refills can swallow later
+  arrivals or updates to evicted historical messages can notify.
 
-- Graph synchronization rebasing a stale delta page over another reader's
-  committed checkpoint or considered-message state. Reopen changed progress
-  before reporting, retain ordinary intake rebases and preserve quiet-round
-  completion across them. Otherwise two stores can report the same arrival or
-  repeatedly commit quiet rounds until the page limit.
+- `gmail-inbox.ts` reporting arrivals already saved by a competing store when a
+  page commit rebases. Exclude candidates present in that saved document before
+  reporting, for Gmail and Graph. Retain ordinary intake rebases and quiet rounds
+  with unchanged links that commit nothing. Otherwise two stores can report the
+  same arrival or repeatedly commit quiet rounds until the page limit.
 
-- Persisted synchronization instants in `mailbox-document.ts` and `imap-model.ts`
+- Persisted synchronization instants in `imap-model.ts`
   accepted as arbitrary strings before `mailbox-message.ts.newMailSince` converts
-  them unsafely. Reject malformed values at decoding, including a resumed Graph
-  round's start, or synchronization can reject outside typed recovery and leave
-  the Inbox permanently syncing.
+  them unsafely. Reject malformed values at decoding, or synchronization can
+  reject outside typed recovery and leave the Inbox permanently syncing.
 
 - `gmail-inbox.ts.settled` merging confirmed action metadata into the Inbox or
   another cached view without enforcing `cacheLimit` before commit/publication.

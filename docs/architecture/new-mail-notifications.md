@@ -29,21 +29,22 @@ a transactional notification-center delivery journal.
 
 IMAP's encrypted folder cache retains UIDVALIDITY, UIDNEXT and the read's start.
 New unread UIDs under the same validity are candidates only within the previous
-read's receipt-time allowance. Graph's encrypted document retains the previous
-completed synchronization's start and carries a pending round's original start
-through continuations. A quiet round commits its start even when its delta link
-does not change. Persisted instants are decoded before use. The operational
-guide owns the five-minute clock allowance and accepted move/flood limitations.
+read's receipt-time allowance. Persisted IMAP instants are decoded before use.
+The operational guide owns the five-minute clock allowance and accepted
+move/flood limitations.
 
 Graph applies only delta-page candidates after commit. The bounded cache's
-oldest receipt excludes previously evicted messages; a refill additionally
-retains at most its cached candidate IDs as `unconsidered` in the checkpoint.
-These IDs permit a later delta page to consider an arrival already cached by
-that refill, survive relaunch and quiet rounds, and leave after their delta entry
-commits or they leave the cache. Initial and expired-link listings remain silent.
-An intake-only CAS conflict rebases normally and retains the quiet-round stop
-marker. A competing reader's changed checkpoint or considered-message state
-instead restarts from durable progress before reporting, preventing duplicates.
+oldest receipt excludes previously evicted messages. A refill requests only
+messages no newer than the oldest remaining entry, or the previous cache's oldest
+when none remain, so pending arrivals cannot crowd older refill rows out. Newer
+mail enters through its delta page. Initial and expired-link listings remain
+silent. Graph keeps no notification timestamps or candidate-ID state, and an
+unchanged quiet-round link commits nothing.
+
+Gmail and Graph commits retain ordinary CAS rebasing. After a rebase, arrivals
+already present in the competing store's saved document are left out before
+reporting. A page's candidates remain transient and are reported only after that
+page commits; Graph associates them with the produced document through a WeakMap.
 
 The host awaits settings and posting before completing a synchronization/wake.
 TypeScript rechecks the captured account/connection/address/epoch owner and switch
