@@ -49,16 +49,13 @@ establish completed implementation or native qualification.
 
 ## Next steps
 
-1. Done: inventory controls and user-initiated content changes in both clients
-   ([coverage ledger](#coverage-ledger)).
-2. In review: the representative motion examples in Figma, including Reduce
-   Motion, interruption, failure and Undo
-   ([proposed motion specification](#proposed-motion-specification)). Obtain
-   owner approval and link the approved nodes here.
-3. After approval, implement approved defaults with the supported tools of each
+1. Obtain owner approval of the
+   [proposed motion specification](#proposed-motion-specification) and link the
+   approved Figma nodes here.
+2. After approval, implement approved defaults with the supported tools of each
    host through the follow-up owners. Share motion values only where both hosts
    need them; native transitions retain their platform defaults.
-4. Verify the affected journeys on iPhone, iPad and Mac and update the ledger
+3. Verify the affected journeys on iPhone, iPad and Mac and update the ledger
    with evidence. Record unavailable native checks as deferred rather than passed.
 
 No new motion dependency or universal animation wrapper is selected.
