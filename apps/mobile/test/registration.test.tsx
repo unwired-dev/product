@@ -2589,6 +2589,7 @@ describe('product registration', () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
+    await connectImap(store, { address: 'alex@icloud.example.invalid' });
     const device = { authorization: 'denied', previews: false };
     const native: string[] = [];
     const notifications = createNotifications(
@@ -2644,10 +2645,15 @@ describe('product registration', () => {
       mailbox: screen.getByRole('switch', {
         name: 'Gmail · alex@example.invalid',
       }).props.value,
+      // Every provider has its own switch.
+      imap: screen.getByRole('switch', {
+        name: 'IMAP · alex@icloud.example.invalid',
+      }).props.value,
     }).toStrictEqual({
       native: ['system settings'],
       previews: true,
       mailbox: false,
+      imap: false,
     });
   });
 

@@ -94,6 +94,38 @@ type PendingChange = Pick<PendingAction, 'action' | 'message'>;
 // The most folders Move to lists for one mailbox.
 const folderLimit = 250;
 
+// The new Inbox mail one delta page brought: unread and not already cached, so an update to a
+// listed message is not. A full cache has dropped its oldest messages, so an uncached one no newer
+// than the oldest kept may have been listed or reported before, as when Graph changes a dropped
+// message or names an arrival again after newer mail.
+const deltaArrivals = (
+  document: MailboxDocument,
+  changed: ReadonlyArray<readonly [string, GmailMessage | undefined]>,
+) => {
+  const known = new Set(document.messages.map(({ id }) => id));
+  const evictedUntil = cacheEdge(document) ?? '';
+  return changed.flatMap(([id, message]) =>
+    message?.unread === true &&
+    !known.has(id) &&
+    message.receivedAt > evictedUntil
+      ? [message]
+      : [],
+  );
+};
+
+// Keep the previous eviction edge until refill, advancing it if settlements fill the cache and
+// evict newer mail. No edge is needed while the cache holds the whole Inbox.
+function cacheEdge({ checkpoint, messages }: MailboxDocument) {
+  const refillUntil =
+    checkpoint.kind === 'graph-current' ? checkpoint.refillUntil : undefined;
+  return messages.length === cacheLimit
+    ? Order.max(Order.String)(
+        refillUntil ?? '',
+        messages.at(-1)?.receivedAt ?? '',
+      )
+    : refillUntil;
+}
+
 type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
   { kind: 'graph-listing' | 'graph-current' }
@@ -107,6 +139,8 @@ const isGraphCheckpoint = (
 export function createGraphReader(native: NativeGraphMailbox) {
   // Documents that saved the link of an empty delta round; their synchronization is current.
   const quiet = new WeakSet<MailboxDocument>();
+  // The new Inbox mail each document's delta page brought, which its commit reports.
+  const arrivals = new WeakMap<MailboxDocument, readonly GmailMessage[]>();
   // One Graph read; a delta link Graph no longer accepts is GmailInvalidPage.
   const graphRead =
     (scope: MailboxScope) =>
@@ -137,9 +171,15 @@ export function createGraphReader(native: NativeGraphMailbox) {
   const listGraph = Effect.fnUntraced(function* (
     scope: MailboxScope,
     previous: MailboxDocument | undefined,
-    checkpoint: MailboxDocument['checkpoint'],
+    {
+      checkpoint,
+      until,
+    }: Readonly<{
+      checkpoint: MailboxDocument['checkpoint'];
+      until?: string;
+    }>,
   ) {
-    let url = graphInbox(cacheLimit);
+    let url = graphInbox(cacheLimit, until);
     const messages = new Map<string, GmailMessage>();
     // A page may be shorter than $top. Bound even empty or repeated continuation pages.
     for (let pages = 0; pages < cacheLimit; pages += 1) {
@@ -169,7 +209,8 @@ export function createGraphReader(native: NativeGraphMailbox) {
   });
 
   // Applies one page of later changes. Graph cannot name the unchanged older message that now
-  // fits after a full cache loses one, so the Inbox is listed again then.
+  // fits after a full cache loses one, so the Inbox is listed again then for messages no newer than
+  // the oldest previously kept; newer listed mail is left to the delta page that classifies it.
   const applyDelta = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument,
@@ -188,14 +229,32 @@ export function createGraphReader(native: NativeGraphMailbox) {
     );
     const merged = merge(document.messages, changed);
     const current = { kind: 'graph-current', link } as const;
-    if (document.messages.length === cacheLimit && merged.length < cacheLimit) {
-      return yield* listGraph(scope, document, current);
+    let messages = merged.slice(0, cacheLimit);
+    const edge = cacheEdge(document);
+    if (edge !== undefined && merged.length < cacheLimit) {
+      const kept = new Set(merged.map(({ id }) => id));
+      // Filter at the provider so pending newer arrivals cannot crowd older refill rows out.
+      const listed = yield* listGraph(scope, document, {
+        checkpoint: current,
+        until: edge,
+      });
+      messages = Arr.sort(
+        [
+          ...merged,
+          ...listed.messages.filter(
+            ({ id, receivedAt }) => !kept.has(id) && receivedAt <= edge,
+          ),
+        ],
+        newestFirst,
+      ).slice(0, cacheLimit);
     }
-    return {
+    const next = {
       ...document,
-      messages: merged.slice(0, cacheLimit),
+      messages,
       checkpoint: current,
     } satisfies MailboxDocument;
+    arrivals.set(next, deltaArrivals(document, changed));
+    return next;
   });
 
   // An unchanged Inbox still saves the round's link, as Graph asks, so a quiet mailbox never waits
@@ -206,7 +265,10 @@ export function createGraphReader(native: NativeGraphMailbox) {
     }
     const current: MailboxDocument = {
       ...document,
-      checkpoint: { kind: 'graph-current', link },
+      checkpoint:
+        document.checkpoint.kind === 'graph-current'
+          ? { ...document.checkpoint, link }
+          : { kind: 'graph-current', link },
     };
     quiet.add(current);
     return Option.some(current);
@@ -224,7 +286,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
   > {
     const listing = { kind: 'graph-listing' } as const;
     if (document === undefined || !isGraphCheckpoint(document.checkpoint)) {
-      return Option.some(yield* listGraph(scope, document, listing));
+      return Option.some(
+        yield* listGraph(scope, document, { checkpoint: listing }),
+      );
     }
     const { checkpoint } = document;
     const page = yield* graphRead(scope)(
@@ -235,14 +299,18 @@ export function createGraphReader(native: NativeGraphMailbox) {
       Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
     );
     if (Option.isNone(page)) {
-      return Option.some(yield* listGraph(scope, document, listing));
+      return Option.some(
+        yield* listGraph(scope, document, { checkpoint: listing }),
+      );
     }
     const next = page.value['@odata.nextLink'];
     const link = yield* pageLink(page.value);
     if (checkpoint.kind === 'graph-listing') {
       return Option.some(
         next === undefined
-          ? yield* listGraph(scope, document, { kind: 'graph-current', link })
+          ? yield* listGraph(scope, document, {
+              checkpoint: { kind: 'graph-current', link },
+            })
           : { ...document, checkpoint: { kind: 'graph-listing', link } },
       );
     }
@@ -362,9 +430,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
       isGraphCheckpoint(document.checkpoint) &&
       document.messages.some(({ labels }) => labels === undefined)
     ) {
-      return listGraph(scope, document, document.checkpoint).pipe(
-        Effect.asSome,
-      );
+      return listGraph(scope, document, {
+        checkpoint: document.checkpoint,
+      }).pipe(Effect.asSome);
     }
     if (step >= 200) {
       return Effect.fail(
@@ -546,6 +614,8 @@ export function createGraphReader(native: NativeGraphMailbox) {
 
   return {
     advance,
+    // The new Inbox mail the delta page that produced `document` brought; listings bring none.
+    arrivals: (document: MailboxDocument) => arrivals.get(document) ?? [],
     partData,
     fullMessage,
     labels,

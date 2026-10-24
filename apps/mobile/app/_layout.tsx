@@ -57,6 +57,7 @@ import {
   useProfile,
   WindowProfileScope,
 } from '../src/mailbox.tsx';
+import { createWindowProfileChoices } from '../src/profile-choices.ts';
 import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { native, registration, start } from '../src/registration.ts';
@@ -482,6 +483,7 @@ function MailShell() {
 }
 
 export default function RootLayout() {
+  const savedChoices = useMemo(() => createWindowProfileChoices(), []);
   const params = useGlobalSearchParams<{
     id?: string;
     profileId?: string | string[];
@@ -512,6 +514,7 @@ export default function RootLayout() {
           {/* A message or Thread link from before Profiles names none and opens in the Default
               Profile, which owns every mailbox it can name. */}
           <WindowProfileScope
+            savedChoices={savedChoices}
             routeAccount={
               routeAccount?.params === params ? routeAccount.account : undefined
             }

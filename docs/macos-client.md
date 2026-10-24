@@ -40,9 +40,9 @@ reviewed Swift packages, SwiftMail and swift-log, at the revisions
 [its manifest pins](imap-mailboxes.md#engine-and-dependencies). Adding any kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
-SF Symbol and Liquid Glass views shared with the iPhone/iPad host, and the Mac-only
-`UnwiredMenu` presenter. The composer's Text style, From, actions and Writing tools
-pop-ups open an AppKit `NSMenu` through it: the system owns presentation, keyboard
+SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
+`UnwiredMenu` and `UnwiredAlert` presenters, and `UnwiredAppleIDButton`. The composer's Text style, From, actions
+and Writing tools pop-ups open an AppKit `NSMenu` through `UnwiredMenu`: the system owns presentation, keyboard
 navigation, Escape and click-outside dismissal. Each menu drops below its control and
 checks the current choice. Writing tools retain
 their localized selection/body descriptions for accessibility. React Native
@@ -52,6 +52,23 @@ the presenter when the host provides an anchored menu with those states. Follow
 React Native macOS/AppKit controls and presenters over custom equivalents, and
 retain a minimal native adapter only for a documented host API gap. Expo UI
 availability on mobile does not establish Mac compatibility.
+`UnwiredAlert` asks the evaluation editor's save question and the reader's link
+confirmation in an `NSAlert` sheet on the asking view's own window and withdraws it
+by request when its asker goes away. It can name the button Escape answers, mark one
+destructive, replace the app icon with an SF Symbol and show a long selectable
+passage, such as a link destination, in a bounded scrolling view: `NSAlert`'s own
+text grows the sheet past the screen.
+React Native macOS 0.81.9's `Alert` asks over the key window and cannot withdraw a
+question. Remove the presenter when the host's alert can target a window and be
+dismissed.
+Sign In's **Sign in with Apple** is AppKit's `ASAuthorizationAppleIDButton` through
+`UnwiredAppleIDButton`: black in Light, white in Dark, and turned off while a
+sign-in runs. The system draws and localizes its title and exposes it to VoiceOver;
+activation starts the existing Apple registration. The Mac button of
+`@invertase/react-native-apple-authentication` 2.5.1 has no enabled state and fixes
+its style per view, and the package adds a second Apple authorization module.
+Remove the adapter when React Native macOS or a maintained package offers the
+system button with an enabled state and both styles.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
@@ -106,10 +123,8 @@ hardware-keyboard qualification remain separate release checks.
 The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
 Shift-Command-Z history.
 
-Link confirmations move keyboard focus to their first choice and cycle Tab and
-Shift-Tab within the choices; Escape dismisses the alert. Dismissal does not
-explicitly restore focus to the originating link because that control is not
-tracked.
+Link confirmations are AppKit alert sheets, which own their keyboard focus,
+Return and Escape, VoiceOver and the return of focus to the window.
 
 The [keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
 covers what the keyboard reaches today: Command Palette commands, Search Mail,
@@ -245,11 +260,15 @@ and rejects zero-test success. XCTest terminates its launched app on failure.
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
 probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the test supplies `UNWIRED_LIFECYCLE_PATH`;
 the application never creates a test-control server or accepts reset commands.
-Records contain only lifecycle event names, process/session identity, window
+Lifecycle records contain event names, process/session identity, window
 counts and tick counts. With that path, the probe also records each primary mouse
-press and release and observed main-queue delays of 100 ms or longer, with their uptime
-and duration, for the
+press and release, key press with the display's maximum-refresh interval, focused
+non-field-editor text edit, that text view's first draw after each edit with a recent
+display frame start and the frame interval, and observed main-queue delays of 100 ms
+or longer, with their uptime and duration where applicable, for the
 [performance journey](agents/native-validation.md#mac-performance-journey). In
+text-edit records it includes the text and its per-UTF-16-unit bold, italic and
+underline marks; the journey uses synthetic composer content. In
 registration Mock Mail Sessions, the synthetic relay also appends the uptime of
 each provider body request, with no URL or message content. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.

@@ -36,7 +36,10 @@ the app menu's **Settings…** (Command-,) also opens; opening it again brings t
 window forward on the destination asked for, or where the person left it. Closing
 it leaves every Inbox window as it was, and its Command Palette's Inbox brings an
 Inbox window forward. On iPhone, Settings pushes onto the native navigation stack;
-edge-back or **Open Inbox** returns to the kept Inbox, reader or composer. iPad
+edge-back returns to where it opened, such as Mailboxes or the kept Inbox,
+reader or composer. When Settings opened from Mailboxes (**Account**, **Manage
+Mail Profiles** or an IMAP password repair), **Open Inbox** shows the kept Inbox.
+Reopening **Account** starts Settings on its list of destinations. iPad
 opens its two-column workspace over that same kept content, with **Open Inbox**
 to return. Sign-out or locked storage closes Settings. On mobile, pending setup
 or a different Product Account closes it too; an open Mac Settings window starts
@@ -696,10 +699,11 @@ or Inbox owner changes, and the current ownership boundary is checked again
 immediately before handoff. No link inspection needs a network lookup, backend,
 persistence or URL logging.
 
-On Mac, confirmation is a window-level glass alert over the dimmed Mailboxes
-sidebar, Inbox and reading pane. The window's selected mailbox and message gate
-the presentation; background accessibility is hidden while it is open, and
-Escape dismisses it.
+On Mac, confirmation is a system alert sheet on the reader's window. The window's
+selected mailbox and message gate the presentation, and the sheet closes without
+acting when either changes. The full destination scrolls within the sheet when it
+is long and can be selected. Escape answers Cancel. A flagged link makes Cancel the
+default button too, and its Proceed reads as destructive.
 Other windows retain their independent selections and confirmations.
 
 The accepted link inspection additionally compares URL-like visible anchor text
@@ -869,7 +873,9 @@ Normal-height documents stay pinned to the top of WebKit and use the
 reader's outer vertical scroll; horizontal overflow cannot introduce a second
 vertical scroll. Desktop-width tables and blocked image placeholders narrow to
 the column. Content that still needs more width, such as unwrappable text,
-scrolls horizontally inside WebKit instead of being clipped. Only a document
+scrolls horizontally inside WebKit instead of being clipped. On the Mac, horizontal
+mouse-wheel or trackpad scrolling moves the message sideways while vertical
+scrolling still moves the reader. Only a document
 above the presentation height cap scrolls vertically inside WebKit. The reader's cap is 20,000 points on both hosts, and a
 document above it stays fully reachable by scrolling inside the view.
 

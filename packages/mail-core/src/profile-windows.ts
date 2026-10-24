@@ -8,6 +8,7 @@ import type {
   MailboxConnection,
   MailProfile,
 } from './registration-snapshot.ts';
+import type { ProfileFailure } from './registration.ts';
 
 import { savedPreference, savePreference } from './commands.ts';
 import { runLogged } from './diagnostics.ts';
@@ -63,8 +64,73 @@ export const profileMonogram = (name: string) =>
 type Listed = Parameters<typeof mailboxSidebar>[0]['mailboxes'][number] &
   Readonly<{ profile: string }>;
 
+// A Mail Profile's connections by provider, or that it has none.
+export const profileConnections = (
+  t: Translate,
+  connections: readonly MailboxConnection[],
+  profile: string,
+) => {
+  const owned = profileMailboxes(connections, profile);
+  return owned.length === 0
+    ? t('profiles.noMailboxes')
+    : owned
+        .map(({ provider }) => t(`mailProviders.${provider}`))
+        .reduce((names, provider) =>
+          t('profiles.connections', { connections: names, provider }),
+        );
+};
+
+// The question asked before removing a Mail Profile, naming the mailboxes removed with it.
+export const profileRemoval = (
+  t: Translate,
+  name: string,
+  owned: readonly MailboxConnection[],
+) => {
+  const [only] = owned;
+  if (only === undefined) {
+    return {
+      title: t('profiles.removeQuestion', { name }),
+      message: t('profiles.removeEmpty', { name }),
+    };
+  }
+  return {
+    title: t('profiles.removeQuestionMailboxes', { name }),
+    message: t('profiles.removeMailboxes', {
+      count: owned.length,
+      addresses: owned.map(({ address }) => address).join(', '),
+      provider:
+        only.provider === 'imap'
+          ? t('profiles.mailServer')
+          : t(`mailProviders.${only.provider}`),
+    }),
+  };
+};
+
+// Why a Mail Profile change did not complete.
+export const profileRefusalText = (
+  t: Translate,
+  change: 'new' | 'rename' | 'move' | 'remove',
+  failure: ProfileFailure,
+) => {
+  if (failure === 'upgrade-required') {
+    return {
+      title: t('profiles.upgradeTitle'),
+      message: t(
+        change === 'new' ? 'profiles.upgradeMessage' : 'profiles.upgradeRetry',
+      ),
+    };
+  }
+  return {
+    title: t(`profiles.${change}Title`),
+    message: t(
+      failure === 'failed' ? `profiles.${change}Failed` : 'profiles.changed',
+    ),
+  };
+};
+
 // The Profile Menu: every Mail Profile with its connections and unread mail, the window's own
-// checked, then New Mail Profile…. Choosing a Profile switches only the window that asked.
+// checked, then New Mail Profile… and Manage Mail Profiles…. Choosing a Profile switches only the
+// window that asked.
 export const profileMenu = (
   t: Translate,
   {
@@ -74,6 +140,7 @@ export const profileMenu = (
     current,
     onSwitch,
     onCreate,
+    onManage,
   }: Readonly<{
     profiles: readonly MailProfile[];
     connections: readonly MailboxConnection[];
@@ -81,34 +148,32 @@ export const profileMenu = (
     current: string;
     onSwitch: (profile: string) => void;
     onCreate: () => void;
+    // Opens Settings › Mail Profiles.
+    onManage: () => void;
   }>,
 ): readonly MenuSection[] => [
   {
     items: [defaultProfile, ...profiles.map(({ id }) => id)].map((id) => {
-      const owned = profileMailboxes(connections, id);
       const { unread } = mailboxSidebar({
         mailboxes: profileMailboxes(mailboxes, id),
         connections,
         profile: id,
         view: {},
       });
-      const connectionNames =
-        owned.length === 0
-          ? t('profiles.noMailboxes')
-          : owned
-              .map(({ provider }) => t(`mailProviders.${provider}`))
-              .reduce((names, provider) =>
-                t('profiles.connections', { connections: names, provider }),
-              );
       return {
         key: `profile\n${id}`,
         title: profileName(t, id, profiles),
         symbol: '',
         subtitle: t(
-          owned.some(({ state }) => state === 'authorization')
+          profileMailboxes(connections, id).some(
+            ({ state }) => state === 'authorization',
+          )
             ? 'profiles.detail_authorization'
             : 'profiles.detail',
-          { connections: connectionNames, count: unread },
+          {
+            connections: profileConnections(t, connections, id),
+            count: unread,
+          },
         ),
         checked: id === current,
         // The window's own Profile changes nothing, so an open composer and reader stay.
@@ -128,14 +193,20 @@ export const profileMenu = (
         symbol: 'plus',
         run: onCreate,
       },
+      {
+        key: 'profile\nmanage',
+        title: t('profiles.manage'),
+        symbol: 'gearshape',
+        run: onManage,
+      },
     ],
   },
 ];
 
 // The device-local choices behind each window's Profile, never synchronized: the Profile the
-// iPhone and iPad window last showed, and the Startup Profile a new window opens.
+// iPhone and iPad window last showed, and each Product Account's Startup Profile for new windows.
 const restoredKey = 'window-profile';
-const startupKey = 'startup-profile';
+const startupKey = (account: string) => `startup-profile:${account}`;
 
 export type ProfileChoices = Readonly<{
   restored: string | undefined;
@@ -143,24 +214,39 @@ export type ProfileChoices = Readonly<{
 }>;
 
 /**
- * The saved window Profile choices, undefined until loaded. A store for the
- * host.
+ * The saved window Profile choices by Product Account, undefined until loaded.
+ * A store for the host.
  *
  * @param {NativePreferences} native The device's saved preferences.
  * @returns {object} The choices, their loading and the window's restored
  *   Profile.
  */
 export const createProfileChoices = (native: NativePreferences) => {
-  let choices: ProfileChoices | undefined = undefined;
+  const choices = new Map<string, ProfileChoices>();
   const listeners = new Set<() => void>();
-  const publish = (next: ProfileChoices) => {
-    choices = next;
+  const publish = (account: string, next: ProfileChoices) => {
+    choices.set(account, next);
     for (const listener of listeners) {
       listener();
     }
   };
+  const save =
+    (choice: keyof ProfileChoices) => (account: string, profile: string) => {
+      const current = choices.get(account);
+      if (current === undefined || current[choice] === profile) {
+        return Promise.resolve();
+      }
+      publish(account, { ...current, [choice]: profile });
+      return runLogged(
+        savePreference(
+          native,
+          choice === 'startup' ? startupKey(account) : restoredKey,
+          profile,
+        ),
+      );
+    };
   return {
-    getSnapshot: () => choices,
+    getSnapshot: (account: string) => choices.get(account),
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {
@@ -169,28 +255,24 @@ export const createProfileChoices = (native: NativePreferences) => {
     },
     // Each window reads the saved choices when it opens; an unreadable one reads as none, so the
     // window falls back to the next.
-    load: () =>
+    load: (account: string) =>
       runLogged(
         Effect.all([
           savedPreference(native, restoredKey),
-          savedPreference(native, startupKey),
+          savedPreference(native, startupKey(account)),
         ]).pipe(
           Effect.tap(([restored, startup]) =>
             Effect.sync(() => {
-              publish({ restored, startup });
+              publish(account, { restored, startup });
             }),
           ),
           Effect.asVoid,
         ),
       ),
     // The window's last active Profile, which the next launch restores.
-    restore: (profile: string) => {
-      if (choices === undefined || choices.restored === profile) {
-        return Promise.resolve();
-      }
-      publish({ ...choices, restored: profile });
-      return runLogged(savePreference(native, restoredKey, profile));
-    },
+    restore: save('restored'),
+    // The Startup Profile, chosen in Settings, which new windows open.
+    chooseStartup: save('startup'),
   };
 };
 

@@ -9,11 +9,14 @@ const unwiredRegistration = {
   setPreference: () => Promise.resolve({}),
 };
 const { getEnforcing } = TurboModuleRegistry;
-// `UnwiredMenu` tracks one menu at a time until the journey answers it. It loads with the
-// journey, once Testing Library can.
+// `UnwiredMenu` and `UnwiredAlert` each track one menu or sheet at a time until the journey answers
+// it. They load with the journey, once Testing Library can.
 TurboModuleRegistry.getEnforcing = (name) => {
   if (name === 'UnwiredRegistration') {
     return unwiredRegistration;
+  }
+  if (name === 'UnwiredAlert') {
+    return require('./native-alert.ts').unwiredAlert;
   }
   return name === 'UnwiredMenu'
     ? require('./native-menu.ts').unwiredMenu

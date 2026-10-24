@@ -1191,9 +1191,11 @@ describe('product registration', () => {
     const gmail = createSyntheticGmail({ messages: 1 });
     const { synthetic, setup } = await signedIn();
     await setup.addMailbox();
+    await setup.addMailbox('microsoft-graph');
     const store = createRegistration(synthetic.vault);
     const mailboxes = gmailMailboxes(store, {
       [alex]: { native: gmail.native },
+      [syntheticMailboxes['casey@example.invalid']]: createSyntheticGraph(),
     });
     const device = { authorization: 'undetermined', previews: false };
     const requests: string[] = [];
@@ -1237,13 +1239,16 @@ describe('product registration', () => {
     const mailbox = await settingsWindow().findByRole('switch', {
       name: 'Gmail · alex@example.invalid',
     });
-    // Off until turned on, with generic content by default.
+    // Off until turned on, with generic content by default; every provider has its own switch.
     expect({
       mailbox: mailbox.props.value,
+      microsoft: settingsWindow().getByRole('switch', {
+        name: 'Microsoft · casey@example.invalid',
+      }).props.value,
       previews: settingsWindow().getByRole('switch', {
         name: 'Show Sender and Subject',
       }).props.value,
-    }).toStrictEqual({ mailbox: false, previews: false });
+    }).toStrictEqual({ mailbox: false, microsoft: false, previews: false });
     await act(async () => {
       await fireEvent(mailbox, 'valueChange', true);
     });
@@ -1258,7 +1263,7 @@ describe('product registration', () => {
       }).props.value,
     }).toStrictEqual({
       requests: ['permission'],
-      notifying: [true],
+      notifying: [true, undefined],
       shown: true,
     });
   });
@@ -1589,6 +1594,51 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
   });
 
+  it('turns off the system Sign in with Apple button and Google while a sign-in runs (#1127)', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-declined');
+    let answer: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Apple's answer until checked.
+    const held = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    await render(
+      <RegistrationGate
+        store={started(
+          createRegistration({
+            ...synthetic.vault,
+            signInIdentity: async (...request) => {
+              await held;
+              return synthetic.vault.signInIdentity(...request);
+            },
+          }),
+        )}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await continueToSignIn();
+    const apple = await screen.findByTestId('sign-in-with-apple');
+    expect(apple).toHaveProp('enabled', true);
+    await act(async () => {
+      await fireEvent.press(apple);
+    });
+    expect(screen.getByTestId('sign-in-with-apple')).toHaveProp(
+      'enabled',
+      false,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Sign in with Google' }),
+    ).toBeDisabled();
+    await act(async () => {
+      answer();
+      await held;
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Connect your mail' }),
+    ).resolves.toBeVisible();
+  });
+
   it('continues Apple sign-in into separate Gmail authorization and keeps the relay address as contact information', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the provider choice and the Gmail grant. */
     expect.hasAssertions();
@@ -1602,9 +1652,7 @@ describe('product registration', () => {
     );
     await continueToSignIn();
     await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Sign in with Apple' }),
-      );
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
     });
     await expect(
       screen.findByRole('header', { name: 'Connect your mail' }),
@@ -1680,7 +1728,9 @@ describe('product registration', () => {
       });
     };
     await press('Continue');
-    await press('Sign in with Apple');
+    await act(async () => {
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
+    });
     // Sign-in alone asks no provider for mail; the person chooses one.
     await expect(
       screen.findByRole('header', { name: 'Connect your mail' }),
@@ -1888,7 +1938,9 @@ describe('product registration', () => {
       });
     };
     await press('Continue');
-    await press('Sign in with Apple');
+    await act(async () => {
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
+    });
     await press('Choose another Google mailbox');
     await settings('Privacy & Data');
     // Each pop-up shows its policy, and its menu checks the same one.
@@ -2064,6 +2116,7 @@ describe('product registration', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  /* oxlint-disable vitest/max-expects -- One journey proves search, saved bodies, the reader's wheel routing and stale answers. */
   it('searches saved senders and subjects across mailboxes, shows saved bodies, and keeps only the current answer', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-success');
@@ -2295,6 +2348,42 @@ describe('product registration', () => {
       expect(body.props.source.html).toContain('Coffee');
       expect(screen.getByLabelText('Message')).toBeVisible();
     });
+    expect(body.props).toMatchObject({ scrollEnabled: false });
+    // Wider content, such as unwrappable text, scrolls sideways inside the view. Without bounce,
+    // the native view passes vertical wheel scrolling of a normal-height document to the reader;
+    // a document above the height cap keeps every wheel direction inside the view.
+    await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 686, height: 120 } },
+      });
+    });
+    // A wide document may be measured before the container's first layout.
+    expect(body.props).toMatchObject({ scrollEnabled: false });
+    await act(async () => {
+      await fireEvent(body, 'layout', {
+        nativeEvent: { layout: { width: 320 } },
+      });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: true, bounces: false });
+    await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 320, height: 120 } },
+      });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: false, bounces: false });
+    // Later measurements recompute overflow against the known layout.
+    await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 686, height: 120 } },
+      });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: true, bounces: false });
+    await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 320, height: 25_000 } },
+      });
+    });
+    expect(body.props).toMatchObject({ scrollEnabled: true, bounces: true });
     await press('Close reader');
     await waitFor(() => {
       expect(rows()).toStrictEqual([
@@ -2315,6 +2404,7 @@ describe('product registration', () => {
       ]);
     });
   });
+  /* oxlint-enable vitest/max-expects */
 
   /* oxlint-disable vitest/max-expects -- One journey proves asking, reading, failures and stale answers. */
   it('searches Gmail online when asked, opens a result, keeps saved results through an outage, and drops a stale answer', async () => {
@@ -2578,9 +2668,7 @@ describe('product registration', () => {
     );
     await continueToSignIn();
     await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Sign in with Apple' }),
-      );
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
     });
     await act(async () => {
       await fireEvent.press(

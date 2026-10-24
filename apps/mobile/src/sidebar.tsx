@@ -16,7 +16,6 @@ import {
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use, useSyncExternalStore } from 'react';
 import {
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -27,6 +26,7 @@ import {
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
+import type { SettingsDestination } from './settings.tsx';
 
 import { usePaletteHeader } from './command-palette.tsx';
 import { MenuButton, SFSymbol } from './design.tsx';
@@ -37,6 +37,7 @@ import {
   useProfile,
   useReloadMailboxes,
 } from './mailbox.tsx';
+import { promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -115,8 +116,11 @@ const styles = StyleSheet.create({
 // switches this window's Profile or names a new one.
 function ProfileSwitcher({
   onProfile,
+  onManage,
 }: {
   readonly onProfile: (profile: string) => void;
+  // Opens Settings on Mail Profiles.
+  readonly onManage: () => void;
 }) {
   const account = use(AccountContext);
   const profile = useProfile();
@@ -128,20 +132,6 @@ function ProfileSwitcher({
   }
   const { profiles } = account;
   const name = profileName(t, profile, profiles);
-  const create = async (entered: string) => {
-    const failure = await account.createProfile(entered);
-    if (failure !== undefined) {
-      Alert.alert(
-        failure === 'upgrade-required'
-          ? t('profiles.upgradeTitle')
-          : t('profiles.newTitle'),
-        failure === 'upgrade-required'
-          ? t('profiles.upgradeMessage')
-          : t('profiles.failed'),
-        [{ text: t('profiles.ok') }],
-      );
-    }
-  };
   return (
     <MenuButton
       accessibilityLabel={t('profiles.switcher', { name })}
@@ -152,24 +142,9 @@ function ProfileSwitcher({
         current: profile,
         onSwitch: onProfile,
         onCreate: () => {
-          Alert.prompt(
-            t('profiles.newTitle'),
-            t('profiles.newMessage'),
-            [
-              { text: t('common.cancel'), style: 'cancel' },
-              {
-                text: t('profiles.create'),
-                isPreferred: true,
-                onPress: (entered?: string) => {
-                  if (entered !== undefined && entered.trim() !== '') {
-                    void create(entered);
-                  }
-                },
-              },
-            ],
-            'plain-text',
-          );
+          promptNewProfile(t, account.createProfile);
         },
+        onManage,
       })}
       style={[
         styles.switcher,
@@ -427,6 +402,12 @@ export function Mailboxes({
     profile,
     view,
   });
+  // Settings over Mailboxes: Back returns here; Open Inbox shows the kept list, as choosing it would.
+  const openSettings = (destination?: SettingsDestination) => {
+    account?.openAccount(destination, () => {
+      onView(view);
+    });
+  };
   const authorize = async (connection: string) => {
     await account?.authorizeMailbox(connection);
     await reload();
@@ -456,7 +437,12 @@ export function Mailboxes({
         <ScrollView
           style={styles.fill}
           contentContainerStyle={[styles.list, compact && styles.compactList]}>
-          <ProfileSwitcher onProfile={onProfile} />
+          <ProfileSwitcher
+            onProfile={onProfile}
+            onManage={() => {
+              openSettings('profiles');
+            }}
+          />
           <SectionHeader label={t('mailboxes.favorites')} />
           <View
             style={
@@ -524,7 +510,7 @@ export function Mailboxes({
                     onPress={() => {
                       // IMAP needs its password entered again in Settings' Email Accounts.
                       if (imap) {
-                        account?.openAccount('mailboxes');
+                        openSettings('mailboxes');
                       } else {
                         void authorize(connection.id);
                       }
@@ -541,7 +527,7 @@ export function Mailboxes({
               icon="gearshape"
               label={t('inbox.account')}
               onPress={() => {
-                account.openAccount();
+                openSettings();
               }}
             />
           </View>

@@ -70,6 +70,7 @@ import {
   HistoryId,
   merge,
   newestFirst,
+  sameCheckpoint,
   sameMailbox,
 } from './mailbox-document.ts';
 import {
@@ -532,6 +533,20 @@ const cachedMessages = (document: MailboxDocument) => [
   ).values(),
 ];
 
+// Microsoft's next delta page refills a full cache a settlement shortened, and still classifies the
+// mail it names; until then the cache keeps its previous oldest receipt as its edge.
+const awaitingRefill = (
+  before: MailboxDocument,
+  after: MailboxDocument,
+  checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'graph-current' }>,
+): MailboxDocument => ({
+  ...after,
+  checkpoint: {
+    ...checkpoint,
+    refillUntil: before.messages.at(-1)?.receivedAt ?? '',
+  },
+});
+
 // History and delta cannot name the older message that now fits after a settlement removes one, so a
 // full Inbox or view it shortened is listed again from the history already applied.
 const withRefills = (
@@ -542,10 +557,7 @@ const withRefills = (
   const shortened =
     before.messages.length === cacheLimit && after.messages.length < cacheLimit;
   if (checkpoint.kind === 'graph-current' && shortened) {
-    return {
-      ...after,
-      checkpoint: { kind: 'graph-listing', link: checkpoint.link },
-    };
+    return awaitingRefill(before, after, checkpoint);
   }
   if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
     return after;
@@ -752,6 +764,24 @@ const latestNotificationHistory = (
         ),
       };
 };
+
+// Reports new Inbox mail after its commit. Awaited so a background opportunity covers posting; its
+// failure never ends synchronization.
+export const reportArrivals = Effect.fnUntraced(function* <M>(
+  arrived: ((messages: readonly M[]) => void | Promise<void>) | undefined,
+  messages: readonly M[],
+) {
+  if (arrived !== undefined && messages.length > 0) {
+    yield* Effect.tryPromise(() => Promise.resolve(arrived(messages))).pipe(
+      Effect.catch((error) =>
+        Effect.logError(
+          'New mail notifications failed:',
+          rejectionDiagnostic(error),
+        ),
+      ),
+    );
+  }
+});
 
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
@@ -1126,8 +1156,8 @@ export function createGmailInbox(
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
     removed?: (() => void) | undefined;
-    // Called once a committed history page brought unread messages newly into the Inbox. Listing,
-    // backfill and messages moved into the Inbox never arrive.
+    // Called once a committed history or Microsoft delta page brought unread messages newly into
+    // the Inbox. Listings and backfill never arrive; Graph also creates moved-in mail anew.
     arrived?:
       | ((messages: readonly GmailMessage[]) => void | Promise<void>)
       | undefined;
@@ -2923,11 +2953,23 @@ export function createGmailInbox(
   }>) {
     const latest = yield* storage(native.openMailbox);
     const saved = Option.getOrUndefined(yield* documentOf(latest));
-    if (!sameMailbox(latest, cache) || saved === undefined) {
+    if (
+      !sameMailbox(latest, cache) ||
+      saved === undefined ||
+      base === undefined
+    ) {
       return yield* new SyncFailure({
         kind: 'invalidated',
         cause: 'mailbox',
         diagnostic: 'another mailbox',
+      });
+    }
+    // Another store saved newer provider progress; synchronization restarts from it.
+    if (!sameCheckpoint(base.checkpoint, saved.checkpoint)) {
+      return yield* new SyncFailure({
+        kind: 'conflict',
+        cause: 'checkpoint',
+        diagnostic: 'checkpoint changed',
       });
     }
     return {
@@ -2937,8 +2979,9 @@ export function createGmailInbox(
     };
   });
 
-  // Intake saves intent under its own permit, so a synchronization commit can meet a newer
-  // revision. Rebase it, and keep commit, pruning and publication together against body admission.
+  // Intake saves intent under its own permit, so a commit can meet a newer revision. Rebase only
+  // unchanged provider progress; otherwise synchronization restarts from the durable checkpoint.
+  // Keep commit, pruning and publication together against body admission.
   const commitOver = Effect.fnUntraced(function* (
     cache: Cache,
     base: MailboxDocument | undefined,
@@ -3435,21 +3478,10 @@ export function createGmailInbox(
       }
       restarts += restartedListing(document, next.value) ? 1 : 0;
       yield* restartLimit(restarts);
-      const brought = arrivals;
+      const brought =
+        graph === undefined ? arrivals : graph.arrivals(next.value);
       ({ cache, document } = yield* commitOver(cache, document, next.value));
-      if (brought.length > 0) {
-        // Awaited so a background opportunity covers posting; its failure never ends synchronization.
-        yield* Effect.tryPromise(() =>
-          Promise.resolve(arrived?.(brought)),
-        ).pipe(
-          Effect.catch((error) =>
-            Effect.logError(
-              'New mail notifications failed:',
-              rejectionDiagnostic(error),
-            ),
-          ),
-        );
-      }
+      yield* reportArrivals(arrived, brought);
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
     }

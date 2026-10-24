@@ -383,7 +383,6 @@ describe('reading Microsoft mail through Graph', () => {
       'changes',
       'message',
       'list',
-      'list',
       'changes',
     ]);
     expect(refilled).toHaveLength(200);

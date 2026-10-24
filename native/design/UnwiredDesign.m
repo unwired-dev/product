@@ -1,9 +1,11 @@
+#import <React/RCTUtils.h>
 #import <React/RCTView.h>
 #import <React/RCTViewManager.h>
 
 // SF Symbols for both hosts and the Mac's Liquid Glass; the hosts target iOS and macOS 27.
 #if TARGET_OS_OSX
 #import <AppKit/AppKit.h>
+#import <AuthenticationServices/AuthenticationServices.h>
 
 typedef NSView UnwiredPlatformView;
 
@@ -75,6 +77,61 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 @end
 
 @implementation UnwiredGlassView
+@end
+
+// The system Sign in with Apple button, black in Light and white in Dark per Apple's button styles.
+// Its style is fixed at creation, so an appearance change replaces it. Remove this view when React
+// Native macOS or a maintained package offers the button with an enabled state and both styles.
+@interface UnwiredAppleIDButtonView : NSView
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onPress;
+@end
+
+@implementation UnwiredAppleIDButtonView {
+  ASAuthorizationAppleIDButton *_button;
+  BOOL _dark;
+}
+- (instancetype)initWithFrame:(NSRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _enabled = YES;
+    [self render];
+  }
+  return self;
+}
+- (void)setEnabled:(BOOL)enabled { _enabled = enabled; _button.enabled = enabled; }
+- (void)viewDidChangeEffectiveAppearance
+{
+  [super viewDidChangeEffectiveAppearance];
+  [self render];
+}
+- (void)render
+{
+  BOOL dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:@[
+    NSAppearanceNameAqua, NSAppearanceNameDarkAqua
+  ]] isEqualToString:NSAppearanceNameDarkAqua];
+  if (_button != nil && dark == _dark) return;
+  _dark = dark;
+  ASAuthorizationAppleIDButton *button = [ASAuthorizationAppleIDButton
+      buttonWithType:ASAuthorizationAppleIDButtonTypeSignIn
+               style:dark ? ASAuthorizationAppleIDButtonStyleWhite : ASAuthorizationAppleIDButtonStyleBlack];
+  button.cornerRadius = 8;
+  button.enabled = self.enabled;
+  button.target = self;
+  button.action = @selector(press);
+  button.frame = self.bounds;
+  button.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  if (_button == nil) {
+    [self addSubview:button];
+  } else {
+    [self replaceSubview:_button with:button];
+  }
+  _button = button;
+}
+- (void)press
+{
+  if (self.onPress) self.onPress(@{});
+}
 @end
 #else
 #import <UIKit/UIKit.h>
@@ -436,6 +493,111 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   [choice answer:[NSNull null]];
 }
 @end
+
+// A question in a sheet on its anchor's window, answering the chosen button's index. React Native
+// macOS's Alert asks over the key window and cannot withdraw a question its asker no longer owns.
+@interface UnwiredAlert : NSObject <RCTBridgeModule>
+@property (nonatomic, readonly) NSMutableDictionary<NSNumber *, NSAlert *> *shown;
+@end
+
+@implementation UnwiredAlert
+@synthesize viewRegistry_DEPRECATED = _viewRegistry_DEPRECATED;
+RCT_EXPORT_MODULE()
+
+- (instancetype)init
+{
+  if ((self = [super init])) _shown = [NSMutableDictionary dictionary];
+  return self;
+}
+
+- (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
+
+// A complete selectable text, such as a link's destination, that scrolls beyond a few lines: an
+// alert's own text grows the sheet past the screen.
+static NSScrollView *UnwiredPassage(NSString *text)
+{
+  NSScrollView *scroll = [NSTextView scrollableTextView];
+  scroll.drawsBackground = NO;
+  scroll.frame = NSMakeRect(0, 0, 220, 1);
+  NSTextView *view = scroll.documentView;
+  view.editable = NO;
+  view.drawsBackground = NO;
+  view.alignment = NSTextAlignmentCenter;
+  view.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+  view.textColor = NSColor.labelColor;
+  view.textContainerInset = NSZeroSize;
+  view.textContainer.lineFragmentPadding = 0;
+  view.string = text;
+  [view.layoutManager ensureLayoutForTextContainer:view.textContainer];
+  CGFloat height = [view.layoutManager usedRectForTextContainer:view.textContainer].size.height;
+  scroll.frame = NSMakeRect(0, 0, 220, MIN(ceil(height), 120));
+  return scroll;
+}
+
+// The first button is the default. `cancel`, the last unless given, answers Escape, and
+// `destructive` reads as destructive. A `symbol` replaces the app icon, and a `passage` shows
+// below the detail.
+RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
+                  request:(nonnull NSNumber *)request
+                  question:(NSDictionary *)question
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  NSWindow *window = [self.viewRegistry_DEPRECATED viewForReactTag:anchor].window;
+  if (window == nil) {
+    resolve([NSNull null]);
+    return;
+  }
+  NSArray<NSString *> *buttons = [RCTConvert NSStringArray:question[@"buttons"]];
+  id given = RCTNilIfNull(question[@"cancel"]);
+  NSInteger cancel = given ? [RCTConvert NSInteger:given] : (NSInteger)buttons.count - 1;
+  NSAlert *alert = [NSAlert new];
+  alert.messageText = [RCTConvert NSString:question[@"title"]];
+  alert.informativeText = [RCTConvert NSString:question[@"detail"]];
+  for (NSString *button in buttons) [alert addButtonWithTitle:button];
+  if (RCTNilIfNull(question[@"destructive"])) {
+    alert.buttons[[RCTConvert NSInteger:question[@"destructive"]]].hasDestructiveAction = YES;
+  }
+  NSDictionary *symbol = RCTNilIfNull(question[@"symbol"]);
+  if (symbol != nil) {
+    NSImageSymbolConfiguration *look = [[NSImageSymbolConfiguration configurationWithPointSize:40 weight:NSFontWeightRegular]
+        configurationByApplyingConfiguration:[NSImageSymbolConfiguration configurationWithHierarchicalColor:[RCTConvert NSColor:symbol[@"color"]]]];
+    alert.icon = [[NSImage imageWithSystemSymbolName:[RCTConvert NSString:symbol[@"name"]] accessibilityDescription:nil]
+        imageWithSymbolConfiguration:look];
+  }
+  if (RCTNilIfNull(question[@"passage"])) alert.accessoryView = UnwiredPassage([RCTConvert NSString:question[@"passage"]]);
+  // A first Cancel is also the default. AppKit gives a button titled Cancel Escape in place of
+  // Return, so it takes Return here, and its sheet maps Escape to it whatever its title.
+  id escape = nil;
+  if (cancel == 0) {
+    alert.buttons.firstObject.keyEquivalent = @"\r";
+    __weak NSAlert *asked = alert;
+    escape = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+      if (event.window != asked.window || ![event.charactersIgnoringModifiers isEqualToString:@"\033"]) return event;
+      [asked.buttons.firstObject performClick:nil];
+      return nil;
+    }];
+  } else {
+    alert.buttons[cancel].keyEquivalent = @"\033";
+  }
+  self.shown[request] = alert;
+  [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
+    if (escape != nil) [NSEvent removeMonitor:escape];
+    [self.shown removeObjectForKey:request];
+    NSInteger index = response - NSAlertFirstButtonReturn;
+    resolve(index >= 0 && index < (NSInteger)buttons.count ? @(index) : [NSNull null]);
+  }];
+  // The passage would take focus and swallow Return; the alert itself keeps it, as without one.
+  if (alert.accessoryView != nil) [alert.window makeFirstResponder:nil];
+}
+
+// Withdraws a question whose asker has moved on; it answers nothing.
+RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
+{
+  NSWindow *sheet = self.shown[request].window;
+  [sheet.sheetParent endSheet:sheet returnCode:NSModalResponseAbort];
+}
+@end
 #endif
 
 #if !TARGET_OS_OSX
@@ -500,5 +662,15 @@ RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 RCT_EXPORT_MODULE(UnwiredGlass)
 RCT_EXPORT_VIEW_PROPERTY(cornerRadius, CGFloat)
 - (UnwiredPlatformView *)view { return [UnwiredGlassView new]; }
+@end
+
+@interface UnwiredAppleIDButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredAppleIDButtonManager
+RCT_EXPORT_MODULE(UnwiredAppleIDButton)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredAppleIDButtonView new]; }
 @end
 #endif

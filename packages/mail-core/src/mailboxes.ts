@@ -19,7 +19,7 @@ import type {
   ImapSearchPage,
   NativeImapMailbox,
 } from './imap-inbox.ts';
-import type { NotificationMailbox } from './notifications.ts';
+import type { ArrivedMessage, NotificationMailbox } from './notifications.ts';
 import type {
   MailGrantProvider,
   MailProvider,
@@ -393,14 +393,14 @@ export function createMailboxes(
     arrived,
   }: Readonly<{
     removed?: () => void;
-    // New Inbox mail for a Gmail connection whose New Mail Notifications are on, while it still
+    // New Inbox mail for a connection whose New Mail Notifications are on, while it still
     // belongs to the same Product Account and incarnation, and its current Mail Profile.
     // `eligible` and `profile` answer again later, so posting can recheck after its own
     // asynchronous work.
     arrived?: (
       mailbox: NotificationMailbox &
         Readonly<{ profile: () => string | undefined }>,
-      messages: readonly GmailMessage[],
+      messages: readonly ArrivedMessage[],
       eligible: () => boolean,
     ) => void | Promise<void>;
   }> = {},
@@ -510,12 +510,34 @@ export function createMailboxes(
           )
         );
       };
+      const report =
+        arrived === undefined
+          ? undefined
+          : (messages: readonly ArrivedMessage[]) => {
+              if (eligible()) {
+                return arrived(
+                  {
+                    account: productAccount,
+                    connection: id,
+                    epoch,
+                    // A connection moved to another Profile keeps its Inbox.
+                    profile: () =>
+                      mailboxesOf(registration.getSnapshot().snapshot).find(
+                        (mailbox) => mailbox.id === id,
+                      )?.profile,
+                  },
+                  messages,
+                  eligible,
+                );
+              }
+            };
       const opened =
         provider === 'imap'
           ? {
               provider,
               inbox: createImapInbox(boundImap(native, id), {
                 removed,
+                arrived: report,
                 shared,
                 connection: id,
               }),
@@ -524,27 +546,7 @@ export function createMailboxes(
               provider,
               inbox: createGmailInbox(bound(native, id), {
                 removed,
-                arrived:
-                  provider === 'gmail' && arrived !== undefined
-                    ? (messages) => {
-                        if (eligible()) {
-                          return arrived(
-                            {
-                              account: productAccount,
-                              connection: id,
-                              epoch,
-                              // A connection moved to another Profile keeps its Inbox.
-                              profile: () =>
-                                mailboxesOf(
-                                  registration.getSnapshot().snapshot,
-                                ).find((mailbox) => mailbox.id === id)?.profile,
-                            },
-                            messages,
-                            eligible,
-                          );
-                        }
-                      }
-                    : undefined,
+                arrived: report,
                 shared,
                 connection: id,
                 provider,

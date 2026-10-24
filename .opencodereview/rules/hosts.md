@@ -1,5 +1,19 @@
 Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the host TypeScript in `apps/mobile` and `apps/macos`.
 
+- A custom keyboard-focus ring in `apps/mobile/src/design.tsx` or `action.tsx`
+  driven only by `Pressable.onFocus`/`onBlur` without checking the installed iOS
+  emitter and enabled feature flags. Trace the exact focus signal the requirement
+  names through the native source to the styled element; imperative
+  first-responder events, TV-only bridges and accessibility-focus notifications
+  do not by themselves establish keyboard-focus delivery. In particular,
+  `UIAccessibilityElementFocusedNotification` also follows VoiceOver and Switch
+  Control, so substituting it can draw a keyboard ring for another input mode.
+  Check the owning issue's platform scope and retained system indicator before
+  requiring a custom ring, and preserve a single indicator. Otherwise a ring can
+  pass manually fired component events while never appearing on keyboard
+  navigation, or appear for the wrong focus and duplicate the system indicator.
+  Keep native interaction evidence distinct from a substituted event-boundary test.
+
 A host owns views and native adapters. It renders shared stores from `@private-email/mail-core` and passes native modules into them. `apps/mobile` is Expo on iOS and iPadOS (Hermes, Expo Router split view); `apps/macos` is React Native macOS, where AppKit owns windows and each window mounts its own React root over one JavaScript runtime. The two hosts pin different React and React Native versions.
 
 Apply `docs/agents/native-components.md` to UI selection and migration. Checks
@@ -179,6 +193,19 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   outer View's minimum height reserves layout space without enlarging that target.
   Qualify any separate enlarged touch handler with
   native interaction evidence rather than treating component events as proof.
+
+- `profile-settings.tsx` sizing the Startup Profile menu or editable Name only
+  to its text while the containing Settings row supplies the minimum height.
+  Check the actual native trigger and text field bounds against the 44pt mobile
+  and 28pt Mac targets; otherwise most of a seemingly tappable row does nothing.
+  Preserve the approved row geometry while enlarging the interactive control.
+
+- `action.tsx` or another compact control applying a feedback capsule's negative
+  margins to its interactive target. Compare its occupied layout width with the
+  previous control for labels narrower than the target minimum, including
+  adjacent actions in a row on both hosts. A target can retain its `minWidth`
+  while its margins reduce the space reserved by its parent; otherwise neighboring
+  labels shift or rows wrap differently despite passing minimum-hit-size checks.
 
 - `SettingsWorkspace` or another route reusing `AccountHeader`'s default back
   label after changing its return target. Trace the callback to the retained
@@ -916,6 +943,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 - An Inbox row's removal action in `src/inbox.tsx` that leaves the selected message ID in its owning route or window after Archive, Trash or Spam. Trace accessibility actions as well as reader buttons through the owner's close callback; otherwise the row disappears while the reader reports unavailable. Undo restores mail without reopening that reader or changing another window's selection.
 - `OrganizeStatus` announcing one shared `OrganizeNotice` once per mounted window or again on a late mount, or deduplicating solely by announcement text. One notice identity owns one accessibility announcement across the shared runtime; a later distinct notice with identical words must still announce. Trace every active announcement channel, including explicit calls and platform-supported live regions, rather than checking only the explicit call count. Preserve refusal alert semantics when removing an announcement channel. Verify the installed renderer's role and notification behavior before treating an `alert` role as automatic speech; component props alone do not qualify native VoiceOver behavior.
 
+- `outbox.tsx` or another host's process-wide announcement bookkeeping retaining
+  subjects, recipients or other private message text after its owning outcome
+  retires. Keep only the identity and minimal state needed for deduplication,
+  and trace retirement through the shared store/account lifecycle, including
+  delivery, Undo and sign-out. A window unmount alone must not clear another
+  window's active outcome. Otherwise private text accumulates for the process
+  lifetime, or cleanup reintroduces duplicate speech across windows.
+
 - `RegistrationGate` retaining an Inbox/Account destination choice after the Product
   Account changes or Inbox eligibility is lost. Discard that choice before
   rendering so new Recovery Key, enrollment or authorization steps govern landing.
@@ -973,6 +1008,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   do not identify delivery events. Otherwise the old choice strands the new
   account in an unlisted Profile, or retiring it erases a new target and
   incorrectly opens a fallback.
+
+- `window.tsx.ProfileWindow` or `mailbox.tsx.WindowProfileScope` deriving an
+  open window's fallback from Settings' live Startup Profile subscription.
+  Keep launch choices owned above transient registration gates and separate
+  from the editable device preference. Exercise changing Startup Profile before
+  any explicit Profile switch, return from Settings and a newly opened window;
+  otherwise a preference for future windows redirects a live reader or composer
+  without its Profile-switch guard.
 
 - For `mailbox.tsx.WindowProfileScope` and other Profile restoration, check the
   accepted window scope in `docs/private-inbox-storage.md` first. #1037 restores
@@ -1058,10 +1101,18 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
   excluded by the Mac renderer; preserve the AppKit background wrapper's
   accessibility-children and hit-test suppression rather than relying on props
-  that rendered tests recognize but the native host ignores. Apply the same native
-  suppression to `evaluation-composer.tsx`'s background while `SaveSheet` is open;
-  keep its choices keyboard-owned and pause the page, or background edits and
-  Send remain reachable during the save decision.
+  that rendered tests recognize but the native host ignores. While
+  `evaluation-composer.tsx` asks its Save question, verify the native presenter
+  owns background input and accessibility, and pause the page. A retained custom
+  overlay must supply the equivalent suppression and keyboard ownership, or
+  background edits and Send remain reachable during the save decision.
+- `evaluation-composer.tsx` resuming a paused WebView after a native question
+  without restoring its page's editing focus. Trace `editor.ts`'s freeze/blur
+  and command guard: enable editing before sending focus, keep both commands
+  behind the current request and mounted-owner checks, and type into the body
+  after Cancel, Escape and a refused finish in the native journey. A dismissed sheet and an
+  editable command alone do not prove focus returned; an unfocused page can
+  pass typing into the React Native macOS responder chain and abort the app.
 - `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
   expanded. Trace its `organize.tsx` callers through opening and closing the
   panel, preserving the visual open state and omitting disclosure state for

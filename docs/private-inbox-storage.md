@@ -104,8 +104,10 @@ cannot collide with that existing data. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
 another Profile and switching to it are exposed by
 [#1037](https://github.com/unwired-dev/product/issues/1037), part of
-[#922](https://github.com/unwired-dev/product/issues/922). Further Profile
-management belongs to [#1038](https://github.com/unwired-dev/product/issues/1038).
+[#922](https://github.com/unwired-dev/product/issues/922). Settings › Mail
+Profiles lists and renames them, moves connections between them, and removes a
+Profile after confirming its mailboxes
+([#1038](https://github.com/unwired-dev/product/issues/1038)).
 
 [#920](https://github.com/unwired-dev/product/issues/920) synchronizes Profile
 definitions and ownership through [Private Sync](private-product-sync.md); the shared
@@ -138,11 +140,18 @@ registration store already offers these operations:
   each refused Profile change by its reason: `upgrade-required`, `profile-in-use` or
   `profile-changed`.
 - **Removing a Profile** needs Private Sync. It is refused for the Default Profile
-  and, with `profile-in-use`, while the Profile owns a live connection. Unreadable
+  and, with `profile-in-use`, while the Profile owns a live connection that the
+  person did not confirm removing with it. The store first removes each confirmed
+  connection the Profile still owns, as Email Accounts removes one, then the
+  Profile. A confirmed connection this device already knows moved to another Profile
+  stays. The question names each connection, so one that another device moved without
+  this device learning of it yet is still removed, as Email Accounts would. Unreadable
   ownership or connection descriptions leave removal unavailable, as does a missing
   description for a connection the Profile owns. Removing a Profile
   still pending on this device also prevents a delayed first publication from
-  bringing it back.
+  bringing it back. Removal proceeds one mailbox at a time. If a later step fails,
+  completed mailbox removals stay removed and the list shows the current state;
+  retry finishes the remaining removal without restoring already removed mailboxes.
 
 A record older than one this device already confirmed cannot revive a removed
 Profile or move a connection back. Synchronization keeps the last confirmed state
@@ -186,9 +195,32 @@ not restored is new and opens the Startup Profile. The iPhone and iPad app has o
 multiple iPad scenes are turned off. It restores the Profile a link or the switcher
 last chose. Independent iPad windows, each with its own Profile, are tracked in
 [#1200](https://github.com/unwired-dev/product/issues/1200).
-Settings will offer the Startup Profile choice
-([#1038](https://github.com/unwired-dev/product/issues/1038)); until then none is
-saved, and new windows open the Default Profile.
+
+Settings › Mail Profiles, which the Profile Menu's **Manage Mail Profiles…** opens
+on Mac, iPhone and iPad, lists the Primary Profile and every other Profile with
+its connections' providers, and marks the Startup Profile
+([#1038](https://github.com/unwired-dev/product/issues/1038)). **Add Mail Profile…**
+creates one as New Mail Profile… does. Selecting a Profile shows its name, which
+can be edited for every Profile except the Primary Profile; an empty or unchanged
+name changes nothing, and a refused rename restores the listed name and asks to
+try again. Creation, renaming, moving and removal wait for active registration
+work; a queued change is retired if that Product Account leaves before it can run.
+Beneath the selected Profile, **Mailboxes** lists the connections it owns, each
+with a system pop-up naming its Mail Profile; choosing another Profile moves the
+connection. Every Profile except the Primary Profile offers **Remove Mail
+Profile…**, which asks first in a system alert. For a Profile that owns
+connections, the question names them, and confirming removes them from Unwired
+Mail on every Trusted Device before the Profile; their mail stays with the
+provider. As after removing a mailbox in Email Accounts, Drafts written from them
+stay. A refused move or removal names
+another device's earlier change (`profile-changed`, or `profile-in-use` when a
+connection arrived after the question), explains `upgrade-required`, or asks to
+try again.
+The **Startup Profile** pop-up under This Device saves the choice only
+for this Product Account on this device; another account keeps its own choice.
+With none saved, or once its Profile is no longer listed, it shows
+and opens the Primary Profile. Changing it leaves every open window in its
+current Profile; the new choice applies when a new window opens.
 
 On iPhone/iPad, a message link with a `profileId` parameter opens only in that
 Profile; an old-form message or Thread link without one, from before Profiles,

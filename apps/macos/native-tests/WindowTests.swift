@@ -406,13 +406,39 @@ final class WindowTests: XCTestCase {
     let subject = window.textFields["Subject"]
     subject.click()
     subject.typeText("Native close")
+    let body = window.webViews.textViews["Message body"]
+    body.click()
     window.typeKey("w", modifierFlags: .command)
-    XCTAssertTrue(window.buttons["Save"].waitForExistence(timeout: 10))
-    window.buttons["Cancel"].click()
-    XCTAssertTrue(window.webViews.textViews["Message body"].exists)
+    // The question is an AppKit alert sheet on this window; Escape answers Cancel.
+    let sheet = window.sheets.firstMatch
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    XCTAssertTrue(sheet.buttons["Don’t Save"].exists)
+    window.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+    // Typing continues in the body, where the sheet returned keyboard focus.
+    app.typeText(" Resumed")
+    XCTAssertTrue(webText("Resumed", in: window).waitForExistence(timeout: 10))
+    // A refused Save must also return typing to the body, rather than an unfocused WebView.
+    let to = window.textFields["To"]
+    to.click()
+    to.typeText("invalid-address")
+    body.click()
+    window.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    sheet.buttons["Save"].click()
+    XCTAssertTrue(
+      text("Correct or remove the invalid address to close this Draft.", in: window)
+        .waitForExistence(timeout: 10))
+    app.typeText(" After refusal")
+    XCTAssertTrue(webText("After refusal", in: window).waitForExistence(timeout: 10))
+    to.click()
+    window.typeKey("a", modifierFlags: .command)
+    window.typeKey(.delete, modifierFlags: [])
+    body.click()
     app.typeKey("q", modifierFlags: .command)
-    XCTAssertTrue(window.buttons["Save"].waitForExistence(timeout: 10))
-    window.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
+    sheet.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
     // Saving later must not revive a cancelled Quit.
     saveOnClose(window)
     XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 10))
@@ -429,11 +455,11 @@ final class WindowTests: XCTestCase {
     second.textFields["Subject"].typeText("Second guarded window")
     app.typeKey("q", modifierFlags: .command)
     // One Quit asks each window, then actually stops the process.
-    let saving = app.windows.containing(.button, identifier: "Save").firstMatch
-    XCTAssertTrue(saving.waitForExistence(timeout: 10))
+    let saving = app.sheets.firstMatch
+    XCTAssertTrue(saving.buttons["Save"].waitForExistence(timeout: 10))
     saving.buttons["Save"].click()
     waitUntil { app.windows.count == 1 }
-    let remaining = app.windows.firstMatch
+    let remaining = app.windows.firstMatch.sheets.firstMatch
     XCTAssertTrue(remaining.buttons["Don’t Save"].waitForExistence(timeout: 10))
     remaining.buttons["Don’t Save"].click()
     waitUntil { app.state == .notRunning }
@@ -463,7 +489,7 @@ final class WindowTests: XCTestCase {
 
   private func saveOnClose(_ window: XCUIElement) {
     window.buttons["Close"].click()
-    let save = window.buttons["Save"]
+    let save = window.sheets.firstMatch.buttons["Save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.click()
     waitUntil { window.webViews.count == 0 }
@@ -656,6 +682,54 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text("Private sync is on", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text(mailboxes, in: relaunched).waitForExistence(timeout: 15))
     XCTAssertFalse(relaunched.textFields["Recovery Key"].exists)
+  }
+
+  // #1130: a link asks in an AppKit sheet on its own window, showing the full destination as
+  // selectable text. Escape and Cancel close it without acting, and Command-P stays closed behind
+  // it. A flagged link's first button, Cancel, is the default and answers Escape too. Nothing is
+  // opened or copied: either would reach the desktop's browser or pasteboard.
+  private func linkSheetJourney(_ app: XCUIApplication, window: XCUIElement) throws {
+    let sheet = window.sheets.firstMatch
+    // AppKit exposes the alert's texts as values.
+    func shows(_ value: String) -> Bool {
+      sheet.descendants(matching: .any).matching(NSPredicate(format: "value == %@", value))
+        .firstMatch.exists
+    }
+    func ask(_ link: String, title: String, destination: String, buttons: [String]) {
+      window.links["Open link: \(link)"].click()
+      XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+      XCTAssertTrue(shows(title))
+      XCTAssertTrue(shows(destination))
+      // AppKit lists the buttons in no fixed order, beside an untitled scroller.
+      XCTAssertEqual(
+        Set(sheet.buttons.allElementsBoundByIndex.map(\.title).filter { !$0.isEmpty }), Set(buttons))
+    }
+    let garden = "https://example.invalid/garden"
+    ask("garden plan", title: "Open this link in your browser?", destination: garden,
+        buttons: ["Open link", "Cancel"])
+    app.typeKey("p", modifierFlags: .command)
+    XCTAssertFalse(window.textFields["Type a command"].waitForExistence(timeout: 2))
+    XCTAssertTrue(sheet.exists)
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    ask("garden plan", title: "Open this link in your browser?", destination: garden,
+        buttons: ["Open link", "Cancel"])
+    sheet.buttons["Cancel"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    let flagged = "https://garden.example.invalid/order"
+    let seeds = "https://seeds.example.invalid/order"
+    let caution = "This link may not be what it seems"
+    for key in [XCUIKeyboardKey.escape, .return] {
+      ask(flagged, title: caution, destination: seeds, buttons: ["Cancel", "Copy link", "Proceed"])
+      if key == .escape { try audit(app, "Link sheet") }
+      app.typeKey(key, modifierFlags: [])
+      XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    }
+    // Focus returns to the window, whose Command Palette opens again.
+    app.typeKey("p", modifierFlags: .command)
+    XCTAssertTrue(window.textFields["Type a command"].waitForExistence(timeout: 10))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(window.textFields["Type a command"].waitForNonExistence(timeout: 10))
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
@@ -900,8 +974,9 @@ final class WindowTests: XCTestCase {
   // registration-performance build's Gmail and Microsoft Inboxes and their 250 added Threads.
   // A click sample runs from the release the app recorded to the first accessibility query that
   // finds the rendered result; a launch sample from the launch request. Both include XCUITest's
-  // queries, so they are upper bounds. The app also records each main-thread stall of 100 ms or
-  // longer, which the samples' windows attribute.
+  // queries, so they are upper bounds. A key or format bar sample runs from the key press or
+  // button release to the body edit showing its result, all recorded by the app. The app also
+  // records each main-thread stall of 100 ms or longer, which the samples' windows attribute.
   // swiftlint:disable:next function_body_length
   func testWarmCachePerformance() throws {
     continueAfterFailure = false
@@ -949,7 +1024,7 @@ final class WindowTests: XCTestCase {
     ) {
       let before = firstQueryResults
       let windows = (0..<count).map(sample)
-      groups.append((name, budget, windows, firstQueryResults - before))
+      groups.append((name, budget, windows, firstQueryResults - before, []))
     }
     // Each relaunch reopens the encrypted cache of both mailboxes.
     measure("launch-to-first-list", budget: 1000, count: 10) { _ in
@@ -1014,6 +1089,53 @@ final class WindowTests: XCTestCase {
       relaunch()
       return (start, end)
     }
+    // Typing and formatting feedback: each sample runs from the key press or format bar button
+    // release the app recorded to its first recorded edit of the body that begins with the
+    // expected text and marks (bold 1, italic 2, underline 4 per character), so a later input
+    // cannot hide a late result. The budget is the frame interval the app recorded.
+    window.buttons["New Message"].click()
+    let message = window.textViews.matching(NSPredicate(format: "label == %@", "Message")).firstMatch
+    XCTAssertTrue(message.waitForExistence(timeout: 10))
+    message.click()
+    var text = ""
+    var marks: [Int] = []
+    func press(
+      _ name: String, _ keys: [String], _ input: (String) -> Void, _ change: (String) -> Void
+    ) {
+      var windows: [(start: Double, end: Double)] = []
+      var shows: [(text: String, marks: String)] = []
+      for key in keys {
+        let start = uptime()
+        input(key)
+        windows.append((start, uptime()))
+        change(key)
+        shows.append((text, marks.map(String.init).joined()))
+      }
+      groups.append((name, 0, windows, 0, shows))
+    }
+    let type = { (key: String) in app.typeKey(key, modifierFlags: []) }
+    press("typing", "typing feedback test".map(String.init), type) { key in
+      text += key
+      marks.append(0)
+    }
+    // Command-B at the caret marks what is typed next.
+    app.typeKey("b", modifierFlags: .command)
+    press("marked-typing", " bold words".map(String.init), type) { key in
+      text += key
+      marks.append(1)
+    }
+    // Option-Shift-Left selects the last word; each shortcut toggles its mark on it, then back.
+    app.typeKey(.leftArrow, modifierFlags: [.option, .shift])
+    let bits = ["b": 1, "i": 2, "u": 4]
+    let toggles = (0..<12).map { ["b", "i", "u"][$0 / 2 % 3] }
+    let toggle = { (key: String) in
+      for index in marks.indices.suffix(5) { marks[index] ^= bits[key, default: 0] }
+    }
+    press("formatting", toggles, { app.typeKey($0, modifierFlags: .command) }, toggle)
+    // The format bar's mark buttons toggle the same marks on the still-selected word.
+    let buttons = ["b": "Bold", "i": "Italic", "u": "Underline"]
+    let click = { (key: String) in window.buttons[buttons[key, default: ""]].firstMatch.click() }
+    press("format-bar", toggles, click, toggle)
     let overhead = queryOverhead(window.buttons["New Message"])
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()
@@ -1123,6 +1245,10 @@ final class WindowTests: XCTestCase {
       app.typeText(query)
       XCTAssertTrue(row(query).waitForExistence(timeout: 15))
     }
+    searchFor("Garden plans for spring")
+    row("Garden plans for spring").click()
+    XCTAssertTrue(body("seed order", in: window).waitForExistence(timeout: 15))
+    try linkSheetJourney(app, window: window)
     searchFor("Quarterly planning")
     row("Quarterly planning").click()
     let agenda = body("Agenda for Thursday.", in: window)
@@ -1252,20 +1378,22 @@ final class WindowTests: XCTestCase {
   // Secondary text that fails or nearly fails the contrast audit (#1195). The audits cover every
   // open window, so this lists labels rather than screens.
   private let contrastGaps: Set<String> = [
-    "", "Account & Devices", "Accounts", "All Inboxes. All inboxes · 2 unread", "App",
-    "Application", "Automation", "Colleague 003, colleague003@example.invalid",
+    "", "30 September 2025 at 08:00 UTC", "Account & Devices", "Accounts",
+    "All Inboxes. All inboxes · 2 unread", "App", "Application", "Automation",
+    "Colleague 003, colleague003@example.invalid",
     "Encrypted mailbox list: casey@example.invalid, other@example.invalid.", "Favorites",
     "Gmail · other@example.invalid", "Go To", "Mailboxes", "Microsoft · casey@example.invalid",
-    "October 2025", "Private sync is on", "Search. 1 message · All inboxes",
-    "Select a message to start reading.", "Selected Message", "September 2025",
-    "Sign-in methods", "Signed in with Apple.",
+    "October 2025", "Private sync is on", "Rowan Hale, rowan@example.invalid",
+    "Search. 1 message · All inboxes", "Select a message to start reading.", "Selected Message",
+    "September 2025", "Sign-in methods", "Signed in with Apple.",
     "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
     "casey@example.invalid, other@example.invalid are connected on this device.",
     "relay@privaterelay.example.invalid",
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
-  // Every React Native button lacks a press action until #1194, so that gap is not listed per button.
+  // Every React Native button and message link control lacks a press action until #1194, so that gap
+  // is not listed per control.
   private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
@@ -1275,7 +1403,7 @@ final class WindowTests: XCTestCase {
     switch issue.auditType {
     case .contrast where type == .staticText && contrastGaps.contains(label):
       return "#1195"
-    case .action where type == .button:
+    case .action where type == .button || (type == .link && label.hasPrefix("Open link: ")):
       return "#1194"
     case .parentChild where issue.element == nil:
       return "#1194"
@@ -1290,6 +1418,18 @@ final class WindowTests: XCTestCase {
       && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
         .contains(label):
       return "email address"
+    // A message link whose text is a web address reads as that address.
+    case .sufficientElementDescription
+    where type == .link && issue.element?.title.hasPrefix("https://") == true:
+      return "web address"
+    case .sufficientElementDescription
+    where issue.compactDescription == "Label duplicates role description"
+      && ((type == .image && label == "Image not loaded")
+        || (type == .link && label.hasPrefix("Open link: "))):
+      return "#1220"
+    // The same placeholder shows "Image" under that label.
+    case .elementDetection where type == .image && label == "Image not loaded":
+      return "#1220"
     default:
       return nil
     }
@@ -1371,8 +1511,10 @@ final class WindowTests: XCTestCase {
     return durations[durations.count / 2]
   }
 
+  // A key or format bar group's windows bracket its inputs, and `shows` is the body each must reach.
   private typealias PerformanceGroup = (
-    name: String, budget: Double, windows: [(start: Double, end: Double)], firstQuery: Int
+    name: String, budget: Double, windows: [(start: Double, end: Double)], firstQuery: Int,
+    shows: [(text: String, marks: String)]
   )
 
   private func reportPerformance(
@@ -1383,6 +1525,9 @@ final class WindowTests: XCTestCase {
       let event: String
       let milliseconds: Double?
       let uptime: Double?
+      let text: String?
+      let marks: String?
+      let frameStart: Double?
     }
     let records = try String(contentsOf: evidence, encoding: .utf8)
       .split(separator: "\n")
@@ -1390,6 +1535,9 @@ final class WindowTests: XCTestCase {
     func times(_ event: String) throws -> [Double] {
       try records.filter { $0.event == event }.map { try XCTUnwrap($0.uptime) }
     }
+    let keys = records.filter { $0.event == "key-down" }
+    let edits = records.filter { $0.event == "text-edit" }
+    let draws = records.filter { $0.event == "text-drawn" }
     let presses = try times("mouse-down")
     let releases = try times("mouse-up")
     // Body requests the synthetic providers answered; priming the cache must have made some.
@@ -1400,10 +1548,55 @@ final class WindowTests: XCTestCase {
     }
     var lines: [String] = []
     var pressToRelease: [Double] = []
-    for group in groups {
+    // Nearest-rank percentiles.
+    func percentile<Value>(_ sorted: [Value], _ rank: Double) -> Value {
+      sorted[max(0, Int((rank * Double(sorted.count)).rounded(.up)) - 1)]
+    }
+    for var group in groups {
+      // A key group runs from each recorded key press, and the format bar group from each
+      // recorded release, to the first edit showing its result. The body's first draw after that
+      // edit falls in the display frame that started last before it; display frames start every
+      // interval from any recorded start. Frames late counts the frames that started after the
+      // input and before that one: 0 is the next rendered frame.
+      var drawn: [Double] = []
+      var framesLate: [Int] = []
+      if !group.shows.isEmpty {
+        let inputs = group.name == "format-bar" ? releases : try times("key-down")
+        let starts = try group.windows.map { window in
+          try XCTUnwrap(
+            inputs.last { $0 >= window.start && $0 <= window.end },
+            "Missing input for \(group.name)")
+        }
+        group.budget = try XCTUnwrap(keys.compactMap(\.milliseconds).max())
+        group.windows = try zip(starts, group.shows).map { start, shown in
+          let edit = try XCTUnwrap(
+            edits.first {
+              ($0.uptime ?? 0) >= start && $0.text?.hasPrefix(shown.text) == true
+                && $0.marks?.hasPrefix(shown.marks) == true
+            }, "No edit showed \(shown) for \(group.name)")
+          let end = try XCTUnwrap(edit.uptime)
+          let draw = try XCTUnwrap(
+            draws.first { ($0.uptime ?? 0) >= end }, "No draw after \(shown) for \(group.name)")
+          let drawEnd = try XCTUnwrap(draw.uptime)
+          // A draw shows the body's latest edit; a result a later input replaced first never showed.
+          let drawnEdit = edits.last { ($0.uptime ?? 0) <= drawEnd }
+          XCTAssertTrue(
+            drawnEdit?.text?.hasPrefix(shown.text) == true
+              && drawnEdit?.marks?.hasPrefix(shown.marks) == true,
+            "\(shown) for \(group.name) was replaced before it was drawn")
+          let frameStart = try XCTUnwrap(draw.frameStart)
+          let interval = try XCTUnwrap(draw.milliseconds)
+          XCTAssertGreaterThan(frameStart, 0, "No display frame before \(group.name)")
+          let frame = ((drawEnd - frameStart) / interval).rounded(.down)
+          let next = ((start - frameStart) / interval).rounded(.up)
+          drawn.append(drawEnd - start)
+          framesLate.append(max(0, Int(frame - next)))
+          return (start, end)
+        }
+      }
       // A click selects on release: its sample starts at the release of its last press.
       let windows = try group.windows.map { window -> (start: Double, end: Double) in
-        if group.name == "launch-to-first-list" { return window }
+        if group.name == "launch-to-first-list" || !group.shows.isEmpty { return window }
         let press = try XCTUnwrap(
           presses.last(where: { $0 >= window.start && $0 <= window.end }),
           "Missing mouse press for \(group.name)")
@@ -1420,19 +1613,21 @@ final class WindowTests: XCTestCase {
           "\(group.name) requested a provider body")
       }
       let samples = windows.map { $0.end - $0.start }.sorted()
-      // Nearest-rank percentiles.
-      func percentile(_ rank: Double) -> Double {
-        samples[max(0, Int((rank * Double(samples.count)).rounded(.up)) - 1)]
-      }
       let during = stalls.filter { stall in
         windows.contains { stall.uptime <= $0.end && stall.uptime + stall.milliseconds >= $0.start }
       }.map(\.milliseconds)
-      let record: [String: Any] = [
+      var record: [String: Any] = [
         "interaction": group.name, "budgetMs": group.budget, "samplesMs": samples,
-        "p50Ms": percentile(0.5), "p95Ms": percentile(0.95), "maxMs": samples.last ?? 0,
-        "withinBudget": percentile(0.95) <= group.budget, "stallsMs": during,
-        "resultsOnFirstQuery": group.firstQuery,
+        "p50Ms": percentile(samples, 0.5), "p95Ms": percentile(samples, 0.95),
+        "maxMs": samples.last ?? 0, "withinBudget": percentile(samples, 0.95) <= group.budget,
+        "stallsMs": during, "resultsOnFirstQuery": group.firstQuery,
       ]
+      if !framesLate.isEmpty {
+        framesLate.sort()
+        record["drawnMs"] = drawn.sorted()
+        record["framesLate"] = framesLate
+        record["nextRenderedFrame"] = percentile(framesLate, 0.95) == 0
+      }
       lines.append(json(record))
     }
     pressToRelease.sort()

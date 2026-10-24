@@ -51,9 +51,9 @@ function Authorization({
   return settings === undefined ? null : shown[settings.authorization]();
 }
 
-// One Gmail connection's synchronized switch; turning it on asks for permission the first time.
+// One connection's synchronized switch; turning it on asks for permission the first time.
 function MailboxNotifications({
-  mailbox: { id, address, notifications: on },
+  mailbox: { id, provider, address, notifications: on },
   device,
   settings,
   store,
@@ -70,7 +70,7 @@ function MailboxNotifications({
     store.getSnapshot,
   );
   const title = t('notifications.mailbox', {
-    provider: t('mailProviders.gmail'),
+    provider: t(`mailProviders.${provider}`),
     address,
   });
   return (
@@ -98,7 +98,7 @@ function MailboxNotifications({
   );
 }
 
-// The Per Mailbox group: a switch for each Gmail connection, which only Gmail notifies for yet.
+// The Per Mailbox group: a switch for each connection.
 function PerMailbox({
   mailboxes,
   device,
@@ -111,8 +111,7 @@ function PerMailbox({
   readonly store: Registration;
 }) {
   const { t } = useLocalization();
-  const gmail = mailboxes.filter(({ provider }) => provider === 'gmail');
-  return gmail.length === 0 ? (
+  return mailboxes.length === 0 ? (
     <SettingsGroup
       title={t('notifications.perMailbox')}
       footer={t('notifications.noMailboxes')}
@@ -121,7 +120,7 @@ function PerMailbox({
     <SettingsGroup
       title={t('notifications.perMailbox')}
       footer={t('notifications.perMailboxDetail')}>
-      {gmail.map((mailbox) => (
+      {mailboxes.map((mailbox) => (
         <MailboxNotifications
           key={mailbox.id}
           mailbox={mailbox}
@@ -134,7 +133,7 @@ function PerMailbox({
   );
 }
 
-// This device's notification permission and previews, which never synchronize, then each Gmail
+// This device's notification permission and previews, which never synchronize, then each
 // connection's synchronized New Mail Notification switch.
 export function NotificationSettings({
   button,

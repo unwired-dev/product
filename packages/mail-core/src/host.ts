@@ -456,12 +456,10 @@ export function createHost(
           {
             snapshot: () => registration.getSnapshot().snapshot,
             verify: registration.refreshInbox,
-            inbox: (connection) => {
-              const mailbox = gmailMailboxes
-                .getSnapshot()
-                .find(({ id }) => id === connection);
-              return mailbox?.provider === 'gmail' ? mailbox.inbox : undefined;
-            },
+            mailbox: (connection) =>
+              gmailMailboxes
+                .getConnections()
+                .find(({ id }) => id === connection),
           },
         );
       }

@@ -319,8 +319,92 @@ final class InboxTests: XCTestCase {
     prompt.buttons["Cancel"].tap()
     XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+    mailProfilesSettingsJourney(app, switcher: switcher)
     // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
     app.buttons["All inboxes"].tap()
+  }
+
+  // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
+  // the Startup Profile and offers Add Mail Profile…, the Startup Profile's system pop-up menu and
+  // each mailbox's Mail Profile pop-up. Open Inbox shows the kept Inbox (#1069), whose Back returns
+  // to the switcher's Mailboxes.
+  private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) {
+    switcher.tap()
+    let manage = app.buttons["Manage Mail Profiles…"]
+    XCTAssertTrue(manage.waitForExistence(timeout: 10))
+    manage.tap()
+    let primary = app.buttons["Primary Profile"]
+    XCTAssertTrue(primary.waitForExistence(timeout: 15))
+    XCTAssertEqual(primary.value as? String, "Startup Profile")
+    let portraitWidth = primary.frame.width
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertTrue(app.navigationBars["Mail Profiles"].exists)
+    } else {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      waitUntil({
+        app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+          && primary.frame.width > portraitWidth
+      }, timeout: 10)
+    }
+    XCTAssertTrue(app.buttons["Add Mail Profile…"].exists)
+    let startup = app.buttons["Startup Profile"]
+    XCTAssertTrue(startup.exists)
+    XCTAssertGreaterThanOrEqual(startup.frame.height, 44)
+    let page = XCTAttachment(screenshot: app.screenshot())
+    page.name = "Settings Mail Profiles"
+    page.lifetime = .keepAlways
+    add(page)
+    let row = primary.frame
+    startup.tap()
+    // The pop-up's system menu lists each Profile beside the row that names it.
+    let named = app.buttons.matching(NSPredicate(format: "label == %@", "Primary Profile"))
+    waitUntil({ named.count > 1 }, timeout: 10)
+    let popUp = XCTAttachment(screenshot: app.screenshot())
+    popUp.name = "Startup Profile pop-up menu"
+    popUp.lifetime = .keepAlways
+    add(popUp)
+    // Choosing the checked Startup Profile again changes nothing and closes the menu.
+    let item = (0..<named.count).map { named.element(boundBy: $0) }.first { $0.frame != row }
+    XCTAssertNotNil(item)
+    item?.tap()
+    waitUntil({ named.count == 1 }, timeout: 10)
+    XCTAssertEqual(primary.value as? String, "Startup Profile")
+    // Beneath the selected Primary Profile, each mailbox names its Profile in a system pop-up.
+    // The Primary Profile cannot be removed.
+    XCTAssertFalse(app.buttons["Remove Mail Profile…"].exists)
+    let move = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Mail Profile for "))
+      .firstMatch
+    XCTAssertTrue(move.waitForExistence(timeout: 10))
+    XCTAssertEqual(move.value as? String, "Primary Profile")
+    XCTAssertGreaterThanOrEqual(move.frame.height, 44)
+    move.tap()
+    waitUntil({ named.count > 1 }, timeout: 10)
+    let moveMenu = XCTAttachment(screenshot: app.screenshot())
+    moveMenu.name = "Move mailbox pop-up menu"
+    moveMenu.lifetime = .keepAlways
+    add(moveMenu)
+    // Choosing the mailbox's own Profile again moves nothing and closes the menu.
+    let owner = (0..<named.count).map { named.element(boundBy: $0) }.first { $0.frame != row }
+    XCTAssertNotNil(owner)
+    owner?.tap()
+    waitUntil({ named.count == 1 }, timeout: 10)
+    XCTAssertEqual(move.value as? String, "Primary Profile")
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCUIDevice.shared.orientation = .portrait
+      waitUntil({
+        app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height
+          && primary.frame.width == portraitWidth
+      }, timeout: 10)
+    }
+    app.buttons["Open Inbox"].tap()
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let back = app.buttons["Back to Mailboxes"]
+      waitUntil { back.isHittable && !switcher.isHittable }
+      back.tap()
+    } else if !switcher.exists || !switcher.isHittable {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    XCTAssertTrue(switcher.waitForExistence(timeout: 15))
   }
 
   // #983: Send admits the message to the Outbox, and once the Undo Send Window ends the packaged
@@ -558,6 +642,26 @@ final class InboxTests: XCTestCase {
     mailboxes.name = "Mailboxes after swiping back from Settings"
     mailboxes.lifetime = .keepAlways
     add(mailboxes)
+    // #1069: Open Inbox from a pushed destination shows the kept list rather than Mailboxes, and
+    // Settings reopens on its list of destinations, not the one left open.
+    account.tap()
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.tap()
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    destination.buttons["Open Inbox"].tap()
+    waitUntil { back.isHittable && !account.isHittable && !destination.exists }
+    XCTAssertTrue(thread.exists)
+    let inbox = XCTAttachment(screenshot: app.screenshot())
+    inbox.name = "Kept Inbox after Open Inbox from Settings"
+    inbox.lifetime = .keepAlways
+    add(inbox)
+    back.tap()
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    XCTAssertFalse(destination.exists)
+    edgeSwipe(app, completing: true)
+    waitUntil { account.isHittable && !settings.exists }
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -758,10 +862,6 @@ final class InboxTests: XCTestCase {
     assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
     app.buttons["Open Inbox"].tap()
-    // iPhone returns to the Mailboxes column that Account was opened from.
-    if UIDevice.current.userInterfaceIdiom == .phone {
-      app.buttons["Inbox. In other@example.invalid"].tap()
-    }
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
     let body = app.webViews.textViews["Message body"]
@@ -1255,6 +1355,189 @@ final class InboxTests: XCTestCase {
     waitUntil { app.webViews.count == 0 }
   }
 
+  // #626: the core mail loop by hardware keyboard wherever the app offers a keyboard path, over the
+  // registration-performance build's Microsoft mailbox, with XCTest's accessibility audit of each
+  // screen in the runner's appearance. Opening the Command Palette, opening a row and placing the
+  // caret in a new reply still need touch (#849). Every audit issue is printed, and one outside
+  // knownAccessibilityGap fails the journey.
+  private func keyboardAndAccessibilityJourney(_ app: XCUIApplication) throws {
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    app.buttons["Continue"].tap()
+    app.buttons["Sign in with Apple"].tap()
+    XCTAssertTrue(app.buttons["Microsoft 365 and Outlook"].waitForExistence(timeout: 15))
+    app.buttons["Microsoft 365 and Outlook"].tap()
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
+    enter(
+      String(app.staticTexts["recovery-key"].label.suffix(4)),
+      into: app.textFields["Last four characters"], in: app)
+    app.buttons["Confirm Recovery Key"].tap()
+    func row(_ label: String) -> XCUIElement {
+      app.buttons.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+    }
+    let outlook = row("Colleague 003. Outlook update 003")
+    XCTAssertTrue(row("Colleague 001. Outlook update 001").waitForExistence(timeout: 20))
+    try audit(app, "Inbox")
+    if phone {
+      app.buttons["Back to Mailboxes"].tap()
+    } else {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    XCTAssertTrue(app.buttons["All inboxes"].waitForExistence(timeout: 10))
+    try audit(app, "Mailboxes")
+    app.buttons["All inboxes"].tap()
+    let inbox = app.staticTexts[phone ? "Inbox" : "All Inboxes"].firstMatch
+    XCTAssertTrue(inbox.waitForExistence(timeout: 10))
+
+    // Return runs the command the query narrows to: Account opens Settings, Inbox leaves it.
+    let query = app.textFields["Type a command"]
+    openPalette(app, header: inbox)
+    waitForFocus(query)
+    try audit(app, "Command Palette")
+    press("Account\n", in: app)
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    let settings = app.buttons["Open Inbox"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    try audit(app, "Settings")
+    openPalette(app, header: app.staticTexts["Settings"].firstMatch)
+    waitForFocus(query)
+    press("Inbox\n", in: app)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+    // Portrait iPad shows the empty reader with the list behind Show Sidebar; Search Mail brings it
+    // forward.
+    XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10))
+
+    // Search Mail focuses search, which takes typing, Select All, Cut and Paste; Return submits
+    // the query and puts the keyboard away.
+    openPalette(app, header: inbox)
+    waitForFocus(query)
+    press("Search Mail\n", in: app)
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    let search = app.searchFields.firstMatch
+    waitForFocus(search)
+    press("Outlook update 003", in: app)
+    XCTAssertTrue(outlook.waitForExistence(timeout: 15))
+    waitUntil { !row("Colleague 004.").exists }
+    app.typeKey("a", modifierFlags: .command)
+    app.typeKey("x", modifierFlags: .command)
+    waitUntil { search.value as? String == "Search" }
+    app.typeKey("v", modifierFlags: .command)
+    waitUntil { search.value as? String == "Outlook update 003" }
+    XCTAssertTrue(outlook.waitForExistence(timeout: 15))
+    press("\n", in: app)
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+    outlook.tap()
+    XCTAssertTrue(text("Outlook update 003 body.", in: app).waitForExistence(timeout: 15))
+    try audit(app, "Reader")
+
+    // Reply from the palette opens a Draft with nothing focused. Typing extends its subject, Tab
+    // moves on to the recipients, and the body takes typing once touched.
+    openPalette(app, header: app.staticTexts["Outlook update 003"].firstMatch)
+    waitForFocus(query)
+    press("Reply\n", in: app)
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    try audit(app, "Composer")
+    subject.tap()
+    waitForFocus(subject)
+    app.typeKey(.rightArrow, modifierFlags: .command)
+    press(" by keyboard", in: app)
+    waitUntil { subject.value as? String == "Re: Outlook update 003 by keyboard" }
+    press("\t", in: app)
+    waitForFocus(app.textFields["To"])
+    // XCUITest never reports the multiline body as focused, so typing goes to the app.
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    body.tap()
+    press("Keyboard reply", in: app)
+    waitUntil { body.value as? String == "Keyboard reply" }
+
+    // Relaunch lists the saved Draft, which reopens with both edits.
+    app.terminate()
+    app.launch()
+    let draft = row("Draft. Re: Outlook update 003 by keyboard")
+    XCTAssertTrue(draft.waitForExistence(timeout: 30))
+    draft.tap()
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    XCTAssertEqual(subject.value as? String, "Re: Outlook update 003 by keyboard")
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+  }
+
+  // Types with hardware key presses, one key per character; "\n" is Return and "\t" Tab.
+  private func press(_ keys: String, in app: XCUIApplication) {
+    for key in keys { app.typeKey(String(key), modifierFlags: []) }
+  }
+
+  private func waitForFocus(
+    _ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line
+  ) {
+    let focused = NSPredicate(format: "hasKeyboardFocus == true")
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: focused, object: element)], timeout: 10),
+      .completed, "\(element) never took keyboard focus", file: file, line: line)
+  }
+
+  // iPad taps the command input; iPhone swipes down on the screen's header.
+  private func openPalette(_ app: XCUIApplication, header: XCUIElement) {
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.buttons["Open Command Palette"].firstMatch.tap()
+    } else {
+      XCTAssertTrue(header.waitForExistence(timeout: 10))
+      let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)))
+    }
+  }
+
+  // Runs every XCTest accessibility audit on the app as shown, prints each issue as an
+  // ACCESSIBILITY line and fails on one that no known gap explains. The screenshot locates issues
+  // the audit reports without an element.
+  private func audit(_ app: XCUIApplication, _ screen: String) throws {
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Audited \(screen)"
+    shot.lifetime = .keepAlways
+    add(shot)
+    try app.performAccessibilityAudit { issue in
+      let gap = self.knownAccessibilityGap(issue, on: screen)
+      let line: [String: Any] = [
+        "screen": screen, "audit": issue.compactDescription,
+        "auditType": issue.auditType.rawValue,
+        "elementType": issue.element?.elementType.rawValue ?? -1,
+        "label": issue.element?.label ?? "", "knownGap": gap ?? "",
+      ]
+      // swiftlint:disable:next force_try
+      let data = try! JSONSerialization.data(withJSONObject: line, options: .sortedKeys)
+      print("ACCESSIBILITY " + String(decoding: data, as: UTF8.self))
+      return gap != nil
+    }
+  }
+
+  // The owner of each known gap, or why it is not the app's to fix.
+  private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue, on screen: String)
+    -> String?
+  {
+    let label = issue.element?.label ?? ""
+    switch issue.auditType {
+    // The software keyboard's suggestion cells.
+    case .sufficientElementDescription where issue.detailedDescription.contains("TUIPrediction"):
+      return "system keyboard"
+    // An address is the readable name of a sender or, in Settings, of the signed-in account.
+    case .sufficientElementDescription
+    where issue.element?.elementType == .staticText
+      && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
+      return "email address"
+    // Text the audit locates no element for, over the reader; iPad's composer leaves it in view.
+    case .elementDetection
+    where (screen == "Reader"
+      || (screen == "Composer" && UIDevice.current.userInterfaceIdiom == .pad))
+      && issue.element == nil
+      && issue.compactDescription == "Potentially inaccessible text":
+      return "#1213"
+    default:
+      return nil
+    }
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
@@ -1275,6 +1558,7 @@ final class InboxTests: XCTestCase {
       case "registration-removal": removalJourney(app)
       case "registration-draft-editor": draftEditorJourney(app)
       case "registration-thread": threadJourney(app)
+      case "registration-performance": try keyboardAndAccessibilityJourney(app)
       default:
         try registrationJourney(app)
       }
@@ -1395,13 +1679,7 @@ final class InboxTests: XCTestCase {
   // #982: with the software keyboard up and larger text, the Command Palette's final command
   // scrolls fully above the keyboard, and tapping it runs the command and closes the palette.
   private func verifyPaletteAboveKeyboard(_ app: XCUIApplication, header: XCUIElement) {
-    if UIDevice.current.userInterfaceIdiom == .pad {
-      app.buttons["Open Command Palette"].firstMatch.tap()
-    } else {
-      XCTAssertTrue(header.waitForExistence(timeout: 10))
-      let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)))
-    }
+    openPalette(app, header: header)
     let query = app.textFields["Type a command"]
     XCTAssertTrue(query.waitForExistence(timeout: 10))
     let keyboard = app.keyboards.firstMatch

@@ -134,14 +134,18 @@ cold-opened Thread's Back then shows the Inbox, which opens Crew 6, then the fie
 guide, in the reader. After scrolling into each body, a leading-edge swipe released
 early keeps the reading position, and a completed one returns to the Inbox. In
 Settings, a swipe from Account & Devices returns to the list of destinations, and
-another to Mailboxes. CI does not run this scenario; it is local native evidence.
+another to Mailboxes. Open Inbox from Account & Devices then shows the Inbox with
+the Thread's row, and Account reopens Settings on its list of destinations. CI
+does not run this scenario; it is local native evidence.
 In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
 also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and
 Outlook update 001 to 125, each with its own body. Every other Gmail body is HTML.
 The Mac [performance journey](agents/native-validation.md#mac-performance-journey)
 connects both mailboxes and times its interactions over them; the Mac
 [keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
-drives them by keyboard. CI runs neither.
+drives them by keyboard. The Expo native journey connects the Microsoft mailbox and
+[drives it by hardware keyboard](agents/native-validation.md#iphone-and-ipad-keyboard-and-accessibility-journey)
+on iPhone and iPad. CI runs none of them.
 The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
 adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
 reader. It has no native journey; its evidence comes from the page and the Swift

@@ -406,6 +406,129 @@ describe('connecting IMAP mailboxes', () => {
     expect(after.some(({ id }) => before.has(id))).toBe(false);
   });
 
+  it('reports only unread mail newly arriving in the Inbox, once each, after its commit', async () => {
+    expect.hasAssertions();
+    const at = (hour: number, minute = 0) => Date.UTC(2026, 9, 1, hour, minute);
+    // Each synchronization begins at the device time set before it.
+    vi.useFakeTimers({ now: at(9, 30), toFake: ['Date'] });
+    try {
+      const imap = createSyntheticImap();
+      imap.addFolder('Junk', ['junk']);
+      const listed = imap.deliver('INBOX', {
+        subject: 'Listed',
+        received: at(9),
+      });
+      // Delivered elsewhere before the first read; moved in later, it is not new mail.
+      const filtered = imap.deliver('Junk', {
+        subject: 'Filtered',
+        received: at(9, 10),
+      });
+      const arrivals: string[][] = [];
+      const committed: boolean[] = [];
+      const inbox = createImapInbox(imap.native, {
+        arrived: (messages) => {
+          committed.push(
+            messages.every(({ id }) => imap.cache.document?.includes(id)),
+          );
+          arrivals.push(messages.map(({ subject }) => subject));
+        },
+      });
+      // The first listing is historical.
+      await inbox.load();
+      expect(arrivals).toStrictEqual([]);
+
+      vi.setSystemTime(at(10, 30));
+      imap.deliver('INBOX', { subject: 'New arrival', received: at(10) });
+      // Delivered just as the clocks disagree: provider time a little behind this device's.
+      imap.deliver('INBOX', { subject: 'Behind', received: at(9, 26) });
+      imap.deliver('INBOX', {
+        subject: 'Read elsewhere',
+        received: at(10, 5),
+        flags: [String.raw`\Seen`],
+      });
+      // Mail moved in gets a new UID but keeps its INTERNALDATE.
+      imap.expunge('INBOX', listed);
+      imap.deliver('INBOX', { subject: 'Moved back', received: at(9) });
+      imap.expunge('Junk', filtered);
+      imap.deliver('INBOX', {
+        subject: 'Moved from Junk',
+        received: at(9, 10),
+      });
+      await inbox.load();
+      expect(arrivals).toStrictEqual([['New arrival', 'Behind']]);
+      // Synchronizing again reports nothing twice.
+      await inbox.load();
+      expect(arrivals).toHaveLength(1);
+
+      // Mail received exactly at the boundary, five minutes before the previous read began, is new.
+      vi.setSystemTime(at(11));
+      imap.deliver('INBOX', { subject: 'Same minute', received: at(10, 25) });
+      await inbox.load();
+      expect(arrivals).toStrictEqual([
+        ['New arrival', 'Behind'],
+        ['Same minute'],
+      ]);
+
+      // Mail listed again after a UIDVALIDITY change is not reported.
+      vi.setSystemTime(at(12));
+      imap.renumber('INBOX');
+      imap.deliver('INBOX', { subject: 'After renumbering', received: at(12) });
+      await inbox.load();
+      expect(arrivals).toHaveLength(2);
+      expect(committed).toStrictEqual([true, true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects an invalid saved synchronization time before reading or committing mail', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    await createImapInbox(imap.native).load();
+    assert.ok(imap.cache.document !== null);
+    imap.cache.document = imap.cache.document.replace(
+      /"synchronizedAt":"[^"]+"/u,
+      '"synchronizedAt":"invalid"',
+    );
+    const committed = imap.cache.commits;
+    const inbox = createImapInbox(imap.native);
+    await expect(inbox.load()).resolves.toBeUndefined();
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    expect(imap.cache.commits).toBe(committed);
+  });
+
+  it('establishes an arrival boundary silently for a cache saved before synchronization times', async () => {
+    expect.hasAssertions();
+    const at = (hour: number) => Date.UTC(2026, 9, 1, hour);
+    vi.useFakeTimers({ now: at(9), toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Cached', received: at(8) });
+    await createImapInbox(imap.native).load();
+    assert.ok(imap.cache.document !== null);
+    expect(imap.cache.document).toContain('synchronizedAt');
+    imap.cache.document = imap.cache.document.replace(
+      /,"synchronizedAt":"[^"]+"/u,
+      '',
+    );
+    const arrivals: string[][] = [];
+    const inbox = createImapInbox(imap.native, {
+      arrived: (messages) => {
+        arrivals.push(messages.map(({ subject }) => subject));
+      },
+    });
+    vi.setSystemTime(at(12));
+    imap.deliver('INBOX', { subject: 'Moved in', received: at(10) });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([]);
+    vi.setSystemTime(at(13));
+    imap.deliver('INBOX', { subject: 'New mail', received: at(13) });
+    await inbox.load();
+    expect(arrivals).toStrictEqual([['New mail']]);
+  });
+
   it('refuses an unidentified folder before caching messages and retries with established UIDVALIDITY', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

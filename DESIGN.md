@@ -491,7 +491,7 @@ form accessories, keyboards, status bar).
   turns that off.
 - **Profile Switcher / Profile Menu:** monogram, Mail Profile name and chevron.
   The menu lists Mail Profiles with their Mailbox Connections, unread counts and
-  a checkmark, then New Mail Profile…; Manage Mail Profiles… arrives with
+  a checkmark, then New Mail Profile… and Manage Mail Profiles…, which opens
   [Settings › Mail Profiles](https://github.com/unwired-dev/product/issues/1038). It is the system
   menu, so each Profile's connections and unread count share its subtitle and the
   checkmark leads; the reference frames' monograms and trailing counts are not

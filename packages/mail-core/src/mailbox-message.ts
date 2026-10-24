@@ -1,4 +1,11 @@
+import * as DateTime from 'effect/DateTime';
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
+
+// Persisted synchronization times must be parseable before newMailSince uses them.
+export const SynchronizationTime = Schema.String.check(
+  Schema.makeFilter((value) => Option.isSome(DateTime.make(value))),
+);
 
 // Graph's message, attachment and folder IDs also admit Gmail's alphanumeric IDs.
 export const GraphId = Schema.String.check(
@@ -19,3 +26,11 @@ export const GmailMessageSchema = Schema.Struct({
   labels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type GmailMessage = typeof GmailMessageSchema.Type;
+
+// The earliest receipt that can still be new mail after the synchronization that began at
+// `synchronizedAt`, an ISO instant on this device's clock; provider clocks may run up to five
+// minutes behind it.
+export const newMailSince = (synchronizedAt: string) =>
+  DateTime.formatIso(
+    DateTime.subtract(DateTime.makeUnsafe(synchronizedAt), { minutes: 5 }),
+  );

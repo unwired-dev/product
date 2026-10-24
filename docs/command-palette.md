@@ -58,7 +58,9 @@ results never appear in the palette. The vocabulary lives in the
 - Commands use the same confirmations, Undo and error reporting as the buttons
   they stand for: an archive from the palette shows the reader's notice and Undo.
 - Running a command closes the palette. Cancel, a tap or click outside, or
-  Escape closes it too and hands focus back to the control that had it. On the
+  Escape closes it too and hands focus back to the control that had it. On
+  iPhone and iPad a hardware Escape does not close it yet
+  ([#849](https://github.com/unwired-dev/product/issues/849)). On the
   Mac, AppKit keeps the window's focused control, so focus returns to an Inbox
   row or a button as well as a text field, and to the command input when it was
   focused. Each opening starts with an empty query.
@@ -73,7 +75,7 @@ results never appear in the palette. The vocabulary lives in the
   picker; the footer names these keys. The bar shows the Command-P shortcut.
   Per-command shortcuts appear only once the keyboard shortcuts of
   [#849](https://github.com/unwired-dev/product/issues/849) exist.
-  While a link confirmation is open, dismiss it before opening the palette in
+  While a link confirmation sheet is open, answer it before opening the palette in
   that window; command entry in other windows remains available.
 - **iPhone:** a downward swipe that starts on a screen header (the Inbox heading,
   the Mailboxes title, the reader's subject line, the composer's top bar or the
@@ -138,5 +140,10 @@ iPhone and iPad; on the Mac, so do clicks on the open panel's rows, which must
 reach them above the outside-click layer.
 The [Expo native journey](expo-client.md#validate) opens the palette over a
 reader with larger text and the software keyboard shown, scrolls its last
-command above the keyboard and runs it. Filtered lists, keyboard changes while
-it is open and accessibility text sizes remain to be qualified on iPhone and iPad.
+command above the keyboard and runs it. The
+[iPhone and iPad keyboard journey](agents/native-validation.md#iphone-and-ipad-keyboard-and-accessibility-journey)
+narrows the list with a hardware keyboard and runs the command with Return; a
+hardware Escape does not yet close the palette there
+([#849](https://github.com/unwired-dev/product/issues/849)). Keyboard changes
+while it is open and accessibility text sizes remain to be qualified on iPhone
+and iPad.

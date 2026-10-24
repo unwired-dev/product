@@ -176,6 +176,7 @@
     "destinations": {
       "account": "Account & Devices",
       "mailboxes": "Email Accounts",
+      "profiles": "Mail Profiles",
       "notifications": "Notifications",
       "language": "Language",
       "privacy": "Privacy & Data",
@@ -1107,13 +1108,15 @@
     "perMailbox": "Per Mailbox",
     "mailbox": "{{provider}} · {{address}}",
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",
-    "noMailboxes": "Notifications are available for Gmail mailboxes.",
+    "noMailboxes": "Add a mailbox to choose its notifications.",
     "changeFailed": "Notifications could not be changed. Try again later."
   },
   "profiles": {
     "primary": "Primary Profile",
     "switcher": "Mail Profile, {{name}}",
     "new": "New Mail Profile…",
+    "manage": "Manage Mail Profiles…",
+    "add": "Add Mail Profile…",
     "noMailboxes": "No mailboxes",
     "connections": "{{connections}} · {{provider}}",
     "detail_zero": "{{connections}}",
@@ -1128,7 +1131,34 @@
     "create": "Create",
     "upgradeTitle": "Update Your Other Devices",
     "upgradeMessage": "Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then create the Mail Profile again.",
-    "failed": "The Mail Profile could not be created. Try again.",
-    "ok": "OK"
+    "newFailed": "The Mail Profile could not be created. Try again.",
+    "ok": "OK",
+    "startup": "Startup Profile",
+    "renameTitle": "Rename Mail Profile",
+    "renameFailed": "The Mail Profile could not be renamed. Try again.",
+    "upgradeRetry": "Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then try again.",
+    "changed": "Another device changed these Mail Profiles first. Check them, then try again.",
+    "moveMailbox": "Mail Profile for {{address}}",
+    "moveTitle": "Mailbox Not Moved",
+    "moveFailed": "The mailbox could not be moved. Try again.",
+    "remove": "Remove Mail Profile…",
+    "removeAction": "Remove",
+    "removeQuestion": "Remove “{{name}}”?",
+    "removeEmpty": "{{name}} is removed from all your Trusted Devices. It owns no mailboxes.",
+    "removeQuestionMailboxes": "Remove “{{name}}” and Its Mailboxes?",
+    "removeMailboxes_one": "{{addresses}} is also removed from Unwired Mail on all your devices. Its mail stays with {{provider}}.",
+    "removeMailboxes_other": "{{addresses}} are also removed from Unwired Mail on all your devices. Their mail stays with their providers.",
+    "mailServer": "the mail server",
+    "removeTitle": "Mail Profile Not Removed",
+    "removeFailed": "The Mail Profile could not be removed. Try again.",
+    "settings": {
+      "profiles": "Profiles",
+      "synchronized": "Names and ownership synchronize through Private Sync.",
+      "device": "This Device",
+      "deviceFooter": "Window restoration and the Startup Profile stay only on this device.",
+      "mailboxes": "Mailboxes",
+      "moveFooter": "Moving a mailbox keeps its mail, Drafts and sign-in. Moving needs Private Sync.",
+      "removeFooter": "Removing a Mail Profile also removes its mailboxes from Unwired Mail on all your devices, after you confirm. Their mail stays with the provider."
+    }
   }
 }

@@ -23,6 +23,7 @@ import {
 import { createRegistrationFlow } from './registration-flow.ts';
 import {
   RegistrationSnapshotSchema,
+  defaultProfile,
   mailboxesOf,
   trustedDevicesOf,
 } from './registration-snapshot.ts';
@@ -107,7 +108,7 @@ const ProfileFailureSchema = Schema.Literals([
   'profile-in-use',
   'profile-changed',
 ]);
-// Why a Mail Profile change was refused; nothing changed.
+// Why a Mail Profile change did not complete. A removal may have removed some mailboxes first.
 export type ProfileFailure = typeof ProfileFailureSchema.Type | 'failed';
 const profileFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: ProfileFailureSchema }),
@@ -377,11 +378,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
     }),
     {
       foreground = false,
+      queued = false,
       accountChange,
       mailboxLoading = 'automatic',
       imapSetup,
     }: Readonly<{
       foreground?: boolean;
+      queued?: boolean;
       accountChange?: 'sign-in' | 'removal';
       mailboxLoading?: MailboxLoading;
       imapSetup?: ImapSetup;
@@ -492,7 +495,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
         (program) =>
-          foreground
+          foreground || queued
             ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
             : program.pipe(
                 Semaphore.withPermitsIfAvailable(semaphore, 1),
@@ -500,6 +503,23 @@ export function createRegistration(vault: NativeRegistrationVault) {
               ),
       ),
     );
+  // Editing completion and prompt submission may arrive during foreground verification.
+  // Keep the intent until admitted, but never apply it to a replacement Product Account.
+  const changeProfile = (operation: Parameters<typeof execute>[0]) => {
+    const previous = state.snapshot;
+    const owner =
+      previous.kind === 'signed-out' ? undefined : previous.productAccountId;
+    return execute(
+      Effect.suspend(() => {
+        const current = state.snapshot;
+        const currentOwner =
+          current.kind === 'signed-out' ? undefined : current.productAccountId;
+        return currentOwner === owner ? operation : Effect.succeed(current);
+      }),
+      profileRefusal,
+      { queued: true },
+    );
+  };
   const restoredAccount = request(native.restore()).pipe(
     Effect.map((snapshot) =>
       snapshot.kind === 'signed-out' &&
@@ -622,13 +642,47 @@ export function createRegistration(vault: NativeRegistrationVault) {
     removeMailbox: (connection: string) =>
       execute(request(native.removeMailbox(connection))),
     createProfile: (name: string) =>
-      execute(request(native.createProfile(name)), profileRefusal),
+      changeProfile(request(native.createProfile(name))),
     renameProfile: (profile: string, name: string) =>
-      execute(request(native.renameProfile(profile, name)), profileRefusal),
-    removeProfile: (profile: string) =>
-      execute(request(native.removeProfile(profile)), profileRefusal),
+      changeProfile(request(native.renameProfile(profile, name))),
+    // Removes the mailboxes the person confirmed removing with the Profile, each as Email Accounts
+    // removes one, then the Profile. One this device already knows moved to another Profile stays;
+    // an unobserved move does not revoke confirmation. One moved in unconfirmed refuses removal
+    // with `profile-in-use`.
+    removeProfile: (profile: string, confirmed: readonly string[] = []) =>
+      changeProfile(
+        Effect.gen(function* () {
+          for (const id of confirmed) {
+            // Earlier steps can learn a move or finish despite losing their reply. Always use the
+            // current saved snapshot and publish completed cleanup before the next fallible step.
+            const snapshot = yield* request(native.snapshot());
+            publish({ ...state, snapshot });
+            if (
+              profile !== defaultProfile &&
+              mailboxesOf(snapshot).some(
+                (mailbox) => mailbox.id === id && mailbox.profile === profile,
+              )
+            ) {
+              const removed = yield* request(native.removeMailbox(id));
+              publish({ ...state, snapshot: removed });
+            }
+          }
+          return yield* request(native.removeProfile(profile));
+        }).pipe(
+          Effect.tapError(() =>
+            request(native.snapshot()).pipe(
+              Effect.tap((snapshot) =>
+                Effect.sync(() => {
+                  publish({ ...state, snapshot });
+                }),
+              ),
+              Effect.ignore,
+            ),
+          ),
+        ),
+      ),
     moveMailbox: (connection: string, profile: string) =>
-      execute(request(native.moveMailbox(connection, profile)), profileRefusal),
+      changeProfile(request(native.moveMailbox(connection, profile))),
     notifyMailbox: (connection: string, enabled: boolean) =>
       execute(
         // A refusal, such as another device's write first, is reported on the connection's row.

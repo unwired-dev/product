@@ -2,6 +2,8 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
+import { newMailSince, SynchronizationTime } from './mailbox-message.ts';
+
 // ponytail: the newest messages kept per folder, as for Gmail's Inbox; older ones stay on the
 // server until Historical Metadata Backfill.
 export const window = 200;
@@ -83,6 +85,9 @@ const FolderCacheSchema = Schema.Struct({
   uidValidity: Validity,
   uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   messages: Schema.Array(ImapMessageSchema),
+  // When this device began the read that produced the cache, as an ISO instant; absent from caches
+  // saved before it was kept.
+  synchronizedAt: Schema.optionalKey(SynchronizationTime),
 });
 type FolderCache = typeof FolderCacheSchema.Type;
 
@@ -356,4 +361,28 @@ export function applyFolderRead(
     uidNext: read.uidNext,
     messages: newestFirst(merged),
   };
+}
+
+// The unread mail a read brought newly into the folder: UIDs from the cached UIDNEXT on, under the
+// same UIDVALIDITY, with an INTERNALDATE no earlier than the previous read began. A first listing,
+// a reset or new UIDVALIDITY and refilled older mail never arrive, nor does mail moved in, which
+// keeps its INTERNALDATE, unless it reached another folder since the previous read.
+export function arrivedMessages(
+  cached: FolderCache | undefined,
+  read: FolderRead,
+  next: FolderCache,
+) {
+  if (
+    cached === undefined ||
+    cached.synchronizedAt === undefined ||
+    read.reset ||
+    cached.uidValidity !== read.uidValidity
+  ) {
+    return [];
+  }
+  const since = newMailSince(cached.synchronizedAt);
+  return next.messages.filter(
+    ({ uid, unread, receivedAt }) =>
+      unread && uid >= cached.uidNext && receivedAt >= since,
+  );
 }

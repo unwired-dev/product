@@ -2,7 +2,7 @@ import type {
   MenuSection,
   NativeMenuItem,
 } from '@private-email/mail-core/context-menu';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type {
   ColorValue,
   NativeSyntheticEvent,
@@ -30,7 +30,7 @@ import {
 } from 'react-native';
 
 import { Label } from './label.tsx';
-import { isMenuChoice } from './native-menu.ts';
+import { isAlertChoice, isMenuChoice } from './native-menu.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const NativeSymbol = requireNativeComponent<
@@ -114,6 +114,7 @@ const styles = StyleSheet.create({
     minHeight: 28,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
+    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -237,6 +238,69 @@ export function MenuButton({
       {children}
     </Pressable>
   );
+}
+
+type SheetQuestion = Readonly<{
+  title: string;
+  detail: string;
+  buttons: readonly string[];
+  // The button Escape answers; the last unless given.
+  cancel?: number;
+  destructive?: number;
+  // An SF Symbol in place of the app icon.
+  symbol?: Readonly<{ name: string; color: ColorValue }>;
+  // A complete selectable text below the detail that scrolls beyond a few lines.
+  passage?: string;
+}>;
+
+interface NativeAlert extends TurboModule {
+  readonly show: (
+    anchor: number,
+    request: number,
+    question: Omit<SheetQuestion, 'symbol'> & {
+      readonly symbol?: Readonly<{ name: string; color: unknown }>;
+    },
+  ) => Promise<unknown>;
+  readonly retire: (request: number) => void;
+}
+
+let alertRequests = 0;
+
+// Asks in an AppKit alert sheet on `anchor`'s window. `answer` resolves the chosen button's index;
+// the first button is the default and `cancel` answers Escape. `retire` closes the sheet
+// and ignores later native results. The caller must still check its lifetime after awaiting `answer`.
+export function askInSheet(anchor: View | null, question: SheetQuestion) {
+  const alert = TurboModuleRegistry.getEnforcing<NativeAlert>('UnwiredAlert');
+  const tag = findNodeHandle(anchor);
+  alertRequests += 1;
+  const request = alertRequests;
+  let current = tag !== null;
+  const ask = async () => {
+    if (tag === null) {
+      return null;
+    }
+    const { symbol } = question;
+    const chosen = await alert.show(
+      tag,
+      request,
+      symbol === undefined
+        ? question
+        : {
+            ...question,
+            symbol: { name: symbol.name, color: processColor(symbol.color) },
+          },
+    );
+    return current && isAlertChoice(chosen) ? chosen : null;
+  };
+  return {
+    answer: ask(),
+    retire: () => {
+      if (current) {
+        current = false;
+        alert.retire(request);
+      }
+    },
+  };
 }
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
@@ -534,9 +598,6 @@ export function Button({
   disabled = false,
   destructive = false,
   accessibilityLabel,
-  ref,
-  onFocus,
-  onBlur,
 }: {
   readonly label: string;
   readonly onPress: () => void;
@@ -544,31 +605,38 @@ export function Button({
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly accessibilityLabel?: string;
-} & Pick<ComponentProps<typeof Pressable>, 'ref' | 'onFocus' | 'onBlur'>) {
+}) {
   const colors = usePalette();
+  const [focused, setFocused] = useState(false);
   const primary = fill === 'accent';
   const idle = primary ? colors.accentFill : colors.fillQuiet;
+  // Pressed, the accent fill shows at 80% (CC) and the quiet fill takes the selection tint.
+  const pressedFill = primary ? `${idle}CC` : colors.accentSelectionSubtle;
   let color = primary ? colors.accentOnFill : colors.textPrimary;
   if (destructive) {
     color = colors.statusDestructive;
   }
   return (
     <Pressable
-      ref={ref}
-      onFocus={onFocus}
-      onBlur={onBlur}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      enableFocusRing={false}
       focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         {
-          backgroundColor:
-            pressed && !primary ? colors.accentSelectionSubtle : idle,
-          opacity: disabled ? 0.5 : 1,
+          backgroundColor: pressed ? pressedFill : idle,
+          outlineColor: focused && !disabled ? colors.accentInk : 'transparent',
+          opacity: disabled ? 0.4 : 1,
         },
       ]}>
       <Text

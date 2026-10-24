@@ -89,6 +89,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   AppState,
   Image,
@@ -102,6 +103,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
   ComposerActions,
@@ -196,7 +198,6 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
-  actionText: { ...textStyles.body },
   notice: { ...textStyles.subheadline },
   review: { paddingHorizontal: fieldInset, paddingTop: spacing.m },
   body: {
@@ -343,16 +344,24 @@ export type Closing =
   | 'discard'
   | 'recipients';
 
-// A quiet banner beside the content it explains, with its actions under the message.
+// A quiet banner beside the content it explains, with its actions under the message. VoiceOver
+// announces an action's outcome when it appears; iOS ignores live regions.
 function Alert({
   message,
   actions,
+  outcome = false,
   children,
 }: {
   readonly message: string;
   readonly actions?: ComponentProps<typeof Banner>['messageActions'];
+  readonly outcome?: boolean;
   readonly children?: ReactNode;
 }) {
+  useEffect(() => {
+    if (outcome) {
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [outcome, message]);
   return (
     <Banner
       icon="exclamationmark.triangle"
@@ -361,37 +370,6 @@ function Alert({
       messageActions={actions}>
       {children}
     </Banner>
-  );
-}
-
-export function Action({
-  label,
-  onPress,
-  disabled = false,
-  destructive = false,
-  accessibilityLabel,
-}: {
-  readonly label: string;
-  readonly onPress: () => void;
-  readonly disabled?: boolean;
-  readonly destructive?: boolean;
-  readonly accessibilityLabel?: string;
-}) {
-  const colors = usePalette();
-  let color = destructive ? colors.statusDestructive : colors.accentInk;
-  if (disabled) {
-    color = colors.textSecondary;
-  }
-  return (
-    <Pressable
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={styles.action}>
-      <Text style={[styles.actionText, { color }]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -520,6 +498,7 @@ export function DraftList() {
               : t('drafts.listFailed')}
           </Text>
           <Action
+            variant="composer"
             label={t('common.retry')}
             onPress={() => {
               void store.load();
@@ -538,6 +517,7 @@ export function DraftList() {
             {t(`drafts.unsaved.${state.save}`)}
           </Text>
           <Action
+            variant="composer"
             label={t('drafts.saveDrafts')}
             onPress={() => {
               void store.save();
@@ -994,6 +974,7 @@ function AssetRow({
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
+          variant="composer"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.retryLabel', {
             name: asset.name,
@@ -1004,6 +985,7 @@ function AssetRow({
       ) : null}
       {running ? (
         <Action
+          variant="composer"
           disabled={!editable}
           accessibilityLabel={t('drafts.assets.cancelLabel', {
             name: asset.name,
@@ -1178,6 +1160,7 @@ function SendRefusalNotice({
   )?.provider;
   return refused === undefined ? null : (
     <Alert
+      outcome
       message={t(
         refused === 'too-large'
           ? tooLarge[provider ?? 'gmail']
@@ -1263,6 +1246,7 @@ export function ComposerNotices({
     <View style={styles.alerts}>
       {closing === 'blocked' || closing === 'discard-blocked' ? (
         <Alert
+          outcome
           message={
             closing === 'discard-blocked'
               ? t('drafts.discardBlocked')
@@ -1276,7 +1260,10 @@ export function ComposerNotices({
         </Alert>
       ) : null}
       {closing === 'recipients' ? (
-        <Alert message={t('drafts.invalidRecipients')} />
+        <Alert
+          outcome
+          message={t('drafts.invalidRecipients')}
+        />
       ) : null}
       <SendRefusalNotice
         connection={draft.connection}
@@ -1284,7 +1271,9 @@ export function ComposerNotices({
       />
       <SendingNotice draft={draft} />
       {closing === 'discard' ? (
-        <Alert message={t('drafts.discardConfirm')}>
+        <Alert
+          outcome
+          message={t('drafts.discardConfirm')}>
           <Button
             size="compact"
             destructive
@@ -2252,6 +2241,7 @@ function Editor({
               trailing={
                 copiesShown ? undefined : (
                   <Action
+                    variant="composer"
                     disabled={sending}
                     accessibilityLabel={t('drafts.showCcBcc')}
                     label={t('drafts.ccBcc')}

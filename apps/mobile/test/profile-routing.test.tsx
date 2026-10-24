@@ -24,7 +24,10 @@ import {
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
-import { defaultProfile } from '@private-email/mail-core/registration';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createTwoProfileRegistration } from '@private-email/mail-core/testing/registration-scenarios';
@@ -1126,6 +1129,185 @@ describe('the mobile Profile Switcher', () => {
     }
   });
 
+  /* oxlint-disable vitest/max-expects -- One journey opens, renames, adds and picks the Startup Profile. */
+  it('manages Mail Profiles in Settings through the real registration', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const { snapshot } = registration.getSnapshot();
+    ok(snapshot.kind !== 'signed-out');
+    const owner = snapshot.productAccountId;
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      const saving = savedPreferences(new Map());
+      const prompt = jest.spyOn(Alert, 'prompt').mockReturnValue(undefined);
+      showMail(defaultProfile);
+      route.setParams({});
+      const app = await render(<RootLayout />);
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      const work = await screen.findByRole('button', { name: 'Work' });
+      expect(work.props.accessibilityHint).toBe('Gmail');
+      // No Startup Profile is saved, so new windows open the Primary Profile.
+      expect(
+        screen.getByRole('button', { name: 'Primary Profile' }),
+      ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      // The Primary Profile keeps its name.
+      expect(screen.queryByDisplayValue('Primary Profile')).toBeNull();
+      await fireEvent.press(work);
+      const name = screen.getByDisplayValue('Work');
+      expect(name).toHaveProp('accessibilityLabel', 'Name');
+      await fireEvent.changeText(name, '  Office ');
+      await fireEvent(name, 'endEditing');
+      await expect(
+        screen.findByRole('header', { name: 'Office' }),
+      ).resolves.toBeVisible();
+      expect(screen.getByDisplayValue('Office')).toBeVisible();
+      await choose('Startup Profile', workId);
+      expect(saving).toHaveBeenCalledWith(`startup-profile:${owner}`, workId);
+      expect(
+        screen.getByRole('button', { name: 'Office' }),
+      ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+      );
+      const buttons = prompt.mock.lastCall?.[2];
+      ok(Array.isArray(buttons));
+      await act(async () => {
+        const create = buttons.find(({ text }) => text === 'Create')
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
+          ?.onPress as ((value: string) => void) | undefined;
+        create?.('Family');
+        await Promise.resolve();
+      });
+      const family = await screen.findByRole('button', { name: 'Family' });
+      expect(family.props.accessibilityHint).toBe('No mailboxes');
+      // Startup Profile is only for a new window, not the shell under Settings.
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
+      await expect(
+        screen.findByLabelText('Mail Profile, Primary Profile'),
+      ).resolves.toBeVisible();
+      await app.unmount();
+      await render(<RootLayout />);
+      await expect(
+        screen.findByLabelText('Mail Profile, Office'),
+      ).resolves.toBeVisible();
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
+  it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      savedPreferences(new Map());
+      const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(<RootLayout />);
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Work' }),
+      );
+      const moving = 'Mail Profile for other@example.invalid';
+      expect(screen.getByLabelText(moving)).toHaveAccessibilityValue({
+        text: 'Work',
+      });
+      await choose(moving, defaultProfile);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Work' }).props.accessibilityHint,
+        ).toBe('No mailboxes');
+      });
+      expect(screen.queryByLabelText(moving)).toBeNull();
+      // The Primary Profile lists both mailboxes and cannot be removed.
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Primary Profile' }),
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Remove Mail Profile…' }),
+      ).toBeNull();
+      await choose(moving, workId);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Work' }).props.accessibilityHint,
+        ).toBe('Gmail');
+      });
+      expect(alert).not.toHaveBeenCalled();
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Work' }));
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Remove Mail Profile…' }),
+      );
+      const asked = alert.mock.lastCall;
+      ok(asked);
+      const [title, message, buttons] = asked;
+      expect([title, message]).toStrictEqual([
+        'Remove “Work” and Its Mailboxes?',
+        'other@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with Gmail.',
+      ]);
+      ok(Array.isArray(buttons));
+      expect(buttons.map(({ text, style }) => [text, style])).toStrictEqual([
+        ['Cancel', 'cancel'],
+        ['Remove', 'destructive'],
+      ]);
+      await act(async () => {
+        buttons.find(({ text }) => text === 'Remove')?.onPress?.();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Work' })).toBeNull();
+      });
+      expect(
+        screen.getByRole('header', { name: 'Primary Profile' }),
+      ).toBeVisible();
+      expect(
+        mailboxesOf(registration.getSnapshot().snapshot).map(
+          ({ address }) => address,
+        ),
+      ).toStrictEqual(['alex@example.invalid']);
+      // No refusal followed the question.
+      expect(alert.mock.lastCall?.[0]).toBe(title);
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
+
   /* oxlint-disable vitest/max-expects -- One journey switches, saves and restores the window's Profile. */
   it('switches the window to the chosen Profile and restores it after relaunch', async () => {
     expect.hasAssertions();
@@ -1150,7 +1332,12 @@ describe('the mobile Profile Switcher', () => {
             { title: 'Work', subtitle: 'Gmail · 2 unread', checked: false },
           ],
         },
-        { items: [{ title: 'New Mail Profile…' }] },
+        {
+          items: [
+            { title: 'New Mail Profile…' },
+            { title: 'Manage Mail Profiles…' },
+          ],
+        },
       ]);
       await choose('Mail Profile, Primary Profile', 'profile\nwork');
       await expect(
@@ -1274,7 +1461,9 @@ describe('the mobile Profile Switcher', () => {
   it('opens the Startup Profile, while a message link from before Profiles opens the Default Profile', async () => {
     expect.hasAssertions();
     try {
-      savedPreferences(new Map([['startup-profile', 'work']]));
+      savedPreferences(
+        new Map([['startup-profile:synthetic-product-account', 'work']]),
+      );
       const id = showMail('work');
       route.setParams({});
       const app = await render(view());

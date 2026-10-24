@@ -78,8 +78,10 @@ the decision history in [ADR 0018](../adr/0018-local-mail-performance-budget.md)
 ### Mac performance journey
 
 On the Mac, the `testWarmCachePerformance` journey measures the budgets above
-except Mail View switching and typing and formatting feedback, which remain
-deferred. Build the `Testing` configuration, which
+except Mail View switching, which remains deferred. It measures typing, formatting
+shortcut and format bar feedback from the input to the text-storage update and
+the display frame that draws it, as described below. Build the `Testing`
+configuration, which
 is Release-optimized with packaged JavaScript plus the test-only probes, with
 `UNWIRED_MOCK_SCENARIO=registration-performance`, then run it with the
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
@@ -97,18 +99,48 @@ lists, 21 switches between both Inboxes and All inboxes, 10 body openings per
 mailbox and 10 openings each of an empty composer and a saved Draft. Closing a
 composer currently crashes the Mac host
 ([#1174](https://github.com/unwired-dev/product/issues/1174)), so each composer
-sample is the first composer of a relaunched process. The synthetic relay
+sample is the first composer of a relaunched process. In a new message it then
+types 20 characters into the body, turns bold on at the caret with Command-B and
+types 11 bold characters, then selects the last word and presses Command-B, B,
+I, I, U, U twice, so each mark toggles on that word and back. It then clicks the
+format bar's Bold, Bold, Italic, Italic, Underline and Underline buttons twice
+over on the same word. The synthetic relay
 records each provider body request in the probe evidence; the journey fails if a
 cached-body sample requested one, or if priming recorded none.
 
 A click sample runs from the mouse release, recorded by the app on the same
 uptime clock, until an accessibility query finds the rendered result. A launch
-sample runs from the launch request. Every sample includes XCUITest's event
+sample runs from the launch request. Click and launch samples include XCUITest's event
 completion and queries, about 35–45 ms each, so it is an upper bound: a sample
 within budget passes, but an overrun only shows that the budget is not proven.
 The app records main-queue probe delays of 100 ms or longer; the report names
 stalls overlapping sample windows and in the whole session. Missing or malformed
 probe evidence, including a click sample without its mouse events, fails the journey.
+
+A key sample runs from the key press the app records to the first edit of the
+focused body's text storage that begins with the expected text and the bold,
+italic and underline marks of each of its characters, so a later key press
+cannot hide a late result. A format bar sample runs the same way from the mouse
+release the app records. Both times come from the app, so these samples exclude
+XCUITest. It compares that duration to `1000 / maximumFramesPerSecond`
+of the key window's display, the interval at the display's maximum supported refresh
+rate. The edit notification fires before layout managers receive the change, so a
+key or format bar group's `withinBudget` result describes only the text-storage update.
+
+Next-rendered-frame feedback comes from the body's first draw after that edit. The
+body's latest edit before that draw must still show the expected text and marks;
+a result that a later input replaced before any draw fails the journey. A
+display link records display frame starts on the same clock. The journey places
+the end of that draw in the frame that started last before it, counting frames from any recorded
+start at the link's frame interval, and reports `framesLate`: the frames that
+started after the input and before that one. `nextRenderedFrame` holds when the
+group's p95 is 0. This is a group percentile criterion; individual late samples
+remain in `framesLate`. `drawnMs` runs from the input to the end of the draw.
+Keep the journey window on one display, refreshing at a constant interval while
+the journey types. The probe ends at draw completion; it does not observe
+window-server compositing or display presentation. The probe's synchronous
+key-event logging also adds work before the edit. A key press, button release
+or expected edit missing from the evidence fails the journey.
 The probe samples every 10 ms after its launch setup. No recorded delay means no
 observed stall; it does not prove the absolute stall cap for every main-thread
 task or for startup before the probe begins.
@@ -117,8 +149,8 @@ The journey writes one `PERFORMANCE` JSON line per interaction to
 `xcodebuild.log` and the same lines as an XCTest attachment. Each line has the
 samples, p50, p95, maximum, budget and stalls. The final line has the
 query overhead, the synthetic press duration and every session stall. It
-measures neither Mail View switching, typing nor formatting feedback, keyboard or
-accessibility journeys, nor the iPhone and iPad references.
+measures neither Mail View switching, keyboard or accessibility journeys, nor the
+iPhone and iPad references.
 
 ### Mac keyboard and accessibility journey
 
@@ -138,7 +170,12 @@ palette's commands with Down and Up and runs Search Mail with Return, checking
 focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
-the pop-up shows the choice. It closes Settings with Command-W. It then searches for the
+the pop-up shows the choice. It closes Settings with Command-W. It then opens the Gmail
+message **Garden plans for spring** with the pointer and clicks each link's keyboard control.
+Each link's AppKit alert sheet shows its title and full destination. Command-P stays closed
+behind the sheet, and Escape and Cancel close it. The flagged link's sheet closes with Escape
+and with Return, its default Cancel. The journey never opens or copies a link. Afterwards
+Command-P opens the palette again. It then searches for the
 Microsoft message **Quarterly planning** and opens it. The reader's **Folders** AppKit
 menu closes with Escape and with a click outside, then Down and Return choose
 **Projects**, which moves the message and closes its reader. This runs before Reply
@@ -159,18 +196,71 @@ the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
-Privacy & Data, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
+Privacy & Data, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
-audits still report. These are buttons without a press action and the missing
+audits still report. These are buttons and message link controls without a press action and the missing
 parent/child links
 ([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)), choose-one
 options without a role ([#1196](https://github.com/unwired-dev/product/issues/1196)),
-AppKit's text Touch Bar and email addresses used as labels. The contrast gap lists
+reader labels that repeat their role or differ from visible text
+([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
+and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The audits run in the host's
 current appearance only. They do not replace VoiceOver,
-Full Keyboard Access or iPhone and iPad keyboard qualification.
+Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
+
+### iPhone and iPad keyboard and accessibility journey
+
+The Expo native journey for a `registration-performance` Release build drives
+the same loop with hardware key presses on iPhone and iPad. Build it with
+`UNWIRED_MOCK_SCENARIO=registration-performance` as in the
+[mobile entry point](../mock-mail-sessions.md#mobile-entry-point), then run it
+on the built app:
+
+```sh
+mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
+```
+
+Add `UNWIRED_APPEARANCE=light` to audit Light; the runner's default is Dark.
+
+The journey signs in with Apple and connects the synthetic Microsoft mailbox.
+Each Command Palette command is typed and run with Return: Account opens Settings,
+Inbox leaves it, and Search Mail focuses search. It types a query into search,
+then selects, cuts and pastes it back with Command-A, Command-X and Command-V,
+and Return submits it. Reply from the palette opens a Draft. Typing extends its
+subject, Tab moves focus to its recipients, and the body takes typing. After
+relaunch, the Inbox lists the saved Draft, which reopens with both edits.
+
+These steps still use touch on iPhone and iPad:
+
+- Opening the palette, by the header swipe or the iPad command input. iOS
+  offers no Command-P without native key commands.
+- Opening a row.
+- Placing the caret in the reply. Reply focuses no field, and Tab does not
+  reach one from there.
+- Closing the palette. A hardware Escape leaves it open.
+
+These gaps belong to [#849](https://github.com/unwired-dev/product/issues/849).
+
+It runs XCTest's accessibility audit on the Inbox, Mailboxes, Command Palette,
+Settings, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON
+line in the test log, with a screenshot of each audited screen.
+`knownAccessibilityGap` explains each issue the audits still report:
+
+- the software keyboard's suggestion cells;
+- an email address used as a label: a sender's, or the Apple relay address
+  that names the signed-in account;
+- text over the reader, also behind iPad's floating composer, that the audit
+  locates no element for ([#1213](https://github.com/unwired-dev/product/issues/1213)).
+
+Any other issue fails the journey. CI does not run this scenario; it is local
+native evidence. It does not replace VoiceOver, Full Keyboard Access or the
+owner's physical-device runs. On iPad, XCUITest sometimes waits 60 seconds per
+step for the app to settle while the software keyboard is shown, so a run can
+take an hour; the iPhone run takes about two minutes.
 
 ## Report what the evidence proves
 

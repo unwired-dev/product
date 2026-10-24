@@ -57,14 +57,31 @@ legacy-view interop. This adds no autolinked package and preserves the existing
 third-party module allowlist. Native visual and accessibility qualification is
 separate from compilation and JavaScript bundle verification.
 
-Link confirmations belong to the window above its sidebar and both columns,
+Link confirmations use the owned `UnwiredAlert` presenter on their anchor's window,
 while its selected mailbox store and message retain presentation ownership.
-The first-party `UnwiredModalBackground` view suppresses the covered accessibility
+AppKit owns the sheet's focus and modal accessibility. The first-party
+`UnwiredModalBackground` view still suppresses the covered onboarding accessibility
 subtree in AppKit because React Native macOS omits its core modal accessibility
 properties.
 
 The native build phase exports and verifies the bundle before
 copying it into the app.
+
+## Testing-only draw observation
+
+The [Mac performance journey](../agents/native-validation.md#mac-performance-journey)
+observes the focused composer body's first draw after a text-storage edit. The
+probe wraps the first edited text view class's `drawRect:` once, calls the saved
+implementation first, and records completion only for the pending edited view.
+React Native macOS 0.81.9's `RCTUITextView` owns that method; AppKit provides no
+after-draw notification. The journey uses that one text-view class and one window
+on one display. It does not qualify another class or movement between displays.
+
+The screen's `CADisplayLink` supplies a recent frame start and the interval to
+its target timestamp. The journey extrapolates that grid to the draw's completion
+time, assuming constant refresh. This observes app drawing, not window-server
+compositing or display presentation. The probe and runtime hook compile only in
+`Testing`; Release omits them.
 
 ## Isolated categorization research
 

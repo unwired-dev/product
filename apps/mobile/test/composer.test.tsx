@@ -874,7 +874,7 @@ describe('composing Drafts', () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const openAccount = jest.fn<undefined, []>();
+    const openAccount = jest.fn<undefined, [string?, (() => void)?]>();
     await render(
       <App
         drafts={createDrafts(storage.native, registration)}
@@ -911,7 +911,7 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Settings opens over the Inbox, so the Draft stays open beneath it.
     await press('Account');
-    expect(openAccount).toHaveBeenCalledWith();
+    expect(openAccount).toHaveBeenCalledWith(undefined, expect.any(Function));
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     await press('Try again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
@@ -933,7 +933,7 @@ describe('composing Drafts', () => {
 
   // The password repair opens Settings on Email Accounts.
   it.each([
-    ['Account', []],
+    ['Account', [undefined, expect.any(Function)]],
     ['Enter the password for imap@example.invalid again', ['mailboxes']],
   ] as const)(
     'opens %s in Settings over an open composer',
@@ -971,7 +971,7 @@ describe('composing Drafts', () => {
         getSnapshot: connections.getConnections,
       };
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-      const openAccount = jest.fn<undefined, [string?]>();
+      const openAccount = jest.fn<undefined, [string?, (() => void)?]>();
       await render(
         <App
           drafts={createDrafts(storage.native, registration)}
