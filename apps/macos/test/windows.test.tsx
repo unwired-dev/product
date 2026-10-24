@@ -831,7 +831,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('moves rows once for an action in either window, but not for synchronization', async () => {
+  it('requests one animation for an action in either window, but not for synchronization', async () => {
     expect.hasAssertions();
     const configureNext = jest.spyOn(LayoutAnimation, 'configureNext');
     const gmail = createSyntheticGmail();

@@ -112,6 +112,23 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `organize-motion` admitting unrelated synchronization through a time window
+  after an action. Trace eligibility through the native commit that changes the
+  rows and its retirement, including synchronization immediately afterwards;
+  otherwise a correct action animation also animates background arrivals.
+  A subscription-time worklet probe does not establish native mount ordering.
+- `organize-motion` closing eligibility for future worklets while leaving an
+  already-started exit running after scroll or selection. Trace the installed
+  engine's animation ownership and the interrupting handlers against the approved
+  motion contract; otherwise input acts immediately but the leaving row keeps
+  moving instead of finishing at once. Retargeting on another layout alone does
+  not cover an interruption that changes no row layout.
+- `inbox.tsx` enabling `maintainVisibleContentPosition` without checking the
+  installed VirtualizedList's render-window adjustment on prepended sections.
+  Exercise a long list with Drafts or Outbox inserted at the top as well as
+  scrolled synchronization; otherwise native anchoring can preserve the previous
+  first-item key in JavaScript while the new leading rows are not rendered.
+
 - `inbox.tsx.Inbox` or another host action clearing aggregate progress when the
   first parallel operation rejects while sibling work remains pending. Trace
   the returned promises, including failure paths, and keep progress until every
@@ -940,6 +957,14 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
+
+- `organize-motion` relying on `LayoutAnimation.configureNext` without tracing
+  its delegate in the installed renderer and native dependencies. Reanimated can
+  replace Fabric's delegate with one that ignores that API; a call-count test
+  then passes while the app has no motion. On Mac, trace request consumption
+  across independent window surfaces: one global next-animation configuration
+  can be consumed by the first surface and leave other windows unchanged. One
+  test-renderer root containing two windows cannot qualify multiple surfaces.
 
 - `settings.tsx.SettingsWorkspace`, `error-reporting.tsx.PrivacyAccess` or another
   migrated native header relying on the presenter's default appearance without

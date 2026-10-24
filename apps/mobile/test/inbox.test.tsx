@@ -2245,8 +2245,11 @@ describe('organizing motion', () => {
     const stop = store.subscribe(() => {
       fades.push(movingCell().props.entering().animations.opacity);
     });
-    await step();
-    stop();
+    try {
+      await step();
+    } finally {
+      stop();
+    }
     const [fade] = fades;
     if (fade === undefined) {
       throw new Error('Expected the returning row to fade');
