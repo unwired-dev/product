@@ -1476,9 +1476,13 @@ describe('connected Gmail Inbox', () => {
           name: `${title}. In All mailboxes`,
         }),
       );
-      await fireEvent.press(
-        await screen.findByRole('button', { name: /Saved receipt/u }),
-      );
+      const receipt = await screen.findByRole('button', {
+        name: /Saved receipt\..* In alex@example\.invalid/u,
+      });
+      expect(
+        within(receipt).getByText('In alex@example.invalid'),
+      ).toBeVisible();
+      await fireEvent.press(receipt);
       await expect(screen.findByText('Paid in full.')).resolves.toBeVisible();
       await fireEvent.press(screen.getByRole('button', { name: 'More' }));
       expect(

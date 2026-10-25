@@ -919,7 +919,7 @@ export function Inbox({
             {missing.map((mailbox) => (
               <Notice
                 key={`missing\n${mailbox.id}`}
-                icon="exclamationmark.triangle"
+                icon="exclamationmark.triangle.fill"
                 iconColor={colors.statusWarning}
                 message={t('mailboxes.notIncluded', {
                   mailbox: mailbox.address ?? mailbox.id,
@@ -1079,7 +1079,11 @@ export function Inbox({
                     motion.settle(rowKey(item));
                   }}>
                   <MessageRow
-                    mailbox={several ? item.mailbox.address : undefined}
+                    mailbox={
+                      several || view.unified !== undefined
+                        ? item.mailbox.address
+                        : undefined
+                    }
                     message={item.message}
                     actions={
                       section.key === 'gmail'

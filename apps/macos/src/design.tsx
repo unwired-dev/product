@@ -118,6 +118,13 @@ const styles = StyleSheet.create({
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
   noticeMessageText: { flex: 1 },
+  noticeWithDetail: {
+    marginHorizontal: -spacing.s,
+    paddingLeft: 22,
+    paddingVertical: 14,
+  },
+  noticeDetailMessage: { gap: 10 },
+  noticeDetailBody: { gap: 2 },
   noticeActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -604,17 +611,42 @@ export function Notice({
 }) {
   const colors = usePalette();
   return (
-    <View style={[styles.notice, { backgroundColor: colors.fillQuiet }]}>
-      <View style={styles.noticeMessage}>
+    <View
+      style={[
+        styles.notice,
+        detail === undefined
+          ? { backgroundColor: colors.fillQuiet }
+          : styles.noticeWithDetail,
+      ]}>
+      <View
+        style={[
+          styles.noticeMessage,
+          detail !== undefined && styles.noticeDetailMessage,
+        ]}>
         <SFSymbol
           name={icon}
           color={iconColor ?? colors.textSecondary}
+          size={detail === undefined ? 16 : 14}
         />
-        <View style={styles.noticeMessageText}>
+        <View
+          style={[
+            styles.noticeMessageText,
+            detail !== undefined && styles.noticeDetailBody,
+          ]}>
           <Label
             accessibilityLiveRegion={announce}
             accessibilityRole={messageRole}
-            style={[textStyles.body, { color: colors.textPrimary }]}>
+            style={[
+              detail === undefined
+                ? textStyles.body
+                : textStyles.bodyEmphasized,
+              {
+                color:
+                  detail === undefined
+                    ? colors.textPrimary
+                    : colors.textSecondary,
+              },
+            ]}>
             {message}
           </Label>
           {detail === undefined ? null : (

@@ -1072,6 +1072,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
 
   it('lists archived Gmail mail in the unified Archive and restores unified Trash mail to the Inbox', async () => {
     expect.hasAssertions();
+    const { registration } = await connectedRegistration();
     const gmail = createSyntheticGmail();
     const kept = gmail.deliver({
       subject: 'Kept receipt',
@@ -1082,8 +1083,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const old = gmail.deliver({ subject: 'Old newsletter' });
     gmail.setLabel(old, 'TRASH', true);
     gmail.setLabel(old, 'INBOX', false);
-    const inbox = createGmailInbox(gmail.native);
-    showMailboxes(singleMailbox(inbox, alex));
+    const list = createMailboxes(
+      syntheticConnections({ [alex]: { native: gmail.native } }),
+      registration,
+    );
+    showMailboxes(list);
     const app = await render(
       <Windows
         first
@@ -1098,8 +1102,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
         }),
       );
       await expect(
-        first.findByRole('button', { name: /Kept receipt/u }),
+        first.findByRole('button', {
+          name: /Kept receipt\. In alex@example\.invalid/u,
+        }),
       ).resolves.toBeVisible();
+      const receipt = first.getByRole('button', { name: /Kept receipt/u });
+      expect(
+        within(receipt).getByText('In alex@example.invalid'),
+      ).toBeVisible();
       expect(first.getByRole('header', { name: 'Archive' })).toBeVisible();
       await fireEvent.press(
         first.getByRole('button', { name: /Kept receipt/u }),
@@ -1110,7 +1120,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ).toBeVisible();
       // Newer archived mail joins the list above the open message without replacing it.
       gmail.archive(gmail.deliver({ subject: 'Newer receipt' }));
-      await act(() => inbox.load());
+      await act(() => list.load());
       await expect(
         first.findByRole('button', { name: /Newer receipt/u }),
       ).resolves.toBeVisible();
