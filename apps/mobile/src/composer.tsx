@@ -412,12 +412,15 @@ function DraftRowView({
       onPress={() => {
         void onOpen(draft.id);
       }}
-      style={[
+      style={({ pressed }) => [
         styles.row,
         {
-          backgroundColor: selected ? colors.accentFill : colors.surfaceContent,
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : colors.surfaceContent,
           borderColor: 'transparent',
         },
+        selected && { backgroundColor: colors.accentFill },
       ]}>
       <View style={styles.rowTitle}>
         <Text

@@ -423,7 +423,9 @@ function DraftRowView({
   const colors = usePalette();
   const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
   const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
+  const focusColor = selected ? colors.accentOnFill : colors.accentInk;
   const { t } = useLocalization();
+  const [focused, setFocused] = useState(false);
   // The sending mailbox stays visible whatever the body holds.
   const preview = previewOf(draft.body);
   // One line each: long metadata is cut before it is rendered or announced.
@@ -437,15 +439,27 @@ function DraftRowView({
       })}
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      // The row's accent/ink ring replaces the system focus ring.
+      enableFocusRing={false}
+      focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={() => {
         void onOpen(draft.id);
       }}
-      style={[
+      style={({ pressed }) => [
         styles.row,
         {
-          backgroundColor: selected ? colors.accentFill : colors.surfaceContent,
-          borderColor: 'transparent',
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : colors.surfaceContent,
+          borderColor: focused ? focusColor : 'transparent',
         },
+        selected && { backgroundColor: colors.accentFill },
       ]}>
       <View style={styles.rowTitle}>
         <Text

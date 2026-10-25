@@ -611,7 +611,10 @@ function CommandRow({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={styles.row}>
+      style={({ pressed }) => [
+        styles.row,
+        pressed ? { backgroundColor: colors.accentSelectionSubtle } : null,
+      ]}>
       <View style={dimmed}>
         <SFSymbol
           name={icon}
