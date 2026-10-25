@@ -5,6 +5,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import {
@@ -33,18 +34,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
     paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
   },
+  label: { flex: 1 },
 });
 
+// A pending action stays disabled and shows the system activity indicator until it settles.
 function ReportingAction({
   label,
   onPress,
   disabled = false,
+  pending = false,
   destructive = false,
 }: {
   readonly label: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
+  readonly pending?: boolean;
   readonly destructive?: boolean;
 }) {
   const colors = usePalette();
@@ -52,14 +60,13 @@ function ReportingAction({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
+      accessibilityState={{ disabled: disabled || pending, busy: pending }}
+      disabled={disabled || pending}
       onPress={onPress}
       focusable
       style={({ pressed }) => [
         styles.action,
         {
-          opacity: disabled ? 0.45 : 1,
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
             : 'transparent',
@@ -68,12 +75,21 @@ function ReportingAction({
       <Text
         style={[
           textStyles.body,
+          styles.label,
           {
-            color: destructive ? colors.statusDestructive : colors.textPrimary,
+            color: pending ? colors.accentInk : colors.textPrimary,
+            opacity: disabled || pending ? 0.4 : 1,
           },
+          destructive && { color: colors.statusDestructive },
         ]}>
         {label}
       </Text>
+      {pending ? (
+        <ActivityIndicator
+          size="small"
+          color={colors.textSecondary}
+        />
+      ) : null}
     </Pressable>
   );
 }
@@ -150,6 +166,7 @@ export function ErrorReportingSettings({
   const shared = useContext(ErrorReportingContext);
   const store = supplied ?? shared;
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [checking, setChecking] = useState(false);
   const { t } = useLocalization();
   const colors = usePalette();
   useEffect(() => {
@@ -199,9 +216,18 @@ export function ErrorReportingSettings({
         </SettingsGroup>
         <SettingsGroup>
           <ReportingAction
-            label={t(`errorReporting.${snapshot.phase}Action`)}
+            label={t(
+              checking
+                ? 'errorReporting.checking'
+                : `errorReporting.${snapshot.phase}Action`,
+            )}
+            pending={checking}
             onPress={() => {
-              void store.retryDeletion();
+              void (async () => {
+                setChecking(true);
+                await store.retryDeletion();
+                setChecking(false);
+              })();
             }}
           />
         </SettingsGroup>

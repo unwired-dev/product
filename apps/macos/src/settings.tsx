@@ -42,7 +42,11 @@ const sections = [
 export type SettingsButton = (
   label: string,
   action: () => Promise<void>,
-  options?: Readonly<{ title?: string; tone?: 'destructive' | undefined }>,
+  options?: Readonly<{
+    title?: string;
+    tone?: 'destructive' | undefined;
+    disabled?: boolean;
+  }>,
 ) => ReactNode;
 
 const styles = StyleSheet.create({
@@ -556,7 +560,7 @@ export function settingsButton(busy: boolean): SettingsButton {
         <Button
           accessibilityLabel={label}
           destructive={options?.tone === 'destructive'}
-          disabled={busy}
+          disabled={busy || options?.disabled === true}
           label={options?.title ?? label}
           onPress={() => {
             void action();

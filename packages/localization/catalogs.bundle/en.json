@@ -271,7 +271,9 @@
     },
     "clear": "Clear remote content",
     "cleared": "Remote content saved on this device was removed.",
-    "clearFailed": "Remote content could not be removed. Try again."
+    "clearFailed": "Remote content could not be removed. Try again.",
+    "clearing": "Clearing…",
+    "notSaved": "Couldn’t save this change. {{setting}} is still set to {{choice}}. Try again."
   },
   "mailAssistance": {
     "title": "Mail Assistance",
@@ -1096,6 +1098,7 @@
     "pendingTitle": "Deletion requested",
     "pendingDescription": "We’re waiting for confirmation that your uploaded reports were deleted. Reporting stays off.",
     "pendingAction": "Check deletion status",
+    "checking": "Checking deletion status…",
     "offlineTitle": "You’re offline",
     "offlineDescription": "Reporting is off and unsent reports are cleared. Connect to request deletion of your uploaded reports.",
     "offlineAction": "Retry deletion",
