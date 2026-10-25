@@ -256,9 +256,6 @@ extension RegistrationStore {
       item["contentId"] = contentId
       return File(id: id, digest: digest, item: item)
     }
-    guard matches(messageId, #"^[\w.-]{1,200}@[\w.-]{1,200}$"#) != nil else {
-      throw RegistrationError.unavailable
-    }
     let message = try await outgoingMessage(
       segments: segments, owner: owner, limit: Self.graphMessageLimit)
     func call(_ url: URL?, _ method: String, _ body: Data?, _ type: String = "application/json")
@@ -275,25 +272,9 @@ extension RegistrationStore {
         try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
       }
     }
-    var search = URLComponents(
-      string: "https://graph.microsoft.com/v1.0/me/mailFolders/drafts/messages")
-    search?.queryItems = [
-      URLQueryItem(name: "$filter", value: "internetMessageId eq '<\(messageId)>'"),
-      URLQueryItem(name: "$select", value: "id"),
-    ]
-    let (listed, found) = try await call(search?.url, "GET", nil)
-    guard listed == 200 else { return found }
-    guard let left = json(found)?["value"] as? [[String: Any]] else {
-      throw RegistrationError.unavailable
-    }
-    for each in left {
-      guard let id = each["id"] as? String, Self.graphID(id) else {
-        throw RegistrationError.unavailable
-      }
-      let (status, reply) = try await call(
-        URL(string: "\(Self.graphMessages)/\(id)"), "DELETE", Data())
-      guard status == 204 || status == 404 else { return reply }
-    }
+    let discarded = try await graphDiscard(messageId: messageId, connection: connection,
+      address: address, generation: generation)
+    guard discarded["status"] as? Int == 204 else { return discarded }
     let (status, created) = try await call(
       URL(string: Self.graphMessages), "POST", message.base64EncodedData(), "text/plain")
     guard status == 201, let draft = json(created)?["id"] as? String, Self.graphID(draft) else {

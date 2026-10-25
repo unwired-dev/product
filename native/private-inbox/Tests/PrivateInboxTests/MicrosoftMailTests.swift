@@ -529,7 +529,9 @@ extension PrivateInboxTests {
       switch (method, url.path) {
       case ("GET", "/v1.0/me/mailFolders/drafts/messages"):
         return (200, Data((leftover ? #"{"value":[{"id":"AAMk-left="}]}"# : #"{"value":[]}"#).utf8))
-      case ("DELETE", _): return (204, Data())
+      case ("DELETE", _):
+        leftover = false
+        return (204, Data())
       case ("POST", "/v1.0/me/messages"): return (201, Data(#"{"id":"AAMk-draft="}"#.utf8))
       case ("POST", "/v1.0/me/messages/AAMk-draft=/attachments"): return (201, Data("{}".utf8))
       case ("POST", "/v1.0/me/messages/AAMk-draft=/attachments/createUploadSession"):
@@ -555,21 +557,22 @@ extension PrivateInboxTests {
     #expect(writes.map(\.request) == [
       "GET https://graph.microsoft.com/v1.0/me/mailFolders/drafts/messages?$filter=internetMessageId%20eq%20'%3Cm1.b1@example.invalid%3E'&$select=id",
       "DELETE \(messages)/AAMk-left=",
+      "GET https://graph.microsoft.com/v1.0/me/mailFolders/drafts/messages?$filter=internetMessageId%20eq%20'%3Cm1.b1@example.invalid%3E'&$select=id",
       "POST \(messages)",
       "POST \(messages)/AAMk-draft=/attachments",
       "POST \(messages)/AAMk-draft=/attachments/createUploadSession",
     ])
-    #expect(writes[2].body.flatMap { Data(base64Encoded: $0) } == Data(mime.utf8))
+    #expect(writes[3].body.flatMap { Data(base64Encoded: $0) } == Data(mime.utf8))
     func json(_ index: Int) throws -> NSDictionary {
       let body = try #require(writes[index].body)
       return try #require(try JSONSerialization.jsonObject(with: body) as? NSDictionary)
     }
-    #expect(try json(3) == [
+    #expect(try json(4) == [
       "@odata.type": "#microsoft.graph.fileAttachment", "name": "chart.png",
       "contentType": "image/png", "isInline": true, "contentId": "assetsmall1@unwired.invalid",
       "contentBytes": small.base64EncodedString(),
     ])
-    #expect(try json(4) == [
+    #expect(try json(5) == [
       "AttachmentItem": [
         "attachmentType": "file", "name": "plan.pdf", "contentType": "application/pdf",
         "isInline": false, "size": large.count,
@@ -661,7 +664,7 @@ extension PrivateInboxTests {
     // Cleanup resumes after a lost reply and removes every matching draft, including another
     // page whose offset would change as messages disappear.
     var remaining = ["AAMk-orphan1=", "AAMk-orphan2="]
-    microsoft.graphReply = { method, url, _ in
+    microsoft.graphReply = { method, url, body in
       if method == "GET" {
         let found = remaining.first.map { [["id": $0]] } ?? []
         return (200, try JSONSerialization.data(withJSONObject: ["value": found]))
@@ -670,11 +673,15 @@ extension PrivateInboxTests {
         remaining.removeFirst()
         return (204, Data())
       }
-      return (400, Data())
+      return try reply(method, url, body)
     }
     let cleaned = try await store.graphDiscard(messageId: "m1.b1@example.invalid", connection: id,
       address: address, generation: generation)
     #expect(cleaned["status"] as? Int == 204 && remaining.isEmpty)
+    // Preparation uses the same complete cleanup before it creates a replacement draft.
+    remaining = ["AAMk-orphan1=", "AAMk-orphan2="]
+    let replaced = try await prepare([])
+    #expect(replaced["status"] as? Int == 201 && remaining.isEmpty)
 
     // A positive revocation between ranges purges local authorization before any later PUT.
     microsoft.graphReply = reply
