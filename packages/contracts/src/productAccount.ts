@@ -85,27 +85,3 @@ export const signInLinkResponseValidator = v.object({
 });
 
 export type SignInLinkResponse = Infer<typeof signInLinkResponseValidator>;
-
-export const productSyncMaterialInitializedResponseValidator = v.object({
-  productSyncMaterialInitialized: v.boolean(),
-});
-
-export type ProductSyncMaterialInitializedResponse = Infer<
-  typeof productSyncMaterialInitializedResponseValidator
->;
-
-// Legacy: the Swift prototype's backend-readable Gmail connection, mailbox address included. No
-// replacement client reads it; it is removed with the prototype at cutover (#627).
-export const gmailProviderConnectionStatusValidator = v.object({
-  connectedAt: v.number(),
-  emailAddress: v.string(),
-  lastVerifiedAt: v.number(),
-  provider: v.literal('gmail'),
-  providerAccountIdentifier: v.string(),
-  trustedDeviceId: v.string(),
-  updatedAt: v.number(),
-});
-
-export type GmailProviderConnectionStatus = Infer<
-  typeof gmailProviderConnectionStatusValidator
->;
