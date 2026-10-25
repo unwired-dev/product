@@ -1106,6 +1106,19 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(gmailCreateLabel:mailbox:resolver:rejecter:)
+  func gmailCreateLabel(
+    _ name: String, mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("gmailCreateLabel", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.gmailCreateLabel(
+        name: name, connection: connection, address: address, generation: generation)
+    }
+  }
+
   // `change` names a Microsoft message and exactly one of `read` or `folder`.
   @objc(graphModify:mailbox:resolver:rejecter:)
   func graphModify(

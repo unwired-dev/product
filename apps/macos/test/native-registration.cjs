@@ -1,5 +1,14 @@
 const { TurboModuleRegistry } = require('react-native');
 
+// The preset resolves iOS by default; use the Mac color factory for the AppKit boundary.
+jest.mock(
+  'react-native-macos/Libraries/StyleSheet/PlatformColorValueTypesMacOS',
+  () =>
+    jest.requireActual(
+      'react-native-macos/Libraries/StyleSheet/PlatformColorValueTypesMacOS.macos',
+    ),
+);
+
 // `UnwiredRegistration` as a device that saved nothing answers the reads screens make on their
 // own. Journeys that exercise the module substitute it.
 const unwiredRegistration = {

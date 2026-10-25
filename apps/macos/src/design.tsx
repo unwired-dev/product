@@ -31,7 +31,7 @@ import {
 } from 'react-native';
 
 import { Label } from './label.tsx';
-import { isAlertChoice, isMenuChoice } from './native-menu.ts';
+import { isAlertChoice, isMenuChoice, isTextChoice } from './native-menu.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const NativeSymbol = requireNativeComponent<
@@ -285,6 +285,8 @@ type SheetQuestion = Readonly<{
   symbol?: Readonly<{ name: string; color: ColorValue }>;
   // A complete selectable text below the detail that scrolls beyond a few lines.
   passage?: string;
+  // A focused text field's placeholder; see askForText.
+  field?: string;
 }>;
 
 interface NativeAlert extends TurboModule {
@@ -300,10 +302,13 @@ interface NativeAlert extends TurboModule {
 
 let alertRequests = 0;
 
-// Asks in an AppKit alert sheet on `anchor`'s window. `answer` resolves the chosen button's index;
-// the first button is the default and `cancel` answers Escape. `retire` closes the sheet
-// and ignores later native results. The caller must still check its lifetime after awaiting `answer`.
-export function askInSheet(anchor: View | null, question: SheetQuestion) {
+// Asks in an AppKit alert sheet on `anchor`'s window. `answer` resolves the native answer when
+// `answers` accepts it, otherwise null; `retire` closes the sheet and ignores later native results.
+function sheet<A>(
+  anchor: View | null,
+  question: SheetQuestion,
+  answers: (chosen: unknown) => chosen is A,
+) {
   const alert = TurboModuleRegistry.getEnforcing<NativeAlert>('UnwiredAlert');
   const tag = findNodeHandle(anchor);
   alertRequests += 1;
@@ -324,7 +329,7 @@ export function askInSheet(anchor: View | null, question: SheetQuestion) {
             symbol: { name: symbol.name, color: processColor(symbol.color) },
           },
     );
-    return current && isAlertChoice(chosen) ? chosen : null;
+    return current && answers(chosen) ? chosen : null;
   };
   return {
     answer: ask(),
@@ -336,6 +341,21 @@ export function askInSheet(anchor: View | null, question: SheetQuestion) {
     },
   };
 }
+
+// Asks in an AppKit alert sheet on `anchor`'s window. `answer` resolves the chosen button's index;
+// the first button is the default and `cancel` answers Escape. `retire` closes the sheet
+// and ignores later native results. The caller must still check its lifetime after awaiting `answer`.
+export const askInSheet = (
+  anchor: View | null,
+  question: Omit<SheetQuestion, 'field'>,
+) => sheet(anchor, question, isAlertChoice);
+
+// Asks as askInSheet does, with a focused text field showing `field` as its placeholder; `answer`
+// resolves the chosen button's index with the field's text.
+export const askForText = (
+  anchor: View | null,
+  question: SheetQuestion & { readonly field: string },
+) => sheet(anchor, question, isTextChoice);
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({

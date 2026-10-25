@@ -295,6 +295,8 @@ export function createHost(
         }),
       gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
       graphModify: (change, mailbox) => native().graphModify(change, mailbox),
+      gmailCreateLabel: (name, mailbox) =>
+        native().gmailCreateLabel(name, mailbox),
       gmailSend: (message, mailbox) =>
         observe('send', 'send-failed', () =>
           native().gmailSend(message, mailbox),

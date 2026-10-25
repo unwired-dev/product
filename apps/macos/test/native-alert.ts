@@ -8,11 +8,13 @@ type Question = Readonly<{
   destructive?: number;
   symbol?: Readonly<{ name: string; color: unknown }>;
   passage?: string;
+  field?: string;
 }>;
 
 type Sheet = Question & {
   readonly request: number;
-  readonly answer: (index: number | null) => void;
+  readonly answer: (choice: unknown) => void;
+  text: string;
 };
 
 // Each window's open sheet, the latest last.
@@ -21,15 +23,16 @@ let shown: readonly Sheet[] = [];
 export const unwiredAlert = {
   show: (_anchor: number, request: number, question: Question) =>
     // oxlint-disable-next-line promise/avoid-new -- The sheet answers once the test chooses.
-    new Promise<number | null>((resolve) => {
+    new Promise<unknown>((resolve) => {
       shown = [
         ...shown,
         {
           ...question,
           request,
-          answer: (index) => {
+          text: '',
+          answer: (choice) => {
             shown = shown.filter((sheet) => sheet.request !== request);
-            resolve(index);
+            resolve(choice);
           },
         },
       ];
@@ -41,17 +44,31 @@ export const unwiredAlert = {
 
 // Every open sheet's question as asked, the latest last.
 export const sheetsShown = () =>
-  shown.map(({ request: _request, answer: _answer, ...question }) => question);
+  shown.map(
+    ({ request: _request, answer: _answer, text: _text, ...question }) =>
+      question,
+  );
 
 // The latest open sheet's question, or undefined.
 export const sheetShown = () => sheetsShown().at(-1);
 
-// Clicks a button of the latest open sheet by its title.
-export const chooseSheetButton = (title: string) => {
+// Edits the current native field without choosing a button.
+export const enterSheetText = (text: string) => {
+  const sheet = shown.at(-1);
+  if (sheet?.field === undefined) {
+    throw new Error('Expected an open sheet with a text field');
+  }
+  sheet.text = text;
+};
+
+// Clicks a button of the latest open sheet by its title, after typing `text` into its field.
+export const chooseSheetButton = (title: string, text?: string) => {
   const sheet = shown.at(-1);
   const index = sheet?.buttons.indexOf(title) ?? -1;
   if (sheet === undefined || index === -1) {
     throw new Error(`Expected an open sheet with ${title}`);
   }
-  sheet.answer(index);
+  sheet.answer(
+    sheet.field === undefined ? index : { index, text: text ?? sheet.text },
+  );
 };

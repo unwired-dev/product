@@ -51,6 +51,7 @@ import {
 import {
   allMail,
   canOrganize,
+  gmailAction,
   GmailLabelSchema,
   inInbox,
   inView,
@@ -135,6 +136,11 @@ export interface NativeGmailMailbox
       add: readonly string[];
       remove: readonly string[];
     }>,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Resolves `{ status, body }` for Gmail's creation of a user label named `name`.
+  readonly gmailCreateLabel: (
+    name: string,
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
   // Sends one message through Gmail's messages.send upload, inserting each asset segment's
@@ -265,6 +271,7 @@ const decodeModified = json(
     labelIds: Schema.optionalKey(Schema.Array(Schema.String)),
   }),
 );
+const decodeCreatedLabel = json(GmailLabelSchema);
 // The latest organizing outcome, until the next one; unsaved batches also report their size.
 export type OrganizeNotice = Readonly<
   {
@@ -644,6 +651,21 @@ const listedLabels = (document: MailboxDocument | undefined) => ({
   ...(document?.labelsLimited === true ? { labelsLimited: true as const } : {}),
 });
 
+const includingLabels = (
+  labels: readonly GmailLabel[],
+  added: readonly GmailLabel[],
+) =>
+  added.length === 0
+    ? labels
+    : Arr.sort(
+        [
+          ...new Map(
+            [...added, ...labels].map((label) => [label.id, label]),
+          ).values(),
+        ],
+        Order.mapInput(Order.String, (label: GmailLabel) => label.name),
+      );
+
 const attemptCount = (pending: PendingAction) =>
   (pending.attempts?.length ?? 0) - (pending.retryFrom ?? 0);
 const requestedLabels = (labels: readonly string[], action: GmailAction) =>
@@ -803,6 +825,13 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
+      // Intake may have saved a newly created label while synchronization was reading.
+      labels: includingLabels(
+        next.labels ?? [],
+        (saved.labels ?? []).filter(
+          (label) => !base?.labels?.some(({ id }) => id === label.id),
+        ),
+      ),
       ...latestNotificationHistory(
         saved.notificationHistoryId,
         next.notificationHistoryId,
@@ -1688,6 +1717,7 @@ export function createGmailInbox(
   const queued: Array<{
     readonly scope: MailboxScope;
     pending: PendingAction;
+    readonly label?: GmailLabel;
   }> = [];
   // A synchronization queued behind the running one.
   let waiting: Promise<void> | null = null;
@@ -1775,11 +1805,21 @@ export function createGmailInbox(
     claim(views.flatMap((view) => view.messages));
     return views.length === 0 ? {} : { views };
   };
+  // Labels created for changes to the shown mailbox that are not saved yet.
+  const queuedLabels = () =>
+    queued.flatMap(({ scope, label }) =>
+      label !== undefined &&
+      shown !== undefined &&
+      sameMailbox(scope, shown.scope)
+        ? [label]
+        : [],
+    );
   const render = (): Extract<GmailInboxState, { kind: 'ready' }> => {
     const document = shown?.document;
     const durable = document?.pending ?? [];
     const changes = [...durable, ...queued.map((item) => item.pending)];
     const messages = organized(document?.messages ?? [], changes);
+    const listed = listedLabels(document);
     claim(messages);
     return {
       kind: 'ready',
@@ -1787,7 +1827,8 @@ export function createGmailInbox(
       ...(found.size === 0 ? {} : { found: [...found.values()] }),
       ...renderedViews(document, changes),
       sync: shownSyncState(),
-      ...listedLabels(document),
+      ...listed,
+      labels: includingLabels(listed.labels, queuedLabels()),
       ...(graph === undefined
         ? {}
         : { unavailableActions: graph.unavailableActions() }),
@@ -3162,10 +3203,16 @@ export function createGmailInbox(
         });
       }
       yield* identify(cache);
-      const next = withIntents(
-        document,
-        owned.map((item) => item.pending),
-      );
+      const next = {
+        ...withIntents(
+          document,
+          owned.map((item) => item.pending),
+        ),
+        labels: includingLabels(
+          document.labels ?? [],
+          owned.flatMap(({ label }) => (label === undefined ? [] : [label])),
+        ),
+      };
       return yield* publication.withPermit(
         Effect.gen(function* () {
           const saved = yield* commit(cache, next);
@@ -3826,6 +3873,97 @@ export function createGmailInbox(
       );
     });
 
+  const ownsMessage = (message: GmailMessage) => {
+    const source = messageOwners.get(message);
+    return (
+      !forgotten &&
+      shown?.organize === true &&
+      source !== undefined &&
+      source.ownership === ownership &&
+      sameMailbox(source.scope, shown.scope)
+    );
+  };
+  // Shows the change at once, saves it with the cache and sends it to Gmail in order. Without a
+  // verified open mailbox nothing could be saved, so nothing changes.
+  const organize = (
+    message: GmailMessage,
+    action: GmailAction,
+    label?: GmailLabel,
+  ) => {
+    if (
+      forgotten ||
+      shown === undefined ||
+      !shown.organize ||
+      !offered(message, action)
+    ) {
+      return Promise.resolve();
+    }
+    if (!ownsMessage(message)) {
+      return Promise.resolve();
+    }
+    const requestedFor = ownership;
+    queued.push({
+      scope: shown.scope,
+      pending: { action, message },
+      ...(label === undefined ? {} : { label }),
+    });
+    // Every outcome is announced; only a removal from the Inbox offers Undo.
+    notice = { kind: 'done', action, message };
+    publish(render());
+    return runLogged(persistence.withPermit(save)).then((saved) =>
+      saved && requestedFor === ownership ? load() : undefined,
+    );
+  };
+
+  // A failed creation that changed access recovers the Inbox, unless its owner already left. Gmail
+  // refusing the name (409 Conflict) leaves the Inbox as it was.
+  const labelNotCreated = (
+    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic' | 'cause'>>,
+    requestedFor: number,
+  ) =>
+    requestedFor !== ownership ||
+    failure.kind === 'invalidated' ||
+    failure.cause === 409
+      ? Effect.succeedNone
+      : recover(failure).pipe(Effect.as(Option.none()));
+
+  // Creates a Gmail label and saves it with its message action before synchronization. Gmail
+  // decides whether the name is available; a refused name never applies an existing label.
+  const createLabel = async (message: GmailMessage, name: string) => {
+    const scope = shown?.scope;
+    // Only a message shown by the open, verified mailbox can start creation.
+    if (
+      scope === undefined ||
+      graph !== undefined ||
+      !ownsMessage(message) ||
+      !canOrganize(message)
+    ) {
+      return false;
+    }
+    const requestedFor = ownership;
+    const created = await runLogged(
+      providerWrite(
+        () => native.gmailCreateLabel(name, scope),
+        (status) => status === 200,
+        decodeCreatedLabel,
+      ).pipe(
+        Effect.catchTag('SyncFailure', (failure) =>
+          labelNotCreated(failure, requestedFor),
+        ),
+      ),
+    );
+    // A late catalog refresh may reclaim this object; it cannot renew this request.
+    if (
+      requestedFor !== ownership ||
+      Option.isNone(created) ||
+      !ownsMessage(message)
+    ) {
+      return false;
+    }
+    await organize(message, gmailAction.label(created.value.id), created.value);
+    return true;
+  };
+
   // One request handing a message to the provider from the open generation; a mailbox not open yet
   // reaches no provider, so the message waits. A rejection is itself an outcome, and a refused
   // Microsoft grant, as for a connection authorized before sending was offered, asks for Microsoft
@@ -3912,34 +4050,9 @@ export function createGmailInbox(
       publish(render());
       return load();
     },
-    // Shows the change at once, saves it with the cache and sends it to Gmail in order. Without a
-    // verified open mailbox nothing could be saved, so nothing changes.
-    organize: (message: GmailMessage, action: GmailAction) => {
-      if (
-        forgotten ||
-        shown === undefined ||
-        !shown.organize ||
-        !offered(message, action)
-      ) {
-        return Promise.resolve();
-      }
-      const source = messageOwners.get(message);
-      if (
-        source === undefined ||
-        source.ownership !== ownership ||
-        !sameMailbox(source.scope, shown.scope)
-      ) {
-        return Promise.resolve();
-      }
-      const requestedFor = ownership;
-      queued.push({ scope: shown.scope, pending: { action, message } });
-      // Every outcome is announced; only a removal from the Inbox offers Undo.
-      notice = { kind: 'done', action, message };
-      publish(render());
-      return runLogged(persistence.withPermit(save)).then((saved) =>
-        saved && requestedFor === ownership ? load() : undefined,
-      );
-    },
+    organize: (message: GmailMessage, action: GmailAction) =>
+      organize(message, action),
+    createLabel,
     // The body of a listed message, once readMessage has asked for it.
     messageBody: (id: string, reader?: symbol) => {
       const body = bodies.get(id);

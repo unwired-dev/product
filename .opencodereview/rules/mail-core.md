@@ -349,7 +349,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   account; let those codes reach the existing purge-and-notice path before the
   requested operation. Otherwise a later native step fails as unavailable and
   leaves the shared store showing the removed account.
-- `createGmailInbox.findSent` or another auxiliary provider read reducing a
+- `createGmailInbox.findSent`, `createLabel` or another auxiliary provider operation reducing a
   lifecycle-changing `SyncFailure` to its operation's fallback without running
   the Inbox's owner-fenced recovery. The first discovery of locked storage,
   device revocation or rejected Gmail authorization must update the owning
@@ -357,6 +357,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   invalidation fences and distinguish quota/transient failures from refused
   grants; otherwise cached mail stays visible after lock or removal, or the
   authorization notice waits for an unrelated synchronization.
+  Distinguish an operation's definite input refusal from an Inbox lifecycle
+  failure before invoking that recovery, including `createLabel` receiving HTTP
+  409 for a duplicate name. Assert the existing Inbox sync state as well as the
+  failed operation's result; otherwise a refused name creates a misleading
+  retry/authentication notice for an otherwise current Inbox. Keep actual lock,
+  revocation, grant, quota and transport failures on their owning recovery paths.
 
 #### Running programs and shared state
 

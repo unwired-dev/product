@@ -98,8 +98,8 @@ extension RegistrationStore {
       address: address, generation: generation)
   }
 
-  // The one Gmail write: a label change of one message. This file writes the body, so only label
-  // identifiers cross from TypeScript.
+  // A message's label change. This file writes the body, so only label identifiers cross from
+  // TypeScript.
   func gmailModify(
     message: String, add: [String], remove: [String], connection: String, address: String,
     generation: String
@@ -114,6 +114,23 @@ extension RegistrationStore {
     else { throw RegistrationError.unavailable }
     let body = try JSONSerialization.data(withJSONObject: [
       "addLabelIds": add, "removeLabelIds": remove,
+    ])
+    return try await gmail(
+      url: url, body: body, connection: connection, address: address, generation: generation)
+  }
+
+  // A new user label that Gmail lists and shows on messages. This file writes the body, so only
+  // the name crosses from TypeScript: up to 225 characters, not blank and without control
+  // characters. Format characters, such as an emoji's zero-width joiner, stay allowed.
+  func gmailCreateLabel(name: String, connection: String, address: String, generation: String)
+    async throws -> [String: Any]
+  {
+    guard name.count <= 225, !name.trimmingCharacters(in: .whitespaces).isEmpty,
+      name.unicodeScalars.allSatisfy({ $0.properties.generalCategory != .control }),
+      let url = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/labels")
+    else { throw RegistrationError.unavailable }
+    let body = try JSONSerialization.data(withJSONObject: [
+      "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show",
     ])
     return try await gmail(
       url: url, body: body, connection: connection, address: address, generation: generation)

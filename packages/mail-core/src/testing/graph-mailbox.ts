@@ -623,6 +623,7 @@ export function createSyntheticGraph({
     ...storage.native,
     gmailRequest: () => rejection('unavailable'),
     gmailModify: () => rejection('unavailable'),
+    gmailCreateLabel: () => rejection('unavailable'),
     gmailSend: () => rejection('unavailable'),
     graphSend: (outgoing) => {
       if (!('draft' in outgoing)) {

@@ -273,6 +273,30 @@ extension PrivateInboxTests {
         "addLabelIds": ["TRASH", "Label_12"], "removeLabelIds": ["INBOX"],
       ])
     #expect(revocationQueries == queriesBeforeReads + 1)
+    // Creating a label sends only its name; native code writes the body. Control characters are
+    // refused, while format characters such as an emoji's zero-width joiner are kept.
+    for name in ["", "   ", "Line\nbreak", String(repeating: "x", count: 226)] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.gmailCreateLabel(
+          name: name, connection: first, address: google.address,
+          generation: store.generation(firstSubject))
+      }
+    }
+    #expect(google.gmailRequests.count == 1)
+    let name = "Lisbon \"trip\" \u{1F468}\u{200D}\u{1F467} \u{200F}"
+    let created = try await store.gmailCreateLabel(
+      name: name, connection: first, address: google.address,
+      generation: store.generation(firstSubject))
+    #expect(created["status"] as? Int == 200)
+    #expect(
+      google.gmailRequests.last?.absoluteString
+        == "https://gmail.googleapis.com/gmail/v1/users/me/labels")
+    let label = try JSONSerialization.jsonObject(with: try #require(google.gmailBodies.last ?? nil))
+    #expect(
+      label as? [String: String] == [
+        "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show",
+      ])
+    #expect(revocationQueries == queriesBeforeReads + 2)
     // Failed revalidation leaves the action unsent; cached read availability cannot authorize it.
     validationUnavailable = true
     let writesBeforeFailure = google.gmailRequests.count

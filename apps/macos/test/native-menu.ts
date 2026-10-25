@@ -8,6 +8,7 @@ interface Item {
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly items?: readonly Item[];
+  readonly sections?: ReadonlyArray<{ readonly items: readonly Item[] }>;
 }
 
 // The AppKit menu `UnwiredMenu` is tracking, as it received it, until a test answers it.
@@ -58,11 +59,15 @@ export const chooseMenuItem = async (title: string) => {
   await answer(item.id);
 };
 
+// The items of the open menu's submenu titled `submenu`, across its groups.
+export const submenuItems = (submenu: string) => {
+  const parent = menuItems().find((each) => each.title === submenu);
+  return parent?.items ?? parent?.sections?.flatMap(({ items }) => items) ?? [];
+};
+
 // Chooses an item by its title from the submenu titled `submenu`.
 export const chooseSubmenuItem = async (submenu: string, title: string) => {
-  const item = menuItems()
-    .find((each) => each.title === submenu)
-    ?.items?.find((each) => each.title === title);
+  const item = submenuItems(submenu).find((each) => each.title === title);
   if (item === undefined) {
     throw new Error(`Expected a menu item ${submenu} › ${title}`);
   }

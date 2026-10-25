@@ -9,7 +9,7 @@ import { mergeCommands } from './commands.ts';
 // a live update, never another action, and nothing once the action is gone.
 export type MenuAction = () => void | Promise<void>;
 
-// A context menu item: an action, or a submenu of further items.
+// A context menu item: an action, or a submenu of further items, optionally in groups.
 export type MenuItem = Readonly<{
   title: string;
   symbol: string;
@@ -21,6 +21,7 @@ export type MenuItem = Readonly<{
   (
     | Readonly<{ key: string; run: MenuAction }>
     | Readonly<{ items: readonly MenuItem[] }>
+    | Readonly<{ sections: readonly MenuSection[] }>
   );
 
 // A group of items set apart by separators; a palette shows them side by side on iPhone and iPad.
@@ -37,6 +38,7 @@ export type NativeMenuItem = Readonly<{
   subtitle?: string | undefined;
   checked?: boolean | undefined;
   items?: readonly NativeMenuItem[];
+  sections?: ReadonlyArray<Readonly<{ items: readonly NativeMenuItem[] }>>;
 }>;
 
 // The native items, each action identified by its key, and the latest callback for each key.
@@ -49,7 +51,16 @@ export const menuState = (sections: readonly MenuSection[]) => {
       const { subtitle, checked } = item;
       return { id: item.key, title, symbol, destructive, subtitle, checked };
     }
-    return { id: '', title, symbol, items: item.items.map(native) };
+    return 'items' in item
+      ? { id: '', title, symbol, items: item.items.map(native) }
+      : {
+          id: '',
+          title,
+          symbol,
+          sections: item.sections.map(({ items }) => ({
+            items: items.map(native),
+          })),
+        };
   };
   return {
     sections: sections
