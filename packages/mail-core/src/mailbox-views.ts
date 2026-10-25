@@ -459,16 +459,97 @@ export const unifiedFolders = (
   ];
 };
 
+// One window's retained Unified Mailbox views. Store identity is part of ownership, so repairing
+// a connection releases its old views before opening the replacement store's.
+export function createUnifiedMailboxRetention(changed: () => void) {
+  const held = new Map<
+    string,
+    Readonly<{ inbox: BrowsableMailbox['inbox']; release: () => void }>
+  >();
+  return {
+    update: (
+      mailboxes: ReadonlyArray<BrowsableMailbox & Readonly<{ id: string }>>,
+      role: UnifiedRole | undefined,
+    ) => {
+      const opened =
+        role === undefined
+          ? []
+          : mailboxes.flatMap((mailbox) =>
+              (unifiedFolders(mailbox, role) ?? []).map((name) => ({
+                key: `${mailbox.id}\n${name}`,
+                mailbox,
+                name,
+              })),
+            );
+      const owners = new Map(
+        opened.map(({ key, mailbox }) => [key, mailbox.inbox]),
+      );
+      for (const [key, { inbox, release }] of held) {
+        if (owners.get(key) !== inbox) {
+          release();
+          held.delete(key);
+        }
+      }
+      for (const { key, mailbox, name } of opened) {
+        if (name !== inboxFolder && !held.has(key)) {
+          held.set(key, {
+            inbox: mailbox.inbox,
+            release: openUnifiedFolder(mailbox, name, changed),
+          });
+        }
+      }
+    },
+    dispose: () => {
+      for (const { release } of held.values()) {
+        release();
+      }
+      held.clear();
+    },
+  };
+}
+
+// Retains a Gmail or Microsoft view, or follows an IMAP folder. IMAP synchronizes only its Inbox,
+// so the folder is read again each time that synchronization finishes. Store actions own errors.
+function openUnifiedFolder(
+  mailbox: BrowsableMailbox,
+  name: string,
+  changed: () => void,
+) {
+  const gmail = gmailMailbox(mailbox);
+  if (gmail !== undefined) {
+    const release = gmail.inbox.retainView(name);
+    void gmail.inbox.openView(name);
+    return release;
+  }
+  if ('openFolder' in mailbox.inbox) {
+    const { inbox } = mailbox;
+    const statusOf = () => {
+      const state = inbox.getSnapshot();
+      return state.kind === 'ready' ? state.status : undefined;
+    };
+    let status = statusOf();
+    void inbox.openFolder(name);
+    return inbox.subscribe(() => {
+      const finished = status === 'syncing';
+      status = statusOf();
+      if (finished && status === 'current') {
+        void inbox.openFolder(name);
+      }
+      changed();
+    });
+  }
+  return () => undefined;
+}
+
 // A Unified Mailbox of a Profile's ready mailboxes, newest first. Each entry names the folder or
 // view it is listed in, so its actions are those of that folder at its own connection. Mailboxes
 // without the role are `missing`; a folder or view that could not be read makes its mailbox
-// `failed`. IMAP folders are read through `folder`.
+// `failed`.
 export const unifiedMailbox = <
   M extends BrowsableMailbox & Readonly<{ id: string }>,
 >(
   mailboxes: readonly M[],
   role: UnifiedRole,
-  folder: (mailbox: M, name: string) => ImapFolderView | undefined,
 ) => {
   const missing: M[] = [];
   const failed: M[] = [];
@@ -491,7 +572,8 @@ export const unifiedMailbox = <
         }
         return view?.messages ?? [];
       }
-      const view = folder(mailbox, name);
+      const view =
+        'openFolder' in mailbox.inbox ? mailbox.inbox.folder(name) : undefined;
       if (imapFolderFailed(view)) {
         failed.push(mailbox);
       }

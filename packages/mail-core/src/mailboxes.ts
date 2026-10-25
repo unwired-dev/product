@@ -57,6 +57,7 @@ export {
   inboxChoice,
   mailboxSidebar,
   profileMailboxes,
+  createUnifiedMailboxRetention,
   unifiedFolders,
   unifiedMailbox,
   unifiedRow,

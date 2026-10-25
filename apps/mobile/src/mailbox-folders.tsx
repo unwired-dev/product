@@ -6,10 +6,10 @@ import {
 } from '@private-email/mail-core/imap-inbox';
 import {
   createGmailViewEntries,
+  createUnifiedMailboxRetention,
   gmailMailbox,
   gmailViewRow,
   mailboxFolder,
-  unifiedFolders,
   unifiedMailbox,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
@@ -18,7 +18,6 @@ import {
   useLayoutEffect,
   useMemo,
   useReducer,
-  useRef,
   useSyncExternalStore,
 } from 'react';
 
@@ -184,88 +183,18 @@ function useUnifiedMailbox(
   role: UnifiedRole | undefined,
 ) {
   const [, changed] = useReducer((count: number) => count + 1, 0);
-  // What each opened folder or view holds open, by mailbox and name.
-  const held = useRef(
-    new Map<
-      string,
-      Readonly<{ inbox: InboxMailbox['inbox']; release: () => void }>
-    >(),
+  const retained = useMemo(
+    () => createUnifiedMailboxRetention(changed),
+    [changed],
   );
-  const opened = useMemo(
-    () =>
-      role === undefined
-        ? []
-        : mailboxes.flatMap((mailbox) =>
-            (unifiedFolders(mailbox, role) ?? []).map((name) => ({
-              key: `${mailbox.id}\n${name}`,
-              mailbox,
-              name,
-            })),
-          ),
-    [mailboxes, role],
+  useLayoutEffect(() => {
+    retained.update(mailboxes, role);
+  }, [retained, mailboxes, role]);
+  useLayoutEffect(
+    () => () => {
+      retained.dispose();
+    },
+    [retained],
   );
-  // Opens only what newly joined the list and releases what left it, so a snapshot that changes
-  // nothing it lists asks no provider again.
-  useLayoutEffect(() => {
-    const owners = new Map(
-      opened.map(({ key, mailbox }) => [key, mailbox.inbox]),
-    );
-    for (const [key, { inbox, release }] of held.current) {
-      if (owners.get(key) !== inbox) {
-        release();
-        held.current.delete(key);
-      }
-    }
-    for (const { key, mailbox, name } of opened) {
-      if (name !== inboxFolder && !held.current.has(key)) {
-        held.current.set(key, {
-          inbox: mailbox.inbox,
-          release: open(mailbox, name, changed),
-        });
-      }
-    }
-  }, [opened]);
-  useLayoutEffect(() => {
-    const { current } = held;
-    return () => {
-      for (const { release } of current.values()) {
-        release();
-      }
-      current.clear();
-    };
-  }, []);
-  return role === undefined
-    ? undefined
-    : unifiedMailbox(mailboxes, role, (mailbox, name) =>
-        'openFolder' in mailbox.inbox ? mailbox.inbox.folder(name) : undefined,
-      );
-}
-
-// Retains and opens a Gmail or Microsoft view, or opens an IMAP folder and follows its changes.
-// IMAP synchronizes only its Inbox, so the folder is read again each time the Inbox finishes.
-function open(mailbox: InboxMailbox, name: string, changed: () => void) {
-  const gmail = gmailMailbox(mailbox);
-  if (gmail !== undefined) {
-    const release = gmail.inbox.retainView(name);
-    void gmail.inbox.openView(name);
-    return release;
-  }
-  if ('openFolder' in mailbox.inbox) {
-    const { inbox } = mailbox;
-    const statusOf = () => {
-      const state = inbox.getSnapshot();
-      return state.kind === 'ready' ? state.status : undefined;
-    };
-    let status = statusOf();
-    void inbox.openFolder(name);
-    return inbox.subscribe(() => {
-      const finished = status === 'syncing';
-      status = statusOf();
-      if (finished && status === 'current') {
-        void inbox.openFolder(name);
-      }
-      changed();
-    });
-  }
-  return () => undefined;
+  return role === undefined ? undefined : unifiedMailbox(mailboxes, role);
 }

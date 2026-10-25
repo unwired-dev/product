@@ -75,9 +75,7 @@ async function opened(
       }
     }
   }
-  return unifiedMailbox(snapshot(stores), role, (mailbox, name) =>
-    'openFolder' in mailbox.inbox ? mailbox.inbox.folder(name) : undefined,
-  );
+  return unifiedMailbox(snapshot(stores), role);
 }
 
 const rows = (list: Awaited<ReturnType<typeof opened>>) =>
