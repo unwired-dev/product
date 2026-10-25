@@ -102,6 +102,20 @@ final class InboxTests: XCTestCase {
       app.buttons["Close"].tap()
       XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
       XCTAssertFalse(spam.firstMatch.exists)
+      // #1118: the system sheet reopens, and a downward swipe closes it too.
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
+      // An element swipe is too short to dismiss; drag most of the way down the screen.
+      let grab = app.buttons["Reply All"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      grab.press(
+        forDuration: 0.1, thenDragTo: grab.withOffset(CGVector(dx: 0, dy: 400)),
+        withVelocity: .fast, thenHoldForDuration: 0)
+      XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
+      // Swiping must also retire React's presented state so Reply can open it again.
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
+      app.buttons["Close"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
     }
     app.buttons["Archive"].tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))

@@ -3057,6 +3057,8 @@ describe('product registration', () => {
       'registration-revocation',
     );
     const store = createRegistration(synthetic.vault);
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
     await render(
       <RegistrationGate
         store={started(store)}
@@ -3152,6 +3154,8 @@ describe('product registration', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       english('revocation.mismatch'),
     );
+    // VoiceOver hears the refusal at once, since iOS and macOS ignore the alert role.
+    expect(announce).toHaveBeenLastCalledWith(english('revocation.mismatch'));
     expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
       replacement,
     );
@@ -3161,6 +3165,7 @@ describe('product registration', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       english('revocation.renewed'),
     );
+    expect(announce).toHaveBeenLastCalledWith(english('revocation.renewed'));
     const renewed = shown(store, 'revocationRecoveryKey');
     expect(renewed).not.toBe(replacement);
     expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
