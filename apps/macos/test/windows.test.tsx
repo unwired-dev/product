@@ -742,7 +742,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     );
     expect(headers.indexOf('App')).toBeLessThan(headers.indexOf('Go To'));
     await fireEvent.changeText(input, 'se');
-    expect(app.getByRole('button', { name: 'Search Mail' })).toBeVisible();
+    expect(app.getByRole('button', { name: 'Search Mail' })).toBeOnTheScreen();
     expect(app.queryByRole('button', { name: 'Inbox' })).toBeNull();
     await fireEvent.changeText(input, '');
     // Down selects the next command that can run; Return runs it and closes the palette.
@@ -775,6 +775,43 @@ describe('mac window selection with the shared mock mailbox', () => {
     await fireEvent.press(app.getByTestId('palette-outside-click'));
     expect(app.queryByPlaceholderText('Type a command')).toBeNull();
     expect(app.queryByTestId('palette-outside-click')).toBeNull();
+  });
+
+  it('keeps a closing Command Palette out of reach while it fades and reopens it empty', async () => {
+    expect.hasAssertions();
+    // The exit never finishes here, so the closed panel is still leaving when the palette reopens.
+    const timing = jest.spyOn(Animated, 'timing').mockReturnValue({
+      start: () => undefined,
+      stop: () => undefined,
+      reset: () => undefined,
+    });
+    try {
+      const app = await render(
+        <Windows
+          first
+          second={false}
+        />,
+      );
+      await app.findByRole('button', { name: maya });
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      const input = app.getByPlaceholderText('Type a command');
+      await fireEvent.changeText(input, 'se');
+      await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Escape' } });
+      // The leaving panel stays beneath the returned button, hidden from VoiceOver and the pointer.
+      expect(
+        app.getByTestId('command-palette', { includeHiddenElements: true }),
+      ).toHaveProp('pointerEvents', 'none');
+      expect(app.queryByRole('button', { name: 'Search Mail' })).toBeNull();
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      expect(app.getByPlaceholderText('Type a command')).toHaveDisplayValue('');
+      expect(app.getByRole('button', { name: 'Inbox' })).toBeOnTheScreen();
+    } finally {
+      timing.mockRestore();
+    }
   });
   /* oxlint-enable vitest/max-expects */
 });

@@ -88,11 +88,12 @@ const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
 
 // Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
-export function useMenuMotion(open: boolean, kind: 'menu' | 'grow') {
+// A menu barely grows, a sheet grows from its control and a dropped panel arrives 8pt from above.
+export function useMenuMotion(open: boolean, kind: 'menu' | 'grow' | 'drop') {
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
   const [reduced, setReduced] = useState(true);
-  const enteringDuration = kind === 'menu' || reduced ? 200 : 300;
+  const enteringDuration = kind === 'grow' && !reduced ? 300 : 200;
   if (open && !shown) {
     setShown(true);
   }
@@ -121,7 +122,7 @@ export function useMenuMotion(open: boolean, kind: 'menu' | 'grow') {
     const animation = Animated.timing(progress, {
       toValue: open ? 1 : 0,
       duration: open ? enteringDuration : 150,
-      easing: open && kind !== 'menu' ? easeSheet : easeOut,
+      easing: open && kind === 'grow' ? easeSheet : easeOut,
       useNativeDriver: true,
     });
     animation.start(({ finished }) => {
@@ -134,14 +135,20 @@ export function useMenuMotion(open: boolean, kind: 'menu' | 'grow') {
     };
   }, [open, kind, enteringDuration, progress]);
   const backdropStyle = { opacity: progress };
-  // A grown sheet starts small at its control; a menu barely scales.
   const transform = [
-    {
-      scale: progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [kind === 'grow' ? 0.3 : 0.95, 1],
-      }),
-    },
+    kind === 'drop'
+      ? {
+          translateY: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-8, 0],
+          }),
+        }
+      : {
+          scale: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [kind === 'grow' ? 0.3 : 0.95, 1],
+          }),
+        },
   ];
   const style = {
     opacity:

@@ -36,6 +36,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import {
+  Animated,
   Platform,
   Pressable,
   ScrollView,
@@ -46,7 +47,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Glass, SFSymbol } from './design.tsx';
+import { Glass, SFSymbol, useMenuMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { native } from './registration.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -252,6 +253,14 @@ export function CommandPaletteProvider({
   const registry = useMemo(() => createCommandRegistry(), []);
   const { t } = useLocalization();
   const [opened, setOpened] = useState<readonly Command[]>();
+  // The palette drops in from the top and fades away; it keeps the last commands while it leaves,
+  // and each opening starts afresh.
+  const motion = useMenuMotion(opened !== undefined, 'drop');
+  const [shown, setShown] = useState(opened);
+  const [openings, setOpenings] = useState(0);
+  if (opened !== undefined && opened !== shown) {
+    setShown(opened);
+  }
   // The control focused when the palette opened, which closing hands focus back to.
   const previous = useRef<ReturnType<
     typeof TextInput.State.currentlyFocusedInput
@@ -279,6 +288,7 @@ export function CommandPaletteProvider({
           ...registry.getSnapshot(),
         ]);
         setOpened(orderCommands(commands));
+        setOpenings((count) => count + 1);
       },
       close: () => {
         setOpened(undefined);
@@ -292,15 +302,31 @@ export function CommandPaletteProvider({
     <PaletteContext value={value}>
       <View style={styles.fill}>
         {children}
-        {opened === undefined ? null : <Palette opened={opened} />}
+        {motion.shown && shown !== undefined ? (
+          <Palette
+            key={openings}
+            motion={motion}
+            open={opened !== undefined}
+            opened={shown}
+          />
+        ) : null}
       </View>
     </PaletteContext>
   );
 }
 
 // The open palette: a sheet attached to the top with the query focused and matching commands
-// beneath, or the choices of the command being completed.
-function Palette({ opened }: { readonly opened: readonly Command[] }) {
+// beneath, or the choices of the command being completed. Closed, it stops taking input at once
+// while it fades away.
+function Palette({
+  opened,
+  open,
+  motion,
+}: {
+  readonly opened: readonly Command[];
+  readonly open: boolean;
+  readonly motion: ReturnType<typeof useMenuMotion>;
+}) {
   const { registry, close } = use(PaletteContext);
   const colors = usePalette();
   const insets = useSafeAreaInsets();
@@ -311,6 +337,12 @@ function Palette({ opened }: { readonly opened: readonly Command[] }) {
   // Commands whose message disappeared after the palette opened.
   const [gone, setGone] = useState<readonly string[]>([]);
   const input = useRef<TextInputHandle>(null);
+  // Closing hands the keyboard back unless another control already took focus.
+  useEffect(() => {
+    if (!open) {
+      input.current?.blur();
+    }
+  }, [open]);
   const live = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const vanished = (command: Command): Command =>
     gone.includes(command.id)
@@ -370,10 +402,12 @@ function Palette({ opened }: { readonly opened: readonly Command[] }) {
       ? t('commands.placeholder')
       : t('commands.chooseFolder');
   return (
-    <View
+    <Animated.View
       // Assistive controls stay within the palette while it is open.
-      accessibilityViewIsModal
-      style={[StyleSheet.absoluteFill, styles.layer]}
+      accessibilityElementsHidden={!open}
+      accessibilityViewIsModal={open}
+      pointerEvents={open ? 'auto' : 'none'}
+      style={[StyleSheet.absoluteFill, styles.layer, motion.backdropStyle]}
       testID="command-palette">
       <Pressable
         accessibilityLabel={t('commands.close')}
@@ -381,9 +415,10 @@ function Palette({ opened }: { readonly opened: readonly Command[] }) {
         onPress={close}
         style={[StyleSheet.absoluteFill, { backgroundColor: scrim }]}
       />
-      <View
+      <Animated.View
         style={[
           styles.sheet,
+          { transform: motion.style.transform },
           {
             // The sheet floats over the screens, so it clears the status bar itself.
             paddingTop: insets.top,
@@ -499,8 +534,8 @@ function Palette({ opened }: { readonly opened: readonly Command[] }) {
             </Text>
           ) : null}
         </ScrollView>
-      </View>
-    </View>
+      </Animated.View>
+    </Animated.View>
   );
 }
 

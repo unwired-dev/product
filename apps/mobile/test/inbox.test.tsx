@@ -34,6 +34,7 @@ import { setStringAsync } from 'expo-clipboard';
 import { useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
+  Animated,
   AppState,
   Dimensions,
   Linking,
@@ -2511,6 +2512,46 @@ describe('command palette', () => {
     expect(
       openedPalette().getByRole('button', { name: 'Cancel' }),
     ).toBeVisible();
+  });
+
+  it('keeps a closing palette out of reach while it fades and reopens it empty', async () => {
+    expect.hasAssertions();
+    await renderConnected(
+      createSyntheticGmail({ address: 'alex@example.invalid' }).native,
+    );
+    // The exit never finishes here, so the closed palette is still leaving when it reopens.
+    const timing = jest.spyOn(Animated, 'timing').mockReturnValue({
+      start: () => undefined,
+      stop: () => undefined,
+      reset: () => undefined,
+    });
+    try {
+      const header = await screen.findByRole('header', { name: 'Inbox' });
+      await openPalette(header);
+      await fireEvent.changeText(
+        screen.getByPlaceholderText('Type a command'),
+        'se',
+      );
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Cancel' }),
+      );
+      // The leaving palette stays over the Inbox, hidden from VoiceOver and touch.
+      expect(
+        screen.getByTestId('command-palette', { includeHiddenElements: true }),
+      ).toHaveProp('pointerEvents', 'none');
+      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+      await openPalette(header);
+      expect(screen.getByPlaceholderText('Type a command')).toHaveDisplayValue(
+        '',
+      );
+      expect(
+        openedPalette().getByRole('button', {
+          name: 'Reply. Select a conversation',
+        }),
+      ).toBeOnTheScreen();
+    } finally {
+      timing.mockRestore();
+    }
   });
 
   /* oxlint-disable vitest/max-expects -- One journey proves each entry, the fixed order, narrowing and the picker. */

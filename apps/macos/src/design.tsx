@@ -368,23 +368,14 @@ export function GlassGroup({
   );
 }
 
-const AnimatedPanel = Animated.createAnimatedComponent(ModalBackground);
+// A panel that animates and hides from VoiceOver, which core React Native does not do on Mac.
+export const AnimatedPanel = Animated.createAnimatedComponent(ModalBackground);
 
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 
-// A menu that eases out of its control and fades away once closed. Closing hides it from
-// VoiceOver and the pointer at once; Reduce Motion keeps only the fade.
-export function MenuPresence({
-  open,
-  origin,
-  style,
-  children,
-  ...props
-}: ViewProps & {
-  readonly open: boolean;
-  // The corner of its control the menu grows from, as a CSS transform origin.
-  readonly origin: string;
-}) {
+// Keeps a menu shown until its exit finishes: it eases in over 200 ms and fades away over 150 ms,
+// growing slightly out of its control or arriving 8pt from above. Reduce Motion keeps only the fade.
+export function useMenuMotion(open: boolean, arrival: 'grow' | 'drop') {
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
   const [reduced, setReduced] = useState(true);
@@ -428,7 +419,41 @@ export function MenuPresence({
       animation.stop();
     };
   }, [open, progress]);
-  if (!shown) {
+  const transform =
+    arrival === 'grow'
+      ? {
+          scale: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.95, 1],
+          }),
+        }
+      : {
+          translateY: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-8, 0],
+          }),
+        };
+  return {
+    shown: open || shown,
+    style: { opacity: progress, transform: reduced ? [] : [transform] },
+  };
+}
+
+// A menu that eases out of its control and fades away once closed. Closing hides it from
+// VoiceOver and the pointer at once.
+export function MenuPresence({
+  open,
+  origin,
+  style,
+  children,
+  ...props
+}: ViewProps & {
+  readonly open: boolean;
+  // The corner of its control the menu grows from, as a CSS transform origin.
+  readonly origin: string;
+}) {
+  const motion = useMenuMotion(open, 'grow');
+  if (!motion.shown) {
     return null;
   }
   return (
@@ -436,23 +461,7 @@ export function MenuPresence({
       {...props}
       accessibilityElementsHidden={!open}
       pointerEvents={open ? 'auto' : 'none'}
-      style={[
-        style,
-        {
-          opacity: progress,
-          transformOrigin: origin,
-          transform: reduced
-            ? []
-            : [
-                {
-                  scale: progress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.95, 1],
-                  }),
-                },
-              ],
-        },
-      ]}>
+      style={[style, motion.style, { transformOrigin: origin }]}>
       {children}
     </AnimatedPanel>
   );
