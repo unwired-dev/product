@@ -167,7 +167,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
       !manager.fileExists(atPath: directory.appendingPathComponent(
         try connectionPath(connection, "mailbox.enc")).path),
       // An unreadable legacy cache is left alone rather than blocking this connection.
-      let cache = (try? readMailbox(file: "mailbox.enc")) ?? nil,
+      let cache = (try? readMailbox(file: "mailbox.enc", authenticating: mailboxAssociatedData))
+        ?? nil,
       cache.address == address, cache.subject == subject
     else { return }
     let target = directory.appendingPathComponent(try connectionPath(connection, ""))
@@ -206,7 +207,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   {
     try transaction {
       try adoptLegacyMailbox(connection: connection, address: address, subject: subject)
-      let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
+      let cache = try readMailbox(
+        file: try connectionPath(connection, "mailbox.enc"), authenticating: mailboxAssociatedData)
       let owned = cache.flatMap { $0.address == address && $0.subject == subject ? $0 : nil }
       return [
         "revision": cache?.revision ?? 0, "address": address,
@@ -225,7 +227,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     try transaction {
       try adoptLegacyMailbox(connection: connection, address: address, subject: subject)
       let file = try connectionPath(connection, "mailbox.enc")
-      let cache = try readMailbox(file: file)
+      let cache = try readMailbox(file: file, authenticating: mailboxAssociatedData)
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let key = try writingKey(replacing: cache != nil)
       let next = MailboxCache(
@@ -257,23 +259,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
     connection: String, address: String, subject: String, name: String
   ) throws -> String? {
     try transaction {
-      let file = try segmentPath(connection, name)
-      let data: Data
-      do {
-        data = try Data(contentsOf: directory.appendingPathComponent(file))
-      } catch CocoaError.fileReadNoSuchFile {
-        return nil
-      }
-      let key = try existingKey()
-      let segment: MailboxCache
-      do {
-        let plaintext = try AES.GCM.open(
-          try AES.GCM.SealedBox(combined: data), using: SymmetricKey(data: key),
-          authenticating: segmentAssociatedData(name))
-        segment = try JSONDecoder().decode(MailboxCache.self, from: plaintext)
-      } catch {
-        throw PrivateInboxError.invalidStore
-      }
+      guard
+        let segment = try readMailbox(
+          file: try segmentPath(connection, name), authenticating: segmentAssociatedData(name))
+      else { return nil }
       return segment.address == address && segment.subject == subject ? segment.document : nil
     }
   }
@@ -705,7 +694,9 @@ public final class PrivateInboxStore: @unchecked Sendable {
   ) throws -> Bool {
     try transaction {
       if let expectedRevision {
-        let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
+        let cache = try readMailbox(
+          file: try connectionPath(connection, "mailbox.enc"), authenticating: mailboxAssociatedData
+        )
         guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       }
       let (name, identity) = bodyName(address: address, subject: subject, id: id)
@@ -761,7 +752,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
     protectedIds: [String]
   ) throws {
     try transaction {
-      let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
+      let cache = try readMailbox(
+        file: try connectionPath(connection, "mailbox.enc"), authenticating: mailboxAssociatedData)
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let kept = Set(ids.map { bodyName(address: address, subject: subject, id: $0).0 })
       for entry in try bodies(connection) where !kept.contains(entry.name) {
@@ -966,7 +958,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
-  private func readMailbox(file: String) throws -> MailboxCache? {
+  private func readMailbox(file: String, authenticating: Data) throws -> MailboxCache? {
     let data: Data
     do {
       data = try Data(contentsOf: directory.appendingPathComponent(file))
@@ -977,7 +969,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     do {
       let box = try AES.GCM.SealedBox(combined: data)
       let plaintext = try AES.GCM.open(
-        box, using: SymmetricKey(data: key), authenticating: mailboxAssociatedData)
+        box, using: SymmetricKey(data: key), authenticating: authenticating)
       let cache = try JSONDecoder().decode(MailboxCache.self, from: plaintext)
       guard cache.revision > 0 else { throw PrivateInboxError.invalidStore }
       return cache
