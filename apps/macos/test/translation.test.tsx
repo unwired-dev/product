@@ -326,7 +326,7 @@ describe('on-device translation in the reader', () => {
       expect(announce).not.toHaveBeenCalled();
 
       await fireEvent.press(
-        screen.getByLabelText('Load translation languages again'),
+        screen.getByLabelText('Try Again to load translation languages'),
       );
       await expect(
         screen.findByText('Translation languages couldn’t be loaded.'),
@@ -336,7 +336,7 @@ describe('on-device translation in the reader', () => {
       ]);
 
       await fireEvent.press(
-        screen.getByLabelText('Load translation languages again'),
+        screen.getByLabelText('Try Again to load translation languages'),
       );
       await translateInto('Spanish');
       expect(asked.map(({ target }) => target)).toStrictEqual(['es']);

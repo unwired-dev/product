@@ -478,7 +478,7 @@
     "noLanguages": "Translation is not available on this device.",
     "languagesFailed": "Translation languages couldn’t be loaded.",
     "tryAgain": "Try Again",
-    "tryAgainLabel": "Load translation languages again",
+    "tryAgainLabel": "Try Again to load translation languages",
     "progress": "Translating",
     "translating": "Translating on this device…",
     "cancelLabel": "Cancel translation",
