@@ -87,10 +87,11 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
           }),
         )
         .pipe(
-          Effect.asVoid,
-          Effect.catchTag(
-            'RemoteContentNativeFailure',
-            logFailure('Remote content settings could not be saved:'),
+          Effect.as(true),
+          Effect.catchTag('RemoteContentNativeFailure', (failure) =>
+            logFailure('Remote content settings could not be saved:')(
+              failure,
+            ).pipe(Effect.as(false)),
           ),
         ),
     );
@@ -137,6 +138,7 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
             ),
           ),
       ),
+    // Each change resolves whether it was saved; a refused one leaves the saved settings.
     setPolicy: (policy: RemoteContentPolicy) =>
       save((current) => ({ ...current, policy })),
     // Without a policy the connection follows the device's choice again.

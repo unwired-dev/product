@@ -73,7 +73,11 @@ const type = settingsColumns
 export type SettingsButton = (
   label: string,
   action: () => Promise<void>,
-  options?: Readonly<{ title?: string; tone?: 'destructive' | undefined }>,
+  options?: Readonly<{
+    title?: string;
+    tone?: 'destructive' | undefined;
+    disabled?: boolean;
+  }>,
 ) => ReactNode;
 
 const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
@@ -789,7 +793,7 @@ export function settingsButton(busy: boolean): SettingsButton {
     return (
       <PushButton
         key={label}
-        busy={busy}
+        busy={busy || options?.disabled === true}
         label={label}
         title={options?.title ?? label}
         tone={options?.tone}

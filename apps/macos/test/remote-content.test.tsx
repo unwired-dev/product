@@ -8,7 +8,13 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { GmailMessageBody, ReaderScrollView } from '../src/message-body.tsx';
@@ -16,6 +22,7 @@ import {
   RemoteContentContext,
   RemoteContentSettings,
 } from '../src/remote-content.tsx';
+import { settingsButton } from '../src/settings.tsx';
 import { chooseMenuItem } from './native-menu.ts';
 
 // A 1×1 PNG served by the controlled image server.
@@ -549,4 +556,84 @@ describe('remote message content in IMAP mail', () => {
       await page.unmount();
     }
   });
+});
+
+// The real settings store serializes writes while its controls remain usable.
+describe('remote content settings feedback', () => {
+  const warning =
+    'Couldn’t save this change. Remote Message Content is still set to Always load. Try again.';
+
+  it.each([
+    { firstSaved: false, text: undefined, speech: [] },
+    { firstSaved: true, text: warning, speech: [[warning]] },
+  ])(
+    'keeps feedback current when overlapping writes start with saved=$firstSaved',
+    async ({ firstSaved, text, speech }) => {
+      expect.hasAssertions();
+      let accept: () => void = () => undefined;
+      let refuse: (reason: unknown) => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Hold the first native write so another choice can start before it settles.
+      const first = new Promise<null>((resolve, reject) => {
+        accept = () => {
+          resolve(null);
+        };
+        refuse = reject;
+      });
+      const refused = Object.assign(new Error('Synthetic refusal'), {
+        code: 'locked',
+      });
+      const write = jest
+        .fn(() => Promise.resolve(null))
+        .mockReturnValueOnce(first)
+        // oxlint-disable-next-line vitest/prefer-mock-return-shorthand -- Create the rejection only when this serialized native write starts.
+        .mockImplementationOnce(() =>
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Select the table's second native outcome lazily, without an unhandled rejection.
+          firstSaved ? Promise.reject(refused) : Promise.resolve(null),
+        );
+      const settings = createRemoteContentSettings({
+        remoteContentSettings: () => Promise.resolve({ settings: null }),
+        setRemoteContentSettings: write,
+        clearRemoteContent: () => Promise.resolve(null),
+      });
+      await settings.load();
+      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      announce.mockClear();
+      const page = await render(
+        <RemoteContentContext value={settings}>
+          <RemoteContentSettings
+            button={settingsButton(false)}
+            mailboxes={[]}
+          />
+        </RemoteContentContext>,
+      );
+      const choose = async (label: string) => {
+        await act(() => {
+          fireEvent.press(
+            screen.getByRole('button', { name: 'On this device' }),
+          );
+        });
+        await chooseMenuItem(label);
+      };
+      try {
+        await choose('Always load');
+        await choose('Never');
+        await act(async () => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- The table drives both native settlement orders through the real store.
+          if (firstSaved) {
+            accept();
+          } else {
+            refuse(refused);
+          }
+          await first.catch(() => undefined);
+        });
+        expect(
+          screen.queryByText(/^Couldn’t save this change/u)?.props.children,
+        ).toBe(text);
+        expect(announce.mock.calls).toStrictEqual(speech);
+      } finally {
+        accept();
+        await page.unmount();
+      }
+    },
+  );
 });
