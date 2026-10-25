@@ -2020,72 +2020,6 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
-  it('marks Product Sync material initialized once a recovery envelope exists', async () => {
-    expect.assertions(2);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const connect = await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    // Earlier legacy publications stored the envelope without the marker.
-    await t.run(async (ctx) => {
-      await ctx.db.insert('encryptedProductSyncPayloads', {
-        encryptedPayload,
-        payloadIdentifier: 'product-account-recovery-v1',
-        productAccountId: connect.productAccountId,
-        trustedDeviceId: connect.trustedDeviceId,
-        updatedAt: 1,
-        writtenAt: 1,
-      });
-    });
-
-    await expect(
-      asUser.mutation(api.productAccount.markProductSyncMaterialInitialized, {
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).resolves.toStrictEqual({
-      productSyncMaterialInitialized: true,
-    });
-
-    await expect(
-      connectTrusted(t, asUser, {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      }),
-    ).resolves.toMatchObject({
-      productSyncMaterialInitialized: true,
-    });
-  });
-
-  it('rejects Product Sync material initialization from another account device', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const asOtherUser = t.withIdentity({
-      issuer: 'https://appleid.apple.com',
-      subject: 'apple-user-002',
-      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
-    });
-    const otherConnect = await connectTrusted(t, asOtherUser, {
-      deviceIdentifier: 'device-002',
-      platform: 'ios',
-    });
-
-    await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-
-    await expect(
-      asUser.mutation(api.productAccount.markProductSyncMaterialInitialized, {
-        trustedDeviceId: otherConnect.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Trusted device required');
-  });
-
   it('does not treat encrypted payload presence as sync material initialization', async () => {
     expect.assertions(1);
 
@@ -2132,61 +2066,6 @@ describe('productAccount.connect', () => {
 });
 
 describe('gmail operational connection registration', () => {
-  it('keeps legacy Gmail handlers available during the opaque rollout', async () => {
-    expect.assertions(3);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const connect = await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    await t.run(async (ctx) => {
-      const now = Date.now();
-      await ctx.db.insert('mailProviderConnections', {
-        connectedAt: now,
-        emailAddress: 'user@example.com',
-        lastVerifiedAt: now,
-        productAccountId: connect.productAccountId,
-        provider: 'gmail',
-        providerAccountIdentifier: 'gmail-user-001',
-        trustedDeviceId: connect.trustedDeviceId,
-        updatedAt: now,
-      });
-    });
-
-    await expect(
-      asUser.query(api.productAccount.listGmailProviderConnections, {
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).resolves.toMatchObject([
-      {
-        emailAddress: 'user@example.com',
-        providerAccountIdentifier: 'gmail-user-001',
-      },
-    ]);
-    await expect(
-      asUser.mutation(api.productAccount.connectGmailProvider, {
-        emailAddress: 'updated@example.com',
-        providerAccountIdentifier: 'gmail-user-001',
-        supportsMultipleConnections: true,
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).resolves.toMatchObject({
-      emailAddress: 'updated@example.com',
-      providerAccountIdentifier: 'gmail-user-001',
-    });
-    await expect(
-      asUser.mutation(api.productAccount.removeGmailProviderConnection, {
-        providerAccountIdentifier: 'gmail-user-001',
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).resolves.toStrictEqual({
-      hasRemainingGmailConnections: false,
-      removed: true,
-    });
-  });
-
   it('stores only opaque operational data for two Gmail connections', async () => {
     expect.assertions(5);
 

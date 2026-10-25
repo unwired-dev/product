@@ -98,10 +98,16 @@ const languageLists = new WeakMap<
   Promise<readonly TranslationLanguage[] | undefined>
 >();
 
+// A failed list is not an empty one: only the failure offers Try Again.
+type Languages =
+  | readonly TranslationLanguage[]
+  | 'loading'
+  | 'unavailable'
+  | 'failed';
+
 function useLanguages(translation: NativeTranslation, enabled: () => boolean) {
-  const [languages, setLanguages] = useState<
-    readonly TranslationLanguage[] | 'loading' | 'unavailable'
-  >('loading');
+  const [languages, setLanguages] = useState<Languages>('loading');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!enabled()) {
       return;
@@ -116,10 +122,15 @@ function useLanguages(translation: NativeTranslation, enabled: () => boolean) {
       const loaded = await pending;
       const usable = loaded !== undefined && loaded.length > 0;
       if (!usable) {
-        // A later panel asks the device again.
+        // Try Again or a later panel asks the device again.
         languageLists.delete(translation);
       }
-      if (current) {
+      if (!current) {
+        return;
+      }
+      if (loaded === undefined) {
+        setLanguages('failed');
+      } else {
         setLanguages(usable ? loaded : 'unavailable');
       }
     };
@@ -127,24 +138,50 @@ function useLanguages(translation: NativeTranslation, enabled: () => boolean) {
     return () => {
       current = false;
     };
-  }, [translation, enabled]);
-  return languages;
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Try Again asks the device again.
+  }, [translation, enabled, attempt]);
+  const reload = () => {
+    setLanguages('loading');
+    setAttempt((count) => count + 1);
+  };
+  return [languages, reload] as const;
 }
 
 // The explicit choice of target language. Nothing is translated until one is chosen.
 function TargetLanguages({
   languages,
+  reload,
   selected,
   onSelect,
 }: {
-  readonly languages: ReturnType<typeof useLanguages>;
+  readonly languages: Languages;
+  readonly reload: () => void;
   readonly selected: TranslationLanguage | undefined;
   readonly onSelect: (language: TranslationLanguage) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  // The panel opened at the person's request, so its failure is announced each time it appears.
+  useOutcomeAnnouncement(
+    languages === 'failed' ? t('translation.languagesFailed') : undefined,
+    false,
+  );
   if (languages === 'loading') {
     return <ActivityIndicator accessibilityLabel={t('translation.loading')} />;
+  }
+  if (languages === 'failed') {
+    return (
+      <View style={styles.row}>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          {t('translation.languagesFailed')}
+        </Text>
+        <Action
+          label={t('translation.tryAgain')}
+          accessibilityLabel={t('translation.tryAgainLabel')}
+          onPress={reload}
+        />
+      </View>
+    );
   }
   if (languages === 'unavailable') {
     return (
@@ -258,10 +295,7 @@ function useTranslation(
 }
 
 // The language named by its code, as the device lists it.
-const languageName = (
-  languages: ReturnType<typeof useLanguages>,
-  code: string,
-) =>
+const languageName = (languages: Languages, code: string) =>
   typeof languages === 'string'
     ? code
     : (languages.find((language) => language.code === code)?.name ?? code);
@@ -338,7 +372,10 @@ function TranslationPanel({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const languages = useLanguages(translation.native, translation.enabled);
+  const [languages, reload] = useLanguages(
+    translation.native,
+    translation.enabled,
+  );
   const { state, retry, cancel } = translation;
   return (
     <View
@@ -349,6 +386,7 @@ function TranslationPanel({
       ]}>
       <TargetLanguages
         languages={languages}
+        reload={reload}
         selected={target}
         onSelect={onTarget}
       />

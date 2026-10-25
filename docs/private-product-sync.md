@@ -417,12 +417,11 @@ data, but it can read none of it. See the
 [architecture companion](architecture/private-product-sync.md#device-revocation)
 for the implementation boundary and tracked limitations.
 
-Convex rejects record writes and the legacy initialized marker until the recovery
-envelope exists. The legacy recovery-material route publishes a first envelope
-only for an account that has never had Private Sync material, and successful
-publication leaves the account initialized. It answers `409` for an account whose
-marker or records predate a missing envelope, because missing keys never reset
-silently.
+Convex rejects record writes until the recovery envelope exists. The legacy
+recovery-material route publishes a first envelope only for an account that has
+never had Private Sync material, and successful publication leaves the account
+initialized. It answers `409` for an account whose marker or records predate a
+missing envelope, because missing keys never reset silently.
 
 On relaunch the device loads its existing keys and never regenerates them.
 With Google, restore refreshes the Product Sign-In, reconnects and reads the
@@ -557,9 +556,9 @@ sign-in. A readable, different descriptor is replaced and read back.
 
 Convex tests cover single initialization, idempotent retry, refusal for
 initialized accounts, epoch and device-proof enforcement, and the reserved
-recovery identifier. They also reject record writes and the initialized marker
-before publication, and keep accounts left without an envelope from receiving
-new key material through either initialization path. Enrollment tests cover one collection per approval, untouched
+recovery identifier. They also reject record writes before publication and keep
+accounts left without an envelope from receiving new key material through either
+initialization path. Enrollment tests cover one collection per approval, untouched
 key material, and refusal of the approval cases listed above. They also cover
 expiry and account isolation. Another test shows that a new device of the account reads the recovery
 envelope and that another account's device does not. Shared and rendered host tests cover the Recovery Key
