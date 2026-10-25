@@ -122,16 +122,17 @@ export function useRemoteImages({
 const styles = StyleSheet.create({
   label: { ...textStyles.body },
   text: { ...textStyles.body },
-  // Under the row's title: its 16pt symbol and 10pt gap after the row inset.
+  // The approved warning row has the same inset on every platform.
   notSaved: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    paddingLeft: spacing.m + 26,
+    paddingLeft: 40,
     paddingRight: spacing.m,
     paddingBottom: 10,
   },
-  notSavedText: { ...textStyles.subheadline, flexShrink: 1 },
+  notSavedMessage: { flex: 1 },
+  notSavedText: { ...textStyles.subheadline },
   clear: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
 });
 
@@ -236,9 +237,12 @@ function PolicySetting({
             name="exclamationmark.triangle.fill"
             color={colors.statusWarning}
           />
-          <Label style={[styles.notSavedText, { color: colors.textSecondary }]}>
-            {notSaved}
-          </Label>
+          <View style={styles.notSavedMessage}>
+            <Label
+              style={[styles.notSavedText, { color: colors.textSecondary }]}>
+              {notSaved}
+            </Label>
+          </View>
         </View>
       )}
     </>
@@ -304,7 +308,12 @@ export function RemoteContentSettings({
       </SettingsRow>
       <SettingsBlock>
         <View style={styles.clear}>
-          {clearing ? <ActivityIndicator size="small" /> : null}
+          {clearing ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.textSecondary}
+            />
+          ) : null}
           {button(
             t(clearing ? 'remoteContent.clearing' : 'remoteContent.clear'),
             async () => {

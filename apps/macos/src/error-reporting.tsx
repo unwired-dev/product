@@ -77,13 +77,19 @@ function ReportingAction({
           textStyles.body,
           styles.label,
           {
-            color: destructive ? colors.statusDestructive : colors.textPrimary,
+            color: pending ? colors.accentInk : colors.textPrimary,
             opacity: disabled || pending ? 0.4 : 1,
           },
+          destructive && { color: colors.statusDestructive },
         ]}>
         {label}
       </Text>
-      {pending ? <ActivityIndicator size="small" /> : null}
+      {pending ? (
+        <ActivityIndicator
+          size="small"
+          color={colors.textSecondary}
+        />
+      ) : null}
     </Pressable>
   );
 }

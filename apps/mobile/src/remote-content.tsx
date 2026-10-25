@@ -147,19 +147,17 @@ const styles = StyleSheet.create({
   },
   label: { ...textStyles.subheadline },
   text: { ...textStyles.body },
-  // Under the setting's title: its 20pt symbol and gap after the row inset.
+  // The approved warning row keeps the Mac inset and small type on iPhone and iPad.
   notSaved: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    paddingLeft: (settingsColumns ? 14 : spacing.l) + 20 + spacing.m,
-    paddingRight: spacing.l,
-    paddingBottom: spacing.m,
+    paddingLeft: 40,
+    paddingRight: spacing.m,
+    paddingBottom: 10,
   },
   notSavedText: {
-    ...(settingsColumns
-      ? typography.ipadList.subheadline
-      : textStyles.caption1),
+    ...typography.macos.subheadline,
     flexShrink: 1,
   },
   clear: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
@@ -395,7 +393,12 @@ export function RemoteContentSettings({
       </SettingsRow>
       <SettingsBlock>
         <View style={styles.clear}>
-          {clearing ? <ActivityIndicator size="small" /> : null}
+          {clearing ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.textSecondary}
+            />
+          ) : null}
           {button(
             t(clearing ? 'remoteContent.clearing' : 'remoteContent.clear'),
             async () => {
