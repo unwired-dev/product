@@ -296,14 +296,22 @@ export function createSyntheticGmail({
       ),
     );
   // Gmail's own search covers all mail outside spam and trash, sender, subject and content alike.
-  // Every word must appear, ignoring case; real Gmail operators are beyond this stand-in.
+  // Every word must appear, ignoring case; of Gmail's operators only `-in:` is modelled, leaving
+  // out a system label such as `-in:inbox`.
   const searched = (query: string) => {
-    const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+    const terms = query.toLowerCase().split(/\s+/u).filter(Boolean);
+    const excluded = terms
+      .filter((term) => term.startsWith('-in:'))
+      .map((term) => term.slice('-in:'.length).toUpperCase());
+    const words = terms.filter((term) => !term.startsWith('-in:'));
     return Arr.sort(
       [...messages.values()].filter(
         ({ labels, from, subject, snippet, content }) =>
           !labels.has('SPAM') &&
           !labels.has('TRASH') &&
+          excluded.every(
+            (label) => !labels.has(label === 'DRAFTS' ? 'DRAFT' : label),
+          ) &&
           words.every((word) =>
             [from, subject, snippet, content.text ?? '', content.html ?? '']
               .join('\n')

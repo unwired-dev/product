@@ -219,11 +219,11 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
+  noticeBody: { flex: 1 },
   noticeText: {
     ...(Platform.OS === 'ios' && Platform.isPad
       ? typography.ipadList.body
       : textStyles.body),
-    flex: 1,
   },
   noticeActions: {
     flexDirection: 'row',
@@ -538,6 +538,7 @@ export function Notice({
   icon,
   iconColor,
   message,
+  detail,
   messageRole,
   messageActions,
   announce,
@@ -546,6 +547,8 @@ export function Notice({
   readonly icon: string;
   readonly iconColor?: ColorValue;
   readonly message: string;
+  // A secondary line under the message.
+  readonly detail?: string;
   readonly messageRole?: 'alert';
   // Accessibility actions on the message, such as a screen header's Open Command Palette.
   readonly messageActions?:
@@ -563,13 +566,21 @@ export function Notice({
           name={icon}
           color={iconColor ?? colors.textSecondary}
         />
-        <Text
-          accessibilityLiveRegion={announce}
-          accessibilityRole={messageRole}
-          style={[styles.noticeText, { color: colors.textPrimary }]}
-          {...messageActions}>
-          {message}
-        </Text>
+        <View style={styles.noticeBody}>
+          <Text
+            accessibilityLiveRegion={announce}
+            accessibilityRole={messageRole}
+            style={[styles.noticeText, { color: colors.textPrimary }]}
+            {...messageActions}>
+            {message}
+          </Text>
+          {detail === undefined ? null : (
+            <Text
+              style={[textStyles.subheadline, { color: colors.textSecondary }]}>
+              {detail}
+            </Text>
+          )}
+        </View>
       </View>
       {children === undefined ? null : (
         <View style={styles.noticeActions}>{children}</View>

@@ -954,7 +954,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
         first.findByText('Your seat is booked.'),
       ).resolves.toBeVisible();
       await fireEvent.press(
-        await second.findByRole('button', { name: /^Trash\. In/u }),
+        await second.findByRole('button', {
+          name: /^Trash\. In (?!All mailboxes)/u,
+        }),
       );
       await fireEvent.press(
         await second.findByRole('button', { name: /Old receipt/u }),
@@ -969,6 +971,57 @@ describe('mac windows over a connected Gmail mailbox', () => {
       });
       expect(second.queryByRole('button', { name: /Old receipt/u })).toBeNull();
       expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('lists archived Gmail mail in the unified Archive and restores unified Trash mail to the Inbox', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const kept = gmail.deliver({ subject: 'Kept receipt' });
+    gmail.archive(kept);
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    const old = gmail.deliver({ subject: 'Old newsletter' });
+    gmail.setLabel(old, 'TRASH', true);
+    gmail.setLabel(old, 'INBOX', false);
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await first.findByRole('button', {
+          name: 'Archive. In All mailboxes',
+        }),
+      );
+      await expect(
+        first.findByRole('button', { name: /Kept receipt/u }),
+      ).resolves.toBeVisible();
+      expect(first.getByRole('header', { name: 'Archive' })).toBeVisible();
+      expect(
+        first.queryByRole('button', { name: /Lunch on Friday/u }),
+      ).toBeNull();
+      await fireEvent.press(
+        first.getByRole('button', { name: 'Trash. In All mailboxes' }),
+      );
+      await fireEvent.press(
+        await first.findByRole('button', { name: /Old newsletter/u }),
+      );
+      await fireEvent.press(
+        first.getByRole('button', { name: 'Move to Inbox' }),
+      );
+      await waitFor(() => {
+        expect(gmail.labelsOf(old)).toContain('INBOX');
+      });
+      expect(
+        first.queryByRole('button', { name: /Old newsletter/u }),
+      ).toBeNull();
     } finally {
       await app.unmount();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
@@ -1106,7 +1159,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       await first.findByRole('button', { name: /Archived flight/u });
       await fireEvent.press(
-        await second.findByRole('button', { name: /^Trash\. In/u }),
+        await second.findByRole('button', {
+          name: /^Trash\. In (?!All mailboxes)/u,
+        }),
       );
       // Online results come from the mailbox, independently of this window's Trash view.
       const field = second.getByLabelText('Search senders and subjects');

@@ -1,5 +1,8 @@
 import type { Translate } from '@private-email/localization';
 
+import * as Arr from 'effect/Array';
+import * as Order from 'effect/Order';
+
 import type {
   GmailInbox,
   GmailInboxState,
@@ -17,11 +20,14 @@ import type {
 } from './registration-snapshot.ts';
 
 import {
+  allMail,
+  gmailArchive,
   gmailViewSymbol,
   gmailViewTitle,
   providerViews,
   systemViews,
 } from './gmail-actions.ts';
+import { imapRoleFolder } from './imap-actions.ts';
 import { imapFolderFailed, imapFolderName, inboxFolder } from './imap-inbox.ts';
 
 // The mailboxes owned by exactly `profile`, in the order the connections were added.
@@ -257,9 +263,16 @@ export function mailboxSidebar<
   mailboxes: readonly L[];
   connections: readonly C[];
   profile: string;
-  view: Readonly<{ mailbox?: string | undefined; folder?: string | undefined }>;
+  view: Readonly<{
+    mailbox?: string | undefined;
+    folder?: string | undefined;
+    unified?: UnifiedRole | undefined;
+  }>;
 }>) {
-  const chosen = mailboxes.find(({ id }) => id === view.mailbox);
+  const chosen =
+    view.unified === undefined
+      ? mailboxes.find(({ id }) => id === view.mailbox)
+      : undefined;
   const sections = mailboxes.map((mailbox) => {
     const { state } = mailbox;
     const unread =
@@ -293,11 +306,13 @@ export function mailboxSidebar<
   return {
     unread: sections.reduce((sum, section) => sum + section.unread, 0),
     // All inboxes is selected exactly when the Inbox shows every mailbox.
-    allSelected: !inboxChoice({
-      mailboxes,
-      connections: profileConnections,
-      view,
-    }).keepsChoice,
+    allSelected:
+      view.unified === undefined &&
+      !inboxChoice({
+        mailboxes,
+        connections: profileConnections,
+        view,
+      }).keepsChoice,
     // Open and waiting connections in their saved order, so a section keeps its place while its
     // authorization lapses; a mailbox without a connection, such as the preview, comes first.
     entries: [
@@ -321,3 +336,162 @@ export function mailboxSidebar<
     ],
   };
 }
+
+// Newest first. Equal times keep the connections' order, then the message ID, so a list never
+// reorders between renders.
+export const newestFirst = <
+  E extends Readonly<{
+    mailbox: Readonly<{ id: string }>;
+    message: Readonly<{ id: string; receivedAt: string }>;
+  }>,
+>(
+  mailboxes: ReadonlyArray<Readonly<{ id: string }>>,
+  entries: readonly E[],
+) => {
+  const rank = new Map(mailboxes.map(({ id }, index) => [id, index]));
+  const message = (entry: E) => entry.message;
+  return Arr.sort(
+    entries,
+    Order.combine(
+      Order.flip(
+        Order.mapInput(Order.String, (entry: E) => message(entry).receivedAt),
+      ),
+      Order.combine(
+        Order.mapInput(
+          Order.Number,
+          ({ mailbox }: E) => rank.get(mailbox.id) ?? 0,
+        ),
+        Order.mapInput(Order.String, (entry: E) => message(entry).id),
+      ),
+    ),
+  );
+};
+
+// The Unified Mailboxes the Favorites list after All inboxes, by Mailbox Role. All Mail is the
+// product's own: every message outside Spam and Trash.
+export const unifiedRoles = [
+  'SENT',
+  'ARCHIVE',
+  allMail,
+  'SPAM',
+  'TRASH',
+] as const;
+export type UnifiedRole = (typeof unifiedRoles)[number];
+
+const unifiedTitles = {
+  SENT: 'mailboxes.sent',
+  ARCHIVE: 'mailboxes.archive',
+  [allMail]: 'mailboxes.allMail',
+  SPAM: 'mailboxes.spam',
+  TRASH: 'mailboxes.trash',
+} as const;
+
+// A Unified Mailbox's Favorites row and list title.
+export const unifiedRow = (t: Translate, role: UnifiedRole) => ({
+  title: t(unifiedTitles[role]),
+  icon: gmailViewSymbol(role === 'ARCHIVE' ? gmailArchive : role),
+});
+
+const imapRoles = {
+  SENT: 'sent',
+  ARCHIVE: 'archive',
+  SPAM: 'junk',
+  TRASH: 'trash',
+} as const;
+
+// The folders or views a mailbox lists in a Unified Mailbox, or undefined when its provider marks
+// none with that role. A role is never guessed from a folder's name.
+export const unifiedFolders = (
+  mailbox: BrowsableMailbox,
+  role: UnifiedRole,
+): readonly string[] | undefined => {
+  const { inbox, state } = mailbox;
+  if (state.kind !== 'ready') {
+    return [];
+  }
+  if ('openFolder' in inbox && 'folders' in state) {
+    const { folders } = state;
+    if (role !== allMail) {
+      const name = imapRoleFolder(folders, imapRoles[role]);
+      return name === undefined ? undefined : [name];
+    }
+    const all = imapRoleFolder(folders, 'all');
+    return all === undefined
+      ? folders
+          .filter(
+            ({ selectable, roles }) =>
+              selectable && !roles.includes('junk') && !roles.includes('trash'),
+          )
+          .map(({ name }) => name)
+      : [all];
+  }
+  const gmail = gmailMailbox(mailbox);
+  if (gmail === undefined) {
+    return role === allMail ? [inboxFolder] : [];
+  }
+  if (gmail.provider !== 'microsoft-graph') {
+    return [role === 'ARCHIVE' ? gmailArchive : role];
+  }
+  const views = providerViews(gmail.provider, gmail.state.unavailableActions);
+  if (role !== allMail) {
+    return views.includes(role) ? [role] : undefined;
+  }
+  return [
+    inboxFolder,
+    ...views.filter((view) => view !== 'SPAM' && view !== 'TRASH'),
+    ...gmail.state.labels.map(({ id }) => id),
+  ];
+};
+
+// A Unified Mailbox of a Profile's ready mailboxes, newest first. Each entry names the folder or
+// view it is listed in, so its actions are those of that folder at its own connection. Mailboxes
+// without the role are `missing`; a folder or view that could not be read makes its mailbox
+// `failed`. IMAP folders are read through `folder`.
+export const unifiedMailbox = <
+  M extends BrowsableMailbox & Readonly<{ id: string }>,
+>(
+  mailboxes: readonly M[],
+  role: UnifiedRole,
+  folder: (mailbox: M, name: string) => ImapFolderView | undefined,
+) => {
+  const missing: M[] = [];
+  const failed: M[] = [];
+  const entries = mailboxes.flatMap((mailbox) => {
+    const names = unifiedFolders(mailbox, role);
+    if (names === undefined) {
+      missing.push(mailbox);
+      return [];
+    }
+    const { state } = mailbox;
+    const gmail = gmailMailbox(mailbox);
+    const listed = names.map((name) => {
+      if (name === inboxFolder) {
+        return 'messages' in state ? state.messages : [];
+      }
+      if (gmail !== undefined) {
+        const view = gmail.state.views?.find(({ label }) => label === name);
+        if (view?.status === 'failed') {
+          failed.push(mailbox);
+        }
+        return view?.messages ?? [];
+      }
+      const view = folder(mailbox, name);
+      if (imapFolderFailed(view)) {
+        failed.push(mailbox);
+      }
+      return view?.kind === 'ready' ? view.messages : [];
+    });
+    return names.flatMap((name, index) =>
+      (listed[index] ?? []).map((message) => ({
+        mailbox,
+        message,
+        folder: name,
+      })),
+    );
+  });
+  return {
+    entries: newestFirst(mailboxes, entries),
+    missing,
+    failed: Arr.dedupe(failed),
+  };
+};

@@ -1,3 +1,5 @@
+import type { UnifiedRole } from '@private-email/mail-core/mailboxes';
+
 import {
   imapFolderFailed,
   inboxFolder,
@@ -7,11 +9,16 @@ import {
   gmailMailbox,
   gmailViewRow,
   mailboxFolder,
+  unifiedFolders,
+  unifiedMailbox,
+  unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
+  useRef,
   useSyncExternalStore,
 } from 'react';
 
@@ -126,4 +133,119 @@ function useFolderEntries(
           },
     [mailbox, view],
   );
+}
+
+// The list a window shows: the Unified Mailbox it chose, or else its chosen mailbox's folder.
+// `folderOf` names the folder or view a row is listed in, which its actions are those of.
+export function useListedMailbox<E>(
+  shown: readonly InboxMailbox[],
+  // The Inbox entries listed when no other folder is chosen.
+  inbox: readonly E[],
+  options: Readonly<{
+    view: MailboxView;
+    onView: (view: MailboxView) => void;
+  }>,
+) {
+  const { t } = useLocalization();
+  const chosen = useMailboxFolder(shown, inbox, options);
+  const role = options.view.unified;
+  const unified = useUnifiedMailbox(shown, role);
+  const rowFolder = useMemo(
+    () =>
+      new Map(
+        unified?.entries.map(({ mailbox, message, folder }) => [
+          `${mailbox.id}\n${message.id}`,
+          folder,
+        ]),
+      ),
+    [unified],
+  );
+  if (role === undefined || unified === undefined) {
+    return {
+      ...chosen,
+      missing: [],
+      folderOf: (_mailbox: string, _id: string) => chosen.folder,
+    };
+  }
+  return {
+    ...chosen,
+    title: unifiedRow(t, role).title,
+    listed: unified.entries,
+    failure:
+      unified.failed.length === 0 ? undefined : t('imap.foldersUnavailable'),
+    // Mailboxes whose provider marks no folder with the role, which the list names as left out.
+    missing: unified.missing,
+    folderOf: (mailbox: string, id: string) =>
+      rowFolder.get(`${mailbox}\n${id}`) ?? inboxFolder,
+  };
+}
+
+// A Unified Mailbox of the window's mailboxes. Each mailbox's folders or views with the role are
+// retained and opened while it is shown, and the list follows them as they sync.
+function useUnifiedMailbox(
+  mailboxes: readonly InboxMailbox[],
+  role: UnifiedRole | undefined,
+) {
+  const [, changed] = useReducer((count: number) => count + 1, 0);
+  // What each opened folder or view holds open, by mailbox and name.
+  const held = useRef(new Map<string, () => void>());
+  const opened = useMemo(
+    () =>
+      role === undefined
+        ? []
+        : mailboxes.flatMap((mailbox) =>
+            (unifiedFolders(mailbox, role) ?? []).map((name) => ({
+              key: `${mailbox.id}\n${name}`,
+              mailbox,
+              name,
+            })),
+          ),
+    [mailboxes, role],
+  );
+  // Opens only what newly joined the list and releases what left it, so a snapshot that changes
+  // nothing it lists asks no provider again.
+  useLayoutEffect(() => {
+    const keys = new Set(opened.map(({ key }) => key));
+    for (const [key, release] of held.current) {
+      if (!keys.has(key)) {
+        release();
+        held.current.delete(key);
+      }
+    }
+    for (const { key, mailbox, name } of opened) {
+      if (name !== inboxFolder && !held.current.has(key)) {
+        held.current.set(key, open(mailbox, name, changed));
+      }
+    }
+  }, [opened]);
+  useLayoutEffect(() => {
+    const { current } = held;
+    return () => {
+      for (const release of current.values()) {
+        release();
+      }
+      current.clear();
+    };
+  }, []);
+  return role === undefined
+    ? undefined
+    : unifiedMailbox(mailboxes, role, (mailbox, name) =>
+        'openFolder' in mailbox.inbox ? mailbox.inbox.folder(name) : undefined,
+      );
+}
+
+// Retains and opens a Gmail or Microsoft view, or opens an IMAP folder and follows its changes.
+function open(mailbox: InboxMailbox, name: string, changed: () => void) {
+  const gmail = gmailMailbox(mailbox);
+  if (gmail !== undefined) {
+    const release = gmail.inbox.retainView(name);
+    void gmail.inbox.openView(name);
+    return release;
+  }
+  if ('openFolder' in mailbox.inbox) {
+    const { inbox } = mailbox;
+    void inbox.openFolder(name);
+    return inbox.subscribe(changed);
+  }
+  return () => undefined;
 }

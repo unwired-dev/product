@@ -62,7 +62,7 @@ import {
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailboxFolder } from './mailbox-folders.tsx';
+import { useListedMailbox } from './mailbox-folders.tsx';
 import {
   MailboxScope,
   useDrafts,
@@ -435,16 +435,22 @@ function scopeOf(
   t: Translate,
   shown: readonly InboxMailbox[],
   {
+    unified,
     several,
     gmail,
     waiting,
   }: Readonly<{
+    // Whether the list is a Unified Mailbox, which spans every mailbox.
+    unified: boolean;
     several: boolean;
     gmail: boolean;
     // The chosen connection while it waits for authorization, which has no Inbox to show.
     waiting: Readonly<{ address: string }> | undefined;
   }>,
 ) {
+  if (unified) {
+    return t('mailboxes.allMailboxes');
+  }
   if (waiting !== undefined) {
     return waiting.address;
   }
@@ -657,15 +663,13 @@ export function Inbox({
   );
   const {
     folder,
-    selection,
     title: folderName,
     listed,
     failure,
     limited,
-  } = useMailboxFolder(shown, inboxListed, {
-    view,
-    onView,
-  });
+    missing,
+    folderOf: listedFolder,
+  } = useListedMailbox(shown, inboxListed, { view, onView });
   const searchState = useInboxSearch(search, {
     mailboxes,
     shown,
@@ -676,10 +680,14 @@ export function Inbox({
     folder,
   });
   const { searching, searched, results, online } = searchState;
-  // Search widened to every Inbox lists Inbox mail, whatever view the list shows.
-  const origin = searchState.searchesAll
-    ? { view: inboxFolder, selection: {} }
-    : { view: folder, selection };
+  // Search widened to every Inbox lists Inbox mail, whatever view the list shows; in a Unified
+  // Mailbox each row is otherwise listed in its own connection's folder or view.
+  const folderOf = (mailbox: string, id: string) =>
+    searchState.searchesAll ? inboxFolder : listedFolder(mailbox, id);
+  const selectionOf = (mailbox: string, id: string) => {
+    const listedIn = folderOf(mailbox, id);
+    return listedIn === inboxFolder ? {} : { folder: listedIn };
+  };
   // Asked again when a result is opened or the reader closes, since opening saves the body.
   const saved = useSavedBodies(
     results,
@@ -720,6 +728,7 @@ export function Inbox({
       profile,
       scope,
       folder,
+      view.unified,
       searching,
       searched,
       searchState.searchesAll,
@@ -744,6 +753,7 @@ export function Inbox({
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const scopeName = scopeOf(t, shown, {
+    unified: view.unified !== undefined,
     several,
     gmail,
     waiting: chosenWaiting,
@@ -790,6 +800,7 @@ export function Inbox({
     message: Message | GmailMessage | ImapMessage,
   ): readonly RowAction[] => {
     const { state, inbox } = mailbox;
+    const listedIn = folderOf(mailbox.id, message.id);
     const leaving = (away: boolean) => {
       if (
         away &&
@@ -823,7 +834,7 @@ export function Inbox({
       return quickActions(t, message, {
         provider: mailbox.provider ?? 'gmail',
         unavailableActions: state.unavailableActions,
-        view: origin.view,
+        view: listedIn,
       }).map(({ name, label, action }) => ({
         name,
         label,
@@ -904,6 +915,20 @@ export function Inbox({
                 messageRole="alert"
               />
             )}
+            {missing.map((mailbox) => (
+              <Notice
+                key={`missing\n${mailbox.id}`}
+                icon="exclamationmark.triangle"
+                iconColor={colors.statusWarning}
+                message={t('mailboxes.notIncluded', {
+                  mailbox: mailbox.address ?? mailbox.id,
+                })}
+                detail={t('mailboxes.notIncludedDetail', {
+                  view: folderName,
+                  ...(ipad ? {} : { context: 'iphone' }),
+                })}
+              />
+            ))}
             {shown.map((mailbox) => (
               <MailboxScope
                 key={mailbox.id}
@@ -1072,7 +1097,9 @@ export function Inbox({
                       void select({
                         mailbox: item.mailbox.id,
                         id: item.message.id,
-                        ...(section.key === 'gmail' ? {} : origin.selection),
+                        ...(section.key === 'gmail'
+                          ? {}
+                          : selectionOf(item.mailbox.id, item.message.id)),
                       });
                     }}
                     selected={

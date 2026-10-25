@@ -581,12 +581,13 @@ export function Monogram({ name }: { readonly name: string }) {
   );
 }
 
-// A banner beside the content it explains, with its actions stacked under the message.
-// A warning tints its icon; the message is an alert when it reports a failure.
+// A banner beside the content it explains, with an optional detail under its message and its
+// actions stacked below. A warning tints its icon; the message is an alert when it reports a failure.
 export function Notice({
   icon,
   iconColor,
   message,
+  detail,
   messageRole = 'text',
   announce,
   children,
@@ -594,6 +595,7 @@ export function Notice({
   readonly icon: string;
   readonly iconColor?: ColorValue;
   readonly message: string;
+  readonly detail?: string;
   readonly messageRole?: 'alert' | 'text';
   // Preserves live-region semantics; native announcement support is platform-specific.
   readonly announce?: 'polite';
@@ -614,6 +616,12 @@ export function Notice({
             style={[textStyles.body, { color: colors.textPrimary }]}>
             {message}
           </Label>
+          {detail === undefined ? null : (
+            <Label
+              style={[textStyles.subheadline, { color: colors.textSecondary }]}>
+              {detail}
+            </Label>
+          )}
         </View>
       </View>
       {children === undefined ? null : (

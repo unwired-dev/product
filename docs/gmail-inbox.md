@@ -92,9 +92,18 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   keeps its saved messages and shows **… could not be read from Gmail** in the list
   and on its sidebar row until a later synchronization reads it. A label removed in
   Gmail leaves the sidebar with its saved view, and a window that showed it returns
-  to the Inbox. The unified Sent, Archive, All Mail, Spam and Trash mailboxes and
-  complete history remain with [#1006](https://github.com/unwired-dev/product/issues/1006)
-  and [#1007](https://github.com/unwired-dev/product/issues/1007).
+  to the Inbox. Complete history remains with
+  [#1007](https://github.com/unwired-dev/product/issues/1007).
+- **Unified mailboxes.** Under **Favorites**, after **All inboxes**, the sidebar offers
+  **Sent**, **Archive**, **All Mail**, **Spam** and **Trash** across the window's
+  Profile ([#1006](https://github.com/unwired-dev/product/issues/1006)). Each lists the
+  matching mailbox of every connection newest first, ties by mailbox order then
+  message ID, and each row names its mailbox and offers that connection's own actions.
+  Gmail contributes its system labels; its Archive is mail outside Inbox, Sent and
+  Drafts. Microsoft contributes its well-known folders and IMAP the folders its
+  server marks with a special-use role; All Mail is every message outside Spam and
+  Trash. A connection without the role is never guessed from folder names: the list
+  shows **… isn't included** for it, and its folders stay under it in the sidebar.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
