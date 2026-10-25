@@ -43,7 +43,7 @@ describe('restoring', () => {
         changeReduceMotion(true);
       });
       const reduced = breathing();
-      const reset = setValue.mock.calls;
+      const reset = [...setValue.mock.calls];
       await act(() => {
         changeReduceMotion(false);
       });
