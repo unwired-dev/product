@@ -1361,21 +1361,21 @@ describe('product registration', () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-declined');
     const saved: string[] = [];
-    let refuse = false;
-    const clearing = Promise.withResolvers<null>();
+    const setRemoteContentSettings = jest.fn((settings: string) => {
+      saved.push(settings);
+      return Promise.resolve(null);
+    });
+    let cleared: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the native clear while Clearing… shows.
+    const clearing = new Promise<null>((resolve) => {
+      cleared = () => {
+        resolve(null);
+      };
+    });
     const remoteContent = createRemoteContentSettings({
       remoteContentSettings: () => Promise.resolve({ settings: null }),
-      setRemoteContentSettings: (settings) => {
-        if (refuse) {
-          refuse = false;
-          return Promise.reject(
-            Object.assign(new Error('Synthetic failure'), { code: 'locked' }),
-          );
-        }
-        saved.push(settings);
-        return Promise.resolve(null);
-      },
-      clearRemoteContent: () => clearing.promise,
+      setRemoteContentSettings,
+      clearRemoteContent: () => clearing,
     });
     await remoteContent.load();
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
@@ -1407,7 +1407,9 @@ describe('product registration', () => {
       await fireEvent.press(choice('On this device: Always load'));
     });
     // Storage refuses the next choice: the saved one stays selected and the row says so.
-    refuse = true;
+    setRemoteContentSettings.mockRejectedValueOnce(
+      Object.assign(new Error('Synthetic failure'), { code: 'locked' }),
+    );
     await act(async () => {
       await fireEvent.press(
         choice('Remote images for other@example.invalid: Never'),
@@ -1437,8 +1439,8 @@ describe('product registration', () => {
     // Clearing stays disabled until the native clear resolves; its result then replaces it.
     expect(screen.getByRole('button', { name: 'Clearing…' })).toBeDisabled();
     await act(async () => {
-      clearing.resolve(null);
-      await clearing.promise;
+      cleared();
+      await clearing;
     });
     expect(
       screen.getByText('Remote content saved on this device was removed.'),

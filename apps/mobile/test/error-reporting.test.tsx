@@ -171,10 +171,14 @@ describe('error reporting controls', () => {
     async ({ phase, action }) => {
       expect.hasAssertions();
       const { store } = reporting({ kind: 'deleting', phase });
-      const checked = Promise.withResolvers<undefined>();
-      jest
-        .mocked(store.retryDeletion)
-        .mockImplementationOnce(() => checked.promise);
+      let settle: () => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Hold the deletion check while it shows as pending.
+      const checked = new Promise<undefined>((resolve) => {
+        settle = () => {
+          resolve(undefined);
+        };
+      });
+      jest.mocked(store.retryDeletion).mockReturnValueOnce(checked);
       await render(<ErrorReportingSettings store={store} />);
       expect(screen.getByRole('switch').props.disabled).toBe(true);
       expect(screen.getByRole('switch').props).toMatchObject({ value: false });
@@ -191,8 +195,8 @@ describe('error reporting controls', () => {
       ).toBeDisabled();
       // The check settles without a new phase, so the same retry is offered again.
       await act(async () => {
-        checked.resolve(undefined);
-        await checked.promise;
+        settle();
+        await checked;
       });
       expect(screen.getByRole('button', { name: action })).toBeEnabled();
     },
