@@ -41,6 +41,8 @@ const styles = StyleSheet.create({
   pullDown: { width: 46 },
   fieldPopUp: { flex: 1 },
   popUpSizing: { opacity: 0, paddingHorizontal: 25 },
+  // A titled pull-down also draws its symbol, about 20pt with its gap, before the title.
+  symbolSizing: { paddingLeft: 45 },
 });
 
 type MarkName = `drafts.marks.${Mark}`;
@@ -105,8 +107,9 @@ const textStyleKinds: readonly BlockKind[] = [
 ];
 
 // One item of a control's native menu; its key names the command, so a choice runs the latest
-// callback for that key while the control is mounted, and nothing once the item is gone.
-type PopUpItem = Readonly<{
+// callback for that key while the control is mounted, and nothing once the item is gone. An item
+// without `run` is a heading, or opens the submenu of its `items`.
+export type PopUpItem = Readonly<{
   key: string;
   title: string;
   accessibilityLabel?: string;
@@ -115,14 +118,28 @@ type PopUpItem = Readonly<{
   checked?: boolean;
   disabled?: boolean;
   destructive?: boolean;
-  run: () => void;
+  run?: () => void;
+  items?: readonly PopUpItem[];
 }>;
+
+type NativePopUpItem = Omit<PopUpItem, 'key' | 'run' | 'items'> & {
+  readonly id: string;
+  readonly items?: readonly NativePopUpItem[];
+};
+
+const nativeItems = (items: readonly PopUpItem[]): NativePopUpItem[] =>
+  items.map(({ key, run: _run, items: submenu, ...item }) => ({
+    ...item,
+    id: key,
+    ...(submenu === undefined ? {} : { items: nativeItems(submenu) }),
+  }));
+
+const allItems = (items: readonly PopUpItem[]): PopUpItem[] =>
+  items.flatMap((item) => [item, ...allItems(item.items ?? [])]);
 
 const NativePopUpButton = requireNativeComponent<
   ViewProps & {
-    readonly items: ReadonlyArray<
-      Omit<PopUpItem, 'key' | 'run'> & { readonly id: string }
-    >;
+    readonly items: readonly NativePopUpItem[];
     readonly text: string | undefined;
     readonly symbol: string | undefined;
     readonly label: string;
@@ -133,7 +150,8 @@ const NativePopUpButton = requireNativeComponent<
 >('UnwiredPopUpButton');
 
 // A pop-up button that AppKit draws, focuses and opens: a label shows the current choice; an icon
-// alone makes it a pull-down button. A choice runs the latest item while the control is mounted.
+// makes it a pull-down button, titled by any label. A choice runs the latest item while the control
+// is mounted.
 export function PopUp({
   label,
   accessibilityLabel,
@@ -144,7 +162,7 @@ export function PopUp({
 }: {
   readonly label?: string;
   readonly accessibilityLabel: string;
-  readonly icon?: string;
+  readonly icon?: string | undefined;
   readonly variant?: 'compact' | 'field';
   readonly disabled?: boolean;
   readonly items: readonly PopUpItem[];
@@ -168,7 +186,11 @@ export function PopUp({
       {label === undefined ? null : (
         <Text
           numberOfLines={1}
-          style={[textStyles.body, styles.popUpSizing]}>
+          style={[
+            textStyles.body,
+            styles.popUpSizing,
+            icon === undefined ? null : styles.symbolSizing,
+          ]}>
           {label}
         </Text>
       )}
@@ -181,20 +203,17 @@ export function PopUp({
         accessibilityValue={label === undefined ? undefined : { text: label }}
         destructiveColor={processColor(colors.statusDestructive)}
         enabled={!disabled}
-        items={items.map(({ key, run: _run, ...item }) => ({
-          ...item,
-          id: key,
-        }))}
+        items={nativeItems(items)}
         label={accessibilityLabel}
         onSelect={({ nativeEvent }) => {
-          latest.current
+          allItems(latest.current)
             .find(
               (item) => item.key === nativeEvent.id && item.disabled !== true,
             )
-            ?.run();
+            ?.run?.();
         }}
         style={StyleSheet.absoluteFill}
-        symbol={label === undefined ? icon : undefined}
+        symbol={icon}
         text={label}
       />
     </View>

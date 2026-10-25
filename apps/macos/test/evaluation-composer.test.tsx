@@ -35,7 +35,7 @@ import {
   simulatedPage,
 } from './evaluation-page.ts';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
-import { chooseMenuItem, menuItems } from './native-menu.ts';
+import { chooseMenuItem, chooseSubmenuItem, menuItems } from './native-menu.ts';
 import { injectedScripts } from './webview.tsx';
 
 // What a `registration-draft-editor` build substitutes; the page itself runs only in WebKit.
@@ -542,15 +542,12 @@ describe('the Tiptap evaluation composer', () => {
           accessibilityLabel: 'Rewrite the selected text',
         }),
         expect.objectContaining({
-          title: 'Translate',
+          title: 'Translate To',
           accessibilityLabel: 'Translate the selected text',
         }),
       ]),
     );
-    await chooseMenuItem('Translate');
-    await fireEvent.press(
-      await screen.findByRole('radio', { name: 'Translate into German' }),
-    );
+    await chooseSubmenuItem('Translate To', 'German');
     await screen.findByText(syntheticTranslation);
     await typed('Plan B');
     expect(screen.queryByText(syntheticTranslation)).toBeNull();
@@ -561,10 +558,7 @@ describe('the Tiptap evaluation composer', () => {
     ];
     await report({ document: latest, selection: { start: 5, end: 11 } });
     await press('Writing tools');
-    await chooseMenuItem('Translate');
-    await fireEvent.press(
-      await screen.findByRole('radio', { name: 'Translate into German' }),
-    );
+    await chooseSubmenuItem('Translate To', 'German');
     await screen.findByText(syntheticTranslation);
     await press('Replace the selected text with this translation');
     const replaced = `Hola ${syntheticTranslation}`;
