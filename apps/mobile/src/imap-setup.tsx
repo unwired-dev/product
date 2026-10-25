@@ -20,6 +20,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { AnnouncedAlert } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { ProviderList, ProviderRow } from './onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
@@ -373,11 +374,9 @@ function FormNotes({
         </Text>
       )}
       {failure === undefined ? null : (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
+        <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
           {t(`imap.failure.${failure}`)}
-        </Text>
+        </AnnouncedAlert>
       )}
     </>
   );

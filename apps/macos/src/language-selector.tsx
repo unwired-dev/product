@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
+import { AnnouncedAlert } from './design.tsx';
 import { Label } from './label.tsx';
 import { localization, useLocalization } from './localization.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
@@ -62,11 +63,9 @@ function useLanguageChoice() {
       />
     ),
     failure: failed ? (
-      <Label
-        accessibilityRole="alert"
-        style={[styles.text, { color: colors.textPrimary }]}>
+      <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
         {t('language.saveFailed')}
-      </Label>
+      </AnnouncedAlert>
     ) : null,
   };
 }

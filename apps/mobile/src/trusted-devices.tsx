@@ -28,7 +28,7 @@ import {
 
 import type { SettingsButton } from './settings.tsx';
 
-import { SFSymbol } from './design.tsx';
+import { AnnouncedAlert, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
@@ -259,11 +259,9 @@ function RevocationProposal({
         value={entry}
       />
       {failure === 'mismatch' ? (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
+        <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
           {t('revocation.mismatch')}
-        </Text>
+        </AnnouncedAlert>
       ) : null}
       {button(t('revocation.remove', { name }), () =>
         store.confirmRevocation(entry),
@@ -336,11 +334,9 @@ export function TrustedDevices({
       footer={devices.length === 0 ? undefined : t('revocation.description')}>
       {notice === undefined ? null : (
         <SettingsBlock>
-          <Text
-            accessibilityRole="alert"
-            style={[styles.text, { color: colors.textPrimary }]}>
+          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
             {notice}
-          </Text>
+          </AnnouncedAlert>
         </SettingsBlock>
       )}
       {proposal === undefined ? null : (

@@ -28,7 +28,7 @@ import {
 
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
-import { Button, Notice, SFSymbol } from './design.tsx';
+import { AnnouncedAlert, Button, Notice, SFSymbol } from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
@@ -378,11 +378,9 @@ function PrivateSync({
           value={entry}
         />
         {failure === undefined ? null : (
-          <Text
-            accessibilityRole="alert"
-            style={[styles.text, { color: colors.textPrimary }]}>
+          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
             {t(`recoveryKeyConfirmation.${failure}`)}
-          </Text>
+          </AnnouncedAlert>
         )}
         {card(
           t('recoveryKeyConfirmation.confirm'),
@@ -481,11 +479,9 @@ function RecoveryKeyUnlock({
           value={entry}
         />
         {failure === undefined ? null : (
-          <Text
-            accessibilityRole="alert"
-            style={[styles.text, { color: colors.textPrimary }]}>
+          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
             {t(`recovery.${failure}`)}
-          </Text>
+          </AnnouncedAlert>
         )}
         {card(
           t('recovery.unlock'),
@@ -527,11 +523,9 @@ function DeviceApproval({
   }
   const alert =
     failure === undefined ? null : (
-      <Text
-        accessibilityRole="alert"
-        style={[styles.text, { color: colors.textPrimary }]}>
+      <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
         {t(`enrollment.${failure}`)}
-      </Text>
+      </AnnouncedAlert>
     );
   if (request === undefined) {
     return (
@@ -603,11 +597,10 @@ function SignInMethods({
       {failure === undefined && link === undefined ? null : (
         <SettingsBlock>
           {failure === undefined ? null : (
-            <Text
-              accessibilityRole="alert"
+            <AnnouncedAlert
               style={[styles.text, { color: colors.textPrimary }]}>
               {failure}
-            </Text>
+            </AnnouncedAlert>
           )}
           {link === undefined
             ? null
@@ -651,11 +644,9 @@ export function AccountActions({
     <SettingsGroup title={t('accountRemoval.title')}>
       {failure === undefined ? null : (
         <SettingsBlock>
-          <Text
-            accessibilityRole="alert"
-            style={[styles.text, { color: colors.textPrimary }]}>
+          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
             {t(`accountRemoval.${failure}`)}
-          </Text>
+          </AnnouncedAlert>
         </SettingsBlock>
       )}
       {selected === undefined ? (
