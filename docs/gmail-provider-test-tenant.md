@@ -17,12 +17,18 @@ This runbook is the repository-safe handoff for provisioning the human-owned Goo
 1. Record the accountable administration, security, recovery, lifecycle, and cost-responsibility roles in the team's protected operational documentation.
 2. Create a dedicated Google Workspace tenant controlled by the project. Configure organization-controlled recovery and require MFA for every administrator before adding test mailboxes.
 3. Create at least two Provider Test Mailboxes. Confirm that every user, alias, recovery route, forwarding rule, and mailbox is isolated from personal and production identities.
-4. Configure the OAuth consent audience as internal to this tenant. The Apple client owns consent and scope selection and currently requests only `openid`, `email`, and `https://www.googleapis.com/auth/gmail.modify`; do not approve broader Gmail scopes for this tenant unless the client implementation and this document change together. The protected TypeScript workflow must consume only credentials with this attested scope set and must not broaden Gmail scopes.
+4. Configure the OAuth consent audience as internal to this tenant. The retained Swift prototype owns consent and scope selection and requests only `openid`, `email`, and `https://www.googleapis.com/auth/gmail.modify`; do not approve broader Gmail scopes for this tenant unless the client implementation and this document change together. The protected TypeScript workflow must consume only credentials with this attested scope set and must not broaden Gmail scopes.
 5. Store credentials, recovery material, tokens, and any tenant identifiers only in the approved secret and protected-document systems. Record lifecycle procedures for access review, operator replacement, user rotation, billing review, incident response, and tenant retirement.
 6. Have an authorized operator verify the protected record and the live tenant configuration. The verifier must confirm the synthetic-only boundary without copying sensitive values into the readiness record.
 7. Publish the completed redacted readiness record. Only a record with `status: ready` and every required Boolean set to `true` authorizes subsequent automation work.
 
 ## Current redacted readiness record
+
+This record covers the retained Swift prototype and the scope set in step 4.
+The maintained Expo and Mac hosts request a different set through GoogleSignIn;
+see their [authorization inventory](google-registration.md#what-the-hosts-request).
+An authorized operator must verify those clients and scopes and update the record
+before it can authorize their protected automation.
 
 The canonical readiness artifact is the single YAML block in this section of `docs/gmail-provider-test-tenant.md`. An authorized operator updates it in a reviewed pull request after human verification. Keep `schema_version` set to `1`, change `status` from `awaiting_operator_attestation` to `ready`, set every Boolean field to `true`, provide an ISO 8601 UTC `verified_at`, and provide a non-identifying `authorizer_role`. Do not include domains, email addresses, names, client identifiers, project identifiers, secret names, recovery channels, or links to protected systems.
 

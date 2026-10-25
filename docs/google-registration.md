@@ -62,9 +62,10 @@ rechecks Gmail access. Failed verification returns to pending setup.
 
 JavaScript receives only account/connection status, opaque IDs and the mailbox
 address. Refresh credentials and Gmail access tokens never enter JavaScript or
-Convex. Convex receives the Product identity JWT and existing trusted-device proof
-only. No mailbox connection metadata or provider credential is uploaded. The Product
-identity JWT can contain Google profile claims, including the sign-in email.
+Convex. Convex receives identity JWTs and trusted-device proofs for Product Sign-In
+and push registration; identity JWTs can contain Google profile claims, including
+email. The [production disclosure](#google-user-data-disclosure) covers backend
+metadata and encrypted Private Sync data.
 
 ## Where the registration flow runs
 
@@ -149,14 +150,152 @@ each mailbox's identity token for that audience. The deployment also needs its
 `dev.unwired.mail`. Without a topic, a host registers no route and synchronizes on
 its schedule alone.
 Do not commit configured deployment values or credentials. App Check enforcement,
-restricted-scope verification, App Store disclosures and distribution entitlements
-remain protected release qualifications.
+App Store disclosures and distribution entitlements remain protected release
+qualifications; Google's audience and verification follow
+[production authorization](#production-authorization).
 
 On Mac, real sign-in requires development signing and a matching provisioning
 profile even in Debug. An ad-hoc build can show onboarding but Google's SDK cannot
 store its credential. Its `com.google.GIDSignIn` error code `-2` identifies this
 Keychain failure. The native adapter retains the SDK error for the private OS log;
 JavaScript still receives only the stable registration failure code.
+
+## Production authorization
+
+[#668](https://github.com/unwired-dev/product/issues/668) requires that people outside
+the test-user list can register with Google, or with Apple and then Gmail, and
+authorize Gmail in the released app. **Status: not established.** No production
+consent configuration, Google verification or production-host run is recorded.
+Google requirements below were checked on 2026-10-25.
+
+### What the hosts request
+
+| Request               | Scopes                                                                                                | Google classification |
+| --------------------- | ----------------------------------------------------------------------------------------------------- | --------------------- |
+| Product Sign-In       | `email` and `profile`, which GoogleSignIn 10.0.0 adds to every sign-in, and the OpenID ID token       | Non-sensitive         |
+| Gmail mailbox consent | The same sign-in plus `https://www.googleapis.com/auth/gmail.modify` (`RegistrationStore.gmailScope`) | Restricted            |
+
+Google's consent screen lists these as `openid`, `.../auth/userinfo.email`,
+`.../auth/userinfo.profile` and `.../auth/gmail.modify`. Configure exactly these
+four scopes. The SDK sends `include_granted_scopes`, so a grant can include scopes
+given to the same client earlier. Mailbox verification also accepts
+`https://mail.google.com/` in such a grant, but the hosts never request it.
+
+`gmail.modify` is the narrowest single scope for the shipped behavior: reading
+metadata and bodies, history synchronization, archive, label, read state and
+Trash changes, sending, and `users/me/watch` and `stop`. Every narrower scope that
+reads bodies (`gmail.readonly`) or metadata (`gmail.metadata`) is restricted as
+well, and neither allows changing labels or sending. Splitting the grant would
+add scopes without avoiding restricted-scope verification.
+
+Configuration in the repository:
+
+- **OAuth client:** each host reads one native client ID through
+  `UNWIRED_GOOGLE_CLIENT_ID`; the setup above uses a shared iOS client for bundle
+  ID `dev.unwired.mail`. Its redirect is `<reversed-client-ID>:/oauth2callback`.
+  The hosts configure no web client, client secret or web redirect.
+  Convex accepts several Product Sign-In audiences (`GOOGLE_PRODUCT_CLIENT_IDS`), but
+  the push relay verifies mailbox identity tokens for one (`GMAIL_OAUTH_CLIENT_ID`).
+  Separate platform clients would therefore need a relay change before push wakes
+  work on every host.
+- **Cloud Pub/Sub:** the Gmail push topic and its subscription to the Convex relay,
+  as configured above.
+- **Not in the repository:** the provisioned OAuth clients and the production
+  project's audience and publishing status, app name, logo, support and developer
+  contacts, home page, privacy policy, authorized domains and verification state.
+  The owner records them, without
+  identifiers or credentials, when production is configured.
+
+### Google's requirements for these scopes
+
+Sources: [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification),
+[Gmail API scopes](https://developers.google.com/workspace/gmail/api/auth/scopes),
+[OAuth app audience](https://support.google.com/cloud/answer/15549945),
+[Google Workspace user data and developer policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy).
+
+- **Audience.** The protected test tenant's internal audience admits only its own
+  organization. An external app in **Testing** admits at most 100 listed test users,
+  and their grants and refresh tokens expire seven days after consent because the
+  request adds `gmail.modify` to the basic-profile scopes. An unverified app **In production** shows the
+  unverified-app warning and admits 100 new users over the project's lifetime.
+  The public release therefore needs an external audience, **In production**, with
+  restricted-scope verification complete.
+- **Exceptions.** None of Google's exceptions applies to the public release:
+  personal use, development or testing, service-owned data, internal use, or
+  domain-wide installation.
+- **Verification.** Brand verification, domain ownership verified in Google Search
+  Console, a public home page, and a privacy policy on that domain meeting the
+  Limited Use requirements. The home page must describe the app and link to the
+  privacy policy. Also an unlisted YouTube demo video showing sign-in,
+  Gmail consent and the features using the requested scope, and a justification
+  of why narrower scopes are insufficient (above).
+  The video must show the consent flow in English, the app name and OAuth client
+  ID, and data access for each client submitted for verification.
+- **Security assessment.** Google requires one when restricted-scope data is stored
+  on servers or transmitted through them. Google's pages make no exception for
+  device-local credentials or end-to-end encryption. The current backend handles:
+  - **Push wakes:** Pub/Sub delivers each Gmail notification, with its mailbox
+    address and history ID, to the Convex relay. The relay keeps keyed address
+    digests and history IDs to match wakes to routes.
+  - **Private Sync:** [mailbox descriptions](private-product-sync.md#keys-and-envelopes)
+    contain provider names and addresses. [Reply and forward Drafts](drafts.md#replies-and-forwards)
+    hold quoted text, and forwards carry attachments as Draft Assets. These records
+    and assets are stored end-to-end encrypted in Convex.
+
+  Plan for a security assessment, renewed with reverification at least every 12
+  months, unless Google confirms that the actual data flows are out of scope.
+  The relay's persisted history IDs also need reconciliation with the product's
+  requirement that push payload values remain transient. This inventory describes
+  the implementation; production qualification must resolve that retention conflict.
+
+### Google user data disclosure
+
+Publish these disclosures in the privacy policy for Google's review. Revise them
+with any change to the flows above. Google's Workspace policy also requires a
+prominent in-app disclosure immediately before consent; the privacy policy alone
+does not satisfy it. Verify that disclosure and user help for managing and deleting
+data before submission. This documentation slice does not qualify either.
+
+- **Access:** the Google account's name, email address and profile picture for
+  Google Product Sign-In and GoogleSignIn mailbox consent; Gmail messages, labels
+  and sending through `gmail.modify` for each mailbox the person connects.
+- **Use:** only to provide the mail features the person uses. Summaries,
+  translation, rewrites and categorization run on the person's device. Google user
+  data is not used for advertising and is not used to develop, improve or train
+  generalized AI or machine-learning models.
+- **Storage:** Gmail tokens stay in the device's Keychain. Mail is cached encrypted on
+  the device. The backend receives the Google identity token for Product Sign-In and
+  for registering push wakes. It stores the sign-in's issuer and subject, keyed
+  digests of mailbox addresses and identities, Gmail history IDs, and end-to-end
+  encrypted Private Sync data, including mailbox descriptions and Drafts, that it
+  cannot read.
+- **Sharing:** Convex hosts the backend data described above. Google Cloud Pub/Sub
+  delivers Gmail push metadata to the relay; Apple Push Notification service
+  carries wake payloads with opaque routes and Gmail history IDs. Google user data
+  is not sold.
+  Opt-in [error reports](telemetry.md) exclude message content.
+- **Limited Use:** include Google's required statement that the app's
+  use and transfer of information received from Google APIs adheres to the
+  [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
+  including the Limited Use requirements.
+
+### Remaining owner actions
+
+1. Resolve the push-history retention conflict and decide the security-assessment
+   route above using the resulting data flows.
+2. Configure the production project: external audience, **In production** publishing
+   status, the four scopes above, app name and logo, support and developer contacts,
+   and the verified domain's home page and privacy policy, including the disclosure
+   above. Verify the required in-app
+   disclosure and data-management and deletion help before submission.
+3. Submit brand and restricted-scope verification with the scope justification and
+   demo video, and complete any security assessment.
+4. After approval, on iPhone, iPad and Mac with a dedicated account outside the
+   test-user list, verify Google and Apple-then-Gmail registration, Gmail consent,
+   token refresh after relaunch, and recovery after revoking the grant in the Google
+   account. Keep credentials and mailbox content out of the evidence.
+5. Record the configuration and verification status here without identifiers. Until
+   then, intended users stay blocked and #668 stays open.
 
 ## Deterministic evidence
 

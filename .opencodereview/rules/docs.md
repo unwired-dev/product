@@ -119,6 +119,12 @@ Documentation here is product truth that agents execute: an implementer follows 
   assigned to a client that cannot receive the envelope while offline.
 - A Gmail organization summary in `docs/gmail-inbox.md` or a changeset calling every action a reader button, or promising pending intent remains until confirmation without accounting for permanent refusal and explicit discard. Check `MessageActions`/`OrganizeStatus` and `createGmailInbox` settlement/resolution: label checkboxes and Inbox Undo have different roles and locations, and terminal reconciliation removes pending intent. Wrong summaries misdirect accessibility use or misstate recovery behavior.
 - A required test-count gate or suite membership changed while documentation still cites an older run as current or final-tree evidence, falsely qualifying the changed suite. Check every such claim against the owning test runner and cited result log; label earlier runs with their historical scope and cite a passing run for the changed suite, or mark that evidence deferred.
+- An operator-attested readiness record such as `docs/gmail-provider-test-tenant.md`
+  silently retargeted by replacing its scope list with a link to another client's
+  current inventory. Compare the attested client, scopes and verification date
+  with the new target; preserve the original coverage and require owner
+  reattestation for changed clients or grants. Otherwise an unchanged `ready`
+  record can authorize automation the operator never verified.
 - A relative link or heading fragment that does not resolve, or a link left pointing at a moved section.
 - A statement that restates what a config file or command already says, where the copy can go stale. Point to the source.
 - Steps in a workflow guide whose file scopes, prerequisites, handoff instructions or completion gates contradict each other. In `docs/agents/implementation-review.md`, trace each reviewer's handoff through its assigned review pass, including instructions inherited through prompt reuse or shared responsibilities; otherwise a second run of the same pass can be accepted as two distinct required reviews. Check neighbouring steps and exclusion handling for procedures that cannot complete or can bypass a required pass.
