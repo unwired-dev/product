@@ -107,7 +107,12 @@ export function ErrorReportingEntry({
         accessibilityLabel={t('errorReporting.title')}
         accessibilityRole="button"
         accessibilityValue={status === undefined ? undefined : { text: status }}
-        onPress={onPress}>
+        onPress={onPress}
+        style={({ pressed }) =>
+          pressed && {
+            backgroundColor: colors.accentSelectionSubtle,
+          }
+        }>
         <SettingsRow title={t('errorReporting.title')}>
           {status === undefined ? null : (
             <Text
