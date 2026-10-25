@@ -1,14 +1,14 @@
 # Interface translations
 
 The Expo iOS/iPadOS and React Native Mac clients ship English. The **Language**
-control offers **System default** and **English**, so the language can be chosen before signing in:
-on iPhone and iPad below the Inbox, at the end of the Sign In and setup pages and in Settings'
-**Language**; on the Mac as a pop-up in Settings' **Language** and at the end of the sign-in
-page. System default
+control offers the system default and **English**, so the language can be chosen before signing
+in. On iPhone and iPad it offers **System default** below the Inbox, at the end of the Sign In
+and setup pages and in Settings' **Language**. On the Mac it is a pop-up offering **System
+Default** in Settings' **Language** and at the end of the sign-in page. The system default
 matches the device's preferred languages against the shipped catalogs, including
 regional variants, and falls back to English. An explicit selection overrides the
 device language, persists across launches, and applies to every open Mac window.
-Returning to System default removes the override.
+Returning to the system default removes the override.
 
 The preference lives in the app's local `NSUserDefaults` domain as
 `interfaceLanguage`. It is not part of mailbox storage or Private Sync. Locale

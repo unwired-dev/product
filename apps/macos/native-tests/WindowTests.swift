@@ -780,13 +780,15 @@ final class WindowTests: XCTestCase {
       waitUntil { popUp.value as? String == title }
     }
     let first = app.windows["Inbox 1"]
-    choose("English", from: language(in: first))
+    let firstLanguage = language(in: first)
+    choose("English", from: firstLanguage)
     app.typeKey("n", modifierFlags: .command)
     let second = app.windows["Inbox 2"]
     let secondLanguage = language(in: second)
     XCTAssertEqual(secondLanguage.value as? String, "English")
     for preference in ["System Default", "English", "System Default", "English"] {
       choose(preference, from: secondLanguage)
+      waitUntil { firstLanguage.value as? String == preference }
       assertWindowMenu(app, titles: ["Inbox 1", "Inbox 2"])
     }
     app.menuBars.menuBarItems["Window"].click()
