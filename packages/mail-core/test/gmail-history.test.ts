@@ -1,3 +1,5 @@
+import { setTimeout } from 'node:timers/promises';
+
 import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
@@ -94,6 +96,7 @@ const at = <T>(messages: readonly T[], index: number) => {
 // its newest messages in smaller pages, so it keeps going.
 const holdingHistory = (gmail: Gmail) => {
   const listing = Promise.withResolvers<undefined>();
+  const reached = Promise.withResolvers<undefined>();
   let holding = false;
   const native: Gmail['native'] = {
     ...gmail.native,
@@ -106,6 +109,7 @@ const holdingHistory = (gmail: Gmail) => {
         ) &&
         query.every(([name]) => name !== 'labelIds' && name !== 'q')
       ) {
+        reached.resolve(undefined);
         await listing.promise;
       }
       return gmail.native.gmailRequest(path, query, request);
@@ -113,12 +117,52 @@ const holdingHistory = (gmail: Gmail) => {
   };
   return {
     native,
+    reached: reached.promise,
     hold: () => {
       holding = true;
     },
     release: () => {
       holding = false;
       listing.resolve(undefined);
+    },
+  };
+};
+
+// Mail received in the last hour, so recent-body prefetch selects it. Returns the IDs newest first.
+const recentMailbox = (gmail: Gmail, count: number) => {
+  const now = Date.now();
+  return Array.from({ length: count }, (_, index) =>
+    gmail.deliver({
+      subject: `Recent ${index}`,
+      at: now - (count - index) * 60_000,
+    }),
+  ).toReversed();
+};
+
+// Holds recent-body prefetch's first metadata request until released.
+const holdingPrefetch = (gmail: Gmail) => {
+  const metadata = Promise.withResolvers<undefined>();
+  const reached = Promise.withResolvers<undefined>();
+  const native: Gmail['native'] = {
+    ...gmail.native,
+    gmailRequest: async (path, query, request) => {
+      if (
+        query.some(
+          ([name, value]) =>
+            name === 'metadataHeaders' && value === 'Content-Type',
+        )
+      ) {
+        reached.resolve(undefined);
+        await metadata.promise;
+      }
+      return gmail.native.gmailRequest(path, query, request);
+    },
+  };
+  return {
+    native,
+    reached: reached.promise,
+    release: () => {
+      metadata.resolve(undefined);
     },
   };
 };
@@ -479,6 +523,42 @@ describe('gmail history backfill', () => {
       expect(ids(shown(relaunched, 'INBOX'))).toStrictEqual(arrived);
     },
   );
+
+  it("runs recent-body prefetch and history backfill in the connection's one speculative lane", async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    recentMailbox(gmail, 60);
+    const prefetch = holdingPrefetch(gmail);
+    const inbox = createGmailInbox(prefetch.native);
+    await inbox.load();
+    await prefetch.reached;
+    // Gives a second lane time to reach Gmail.
+    await setTimeout(100);
+
+    expect(historyPages(gmail)).toStrictEqual([]);
+
+    prefetch.release();
+    await backfilled(inbox);
+
+    expect(historyPages(gmail)).toStrictEqual(['']);
+  });
+
+  it('opens a message while history backfill holds the speculative lane', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const [newest] = mailbox(gmail, 300, 0);
+    const history = holdingHistory(gmail);
+    history.hold();
+    const inbox = createGmailInbox(history.native);
+    await inbox.load();
+    await history.reached;
+    await inbox.readMessage(at([newest], 0));
+
+    expect(inbox.messageBody(at([newest], 0))?.kind).toBe('ready');
+
+    history.release();
+    await backfilled(inbox);
+  });
 
   it('keeps downloaded history visible while a pass after an expired history ID reconciles it', async () => {
     expect.hasAssertions();

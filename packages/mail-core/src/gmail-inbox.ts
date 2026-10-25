@@ -3075,8 +3075,10 @@ export function createGmailInbox(
     state.sync === 'authentication' ||
     state.sync === 'retry';
 
-  // One speculative lane: selections run one at a time, and each body waits while an explicit
-  // read is waiting or running, then holds one of the connection's two loads.
+  // The connection's one speculative lane: a prefetch pass or a backfill step holds it, and each
+  // body or step waits while an explicit read is waiting or running.
+  const speculativeLane = Semaphore.makeUnsafe(1);
+  // Each body holds one of the connection's two loads.
   const prefetch = Effect.fnUntraced(function* (reading: number) {
     const scope = opened;
     if (scope === undefined || state.kind !== 'ready' || owner !== reading) {
@@ -3141,7 +3143,7 @@ export function createGmailInbox(
         let again = true;
         while (again) {
           prefetchAgain = false;
-          yield* prefetch(reading);
+          yield* speculativeLane.withPermit(prefetch(reading));
           again = prefetchAgain && owner === reading;
         }
       }).pipe(
@@ -3437,7 +3439,11 @@ export function createGmailInbox(
       Effect.gen(function* () {
         for (;;) {
           yield* shared.idle.await;
-          if (!(yield* semaphore.withPermit(backfillStep(reading)))) {
+          if (
+            !(yield* speculativeLane.withPermit(
+              semaphore.withPermit(backfillStep(reading)),
+            ))
+          ) {
             return;
           }
           yield* revealAll;
