@@ -947,6 +947,20 @@ describe('gmail history backfill', () => {
     }
   });
 
+  it('reads revealed history without keeping its body', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const oldest = at(mailbox(gmail, 300, 0), 299);
+    const inbox = createInbox(gmail.native);
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 300);
+    await inbox.readMessage(oldest);
+
+    expect(inbox.messageBody(oldest)?.kind).toBe('ready');
+    expect(gmail.cachedBodies().has(oldest)).toBe(false);
+  });
+
   it('opens a message while history backfill holds the speculative lane', async () => {
     expect.hasAssertions();
     const gmail = createGmail();

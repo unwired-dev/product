@@ -284,7 +284,9 @@ Gmail's total from the mailbox profile while the pass runs, and whether the pass
 is complete. Per-connection status in the interface is
 [#1369](https://github.com/unwired-dev/product/issues/1369). Scrolling to the end
 of the Inbox or a Gmail view reveals older downloaded messages in batches from
-the segments, without asking Gmail, so they stay available offline.
+the segments, without asking Gmail, so they stay available offline. Opening one
+downloads its body from Gmail and shows it without saving it; like an online search
+result's body, it leaves the **Bounded Encrypted Body Cache** to the cached views.
 If a confirmed removal leaves the recent cache short and its refill cannot finish,
 older downloaded mail remains available, including after an offline relaunch.
 

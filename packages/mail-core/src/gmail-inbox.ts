@@ -2730,8 +2730,14 @@ export function createGmailInbox(
     );
   });
 
+  // A message the saved document keeps. Its body is kept with it; older mail scrolling revealed
+  // from downloaded history and online search results are read without being kept.
+  const keepsBody = (id: string) =>
+    shown?.document !== undefined &&
+    cachedMessages(shown.document).some((message) => message.id === id);
+
   // Stores a body under the current working set's protection. Commits are fenced like mailbox
-  // commits: a message that left the Inbox, or a closed Inbox, stores nothing.
+  // commits: a message that left the cached mailbox, or a closed Inbox, stores nothing.
   const store = (
     document: BodyDocument,
     {
@@ -2750,7 +2756,7 @@ export function createGmailInbox(
       Effect.flatMap((text) =>
         publication.withPermits(2)(
           Effect.suspend(() =>
-            owner === reading && listed(document.id)
+            owner === reading && keepsBody(document.id)
               ? protectedBodies.pipe(
                   Effect.flatMap((protectedIds) =>
                     Effect.tryPromise({
@@ -2787,12 +2793,12 @@ export function createGmailInbox(
       ),
     );
 
-  // Saves an Inbox message's body; an online search result is shown without being kept.
+  // Saves a cached message's body; any other message's body is shown without being kept.
   const keepBody = (
     document: BodyDocument,
     admission: Parameters<typeof store>[1],
   ) =>
-    listed(document.id)
+    keepsBody(document.id)
       ? store(document, admission)
       : Effect.succeed({ admitted: false });
 
