@@ -32,7 +32,7 @@ const noSubscription = () => () => undefined;
 // A mailbox shown on its own lists the IMAP folder or Gmail view its window chose; the Inbox is
 // listed otherwise. A folder or label the mailbox no longer offers falls back to the Inbox and
 // drops the choice, so a recreated one of that name is not reopened from a stale cache.
-export function useMailboxFolder<E>(
+function useMailboxFolder<E>(
   shown: readonly InboxMailbox[],
   // The Inbox entries listed when no other folder is chosen.
   inbox: readonly E[],
@@ -60,14 +60,11 @@ export function useMailboxFolder<E>(
   }, [dropped, onView, view.mailbox]);
   const browsing = useFolderEntries(chosen, folder);
   const gmail = useGmailView(chosen, folder);
-  // A message chosen outside the Inbox names its view, which its actions can take it out of.
-  const selection = folder === inboxFolder ? {} : { folder };
   if (gmail !== undefined) {
-    return { folder, selection, ...gmail };
+    return { folder, ...gmail };
   }
   return {
     folder,
-    selection,
     title: folder === inboxFolder ? undefined : folder,
     listed: browsing?.entries ?? inbox,
     failure: imapFolderFailed(browsing?.view)
