@@ -56,20 +56,20 @@ import {
   GmailLabelSchema,
   inInbox,
   inView,
+  labelsOf,
   relabel,
   systemViews,
 } from './gmail-actions.ts';
+import { createHistoryReveals } from './gmail-history-reveals.ts';
 import {
   foldDue,
   foldStep,
   historyPageSize,
   listed as listedHistory,
-  overlaid,
   progress,
   recorded,
   restarted,
   segmentNames,
-  shownPass,
 } from './gmail-history.ts';
 import { createGraphReader } from './graph-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
@@ -510,9 +510,6 @@ export function threadMessages(state: GmailInboxState, id: string) {
         newestFirst,
       );
 }
-
-const labelsOf = (message: GmailMessage) =>
-  message.labels ?? (message.unread ? ['INBOX', 'UNREAD'] : ['INBOX']);
 
 const withLabels = (
   message: GmailMessage,
@@ -1855,63 +1852,13 @@ export function createGmailInbox(
     }
     return entry.listing === undefined ? 'current' : 'syncing';
   };
-  // Views' revealed history, per label: the shown pass's segments read so far, their messages
-  // in the view or changed since, and how many the view asked for.
-  const reveals = new Map<
-    string,
-    { names: string[]; messages: GmailMessage[]; target: number }
-  >();
-  const revealing = Semaphore.makeUnsafe(1);
-  // A view's cached messages, then the older stored ones it revealed.
-  const withRevealed = (
-    label: string,
-    cached: readonly GmailMessage[],
-    history: MailboxHistory | undefined,
-  ) => {
-    const entry = reveals.get(label);
-    if (history === undefined || entry === undefined) {
-      return cached;
-    }
-    const names = shownPass(history).segments.map(({ name }) => name);
-    if (entry.names.some((name, index) => names[index] !== name)) {
-      return cached;
-    }
-    const oldest = cached.at(-1)?.receivedAt;
-    // Mail arriving while a pass lists can move a message onto the next page as well.
-    const ids = new Set(cached.map(({ id }) => id));
-    // A later change can admit a message this view skipped when its segment was read.
-    const older = overlaid(history, [
-      ...entry.messages,
-      ...history.changes.flatMap(({ message }) =>
-        message === undefined ? [] : [message],
-      ),
-    ]).filter((message) => {
-      const kept =
-        !ids.has(message.id) &&
-        (oldest === undefined || message.receivedAt <= oldest) &&
-        inView(label, labelsOf(message));
-      ids.add(message.id);
-      return kept;
-    });
-    return older.length === 0
-      ? cached
-      : Arr.sort([...cached, ...older], newestFirst);
-  };
-  // A short cache is complete only after its listing finishes; a removal can leave a refill
-  // interrupted. Otherwise every segment must be revealed. Spam and Trash stay outside history.
-  const revealedAll = (
-    { label, messages, listing }: NonNullable<MailboxDocument['views']>[number],
-    history: MailboxHistory | undefined,
-  ) => {
-    const pass = history === undefined ? undefined : shownPass(history);
-    if (label === 'SPAM' || label === 'TRASH' || pass?.complete !== true) {
-      return false;
-    }
-    return (
-      (messages.length < cacheLimit && listing === undefined) ||
-      reveals.get(label)?.names.length === pass.segments.length
-    );
-  };
+  const reveals = createHistoryReveals({
+    snapshot: () => shown,
+    read: (scope, name) => readSegment(scope, name),
+    publish: () => {
+      publish(render());
+    },
+  });
   // The requested and saved views with the requested changes applied, most recent first, each
   // message claimed for organizing; none when no view was opened.
   const renderedViews = (
@@ -1931,12 +1878,12 @@ export function createGmailInbox(
       ...saved.map((entry) => ({
         label: entry.label,
         messages: organized(
-          withRevealed(entry.label, entry.messages, document?.history),
+          reveals.withRevealed(entry.label, entry.messages, document?.history),
           changes,
           entry.label,
         ),
         status: viewStatus(entry),
-        ...(revealedAll(entry, document?.history)
+        ...(reveals.revealedAll(entry, document?.history)
           ? {}
           : { limited: true as const }),
       })),
@@ -1953,12 +1900,16 @@ export function createGmailInbox(
         ? [label]
         : [],
     );
-  const render = (): Extract<GmailInboxState, { kind: 'ready' }> => {
+  function render(): Extract<GmailInboxState, { kind: 'ready' }> {
     const document = shown?.document;
     const durable = document?.pending ?? [];
     const changes = [...durable, ...queued.map((item) => item.pending)];
     const messages = organized(
-      withRevealed('INBOX', document?.messages ?? [], document?.history),
+      reveals.withRevealed(
+        'INBOX',
+        document?.messages ?? [],
+        document?.history,
+      ),
       changes,
     );
     const listed = listedLabels(document);
@@ -1984,12 +1935,12 @@ export function createGmailInbox(
         : { organizing: changes.map(({ message }) => message.id) }),
       ...presented(durable),
     };
-  };
-  const publish = (next: GmailInboxState) => {
+  }
+  function publish(next: GmailInboxState) {
     if (!forgotten) {
       notify(next);
     }
-  };
+  }
   // Bodies opened in this Inbox, in the order they were requested.
   const bodies = new Map<string, MessageBodyState>();
   const readers = new Map<string, number>();
@@ -3173,8 +3124,8 @@ export function createGmailInbox(
     ([high, low]) => `${high.toString(36)}${low.toString(36)}`,
   );
   // A segment's messages, none once a later commit removed it.
-  const readSegment = (scope: MailboxScope, name: string) =>
-    Effect.tryPromise({
+  function readSegment(scope: MailboxScope, name: string) {
+    return Effect.tryPromise({
       try: () => native.openMailboxSegment(scope, name),
       catch: (cause) => rejected(cause, 'failed'),
     }).pipe(
@@ -3188,6 +3139,7 @@ export function createGmailInbox(
         Schema.isSchemaError(failure) ? malformed(failure, 'failed') : failure,
       ),
     );
+  }
   const storedSegment = (scope: MailboxScope) => (name: string) =>
     readSegment(scope, name).pipe(
       Effect.flatMap(
@@ -3253,54 +3205,6 @@ export function createGmailInbox(
       written: messages.length === 0 ? [] : [[name, messages] as const],
     };
   });
-
-  // Reads further segments until the view has the messages it asked for or the pass runs out; a
-  // fold or a completed pass rewrote the segments, so the view reads them again.
-  const reveal = (label: string) =>
-    revealing.withPermit(
-      Effect.gen(function* () {
-        for (;;) {
-          const current = shown;
-          const history = current?.document?.history;
-          const entry = reveals.get(label);
-          if (
-            current === undefined ||
-            history === undefined ||
-            entry === undefined
-          ) {
-            return;
-          }
-          const names = shownPass(history).segments.map(({ name }) => name);
-          if (entry.names.some((name, index) => names[index] !== name)) {
-            entry.names = [];
-            entry.messages = [];
-          }
-          const name = names[entry.names.length];
-          if (entry.messages.length >= entry.target || name === undefined) {
-            break;
-          }
-          const segment = yield* readSegment(current.scope, name);
-          // When a commit changed the shown document meanwhile, the next round reads against it.
-          if (shown === current) {
-            if (Option.isNone(segment)) {
-              break;
-            }
-            const changed = new Set(history.changes.map(({ id }) => id));
-            entry.names.push(name);
-            entry.messages.push(
-              ...segment.value.filter(
-                (message) =>
-                  changed.has(message.id) || inView(label, labelsOf(message)),
-              ),
-            );
-          }
-        }
-        publish(render());
-      }),
-    );
-  const revealAll = Effect.suspend(() =>
-    Effect.forEach([...reveals.keys()], reveal, { discard: true }),
-  );
 
   // The latest saved document with `next` over it: intents intake saved since `base` was read stay.
   const rebased = Effect.fnUntraced(function* ({
@@ -3454,7 +3358,7 @@ export function createGmailInbox(
           ) {
             return;
           }
-          yield* revealAll;
+          yield* reveals.revealAll;
           // Let queued synchronization and prefetch acquire their permits before the next step.
           yield* Effect.yieldNow;
         }
@@ -4465,33 +4369,13 @@ export function createGmailInbox(
     // Reveals the next stored messages below the cached ones of the Inbox or an opened view;
     // with an incomplete history, more appear as the backfill stores them.
     showOlder: (label: string) => {
-      const document = shown?.document;
-      const view = document?.views?.find((entry) => entry.label === label);
-      const cached = label === 'INBOX' ? document?.messages : view?.messages;
-      const listing =
-        label === 'INBOX'
-          ? document?.checkpoint.kind === 'backfill'
-          : view?.listing !== undefined;
-      if (
-        document?.history === undefined ||
-        cached === undefined ||
-        (cached.length < cacheLimit && !listing && !reveals.has(label))
-      ) {
+      const requested = reveals.request(label, pageSize);
+      if (requested === undefined) {
         return;
       }
-      const entry = reveals.get(label) ?? {
-        names: [],
-        messages: [],
-        target: 0,
-      };
-      if (entry.messages.length >= entry.target) {
-        entry.target =
-          Math.max(entry.messages.length, cached.length) + pageSize;
-      }
-      reveals.set(label, entry);
       const reading = owner;
       void runLogged(
-        reveal(label).pipe(
+        requested.pipe(
           Effect.catchTag('SyncFailure', (failure) =>
             historyFailure(failure, reading),
           ),

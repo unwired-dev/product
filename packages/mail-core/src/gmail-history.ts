@@ -68,11 +68,11 @@ export const recorded = (
 
 // Segment messages with the recorded changes applied; a message that left All Mail is dropped.
 export const overlaid = (
-  history: MailboxHistory,
+  recordedChanges: MailboxHistory['changes'],
   messages: readonly GmailMessage[],
 ) => {
   const changes = new Map(
-    history.changes.map(({ id, message }) => [id, message]),
+    recordedChanges.map(({ id, message }) => [id, message]),
   );
   return messages.flatMap((message) => {
     if (!changes.has(message.id)) {
@@ -164,7 +164,7 @@ export const foldStep = Effect.fnUntraced(function* <E>(
     } else {
       found.push(...changed.map(({ id }) => id));
       const next = overlaid(
-        { changes: history.changes.slice(0, folding.through), current: pass },
+        history.changes.slice(0, folding.through),
         messages,
       );
       if (next.length > 0) {

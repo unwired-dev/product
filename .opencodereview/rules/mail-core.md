@@ -614,13 +614,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   during the pass and deferring folds until that boundary retires. Exercise an
   old recorded change followed by history expiry and provider deletion; otherwise
   the stale overlay resurrects messages the new pass authoritatively omitted.
-- `gmail-inbox.ts.withRevealed` excluding receipt timestamps equal to the recent
+- `gmail-history-reveals.ts.withRevealed` excluding receipt timestamps equal to the recent
   cache boundary, or applying recorded changes only to messages retained by an
   earlier view filter. Exercise equal-timestamp pages and a message added to a
   view after its segment was read, preserving ID deduplication and receipt order.
   Otherwise downloaded messages disappear at the cache boundary or later label
   changes cannot admit older mail until a fold or relaunch.
-- `gmail-inbox.ts.withRevealed`, `showOlder` or `revealedAll` treating a short
+- `gmail-history-reveals.ts.withRevealed`, `request` or `revealedAll` treating a short
   recent cache as proof that no older mail exists while its refill is unfinished.
   Exercise a confirmed recent-message removal followed by failed provider reads,
   both with already-revealed history and after offline relaunch. Preserve older
