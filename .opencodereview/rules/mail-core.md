@@ -636,6 +636,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   view after its segment was read, preserving ID deduplication and receipt order.
   Otherwise downloaded messages disappear at the cache boundary or later label
   changes cannot admit older mail until a fold or relaunch.
+- `gmail-history-reveals.ts.withRevealed` admitting overlay arrivals beyond the
+  segments' read frontier, or dropping already-shown rows when a fold renames
+  those segments. Gate new arrivals by the oldest receipt read across overlapping
+  segments; carry shown rows through cursor resets, including equal receipts
+  spanning pages, until rereading passes their date or completes the pass.
+  Apply current deletions and label/read changes to carried rows and keep reading
+  while they remain beyond that frontier. Otherwise a scroll skips newer mail,
+  a fold releases an open reader's body, or retired rows resurrect after reconciliation.
 - `gmail-history-reveals.ts.withRevealed`, `request` or `revealedAll` treating a short
   recent cache as proof that no older mail exists while its refill is unfinished.
   Exercise a confirmed recent-message removal followed by failed provider reads,

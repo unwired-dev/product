@@ -94,7 +94,10 @@ export function createHistoryReveals<E>({
       ...history.changes.flatMap(({ message }) =>
         message !== undefined && within(message) ? [message] : [],
       ),
-      ...entry.shown.filter((message) => !within(message)),
+      // Equal receipts can span segments; only reading past that date confirms their membership.
+      ...entry.shown.filter(
+        (message) => frontier !== undefined && message.receivedAt <= frontier,
+      ),
     ]).filter((message) => {
       const kept =
         !ids.has(message.id) &&
@@ -190,7 +193,7 @@ export function createHistoryReveals<E>({
           // Rows kept from before a fold must be read again before the view stops.
           const carried = entry.shown.some(
             (message) =>
-              frontier !== undefined && message.receivedAt < frontier,
+              frontier !== undefined && message.receivedAt <= frontier,
           );
           if ((visible >= entry.target && !carried) || name === undefined) {
             break;

@@ -627,6 +627,47 @@ describe('gmail history backfill', () => {
     expect(Math.min(...counts)).toBeGreaterThanOrEqual(600);
   });
 
+  it('keeps revealed rows and their reader when equal receipt dates span renamed segments', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = Array.from({ length: 1000 }, () =>
+      gmail.deliver({ at: Date.UTC(2026, 8, 1) }),
+    );
+    const inbox = createGmailInbox(gmail.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    await backfilled(inbox);
+    await inbox.openView(allMail);
+    const cached = new Set(ids(shown(inbox, allMail)));
+    await scrolled(inbox, allMail, 600);
+    const before = ids(shown(inbox, allMail));
+    const openedId = at(
+      before.filter((id) => !cached.has(id)),
+      0,
+    );
+    await inbox.readMessage(openedId);
+    expect(inbox.messageBody(openedId)?.kind).toBe('ready');
+    const counts: number[] = [];
+    const unsubscribe = inbox.subscribe(() => {
+      counts.push(shown(inbox, allMail).length);
+    });
+    onTestFinished(unsubscribe);
+
+    for (const id of everything.slice(250, 500)) {
+      gmail.markRead(id);
+    }
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(saved(gmail)).toContain('"changes":[]');
+    });
+    expect(inbox.messageBody(openedId)?.kind).toBe('ready');
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(before.length);
+    await scrolled(inbox, allMail, everything.length);
+    expect(new Set(ids(shown(inbox, allMail)))).toStrictEqual(
+      new Set(everything),
+    );
+  });
+
   it('keeps mail restored from Trash in date order among downloaded history', async () => {
     expect.hasAssertions();
     const gmail = createGmail();
