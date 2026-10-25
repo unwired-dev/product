@@ -26,6 +26,13 @@ const shown = (inbox: Inbox, label: string) => {
     : (state.views?.find((view) => view.label === label)?.messages ?? []);
 };
 
+// The Inbox is always open; any other view opens as the app would show it.
+const opened = async (inbox: Inbox, label: string) => {
+  if (label !== 'INBOX') {
+    await inbox.openView(label);
+  }
+};
+
 const ids = (messages: ReadonlyArray<Readonly<{ id: string }>>) =>
   messages.map(({ id }) => id);
 
@@ -545,6 +552,40 @@ describe('gmail history backfill', () => {
     inbox.forget();
   });
 
+  it('keeps mail restored from Trash in date order among downloaded history', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 850, 0);
+    const inbox = createGmailInbox(gmail.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    await backfilled(inbox);
+    const trashed = everything.slice(-250);
+    for (const id of trashed) {
+      gmail.setLabel(id, 'TRASH', true);
+    }
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(saved(gmail)).toContain('"changes":[]');
+    });
+    for (const id of trashed) {
+      gmail.setLabel(id, 'TRASH', false);
+    }
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(saved(gmail)).toContain('"changes":[]');
+    });
+
+    const relaunched = createGmailInbox(gmail.native);
+    onTestFinished(() => relaunched.forget());
+    await relaunched.load();
+    relaunched.openView(allMail);
+    await scrolled(relaunched, allMail, 400);
+    expect(ids(shown(relaunched, allMail)).slice(0, 400)).toStrictEqual(
+      everything.slice(0, 400),
+    );
+  });
+
   it.each(['INBOX', allMail])(
     'scrolls past deleted history pages to reveal older %s mail',
     async (label) => {
@@ -560,9 +601,7 @@ describe('gmail history backfill', () => {
         gmail.remove(id);
       }
       await inbox.load();
-      if (label !== 'INBOX') {
-        await inbox.openView(label);
-      }
+      await opened(inbox, label);
       expect(shown(inbox, label)).toHaveLength(200);
       const requests = gmail.requests.length;
 

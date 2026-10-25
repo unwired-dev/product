@@ -1496,6 +1496,7 @@ export function createGmailInbox(
   });
 
   // Applies one Gmail history page from a current checkpoint.
+  // fallow-ignore-next-line complexity -- Each history record kind settles the cache, its views and the recorded changes.
   const applyHistory = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument,
@@ -2001,6 +2002,7 @@ export function createGmailInbox(
         ? [label]
         : [],
     );
+  // fallow-ignore-next-line complexity -- Each optional part of the shown document maps to one field of the ready state.
   function render(): Extract<GmailInboxState, { kind: 'ready' }> {
     const document = shown?.document;
     const durable = document?.pending ?? [];
@@ -3308,6 +3310,7 @@ export function createGmailInbox(
   });
 
   // The latest saved document with `next` over it: intents intake saved since `base` was read stay.
+  // fallow-ignore-next-line complexity -- Each guard refuses a rebase over a checkpoint, history or view another store changed.
   const rebased = Effect.fnUntraced(function* ({
     cache,
     base,
@@ -3383,6 +3386,7 @@ export function createGmailInbox(
 
   // One backfill step for the open Inbox, after its synchronization reached Gmail's current
   // history: folds recorded changes, or lists the next page. False once nothing is left.
+  // fallow-ignore-next-line complexity -- Each guard keeps a step to the open, current mailbox it was scheduled for.
   const backfillStep = Effect.fnUntraced(function* (reading: number) {
     const scope = opened;
     if (scope === undefined || speculationPaused(reading)) {

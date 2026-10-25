@@ -93,6 +93,7 @@ export function createHistoryReveals<E>({
   // fold or a completed pass rewrote the segments, so the view reads them again.
   const reveal = (label: string) =>
     revealing.withPermit(
+      // fallow-ignore-next-line complexity -- Each guard decides whether one more stored segment can still serve the view.
       Effect.gen(function* () {
         for (;;) {
           const current = snapshot();
@@ -152,6 +153,7 @@ export function createHistoryReveals<E>({
     withRevealed,
     revealedAll,
     revealAll,
+    // fallow-ignore-next-line complexity -- Each guard keeps a reveal to a view with a full cache or a running listing.
     request: (label: string, count: number) => {
       if (label === 'SPAM' || label === 'TRASH') {
         return undefined;

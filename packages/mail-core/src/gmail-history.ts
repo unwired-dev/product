@@ -14,7 +14,7 @@ import { newestFirst } from './mailbox-document.ts';
 // Messages each listed page, and so each segment, holds.
 export const historyPageSize = 100;
 // Recorded changes past this many are folded into the segments, keeping the document small.
-export const foldAt = 200;
+const foldAt = 200;
 // ponytail: segments one fold step rewrites; a fold over a large history spans many steps.
 const foldSegments = 20;
 
@@ -128,9 +128,29 @@ export const foldDue = (history: MailboxHistory) =>
     history.changes.length >= foldAt &&
     (history.current.segments.length > 0 || history.current.complete === true));
 
-// Writes the recorded changes into the next segments. When the last segment is written, changed
-// messages no segment held join a new first segment if they arrived after the pass began or the
-// pass is complete; a later page lists the others.
+// Changed messages no segment held whose receipt falls within a segment's range, as mail restored
+// from Spam or Trash is; mail newer than the pass waits for the first segment.
+const restoredInto = (
+  changes: ReadonlyMap<string, GmailMessage | undefined>,
+  held: ReadonlySet<string>,
+  { oldest, newest }: Readonly<{ oldest?: string; newest?: string }>,
+) =>
+  [...changes.values()].filter(
+    (message): message is GmailMessage =>
+      message !== undefined &&
+      !held.has(message.id) &&
+      oldest !== undefined &&
+      newest !== undefined &&
+      message.receivedAt >= oldest &&
+      message.receivedAt < newest,
+  );
+
+// Writes the recorded changes into the next segments, keeping them newest first: a changed message
+// no earlier segment held joins the first one whose oldest receipt is not newer, as mail restored
+// from Spam or Trash does. When the last segment is written, mail that arrived after the pass
+// began joins a new first segment and, once the pass is complete, older mail a new last one; a
+// later page lists the others.
+// fallow-ignore-next-line complexity -- One step writes changed, restored, arrived and older mail into date-ordered segments.
 export const foldStep = Effect.fnUntraced(function* <E>(
   history: MailboxHistory,
   read: (name: string) => Effect.Effect<readonly GmailMessage[], E>,
@@ -158,14 +178,20 @@ export const foldStep = Effect.fnUntraced(function* <E>(
   )) {
     const messages = yield* read(segment.name);
     newest ??= messages[0]?.receivedAt;
+    const oldest = messages.at(-1)?.receivedAt;
     const changed = messages.filter(({ id }) => changes.has(id));
-    if (changed.length === 0) {
+    const ids = new Set([...found, ...changed.map(({ id }) => id)]);
+    const placed = restoredInto(changes, ids, { oldest, newest });
+    if (changed.length === 0 && placed.length === 0) {
       kept.push(segment);
     } else {
-      found.push(...changed.map(({ id }) => id));
-      const next = overlaid(
-        history.changes.slice(0, folding.through),
-        messages,
+      found.push(...changed.map(({ id }) => id), ...placed.map(({ id }) => id));
+      const next = Arr.sort(
+        overlaid(history.changes.slice(0, folding.through), [
+          ...messages,
+          ...placed,
+        ]),
+        newestFirst,
       );
       if (next.length > 0) {
         const name = yield* newName;
@@ -190,21 +216,30 @@ export const foldStep = Effect.fnUntraced(function* <E>(
     };
   }
   const held = new Set(found);
-  const arrived = Arr.sort(
+  const unheld = Arr.sort(
     [...changes].flatMap(([id, message]) =>
-      !held.has(id) &&
-      message !== undefined &&
-      (pass.complete === true ||
-        (newest !== undefined && message.receivedAt >= newest))
-        ? [message]
-        : [],
+      held.has(id) || message === undefined ? [] : [message],
     ),
     newestFirst,
   );
+  const arrived = unheld.filter(
+    ({ receivedAt }) => newest === undefined || receivedAt >= newest,
+  );
+  const older =
+    pass.complete === true
+      ? unheld.filter(
+          ({ receivedAt }) => newest !== undefined && receivedAt < newest,
+        )
+      : [];
   if (arrived.length > 0) {
     const name = yield* newName;
     written.push([name, arrived]);
     kept.unshift({ name, count: arrived.length });
+  }
+  if (older.length > 0) {
+    const name = yield* newName;
+    written.push([name, older]);
+    kept.push({ name, count: older.length });
   }
   return {
     history: {

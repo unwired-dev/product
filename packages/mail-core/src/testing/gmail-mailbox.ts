@@ -759,7 +759,8 @@ export function createSyntheticGmail({
           })
         : rejection(code);
     },
-    // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+    /* oxlint-disable eslint/max-params -- The history write rides on the native commit. */
+    // fallow-ignore-next-line complexity -- Mirrors the native store's owner, revision and history-write refusals.
     commitMailbox: (
       owner: Readonly<{ address: string; generation: string }>,
       expectedRevision: number,
@@ -801,6 +802,7 @@ export function createSyntheticGmail({
         owner: `synthetic-owner-${generation}`,
       });
     },
+    /* oxlint-enable eslint/max-params */
     openMessageBody: (owner, id) => {
       const code = bodyFailures.shift();
       if (code !== undefined) {
