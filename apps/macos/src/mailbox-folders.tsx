@@ -61,6 +61,15 @@ export function useMailboxFolder<E>(
   return {
     folder,
     selection,
+    // Reaching the end of the Inbox reveals older Gmail mail its devices downloaded.
+    showOlder: () => {
+      if (folder !== inboxFolder) {
+        return;
+      }
+      for (const mailbox of shown) {
+        gmailMailbox(mailbox)?.inbox.showOlder(inboxFolder);
+      }
+    },
     title: folder === inboxFolder ? undefined : folder,
     listed: browsing?.entries ?? inbox,
     failure: imapFolderFailed(browsing?.view)
@@ -96,7 +105,16 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
     return undefined;
   }
   const { title, failure, limited } = gmailViewRow(t, gmail.state, folder);
-  return { title, listed, failure, limited };
+  const { inbox } = gmail;
+  return {
+    title,
+    listed,
+    failure,
+    limited,
+    showOlder: () => {
+      inbox.showOlder(folder);
+    },
+  };
 }
 
 // The chosen IMAP folder's messages as list entries, or undefined for the Inbox.

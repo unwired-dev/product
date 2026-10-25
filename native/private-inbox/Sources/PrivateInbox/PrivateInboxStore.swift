@@ -215,8 +215,12 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
+  // `history`, when given, also writes the named history segments before the document and then
+  // removes every stored segment the document no longer keeps. Segment names are never reused, so
+  // an interrupted commit leaves only unreferenced files, which the next history commit removes.
   public func commitMailbox(
-    connection: String, address: String, subject: String, expectedRevision: Int, document: String
+    connection: String, address: String, subject: String, expectedRevision: Int, document: String,
+    history: (segments: [String: String], keep: Set<String>)? = nil
   ) throws -> [String: Any] {
     try transaction {
       try adoptLegacyMailbox(connection: connection, address: address, subject: subject)
@@ -227,12 +231,63 @@ public final class PrivateInboxStore: @unchecked Sendable {
       let next = MailboxCache(
         revision: expectedRevision + 1, address: address, subject: subject, document: document)
       try FileManager.default.createDirectory(
-        at: directory.appendingPathComponent(try connectionPath(connection, "")),
+        at: directory.appendingPathComponent(
+          try connectionPath(connection, history == nil ? "" : "history")),
         withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      for (name, segment) in history?.segments ?? [:] {
+        let stored = MailboxCache(revision: 1, address: address, subject: subject, document: segment)
+        try write(
+          JSONEncoder().encode(stored), file: try segmentPath(connection, name), key: key,
+          authenticating: segmentAssociatedData(name))
+      }
       try write(
         JSONEncoder().encode(next), file: file, key: key, authenticating: mailboxAssociatedData)
+      if let keep = history?.keep {
+        let folder = directory.appendingPathComponent(try connectionPath(connection, "history"))
+        try removeURLs(
+          try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { !keep.contains($0.deletingPathExtension().lastPathComponent) })
+      }
       return ["revision": next.revision, "address": address, "document": document]
     }
+  }
+
+  // One history segment the mailbox's document names; another mailbox's or a missing one is nil.
+  public func openMailboxSegment(
+    connection: String, address: String, subject: String, name: String
+  ) throws -> String? {
+    try transaction {
+      let file = try segmentPath(connection, name)
+      let data: Data
+      do {
+        data = try Data(contentsOf: directory.appendingPathComponent(file))
+      } catch CocoaError.fileReadNoSuchFile {
+        return nil
+      }
+      let key = try existingKey()
+      let segment: MailboxCache
+      do {
+        let plaintext = try AES.GCM.open(
+          try AES.GCM.SealedBox(combined: data), using: SymmetricKey(data: key),
+          authenticating: segmentAssociatedData(name))
+        segment = try JSONDecoder().decode(MailboxCache.self, from: plaintext)
+      } catch {
+        throw PrivateInboxError.invalidStore
+      }
+      return segment.address == address && segment.subject == subject ? segment.document : nil
+    }
+  }
+
+  private func segmentPath(_ connection: String, _ name: String) throws -> String {
+    guard name.range(of: "^[0-9a-z]{1,32}$", options: .regularExpression) != nil else {
+      throw PrivateInboxError.invalidStore
+    }
+    return try connectionPath(connection, "history/\(name).enc")
+  }
+
+  // Sealed to its name, so one segment cannot stand in for another.
+  private func segmentAssociatedData(_ name: String) -> Data {
+    Data("dev.unwired.private-inbox.mailbox-history.v1\n\(name)".utf8)
   }
 
   // The key for a commit: the existing one when replacing encrypted data, and otherwise a new one

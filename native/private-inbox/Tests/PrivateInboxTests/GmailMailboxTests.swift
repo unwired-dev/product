@@ -331,6 +331,35 @@ extension PrivateInboxTests {
     }
     #expect(try store.openMailbox(first)["document"] as? String == document)
 
+    // History segments commit with the document, encrypted and sealed to their names, and a
+    // history commit removes the segments its document no longer keeps.
+    func segment(_ name: String) throws -> Any? {
+      try store.openMailboxSegment(
+        connection: first, name: name, generation: store.generation(firstSubject))["document"]
+    }
+    let history = directory.appendingPathComponent("mailboxes/\(first)/history")
+    _ = try store.commitMailbox(
+      connection: first, address: "same@example.invalid", expectedRevision: 1, document: document,
+      generation: store.generation(firstSubject),
+      history: (["older": "[\"Private synthetic older\"]", "newer": "[]"], ["older", "newer"]))
+    #expect(try segment("older") as? String == #"["Private synthetic older"]"#)
+    #expect(try segment("missing") is NSNull)
+    #expect(
+      try Data(contentsOf: history.appendingPathComponent("older.enc"))
+        .range(of: Data("Private synthetic".utf8)) == nil)
+    try FileManager.default.copyItem(
+      at: history.appendingPathComponent("older.enc"),
+      to: history.appendingPathComponent("swapped.enc"))
+    #expect(throws: PrivateInboxError.invalidStore) { _ = try segment("swapped") }
+    #expect(throws: PrivateInboxError.invalidStore) { _ = try segment("../mailbox") }
+    _ = try store.commitMailbox(
+      connection: first, address: "same@example.invalid", expectedRevision: 2, document: document,
+      generation: store.generation(firstSubject), history: ([:], ["newer"]))
+    #expect(try segment("older") is NSNull)
+    #expect(try segment("newer") as? String == "[]")
+    #expect(
+      try FileManager.default.contentsOfDirectory(atPath: history.path) == ["newer.enc"])
+
     // Another mailbox never sees this one's cache.
     google.subject = "synthetic-other-mailbox"
     google.address = "other@example.invalid"

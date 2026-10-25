@@ -1483,11 +1483,6 @@ describe('connected Gmail Inbox', () => {
       screen.findByRole('button', { name: /Flight to Zagreb/u }),
     ).resolves.toBeVisible();
     expect(screen.getByRole('header', { name: 'Travel' })).toBeVisible();
-    expect(
-      screen.getByText(
-        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
-      ),
-    ).toBeVisible();
     expect(screen.queryByText('Lunch on Friday')).toBeNull();
     // Archived mail in a label has nothing for Archive to remove.
     await fireEvent.press(
@@ -1500,9 +1495,14 @@ describe('connected Gmail Inbox', () => {
         screen.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
       );
     });
-    await fireEvent.press(
-      await screen.findByRole('button', { name: /Old receipt/u }),
-    );
+    const trashed = await screen.findByRole('button', { name: /Old receipt/u });
+    // Downloaded history leaves out Spam and Trash, so their older mail stays in Gmail.
+    expect(
+      screen.getByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeVisible();
+    await fireEvent.press(trashed);
     // Trashed mail moves back to the Inbox instead of being archived again.
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'More' }));

@@ -72,12 +72,16 @@ export function syntheticConnections(
       of(mailbox.connection)?.graphDiscard(messageId, mailbox) ?? missing(),
     openMailbox: (connection) =>
       (server(connection) ?? of(connection))?.openMailbox() ?? missing(),
-    commitMailbox: (mailbox, revision, document) =>
+    // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+    commitMailbox: (mailbox, revision, document, history) =>
       (server(mailbox.connection) ?? of(mailbox.connection))?.commitMailbox(
         mailbox,
         revision,
         document,
+        history ?? undefined,
       ) ?? missing(),
+    openMailboxSegment: (mailbox, name) =>
+      of(mailbox.connection)?.openMailboxSegment(mailbox, name) ?? missing(),
     openMessageBody: (mailbox, id) =>
       (server(mailbox.connection) ?? of(mailbox.connection))?.openMessageBody(
         mailbox,

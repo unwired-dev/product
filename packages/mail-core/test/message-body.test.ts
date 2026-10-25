@@ -391,6 +391,13 @@ describe('reading Gmail message bodies', () => {
     const ids = [first, gmail.deliver(), gmail.deliver()];
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
+    // Historical Metadata Backfill reads in the background; only body downloads are measured.
+    await vi.waitFor(() => {
+      expect(inbox.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        history: { complete: true },
+      });
+    });
     let active = 0;
     let most = 0;
     const started = Promise.withResolvers<undefined>();

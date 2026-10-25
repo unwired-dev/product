@@ -313,7 +313,7 @@ extension RegistrationStore {
   // A commit read for another mailbox or connection, or after removal began, changes nothing.
   func commitMailbox(
     connection id: String, address: String, expectedRevision: Int, document: String,
-    generation: String
+    generation: String, history: (segments: [String: String], keep: Set<String>)? = nil
   ) throws
     -> [String: Any]
   {
@@ -328,12 +328,26 @@ extension RegistrationStore {
     }
     var result = try mailCache.commitMailbox(
       connection: id, address: address, subject: mailbox.subject,
-      expectedRevision: expectedRevision, document: document)
+      expectedRevision: expectedRevision, document: document, history: history)
     result["generation"] = generation
     let product = try mailboxAccount(id)
     result["owner"] = [product.productAccountId, product.trustedDeviceId, mailbox.subject,
       try load()?.connection(id)?.epoch ?? "legacy"].joined(separator: "\n")
     return result
+  }
+
+  // A history segment of the open mailbox, read as `openMailbox` reads its document.
+  func openMailboxSegment(connection id: String, name: String, generation: String) throws
+    -> [String: Any]
+  {
+    guard let mailCache else { throw RegistrationError.unavailable }
+    guard verifiedMailboxes.contains(id) || cacheOnlyMailboxes.contains(id),
+      mailboxGeneration(id).uuidString == generation
+    else { throw PrivateInboxError.mailboxInvalidated }
+    let mailbox = try connectedMailbox(id).1
+    let document = try mailCache.openMailboxSegment(
+      connection: id, address: mailbox.address, subject: mailbox.subject, name: name)
+    return ["document": document ?? NSNull()]
   }
 
   // The connection's Google account, when the caller's mailbox is still the open one. Saved
