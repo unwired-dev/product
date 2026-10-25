@@ -24,6 +24,7 @@ import {
   gmailArchive,
   gmailViewSymbol,
   gmailViewTitle,
+  microsoftAllMailViews,
   offeredViews,
   providerViews,
   systemViews,
@@ -416,15 +417,14 @@ export const unifiedFolders = (
       const name = imapRoleFolder(folders, imapRoles[role]);
       return name === undefined ? undefined : [name];
     }
-    const all = imapRoleFolder(folders, 'all');
-    return all === undefined
-      ? folders
-          .filter(
-            ({ selectable, roles }) =>
-              selectable && !roles.includes('junk') && !roles.includes('trash'),
-          )
-          .map(({ name }) => name)
-      : [all];
+    // A server's \All folder may also hold Junk and Trash, so All Mail reads every other folder.
+    return folders
+      .filter(
+        ({ selectable, roles }) =>
+          selectable &&
+          !['junk', 'trash', 'all'].some((excluded) => roles.includes(excluded)),
+      )
+      .map(({ name }) => name);
   }
   const gmail = gmailMailbox(mailbox);
   if (gmail === undefined) {
@@ -440,6 +440,7 @@ export const unifiedFolders = (
   return [
     inboxFolder,
     ...views.filter((view) => view !== 'SPAM' && view !== 'TRASH'),
+    ...microsoftAllMailViews,
     ...gmail.state.labels.map(({ id }) => id),
   ];
 };

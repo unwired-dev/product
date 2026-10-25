@@ -232,6 +232,7 @@ function useUnifiedMailbox(
 }
 
 // Retains and opens a Gmail or Microsoft view, or opens an IMAP folder and follows its changes.
+// IMAP synchronizes only its Inbox, so the folder is read again each time the Inbox finishes.
 function open(mailbox: InboxMailbox, name: string, changed: () => void) {
   const gmail = gmailMailbox(mailbox);
   if (gmail !== undefined) {
@@ -241,8 +242,20 @@ function open(mailbox: InboxMailbox, name: string, changed: () => void) {
   }
   if ('openFolder' in mailbox.inbox) {
     const { inbox } = mailbox;
+    const statusOf = () => {
+      const state = inbox.getSnapshot();
+      return state.kind === 'ready' ? state.status : undefined;
+    };
+    let status = statusOf();
     void inbox.openFolder(name);
-    return inbox.subscribe(changed);
+    return inbox.subscribe(() => {
+      const finished = status === 'syncing';
+      status = statusOf();
+      if (finished && status === 'current') {
+        void inbox.openFolder(name);
+      }
+      changed();
+    });
   }
   return () => undefined;
 }

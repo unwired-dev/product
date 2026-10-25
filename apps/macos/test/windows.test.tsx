@@ -5,6 +5,7 @@ import type { AppStateStatus, TurboModule } from 'react-native';
 
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import {
   createMailboxes,
   singleMailbox,
@@ -20,6 +21,7 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import {
@@ -974,6 +976,39 @@ describe('mac windows over a connected Gmail mailbox', () => {
     } finally {
       await app.unmount();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('reads an IMAP Archive again in the unified Archive each time its Inbox synchronizes', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.deliver('Archive', { subject: 'Filed invoice' });
+    const inbox = createImapInbox(imap.native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await first.findByRole('button', {
+          name: 'Archive. In All mailboxes',
+        }),
+      );
+      await expect(
+        first.findByRole('button', { name: /Filed invoice/u }),
+      ).resolves.toBeVisible();
+      imap.deliver('Archive', { subject: 'Filed elsewhere' });
+      await act(() => inbox.load());
+      await expect(
+        first.findByRole('button', { name: /Filed elsewhere/u }),
+      ).resolves.toBeVisible();
+    } finally {
+      await app.unmount();
     }
   });
 

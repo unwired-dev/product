@@ -68,13 +68,15 @@ export const providerViews = (
           view === 'SENT' || !unavailableActions.includes(folderActions[view]),
       )
     : systemViews;
-// The views a mailbox can open: its sidebar's, and Gmail's Sent and Archive for Unified Mailboxes.
+// Microsoft's Drafts and Outbox, which only All Mail lists.
+export const microsoftAllMailViews = ['DRAFT', 'OUTBOX'] as const;
+// The views a mailbox can open: its sidebar's, and those only Unified Mailboxes list.
 export const offeredViews = (
   provider: MailProvider | undefined,
   unavailableActions?: ReadonlyArray<GmailAction['kind']>,
 ): readonly string[] =>
   provider === 'microsoft-graph'
-    ? providerViews(provider, unavailableActions)
+    ? [...providerViews(provider, unavailableActions), ...microsoftAllMailViews]
     : [...systemViews, 'SENT', gmailArchive];
 
 export const gmailAction = {

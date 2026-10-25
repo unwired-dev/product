@@ -203,6 +203,8 @@ const roleLabels: Partial<Record<WellKnownFolder, string>> = {
   archive: 'ARCHIVE',
   deleteditems: 'TRASH',
   junkemail: 'SPAM',
+  drafts: 'DRAFT',
+  outbox: 'OUTBOX',
 };
 // The Graph folder a view lists: a well-known folder by its role's label, or a folder by its ID.
 function graphFolder(view: string) {
