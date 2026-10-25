@@ -3,7 +3,7 @@ import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { outboxCopy } from '@private-email/mail-core/outbox';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -154,7 +154,10 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
     readonly open: boolean;
   }>();
   const current = entries.find(({ id }) => id === refused?.id);
+  // Each Outbox action supersedes a refusal still on its way from an earlier one.
+  const action = useRef(0);
   const dismiss = () => {
+    action.current += 1;
     setRefused((toast) => toast && { ...toast, open: false });
   };
   // A refusal speaks for the message as it was. Once that changes it retires rather than hides, so
@@ -164,6 +167,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
   }
   const returnToDrafts = (entry: OutboxSnapshotEntry) => {
     dismiss();
+    const started = action.current;
     void (async () => {
       const id = await outbox.undo(entry.id);
       if (id !== false) {
@@ -171,8 +175,8 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
         return;
       }
       const now = outbox.getSnapshot().find((each) => each.id === entry.id);
-      // Not when another press already returned it or its sending began.
-      if (now !== undefined && returnable(now)) {
+      // Not when another press or action came since, or its sending began.
+      if (started === action.current && now !== undefined && returnable(now)) {
         // The iPhone's narrow toast leaves out the subject.
         const message =
           Platform.OS === 'ios' && Platform.isPad

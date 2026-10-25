@@ -3,7 +3,7 @@ import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { outboxCopy } from '@private-email/mail-core/outbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Pressable,
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     borderCurve: 'continuous',
   },
-  toastMessage: { ...textStyles.body, flexShrink: 1 },
+  toastMessage: { flexShrink: 1 },
   // A 28pt target around the 16pt label, inside the toast's own height.
   toastAction: {
     minHeight: 28,
@@ -119,10 +119,16 @@ function RefusedToast({
         name="exclamationmark.triangle.fill"
         color={colors.brandOnDeep}
       />
-      <Text style={[styles.toastMessage, { color: colors.brandOnDeep }]}>
-        {message}
-      </Text>
+      <View
+        accessible
+        accessibilityLabel={message}
+        style={styles.toastMessage}>
+        <Text style={[textStyles.body, { color: colors.brandOnDeep }]}>
+          {message}
+        </Text>
+      </View>
       <Pressable
+        accessibilityLabel={t('outbox.tryAgain')}
         accessibilityRole="button"
         enableFocusRing={false}
         focusable
@@ -164,7 +170,10 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
     readonly open: boolean;
   }>();
   const current = entries.find(({ id }) => id === refused?.id);
+  // Each Outbox action supersedes a refusal still on its way from an earlier one.
+  const action = useRef(0);
   const dismiss = () => {
+    action.current += 1;
     setRefused((toast) => toast && { ...toast, open: false });
   };
   // A refusal speaks for the message as it was. Once that changes it retires rather than hides, so
@@ -174,6 +183,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
   }
   const returnToDrafts = (entry: OutboxSnapshotEntry) => {
     dismiss();
+    const started = action.current;
     void (async () => {
       const id = await outbox.undo(entry.id);
       if (id !== false) {
@@ -181,8 +191,8 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
         return;
       }
       const now = outbox.getSnapshot().find((each) => each.id === entry.id);
-      // Not when another press already returned it or its sending began.
-      if (now !== undefined && returnable(now)) {
+      // Not when another press or action came since, or its sending began.
+      if (started === action.current && now !== undefined && returnable(now)) {
         const message = t('outbox.refused', {
           subject: draftSummary(t, entry.draft).subject,
         });
