@@ -88,7 +88,7 @@ jest.mock('@expo/ui/swift-ui', () => {
         onDismiss?.();
       }
     }, [shown, isPresented, onDismiss]);
-    return isPresented ? children : null;
+    return shown ? children : null;
   }
   return {
     BottomSheet,
