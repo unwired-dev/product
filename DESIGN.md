@@ -462,7 +462,8 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
-- iPad popovers, such as Filters, use the 18pt `radius.popover`.
+- iPad popovers, such as Filters, are system popovers and keep the iOS corner radius
+  and arrow.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset

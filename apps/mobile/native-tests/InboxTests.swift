@@ -2213,6 +2213,10 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = .portrait
       waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
       XCTAssertTrue(apply.waitForExistence(timeout: 5))
+      // A hardware keyboard's Escape closes the popover.
+      app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+      XCTAssertTrue(apply.waitForNonExistence(timeout: 10))
+      open()
     }
     unread.tap()
     today.tap()
