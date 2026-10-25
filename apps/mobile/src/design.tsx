@@ -9,6 +9,7 @@ import type {
   NativeSyntheticEvent,
   StyleProp,
   TextProps,
+  TextStyle,
   ViewProps,
   ViewStyle,
 } from 'react-native';
@@ -677,4 +678,22 @@ export function useOutcomeAnnouncement(
       }
     }
   }, [words, queue]);
+}
+
+// Alert-role text that VoiceOver hears at once when it appears or its words change.
+export function AnnouncedAlert({
+  children,
+  style,
+}: {
+  readonly children: string;
+  readonly style: StyleProp<TextStyle>;
+}) {
+  useOutcomeAnnouncement(children, false);
+  return (
+    <Text
+      accessibilityRole="alert"
+      style={style}>
+      {children}
+    </Text>
+  );
 }
