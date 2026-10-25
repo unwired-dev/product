@@ -1577,10 +1577,11 @@ final class InboxTests: XCTestCase {
     where issue.element?.elementType == .staticText
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
-    // Text the audit locates no element for, over the reader; iPad's composer leaves it in view.
+    // Text the audit locates no element for, over the reader; iPad's composer leaves it in view,
+    // and iPad's Filters popover leaves the Inbox it hides from accessibility in view.
     case .elementDetection
     where (screen == "Reader"
-      || (screen == "Composer" && UIDevice.current.userInterfaceIdiom == .pad))
+      || (["Composer", "Filters"].contains(screen) && UIDevice.current.userInterfaceIdiom == .pad))
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
       return "#1213"
