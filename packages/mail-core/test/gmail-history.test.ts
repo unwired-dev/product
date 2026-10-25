@@ -947,10 +947,12 @@ describe('gmail history backfill', () => {
     }
   });
 
-  it('reads revealed history without keeping its body', async () => {
+  it('keeps a revealed history body only when a cached view also keeps its message', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const oldest = at(mailbox(gmail, 300, 0), 299);
+    const label = gmail.createLabel('Saved history');
+    gmail.setLabel(oldest, label, true);
     const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
@@ -959,6 +961,15 @@ describe('gmail history backfill', () => {
 
     expect(inbox.messageBody(oldest)?.kind).toBe('ready');
     expect(gmail.cachedBodies().has(oldest)).toBe(false);
+    await expect(inbox.savedBodies([oldest])).resolves.toStrictEqual(new Set());
+
+    await inbox.openView(label);
+    await inbox.readMessage(oldest, { refresh: true });
+    await inbox.load();
+
+    await expect(inbox.savedBodies([oldest])).resolves.toStrictEqual(
+      new Set([oldest]),
+    );
   });
 
   it('opens a message while history backfill holds the speculative lane', async () => {
