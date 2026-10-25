@@ -125,6 +125,7 @@ minimumReleaseAgeExclude:
 catalogs:
   mobile:
     '@expo/log-box': '57.0.4'
+    '@expo/ui': '57.0.26'
     '@expo/metro-runtime': '57.0.17'
     '@react-native/jest-preset': '0.86.3'
     '@react-native/metro-config': '0.86.3'

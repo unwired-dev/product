@@ -325,14 +325,15 @@ with the message's pending label change without waiting for synchronization. iPa
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
 over the bottom of the reader holds **Archive**, **Folders**, **Reply** and
 **More**, beside a separate circular New Message button. Reply
-grows a floating glass sheet out of the button: the sender's initials, name and
+opens a native sheet on the opaque content surface: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — star and read state, then
 Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
 beside them.
-Closing the sheet or choosing an action shrinks it back toward the button. For every
-provider, iPhone's **Folders** grows a tall glass Move picker out of the button, like
-Reply: a caption, the mailbox's address between Back and Close buttons, the message's
+The system owns Reply's presentation, dismissal and swipe-down gesture. Choosing an
+action closes the sheet before running it. For every
+provider, iPhone's **Folders** grows a tall glass Move picker out of the button:
+a caption, the mailbox's address between Back and Close buttons, the message's
 sender and subject, one row per folder or label with its role's symbol in the accent,
 and a search field at the bottom. Nested folders sit indented beneath their parent,
 named on their own; VoiceOver reads their full path. The message's current folder or
@@ -343,8 +344,8 @@ knows it. A search lists the folders that can hold mail by their full path, such
 account; choosing the account returns to its folders, and **Cancel** closes the picker
 without moving anything. Choosing a folder moves the message and closes the picker. More
 lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
-label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad, and the Reply sheet and Move picker shrink back toward their
-button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
+label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad, and the Move picker shrinks back toward its
+button when closed; with Reduce Motion they only fade. The Reply sheet is the system sheet and moves as iOS presents it. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. For every provider, a
 row that leaves the list collapses and fades in 200 ms while the rows below follow it up, and
 Undo, a refused or rolled-back change, or a discarded one grows it back from its current height
