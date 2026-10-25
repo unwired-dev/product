@@ -654,6 +654,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   both with already-revealed history and after offline relaunch. Preserve older
   stored mail and distinguish a completed short listing from an interrupted one;
   otherwise an outage hides downloaded messages and scrolling cannot recover them.
+- `gmail-inbox.ts.ready` adopting a rewritten history without reconciling existing
+  reveal cursors. Exercise another store folding a completed pass, then reload
+  through both verified and cache-only access without another scroll. Reconcile
+  even when backfill has no remaining step; otherwise carried rows resurrect
+  messages whose deletion overlay the fold already retired.
+- `gmail-inbox.ts.recover` handling a former owner's asynchronous access failure
+  after `forget`, including a segment read awaited by `ready`. Fence recovery as
+  well as publication: hold that read, forget, queue a reload and reject the old
+  read as revoked. Preserve current-owner lock/revocation handling and the durable
+  commit preceding a reveal failure; otherwise a stale removal callback cancels
+  the new owner's queued load or closes its registration.
 - `gmail-history-reveals.ts.reveal` or `request` counting raw segment rows toward
   a view's reveal target. Apply the recorded changes, view membership and cached-ID
   deduplication before deciding that scrolling has enough rows. Exercise deleted

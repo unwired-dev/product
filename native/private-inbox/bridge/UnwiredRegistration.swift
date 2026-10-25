@@ -1530,7 +1530,6 @@ extension UnwiredRegistration {
   ) {
     mailbox("openMailboxSegment", resolve, reject: reject) {
       let (connection, _, generation) = try Self.scope(scope)
-      try await $0.prepareMailbox(connection)
       return try await $0.openMailboxSegment(connection: connection, name: name, generation: generation)
     }
   }

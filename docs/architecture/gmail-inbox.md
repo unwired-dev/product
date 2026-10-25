@@ -63,6 +63,8 @@ Views retain a device-memory reveal cursor into the shown pass and merge selecte
 segments with the recent cache by message identity and receipt order. Equal receipt
 timestamps remain eligible across the cache boundary. Native access failures use
 owner-fenced Inbox recovery; forgetting an Inbox releases revealed plaintext.
+Segment reads use local ownership, generation and protected-data checks without
+repeating the backend revocation preflight used by mailbox opens and commits.
 The history journeys can substitute the real native vault through the test-only
 signed line-protocol process, retaining controlled provider responses.
 

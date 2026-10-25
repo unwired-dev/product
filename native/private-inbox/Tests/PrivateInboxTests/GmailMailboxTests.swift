@@ -565,11 +565,20 @@ extension PrivateInboxTests {
     let currentSubject = google.subject
     _ = try await store.commitMailbox(
       connection: current, address: google.address, expectedRevision: 0, document: document,
-      generation: store.generation(currentSubject))
+      generation: store.generation(currentSubject), history: (["offline": "[]"], ["offline"]))
     google.refreshFailure = URLError(.notConnectedToInternet)
     #expect(try await store.restore()["kind"] == "cached")
     #expect(try store.openMailbox(current)["document"] as? String == document)
     #expect(try store.openMailbox(current)["availability"] as? String == "retry")
+    // The segment primitive stays local and works through the cache-only gate too.
+    let queriesBeforeSegments = revocationQueries
+    let requestsBeforeSegments = google.gmailRequests.count
+    #expect(
+      try await store.openMailboxSegment(
+        connection: current, name: "offline", generation: store.generation(currentSubject))["document"]
+        as? String == "[]")
+    #expect(revocationQueries == queriesBeforeSegments)
+    #expect(google.gmailRequests.count == requestsBeforeSegments)
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.gmail(
         path: "profile", query: [], connection: current, address: google.address,

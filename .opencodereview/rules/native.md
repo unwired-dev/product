@@ -212,6 +212,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `UnwiredRegistration.openMailboxSegment` running `prepareMailbox` before each
+  local segment read. Keep backend revocation preflight on mailbox opens and
+  commits, and retain the segment primitive's local owner, generation and
+  protected-data checks under the operation gate. Trace the actual bridge as well
+  as direct vault tests; otherwise offline scrolling and `ready` reconciliation
+  send per-segment backend requests and wait for their network failures.
+
 - `RegistrationStore.gmailCreateLabel` or another provider-name validator using
   a broad Foundation character set as if it matched one Unicode general category.
   Check the admitted scalar categories against the provider contract, including

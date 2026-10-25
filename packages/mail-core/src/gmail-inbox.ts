@@ -3570,6 +3570,9 @@ export function createGmailInbox(
     ).pipe(
       Effect.andThen(
         Effect.sync(() => {
+          if (forgotten) {
+            return;
+          }
           if (kind === 'revoked') {
             forgetOpenInbox();
             removed?.();

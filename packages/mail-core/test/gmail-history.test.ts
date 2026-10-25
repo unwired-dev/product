@@ -108,7 +108,7 @@ const at = <T>(messages: readonly T[], index: number) => {
 
 // Holds Historical Metadata Backfill's All Mail pages until released; the All Mail view lists
 // its newest messages in smaller pages, so it keeps going.
-const holdingHistory = (gmail: Gmail) => {
+const holdingHistory = (gmail: Gmail, pageToken?: string) => {
   const listing = Promise.withResolvers<undefined>();
   const reached = Promise.withResolvers<undefined>();
   let holding = false;
@@ -117,6 +117,10 @@ const holdingHistory = (gmail: Gmail) => {
     gmailRequest: async (path, query, request) => {
       if (
         holding &&
+        (pageToken === undefined ||
+          query.some(
+            ([name, value]) => name === 'pageToken' && value === pageToken,
+          )) &&
         path === 'messages' &&
         query.some(
           ([name, value]) => name === 'maxResults' && value === '100',
@@ -139,6 +143,37 @@ const holdingHistory = (gmail: Gmail) => {
       holding = false;
       listing.resolve(undefined);
     },
+  };
+};
+
+// Refuses reveal reads only after the fold's metadata and segments are durable.
+const refusingFoldReveals = (gmail: Gmail, code: string) => {
+  let armed = false;
+  let refused = false;
+  const read = vi.fn<Gmail['native']['openMailboxSegment']>(
+    gmail.native.openMailboxSegment,
+  );
+  return {
+    arm: () => {
+      armed = true;
+    },
+    refused: () => refused,
+    resume: () => {
+      armed = false;
+      read.mockImplementation(gmail.native.openMailboxSegment);
+    },
+    native: {
+      ...gmail.native,
+      commitMailbox: async (...args) => {
+        const result = await gmail.native.commitMailbox(...args);
+        if (armed && args[3] !== undefined) {
+          refused = true;
+          read.mockRejectedValue({ code });
+        }
+        return result;
+      },
+      openMailboxSegment: read,
+    } satisfies Gmail['native'],
   };
 };
 
@@ -450,6 +485,34 @@ describe('gmail history backfill', () => {
     // One batch of 50 needs the first three pages of 100, not the whole mailbox.
     expect(shown(inbox, 'INBOX')).toHaveLength(300);
     expect(read.mock.calls.length).toBeLessThanOrEqual(3);
+    const reads = read.mock.calls.length;
+    await inbox.load();
+    expect(read).toHaveBeenCalledTimes(reads);
+  });
+
+  it('fulfils a pending scroll as backfill commits new pages', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 500, 0);
+    const history = holdingHistory(gmail, '300');
+    history.hold();
+    const inbox = createInbox(history.native);
+    try {
+      await inbox.load();
+      await history.reached;
+      await scrolled(inbox, 'INBOX', 300);
+      inbox.showOlder('INBOX');
+      history.release();
+      await backfilled(inbox);
+
+      await vi.waitFor(() => {
+        expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(
+          everything.slice(0, 400),
+        );
+      });
+    } finally {
+      history.release();
+    }
   });
 
   it.each(['SPAM', 'TRASH'])(
@@ -649,11 +712,11 @@ describe('gmail history backfill', () => {
   });
 
   it.each([
-    { mode: 'verified', access: {} },
-    { mode: 'cache-only', access: { availability: 'retry' } },
+    { mode: 'verified', access: {}, sync: 'current' },
+    { mode: 'cache-only', access: { availability: 'retry' }, sync: 'retry' },
   ])(
     'drops revealed rows deleted while another Inbox folded completed history ($mode)',
-    async ({ access }) => {
+    async ({ access, mode, sync }) => {
       expect.hasAssertions();
       const gmail = createGmail();
       const everything = mailbox(gmail, 500, 0);
@@ -680,7 +743,10 @@ describe('gmail history backfill', () => {
         expect(saved(gmail)).toContain('"changes":[]');
       });
       cacheAccess = access;
+      const requests = gmail.requests.length;
       await inbox.load();
+      expect(gmail.requests.length === requests).toBe(mode === 'cache-only');
+      expect(ready(inbox.getSnapshot()).sync).toBe(sync);
 
       const gone = new Set(removed);
       await vi.waitFor(() => {
@@ -690,6 +756,98 @@ describe('gmail history backfill', () => {
       });
     },
   );
+
+  it.each([
+    {
+      code: 'unavailable',
+      state: { kind: 'ready', sync: 'current' },
+      removals: 0,
+    },
+    { code: 'locked', state: { kind: 'locked' }, removals: 0 },
+    { code: 'mailbox-revoked', state: { kind: 'loading' }, removals: 1 },
+  ])(
+    'recovers from $code while revealing an already committed fold',
+    async ({ code, state, removals }) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      const everything = mailbox(gmail, 500, 0);
+      const refusal = refusingFoldReveals(gmail, code);
+      const removed = vi.fn<() => void>();
+      const inbox = createInbox(refusal.native, { removed });
+      await inbox.load();
+      await backfilled(inbox);
+      await scrolled(inbox, 'INBOX', 500);
+      for (const id of everything.slice(200, 400)) {
+        gmail.markRead(id);
+      }
+      refusal.arm();
+      await inbox.load();
+
+      await vi.waitFor(() => {
+        expect(refusal.refused()).toBe(true);
+        expect(inbox.getSnapshot()).toMatchObject(state);
+        expect(removed).toHaveBeenCalledTimes(removals);
+      });
+      expect(saved(gmail)).toContain('"changes":[]');
+      refusal.resume();
+      await inbox.load();
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+      await scrolled(inbox, 'INBOX', 500);
+      expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
+    },
+  );
+
+  it("ignores a former owner's reveal revocation while a reload waits", async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 500, 0);
+    const reached = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const read = vi.fn<Gmail['native']['openMailboxSegment']>(
+      gmail.native.openMailboxSegment,
+    );
+    const removed = vi.fn<() => void>();
+    const inbox = createInbox(
+      {
+        ...gmail.native,
+        openMailboxSegment: read,
+      },
+      { removed },
+    );
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 500);
+    for (const id of everything.slice(200, 400)) {
+      gmail.markRead(id);
+    }
+    const other = createInbox(gmail.native);
+    await other.load();
+    await vi.waitFor(() => {
+      expect(saved(gmail)).toContain('"changes":[]');
+    });
+
+    read.mockImplementationOnce(async () => {
+      reached.resolve(undefined);
+      await release.promise;
+      throw Object.assign(new Error('Controlled former-owner refusal'), {
+        code: 'mailbox-revoked',
+      });
+    });
+    const refreshing = inbox.load();
+    try {
+      await reached.promise;
+      inbox.forget();
+      const reopening = inbox.load();
+      release.resolve(undefined);
+      await refreshing;
+      await reopening;
+
+      expect(removed).not.toHaveBeenCalled();
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    } finally {
+      release.resolve(undefined);
+    }
+  });
 
   it('keeps revealed history rows while a fold renames their segments', async () => {
     expect.hasAssertions();
