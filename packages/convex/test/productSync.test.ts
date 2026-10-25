@@ -1327,6 +1327,51 @@ describe('productSync initialization', () => {
     ).rejects.toThrow('Recovery material requires recent authentication');
   });
 
+  it('marks an existing recovery envelope initialized without replacing it', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const device = await connectDevice(t, asUser, 'installation-001');
+    await t.run(async (ctx) => {
+      await ctx.db.insert('encryptedProductSyncPayloads', {
+        encryptedPayload: recoveryEnvelope,
+        payloadIdentifier: 'product-account-recovery-v1',
+        productAccountId: device.connection.productAccountId,
+        trustedDeviceId: device.connection.trustedDeviceId,
+        updatedAt: 1,
+        writtenAt: 1,
+      });
+    });
+
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+          'initializing-device',
+        ),
+        recoveryVerifier,
+        ...device.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).resolves.toStrictEqual({ initialized: true });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        ...device.proof,
+        payloadIdentifier: 'product-account-recovery-v1',
+      }),
+    ).resolves.toMatchObject({
+      encryptedPayload: recoveryEnvelope,
+      updatedAt: 1,
+    });
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.get('productAccounts', device.connection.productAccountId),
+      ),
+    ).resolves.toMatchObject({
+      productSyncMaterialInitializedAt: expect.any(Number),
+    });
+  });
+
   it('rejects record writes until a recovery envelope is published', async () => {
     expect.assertions(4);
 
