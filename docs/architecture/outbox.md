@@ -123,9 +123,10 @@ real-provider and full native send journeys remain deferred release qualificatio
 ## Microsoft acceptance and Sent Items (#636)
 
 Microsoft uses the same immutable admission, assets, Undo Send, Convex claim and
-originating-device ownership. Admission adds a Message-ID and enforces a
-3,000,000-byte MIME limit. Native code inserts verified assets and submits the
-base64 message through Graph's own-mailbox `sendMail` with a current device proof.
+originating-device ownership. Admission adds a Message-ID. MIME up to 3,000,000
+bytes uses own-mailbox `sendMail`; larger messages keep file-free MIME and the
+whole MIME size, capped at 150 MiB, while the file-free MIME must still fit the
+single-request limit. Native code assembles verified assets with current device proof.
 The [Microsoft companion](microsoft-mail.md#sending-and-uncertain-outcomes) records
 the transport boundary and the panel-approved larger-message follow-up.
 
@@ -137,3 +138,21 @@ retain the existing retry policy; refused consent requests Microsoft authorizati
 again without changing the selected connection or Delivery Owner. Controlled
 provider and native-adapter checks remain distinct from live Graph and packaged
 send-journey qualification.
+
+For #917, the shared Outbox durably records a minimal cleanup intent before native
+preparation. It names the Outbox identifier, connection/address and frozen
+Message-ID without keeping message content. The intent is device-local in the
+encrypted Draft document and never participates in Private Sync. Preparation and
+handoff share one process-wide semaphore across local stores; a storage CAS
+refreshes stale state before preparation. Both maintained hosts use one shared
+JavaScript runtime, so another local writer cannot replace a winning preparation.
+
+The queued entry owns replacement-on-retry cleanup. Failed entries and intents
+left after Edit instead run `graphDiscard`, which removes only matching Drafts
+folder messages, requerying after deletions rather than advancing a changing
+offset. Failed cleanup keeps its intent for the next 30-second or activation
+opportunity. An accepted send retires the intent without deletion. Sending and
+unknown entries are ineligible for cleanup; explicit Edit of unknown retires its
+intent without touching the provider because sending may still be in progress.
+Account-data purge still removes this local intent under the existing removal
+contract. Cleanup after permanent loss of authorization cannot be guaranteed.

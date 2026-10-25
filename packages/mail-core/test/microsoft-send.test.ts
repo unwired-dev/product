@@ -2,7 +2,7 @@ import PostalMime from 'postal-mime';
 
 import type { RegistrationSnapshot } from '../src/registration.ts';
 
-import { sendingMailboxes } from '../src/drafts.ts';
+import { createDrafts, sendingMailboxes } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import { defaultProfile, mailboxesOf } from '../src/registration.ts';
@@ -506,6 +506,91 @@ describe('sending Microsoft mail through Graph', () => {
       expect(sending.graph.sends).toHaveLength(1);
     } finally {
       sending.outbox.dispose();
+    }
+  });
+
+  it('keeps interrupted preparation cleanup through offline Edit and relaunch', async () => {
+    expect.hasAssertions();
+    const sending = await microsoftSender();
+    try {
+      const { id } = await large(sending);
+      later(undoSendWindow);
+      sending.graph.failPrepare({ after: 1, interrupted: true });
+      await sending.outbox.process();
+      expect(sending.graph.drafts.size).toBe(1);
+      sending.graph.failDiscard({ status: 503 });
+      const edited = await sending.outbox.undo(id);
+      expect(edited).not.toBe(false);
+      await sending.outbox.process();
+      expect(sending.graph.drafts.size).toBe(1);
+      await sending.relaunch();
+      await sending.outbox.process();
+      expect(sending.graph.drafts.size).toBe(0);
+      expect(sending.graph.sends).toStrictEqual([]);
+      expect(sending.drafts.getSnapshot()).toMatchObject({
+        drafts: [{ id: edited }],
+      });
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it('cleans a preparation edited while native code was attaching its files', async () => {
+    expect.hasAssertions();
+    const sending = await microsoftSender();
+    const original = sending.graph.native.graphPrepare;
+    const prepared = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    sending.graph.native.graphPrepare = async (...args) => {
+      const result = await original(...args);
+      prepared.resolve(undefined);
+      await release.promise;
+      return result;
+    };
+    try {
+      const { id } = await large(sending);
+      later(undoSendWindow);
+      const delivering = sending.outbox.process();
+      await prepared.promise;
+      const edited = await sending.outbox.undo(id);
+      expect(edited).not.toBe(false);
+      release.resolve(undefined);
+      await delivering;
+      expect(sending.graph.drafts.size).toBe(0);
+      expect(sending.graph.sends).toStrictEqual([]);
+      expect(sending.drafts.getSnapshot()).toMatchObject({
+        drafts: [{ id: edited }],
+      });
+    } finally {
+      release.resolve(undefined);
+      sending.outbox.dispose();
+    }
+  });
+
+  it('sends a large message once when two local Outboxes compete for the same device claim', async () => {
+    expect.hasAssertions();
+    const sending = await microsoftSender();
+    let other: ReturnType<typeof createOutbox> | undefined = undefined;
+    try {
+      await large(sending);
+      const drafts = createDrafts(sending.storage.native, sending.registration);
+      await drafts.load();
+      other = createOutbox({
+        drafts,
+        mailboxes: sending.mailboxes,
+        registration: sending.registration,
+        claims: sending.storage.delivery,
+      });
+      later(undoSendWindow);
+      await Promise.all([sending.outbox.process(), other.process()]);
+      await sending.relaunch();
+      await sending.outbox.process();
+      expect(sending.graph.sends).toHaveLength(1);
+      expect(sending.graph.drafts.size).toBe(0);
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    } finally {
+      sending.outbox.dispose();
+      other?.dispose();
     }
   });
 

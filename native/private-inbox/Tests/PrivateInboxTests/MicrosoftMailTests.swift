@@ -481,10 +481,15 @@ extension PrivateInboxTests {
     let microsoft = SyntheticMicrosoftMailProvider()
     microsoft.scopes = ["Mail.ReadWrite", "Mail.Send", "User.Read", "offline_access"]
     let backend = SyntheticProductSyncBackend()
+    var proofUnavailable = false
+    var revoked = false
     let store = RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, microsoft: microsoft, productSync: backend.backend,
-      deviceRevoked: { _ in false }, transport: { try backend.transport($0) },
+      deviceRevoked: { _ in
+        if proofUnavailable { throw RegistrationError.unavailable }
+        return revoked
+      }, transport: { try backend.transport($0) },
       mailCache: PrivateInboxStore(directory: directory, service: service),
       connect: { identity, device, _ in
         try backend.connect("account-" + identity.subject, device: device)
@@ -577,6 +582,17 @@ extension PrivateInboxTests {
     #expect(microsoft.uploads.reduce(Data()) { $0 + $1.body } == large)
     #expect(microsoft.uploads.allSatisfy { $0.url.host == "outlook.office.com" })
 
+    // Each range requires fresh device proof, even though its URL carries upload permission.
+    let beforeUnavailable = microsoft.uploads.count
+    microsoft.uploadReply = {
+      proofUnavailable = true
+      return (200, Data())
+    }
+    await #expect(throws: RegistrationError.unavailable) { _ = try await prepare(files) }
+    #expect(microsoft.uploads.count == beforeUnavailable + 1)
+    proofUnavailable = false
+    microsoft.uploadReply = rangeReply
+
     // Sending the draft is the only request whose outcome may be unknown.
     let sent = try await store.graphSendDraft(
       draft: "AAMk-draft=", connection: id, address: address, generation: generation)
@@ -641,6 +657,35 @@ extension PrivateInboxTests {
         address: address, generation: generation)
     }
     #expect(writes.isEmpty)
+
+    // Cleanup resumes after a lost reply and removes every matching draft, including another
+    // page whose offset would change as messages disappear.
+    var remaining = ["AAMk-orphan1=", "AAMk-orphan2="]
+    microsoft.graphReply = { method, url, _ in
+      if method == "GET" {
+        let found = remaining.first.map { [["id": $0]] } ?? []
+        return (200, try JSONSerialization.data(withJSONObject: ["value": found]))
+      }
+      if method == "DELETE", let draft = remaining.first, url.path.hasSuffix(draft) {
+        remaining.removeFirst()
+        return (204, Data())
+      }
+      return (400, Data())
+    }
+    let cleaned = try await store.graphDiscard(messageId: "m1.b1@example.invalid", connection: id,
+      address: address, generation: generation)
+    #expect(cleaned["status"] as? Int == 204 && remaining.isEmpty)
+
+    // A positive revocation between ranges purges local authorization before any later PUT.
+    microsoft.graphReply = reply
+    let beforeRevoked = microsoft.uploads.count
+    microsoft.uploadReply = {
+      revoked = true
+      return (200, Data())
+    }
+    await #expect(throws: RegistrationError.revoked) { _ = try await prepare(files) }
+    #expect(microsoft.uploads.count == beforeRevoked + 1)
+    #expect(try store.load() == nil)
   }
 
 }

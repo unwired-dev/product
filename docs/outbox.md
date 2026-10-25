@@ -27,6 +27,11 @@ which remains unimplemented. The current behavior and limits below remain accura
 the existing originating-device and uncertain-outcome protections also apply to the
 launch target.
 
+Editing a known-unsent large Microsoft message preserves pending Outlook-draft
+cleanup on this device, including offline and across relaunch. Cleanup retries
+with current authorization without sending anything. A draft whose send outcome
+is unknown remains untouched because Microsoft may still be sending it.
+
 ## Application execution
 
 The application owns Outbox processing independently of any Inbox screen or Mac

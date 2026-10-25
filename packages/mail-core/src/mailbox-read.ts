@@ -12,6 +12,12 @@ import {
 } from './diagnostics.ts';
 
 export interface NativeGraphMailbox {
+  // Deletes only Drafts-folder messages with this frozen Message-ID. A 204 status/body reply
+  // confirms the complete lookup and cleanup; failures retain the device-local cleanup intent.
+  readonly graphDiscard: (
+    messageId: string,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
   // Resolves `{ status, body }` for a Microsoft Graph read of the signed-in person's own mail at
   // `url`; native code refuses any other URL.
   readonly graphRequest: (

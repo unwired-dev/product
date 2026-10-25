@@ -2,6 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
 
 import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { Drafts } from './drafts.ts';
@@ -54,6 +55,9 @@ const decodeClaimed = Schema.decodeUnknownOption(
 export const undoSendWindow = 10_000;
 // How long a message that reached neither Convex nor Gmail waits before trying again.
 const retryDelay = 30_000;
+// Both maintained hosts have one JavaScript runtime. Keep preparation and its handoff together
+// across local stores so a competing writer cannot replace the draft another is about to send.
+const microsoftDelivery = Semaphore.makeUnsafe(1);
 
 // Why Send left a Draft in the composer: no recipients, unfinished recipient text, a sender that
 // cannot send or whose mail server has no Sent folder for its copy, files not complete and verified
@@ -173,6 +177,9 @@ export function createOutbox({
     | 'restore'
     | 'readAsset'
     | 'subscribe'
+    | 'getDeliveryCleanup'
+    | 'prepareDelivery'
+    | 'completeDeliveryCleanup'
   >;
   mailboxes: Pick<Mailboxes, 'getConnections' | 'subscribe'>;
   registration: Pick<Registration, 'getSnapshot' | 'subscribe' | 'resume'>;
@@ -496,14 +503,37 @@ export function createOutbox({
 
   // Keeps a large Microsoft message as an Outlook draft first; only a prepared one is handed off.
   const deliver = async (id: string, current: () => boolean) => {
-    const draft = await prepare(id, current);
-    if (draft !== false) {
-      await handOff(id, current, draft);
+    const entry = entryOf(id);
+    const messageId = entry && messageIdOf(entry.message.segments);
+    if (
+      entry !== undefined &&
+      providerOf(entry.draft) === 'microsoft-graph' &&
+      entry.message.size > graphMessageLimit
+    ) {
+      await runLogged(
+        Effect.promise(async () => {
+          // This CAS also refreshes a stale local store before any provider preparation.
+          if (
+            messageId === undefined ||
+            !(await drafts.prepareDelivery(id, messageId)) ||
+            !current() ||
+            entryOf(id)?.state !== 'queued'
+          ) {
+            return;
+          }
+          const draft = await prepare(id, current);
+          if (draft !== false) {
+            await handOff(id, current, draft);
+          }
+        }).pipe(microsoftDelivery.withPermit),
+      );
+      return;
     }
+    await handOff(id, current, undefined);
   };
 
   // Delivery owns opening its sender even when no Inbox view has loaded it.
-  const openSender = async (draft: Draft) => {
+  const openSender = async (draft: Pick<Draft, 'connection'>) => {
     const cached = mailboxesOf(registration.getSnapshot().snapshot).some(
       (mailbox) =>
         mailbox.id === draft.connection && mailbox.state === 'cached',
@@ -729,6 +759,9 @@ export function createOutbox({
     for (const entry of drafts.getOutbox()) {
       next = Math.min(next, dueAt(entry));
     }
+    for (const { id } of drafts.getDeliveryCleanup()) {
+      next = Math.min(next, retryAt.get(id) ?? 0);
+    }
     if (Number.isFinite(next)) {
       const pending = new AbortController();
       timer = pending;
@@ -824,7 +857,43 @@ export function createOutbox({
   };
   const hasUnknown = () =>
     drafts.getOutbox().some((entry) => entry.state === 'unknown');
+  const cleanPrepared = async () => {
+    for (const pending of drafts.getDeliveryCleanup()) {
+      if (
+        running() &&
+        ownerOf(registration) !== undefined &&
+        (retryAt.get(pending.id) ?? 0) <= Date.now()
+      ) {
+        const started = execution;
+        const account = ownerOf(registration);
+        await runLogged(
+          Effect.promise(async () => {
+            if (
+              !(await openSender(pending)) ||
+              !executing(started, account) ||
+              !drafts.getDeliveryCleanup().some(({ id }) => id === pending.id)
+            ) {
+              return;
+            }
+            const mailbox = connectionOf(pending.connection);
+            if (
+              mailbox?.provider === 'microsoft-graph' &&
+              mailbox.address === pending.address &&
+              (await mailbox.inbox.discardPrepared(pending.messageId)) &&
+              executing(started, account)
+            ) {
+              await drafts.completeDeliveryCleanup(pending.id);
+            }
+          }).pipe(microsoftDelivery.withPermit),
+        );
+        if (executing(started, account)) {
+          retryAt.set(pending.id, Date.now() + retryDelay);
+        }
+      }
+    }
+  };
   const pass = async () => {
+    await cleanPrepared();
     const deferred = new Set<string>();
     // Recovery also owns opening its mailbox after a launch with no Inbox.
     for (const entry of drafts.getOutbox()) {
@@ -850,6 +919,7 @@ export function createOutbox({
         retry(id, started);
       }
     }
+    await cleanPrepared();
   };
   const process = async () => {
     if (!running()) {
@@ -992,7 +1062,11 @@ export function createOutbox({
     // longer return.
     undo: async (id: string) => {
       retryAt.delete(id);
-      return drafts.restore(id);
+      const restored = await drafts.restore(id);
+      if (restored !== false && drafts.getDeliveryCleanup().length > 0) {
+        void process();
+      }
+      return restored;
     },
     // Looks for an unknown message in Gmail's Sent mailbox now, publishing 'checking' at once and
     // 'unconfirmed' when it stays unknown after a lookup, or idle when preparation deferred it.

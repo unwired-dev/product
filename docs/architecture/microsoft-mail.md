@@ -184,7 +184,20 @@ retains unknown. Live preservation of the Message-ID remains unqualified.
 The #636 decision panel chose one MIME request with a 3,000,000-byte message cap
 to fit the 4 MB request after base64 encoding, 3–0. Larger-message draft/upload
 sessions are [#917](https://github.com/unwired-dev/product/issues/917), blocked by
-#636. The panel also chose stacking this slice on SMTP #915, 3–0.
+#636. The panel also chose stacking this slice on SMTP #915, 3–0. #917 now extends
+the runtime with draft creation and native asset attachment for larger messages;
+it retains the single-request limit for file-free MIME. This does not qualify
+arbitrarily large bodies up to the mailbox's own message limit.
+
+`graphPrepare` keeps MIME creation, asset reads and attachment/session requests in
+one purpose-specific native operation. Each upload range requires a fresh
+credential-only device proof and generation/ownership checks; pre-authorized
+upload URLs and asset bytes remain native, and Graph bearer tokens never reach
+upload endpoints. Intermediate upload replies must be 200 and the final reply
+201 before the shared Outbox can hand off the draft. The native registration
+operation gate orders `graphDiscard` after an in-flight preparation. Its durable
+cleanup intent and local-store serialization are described in
+[the Outbox companion](outbox.md#microsoft-acceptance-and-sent-items-636).
 
 ## Evidence
 

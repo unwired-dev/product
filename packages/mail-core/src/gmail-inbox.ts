@@ -4078,6 +4078,22 @@ export function createGmailInbox(
       );
       return outcome.kind === 'prepared' ? outcome : notPrepared(outcome);
     },
+    discardPrepared: async (messageId: string): Promise<boolean> => {
+      const scope = opened;
+      if (graph === undefined || scope === undefined || forgotten) {
+        return false;
+      }
+      return runLogged(
+        Effect.tryPromise({
+          try: () => native.graphDiscard(messageId, scope),
+          catch: sendRejection,
+        }).pipe(
+          Effect.flatMap(decodeResponse),
+          Effect.map(({ status }) => status === 204),
+          Effect.orElseSucceed(() => false),
+        ),
+      );
+    },
     // Looks for a message whose handoff had no answer in this mailbox's Sent messages: Gmail's by
     // its MIME boundary, Microsoft's by its Message-ID. Resolves sent, unknown when the provider
     // cannot establish it, or undefined when the open mailbox was not looked at, as when it closed

@@ -1238,6 +1238,18 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(graphDiscard:mailbox:resolver:rejecter:)
+  func graphDiscard(
+    _ messageId: String, mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("graphDiscard", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.graphDiscard(messageId: messageId, connection: connection,
+        address: address, generation: generation)
+    }
+  }
+
   @objc(imapOpen:resolver:rejecter:)
   func imapOpen(
     _ scope: [String: Any], resolve: @escaping RCTPromiseResolveBlock,

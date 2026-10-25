@@ -184,6 +184,43 @@ extension RegistrationStore {
     value.range(of: #"^[\w=-]{1,512}$"#, options: .regularExpression) != nil
   }
 
+  // Cleanup intent stays in the encrypted Draft document until this complete search succeeds.
+  // Requery after deletion rather than advancing an offset through a changing Drafts folder.
+  func graphDiscard(messageId: String, connection: String, address: String, generation: String)
+    async throws -> [String: Any]
+  {
+    guard messageId.range(of: #"^[\w.-]{1,200}@[\w.-]{1,200}$"#, options: .regularExpression) != nil else {
+      throw RegistrationError.unavailable
+    }
+    var search = URLComponents(string: "https://graph.microsoft.com/v1.0/me/mailFolders/drafts/messages")
+    search?.queryItems = [
+      URLQueryItem(name: "$filter", value: "internetMessageId eq '<\(messageId)>'"),
+      URLQueryItem(name: "$select", value: "id"),
+    ]
+    guard let url = search?.url else { throw RegistrationError.unavailable }
+    for _ in 0..<200 {
+      let reply = try await graphCall(url: url, method: "GET", body: nil, connection: connection,
+        address: address, generation: generation)
+      guard reply["status"] as? Int == 200 else { return reply }
+      guard let body = reply["body"] as? String,
+        let json = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+        let found = json["value"] as? [[String: Any]] else { throw RegistrationError.unavailable }
+      if found.isEmpty {
+        // An empty continuation is not proof that all matching drafts were removed.
+        guard json["@odata.nextLink"] == nil else { throw RegistrationError.unavailable }
+        return ["status": 204, "body": ""]
+      }
+      for each in found {
+        guard let id = each["id"] as? String, Self.graphID(id),
+          let target = URL(string: "\(Self.graphMessages)/\(id)") else { throw RegistrationError.unavailable }
+        let removed = try await graphCall(url: target, method: "DELETE", body: Data(),
+          connection: connection, address: address, generation: generation)
+        guard let status = removed["status"] as? Int, status == 204 || status == 404 else { return removed }
+      }
+    }
+    throw RegistrationError.unavailable
+  }
+
   // Keeps a message too large for sendMail as an Outlook draft. The drafts an interrupted attempt
   // left under the same Message-ID were never sent and are deleted first. Then the MIME without
   // files is saved, and each named Draft Asset's verified bytes are attached here, so they never
@@ -287,7 +324,15 @@ extension RegistrationStore {
       var start = 0
       while start < bytes.count {
         try Task.checkCancellation()
-        guard mailboxGeneration(connection).uuidString == generation else {
+        let product = try mailboxAccount(connection)
+        guard let deviceRevoked else { throw RegistrationError.unavailable }
+        if try await deviceRevoked(product) {
+          try await purge()
+          throw RegistrationError.revoked
+        }
+        let current = try mailboxAccount(connection)
+        guard current.productAccountId == owner, verifiedMailboxes.contains(connection),
+          mailboxGeneration(connection).uuidString == generation else {
           throw PrivateInboxError.mailboxInvalidated
         }
         let end = min(start + Self.graphUploadRange, bytes.count)

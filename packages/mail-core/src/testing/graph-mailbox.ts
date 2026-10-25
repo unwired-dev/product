@@ -136,6 +136,7 @@ export function createSyntheticGraph({
   }> = [];
   const drafts = new Map<string, OutlookDraft>();
   const prepareFailures: PrepareFailure[] = [];
+  const discardFailures: Failure[] = [];
   const sendFailures: SendFailure[] = [];
   // Accepted messages whose Sent Items copy Microsoft has not filed yet.
   let filing: SyntheticGraphMessage[] | undefined = undefined;
@@ -638,6 +639,18 @@ export function createSyntheticGraph({
     },
     // Deletes the drafts an earlier attempt left under this Message-ID, keeps the MIME as a draft
     // and attaches each file's verified bytes. A refusal deletes the new draft, as native code does.
+    graphDiscard: async (messageId) => {
+      const failure = discardFailures.shift();
+      if (failure !== undefined) {
+        return fail(failure);
+      }
+      for (const [id, each] of drafts) {
+        if (each.messageId === messageId) {
+          drafts.delete(id);
+        }
+      }
+      return { status: 204, body: '' };
+    },
     graphPrepare: async ({ segments, messageId, files }) => {
       const raw = assembled(segments, assets);
       if (raw === undefined) {
@@ -711,6 +724,9 @@ export function createSyntheticGraph({
     drafts,
     failPrepare: (...next: readonly PrepareFailure[]) => {
       prepareFailures.push(...next);
+    },
+    failDiscard: (...next: readonly Failure[]) => {
+      discardFailures.push(...next);
     },
     // Microsoft files Sent Items copies only once `fileSentCopies` is called, as when it is slow.
     holdSentCopies: () => {
