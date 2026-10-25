@@ -1329,14 +1329,11 @@ describe('the mobile Profile Switcher', () => {
       });
       // Hold the queued move so its pending state stays on screen.
       const { moveMailbox } = registration;
-      let release: () => void = () => undefined;
+      const movingMailbox = Promise.withResolvers<undefined>();
       jest
         .spyOn(registration, 'moveMailbox')
         .mockImplementationOnce(async (...move) => {
-          // oxlint-disable-next-line promise/avoid-new -- Hold the move until the test releases it.
-          await new Promise<void>((resolve) => {
-            release = resolve;
-          });
+          await movingMailbox.promise;
           return moveMailbox(...move);
         });
       await choose(moving, defaultProfile);
@@ -1351,7 +1348,7 @@ describe('the mobile Profile Switcher', () => {
         screen.getByRole('button', { name: 'Primary Profile' }),
       ).toBeEnabled();
       await act(async () => {
-        release();
+        movingMailbox.resolve(undefined);
         await Promise.resolve();
       });
       await waitFor(() => {
