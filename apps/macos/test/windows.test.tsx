@@ -980,13 +980,17 @@ describe('mac windows over a connected Gmail mailbox', () => {
   it('lists archived Gmail mail in the unified Archive and restores unified Trash mail to the Inbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
-    const kept = gmail.deliver({ subject: 'Kept receipt' });
+    const kept = gmail.deliver({
+      subject: 'Kept receipt',
+      content: { text: 'Paid in full.' },
+    });
     gmail.archive(kept);
     gmail.deliver({ subject: 'Lunch on Friday' });
     const old = gmail.deliver({ subject: 'Old newsletter' });
     gmail.setLabel(old, 'TRASH', true);
     gmail.setLabel(old, 'INBOX', false);
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const inbox = createGmailInbox(gmail.native);
+    showMailboxes(singleMailbox(inbox, alex));
     const app = await render(
       <Windows
         first
@@ -1007,6 +1011,17 @@ describe('mac windows over a connected Gmail mailbox', () => {
       expect(
         first.queryByRole('button', { name: /Lunch on Friday/u }),
       ).toBeNull();
+      await fireEvent.press(
+        first.getByRole('button', { name: /Kept receipt/u }),
+      );
+      await expect(first.findByText('Paid in full.')).resolves.toBeVisible();
+      // Newer archived mail joins the list above the open message without replacing it.
+      gmail.archive(gmail.deliver({ subject: 'Newer receipt' }));
+      await act(() => inbox.load());
+      await expect(
+        first.findByRole('button', { name: /Newer receipt/u }),
+      ).resolves.toBeVisible();
+      expect(first.getByText('Paid in full.')).toBeVisible();
       await fireEvent.press(
         first.getByRole('button', { name: 'Trash. In All mailboxes' }),
       );

@@ -3,6 +3,7 @@ import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import {
   mailboxSidebar,
+  profileMailboxes,
   unifiedFolders,
   unifiedMailbox,
 } from '@private-email/mail-core/mailboxes';
@@ -182,5 +183,35 @@ describe('unified mailboxes across connections', () => {
     });
     expect(sidebar.allSelected).toBe(false);
     expect(selectedFolders(sidebar)).toStrictEqual([]);
+  });
+
+  it('lists only the window Profile’s connections', async () => {
+    expect.hasAssertions();
+    const { gmail, imap, stores } = await connections();
+    const personal = gmail.deliver({ subject: 'Personal sent', at: minute(1) });
+    gmail.archive(personal);
+    gmail.setLabel(personal, 'SENT', true);
+    imap.deliver('Sent Messages', {
+      subject: 'Work sent',
+      received: minute(2),
+    });
+    for (const { inbox } of stores) {
+      await inbox.load();
+    }
+    // The IMAP connection belongs to the Work Profile; the others to the default one.
+    const scoped = (profile: string) =>
+      profileMailboxes(
+        stores.map((store) => ({
+          ...store,
+          profile: store.id === 'imap' ? 'work' : defaultProfile,
+        })),
+        profile,
+      );
+    expect(rows(await opened(scoped('work'), 'SENT'))).toStrictEqual([
+      ['imap', 'Work sent', 'Sent Messages'],
+    ]);
+    expect(rows(await opened(scoped(defaultProfile), 'SENT'))).toStrictEqual([
+      ['gmail', 'Personal sent', 'SENT'],
+    ]);
   });
 });
