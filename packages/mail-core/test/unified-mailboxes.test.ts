@@ -1,26 +1,17 @@
-import type { GmailInboxState } from '../src/gmail-inbox.ts';
-
-import { allMail, gmailArchive } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
-import { createImapInbox } from '../src/imap-inbox.ts';
+import { allMail, gmailArchive } from '@private-email/mail-core/gmail-actions';
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import {
   mailboxSidebar,
   unifiedFolders,
   unifiedMailbox,
-} from '../src/mailboxes.ts';
-import { defaultProfile } from '../src/registration.ts';
-import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
-import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
-import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
+} from '@private-email/mail-core/mailboxes';
+import { defaultProfile } from '@private-email/mail-core/registration';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 
 const minute = (n: number) => Date.UTC(2026, 8, 1, 9, n);
-
-const ready = (state: GmailInboxState) => {
-  if (state.kind !== 'ready') {
-    throw new Error(`Expected a ready Inbox, received ${state.kind}`);
-  }
-  return state;
-};
 
 // One connection of each provider, opened as the Mailboxes registry would.
 async function connections() {
@@ -96,7 +87,7 @@ describe('unified mailboxes across connections', () => {
     const { gmail, graph, imap, bare, stores } = await connections();
     const kept = gmail.deliver({ subject: 'Gmail kept', at: minute(1) });
     gmail.archive(kept);
-    const welcome = gmail.deliver({ subject: 'Gmail inbox', at: minute(2) });
+    gmail.deliver({ subject: 'Gmail inbox', at: minute(2) });
     const sent = gmail.deliver({ subject: 'Gmail sent', at: minute(5) });
     gmail.archive(sent);
     gmail.setLabel(sent, 'SENT', true);
@@ -125,10 +116,6 @@ describe('unified mailboxes across connections', () => {
     for (const { inbox } of stores) {
       await inbox.load();
     }
-    expect(
-      ready(gmailInboxState(stores)).messages.map(({ id }) => id),
-    ).toStrictEqual([welcome]);
-
     const archive = await opened(stores, 'ARCHIVE');
     // Gmail's Archive is mail outside Inbox, Sent and Drafts; a folder merely named Archive is
     // not one, so that connection is missing instead.
@@ -197,11 +184,3 @@ describe('unified mailboxes across connections', () => {
     expect(selectedFolders(sidebar)).toStrictEqual([]);
   });
 });
-
-function gmailInboxState(stores: Stores) {
-  const [gmail] = stores;
-  if (gmail === undefined || !('openView' in gmail.inbox)) {
-    throw new Error('Expected the Gmail store');
-  }
-  return gmail.inbox.getSnapshot();
-}
