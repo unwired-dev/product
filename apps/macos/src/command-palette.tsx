@@ -956,8 +956,9 @@ function CommandRow({
       accessibilityState={{ disabled, selected: highlighted }}
       disabled={disabled}
       onPress={onPress}
-      style={[
+      style={({ pressed }) => [
         styles.row,
+        pressed ? { backgroundColor: colors.accentSelectionSubtle } : null,
         highlighted ? { backgroundColor: colors.accentFill } : null,
       ]}>
       <View style={dimmed}>
