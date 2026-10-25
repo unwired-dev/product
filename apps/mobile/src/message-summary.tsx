@@ -31,7 +31,7 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
-import { OnDeviceMarker } from './design.tsx';
+import { OnDeviceMarker, useOutcomeAnnouncement } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -87,6 +87,16 @@ function SummaryContent({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const failure =
+    state.kind === 'summarizing' || state.kind === 'ready'
+      ? undefined
+      : t(
+          `summary.${state.kind === 'unavailable' ? state.reason : state.kind}`,
+        );
+  useOutcomeAnnouncement(
+    state.kind === 'ready' ? `${t('summary.title')}\n${state.text}` : failure,
+    state.kind === 'ready',
+  );
   const dismiss = (
     <Action
       label={t('summary.dismiss')}
@@ -141,9 +151,7 @@ function SummaryContent({
       <Text
         accessibilityRole="alert"
         style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t(
-          `summary.${state.kind === 'unavailable' ? state.reason : state.kind}`,
-        )}
+        {failure}
       </Text>
       <View style={styles.row}>
         {canRetryAssistance(state) ? (
