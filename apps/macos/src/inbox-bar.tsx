@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 
 import { composeCommand } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
@@ -44,6 +44,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
     padding: spacing.l,
+  },
+  // Centered 12pt above the search bar.
+  notice: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: spacing.l + 40 + spacing.m,
+    alignItems: 'center',
+    paddingHorizontal: spacing.l,
   },
   searchBar: {
     flex: 1,
@@ -173,6 +182,7 @@ export function FloatingBar({
   onCompose,
   scope,
   search,
+  notice,
 }: {
   readonly hidden?: boolean;
   // Search waits for a mailbox to be readable.
@@ -183,6 +193,8 @@ export function FloatingBar({
   readonly scope: string | undefined;
   // The search field, which the Command Palette's Search Mail focuses.
   readonly search: RefObject<TextInput | null>;
+  // A toast above the bar.
+  readonly notice?: ReactNode;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -231,6 +243,11 @@ export function FloatingBar({
             scope={scope}
           />
         )}
+      </View>
+      <View
+        pointerEvents="box-none"
+        style={[styles.notice, { display: hidden ? 'none' : 'flex' }]}>
+        {notice}
       </View>
     </>
   );

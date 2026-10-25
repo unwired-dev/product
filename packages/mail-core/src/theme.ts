@@ -59,6 +59,8 @@ export const palette = {
     scrimTouch: 'rgba(0, 0, 0, 0.22)',
     // Menus, popovers and sheets, which float above the content.
     menuShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
+    // The deep graphite toast above the floating search bar, alike in Light and Dark.
+    toastShadow: '0px 6px 9px rgba(0, 0, 0, 0.18)',
   },
   dark: {
     accentFill: '#6A6E78',
@@ -90,6 +92,7 @@ export const palette = {
     scrimMac: 'rgba(0, 0, 0, 0.18)',
     scrimTouch: 'rgba(0, 0, 0, 0.45)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
+    toastShadow: '0px 6px 9px rgba(0, 0, 0, 0.18)',
   },
 };
 

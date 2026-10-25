@@ -843,6 +843,10 @@
     "rowLabel": "{{subject}}. {{recipients}}. {{status}}",
     "undo": "Undo",
     "edit": "Edit",
+    "refused": "Couldn’t return “{{subject}}” to Drafts.",
+    "refusedShort": "Couldn’t return the message to Drafts.",
+    "tryAgain": "Try Again",
+    "inSent": "{{subject}} is in Sent.",
     "state": {
       "waiting": "Sending soon",
       "sending": "Sending…",
