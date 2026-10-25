@@ -215,8 +215,8 @@ Sources: [restricted-scope verification](https://developers.google.com/identity/
 
 - **Audience.** The protected test tenant's internal audience admits only its own
   organization. An external app in **Testing** admits at most 100 listed test users,
-  and their grants and refresh tokens expire seven days after consent because
-  Gmail is not a basic-profile scope. An unverified app **In production** shows the
+  and their grants and refresh tokens expire seven days after consent because the
+  request adds `gmail.modify` to the basic-profile scopes. An unverified app **In production** shows the
   unverified-app warning and admits 100 new users over the project's lifetime.
   The public release therefore needs an external audience, **In production**, with
   restricted-scope verification complete.
