@@ -1336,24 +1336,24 @@ describe('the mobile Profile Switcher', () => {
       const renaming = Promise.withResolvers<undefined>();
       const renameStarted = Promise.withResolvers<undefined>();
       const movingMailbox = Promise.withResolvers<undefined>();
-      let firstWrite = true;
       // Hold native persistence while the real store serializes the move and editing completion.
-      jest.spyOn(vault, 'recordProfiles').mockImplementation(async (next) => {
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- The native fake holds only the first persistence call.
-        if (firstWrite) {
-          firstWrite = false;
+      jest
+        .spyOn(vault, 'recordProfiles')
+        .mockImplementationOnce(async (next) => {
           await movingMailbox.promise;
-        }
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Refuse only the queued rename at the native persistence boundary.
-        if (next.profiles.some(({ pending }) => pending === 'Office')) {
-          renameStarted.resolve(undefined);
-          await renaming.promise;
-          throw Object.assign(new Error('Synthetic rename refused'), {
-            code: 'profile-changed',
-          });
-        }
-        return recordProfiles(next);
-      });
+          return recordProfiles(next);
+        })
+        .mockImplementation(async (next) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Refuse only the queued rename at the native persistence boundary.
+          if (next.profiles.some(({ pending }) => pending === 'Office')) {
+            renameStarted.resolve(undefined);
+            await renaming.promise;
+            throw Object.assign(new Error('Synthetic rename refused'), {
+              code: 'profile-changed',
+            });
+          }
+          return recordProfiles(next);
+        });
       await choose(moving, defaultProfile);
       // Only the indicator replaces the pop-up; the other Profile changes wait for the move.
       expect(screen.getByLabelText('Moving to Primary Profile…')).toBeVisible();

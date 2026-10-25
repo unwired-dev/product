@@ -2145,24 +2145,24 @@ describe('mac windows of different Mail Profiles', () => {
       const movingMailbox = new Promise<void>((resolve) => {
         release = resolve;
       });
-      let firstWrite = true;
       // Hold native persistence while the real store serializes the move and editing completion.
-      jest.spyOn(vault, 'recordProfiles').mockImplementation(async (next) => {
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- The native fake holds only the first persistence call.
-        if (firstWrite) {
-          firstWrite = false;
+      jest
+        .spyOn(vault, 'recordProfiles')
+        .mockImplementationOnce(async (next) => {
           await movingMailbox;
-        }
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Refuse only the queued rename at the native persistence boundary.
-        if (next.profiles.some(({ pending }) => pending === 'Office')) {
-          startedRename();
-          await renaming;
-          throw Object.assign(new Error('Synthetic rename refused'), {
-            code: 'profile-changed',
-          });
-        }
-        return recordProfiles(next);
-      });
+          return recordProfiles(next);
+        })
+        .mockImplementation(async (next) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Refuse only the queued rename at the native persistence boundary.
+          if (next.profiles.some(({ pending }) => pending === 'Office')) {
+            startedRename();
+            await renaming;
+            throw Object.assign(new Error('Synthetic rename refused'), {
+              code: 'profile-changed',
+            });
+          }
+          return recordProfiles(next);
+        });
       await fireEvent.press(settings.getByRole('button', { name: moving }));
       await chooseMenuItem('Primary Profile');
       // The pop-up reads the move's progress; the other Profile changes wait for it.
