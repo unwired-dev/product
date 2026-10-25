@@ -296,7 +296,12 @@ export function MailProfilesSettings({
               await store.createProfile(name);
               return store.getSnapshot().profileFailure;
             });
-          }}>
+          }}
+          style={({ pressed }) =>
+            pressed && {
+              backgroundColor: colors.accentSelectionSubtle,
+            }
+          }>
           <SettingsRow
             title={t('profiles.add')}
             titleTone="accent"
@@ -349,7 +354,12 @@ export function MailProfilesSettings({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t('profiles.remove')}
-            onPress={confirmRemoval}>
+            onPress={confirmRemoval}
+            style={({ pressed }) =>
+              pressed && {
+                backgroundColor: colors.accentSelectionSubtle,
+              }
+            }>
             <SettingsRow
               title={t('profiles.remove')}
               titleTone="destructive"
