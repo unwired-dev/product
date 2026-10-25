@@ -38,15 +38,32 @@ describe('restoring', () => {
       await Promise.resolve();
     });
     const shown = breathing();
+    const [seal] = screen.container.queryAll((node) =>
+      JSON.stringify([node.props.jestInlineStyle]).includes(
+        '"animationIterationCount":"infinite"',
+      ),
+    );
+    const status = screen.getByText('Opening your mail…', {
+      includeHiddenElements: true,
+    });
+    expect(seal).toBeOnTheScreen();
 
     await act(() => {
       changeReduceMotion(true);
     });
     const reduced = breathing();
+    // A fresh native seal discards the opacity retained by a detached CSS animation.
+    expect(seal).not.toBeOnTheScreen();
+    expect(
+      screen.getByText('Opening your mail…', { includeHiddenElements: true }),
+    ).toBe(status);
     await act(() => {
       changeReduceMotion(false);
     });
 
     expect([shown, reduced, breathing()]).toStrictEqual([true, false, true]);
+    expect(
+      screen.getByText('Opening your mail…', { includeHiddenElements: true }),
+    ).toBe(status);
   });
 });
