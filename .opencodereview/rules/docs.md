@@ -4,6 +4,11 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Accuracy against the repository
 
+- A copy example in a changeset or `docs/product/interaction-motion.md` using a
+  bare angle-bracket placeholder such as `<Profile>` in prose. Check Markdown's
+  rendered meaning; use a concrete example or inline code for literal placeholders,
+  or HTML parsing hides part of the documented label.
+
 - A native-control description in `docs/macos-client.md` or another feature
   guide that omits or misassigns Apple versus TypeScript ownership of the
   presentation it describes. Trace both the host component and native control,

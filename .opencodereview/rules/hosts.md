@@ -214,6 +214,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   explicitly held work; otherwise the indicator ends early and admits another
   interaction while synchronization is still running.
 
+- `profile-settings.tsx.change` or another host progress owner retiring its
+  pending entry only after a fulfilled store action. Trace rejected promises as
+  well as state-reported refusals; cleanup must retire that operation on either
+  settlement while retaining other queued entries and the rejection contract.
+  Otherwise a store defect leaves every Mail Profile action disabled indefinitely.
+
 - `inbox-bar.tsx.SearchField` echoing a render-captured query into native text
   while newer edits are already in flight. Check the installed TextInput's
   native text prop, imperative synchronization and explicit-clear contract.

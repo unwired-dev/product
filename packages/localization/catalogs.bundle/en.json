@@ -1171,6 +1171,7 @@
     "moveMailbox": "Mail Profile for {{address}}",
     "moveTitle": "Mailbox Not Moved",
     "moveFailed": "The mailbox could not be moved. Try again.",
+    "moving": "Moving to {{name}}…",
     "remove": "Remove Mail Profile…",
     "removeAction": "Remove",
     "removeQuestion": "Remove “{{name}}”?",

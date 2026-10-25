@@ -1297,7 +1297,11 @@ describe('the mobile Profile Switcher', () => {
   /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
   it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
     expect.hasAssertions();
-    const { registration, work: workId } = await createTwoProfileRegistration();
+    const {
+      registration,
+      vault,
+      work: workId,
+    } = await createTwoProfileRegistration();
     const mode = jest.replaceProperty(
       jest.requireMock<{ previewInbox: boolean }>(
         '@private-email/mail-core/registration-mode',
@@ -1327,13 +1331,94 @@ describe('the mobile Profile Switcher', () => {
       expect(screen.getByLabelText(moving)).toHaveAccessibilityValue({
         text: 'Work',
       });
+      await fireEvent.changeText(screen.getByDisplayValue('Work'), 'Office');
+      const { recordProfiles } = vault;
+      const renaming = Promise.withResolvers<undefined>();
+      const renameStarted = Promise.withResolvers<undefined>();
+      const movingMailbox = Promise.withResolvers<undefined>();
+      // Hold native persistence while the real store serializes the move and editing completion.
+      jest
+        .spyOn(vault, 'recordProfiles')
+        .mockImplementationOnce(async (next) => {
+          await movingMailbox.promise;
+          return recordProfiles(next);
+        })
+        .mockImplementation(async (next) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Refuse only the queued rename at the native persistence boundary.
+          if (next.profiles.some(({ pending }) => pending === 'Office')) {
+            renameStarted.resolve(undefined);
+            await renaming.promise;
+            throw Object.assign(new Error('Synthetic rename refused'), {
+              code: 'profile-changed',
+            });
+          }
+          return recordProfiles(next);
+        });
       await choose(moving, defaultProfile);
+      // Only the indicator replaces the pop-up; the other Profile changes wait for the move.
+      expect(screen.getByLabelText('Moving to Primary Profile…')).toBeVisible();
+      expect(screen.queryByLabelText(moving)).toBeNull();
+      for (const name of ['Add Mail Profile…', 'Remove Mail Profile…']) {
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      }
+      expect(screen.getByDisplayValue('Office')).toHaveProp('editable', false);
+      expect(
+        screen.getByRole('button', { name: 'Primary Profile' }),
+      ).toBeEnabled();
+      // Disabling the edited native field can deliver its queued editing completion.
+      await act(() => {
+        screen.getByDisplayValue('Office').props.onEndEditing();
+      });
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Primary Profile' }),
+      );
+      const otherMailbox = screen.getByLabelText(
+        'Mail Profile for alex@example.invalid',
+      );
+      expect(otherMailbox).toBeDisabled();
+      // A native menu answer queued before disablement still reaches the event boundary.
+      await act(() => {
+        otherMailbox.props.onSelect({ nativeEvent: { id: workId } });
+      });
+      expect(otherMailbox).toHaveAccessibilityValue({
+        text: 'Primary Profile',
+      });
+      await fireEvent.press(screen.getByRole('button', { name: 'Work' }));
+      await act(async () => {
+        movingMailbox.resolve(undefined);
+        await renameStarted.promise;
+      });
       await waitFor(() => {
         expect(
           screen.getByRole('button', { name: 'Work' }).props.accessibilityHint,
         ).toBe('No mailboxes');
       });
       expect(screen.queryByLabelText(moving)).toBeNull();
+      expect(screen.queryByLabelText('Moving to Primary Profile…')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+      ).toBeDisabled();
+      await act(async () => {
+        renaming.resolve(undefined);
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Work')).toBeVisible();
+      });
+      expect(
+        mailboxesOf(registration.getSnapshot().snapshot).find(
+          ({ address }) => address === 'alex@example.invalid',
+        )?.profile,
+      ).toBe(defaultProfile);
+      expect(alert).toHaveBeenCalledWith(
+        'Rename Mail Profile',
+        'Another device changed these Mail Profiles first. Check them, then try again.',
+        [{ text: 'OK' }],
+      );
+      alert.mockClear();
+      expect(
+        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+      ).toBeEnabled();
       // The Primary Profile lists both mailboxes and cannot be removed.
       await fireEvent.press(
         screen.getByRole('button', { name: 'Primary Profile' }),
