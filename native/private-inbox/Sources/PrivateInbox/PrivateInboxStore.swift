@@ -249,8 +249,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
         // The document is stored, so removal is best effort: a segment that stays is unnamed and
         // removed by a later history commit, rather than turning this stored commit into a refusal.
         try? removeURLs(
-          (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil))?
-            .filter { !keep.contains($0.deletingPathExtension().lastPathComponent) } ?? [])
+          FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { !keep.contains($0.deletingPathExtension().lastPathComponent) })
       }
       return ["revision": next.revision, "address": address, "document": document]
     }

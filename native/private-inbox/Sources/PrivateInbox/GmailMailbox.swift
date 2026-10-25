@@ -318,13 +318,12 @@ extension RegistrationStore {
     -> [String: Any]
   {
     let owner = { [self] () throws -> String in
-      guard mailCache != nil else { throw RegistrationError.unavailable }
       guard mailboxGeneration(id).uuidString == generation else {
         throw PrivateInboxError.mailboxInvalidated
       }
       guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
       let mailbox = try connectedMailbox(id).1
-      guard mailbox.address == address, mailboxGeneration(id).uuidString == generation else {
+      guard mailbox.address == address else {
         throw PrivateInboxError.mailboxInvalidated
       }
       return mailbox.subject
@@ -349,7 +348,6 @@ extension RegistrationStore {
     -> [String: Any]
   {
     let owner = { [self] () throws -> (address: String, subject: String) in
-      guard mailCache != nil else { throw RegistrationError.unavailable }
       guard verifiedMailboxes.contains(id) || cacheOnlyMailboxes.contains(id),
         mailboxGeneration(id).uuidString == generation
       else { throw PrivateInboxError.mailboxInvalidated }
@@ -399,8 +397,8 @@ extension RegistrationStore {
     discard: @escaping @Sendable (PrivateInboxStore, Value) throws -> Void = { _, _ in },
     _ work: @escaping @Sendable (PrivateInboxStore, Owner) throws -> Value
   ) async throws -> Value {
-    let subject = try owner()
     guard let mailCache else { throw RegistrationError.unavailable }
+    let subject = try owner()
     guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
     let value: Value
     do {
