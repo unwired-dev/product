@@ -121,6 +121,8 @@ export function createSyntheticDevice() {
     // An unanswered request: the backend applies it, and the reply is lost.
     loseReply: false,
     unregisterFailure: undefined as string | undefined,
+    // The code removing a Mailbox Connection fails with before it changes anything.
+    mailboxRemovalFailure: undefined as string | undefined,
     deletionStatus: 200,
     deletionCode: undefined as string | undefined,
     // Identities that each link step verified, in order.
