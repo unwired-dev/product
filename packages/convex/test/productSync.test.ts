@@ -160,19 +160,13 @@ describe('productSync encrypted payloads', () => {
   });
 
   it('rejects trusted-device reads from unauthenticated callers', async () => {
-    expect.assertions(3);
+    expect.assertions(2);
 
     const { connect, t } = await connectAppleDevice();
 
     await expect(
       t.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         payloadIdentifier: 'payload-001',
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Authentication required');
-    await expect(
-      t.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
-        payloadIdentifiers: ['payload-001'],
         trustedDeviceId: connect.trustedDeviceId,
       }),
     ).rejects.toThrow('Authentication required');
@@ -185,7 +179,7 @@ describe('productSync encrypted payloads', () => {
   });
 
   it('rejects malformed trusted-device read arguments', async () => {
-    expect.assertions(3);
+    expect.assertions(2);
 
     const { asUser } = await connectAppleDevice();
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Malformed runtime input is intentional validation coverage.
@@ -198,40 +192,11 @@ describe('productSync encrypted payloads', () => {
       }),
     ).rejects.toThrow('Validator error');
     await expect(
-      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
-        payloadIdentifiers: ['payload-001'],
-        trustedDeviceId: malformedTrustedDeviceId,
-      }),
-    ).rejects.toThrow('Validator error');
-    await expect(
       asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
         paginationOpts: firstPage,
         trustedDeviceId: malformedTrustedDeviceId,
       }),
     ).rejects.toThrow('Validator error');
-  });
-
-  it('bounds exact trusted-device reads to one atomic batch', async () => {
-    expect.assertions(2);
-
-    const { asUser, connect } = await connectAppleDevice();
-    const identifiers = Array.from(
-      { length: 101 },
-      (_, index) => `payload-${String(index)}`,
-    );
-
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
-        payloadIdentifiers: identifiers.slice(0, 100),
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).resolves.toStrictEqual([]);
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
-        payloadIdentifiers: identifiers,
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Encrypted Product Sync read has too many identifiers');
   });
 
   it('updates an encrypted payload only when its version is unchanged', async () => {
@@ -334,6 +299,15 @@ describe('productSync encrypted payloads', () => {
       connect.trustedDeviceId,
       'profile-config-source',
     );
+    const readBoth = async () =>
+      Promise.all(
+        [first, second].map(async ({ payloadIdentifier }) =>
+          asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+            payloadIdentifier,
+            trustedDeviceId: connect.trustedDeviceId,
+          }),
+        ),
+      );
     const stale = await asUser.mutation(
       api.productSync.putEncryptedPayloadsAtomically,
       {
@@ -357,13 +331,7 @@ describe('productSync encrypted payloads', () => {
         ],
       },
     );
-    const afterStale = await asUser.query(
-      api.productSync.getEncryptedPayloadsForTrustedDevice,
-      {
-        payloadIdentifiers: [first.payloadIdentifier, second.payloadIdentifier],
-        trustedDeviceId: connect.trustedDeviceId,
-      },
-    );
+    const afterStale = await readBoth();
     const committed = await asUser.mutation(
       api.productSync.putEncryptedPayloadsAtomically,
       {
@@ -387,33 +355,18 @@ describe('productSync encrypted payloads', () => {
         ],
       },
     );
-    const afterCommit = await asUser.query(
-      api.productSync.getEncryptedPayloadsForTrustedDevice,
-      {
-        payloadIdentifiers: [first.payloadIdentifier, second.payloadIdentifier],
-        trustedDeviceId: connect.trustedDeviceId,
-      },
-    );
+    const afterCommit = await readBoth();
 
     expect(stale).toMatchObject({ committed: false });
-    expect(
-      new Map(
-        afterStale.map(({ payloadIdentifier, updatedAt }) => [
-          payloadIdentifier,
-          updatedAt,
-        ]),
-      ),
-    ).toStrictEqual(
-      new Map([
-        [first.payloadIdentifier, first.updatedAt],
-        [second.payloadIdentifier, second.updatedAt],
-      ]),
-    );
+    expect(afterStale.map((payload) => payload?.updatedAt)).toStrictEqual([
+      first.updatedAt,
+      second.updatedAt,
+    ]);
     expect(committed).toMatchObject({ committed: true });
-    expect(afterCommit).toHaveLength(1);
     expect(afterCommit[0]?.encryptedPayload.ciphertextBase64).toBe(
       'cHJvZmlsZS11cGRhdGU',
     );
+    expect(afterCommit[1]).toBeNull();
   });
 
   it.each([
@@ -999,31 +952,8 @@ describe('productSync encrypted payloads', () => {
     expect(missing).toBeNull();
   });
 
-  it('gets only requested encrypted payloads', async () => {
-    expect.assertions(2);
-
-    const { asUser, connect } = await connectAppleDevice();
-
-    const stored = await putPayload(
-      asUser,
-      connect.trustedDeviceId,
-      'payload-001',
-    );
-    await putPayload(asUser, connect.trustedDeviceId, 'payload-002');
-    const found = await asUser.query(
-      api.productSync.getEncryptedPayloadsForTrustedDevice,
-      {
-        payloadIdentifiers: ['payload-001', 'missing-payload'],
-        trustedDeviceId: connect.trustedDeviceId,
-      },
-    );
-
-    expect(found).toStrictEqual([stored]);
-    expect(found).toHaveLength(1);
-  });
-
   it('does not expose targeted encrypted payloads across Product Accounts', async () => {
-    expect.assertions(2);
+    expect.assertions(1);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -1051,12 +981,6 @@ describe('productSync encrypted payloads', () => {
         trustedDeviceId: otherConnect.trustedDeviceId,
       }),
     ).resolves.toBeNull();
-    await expect(
-      asOtherUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
-        payloadIdentifiers: ['payload-001'],
-        trustedDeviceId: otherConnect.trustedDeviceId,
-      }),
-    ).resolves.toStrictEqual([]);
   });
 
   it('does not expose encrypted payloads across Product Accounts', async () => {
@@ -1403,19 +1327,23 @@ describe('productSync initialization', () => {
     ).rejects.toThrow('Recovery material requires recent authentication');
   });
 
-  it('rejects the initialized marker until a recovery envelope is published', async () => {
-    expect.assertions(2);
+  it('marks an existing recovery envelope initialized without replacing it', async () => {
+    expect.assertions(3);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
     const device = await connectDevice(t, asUser, 'installation-001');
+    await t.run(async (ctx) => {
+      await ctx.db.insert('encryptedProductSyncPayloads', {
+        encryptedPayload: recoveryEnvelope,
+        payloadIdentifier: 'product-account-recovery-v1',
+        productAccountId: device.connection.productAccountId,
+        trustedDeviceId: device.connection.trustedDeviceId,
+        updatedAt: 1,
+        writtenAt: 1,
+      });
+    });
 
-    await expect(
-      asUser.mutation(api.productAccount.markProductSyncMaterialInitialized, {
-        ...device.proof,
-      }),
-    ).rejects.toThrow('Recovery material required');
-    // The refused marker leaves the account free to publish its first envelope.
     await expect(
       asUser.mutation(api.productSync.initialize, {
         deviceEncryptionPublicKey: deviceEncryptionPublicKey(
@@ -1426,6 +1354,22 @@ describe('productSync initialization', () => {
         encryptedPayload: recoveryEnvelope,
       }),
     ).resolves.toStrictEqual({ initialized: true });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        ...device.proof,
+        payloadIdentifier: 'product-account-recovery-v1',
+      }),
+    ).resolves.toMatchObject({
+      encryptedPayload: recoveryEnvelope,
+      updatedAt: 1,
+    });
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.get('productAccounts', device.connection.productAccountId),
+      ),
+    ).resolves.toMatchObject({
+      productSyncMaterialInitializedAt: expect.any(Number),
+    });
   });
 
   it('rejects record writes until a recovery envelope is published', async () => {
@@ -1728,12 +1672,6 @@ describe('productSync Mail Profile capability fence', () => {
       asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         ...proof,
         payloadIdentifier: 'profile.work',
-      }),
-    ).rejects.toMatchObject(upgradeRequired);
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
-        ...proof,
-        payloadIdentifiers: ['profile.work'],
       }),
     ).rejects.toMatchObject(upgradeRequired);
     await expect(

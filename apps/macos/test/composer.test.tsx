@@ -2727,6 +2727,73 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it('announces a Draft language list that fails again after Try Again', async () => {
+    expect.hasAssertions();
+    const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
+    const busy = new Error('Translation is busy');
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const translation: NativeTranslation = {
+      translationLanguages: jest
+        .fn<ReturnType<NativeTranslation['translationLanguages']>, []>()
+        .mockRejectedValueOnce(busy)
+        .mockRejectedValueOnce(busy)
+        .mockResolvedValueOnce([{ code: 'en', name: 'English' }]),
+      translate: () => Promise.reject(new Error('unused')),
+      cancel: () => Promise.resolve(null),
+    };
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    try {
+      await render(
+        <TranslationContext value={translation}>
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            registration={registration}
+          />
+        </TranslationContext>,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body'),
+        'Nos vemos el viernes.',
+      );
+      await fireEvent(
+        screen.getByLabelText('Message body'),
+        'selectionChange',
+        {
+          nativeEvent: { selection: { start: 0, end: 21 } },
+        },
+      );
+      // Opening a Draft stays quiet; the menu itself names the failure.
+      await press('Translate the selected text');
+      expect(menuItems()).toContainEqual(
+        expect.objectContaining({
+          title: 'Translation languages couldn’t be loaded.',
+          disabled: true,
+        }),
+      );
+      expect(announce).not.toHaveBeenCalled();
+      await chooseMenuItem('Try Again');
+      await waitFor(() => {
+        expect(announce.mock.calls).toStrictEqual([
+          ['Translation languages couldn’t be loaded.'],
+        ]);
+      });
+
+      await press('Translate the selected text');
+      await chooseMenuItem('Try Again');
+      await press('Translate the selected text');
+      expect(menuItems().map(({ title }) => title)).toContain('English');
+      await dismissMenu();
+      expect(announce.mock.calls).toStrictEqual([
+        ['Translation languages couldn’t be loaded.'],
+      ]);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it('offers Draft assistance only while enabled and retires a pending request when it turns off', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

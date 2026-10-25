@@ -683,6 +683,17 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   render does not retire its pending effect. Exercise Off between layout setup
   and passive effects, or a disabled account can still reach Apple Translation.
 
+- `translation.tsx.useLanguageMenu` or its reader and Draft consumers announcing
+  an initial Mac language-list failure, or failing to announce a repeated failure after
+  **Try Again**. Trace every consumer of the shared hook: opening a Mac message
+  or Draft stays quiet, while an explicitly retried failure is announced even
+  after the native menu closes. Hold the retry response and check visible loading
+  feedback as well as recovery; the Mac reader keeps its banner with **Try Again**
+  disabled, rather than returning to a closed Translate menu that hides progress.
+  Otherwise one surface can pass while another loses the action's outcome or
+  appears idle during the request. Mobile panel-opening failures retain their
+  explicit-action announcement under the owning translation contract.
+
 - `translation.tsx.DraftTranslation` accepting captured ready text without checking
   the live store's exact result and committed owner, or `composer.tsx` invalidating
   the captured selection only after rendering. Recheck acceptance after a target
