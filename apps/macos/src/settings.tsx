@@ -32,7 +32,7 @@ const sections = [
   {
     title: 'application',
     items: [
-      { id: 'language', icon: 'globe' },
+      { id: 'language', icon: 'translate' },
       { id: 'privacy', icon: 'hand.raised' },
     ],
   },

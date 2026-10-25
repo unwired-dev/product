@@ -170,7 +170,8 @@ palette's commands with Down and Up and runs Search Mail with Return, checking
 focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
-the pop-up shows the choice. It closes Settings with Command-W. It then opens the Gmail
+the pop-up shows the choice. In Language it checks that the interface-language pop-up shows
+System Default. It closes Settings with Command-W. It then opens the Gmail
 message **Garden plans for spring** with the pointer and clicks each link's keyboard control.
 Each link's AppKit alert sheet shows its title and full destination. Command-P stays closed
 behind the sheet, and Escape and Cancel close it. The flagged link's sheet closes with Escape
@@ -203,13 +204,12 @@ the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
-Privacy & Data, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
+Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are buttons and message link controls without a press action and the missing
 parent/child links
 ([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
-contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)), choose-one
-options without a role ([#1196](https://github.com/unwired-dev/product/issues/1196)),
+contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)),
 reader labels that repeat their role or differ from visible text
 ([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
 and email or web addresses used as labels. The contrast gap lists

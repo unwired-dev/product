@@ -751,42 +751,42 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text(linked, in: app.windows["Inbox 1"]).waitForExistence(timeout: 15))
   }
 
-  // Keep language changes, window menus, and relaunch in one native journey.
+  // Keep language changes, window menus, and relaunch in one native journey, through the sign-in
+  // page's Language pop-up, whose AppKit menu owns the choice (#1196).
   // swiftlint:disable:next function_body_length
   func testLanguagePreferenceAcrossWindowsAndRelaunch() throws {
     continueAfterFailure = false
-    let appURL = URL(
-      fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"]))
-    let app = XCUIApplication(url: appURL)
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(
+      url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     // Every launch starts from one new window, whatever AppKit saved at the previous quit.
     app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    // Past Welcome, the sign-in page of `window` ends with the Language pop-up.
+    func language(in window: XCUIElement) -> XCUIElement {
+      XCTAssertTrue(window.buttons["Continue"].waitForExistence(timeout: 30))
+      window.buttons["Continue"].click()
+      let popUp = window.popUpButtons["Language"]
+      XCTAssertTrue(popUp.waitForExistence(timeout: 15))
+      return popUp
+    }
+    func choose(_ title: String, from popUp: XCUIElement) {
+      popUp.click()
+      let item = app.menuItems[title]
+      XCTAssertTrue(item.waitForExistence(timeout: 5))
+      item.click()
+      waitUntil { popUp.value as? String == title }
+    }
     let first = app.windows["Inbox 1"]
-    let english = first.descendants(matching: .any)["language-en"]
-    XCTAssertTrue(english.waitForExistence(timeout: 30))
-    english.click()
-    let checked = NSPredicate(
-      format: "value CONTAINS 'checked' AND NOT value CONTAINS 'unchecked'")
-    XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
-      .completed)
+    choose("English", from: language(in: first))
     app.typeKey("n", modifierFlags: .command)
     let second = app.windows["Inbox 2"]
-    let secondEnglish = second.descendants(matching: .any)["language-en"]
-    XCTAssertTrue(secondEnglish.waitForExistence(timeout: 10))
-    XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [XCTNSPredicateExpectation(predicate: checked, object: secondEnglish)], timeout: 10),
-      .completed)
-    for preference in ["language-system", "language-en", "language-system", "language-en"] {
-      let selection = second.descendants(matching: .any)[preference]
-      selection.click()
-      XCTAssertEqual(
-        XCTWaiter.wait(
-          for: [XCTNSPredicateExpectation(predicate: checked, object: selection)], timeout: 10),
-        .completed)
+    let secondLanguage = language(in: second)
+    XCTAssertEqual(secondLanguage.value as? String, "English")
+    for preference in ["System Default", "English", "System Default", "English"] {
+      choose(preference, from: secondLanguage)
       assertWindowMenu(app, titles: ["Inbox 1", "Inbox 2"])
     }
     app.menuBars.menuBarItems["Window"].click()
@@ -796,17 +796,9 @@ final class WindowTests: XCTestCase {
     assertWindowMenu(app, titles: ["Inbox 1"])
     app.terminate()
     app.launch()
-    XCTAssertTrue(english.waitForExistence(timeout: 30))
-    XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
-      .completed)
-    let system = first.descendants(matching: .any)["language-system"]
-    system.click()
-    XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [XCTNSPredicateExpectation(predicate: checked, object: system)], timeout: 10),
-      .completed)
+    let relaunched = language(in: first)
+    XCTAssertEqual(relaunched.value as? String, "English")
+    choose("System Default", from: relaunched)
     app.menuBars.menuBarItems["File"].click()
     XCTAssertTrue(app.menuItems["New Window"].exists)
     app.typeKey(.escape, modifierFlags: [])
@@ -1232,6 +1224,12 @@ final class WindowTests: XCTestCase {
     never.click()
     waitUntil { policy.value as? String == "Never" }
     try audit(app, "Privacy & Data")
+    // #1196: so is the interface language.
+    settings.buttons["Language"].click()
+    let language = settings.popUpButtons["Language"]
+    XCTAssertTrue(language.waitForExistence(timeout: 15))
+    XCTAssertEqual(language.value as? String, "System Default")
+    try audit(app, "Language")
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
 
@@ -1455,9 +1453,6 @@ final class WindowTests: XCTestCase {
       return "#1194"
     case .action where touchBar, .sufficientElementDescription where touchBar:
       return "AppKit Touch Bar"
-    case .sufficientElementDescription
-    where type == .other && ["System default", "English"].contains(label):
-      return "#1196"
     // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription
     where type == .staticText

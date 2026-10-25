@@ -1,8 +1,10 @@
 # Interface translations
 
 The Expo iOS/iPadOS and React Native Mac clients ship English. The **Language**
-control below the Inbox, at the end of the Sign In and setup pages and in Settings' **Language** offers
-**System default** and **English**, so the language can be chosen before signing in. System default
+control offers **System default** and **English**, so the language can be chosen before signing in:
+on iPhone and iPad below the Inbox, at the end of the Sign In and setup pages and in Settings'
+**Language**; on the Mac as a pop-up in Settings' **Language** and at the end of the sign-in
+page. System default
 matches the device's preferred languages against the shipped catalogs, including
 regional variants, and falls back to English. An explicit selection overrides the
 device language, persists across launches, and applies to every open Mac window.
@@ -90,12 +92,13 @@ French exists only in tests; it is not shipped.
 
 Follow [Expo native validation](expo-client.md#validate) for the packaged iPhone
 and iPad journey, which also checks language selection across relaunch. The
-focused Mac language journey checks that repeated preference changes keep one
-Window menu entry per open window and remove closed windows. Build with
-`UNWIRED_MOCK_SCENARIO=open-read-relaunch` so the preview Inbox opens:
+focused Mac language journey chooses from the sign-in page's Language pop-up in two
+windows. It checks that repeated preference changes keep one Window menu entry per
+open window, remove closed windows and survive relaunch. Build with
+`UNWIRED_MOCK_SCENARIO=registration-performance` so the app opens signed out:
 
 ```sh
-UNWIRED_MOCK_SCENARIO=open-read-relaunch \
+UNWIRED_MOCK_SCENARIO=registration-performance \
   mise exec -- pnpm --filter @private-email/macos native:build Testing
 mise exec -- pnpm --filter @private-email/macos test:native \
   "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
