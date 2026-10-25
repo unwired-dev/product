@@ -14,10 +14,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `mailbox-views.ts.unifiedFolders` treating an IMAP folder blacklist as proof
   of All Mail membership. An `all` folder can be the only source of archived
   mail, and virtual `flagged`, `drafts` or `trash` folders can overlap other
-  folders. Verify complete non-Spam/non-Trash membership through trustworthy
-  provider identity or membership, without correlating folder-scoped UIDs or
-  message subjects; otherwise All Mail silently omits ordinary mail or includes
-  Spam and Trash.
+  folders. Apply the [#1006 owner decision](https://github.com/unwired-dev/product/issues/1006#issuecomment-6403429711):
+  connections advertising `all` are visibly not included; other connections
+  contribute every selectable folder outside `junk`, `trash` and `flagged`.
+  Verify the host's reason line and continued access to connection-local folders.
+  Do not infer cross-folder identity from UIDs or message subjects, or silently
+  claim complete membership where the approved contract exposes missing coverage.
 - `mailbox-views.ts.unifiedFolders` deriving Microsoft All Mail only from
   sidebar views and custom labels while `graph-inbox.ts` omits well-known
   folders from that custom list. Exercise Drafts and Outbox through the public
