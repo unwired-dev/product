@@ -131,6 +131,11 @@ describe('unified mailboxes across connections', () => {
       folder: 'drafts',
       at: minute(0),
     });
+    graph.deliver({
+      subject: 'Outlook outbox',
+      folder: 'outbox',
+      at: minute(-1),
+    });
     bare.deliver('Archive', {
       subject: 'Not an archive',
       received: minute(10),
@@ -158,7 +163,7 @@ describe('unified mailboxes across connections', () => {
     ]);
 
     // All Mail is every message outside Spam and Trash, whatever folder holds it, Microsoft
-    // Drafts included. A connection with an All folder is not included rather than complete
+    // Drafts and Outbox included. A connection with an All folder is not included rather than complete
     // with Junk or incomplete without the mail only that folder holds.
     const everything = await opened(stores, allMail);
     expect(
@@ -173,6 +178,7 @@ describe('unified mailboxes across connections', () => {
       'Gmail inbox',
       'Gmail kept',
       'Outlook draft',
+      'Outlook outbox',
     ]);
     expect(everything.missing.map(({ id }) => id)).toStrictEqual(['bare']);
 

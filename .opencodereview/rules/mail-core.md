@@ -15,9 +15,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   of All Mail membership. An `all` folder can be the only source of archived
   mail, and virtual `flagged`, `drafts` or `trash` folders can overlap other
   folders. Apply the [#1006 owner decision](https://github.com/unwired-dev/product/issues/1006#issuecomment-6403429711):
-  connections advertising `all` are visibly not included; other connections
+  connections advertising a selectable `all` folder are visibly not included;
+  an unselectable `all` folder does not exclude the connection. Other connections
   contribute every selectable folder outside `junk`, `trash` and `flagged`.
+  A role folder that is also selectable `all` cannot supply that unified role.
   Verify the host's reason line and continued access to connection-local folders.
+  The reason must not claim that no folder declares the role when its mapped
+  folder is excluded because it is also `all`.
   Do not infer cross-folder identity from UIDs or message subjects, or silently
   claim complete membership where the approved contract exposes missing coverage.
 - `mailbox-views.ts.unifiedFolders` deriving Microsoft All Mail only from

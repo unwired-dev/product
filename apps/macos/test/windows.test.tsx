@@ -1012,45 +1012,63 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('explains an IMAP connection excluded from All Mail and keeps its own All folder readable', async () => {
-    expect.hasAssertions();
-    const imap = createSyntheticImap();
-    imap.addFolder('Everything', ['all']);
-    imap.deliver('Everything', { subject: 'Only in the server All folder' });
-    const inbox = createImapInbox(imap.native);
-    showMailboxes(singleMailbox(inbox, alex));
-    const app = await render(
-      <Windows
-        first
-        second={false}
-      />,
-    );
-    try {
-      const first = within(app.getByTestId('inbox-window-first'));
-      await fireEvent.press(
-        await first.findByRole('button', {
-          name: 'All Mail. In All mailboxes',
-        }),
+  it.each([
+    {
+      title: 'All Mail',
+      folder: 'Everything',
+      roles: ['all'],
+      detail:
+        'Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in the sidebar.',
+    },
+    {
+      title: 'Archive',
+      folder: 'Archive',
+      roles: ['archive', 'all'],
+      detail:
+        'Its server doesn’t identify a folder that can be used for Archive. Its folders are still listed under it in the sidebar.',
+    },
+  ])(
+    'explains an IMAP connection excluded from $title and keeps its own folder readable',
+    async ({ title, folder, roles, detail }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      imap.addFolder(folder, roles);
+      imap.deliver(folder, { subject: 'Only in the excluded folder' });
+      const inbox = createImapInbox(imap.native);
+      showMailboxes(singleMailbox(inbox, alex));
+      const app = await render(
+        <Windows
+          first
+          second={false}
+        />,
       );
-      await expect(first.findByText(/isn’t included/u)).resolves.toBeVisible();
-      expect(
-        first.getByText(
-          'Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in the sidebar.',
-        ),
-      ).toBeVisible();
-      expect(
-        first.queryByRole('button', { name: /Only in the server All folder/u }),
-      ).toBeNull();
-      await fireEvent.press(
-        first.getByRole('button', { name: /^Everything\. In /u }),
-      );
-      await expect(
-        first.findByRole('button', { name: /Only in the server All folder/u }),
-      ).resolves.toBeVisible();
-    } finally {
-      await app.unmount();
-    }
-  });
+      try {
+        const first = within(app.getByTestId('inbox-window-first'));
+        await fireEvent.press(
+          await first.findByRole('button', {
+            name: `${title}. In All mailboxes`,
+          }),
+        );
+        await expect(
+          first.findByText(/isn’t included/u),
+        ).resolves.toBeVisible();
+        expect(first.getByText(detail)).toBeVisible();
+        expect(
+          first.queryByRole('button', { name: /Only in the excluded folder/u }),
+        ).toBeNull();
+        await fireEvent.press(
+          first.getByRole('button', {
+            name: new RegExp(`^${folder}\\. In (?!All mailboxes)`, 'u'),
+          }),
+        );
+        await expect(
+          first.findByRole('button', { name: /Only in the excluded folder/u }),
+        ).resolves.toBeVisible();
+      } finally {
+        await app.unmount();
+      }
+    },
+  );
 
   it('lists archived Gmail mail in the unified Archive and restores unified Trash mail to the Inbox', async () => {
     expect.hasAssertions();
