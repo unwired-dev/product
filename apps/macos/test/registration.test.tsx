@@ -43,6 +43,7 @@ import {
 } from '@testing-library/react-native';
 import { useContext, useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
   Alert,
   AppState,
   DeviceEventEmitter,
@@ -1984,19 +1985,29 @@ describe('product registration', () => {
     expect(graph.folderOf(plans)).toBe('inbox');
   });
 
-  it('chooses remote image policies for this device and each mailbox, and clears remote content', async () => {
+  it('chooses remote image policies for this device and each mailbox, explains a refused choice, and clears remote content', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario('registration-declined');
     const saved: string[] = [];
+    let refuse = false;
+    const clearing = Promise.withResolvers<null>();
     const remoteContent = createRemoteContentSettings({
       remoteContentSettings: () => Promise.resolve({ settings: null }),
       setRemoteContentSettings: (settings) => {
+        if (refuse) {
+          refuse = false;
+          return Promise.reject(
+            Object.assign(new Error('Synthetic failure'), { code: 'locked' }),
+          );
+        }
         saved.push(settings);
         return Promise.resolve(null);
       },
-      clearRemoteContent: () => Promise.resolve(null),
+      clearRemoteContent: () => clearing.promise,
     });
     await remoteContent.load();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
     await render(
       <RegistrationGate
         store={started(createRegistration(synthetic.vault))}
@@ -2029,17 +2040,38 @@ describe('product registration', () => {
       { title: 'Ask' },
     ]);
     await chooseMenuItem('Always load');
+    // Storage refuses the next choice: the pop-up keeps the saved one and says so.
+    refuse = true;
+    await press(mailbox);
+    await chooseMenuItem('Never');
+    const refusal =
+      'Couldn’t save this change. Remote images for other@example.invalid is still set to Use device setting. Try again.';
+    expect(policy(mailbox)).toHaveAccessibilityValue({
+      text: 'Use device setting',
+    });
+    expect(screen.getByText(refusal)).toBeVisible();
+    expect(announce).toHaveBeenCalledWith(refusal);
+    // The next choice clears the warning.
     await press(mailbox);
     await chooseMenuItem('Never');
     expect(policy(mailbox)).toHaveAccessibilityValue({ text: 'Never' });
+    expect(screen.queryByText(refusal)).toBeNull();
     expect(saved.at(-1)).toBe(
       '{"policy":"always","overrides":{"synthetic-connection-other":"never"}}',
     );
     await press('Clear remote content');
-    // The confirmation appears only after the native clear resolved.
+    // Clearing stays disabled until the native clear resolves; its result then replaces it.
+    expect(screen.getByRole('button', { name: 'Clearing…' })).toBeDisabled();
+    await act(async () => {
+      clearing.resolve(null);
+      await clearing.promise;
+    });
     expect(
       screen.getByText('Remote content saved on this device was removed.'),
     ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Clear remote content' }),
+    ).toBeEnabled();
   });
 
   /* oxlint-disable vitest/max-expects -- One journey proves adding, switching, reauthorizing and removing mailboxes. */

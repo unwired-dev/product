@@ -167,10 +167,14 @@ describe('error reporting controls', () => {
     { phase: 'offline', action: 'Retry deletion' },
     { phase: 'failed', action: 'Retry' },
   ] as const)(
-    'deletion %s retains off and offers retry',
+    'deletion %s retains off and offers retry, pending while the check runs',
     async ({ phase, action }) => {
       expect.hasAssertions();
       const { store } = reporting({ kind: 'deleting', phase });
+      const checked = Promise.withResolvers<undefined>();
+      jest
+        .mocked(store.retryDeletion)
+        .mockImplementationOnce(() => checked.promise);
       await render(<ErrorReportingSettings store={store} />);
       expect(screen.getByRole('switch').props.disabled).toBe(true);
       expect(screen.getByRole('switch').props).toMatchObject({ value: false });
@@ -182,6 +186,15 @@ describe('error reporting controls', () => {
         );
       });
       expect(store.retryDeletion).toHaveBeenCalledWith();
+      expect(
+        screen.getByRole('button', { name: 'Checking deletion status…' }),
+      ).toBeDisabled();
+      // The check settles without a new phase, so the same retry is offered again.
+      await act(async () => {
+        checked.resolve(undefined);
+        await checked.promise;
+      });
+      expect(screen.getByRole('button', { name: action })).toBeEnabled();
     },
   );
 
