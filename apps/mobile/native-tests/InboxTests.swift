@@ -1578,7 +1578,7 @@ final class InboxTests: XCTestCase {
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
     // Text the audit locates no element for, over the reader; iPad's composer leaves it in view,
-    // and iPad's Filters popover leaves the Inbox it hides from accessibility in view.
+    // and it appears while iPad's system Filters popover is open, whose content is all labelled.
     case .elementDetection
     where (screen == "Reader"
       || (["Composer", "Filters"].contains(screen) && UIDevice.current.userInterfaceIdiom == .pad))
