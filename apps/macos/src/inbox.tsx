@@ -62,7 +62,6 @@ import { FloatingBar } from './inbox-bar.tsx';
 import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
-import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailboxFolder } from './mailbox-folders.tsx';
 import {
@@ -1056,7 +1055,6 @@ export function Inbox({
                 query={searched}
                 search={online}
               />
-              <LanguageSelector />
               {limited && results === undefined ? (
                 <Text style={[styles.footer, { color: colors.textSecondary }]}>
                   {t('inbox.footerView', {

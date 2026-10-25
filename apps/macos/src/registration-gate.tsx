@@ -41,7 +41,7 @@ import {
   ErrorReportingSettings,
 } from './error-reporting.tsx';
 import { Label } from './label.tsx';
-import { LanguageSelector } from './language-selector.tsx';
+import { LanguageSettings } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceContext,
@@ -484,7 +484,7 @@ function SettingsPage({
             <SettingsGroup footer={copy.description} />
           </>
         ) : null}
-        {destination === 'language' ? <LanguageSelector /> : null}
+        {destination === 'language' ? <LanguageSettings /> : null}
         <ErrorReportingDestination
           destination={destination}
           onDestination={setDestination}
@@ -643,7 +643,6 @@ function RegistrationPage({
           pending={snapshot.removalPending}
           store={store}
         />
-        <LanguageSelector />
       </View>
     </ScrollView>
   );
