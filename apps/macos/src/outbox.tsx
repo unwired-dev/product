@@ -207,7 +207,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
         }}
       />
     );
-  return { toast, actions: { returnToDrafts, check } };
+  return { toast, actions: { returnToDrafts, check, dismiss } };
 }
 
 export type OutboxActions = ReturnType<typeof useOutboxActions>['actions'];
@@ -218,14 +218,12 @@ function UnknownRecovery({
   entry,
   unconfirmed,
   editWarning,
-  onCheck,
-  onEdit,
+  actions,
 }: {
   readonly entry: OutboxSnapshotEntry;
   readonly unconfirmed: string | undefined;
   readonly editWarning: string;
-  readonly onCheck: () => void;
-  readonly onEdit: () => void;
+  readonly actions: OutboxActions;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -250,6 +248,7 @@ function UnknownRecovery({
             variant="composer"
             label={t('outbox.unknown.cancel')}
             onPress={() => {
+              actions.dismiss();
               setConfirming(false);
             }}
           />
@@ -257,7 +256,9 @@ function UnknownRecovery({
             variant="composer"
             destructive
             label={t('outbox.unknown.editAnyway')}
-            onPress={onEdit}
+            onPress={() => {
+              actions.returnToDrafts(entry);
+            }}
           />
         </View>
       ) : (
@@ -270,12 +271,15 @@ function UnknownRecovery({
                 ? 'outbox.unknown.checking'
                 : 'outbox.unknown.check',
             )}
-            onPress={onCheck}
+            onPress={() => {
+              actions.check(entry);
+            }}
           />
           <Action
             variant="composer"
             label={t('outbox.edit')}
             onPress={() => {
+              actions.dismiss();
               setConfirming(true);
               AccessibilityInfo.announceForAccessibility(editWarning);
             }}
@@ -341,12 +345,9 @@ export function OutboxRow({
       )}
       {entry.state === 'unknown' ? (
         <UnknownRecovery
+          actions={actions}
           editWarning={editWarning}
           entry={entry}
-          onCheck={() => {
-            actions.check(entry);
-          }}
-          onEdit={edit}
           unconfirmed={unconfirmed}
         />
       ) : null}

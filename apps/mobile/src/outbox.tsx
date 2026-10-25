@@ -2,7 +2,7 @@ import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { outboxCopy } from '@private-email/mail-core/outbox';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { use, useEffect, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -52,10 +52,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     borderCurve: 'continuous',
   },
-  toastMessage: { ...textStyles.footnote, flexShrink: 1 },
-  // A 44pt target around the label, inside the toast's own height.
-  toastAction: { minHeight: 44, marginVertical: -13, justifyContent: 'center' },
-  toastActionLabel: { ...textStyles.footnote, fontWeight: '600' },
+  toastMessage: { ...typography.macos.body, flexShrink: 1 },
+  // The 44pt target extends 4pt above and below the 36pt toast.
+  toastAction: { minHeight: 44, marginVertical: -14, justifyContent: 'center' },
+  toastActionLabel: { ...typography.macos.bodyEmphasized },
 });
 
 // Where each send last stood when announced, and its last Check Again answer, keyed by the send;
@@ -201,7 +201,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
         }}
       />
     );
-  return { toast, actions: { returnToDrafts, check } };
+  return { toast, actions: { returnToDrafts, check, dismiss } };
 }
 
 export type OutboxActions = ReturnType<typeof useOutboxActions>['actions'];
@@ -212,14 +212,12 @@ function UnknownRecovery({
   entry,
   unconfirmed,
   editWarning,
-  onCheck,
-  onEdit,
+  actions,
 }: {
   readonly entry: OutboxSnapshotEntry;
   readonly unconfirmed: string | undefined;
   readonly editWarning: string;
-  readonly onCheck: () => void;
-  readonly onEdit: () => void;
+  readonly actions: OutboxActions;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -240,6 +238,7 @@ function UnknownRecovery({
             variant="composer"
             label={t('outbox.unknown.cancel')}
             onPress={() => {
+              actions.dismiss();
               setConfirming(false);
             }}
           />
@@ -247,7 +246,9 @@ function UnknownRecovery({
             variant="composer"
             destructive
             label={t('outbox.unknown.editAnyway')}
-            onPress={onEdit}
+            onPress={() => {
+              actions.returnToDrafts(entry);
+            }}
           />
         </View>
       ) : (
@@ -260,12 +261,15 @@ function UnknownRecovery({
                 ? 'outbox.unknown.checking'
                 : 'outbox.unknown.check',
             )}
-            onPress={onCheck}
+            onPress={() => {
+              actions.check(entry);
+            }}
           />
           <Action
             variant="composer"
             label={t('outbox.edit')}
             onPress={() => {
+              actions.dismiss();
               setConfirming(true);
               AccessibilityInfo.announceForAccessibility(editWarning);
             }}
@@ -331,12 +335,9 @@ export function OutboxRow({
       )}
       {entry.state === 'unknown' ? (
         <UnknownRecovery
+          actions={actions}
           editWarning={editWarning}
           entry={entry}
-          onCheck={() => {
-            actions.check(entry);
-          }}
-          onEdit={edit}
           unconfirmed={unconfirmed}
         />
       ) : null}

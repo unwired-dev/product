@@ -672,6 +672,18 @@ describe('sending a Draft', () => {
       expect(screen.getByText(warning)).toBeOnTheScreen();
       await press('Cancel');
       expect(screen.queryByText(warning)).toBeNull();
+      // #918: close the unavailable composer left after Send before checking bar feedback.
+      await press('Close');
+      await press('Edit');
+      sender.storage.failNextCommit('locked');
+      await press('Edit Anyway');
+      const refused = 'Couldn’t return the message to Drafts.';
+      expect(screen.getByText(refused)).toBeOnTheScreen();
+      // Cancelling the warning is the next Outbox action, so the older refusal leaves.
+      await press('Cancel');
+      await waitFor(() => {
+        expect(screen.queryByText(refused)).toBeNull();
+      });
       await press('Edit');
       await press('Edit Anyway');
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unknown');
@@ -707,6 +719,8 @@ describe('sending a Draft', () => {
         'Discard this Draft? It is deleted from this device.',
         'Discard this Draft? It is deleted from this device.',
         warning,
+        warning,
+        refused,
         warning,
       ]);
     } finally {
