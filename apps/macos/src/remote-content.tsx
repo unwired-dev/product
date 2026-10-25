@@ -132,7 +132,6 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   notSavedMessage: { flex: 1 },
-  notSavedText: { ...textStyles.subheadline },
   clear: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
 });
 
@@ -239,7 +238,7 @@ function PolicySetting({
           />
           <View style={styles.notSavedMessage}>
             <Label
-              style={[styles.notSavedText, { color: colors.textSecondary }]}>
+              style={[textStyles.subheadline, { color: colors.textSecondary }]}>
               {notSaved}
             </Label>
           </View>
