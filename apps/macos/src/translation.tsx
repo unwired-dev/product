@@ -452,6 +452,13 @@ function LanguagesFailed({
         style={[styles.bannerText, { color: colors.textPrimary }]}>
         {t(loading ? 'translation.loading' : 'translation.languagesFailed')}
       </Text>
+      {loading ? (
+        <ActivityIndicator
+          accessibilityLabel={t('translation.loading')}
+          size="small"
+          color={colors.textSecondary}
+        />
+      ) : null}
       <Action
         label={t('translation.tryAgain')}
         accessibilityLabel={t('translation.tryAgainLabel')}

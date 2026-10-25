@@ -331,6 +331,7 @@ describe('on-device translation in the reader', () => {
       );
       // The banner stays, loading, while the device is asked again.
       expect(screen.getByText('Loading languages')).toBeOnTheScreen();
+      expect(screen.getByLabelText('Loading languages')).toBeOnTheScreen();
       expect(
         screen.getByLabelText('Try Again to load translation languages'),
       ).toBeDisabled();
@@ -345,6 +346,7 @@ describe('on-device translation in the reader', () => {
       expect(announce.mock.calls).toStrictEqual([
         ['Translation languages couldn’t be loaded.'],
       ]);
+      expect(screen.queryByLabelText('Loading languages')).toBeNull();
 
       await fireEvent.press(
         screen.getByLabelText('Try Again to load translation languages'),
