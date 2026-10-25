@@ -62,9 +62,10 @@ rechecks Gmail access. Failed verification returns to pending setup.
 
 JavaScript receives only account/connection status, opaque IDs and the mailbox
 address. Refresh credentials and Gmail access tokens never enter JavaScript or
-Convex. Convex receives the Product identity JWT and existing trusted-device proof
-only. No mailbox connection metadata or provider credential is uploaded. The Product
-identity JWT can contain Google profile claims, including the sign-in email.
+Convex. Convex receives identity JWTs and trusted-device proofs for Product Sign-In
+and push registration; identity JWTs can contain Google profile claims, including
+email. The [production disclosure](#google-user-data-disclosure) covers backend
+metadata and encrypted Private Sync data.
 
 ## Where the registration flow runs
 
@@ -189,18 +190,20 @@ add scopes without avoiding restricted-scope verification.
 
 Configuration in the repository:
 
-- **OAuth client:** one native iOS client for bundle ID `dev.unwired.mail`, used by
-  iPhone, iPad and Mac through `UNWIRED_GOOGLE_CLIENT_ID`. Its redirect is the
-  reversed client-ID URL scheme. There is no web client, client secret or web redirect.
+- **OAuth client:** each host reads one native client ID through
+  `UNWIRED_GOOGLE_CLIENT_ID`; the setup above uses a shared iOS client for bundle
+  ID `dev.unwired.mail`. Its redirect is `<reversed-client-ID>:/oauth2callback`.
+  The hosts configure no web client, client secret or web redirect.
   Convex accepts several Product Sign-In audiences (`GOOGLE_PRODUCT_CLIENT_IDS`), but
   the push relay verifies mailbox identity tokens for one (`GMAIL_OAUTH_CLIENT_ID`).
   Separate platform clients would therefore need a relay change before push wakes
   work on every host.
 - **Cloud Pub/Sub:** the Gmail push topic and its subscription to the Convex relay,
   as configured above.
-- **Not in the repository:** the production project's audience and publishing
-  status, app name, logo, support and developer contacts, home page, privacy policy,
-  authorized domains and verification state. The owner records them, without
+- **Not in the repository:** the provisioned OAuth clients and the production
+  project's audience and publishing status, app name, logo, support and developer
+  contacts, home page, privacy policy, authorized domains and verification state.
+  The owner records them, without
   identifiers or credentials, when production is configured.
 
 ### Google's requirements for these scopes
@@ -221,31 +224,27 @@ Sources: [restricted-scope verification](https://developers.google.com/identity/
   domain-wide installation.
 - **Verification.** Brand verification, domain ownership verified in Google Search
   Console, a public home page, and a privacy policy on that domain meeting the
-  Limited Use requirements. Also an unlisted YouTube demo video showing how a person
-  starts and grants Gmail access, and a justification of why narrower scopes are
-  insufficient (above).
+  Limited Use requirements. Also an unlisted YouTube demo video showing sign-in,
+  Gmail consent and the features using the requested scope, and a justification
+  of why narrower scopes are insufficient (above).
 - **Security assessment.** Google requires one when restricted-scope data is stored
   on servers or transmitted through them. Google's pages make no exception for
-  device-local credentials or end-to-end encryption. The current hosts send Gmail
-  data through the product backend in two ways:
+  device-local credentials or end-to-end encryption. The current backend handles:
   - **Push wakes:** Pub/Sub delivers each Gmail notification, with its mailbox
     address and history ID, to the Convex relay. The relay keeps keyed address
     digests and history IDs to match wakes to routes.
-  - **Private Sync Drafts:** reply and forward Drafts hold the answered message's
-    quoted text, and forwards carry its attachments as Draft Assets. Both are
-    stored end-to-end encrypted in Convex.
+  - **Private Sync:** [mailbox descriptions](private-product-sync.md#initialization-and-relaunch)
+    contain provider names and addresses. [Reply and forward Drafts](drafts.md#replies-and-forwards)
+    hold quoted text, and forwards carry attachments as Draft Assets. These records
+    and assets are stored end-to-end encrypted in Convex.
 
   Plan for a security assessment, renewed with reverification at least every 12
-  months. Avoiding it requires either Google's written confirmation that these
-  flows are out of scope, or removing them: polling-only Gmail freshness, and no
-  Gmail-derived content in Private Sync. The planned
-  [provider-hosted Drafts](drafts.md#provider-hosted-draft-launch-plan) would remove
-  the second flow.
+  months, unless Google confirms that the actual data flows are out of scope.
 
 ### Google user data disclosure
 
-The privacy policy states these facts for Google's review. Revise them with any
-change to the flows above.
+Publish these disclosures in the privacy policy for Google's review. Revise them
+with any change to the flows above.
 
 - **Access:** the Google account's name, email address and profile picture for
   Product Sign-In; Gmail messages, labels and sending through `gmail.modify` for
@@ -258,11 +257,14 @@ change to the flows above.
   the device. The backend receives the Google identity token for Product Sign-In and
   for registering push wakes. It stores the sign-in's issuer and subject, keyed
   digests of mailbox addresses and identities, Gmail history IDs, and end-to-end
-  encrypted Private Sync data, including Drafts, that it cannot read.
-- **Sharing:** Google user data is not sold or shared, except as needed to deliver
-  push wakes through Google Cloud Pub/Sub and Apple Push Notification service.
+  encrypted Private Sync data, including mailbox descriptions and Drafts, that it
+  cannot read.
+- **Sharing:** Convex hosts the backend data described above. Google Cloud Pub/Sub
+  delivers Gmail push metadata to the relay; Apple Push Notification service
+  carries wake payloads with opaque routes and Gmail history IDs. Google user data
+  is not sold.
   Opt-in [error reports](telemetry.md) exclude message content.
-- **Limited Use:** the policy contains Google's required statement that the app's
+- **Limited Use:** include Google's required statement that the app's
   use and transfer of information received from Google APIs adheres to the
   [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
   including the Limited Use requirements.
