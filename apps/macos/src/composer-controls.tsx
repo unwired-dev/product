@@ -134,8 +134,10 @@ const nativeItems = (items: readonly PopUpItem[]): NativePopUpItem[] =>
     ...(submenu === undefined ? {} : { items: nativeItems(submenu) }),
   }));
 
-const allItems = (items: readonly PopUpItem[]): PopUpItem[] =>
-  items.flatMap((item) => [item, ...allItems(item.items ?? [])]);
+const enabledItems = (items: readonly PopUpItem[]): PopUpItem[] =>
+  items.flatMap((item) =>
+    item.disabled === true ? [] : [item, ...enabledItems(item.items ?? [])],
+  );
 
 const NativePopUpButton = requireNativeComponent<
   ViewProps & {
@@ -206,10 +208,8 @@ export function PopUp({
         items={nativeItems(items)}
         label={accessibilityLabel}
         onSelect={({ nativeEvent }) => {
-          allItems(latest.current)
-            .find(
-              (item) => item.key === nativeEvent.id && item.disabled !== true,
-            )
+          enabledItems(latest.current)
+            .find((item) => item.key === nativeEvent.id)
             ?.run?.();
         }}
         style={StyleSheet.absoluteFill}

@@ -532,6 +532,14 @@ describe('the Tiptap evaluation composer', () => {
       }),
     );
     expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
+    // A queued page update can clear the selection before a native submenu choice arrives.
+    await report({ selection: { start: 9, end: 13 } });
+    await press('Writing tools');
+    await report({ selection: { start: 9, end: 9 } });
+    await chooseSubmenuItem('Translate To', 'German');
+    expect(
+      screen.queryByLabelText('Translation of the selected text'),
+    ).toBeNull();
     // An edit retires a pending capture: its result is never offered.
     await report({ selection: { start: 9, end: 13 } });
     await press('Writing tools');
