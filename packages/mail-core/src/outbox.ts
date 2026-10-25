@@ -213,6 +213,8 @@ export function createOutbox({
   });
   // The person's Check Again of each unknown message, shared by every window reading this Outbox.
   const asked = new Map<string, CheckRequest>();
+  // A confirmed request survives retirement without retaining retired sends.
+  const confirmedChecks = new WeakSet<CheckRequest>();
   const listeners = new Set<() => void>();
   let listed: readonly OutboxEntry[] | undefined = undefined;
   let snapshot: readonly OutboxSnapshotEntry[] = [];
@@ -227,9 +229,15 @@ export function createOutbox({
   };
   const publish = () => {
     const outbox = drafts.getOutbox();
-    for (const id of asked.keys()) {
+    for (const [id, request] of asked) {
       const entry = outbox.find((each) => each.id === id);
-      if (entry === undefined || checkOf(entry) === 'idle') {
+      // A pending caller retires its request after learning why the entry disappeared.
+      if (
+        request.owner !== ownerOf(registration) ||
+        (entry === undefined
+          ? request.check !== 'checking'
+          : checkOf(entry) === 'idle')
+      ) {
         asked.delete(id);
       }
     }
@@ -388,10 +396,35 @@ export function createOutbox({
   const keep = async (id: string, outcome: SendOutcome) => {
     if (await record(id, outcome)) {
       unrecorded.delete(id);
+      const request = asked.get(id);
+      if (outcome.kind === 'sent' && request !== undefined) {
+        confirmedChecks.add(request);
+      }
     } else if (!disposed && awaitingOutcome(entryOf(id)?.state)) {
       unrecorded.set(id, outcome);
     }
   };
+
+  // Ends a Check Again once its lookup finishes, unless another ask replaced it meanwhile.
+  const settle = (id: string, request: CheckRequest) => {
+    if (asked.get(id) !== request) {
+      return;
+    }
+    const current = entryOf(id);
+    // Removal, another Send of the Draft or another Product Account meanwhile ends it quietly.
+    if (current !== undefined && checkOf(current) === 'checking') {
+      asked.set(id, { ...request, check: 'unconfirmed' });
+    } else {
+      asked.delete(id);
+    }
+    publish();
+  };
+  // Whether this ask saved the Sent outcome, within the execution and account it began in.
+  const confirmed = (id: string, request: CheckRequest, started: number) =>
+    confirmedChecks.has(request) &&
+    started === execution &&
+    request.owner === ownerOf(registration) &&
+    entryOf(id) === undefined;
 
   // Saves an outcome storage refused earlier. Resolves whether one was waiting.
   const resave = async (entry: OutboxEntry) => {
@@ -1070,8 +1103,9 @@ export function createOutbox({
     },
     // Looks for an unknown message in Gmail's Sent mailbox now, publishing 'checking' at once and
     // 'unconfirmed' when it stays unknown after a lookup, or idle when preparation deferred it.
-    // Resolves whether it left the Outbox as sent.
+    // Resolves true only for the request owning the saved Sent outcome, once across overlapping asks.
     check: async (id: string) => {
+      const started = execution;
       const entry = entryOf(id);
       const request: CheckRequest | undefined =
         entry?.state === 'unknown'
@@ -1090,17 +1124,11 @@ export function createOutbox({
         checks.add(id);
       }
       await process();
-      const current = entryOf(id);
-      if (request !== undefined && asked.get(id) === request) {
-        // Removal, another Send of the Draft or another Product Account meanwhile ends it quietly.
-        if (current !== undefined && checkOf(current) === 'checking') {
-          asked.set(id, { ...request, check: 'unconfirmed' });
-        } else {
-          asked.delete(id);
-        }
-        publish();
+      if (request === undefined) {
+        return false;
       }
-      return current === undefined;
+      settle(id, request);
+      return confirmed(id, request, started);
     },
     // Ends this execution opportunity without cancelling a request already handed to its provider.
     pause: () => {

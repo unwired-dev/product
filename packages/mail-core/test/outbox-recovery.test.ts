@@ -560,6 +560,10 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
     const { server, gmail } = sharedAccount();
     const sending = await sender(server, gmail, 'phone');
     const windows = [watch(sending.outbox), watch(sending.outbox)];
+    const saved = Promise.withResolvers<undefined>();
+    let commits:
+      | MockInstance<typeof sending.storage.native.commitDrafts>
+      | undefined = undefined;
     let sentList: ReturnType<typeof holdSentList> | undefined = undefined;
     try {
       const id = await addressed(sending);
@@ -635,12 +639,35 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
 
       // Once Gmail's Sent mailbox holds one copy, Check Again records it as sent.
       gmail.remove(other);
-      await expect(sending.outbox.check(id)).resolves.toBe(true);
+      const committing = Promise.withResolvers<undefined>();
+      const commit = sending.storage.native.commitDrafts;
+      commits = vi
+        .spyOn(sending.storage.native, 'commitDrafts')
+        .mockImplementation(async (...args) => {
+          committing.resolve(undefined);
+          await saved.promise;
+          return commit(...args);
+        });
+      sentList = holdSentList(gmail);
+      const confirmed = sending.outbox.check(id);
+      await vi.waitFor(() => {
+        expect(sentList?.held()).toBe(true);
+      });
+      sentList.release();
+      await committing.promise;
+      // Another window asks after Sent answered but before its durable write finishes.
+      const overlapping = sending.outbox.check(id);
+      saved.resolve(undefined);
+      await expect(
+        Promise.all([confirmed, overlapping]),
+      ).resolves.toStrictEqual([false, true]);
       expect({
         accepted: gmail.sends.length,
         windows: windows.map((each) => each.history.at(-1)),
       }).toStrictEqual({ accepted: 1, windows: [undefined, undefined] });
     } finally {
+      saved.resolve(undefined);
+      commits?.mockRestore();
       sentList?.release();
       for (const each of windows) {
         each.unsubscribe();
@@ -669,7 +696,7 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       });
       const restored = await sending.outbox.undo(id);
       sentList.release();
-      await checked;
+      await expect(checked).resolves.toBe(false);
 
       expect(restored).not.toBe(false);
       expect(window.history).toStrictEqual(['idle', 'checking', undefined]);

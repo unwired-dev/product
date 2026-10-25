@@ -873,6 +873,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   second trigger repeats the Sent list and up to 20 metadata requests, or dropping
   every trigger loses recovery after invalidation. Hold the provider read and
   verify both public answers and the number of Sent requests.
+  A successful `check` answer must belong to a durably confirmed Sent outcome,
+  never disappearance caused by Edit or account retirement. Trace its host
+  announcement consumer and overlapping successful requests too; otherwise
+  VoiceOver falsely confirms delivery or repeats one confirmation across windows.
 - `gmail-inbox.ts.rejectionOutcomes` or another Send outcome mapper treating a
   pre-request `mailbox-invalidated` refusal as a terminal delivery failure.
   Ordinary foreground verification can renew the native generation while Outbox

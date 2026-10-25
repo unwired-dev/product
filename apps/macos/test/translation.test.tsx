@@ -16,6 +16,7 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageTranslation, TranslationContext } from '../src/translation.tsx';
+import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -116,10 +117,13 @@ const queuedPress = (label: string) => {
   throw new Error('Expected a rendered press handler');
 };
 
+// Chooses a target language from the reader's Translate control: a pull-down until a language is
+// chosen, then a pop-up naming it.
 const translateInto = async (language: string) => {
   await fireEvent.press(
-    await screen.findByRole('radio', { name: `Translate into ${language}` }),
+    await screen.findByLabelText(/^Translate (?:this message|into )/u),
   );
+  await chooseMenuItem(language);
 };
 
 // A rendered host/store test of the reader's on-device translation. Only WebKit and Apple
@@ -136,9 +140,23 @@ describe('on-device translation in the reader', () => {
     announce.mockClear();
     try {
       const reads = gmail.requests.length;
+      // The native menu lists the device's languages; nothing is translated until one is chosen.
+      expect(screen.getByLabelText('Translate this message')).toHaveProp(
+        'pullsDown',
+        true,
+      );
       await fireEvent.press(screen.getByLabelText('Translate this message'));
-      // Nothing is translated until a target language is chosen.
-      await screen.findByRole('radio', { name: 'Translate into Spanish' });
+      expect(menuItems()).toStrictEqual([
+        expect.objectContaining({ title: 'Translate Into', disabled: true }),
+        expect.objectContaining({ title: 'English', checked: false }),
+        expect.objectContaining({ title: 'German', checked: false }),
+        expect.objectContaining({
+          title: 'Spanish',
+          accessibilityLabel: 'Translate into Spanish',
+          checked: false,
+        }),
+      ]);
+      await dismissMenu();
       expect(asked).toHaveLength(0);
       await translateInto('Spanish');
       expect(asked).toHaveLength(1);
@@ -168,8 +186,26 @@ describe('on-device translation in the reader', () => {
         screen.getByText('Please confirm the venue by Friday.'),
       ).toBeOnTheScreen();
       expect(gmail.requests).toHaveLength(reads);
+      // The control now names the shown language, checked in its menu.
+      expect(screen.getByLabelText('Translate into Spanish')).toHaveProp(
+        'pullsDown',
+        false,
+      );
+      expect(screen.getByLabelText('Translate into Spanish')).toHaveProp(
+        'symbol',
+        'translate',
+      );
+      await fireEvent.press(screen.getByLabelText('Translate into Spanish'));
+      expect(menuItems()).toContainEqual(
+        expect.objectContaining({ title: 'Spanish', checked: true }),
+      );
+      await dismissMenu();
 
-      await fireEvent.press(screen.getByLabelText('Dismiss translation'));
+      await fireEvent.press(
+        screen.getByLabelText(
+          'Show the original message and forget the translation',
+        ),
+      );
       expect(
         screen.queryByText('Confirma el lugar antes del viernes.'),
       ).toBeNull();
@@ -179,70 +215,63 @@ describe('on-device translation in the reader', () => {
     }
   });
 
-  it.each([
-    { action: 'target', label: 'Translate into German' },
-    { action: 'retry', label: 'Translate again' },
-  ])(
-    'rejects queued $action input after reader dismissal or request replacement',
-    async ({ label }) => {
-      expect.hasAssertions();
-      const { native, asked, cancelled } = scriptedTranslation();
-      const { app } = await openReader(native);
-      try {
-        await fireEvent.press(screen.getByLabelText('Translate this message'));
-        await translateInto('Spanish');
-        const oldCancel = queuedPress('Cancel translation');
-        await fireEvent.press(screen.getByLabelText('Cancel translation'));
-        await screen.findByText('Translation cancelled.');
-        const oldAction = queuedPress(label);
-        const oldDismiss = queuedPress('Dismiss translation');
-        await act(() => {
-          oldDismiss();
-          oldAction();
-        });
-        await screen.findByLabelText('Translate this message');
-        expect(asked).toHaveLength(1);
+  it('rejects queued Retry input after Show Original or request replacement', async () => {
+    expect.hasAssertions();
+    const { native, asked, cancelled } = scriptedTranslation();
+    const { app } = await openReader(native);
+    try {
+      await translateInto('Spanish');
+      const oldCancel = queuedPress('Cancel translation');
+      await fireEvent.press(screen.getByLabelText('Cancel translation'));
+      await screen.findByText('Translation cancelled.');
+      const oldRetry = queuedPress('Translate again');
+      const oldShowOriginal = queuedPress(
+        'Show the original message and forget the translation',
+      );
+      await act(() => {
+        oldShowOriginal();
+        oldRetry();
+      });
+      await screen.findByLabelText('Translate this message');
+      expect(asked).toHaveLength(1);
 
-        // Reopening is a new session; input retained from the old one cannot affect it.
-        await fireEvent.press(screen.getByLabelText('Translate this message'));
-        await screen.findByRole('radio', { name: 'Translate into German' });
-        expect(screen.queryByLabelText('Translate again')).toBeNull();
-        expect(screen.queryByLabelText('Cancel translation')).toBeNull();
-        await translateInto('German');
-        await act(() => {
-          oldAction();
-          oldCancel();
-          oldDismiss();
-        });
-        expect(asked).toHaveLength(2);
-        expect(cancelled).toStrictEqual([asked[0]?.request]);
-        // An old Cancel or Retry within this session cannot replace the next language's request.
-        const supersededCancel = queuedPress('Cancel translation');
-        await fireEvent.press(screen.getByLabelText('Cancel translation'));
-        await screen.findByText('Translation cancelled.');
-        const supersededRetry = queuedPress('Translate again');
-        await translateInto('Spanish');
-        await act(() => {
-          supersededRetry();
-          supersededCancel();
-        });
-        expect(asked).toHaveLength(3);
-        expect(cancelled).toStrictEqual([asked[0]?.request, asked[1]?.request]);
-        asked[2]?.answer.resolve({
-          source: 'en',
-          text: 'Frische Übersetzung.',
-        });
-        await expect(
-          screen.findByText('Frische Übersetzung.'),
-        ).resolves.toBeOnTheScreen();
-        expect(
-          screen.getByText('Please confirm the venue by Friday.'),
-        ).toBeOnTheScreen();
-      } finally {
-        await app.unmount();
-      }
-    },
-  );
+      // Choosing again is a new session; input retained from the old one cannot affect it.
+      expect(screen.queryByLabelText('Translate again')).toBeNull();
+      expect(screen.queryByLabelText('Cancel translation')).toBeNull();
+      await translateInto('German');
+      await act(() => {
+        oldRetry();
+        oldCancel();
+        oldShowOriginal();
+      });
+      expect(asked).toHaveLength(2);
+      expect(cancelled).toStrictEqual([asked[0]?.request]);
+      // An old Cancel or Retry within this session cannot replace the next language's request.
+      const supersededCancel = queuedPress('Cancel translation');
+      await fireEvent.press(screen.getByLabelText('Cancel translation'));
+      await screen.findByText('Translation cancelled.');
+      const supersededRetry = queuedPress('Translate again');
+      await translateInto('Spanish');
+      await act(() => {
+        supersededRetry();
+        supersededCancel();
+      });
+      expect(asked).toHaveLength(3);
+      expect(cancelled).toStrictEqual([asked[0]?.request, asked[1]?.request]);
+      asked[2]?.answer.resolve({
+        source: 'en',
+        text: 'Frische Übersetzung.',
+      });
+      await expect(
+        screen.findByText('Frische Übersetzung.'),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByText('Please confirm the venue by Friday.'),
+      ).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+    }
+  });
 
   it('explains an uninstalled language without downloading and keeps mail readable', async () => {
     expect.hasAssertions();
@@ -252,7 +281,6 @@ describe('on-device translation in the reader', () => {
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
     announce.mockClear();
     try {
-      await fireEvent.press(screen.getByLabelText('Translate this message'));
       await translateInto('Spanish');
       await expect(
         screen.findByText(
@@ -278,7 +306,6 @@ describe('on-device translation in the reader', () => {
     const { native, asked, cancelled } = scriptedTranslation();
     const { app, showLunch, switchAccount } = await openReader(native);
     try {
-      await fireEvent.press(screen.getByLabelText('Translate this message'));
       await translateInto('German');
       await fireEvent.press(await screen.findByLabelText('Cancel translation'));
       expect(screen.getByText('Translation cancelled.')).toBeOnTheScreen();
@@ -298,7 +325,6 @@ describe('on-device translation in the reader', () => {
       expect(screen.queryByText('Ein verworfener Text.')).toBeNull();
 
       // A finished preview belongs to its account's mailbox store too.
-      await fireEvent.press(screen.getByLabelText('Translate this message'));
       await translateInto('German');
       asked[2]?.answer.resolve({
         source: 'en',
@@ -329,7 +355,6 @@ describe('on-device translation in the reader', () => {
     );
     const app = await render(translated({}));
     try {
-      await fireEvent.press(screen.getByLabelText('Translate this message'));
       await translateInto('English');
       await screen.findByLabelText('Cancel translation');
       await app.rerender(translated({}));
@@ -363,7 +388,6 @@ describe('on-device translation in the reader', () => {
     );
     const app = await render(reader(prefix, 'Original tail'));
     try {
-      await fireEvent.press(screen.getByLabelText('Translate this message'));
       await translateInto('German');
       asked[0]?.answer.resolve({ source: 'en', text: 'Bitte bestätigen.' });
       await screen.findByText('Bitte bestätigen.');
@@ -403,9 +427,6 @@ describe('on-device translation in the reader', () => {
       </TranslationContext>,
     );
     try {
-      await fireEvent.press(
-        await screen.findByLabelText('Translate this message'),
-      );
       await translateInto('German');
       await expect(
         screen.findByText(syntheticTranslation),

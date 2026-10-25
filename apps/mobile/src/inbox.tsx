@@ -79,7 +79,12 @@ import {
 } from './mailbox.tsx';
 import { MovingRow, useRowMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
-import { OutboxHeading, OutboxRow, forgetRetired } from './outbox.tsx';
+import {
+  OutboxHeading,
+  OutboxRow,
+  forgetRetired,
+  useOutboxActions,
+} from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
@@ -622,6 +627,7 @@ export function Inbox({
   }, [outbox]);
   const drafts = listedDrafts(draftState, onCompose !== undefined);
   const openDraft = useOpenDraft(composing, onCompose ?? composeNothing);
+  const outboxActions = useOutboxActions(openDraft);
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();
@@ -1023,8 +1029,8 @@ export function Inbox({
               if ('outbox' in item) {
                 return (
                   <OutboxRow
+                    actions={outboxActions.actions}
                     entry={item.outbox}
-                    onOpen={openDraft}
                   />
                 );
               }
@@ -1083,6 +1089,7 @@ export function Inbox({
             field={search}
             filter={filtering}
             hidden={composing !== undefined}
+            notice={outboxActions.toast}
             onCompose={onCompose}
             ready={ready}
             scope={scope}

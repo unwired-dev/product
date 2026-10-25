@@ -666,6 +666,34 @@ describe('sending a Draft', () => {
       expect(screen.getByText(warning)).toBeOnTheScreen();
       await press('Cancel');
       expect(screen.queryByText(warning)).toBeNull();
+      // #918: close the unavailable composer left after Send before checking bar feedback.
+      await press('Close');
+      await press('Edit');
+      const refused = 'Couldn’t return “Unknown” to Drafts.';
+      const undo = jest.spyOn(sender.outbox, 'undo');
+      sender.storage.hold();
+      sender.storage.failNextCommit('locked');
+      await press('Edit Anyway');
+      // Cancel supersedes the pending Edit, even when storage refuses it afterward.
+      await press('Cancel');
+      await act(async () => {
+        sender.storage.release();
+        await Promise.all(undo.mock.results.map(({ value }) => value));
+      });
+      undo.mockRestore();
+      expect(screen.queryByText('Try Again')).toBeNull();
+      expect(announce.mock.calls.map(([words]) => words)).not.toContain(
+        refused,
+      );
+      await press('Edit');
+      sender.storage.failNextCommit('locked');
+      await press('Edit Anyway');
+      expect(screen.getByText(refused)).toBeOnTheScreen();
+      // Cancelling the warning is the next Outbox action, so the older refusal leaves.
+      await press('Cancel');
+      await waitFor(() => {
+        expect(screen.queryByText(refused)).toBeNull();
+      });
       await press('Edit');
       await press('Edit Anyway');
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unknown');
@@ -702,6 +730,129 @@ describe('sending a Draft', () => {
         'Discard this Draft? It is deleted from this device.',
         warning,
         warning,
+        warning,
+        refused,
+        warning,
+      ]);
+    } finally {
+      sender.storage.release();
+      sender.outbox.dispose();
+    }
+  });
+
+  it('keeps a message storage refused to return, and Try Again returns it', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lisbon');
+      await press('Send');
+      // #918: the admitted Draft can unmount its editor before Send closes the composer.
+      await press('Close');
+      sender.storage.failNextCommit('locked');
+      await press('Undo');
+      // The row stays as it was, and the refusal is heard at once.
+      const refused = 'Couldn’t return “Lisbon” to Drafts.';
+      expect(screen.getByText(refused)).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('Lisbon. To sam@example.invalid. Sending soon'),
+      ).toBeOnTheScreen();
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      expect(announce.mock.calls).toStrictEqual([[refused]]);
+      await press('Try Again');
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Lisbon',
+      );
+      expect(screen.queryByText(refused)).toBeNull();
+      expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+      expect(announce.mock.calls).toStrictEqual([[refused]]);
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toStrictEqual([]);
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('retires a refusal once the message starts sending', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      // Gmail keeps the message without answering, and Sent cannot be read.
+      sender.gmail.failSend({ lost: true });
+      sender.gmail.native.gmailRequest = () =>
+        Promise.reject(
+          Object.assign(new Error('Synthetic failure'), {
+            code: 'unavailable',
+          }),
+        );
+      await compose('Lisbon');
+      await press('Send');
+      // #918: the admitted Draft can unmount its editor before Send closes the composer.
+      await press('Close');
+      sender.storage.failNextCommit('locked');
+      await press('Undo');
+      expect(
+        screen.getByText('Couldn’t return “Lisbon” to Drafts.'),
+      ).toBeOnTheScreen();
+      await later(sender, 10_000);
+      // Returning it now needs the Edit Anyway warning, so the old Try Again does not come back.
+      expect(
+        screen.getByLabelText(
+          'Lisbon. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText('Try Again')).toBeNull();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('says a message is in Sent only when Check Again finds it there', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const queued = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      // Gmail keeps the message without answering, and Sent cannot be read until Check Again.
+      sender.gmail.failSend({ lost: true });
+      const request = sender.gmail.native.gmailRequest;
+      sender.gmail.native.gmailRequest = () =>
+        Promise.reject(
+          Object.assign(new Error('Synthetic failure'), {
+            code: 'unavailable',
+          }),
+        );
+      await compose('Lisbon');
+      await press('Send');
+      await later(sender, 10_000);
+      expect(
+        screen.getByLabelText(
+          'Lisbon. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
+        ),
+      ).toBeOnTheScreen();
+      queued.mockClear();
+      sender.gmail.native.gmailRequest = request;
+      await press('Check Again');
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/^Lisbon\./u)).toBeNull();
+      });
+      expect(queued.mock.calls).toStrictEqual([
+        ['Lisbon is in Sent.', { queue: true }],
       ]);
     } finally {
       sender.outbox.dispose();

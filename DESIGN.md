@@ -450,6 +450,7 @@ content.
 - Small glass controls (48pt or less) use a soft shadow: 8pt blur, 2pt down, 8%
   black in Light and 30% in Dark. Large glass (sidebar) uses 16pt blur, 4pt
   down. Menus and sheets keep a deeper 24pt shadow so they read as floating.
+  The deep graphite toast uses 9pt blur, 6pt down, 18% black in Light and Dark.
 - Content rows are transparent so the list surface and edge effects show
   through. Never stack glass on glass.
 - Where floating chrome overlaps content, use a scroll edge fade instead of a
@@ -544,7 +545,8 @@ form accessories, keyboards, status bar).
   search bar, with Undo during the Undo Send Window. Window preferences follow the
   [delivery requirements](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
   [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
-  states with recovery controls after the toast ends.
+  states with recovery controls after the toast ends. When storage refuses Undo
+  or Edit, the same toast shows the refusal with **Try Again**.
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Translate and Suggest reply, the file controls and Templates; no glass

@@ -88,9 +88,12 @@ it.
   **Check Again** that leaves delivery unknown, once however many Mac windows show
   it. In the composer, a refused Send, a Draft that could not be saved on Close or Discard, and the
   Discard question are announced as they appear. Outbox row and Check Again
-  announcements wait for existing speech; the Edit warning and composer outcomes
-  announce immediately. A message confirmed in Sent leaves the Outbox silently,
-  including after Check Again.
+  announcements wait for existing speech; the Edit warning, a refused Undo or
+  Edit, and composer outcomes announce immediately. A message confirmed in Sent
+  leaves the Outbox silently; when **Check Again** finds it there, VoiceOver
+  hears “<subject> is in Sent.” after existing speech, with no visible change.
+  Overlapping requests share one confirmation. Editing the message or closing
+  its account during the check does not confirm delivery.
 - For 10 seconds a row says **Sending soon** and offers **Undo**. Undo returns the
   same Draft, with its identifier, files and reply details, and opens it in the
   composer. Nothing reaches Convex or Gmail before the window ends. Choosing
@@ -165,8 +168,13 @@ it.
 - This device is the **Delivery Owner**. Admission removes the Draft and stores
   the exact rendered message and verified asset references in one encrypted write.
   The Outbox remains local; its files remain available through Undo and delivery.
-- Undo succeeds only after cancellation is saved. If storage refuses it, the
-  Outbox row remains available to try again.
+- Undo succeeds only after cancellation is saved. If storage refuses Undo or
+  Edit, the row stays as it was and a deep graphite toast above the search bar
+  says “Couldn’t return “<subject>” to Drafts.” (on iPhone, “Couldn’t return the
+  message to Drafts.”) with **Try Again**, which repeats the request. The toast
+  fades in over 200 ms and out over 150 ms, fading only with Reduce Motion, and
+  leaves on Try Again, the next Outbox action, or once the message is no longer
+  waiting to return.
 - Before provider submission, the device must durably record both a confirmed
   Convex claim and the handoff state. A failed, interrupted or unreadable claim
   response never grants permission to submit.

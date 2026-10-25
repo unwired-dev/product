@@ -126,6 +126,17 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `outbox.tsx.useOutboxActions` hiding a refused Undo/Edit toast only while the
+  message is ineligible to return. Retire the refusal when its owning entry leaves
+  or changes delivery state; later eligibility must not reopen an earlier retry.
+  Exercise refused Undo followed by sending and an unknown outcome on both hosts,
+  preserving the explicit Edit Anyway warning. Otherwise the stale Try Again can
+  return an uncertain delivery to Drafts without that warning and invite a duplicate send.
+  Also hold the Undo/Edit answer across a later Outbox action, including Cancel
+  of the Edit warning. That action must retire the pending refusal as well as
+  any visible toast; otherwise a late storage refusal reopens dismissed feedback
+  and announces an outcome the person already moved past.
+
 - `onboarding.tsx.Welcome` stopping the Restoring seal's CSS animation only by
   removing its declaration. Follow the installed engine's unregister path and
   React Native's filtered prop diff: unregistering can leave the last native
@@ -1212,6 +1223,11 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   connectivity changed. Preserve storage-failure alert semantics and keep actions
   separately reachable. Verify the installed renderer's announcement support;
   component prop assertions restore the contract but do not qualify VoiceOver.
+  For new notices such as `outbox.tsx.RefusedToast`, check later VoiceOver
+  navigation as well as arrival speech. Mac Fabric's non-selectable `Text` is
+  not an accessibility element; expose the message through an accessible labeled
+  parent and verify the retry control's native name independently. Otherwise
+  immediate speech can hide a message or retry that VoiceOver cannot revisit.
 
 - `imap-setup.tsx.ManualSending` explaining optional SMTP credential defaults only
   in single-line placeholders. Keep "same as incoming if blank" in visible,
