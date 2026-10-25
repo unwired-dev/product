@@ -2700,9 +2700,10 @@ describe('composing Drafts', () => {
     await screen.findByText(
       'This request cannot be answered. Your text is unchanged.',
     );
-    expect(announce).toHaveBeenLastCalledWith(
+    expect(
+      jest.mocked(AccessibilityInfo.announceForAccessibility),
+    ).toHaveBeenLastCalledWith(
       'This request cannot be answered. Your text is unchanged.',
-      { queue: false },
     );
     expect(screen.queryByLabelText('Try writing help again')).toBeNull();
     await press('Keep your text and close this suggestion');

@@ -249,9 +249,7 @@ describe('on-device translation in the reader', () => {
     const { app } = await openReader(
       createMockMailSession('assistance-unavailable').translation,
     );
-    const announce = jest.mocked(
-      AccessibilityInfo.announceForAccessibilityWithOptions,
-    );
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
     announce.mockClear();
     try {
       await fireEvent.press(screen.getByLabelText('Translate this message'));
@@ -268,7 +266,6 @@ describe('on-device translation in the reader', () => {
       expect(announce.mock.calls).toStrictEqual([
         [
           'Download this language in the system Translate settings, then try again. Nothing is downloaded here.',
-          { queue: false },
         ],
       ]);
     } finally {

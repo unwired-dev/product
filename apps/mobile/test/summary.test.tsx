@@ -240,9 +240,7 @@ describe('on-device message summaries in the reader', () => {
     const { app } = await openReader(
       createMockMailSession('assistance-unavailable').assistance,
     );
-    const announce = jest.mocked(
-      AccessibilityInfo.announceForAccessibilityWithOptions,
-    );
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
     announce.mockClear();
     try {
       await fireEvent.press(screen.getByLabelText('Summarize this message'));
@@ -260,7 +258,6 @@ describe('on-device message summaries in the reader', () => {
       // The failure interrupts current speech, and failing again is heard again.
       const failure = [
         'Apple Intelligence is still getting ready. Try again later.',
-        { queue: false },
       ];
       expect(announce.mock.calls).toStrictEqual([failure]);
       await fireEvent.press(
