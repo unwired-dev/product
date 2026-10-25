@@ -71,6 +71,40 @@ jest.mock('react-native-screens', () => {
   return { ...screens, ScreenStack, ScreenStackItem };
 });
 
+// Without SwiftUI, a sheet shows its content while presented and finishes dismissing at once.
+jest.mock('@expo/ui/swift-ui', () => {
+  const React = require('react');
+  function Passthrough({ children }) {
+    return React.createElement(React.Fragment, null, children);
+  }
+  function BottomSheet({ isPresented, onDismiss, children }) {
+    const [shown, setShown] = React.useState(isPresented);
+    if (isPresented && !shown) {
+      setShown(true);
+    }
+    React.useEffect(() => {
+      if (shown && !isPresented) {
+        setShown(false);
+        onDismiss?.();
+      }
+    }, [shown, isPresented, onDismiss]);
+    return isPresented ? children : null;
+  }
+  return {
+    BottomSheet,
+    Group: Passthrough,
+    Host: Passthrough,
+    RNHostView: Passthrough,
+  };
+});
+jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  presentationBackground: (style) => ({
+    $type: 'presentationBackground',
+    style,
+  }),
+  presentationDetents: (detents) => ({ $type: 'presentationDetents', detents }),
+}));
+
 // Component journeys substitute the native animation driver with its completed frame.
 // Native journeys remain responsible for motion timing and appearance.
 beforeEach(() => {

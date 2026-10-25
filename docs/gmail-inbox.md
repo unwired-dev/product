@@ -343,8 +343,8 @@ knows it. A search lists the folders that can hold mail by their full path, such
 account; choosing the account returns to its folders, and **Cancel** closes the picker
 without moving anything. Choosing a folder moves the message and closes the picker. More
 lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
-label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad, and the Reply sheet and Move picker shrink back toward their
-button when closed; with Reduce Motion they only fade. The action buttons and label checkboxes are keyboard-focusable
+label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad, and the Move picker shrinks back toward its
+button when closed; with Reduce Motion they only fade. The Reply sheet is the system sheet and moves as iOS presents it. The action buttons and label checkboxes are keyboard-focusable
 with visible focus rings. After a removal, **Undo** appears in the Inbox. For every provider, a
 row that leaves the list collapses and fades in 200 ms while the rows below follow it up, and
 Undo, a refused or rolled-back change, or a discarded one grows it back from its current height

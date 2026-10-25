@@ -1,5 +1,10 @@
 import type { ResponseKind } from '@private-email/mail-core/responses';
 
+import { BottomSheet, Group, Host, RNHostView } from '@expo/ui/swift-ui';
+import {
+  presentationBackground,
+  presentationDetents,
+} from '@expo/ui/swift-ui/modifiers';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
@@ -9,22 +14,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  Animated,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Glass, Monogram, SFSymbol, useMenuMotion } from './design.tsx';
+import { Monogram, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
-
-const replySheetWidth = 500;
 
 // One of the Thread's organizing actions, as the iPhone Reply sheet lists it: Archive joins the
 // response tiles; the rest are rows grouped by what they change.
@@ -48,16 +42,6 @@ const responseIcons = {
 } as const;
 
 const styles = StyleSheet.create({
-  // iPhone's Reply sheet floats inside the screen edges and grows out of the Reply button.
-  replyBackdrop: { flex: 1, justifyContent: 'flex-end', padding: spacing.s },
-  replySheet: {
-    width: '100%',
-    maxWidth: replySheetWidth,
-    maxHeight: '100%',
-    alignSelf: 'center',
-    borderRadius: radius.sheet,
-    borderCurve: 'continuous',
-  },
   replyContent: { gap: spacing.l, padding: spacing.l },
   replyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   replyFrom: { flex: 1 },
@@ -125,9 +109,8 @@ export function ReplySheet({
   const colors = usePalette();
   const { t } = useLocalization();
   const [focused, setFocused] = useState<string>();
-  const { width } = useWindowDimensions();
-  const sheetWidth = Math.min(width - 2 * spacing.s, replySheetWidth);
-  const motion = useMenuMotion(open, 'grow');
+  // The sheet fits its content; taller content scrolls inside the tallest detent iOS allows.
+  const [height, setHeight] = useState<number>();
   const pending = useRef<
     | Readonly<{ message: typeof message; name: string; origin: number }>
     | undefined
@@ -163,206 +146,187 @@ export function ReplySheet({
     onClose();
   };
   return (
-    <Modal
-      visible={motion.shown}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      // A sibling Move Modal cannot present until UIKit dismisses this one.
-      onDismiss={() => {
-        const selected = pending.current;
-        pending.current = undefined;
-        if (
-          !open &&
-          owner.current === message &&
-          selected?.message === message
-        ) {
-          [...tiles, ...actions]
-            .find(({ name }) => name === selected.name)
-            ?.run(selected.origin);
-        }
-      }}
-      supportedOrientations={[
-        'portrait',
-        'portrait-upside-down',
-        'landscape-left',
-        'landscape-right',
-      ]}>
-      <View
-        accessibilityElementsHidden={!open}
-        pointerEvents={open ? 'auto' : 'none'}
-        style={styles.replyBackdrop}>
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: colors.scrimTouch },
-            motion.backdropStyle,
-          ]}
-        />
-        <Pressable
-          accessible={false}
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-        <Animated.View
-          accessibilityViewIsModal
-          onAccessibilityEscape={onClose}
-          style={[
-            styles.replySheet,
-            motion.style,
-            {
-              boxShadow: colors.menuGlassShadow,
-              backgroundColor: colors.surfaceContent,
-              // The sheet grows out of where Reply was pressed.
-              transformOrigin: `${Math.max(0, origin - (width - sheetWidth) / 2)}px 100%`,
-            },
+    <Host matchContents>
+      <BottomSheet
+        isPresented={open}
+        onIsPresentedChange={(presented) => {
+          if (!presented) {
+            onClose();
+          }
+        }}
+        // A sibling Move Modal cannot present until the sheet finishes dismissing.
+        onDismiss={() => {
+          const selected = pending.current;
+          pending.current = undefined;
+          if (
+            !open &&
+            owner.current === message &&
+            selected?.message === message
+          ) {
+            [...tiles, ...actions]
+              .find(({ name }) => name === selected.name)
+              ?.run(selected.origin);
+          }
+        }}>
+        <Group
+          modifiers={[
+            presentationDetents(
+              height === undefined ? ['medium'] : [{ height }],
+            ),
+            // The approved frames keep the sheet on the opaque content surface.
+            presentationBackground(colors.surfaceContent),
           ]}>
-          <Glass
-            cornerRadius={radius.sheet}
-            style={StyleSheet.absoluteFill}
-          />
-          <ScrollView
-            style={{ flexGrow: 0 }}
-            contentContainerStyle={styles.replyContent}>
-            <View style={styles.replyHeader}>
-              <Monogram
-                name={message.sender}
-                size={48}
-              />
-              <View style={styles.replyFrom}>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.replySender, { color: colors.textPrimary }]}>
-                  {message.sender}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {message.preview}
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('message.closeResponses')}
-                onFocus={() => {
-                  setFocused('close');
-                }}
-                onBlur={() => {
-                  setFocused(undefined);
-                }}
-                onPress={onClose}
-                style={({ pressed }) => [
-                  styles.replyClose,
-                  {
-                    backgroundColor: pressed
-                      ? colors.accentSelectionSubtle
-                      : colors.fillQuiet,
-                    borderColor:
-                      focused === 'close' ? colors.accentInk : 'transparent',
-                  },
-                ]}>
-                <SFSymbol
-                  name="xmark"
-                  color={colors.textPrimary}
+          <RNHostView>
+            <ScrollView
+              onContentSizeChange={(_, contentHeight) => {
+                setHeight(contentHeight);
+              }}
+              contentContainerStyle={styles.replyContent}>
+              <View style={styles.replyHeader}>
+                <Monogram
+                  name={message.sender}
+                  size={48}
                 />
-              </Pressable>
-            </View>
-            <View style={styles.replyTiles}>
-              {tiles.map(({ name, label, icon }) => (
+                <View style={styles.replyFrom}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.replySender, { color: colors.textPrimary }]}>
+                    {message.sender}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.secondary, { color: colors.textSecondary }]}>
+                    {message.preview}
+                  </Text>
+                </View>
                 <Pressable
-                  key={name}
                   accessibilityRole="button"
-                  accessibilityLabel={label}
+                  accessibilityLabel={t('message.closeResponses')}
                   onFocus={() => {
-                    setFocused(name);
+                    setFocused('close');
                   }}
                   onBlur={() => {
                     setFocused(undefined);
                   }}
-                  onPress={() => {
-                    select(name);
-                  }}
+                  onPress={onClose}
                   style={({ pressed }) => [
-                    styles.replyTile,
+                    styles.replyClose,
                     {
                       backgroundColor: pressed
                         ? colors.accentSelectionSubtle
                         : colors.fillQuiet,
                       borderColor:
-                        focused === name ? colors.accentInk : 'transparent',
+                        focused === 'close' ? colors.accentInk : 'transparent',
                     },
                   ]}>
                   <SFSymbol
-                    name={icon}
-                    size={22}
+                    name="xmark"
                     color={colors.textPrimary}
                   />
-                  <Text
-                    style={[styles.replyLabel, { color: colors.textPrimary }]}>
-                    {label}
-                  </Text>
                 </Pressable>
-              ))}
-            </View>
-            {groups.map((group) => (
-              <View
-                key={group[0]?.group}
-                style={[
-                  styles.actionGroup,
-                  { backgroundColor: colors.fillQuiet },
-                ]}>
-                {group.map(({ name, label, icon }, index) => (
-                  <Fragment key={name}>
-                    {index === 0 ? null : (
-                      <View
-                        style={[
-                          styles.actionSeparator,
-                          { backgroundColor: colors.separator },
-                        ]}
-                      />
-                    )}
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={label}
-                      onFocus={() => {
-                        setFocused(name);
-                      }}
-                      onBlur={() => {
-                        setFocused(undefined);
-                      }}
-                      onPress={() => {
-                        select(name);
-                      }}
-                      style={({ pressed }) => [
-                        styles.actionRow,
-                        {
-                          backgroundColor: pressed
-                            ? colors.accentSelectionSubtle
-                            : 'transparent',
-                          borderColor:
-                            focused === name ? colors.accentInk : 'transparent',
-                        },
+              </View>
+              <View style={styles.replyTiles}>
+                {tiles.map(({ name, label, icon }) => (
+                  <Pressable
+                    key={name}
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
+                    onFocus={() => {
+                      setFocused(name);
+                    }}
+                    onBlur={() => {
+                      setFocused(undefined);
+                    }}
+                    onPress={() => {
+                      select(name);
+                    }}
+                    style={({ pressed }) => [
+                      styles.replyTile,
+                      {
+                        backgroundColor: pressed
+                          ? colors.accentSelectionSubtle
+                          : colors.fillQuiet,
+                        borderColor:
+                          focused === name ? colors.accentInk : 'transparent',
+                      },
+                    ]}>
+                    <SFSymbol
+                      name={icon}
+                      size={22}
+                      color={colors.textPrimary}
+                    />
+                    <Text
+                      style={[
+                        styles.replyLabel,
+                        { color: colors.textPrimary },
                       ]}>
-                      <Text
-                        style={[
-                          styles.actionLabel,
-                          { color: colors.textPrimary },
-                        ]}>
-                        {label}
-                      </Text>
-                      <SFSymbol
-                        name={icon}
-                        size={20}
-                        color={colors.textPrimary}
-                      />
-                    </Pressable>
-                  </Fragment>
+                      {label}
+                    </Text>
+                  </Pressable>
                 ))}
               </View>
-            ))}
-          </ScrollView>
-        </Animated.View>
-      </View>
-    </Modal>
+              {groups.map((group) => (
+                <View
+                  key={group[0]?.group}
+                  style={[
+                    styles.actionGroup,
+                    { backgroundColor: colors.fillQuiet },
+                  ]}>
+                  {group.map(({ name, label, icon }, index) => (
+                    <Fragment key={name}>
+                      {index === 0 ? null : (
+                        <View
+                          style={[
+                            styles.actionSeparator,
+                            { backgroundColor: colors.separator },
+                          ]}
+                        />
+                      )}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={label}
+                        onFocus={() => {
+                          setFocused(name);
+                        }}
+                        onBlur={() => {
+                          setFocused(undefined);
+                        }}
+                        onPress={() => {
+                          select(name);
+                        }}
+                        style={({ pressed }) => [
+                          styles.actionRow,
+                          {
+                            backgroundColor: pressed
+                              ? colors.accentSelectionSubtle
+                              : 'transparent',
+                            borderColor:
+                              focused === name
+                                ? colors.accentInk
+                                : 'transparent',
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.actionLabel,
+                            { color: colors.textPrimary },
+                          ]}>
+                          {label}
+                        </Text>
+                        <SFSymbol
+                          name={icon}
+                          size={20}
+                          color={colors.textPrimary}
+                        />
+                      </Pressable>
+                    </Fragment>
+                  ))}
+                </View>
+              ))}
+            </ScrollView>
+          </RNHostView>
+        </Group>
+      </BottomSheet>
+    </Host>
   );
 }
