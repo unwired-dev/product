@@ -62,6 +62,14 @@ const PaletteContext = createContext<
   identifier: 'inbox-window-',
 });
 
+// Closes the open palette; undefined while it is closed.
+const OutsideClickContext = createContext<
+  Readonly<{
+    close: (() => void) | undefined;
+    setClose: (close: (() => void) | undefined) => void;
+  }>
+>({ close: undefined, setClose: () => undefined });
+
 // Offers commands while it is mounted, with the same handlers the owning screen's buttons use.
 // They are built outside rendering, so a handler may read a ref.
 export function RegisterCommands({
@@ -305,7 +313,36 @@ export function CommandPaletteProvider({
     () => ({ registry, identifier: window }),
     [registry, window],
   );
-  return <PaletteContext value={value}>{children}</PaletteContext>;
+  const [outsideClose, setOutsideClose] = useState<() => void>();
+  // A function state is set through an updater.
+  const setClose = useCallback((next: (() => void) | undefined) => {
+    setOutsideClose(() => next);
+  }, []);
+  const outside = useMemo(
+    () => ({ close: outsideClose, setClose }),
+    [outsideClose, setClose],
+  );
+  return (
+    <PaletteContext value={value}>
+      <OutsideClickContext value={outside}>{children}</OutsideClickContext>
+    </PaletteContext>
+  );
+}
+
+// The open palette's outside-click layer for a pane outside the bar's parent, such as the Mac
+// window's sidebar: a click there closes the palette without reaching the control beneath.
+// VoiceOver reaches the bar's own layer instead.
+export function OutsideClickLayer() {
+  const { close } = use(OutsideClickContext);
+  return close === undefined ? null : (
+    <Pressable
+      accessible={false}
+      focusable={false}
+      onPress={close}
+      testID="palette-outside-click"
+      style={[StyleSheet.absoluteFill, styles.scrim]}
+    />
+  );
 }
 
 // The command input that stays visible at the top of the window. While the palette is closed it
@@ -340,12 +377,23 @@ export function CommandBar() {
     ]);
     setOpened(orderCommands(commands));
   }, [registry, opened, t, identifier]);
-  const close = () => {
+  const close = useCallback(() => {
     setOpened(undefined);
     if (!refocusPill.current) {
       commandMenu()?.restoreFocus(identifier);
     }
-  };
+  }, [identifier]);
+  // Panes outside the bar's parent close the open palette on a click too.
+  const { setClose } = use(OutsideClickContext);
+  useLayoutEffect(() => {
+    if (opened === undefined) {
+      return;
+    }
+    setClose(close);
+    return () => {
+      setClose(undefined);
+    };
+  }, [opened, close, setClose]);
   // The returning button takes focus back, unless the command that ran focused a field of its own.
   useEffect(() => {
     if (opened === undefined && refocusPill.current) {
