@@ -34,6 +34,7 @@ import { setStringAsync } from 'expo-clipboard';
 import { useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
+  Animated,
   AppState,
   Dimensions,
   Linking,
@@ -2512,6 +2513,53 @@ describe('command palette', () => {
       openedPalette().getByRole('button', { name: 'Cancel' }),
     ).toBeVisible();
   });
+
+  /* oxlint-disable vitest/max-expects -- One held exit proves the closing input gates and fresh reopening. */
+  it('keeps a closing palette out of reach while it fades and reopens it empty', async () => {
+    expect.hasAssertions();
+    await renderConnected(
+      createSyntheticGmail({ address: 'alex@example.invalid' }).native,
+    );
+    // The exit never finishes here, so the closed palette is still leaving when it reopens.
+    const timing = jest.spyOn(Animated, 'timing').mockReturnValue({
+      start: () => undefined,
+      stop: () => undefined,
+      reset: () => undefined,
+    });
+    try {
+      const header = await screen.findByRole('header', { name: 'Inbox' });
+      await openPalette(header);
+      const input = screen.getByPlaceholderText('Type a command');
+      await fireEvent.changeText(input, 'se');
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Cancel' }),
+      );
+      // The leaving palette stays over the Inbox, hidden from VoiceOver and touch.
+      expect(
+        screen.getByTestId('command-palette', { includeHiddenElements: true }),
+      ).toHaveProp('pointerEvents', 'none');
+      expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+      expect(input).toHaveProp('editable', false);
+      // New input is disabled; a native Return already queued before closing must be ignored too.
+      await fireEvent(input, 'submitEditing');
+      await act(() => {
+        input.props.onSubmitEditing();
+      });
+      expect(screen.getByRole('header', { name: 'Inbox' })).toBeOnTheScreen();
+      await openPalette(header);
+      expect(screen.getByPlaceholderText('Type a command')).toHaveDisplayValue(
+        '',
+      );
+      expect(
+        openedPalette().getByRole('button', {
+          name: 'Reply. Select a conversation',
+        }),
+      ).toBeOnTheScreen();
+    } finally {
+      timing.mockRestore();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
 
   /* oxlint-disable vitest/max-expects -- One journey proves each entry, the fixed order, narrowing and the picker. */
   it('lists contextual commands first, narrows by typing and moves the open message from its picker', async () => {

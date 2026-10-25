@@ -66,6 +66,12 @@ results never appear in the palette. The vocabulary lives in the
   Mac, AppKit keeps the window's focused control, so focus returns to an Inbox
   row or a button as well as a text field, and to the command input when it was
   focused. Each opening starts with an empty query.
+- Opening fades the palette in over 200 ms while its panel arrives 8pt from
+  above, beneath the Mac bar's input or at the top of the iPhone and iPad
+  screen. Closing reverses it over 150 ms; the palette takes no input from the
+  moment it closes, and reopening it while it fades starts afresh. Reduce
+  Motion keeps only the fade. Moving between the command list and a picker is
+  instant.
 
 ## Entry points
 
@@ -126,7 +132,8 @@ bringing the list forward from Mailboxes, New Message following the floating
 bar's button, the Account entry and the way back to the Inbox from Settings, Command-P
 opening the Mac palette only while its window shows the bar, an open palette leaving with its
 screen when registration replaces it, Back, Escape and the Mac's outside click,
-and a target that disappears after opening.
+a target that disappears after opening, and a closing palette that takes no
+input while it fades and reopens empty.
 From the root:
 
 ```sh
@@ -150,3 +157,6 @@ hardware Escape does not yet close the palette there
 ([#849](https://github.com/unwired-dev/product/issues/849)). Keyboard changes
 while it is open and accessibility text sizes remain to be qualified on iPhone
 and iPad.
+The entry and exit motion, its Reduce Motion fade and the keyboard handoff while
+the palette fades out need native evidence on each host; physical-device feel
+stays with [#626](https://github.com/unwired-dev/product/issues/626).

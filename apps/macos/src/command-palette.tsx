@@ -46,7 +46,7 @@ import {
   View,
 } from 'react-native';
 
-import { Glass, SFSymbol } from './design.tsx';
+import { AnimatedPanel, Glass, SFSymbol, useMenuMotion } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -355,6 +355,14 @@ export function CommandBar() {
   const { t } = useLocalization();
   // The commands as listed when the palette opened, while it is open.
   const [opened, setOpened] = useState<readonly Command[]>();
+  // The panel drops in from the bar and fades away; it keeps the last commands while it leaves,
+  // and each opening starts afresh.
+  const motion = useMenuMotion(opened !== undefined, 'drop');
+  const [shown, setShown] = useState(opened);
+  const [openings, setOpenings] = useState(0);
+  if (opened !== undefined && opened !== shown) {
+    setShown(opened);
+  }
   // The bar's button, which the open palette replaces, so closing focuses its replacement itself.
   const pill = useRef<View>(null);
   const pillFocused = useRef(false);
@@ -376,6 +384,7 @@ export function CommandBar() {
       ...registry.getSnapshot(),
     ]);
     setOpened(orderCommands(commands));
+    setOpenings((count) => count + 1);
   }, [registry, opened, t, identifier]);
   const close = useCallback(() => {
     setOpened(undefined);
@@ -475,12 +484,16 @@ export function CommandBar() {
               {t('commands.shortcut')}
             </Text>
           </Pressable>
-        ) : (
+        ) : null}
+        {motion.shown && shown !== undefined ? (
           <Palette
-            opened={opened}
             close={close}
+            key={openings}
+            open={opened !== undefined}
+            opened={shown}
+            style={motion.style}
           />
-        )}
+        ) : null}
       </View>
     </>
   );
@@ -488,12 +501,17 @@ export function CommandBar() {
 
 // The open palette: the focused query in the bar, and beneath it the matching commands or the
 // choices of the command being completed. Up and Down select, Return runs, Escape goes back.
+// Closed, only its panel stays while it fades away, out of reach of the pointer and VoiceOver.
 function Palette({
   opened,
+  open,
   close,
+  style,
 }: {
   readonly opened: readonly Command[];
+  readonly open: boolean;
   readonly close: () => void;
+  readonly style: ReturnType<typeof useMenuMotion>['style'];
 }) {
   const { registry } = use(PaletteContext);
   const colors = usePalette();
@@ -504,7 +522,6 @@ function Palette({
   const [highlighted, setHighlighted] = useState(0);
   // Commands whose message disappeared after the palette opened.
   const [gone, setGone] = useState<readonly string[]>([]);
-  const input = useRef<TextInputHandle>(null);
   // Keyboard selection keeps the query focused, so the list scrolls its highlighted row into view
   // itself: each row's place in the list, and the list's visible part.
   const list = useRef<ScrollView>(null);
@@ -622,34 +639,9 @@ function Palette({
       : t('commands.chooseFolder');
   return (
     <>
-      <View style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
-        <Glass cornerRadius={inputHeight / 2} />
-        <View
-          pointerEvents="none"
-          style={[styles.focusRing, { borderColor: colors.accentFill }]}
-        />
-        <SFSymbol
-          name="command"
-          color={colors.textPrimary}
-        />
-        {choosing === undefined ? null : (
-          <Text
-            style={[
-              styles.chip,
-              {
-                backgroundColor: colors.accentFill,
-                color: colors.accentOnFill,
-              },
-            ]}>
-            {choosing.chip ?? choosing.title}
-          </Text>
-        )}
-        <TextInput
-          accessibilityLabel={prompt}
-          autoCapitalize="none"
-          autoCorrect={false}
-          key={choosing === undefined ? 'commands' : 'choices'}
-          keyDownEvents={handledKeys}
+      {open ? (
+        <QueryField
+          choosing={choosing}
           onChangeText={(text) => {
             restart();
             if (choosing === undefined) {
@@ -658,40 +650,21 @@ function Palette({
               setChoiceQuery(text);
             }
           }}
+          onBack={back}
+          onClose={close}
           onKeyDown={keyDown}
-          onKeyPress={({ nativeEvent }) => {
-            if (nativeEvent.key !== 'Escape') {
-              return;
-            }
-            if (choosing === undefined) {
-              close();
-            } else {
-              back();
-            }
-          }}
-          // The input receives focus as soon as the palette, or its picker, appears.
-          onLayout={() => {
-            input.current?.focus();
-          }}
-          onSubmitEditing={submit}
-          placeholder={prompt}
-          placeholderTextColor={colors.textSecondary}
-          ref={input}
-          style={[styles.input, { color: colors.textPrimary }]}
+          onSubmit={submit}
+          prompt={prompt}
           value={choosing === undefined ? query : choiceQuery}
         />
-        <Text
-          style={[
-            styles.key,
-            { backgroundColor: colors.fillQuiet, color: colors.textSecondary },
-          ]}>
-          {t('commands.escape')}
-        </Text>
-      </View>
-      <View
+      ) : null}
+      <AnimatedPanel
+        accessibilityElementsHidden={!open}
+        pointerEvents={open ? 'auto' : 'none'}
         style={[
           styles.panel,
           { borderColor: colors.separator, boxShadow: colors.menuShadow },
+          style,
         ]}
         testID="command-palette">
         <Glass cornerRadius={radius.card + 2} />
@@ -787,8 +760,95 @@ function Palette({
             )}
           />
         </View>
-      </View>
+      </AnimatedPanel>
     </>
+  );
+}
+
+// The open palette's query in the bar, after the chip of the command being completed. Escape
+// closes the palette or leaves the picker.
+function QueryField({
+  choosing,
+  prompt,
+  value,
+  onChangeText,
+  onKeyDown,
+  onClose,
+  onBack,
+  onSubmit,
+}: {
+  readonly choosing: Command | undefined;
+  readonly prompt: string;
+  readonly value: string;
+  readonly onChangeText: (text: string) => void;
+  readonly onKeyDown: (event: KeyEvent) => void;
+  readonly onClose: () => void;
+  readonly onBack: () => void;
+  readonly onSubmit: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const input = useRef<TextInputHandle>(null);
+  return (
+    <View style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
+      <Glass cornerRadius={inputHeight / 2} />
+      <View
+        pointerEvents="none"
+        style={[styles.focusRing, { borderColor: colors.accentFill }]}
+      />
+      <SFSymbol
+        name="command"
+        color={colors.textPrimary}
+      />
+      {choosing === undefined ? null : (
+        <Text
+          style={[
+            styles.chip,
+            {
+              backgroundColor: colors.accentFill,
+              color: colors.accentOnFill,
+            },
+          ]}>
+          {choosing.chip ?? choosing.title}
+        </Text>
+      )}
+      <TextInput
+        accessibilityLabel={prompt}
+        autoCapitalize="none"
+        autoCorrect={false}
+        key={choosing === undefined ? 'commands' : 'choices'}
+        keyDownEvents={handledKeys}
+        onChangeText={onChangeText}
+        onKeyDown={onKeyDown}
+        onKeyPress={({ nativeEvent }) => {
+          if (nativeEvent.key !== 'Escape') {
+            return;
+          }
+          if (choosing === undefined) {
+            onClose();
+          } else {
+            onBack();
+          }
+        }}
+        // The input receives focus as soon as the palette, or its picker, appears.
+        onLayout={() => {
+          input.current?.focus();
+        }}
+        onSubmitEditing={onSubmit}
+        placeholder={prompt}
+        placeholderTextColor={colors.textSecondary}
+        ref={input}
+        style={[styles.input, { color: colors.textPrimary }]}
+        value={value}
+      />
+      <Text
+        style={[
+          styles.key,
+          { backgroundColor: colors.fillQuiet, color: colors.textSecondary },
+        ]}>
+        {t('commands.escape')}
+      </Text>
+    </View>
   );
 }
 

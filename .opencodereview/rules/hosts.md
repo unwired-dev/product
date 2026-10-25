@@ -1265,6 +1265,16 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Keep the panel mounted with its actual open state through the shared presence
   transition; hide closing wrappers from accessibility and pointer input too.
   Otherwise dismissal skips the exit animation or exposes stale controls during it.
+- `command-palette.tsx.Palette` or another retained closing presentation hiding
+  only its pointer and accessibility subtree while leaving a text field editable
+  or its submit handler active. Blur and disable the retained field at close,
+  and reject submissions delivered after it closes; native events queued before
+  the editable update can still reach a mounted field. Exercise that delayed
+  native callback through the palette journey as well as ordinary Return, or a
+  hidden palette can run Search Mail or a Move destination during its exit.
+  Testing-library `fireEvent` suppresses TextInput submission when noneditable,
+  so it cannot by itself prove queued-event rejection. Keep native keyboard and
+  focus evidence distinct from this substituted event boundary.
 - Mobile `reply-sheet.tsx.ReplySheet` invoking a selected action before its retained
   exit and native Modal dismissal finish. Trace Move's sibling Modal through the
   installed iOS presenter and keep the closing Modal mounted to receive `onDismiss`;
