@@ -918,6 +918,11 @@ export function createSyntheticVault(
       }),
     removeMailbox: (id) =>
       attempt(() => {
+        if (backend.mailboxRemovalFailure !== undefined) {
+          throw Object.assign(new Error('Synthetic failure'), {
+            code: backend.mailboxRemovalFailure,
+          });
+        }
         const record = saved();
         const removed = record.connections.find(
           ({ provider, subject, address }) =>
@@ -946,6 +951,9 @@ export function createSyntheticVault(
         }
         verified.delete(id);
         cached.delete(id);
+        if (backend.loseReply) {
+          throw Object.assign(new Error('Synthetic'), { code: 'offline' });
+        }
         return null;
       }),
     confirmRecoveryKey: (entry) =>

@@ -3,6 +3,7 @@ import type {
   AccountRemoval,
   EnrollmentFailure,
   MailboxConnection,
+  MailboxRemovalFailure,
   RecoveryFailure,
   RecoveryKeyFailure,
   Registration,
@@ -15,11 +16,17 @@ import {
   recoveryKeyEntry,
 } from '@private-email/mail-core/registration';
 import { useState, useSyncExternalStore } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
-import { Button, Notice } from './design.tsx';
+import { Button, Notice, SFSymbol } from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
@@ -32,6 +39,83 @@ import { RemoteContentSettings } from './remote-content.tsx';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TrustedDevices } from './trusted-devices.tsx';
+
+// Confirms removing a Mailbox Connection. It stays open until removal settles, and a failure
+// replaces the description and is announced at once.
+function RemoveConfirmation({
+  address,
+  description,
+  button,
+  remove,
+  onClose,
+}: {
+  readonly address: string;
+  readonly description: string;
+  readonly button: SettingsButton;
+  readonly remove: () => Promise<MailboxRemovalFailure | undefined>;
+  readonly onClose: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [removing, setRemoving] = useState(false);
+  const [failed, setFailed] = useState<string>();
+  return (
+    <>
+      {failed === undefined ? (
+        <Label style={[styles.text, { color: colors.textPrimary }]}>
+          {description}
+        </Label>
+      ) : (
+        <View style={[styles.inline, { alignItems: 'flex-start' }]}>
+          <SFSymbol
+            name="exclamationmark.triangle.fill"
+            color={colors.statusWarning}
+          />
+          <View style={styles.grow}>
+            <Label style={[styles.text, { color: colors.textPrimary }]}>
+              {failed}
+            </Label>
+          </View>
+        </View>
+      )}
+      <View style={styles.inline}>
+        {removing ? (
+          <ActivityIndicator
+            size="small"
+            color={colors.textSecondary}
+          />
+        ) : null}
+        {button(
+          removing
+            ? t('mailboxes.removing')
+            : t('mailboxes.remove', { address }),
+          async () => {
+            setFailed(undefined);
+            setRemoving(true);
+            const failure = await remove();
+            setRemoving(false);
+            if (failure === undefined) {
+              onClose();
+              return;
+            }
+            const message = t(
+              failure === 'unconfirmed'
+                ? 'mailboxes.removeUnconfirmed'
+                : 'mailboxes.removeFailed',
+              failure === 'offline' ? { address, context: 'mac' } : { address },
+            );
+            setFailed(message);
+            AccessibilityInfo.announceForAccessibility(message);
+          },
+          { tone: 'destructive' },
+        )}
+        {button(t('mailboxes.cancel'), async () => {
+          onClose();
+        })}
+      </View>
+    </>
+  );
+}
 
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
@@ -130,30 +214,23 @@ function Mailboxes({
                   />
                 ) : null}
                 {confirming === mailbox.id ? (
-                  <>
-                    <Label style={[styles.text, { color: colors.textPrimary }]}>
-                      {t(
-                        imapMailbox
-                          ? 'mailboxes.confirm_imap'
-                          : 'mailboxes.confirm',
-                        {
-                          address: mailbox.address,
-                          provider,
-                        },
-                      )}
-                    </Label>
-                    {button(
-                      t('mailboxes.remove', { address: mailbox.address }),
-                      async () => {
-                        setConfirming(undefined);
-                        await store.removeMailbox(mailbox.id);
-                      },
-                      { tone: 'destructive' },
+                  <RemoveConfirmation
+                    address={mailbox.address}
+                    button={button}
+                    description={t(
+                      imapMailbox
+                        ? 'mailboxes.confirm_imap'
+                        : 'mailboxes.confirm',
+                      { address: mailbox.address, provider },
                     )}
-                    {button(t('mailboxes.cancel'), async () => {
+                    onClose={() => {
                       setConfirming(undefined);
-                    })}
-                  </>
+                    }}
+                    remove={async () => {
+                      await store.removeMailbox(mailbox.id);
+                      return store.getSnapshot().mailboxRemovalFailure;
+                    }}
+                  />
                 ) : null}
               </SettingsBlock>
             ) : null}

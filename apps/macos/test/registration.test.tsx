@@ -2076,6 +2076,130 @@ describe('product registration', () => {
     ).toBeEnabled();
   });
 
+  it('keeps a mailbox removal open while it runs and names an offline failure', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-declined');
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await render(
+      <RegistrationGate
+        store={started(createRegistration(synthetic.vault))}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    const button = (name: string) => screen.getByRole('button', { name });
+    await press('Continue');
+    await act(async () => {
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
+    });
+    await press('Choose another Google mailbox');
+    await settings('Email Accounts');
+    const remove = 'Remove other@example.invalid';
+    await press(remove);
+    // Removal stays pending until the native removal answers, here that the Mac is offline.
+    let answer: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the native removal while Removing… shows.
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const { removeMailbox } = synthetic.vault;
+    jest
+      .spyOn(synthetic.vault, 'removeMailbox')
+      .mockImplementationOnce(async (id) => {
+        await answered;
+        return removeMailbox(id);
+      });
+    synthetic.backend.mailboxRemovalFailure = 'offline';
+    await press(remove);
+    expect([
+      button('Removing…').props.accessibilityState?.disabled,
+      button('Cancel').props.accessibilityState?.disabled,
+    ]).toStrictEqual([true, true]);
+    await act(async () => {
+      answer();
+      await answered;
+    });
+    const failure =
+      'Couldn’t remove other@example.invalid because this Mac is offline. It is still connected here and on your other devices. Try again when you’re online.';
+    await expect(screen.findByText(failure)).resolves.toBeVisible();
+    expect(announce).toHaveBeenCalledWith(failure);
+    expect(screen.queryByText(/deletes its Gmail access/u)).toBeNull();
+    expect(button(remove)).toBeEnabled();
+    expect(button('Cancel')).toBeEnabled();
+    // A removal that applied before its reply was lost is not reported as still connected.
+    synthetic.backend.mailboxRemovalFailure = undefined;
+    synthetic.backend.loseReply = true;
+    await press(remove);
+    synthetic.backend.loseReply = false;
+    expect(screen.queryByText('other@example.invalid')).toBeNull();
+    expect(screen.queryByText(failure)).toBeNull();
+  });
+
+  it('keeps an unconfirmed mailbox removal open without claiming it is connected', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-declined');
+    const readRegistration = synthetic.vault.registration;
+    const registration = jest.spyOn(synthetic.vault, 'registration');
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await render(
+      <RegistrationGate
+        store={started(createRegistration(synthetic.vault))}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    const button = (name: string) => screen.getByRole('button', { name });
+    await press('Continue');
+    await act(async () => {
+      await fireEvent.press(await screen.findByTestId('sign-in-with-apple'));
+    });
+    await press('Choose another Google mailbox');
+    await settings('Email Accounts');
+    const remove = 'Remove other@example.invalid';
+    await press(remove);
+    const { removeMailbox } = synthetic.vault;
+    jest
+      .spyOn(synthetic.vault, 'removeMailbox')
+      .mockImplementationOnce(async (id) => {
+        try {
+          return await removeMailbox(id);
+        } finally {
+          registration.mockRejectedValue(
+            Object.assign(new Error('Synthetic read failure'), {
+              code: 'unavailable',
+            }),
+          );
+        }
+      });
+    synthetic.backend.loseReply = true;
+    await press(remove);
+    const unconfirmed =
+      'Couldn’t confirm whether other@example.invalid was removed. Try again.';
+    await expect(screen.findByText(unconfirmed)).resolves.toBeVisible();
+    expect(announce).toHaveBeenCalledWith(unconfirmed);
+    expect([
+      button(remove).props.accessibilityState?.disabled,
+      button('Cancel').props.accessibilityState?.disabled,
+    ]).toStrictEqual([false, false]);
+    registration.mockImplementation(readRegistration);
+    synthetic.backend.loseReply = false;
+    await press(remove);
+    expect(screen.queryByText('other@example.invalid')).toBeNull();
+    expect(screen.queryByText(unconfirmed)).toBeNull();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves adding, switching, reauthorizing and removing mailboxes. */
   it('adds, switches, reauthorizes and removes Gmail mailboxes without mixing their mail', async () => {
     expect.hasAssertions();
