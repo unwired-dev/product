@@ -25,7 +25,7 @@ import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageSummary } from '../src/message-summary.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
-import { DraftTranslation, MessageTranslation } from '../src/translation.tsx';
+import { MessageTranslation, useTargetLanguages } from '../src/translation.tsx';
 import { MacWindows, closeSettings } from './settings-window.tsx';
 import { started } from './started.ts';
 
@@ -58,6 +58,16 @@ function scriptedAssistance() {
 
 const body = 'Please confirm the venue by Friday.';
 const message = {};
+
+// A control's Translate menu, which looks up the device's languages once committed.
+function TargetLanguages({
+  translation,
+}: {
+  readonly translation: NativeTranslation;
+}) {
+  useTargetLanguages(translation, undefined, () => undefined);
+  return null;
+}
 
 // The Inbox's reader actions for one already-local message in the Default Profile, and the way to
 // the account page.
@@ -529,7 +539,7 @@ describe('account settings availability', () => {
 });
 
 describe('mail Assistance Enablement on Mac', () => {
-  it('refuses a Translation language lookup after Off between commit and passive effects', async () => {
+  it('refuses a language lookup after Off between commit and passive effects', async () => {
     expect.hasAssertions();
     const owner = 'synthetic-product-account';
     const enablement = createMailAssistanceEnablement({
@@ -563,12 +573,7 @@ describe('mail Assistance Enablement on Mac', () => {
               onRender={() => {
                 off = enablement.setEnabled(owner, defaultProfile, false);
               }}>
-              <DraftTranslation
-                translator={translation}
-                text={body}
-                onApply={() => undefined}
-                onClose={() => undefined}
-              />
+              <TargetLanguages translation={translation} />
             </Profiler>
           </ProfileMailAssistanceGate>
         </MailAssistanceGate>
@@ -653,7 +658,8 @@ describe('mail Assistance Enablement on Mac', () => {
       screen.getByRole('button', { name: 'Translate this message' }),
     ).toBeVisible();
     expect(assistance.calls).toStrictEqual([]);
-    expect(translated).toStrictEqual([]);
+    // The Translate menu reads the device's language list; no mail reaches the framework.
+    expect(translated).toStrictEqual(['languages']);
 
     // Off fences queued input before React commits the hidden action.
     await act(async () => {

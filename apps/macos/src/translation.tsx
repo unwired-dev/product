@@ -33,14 +33,16 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
   TurboModuleRegistry,
   View,
 } from 'react-native';
 
+import type { PopUpItem } from './composer-controls.tsx';
+
 import { Action } from './action.tsx';
+import { PopUp } from './composer-controls.tsx';
 import { OnDeviceMarker } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -59,14 +61,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.xl,
-  },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  option: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.s,
-    borderWidth: 1,
-    borderRadius: radius.control,
   },
   title: { ...textStyles.bodyEmphasized },
   text: { ...textStyles.reading.body },
@@ -98,12 +92,16 @@ const languageLists = new WeakMap<
   Promise<readonly TranslationLanguage[] | undefined>
 >();
 
-function useLanguages(translation: NativeTranslation, enabled: () => boolean) {
+// Language lists outlive any one control, so no request needs retiring with it.
+const keepLanguages = () => undefined;
+
+function useLanguages(translation: NativeTranslation | undefined) {
+  const enabled = useMailAssistanceLifetime(keepLanguages);
   const [languages, setLanguages] = useState<
     readonly TranslationLanguage[] | 'loading' | 'unavailable'
   >('loading');
   useEffect(() => {
-    if (!enabled()) {
+    if (translation === undefined || !enabled()) {
       return;
     }
     let current = true;
@@ -116,7 +114,7 @@ function useLanguages(translation: NativeTranslation, enabled: () => boolean) {
       const loaded = await pending;
       const usable = loaded !== undefined && loaded.length > 0;
       if (!usable) {
-        // A later panel asks the device again.
+        // A later control asks the device again.
         languageLists.delete(translation);
       }
       if (current) {
@@ -131,64 +129,39 @@ function useLanguages(translation: NativeTranslation, enabled: () => boolean) {
   return languages;
 }
 
-// The explicit choice of target language. Nothing is translated until one is chosen.
-function TargetLanguages({
-  languages,
-  selected,
-  onSelect,
-}: {
-  readonly languages: ReturnType<typeof useLanguages>;
-  readonly selected: TranslationLanguage | undefined;
-  readonly onSelect: (language: TranslationLanguage) => void;
-}) {
-  const colors = usePalette();
+// The device's target languages as native menu items, the chosen one checked. Nothing is
+// translated until one is chosen.
+export function useTargetLanguages(
+  translation: NativeTranslation | undefined,
+  selected: TranslationLanguage | undefined,
+  choose: (language: TranslationLanguage) => void,
+): PopUpItem[] {
   const { t } = useLocalization();
-  if (languages === 'loading') {
-    return <ActivityIndicator accessibilityLabel={t('translation.loading')} />;
+  const languages = useLanguages(translation);
+  if (typeof languages === 'string') {
+    return [
+      {
+        key: 'languages',
+        title: t(
+          languages === 'loading'
+            ? 'translation.loading'
+            : 'translation.noLanguages',
+        ),
+        disabled: true,
+      },
+    ];
   }
-  if (languages === 'unavailable') {
-    return (
-      <Text
-        selectable
-        accessibilityRole="alert"
-        style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t('translation.noLanguages')}
-      </Text>
-    );
-  }
-  return (
-    <View
-      accessibilityLabel={t('translation.target')}
-      accessibilityRole="radiogroup"
-      style={styles.options}>
-      {languages.map((language) => (
-        <Pressable
-          key={language.code}
-          accessibilityRole="radio"
-          accessibilityLabel={t('translation.targetLabel', {
-            language: language.name,
-          })}
-          accessibilityState={{ checked: selected?.code === language.code }}
-          onPress={() => {
-            onSelect(language);
-          }}
-          style={[
-            styles.option,
-            {
-              borderColor:
-                selected?.code === language.code
-                  ? colors.accentInk
-                  : colors.separator,
-            },
-          ]}>
-          <Text style={[styles.secondary, { color: colors.textPrimary }]}>
-            {selected?.code === language.code ? '✓ ' : ''}
-            {language.name}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
-  );
+  return languages.map((language) => ({
+    key: `language:${language.code}`,
+    title: language.name,
+    accessibilityLabel: t('translation.targetLabel', {
+      language: language.name,
+    }),
+    checked: selected?.code === language.code,
+    run: () => {
+      choose(language);
+    },
+  }));
 }
 
 const idle: TranslationState = { kind: 'idle' };
@@ -317,23 +290,21 @@ function Outcome({
   );
 }
 
-// The language choice, progress and outcome for one captured input, above the owner's actions.
+// The progress and outcome for one chosen target language, above the owner's actions.
 function TranslationPanel({
   label,
   target,
-  onTarget,
   translation,
   actions,
 }: {
   readonly label: string;
-  readonly target: TranslationLanguage | undefined;
-  readonly onTarget: (language: TranslationLanguage) => void;
+  readonly target: TranslationLanguage;
   readonly translation: ReturnType<typeof useTranslation>;
   readonly actions: ReactNode;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const languages = useLanguages(translation.native, translation.enabled);
+  const languages = useLanguages(translation.native);
   const { state, retry, cancel } = translation;
   return (
     <View
@@ -342,11 +313,6 @@ function TranslationPanel({
         styles.panel,
         { borderColor: colors.separator, backgroundColor: colors.fillQuiet },
       ]}>
-      <TargetLanguages
-        languages={languages}
-        selected={target}
-        onSelect={onTarget}
-      />
       {state.kind === 'translating' ? (
         <View style={styles.row}>
           <ActivityIndicator accessibilityLabel={t('translation.progress')} />
@@ -370,7 +336,7 @@ function TranslationPanel({
           source={
             state.kind === 'ready' ? languageName(languages, state.source) : ''
           }
-          target={target?.name ?? ''}
+          target={target.name}
         />
       )}
       <View style={styles.row}>
@@ -400,62 +366,66 @@ function ReaderTranslation({
   readonly body: ReaderText;
 }) {
   const { t } = useLocalization();
-  // Each open panel owns its queued native input; dismissal retires it before rendering.
+  // Each shown translation owns its queued native input; Show Original retires it before rendering.
   const session = useRef(0);
   const generation = session.current;
-  const [open, setOpen] = useState<number>();
   const [target, setTarget] = useState<TranslationLanguage>();
   const input =
     target === undefined
       ? undefined
       : messageTranslationInput(body, target.code);
-  const current = () => open !== undefined && open === session.current;
+  const current = () => generation === session.current;
   const translation = useTranslation(translator, input, current);
-  if (open === undefined) {
-    return (
-      <View style={styles.row}>
-        <Action
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateMessageLabel')}
-          onPress={() => {
-            if (generation !== session.current) {
-              return;
-            }
-            session.current += 1;
-            setOpen(session.current);
-          }}
-        />
-      </View>
-    );
-  }
+  const languages = useTargetLanguages(translator, target, (language) => {
+    if (!current()) {
+      return;
+    }
+    setTarget(language);
+    translation.start(messageTranslationInput(body, language.code));
+  });
   return (
-    <TranslationPanel
-      label={t('translation.messageRegion')}
-      target={target}
-      onTarget={(language) => {
-        if (!current()) {
-          return;
+    <>
+      {/* A pull-down until a language is chosen, then a pop-up naming it. */}
+      <PopUp
+        icon="translate"
+        pullsDown={target === undefined}
+        label={target === undefined ? t('translation.translate') : target.name}
+        accessibilityLabel={
+          target === undefined
+            ? t('translation.translateMessageLabel')
+            : t('translation.targetLabel', { language: target.name })
         }
-        setTarget(language);
-        translation.start(messageTranslationInput(body, language.code));
-      }}
-      translation={translation}
-      actions={
-        <Action
-          label={t('translation.dismiss')}
-          accessibilityLabel={t('translation.dismissLabel')}
-          onPress={() => {
-            if (!current()) {
-              return;
-            }
-            session.current += 1;
-            translation.store.discard();
-            setTarget(undefined);
-            setOpen(undefined);
-          }}
+        items={[
+          {
+            key: 'heading',
+            title: t('translation.menuHeading'),
+            disabled: true,
+          },
+          ...languages,
+        ]}
+      />
+      {target === undefined ? null : (
+        <TranslationPanel
+          label={t('translation.messageRegion')}
+          target={target}
+          translation={translation}
+          actions={
+            <Action
+              label={t('translation.showOriginal')}
+              accessibilityLabel={t('translation.showOriginalLabel')}
+              onPress={() => {
+                if (!current()) {
+                  return;
+                }
+                session.current += 1;
+                translation.store.discard();
+                setTarget(undefined);
+              }}
+            />
+          }
         />
-      }
-    />
+      )}
+    </>
   );
 }
 
@@ -503,32 +473,41 @@ export function MessageTranslation({
   );
 }
 
-// Review of a translation of captured Draft text. The Draft changes only when the person applies
-// it; the owner then replaces exactly the captured selection as one undoable edit.
+// Review of a translation of captured Draft text into the language chosen with it, started at
+// once. The Draft changes only when the person applies it; the owner then replaces exactly the
+// captured selection as one undoable edit.
 export function DraftTranslation({
   translator,
   text,
+  target,
   onApply,
   onClose,
 }: {
   readonly translator: NativeTranslation;
   readonly text: string;
+  readonly target: TranslationLanguage;
   readonly onApply: (translated: string) => void;
   readonly onClose: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [target, setTarget] = useState<TranslationLanguage>();
-  const input =
-    target === undefined ? undefined : draftTranslationInput(text, target.code);
+  const input = useMemo(
+    () => draftTranslationInput(text, target.code),
+    [text, target.code],
+  );
   const translation = useTranslation(translator, input);
-  const { state } = translation;
+  const { store, enabled, state } = translation;
+  useLayoutEffect(() => {
+    if (input !== undefined && enabled()) {
+      void store.start(input);
+    }
+  }, [store, input, enabled]);
   const keep = (
     <Action
       label={t('translation.keepOriginal')}
       accessibilityLabel={t('translation.keepOriginalLabel')}
       onPress={() => {
-        translation.store.discard();
+        store.discard();
         onClose();
       }}
     />
@@ -560,10 +539,6 @@ export function DraftTranslation({
     <TranslationPanel
       label={t('translation.draftRegion')}
       target={target}
-      onTarget={(language) => {
-        setTarget(language);
-        translation.start(draftTranslationInput(text, language.code));
-      }}
       translation={translation}
       actions={
         <>

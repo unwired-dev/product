@@ -2,6 +2,7 @@ import type { Command } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
+import type { TranslationLanguage } from '@private-email/mail-core/translation';
 
 import {
   commandScript,
@@ -163,7 +164,12 @@ function EvaluationEditor({
   // its result is applied or the original kept.
   const profile = use(MailAssistanceProfileContext);
   const [captured, setCaptured] = useState<
-    CapturedDraftText & { readonly id: number; readonly profile: string }
+    CapturedDraftText & {
+      readonly id: number;
+      readonly profile: string;
+      // The language a translation was requested into.
+      readonly target?: TranslationLanguage | undefined;
+    }
   >();
   const captureNow = useRef<typeof captured>(undefined);
   const captureGeneration = useRef(0);
@@ -298,7 +304,10 @@ function EvaluationEditor({
       });
     }
   }, [ready, run]);
-  const capture = (purpose: CapturedDraftText['purpose']) => {
+  const capture = (
+    purpose: CapturedDraftText['purpose'],
+    target?: TranslationLanguage,
+  ) => {
     setOpen(undefined);
     const reported = pageNow.current;
     if (
@@ -316,6 +325,7 @@ function EvaluationEditor({
       ...captureDraftText(purpose, authored.current, reported.selection),
       id: captureGeneration.current,
       profile,
+      target,
     };
     captureNow.current = next;
     setCaptured(next);

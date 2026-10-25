@@ -150,8 +150,8 @@ const queuedPress = (label: string, event = 'onPress') => {
   while (fiber !== null) {
     const handler = fiber.memoizedProps?.[event];
     if (typeof handler === 'function') {
-      return (text?: string) => {
-        handler(text);
+      return (input?: unknown) => {
+        handler(input);
       };
     }
     fiber = fiber.return;
@@ -2456,9 +2456,7 @@ describe('composing Drafts', () => {
     };
     const translateSelection = async () => {
       await press('Translate the selected text');
-      await fireEvent.press(
-        await screen.findByRole('radio', { name: 'Translate into English' }),
-      );
+      await chooseMenuItem('English');
     };
     await select(6, 27);
     await translateSelection();
@@ -2508,16 +2506,20 @@ describe('composing Drafts', () => {
       { exact: true },
     );
 
-    // Changing the target invalidates the ready result before React removes its Replace button.
+    // Choosing another language invalidates the ready result before React removes its Replace
+    // button.
     await translateSelection();
     asked[2]?.answer.resolve({ source: 'es', text: 'Hello.' });
     await screen.findByText('Hello.');
     const supersededReplace = queuedPress(
       'Replace the selected text with this translation',
     );
-    const chooseGerman = queuedPress('Translate into German');
+    const chooseLanguage = queuedPress(
+      'Translate the selected text',
+      'onSelect',
+    );
     await act(() => {
-      chooseGerman();
+      chooseLanguage({ nativeEvent: { id: 'language:de' } });
       supersededReplace();
     });
     expect(screen.getByLabelText('Message body')).toHaveTextContent(
@@ -3013,10 +3015,8 @@ describe('adding files and images to a Draft', () => {
     ] as const) {
       await select(start, end);
       await press('Translate the selected text');
+      await chooseMenuItem('English');
       await screen.findByText(guidance);
-      expect(
-        screen.queryByRole('radio', { name: 'Translate into English' }),
-      ).toBeNull();
       expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
         before.body,
       );
@@ -3030,9 +3030,7 @@ describe('adding files and images to a Draft', () => {
     ] as const) {
       await select(start, end);
       await press('Translate the selected text');
-      await fireEvent.press(
-        await screen.findByRole('radio', { name: 'Translate into English' }),
-      );
+      await chooseMenuItem('English');
       await screen.findByLabelText(
         'Replace the selected text with this translation',
       );
