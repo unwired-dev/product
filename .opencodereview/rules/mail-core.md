@@ -366,6 +366,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `gmail-inbox.ts.scheduleBackfill` or `schedulePrefetch` immediately reacquiring
+  released permits in a repeat loop. Yield to the Effect scheduler between units
+  so queued synchronization and speculative work can acquire their permits, and
+  recheck the interactive-idle latch inside the final acquired locks before a
+  history step, releasing the locks before waiting if it closed. Exercise a
+  refresh queued behind a held history page and another while an explicit read
+  holds history behind prefetch's lane. Otherwise backfill monopolizes
+  synchronization or starts provider work from a stale idle check.
+
 - `imap-inbox.ts.load` resetting a concurrent prefetch authentication refusal
   inside its metadata-conflict retry boundary. Clear the refusal once when a new
   load acquires its permit, and preserve refusals raised during that load across

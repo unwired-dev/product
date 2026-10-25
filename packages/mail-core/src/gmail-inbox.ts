@@ -3144,6 +3144,7 @@ export function createGmailInbox(
         while (again) {
           prefetchAgain = false;
           yield* speculativeLane.withPermit(prefetch(reading));
+          yield* Effect.yieldNow;
           again = prefetchAgain && owner === reading;
         }
       }).pipe(
@@ -3441,12 +3442,21 @@ export function createGmailInbox(
           yield* shared.idle.await;
           if (
             !(yield* speculativeLane.withPermit(
-              semaphore.withPermit(backfillStep(reading)),
+              semaphore.withPermit(
+                // A read may have begun while either permit was queued. Release both before waiting.
+                Effect.suspend(() =>
+                  shared.idle.isOpen()
+                    ? backfillStep(reading)
+                    : Effect.succeed(true),
+                ),
+              ),
             ))
           ) {
             return;
           }
           yield* revealAll;
+          // Let queued synchronization and prefetch acquire their permits before the next step.
+          yield* Effect.yieldNow;
         }
       }).pipe(
         // An expired history ID or page token waits for the next synchronization to restart.

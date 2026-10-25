@@ -146,6 +146,10 @@ const holdingPrefetch = (gmail: Gmail) => {
   const native: Gmail['native'] = {
     ...gmail.native,
     gmailRequest: async (path, query, request) => {
+      // Finish synchronization only once prefetch owns the speculative lane.
+      if (path === 'labels') {
+        await reached.promise;
+      }
       if (
         query.some(
           ([name, value]) =>
@@ -163,6 +167,50 @@ const holdingPrefetch = (gmail: Gmail) => {
     reached: reached.promise,
     release: () => {
       metadata.resolve(undefined);
+    },
+  };
+};
+
+const recordingSyncPages = (gmail: Gmail, native: Gmail['native']) => {
+  const pages: number[] = [];
+  return {
+    pages,
+    native: {
+      ...native,
+      gmailRequest: (
+        ...[path, query, request]: Parameters<Gmail['native']['gmailRequest']>
+      ) => {
+        if (path === 'history') {
+          pages.push(historyPages(gmail).length);
+        }
+        return native.gmailRequest(path, query, request);
+      },
+    },
+  };
+};
+
+const holdingBody = (native: Gmail['native'], id: string) => {
+  const body = Promise.withResolvers<undefined>();
+  const reached = Promise.withResolvers<undefined>();
+  return {
+    reached: reached.promise,
+    release: () => {
+      body.resolve(undefined);
+    },
+    native: {
+      ...native,
+      gmailRequest: async (
+        ...[path, query, request]: Parameters<Gmail['native']['gmailRequest']>
+      ) => {
+        if (
+          path === `messages/${id}` &&
+          query.some(([name, value]) => name === 'format' && value === 'full')
+        ) {
+          reached.resolve(undefined);
+          await body.promise;
+        }
+        return native.gmailRequest(path, query, request);
+      },
     },
   };
 };
@@ -558,6 +606,63 @@ describe('gmail history backfill', () => {
 
     history.release();
     await backfilled(inbox);
+  });
+
+  it('lets a queued synchronization run before the next history page', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    mailbox(gmail, 400, 0);
+    const history = holdingHistory(gmail);
+    history.hold();
+    const sync = recordingSyncPages(gmail, history.native);
+    const inbox = createGmailInbox(sync.native);
+    await inbox.load();
+    await history.reached;
+    sync.pages.length = 0;
+    const refresh = inbox.load();
+    history.release();
+    await refresh;
+    await backfilled(inbox);
+
+    expect(sync.pages[0]).toBe(1);
+  });
+
+  it('rechecks interactive priority after waiting for the speculative lane', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    // This journey isolates scheduler admission; persistence journeys use createGmail above.
+    const gmail = createSyntheticGmail();
+    const older = at(mailbox(gmail, 1, 0), 0);
+    recentMailbox(gmail, 1);
+    const prefetch = holdingPrefetch(gmail);
+    const body = holdingBody(prefetch.native, older);
+    const inbox = createGmailInbox(body.native);
+    try {
+      const loading = inbox.load();
+      await vi.runAllTimersAsync();
+      await loading;
+      const reading = inbox.readMessage(older);
+      await body.reached;
+      prefetch.release();
+      await vi.runAllTimersAsync();
+
+      expect(historyPages(gmail)).toStrictEqual([]);
+
+      // Waiting for that body must not keep a foreground refresh's sync permit.
+      const refreshing = inbox.load();
+      await vi.runAllTimersAsync();
+      await refreshing;
+
+      body.release();
+      await reading;
+      await vi.runAllTimersAsync();
+      expect(ready(inbox.getSnapshot()).history?.complete).toBe(true);
+    } finally {
+      body.release();
+      prefetch.release();
+      inbox.forget();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps downloaded history visible while a pass after an expired history ID reconciles it', async () => {
