@@ -105,6 +105,15 @@ export type MailboxDocument = typeof MailboxDocumentSchema.Type;
 export const sameCheckpoint = Schema.toEquivalence(
   MailboxDocumentSchema.fields.checkpoint,
 );
+// Graph folders advance independently of the Inbox, including opening or retiring a saved view.
+export const sameGraphViews = Schema.toEquivalence(
+  Schema.Array(
+    Schema.Struct({
+      label: Schema.String,
+      checkpoint: Schema.optionalKey(GraphCheckpointSchema),
+    }),
+  ),
+);
 export const decodeDocument = Schema.decodeUnknownEffect(
   Schema.fromJsonString(MailboxDocumentSchema),
 );

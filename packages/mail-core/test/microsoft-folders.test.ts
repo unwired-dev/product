@@ -224,6 +224,43 @@ describe('browsing Microsoft mail folders', () => {
     expect(ids(view(inbox, projects).messages)).toStrictEqual([plan]);
   });
 
+  it('preserves a folder another store cached while an earlier folder-open commit waited', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph();
+    const projects = graph.createFolder('Projects');
+    const travel = graph.createFolder('Travel');
+    const flight = graph.deliver({ subject: 'Flight', folder: travel });
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let holding = false;
+    const slow = await opened({
+      ...graph.native,
+      commitMailbox: async (...args) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold one stale commit while a second store durably opens another folder.
+        if (holding) {
+          holding = false;
+          entered.resolve(undefined);
+          await release.promise;
+        }
+        return graph.native.commitMailbox(...args);
+      },
+    });
+    const fast = await opened(graph.native);
+    holding = true;
+    const opening = slow.openView(projects);
+    await entered.promise;
+    try {
+      await fast.openView(travel);
+      expect(ids(view(fast, travel).messages)).toStrictEqual([flight]);
+    } finally {
+      release.resolve(undefined);
+      await opening;
+    }
+    const relaunched = await opened(graph.native);
+    expect(openViews(relaunched)).toStrictEqual([projects, travel]);
+    expect(ids(view(relaunched, travel).messages)).toStrictEqual([flight]);
+  });
+
   it('keeps a folder whose read fails with its saved messages, and drops a folder Outlook removed', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph();

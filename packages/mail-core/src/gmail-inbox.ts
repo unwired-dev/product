@@ -72,6 +72,7 @@ import {
   merge,
   newestFirst,
   sameCheckpoint,
+  sameGraphViews,
   sameMailbox,
 } from './mailbox-document.ts';
 import { GraphId } from './mailbox-message.ts';
@@ -3116,7 +3117,11 @@ export function createGmailInbox(
       });
     }
     // Another store saved newer provider progress; synchronization restarts from it.
-    if (!sameCheckpoint(base.checkpoint, saved.checkpoint)) {
+    if (
+      !sameCheckpoint(base.checkpoint, saved.checkpoint) ||
+      (graph !== undefined &&
+        !sameGraphViews(base.views ?? [], saved.views ?? []))
+    ) {
       return yield* new SyncFailure({
         kind: 'conflict',
         cause: 'checkpoint',
