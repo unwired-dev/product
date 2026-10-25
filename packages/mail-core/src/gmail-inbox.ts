@@ -1897,6 +1897,8 @@ export function createGmailInbox(
   // at a time, so this drops the late results of one started for the previous account.
   let forgotten = false;
   let ownership = 0;
+  // Advances when the open Inbox closes, so a body or history read for the previous owner is dropped.
+  let owner = 0;
   const messageOwners = new WeakMap<
     GmailMessage,
     { readonly ownership: number; readonly scope: MailboxScope }
@@ -2114,32 +2116,39 @@ export function createGmailInbox(
     publish(rendered);
   };
 
-  const ready = (
+  const ready = Effect.fnUntraced(function* (
     cache: Cache,
     document: MailboxDocument | undefined,
     next: Sync,
-  ) =>
-    Effect.sync(() => {
-      // A concurrent intake may already have published a newer durable revision.
-      if (
-        shown !== undefined &&
-        shown.scope.address === cache.address &&
-        shown.scope.owner === cache.owner &&
-        shown.scope.generation === cache.generation &&
-        shown.scope.revision > cache.revision
-      ) {
-        return;
-      }
-      if (shown === undefined || !sameMailbox(shown.scope, cache)) {
-        reveals.clear();
-      }
-      shown = {
-        scope: cache,
-        document,
-        organize: cache.availability === undefined,
-      };
-      settle(next);
-    });
+  ) {
+    // A concurrent intake may already have published a newer durable revision.
+    if (
+      shown !== undefined &&
+      shown.scope.address === cache.address &&
+      shown.scope.owner === cache.owner &&
+      shown.scope.generation === cache.generation &&
+      shown.scope.revision > cache.revision
+    ) {
+      return;
+    }
+    if (shown === undefined || !sameMailbox(shown.scope, cache)) {
+      reveals.clear();
+    }
+    shown = {
+      scope: cache,
+      document,
+      organize: cache.availability === undefined,
+    };
+    settle(next);
+    const reading = owner;
+    yield* reveals.revealAll.pipe(
+      Effect.catchTag('SyncFailure', (failure) =>
+        failure.kind === 'locked' || failure.kind === 'revoked'
+          ? Effect.fail(failure)
+          : historyFailure(failure, reading),
+      ),
+    );
+  });
 
   // The recent working set of the latest selection; its stored bodies are protected from eviction.
   let selection: readonly string[] = [];
@@ -2215,8 +2224,6 @@ export function createGmailInbox(
 
   // The mailbox whose cache the current Inbox shows; body reads use its native generation.
   let opened: MailboxScope | undefined = undefined;
-  // Advances when the open Inbox closes, so a body read for the previous owner is dropped.
-  let owner = 0;
   // Connection and account admission happen together, so all waiting reads can be reprioritized.
   const bodyLoadConnection = Symbol('body-load-connection');
   // The order a reader wants its messages' bodies in; unranked loads go first.
@@ -3452,19 +3459,18 @@ export function createGmailInbox(
       Effect.gen(function* () {
         for (;;) {
           yield* shared.idle.await;
-          const more = yield* speculativeLane.withPermit(
-            semaphore.withPermit(
-              // A read may have begun while either permit was queued. Release both before waiting.
-              Effect.suspend(() =>
-                shared.idle.isOpen()
-                  ? backfillStep(reading)
-                  : Effect.succeed(true),
+          if (
+            !(yield* speculativeLane.withPermit(
+              semaphore.withPermit(
+                // A read may have begun while either permit was queued. Release both before waiting.
+                Effect.suspend(() =>
+                  shared.idle.isOpen()
+                    ? backfillStep(reading)
+                    : Effect.succeed(true),
+                ),
               ),
-            ),
-          );
-          // Revealed rows follow segments another store folded, even when no step remains.
-          yield* reveals.revealAll;
-          if (!more) {
+            ))
+          ) {
             return;
           }
           // Let queued synchronization and prefetch acquire their permits before the next step.

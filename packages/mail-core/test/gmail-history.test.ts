@@ -648,35 +648,48 @@ describe('gmail history backfill', () => {
     expect(ids(shown(inbox, allMail))).toStrictEqual(everything);
   });
 
-  it('drops revealed rows deleted while another Inbox folded completed history', async () => {
-    expect.hasAssertions();
-    const gmail = createGmail();
-    const everything = mailbox(gmail, 1000, 0);
-    const inbox = createInbox(gmail.native);
-    await inbox.load();
-    await backfilled(inbox);
-    await scrolled(inbox, 'INBOX', 600);
+  it.each([
+    { mode: 'verified', access: {} },
+    { mode: 'cache-only', access: { availability: 'retry' } },
+  ])(
+    'drops revealed rows deleted while another Inbox folded completed history ($mode)',
+    async ({ access }) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      const everything = mailbox(gmail, 500, 0);
+      let cacheAccess: Readonly<{ availability?: string }> = {};
+      const inbox = createInbox({
+        ...gmail.native,
+        openMailbox: async () => ({
+          ...(await gmail.native.openMailbox()),
+          ...cacheAccess,
+        }),
+      });
+      await inbox.load();
+      await backfilled(inbox);
+      await scrolled(inbox, 'INBOX', 500);
 
-    // Enough deletions to fold them into the segments.
-    const removed = everything.slice(300, 550);
-    for (const id of removed) {
-      gmail.remove(id);
-    }
-    const other = createInbox(gmail.native);
-    await other.load();
-    await vi.waitFor(() => {
-      expect(saved(gmail)).toContain('"changes":[]');
-    });
-    await inbox.load();
+      // Enough deletions to fold them into the segments.
+      const removed = everything.slice(200, 400);
+      for (const id of removed) {
+        gmail.remove(id);
+      }
+      const other = createInbox(gmail.native);
+      await other.load();
+      await vi.waitFor(() => {
+        expect(saved(gmail)).toContain('"changes":[]');
+      });
+      cacheAccess = access;
+      await inbox.load();
 
-    await vi.waitFor(() => {
-      expect(ids(shown(inbox, 'INBOX'))).not.toContain(at(removed, 0));
-    });
-    const gone = new Set(removed);
-    expect(
-      ids(shown(inbox, 'INBOX')).filter((id) => gone.has(id)),
-    ).toStrictEqual([]);
-  });
+      const gone = new Set(removed);
+      await vi.waitFor(() => {
+        expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(
+          everything.filter((id) => !gone.has(id)),
+        );
+      });
+    },
+  );
 
   it('keeps revealed history rows while a fold renames their segments', async () => {
     expect.hasAssertions();
