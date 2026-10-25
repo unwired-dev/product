@@ -85,6 +85,14 @@ export type { NativeDraftSync } from './draft-sync.ts';
 export { assetsOf } from './draft-model.ts';
 export type RecipientField = 'to' | 'cc' | 'bcc';
 
+const DeliveryCleanupSchema = Schema.Struct({
+  id: Schema.NonEmptyString,
+  connection: Schema.NonEmptyString,
+  address: Schema.NonEmptyString,
+  messageId: Schema.NonEmptyString,
+});
+type DeliveryCleanup = typeof DeliveryCleanupSchema.Type;
+
 const DraftDocumentSchema = Schema.Struct({
   version: Schema.Literal(1),
   drafts: Schema.Array(DraftSchema).check(
@@ -96,6 +104,7 @@ const DraftDocumentSchema = Schema.Struct({
   // Messages sent on this device and not yet confirmed, and the latest confirmed ones.
   outbox: Schema.optionalKey(Schema.Array(OutboxEntrySchema)),
   sent: Schema.optionalKey(Schema.Array(SentSchema)),
+  deliveryCleanup: Schema.optionalKey(Schema.Array(DeliveryCleanupSchema)),
 });
 const OpenedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
@@ -843,11 +852,12 @@ export type DraftsState =
 type Delivery = Readonly<{
   outbox: readonly OutboxEntry[];
   sent: readonly Sent[];
+  cleanup?: readonly DeliveryCleanup[];
 }>;
 const encodeDocument = (
   drafts: readonly Draft[],
   synced: readonly Synced[],
-  { outbox, sent }: Delivery,
+  { outbox, sent, cleanup = [] }: Delivery,
 ) =>
   Schema.encodeEffect(Schema.fromJsonString(DraftDocumentSchema))({
     version: 1,
@@ -855,6 +865,7 @@ const encodeDocument = (
     ...(synced.length === 0 ? {} : { synced }),
     ...(outbox.length === 0 ? {} : { outbox }),
     ...(sent.length === 0 ? {} : { sent }),
+    ...(cleanup.length === 0 ? {} : { deliveryCleanup: cleanup }),
   }).pipe(Effect.mapError(malformed));
 
 // A message handed to its provider returns to the Drafts only once its outcome is unknown, as the
@@ -943,6 +954,7 @@ export function createDrafts(
   let outbox: readonly OutboxEntry[] = [];
   let outboxBase: readonly OutboxEntry[] = [];
   let sent: readonly Sent[] = [];
+  let cleanup: readonly DeliveryCleanup[] = [];
   // Edits in memory that storage does not hold yet.
   let dirty = false;
   let state: DraftsState = { kind: 'closed' };
@@ -1079,6 +1091,7 @@ export function createDrafts(
         entry.state === 'sending' ? { ...entry, state: 'unknown' } : entry,
       );
       sent = confirmed;
+      cleanup = opened.document?.deliveryCleanup ?? [];
       dirty = outbox.some((entry, index) => entry !== stored[index]);
       publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
@@ -1108,6 +1121,7 @@ export function createDrafts(
       outbox = rebaseOutbox(outboxBase, outbox, latestOutbox);
       outboxBase = latestOutbox;
       sent = latestSent(opened.document?.sent ?? [], sent);
+      cleanup = opened.document?.deliveryCleanup ?? [];
       // The other writer read or wrote Product Sync no earlier than this store's base.
       synced = opened.document?.synced ?? synced;
       publish({ ...state, drafts: merged.drafts, save: 'saving' }, () => {
@@ -1147,7 +1161,10 @@ export function createDrafts(
       retaining?: readonly Draft[];
     }>,
   ) {
-    const document = yield* encodeDocument(drafts, synced, delivery);
+    const document = yield* encodeDocument(drafts, synced, {
+      ...delivery,
+      cleanup: delivery.cleanup ?? cleanup,
+    });
     const expected = revision;
     const committed = yield* native(
       () =>
@@ -1565,6 +1582,7 @@ export function createDrafts(
         ({ revision } = outcome.success);
         base = prepared.drafts;
         ({ outbox, sent } = prepared.delivery);
+        cleanup = prepared.delivery.cleanup ?? cleanup;
         outboxBase = outbox;
         return prepared;
       }
@@ -1612,6 +1630,7 @@ export function createDrafts(
                   : {
                       outbox: outbox.filter((each) => each.id !== id),
                       sent: latestSent(sent, [next]),
+                      cleanup: cleanup.filter((each) => each.id !== id),
                     },
             };
           }),
@@ -1658,6 +1677,12 @@ export function createDrafts(
               delivery: {
                 outbox: outbox.filter((each) => each.id !== id),
                 sent,
+                // An uncertain send may still be using its draft. Editing it never deletes that
+                // draft; a known non-delivery instead retains its cleanup after offline Edit.
+                cleanup:
+                  entry.state === 'unknown'
+                    ? cleanup.filter((each) => each.id !== id)
+                    : cleanup,
               },
               draft,
             };
@@ -1669,6 +1694,61 @@ export function createDrafts(
         publish({ ...state, drafts: [...state.drafts, written.draft] });
         yield* settleSaving(current, account);
         return written.draft.id;
+      }),
+    );
+
+  // Record before preparing, or acknowledge completed cleanup. Both use the Outbox CAS so an
+  // abandoned preparation survives Edit, a lost reply and relaunch without retaining its content.
+  const deliveryCleanup = (current: number, id: string, messageId?: string) =>
+    guarded(
+      current,
+      Effect.gen(function* () {
+        const account = yield* flushedAccount(current);
+        if (account === undefined) {
+          return false;
+        }
+        const written = yield* writeOutbox(
+          current,
+          account,
+          Effect.sync(() => {
+            if (state.kind !== 'ready') {
+              return undefined;
+            }
+            const kept = cleanup.filter((each) => each.id !== id);
+            const entry = outbox.find((each) => each.id === id);
+            if (
+              messageId !== undefined &&
+              (entry?.state !== 'queued' || entry.claim !== 'held')
+            ) {
+              return undefined;
+            }
+            return {
+              drafts: state.drafts,
+              delivery: {
+                outbox,
+                sent,
+                cleanup:
+                  messageId === undefined || entry === undefined
+                    ? kept
+                    : [
+                        ...kept,
+                        {
+                          id,
+                          connection: entry.draft.connection,
+                          address: entry.draft.from,
+                          messageId,
+                        },
+                      ],
+              },
+            };
+          }),
+        );
+        if (written === undefined) {
+          return false;
+        }
+        publish(state);
+        yield* settleSaving(current, account);
+        return live(current);
       }),
     );
 
@@ -1911,6 +1991,7 @@ export function createDrafts(
     outbox = [];
     outboxBase = [];
     sent = [];
+    cleanup = [];
     dirty = false;
     editors.clear();
     known.clear();
@@ -2025,6 +2106,15 @@ export function createDrafts(
     getSnapshot: () => state,
     // The Outbox of the open Product Account, oldest Send first.
     getOutbox: () => outbox,
+    getDeliveryCleanup: () =>
+      cleanup.filter(({ id }) => {
+        const entry = outbox.find((each) => each.id === id);
+        return entry === undefined || entry.state === 'failed';
+      }),
+    prepareDelivery: (id: string, messageId: string) =>
+      runLogged(deliveryCleanup(generation, id, messageId)),
+    completeDeliveryCleanup: (id: string) =>
+      runLogged(deliveryCleanup(generation, id)),
     // Imports running now, by asset; an 'importing' asset outside it was interrupted.
     getImports: () => importing,
     // A new asset for a file, importing until its bytes are stored.

@@ -68,6 +68,10 @@ type Scope = Readonly<{
 
 // The native module's mailbox operations, each naming the Mailbox Connection it belongs to.
 export interface NativeGmailMailboxes {
+  readonly graphDiscard: (
+    messageId: string,
+    mailbox: Scope,
+  ) => Promise<unknown>;
   readonly gmailRequest: (
     path: string,
     query: ReadonlyArray<readonly [string, string]>,
@@ -91,6 +95,10 @@ export interface NativeGmailMailboxes {
   ) => Promise<unknown>;
   readonly graphSend: (
     message: Parameters<NativeGmailMailbox['graphSend']>[0],
+    mailbox: Scope,
+  ) => Promise<unknown>;
+  readonly graphPrepare: (
+    draft: Parameters<NativeGmailMailbox['graphPrepare']>[0],
     mailbox: Scope,
   ) => Promise<unknown>;
   readonly openMailbox: (connection: string) => Promise<unknown>;
@@ -238,6 +246,10 @@ const bound = (
       native.graphModify(change, scope(mailbox)),
     gmailSend: (message, mailbox) => native.gmailSend(message, scope(mailbox)),
     graphSend: (message, mailbox) => native.graphSend(message, scope(mailbox)),
+    graphPrepare: (draft, mailbox) =>
+      native.graphPrepare(draft, scope(mailbox)),
+    graphDiscard: (messageId, mailbox) =>
+      native.graphDiscard(messageId, scope(mailbox)),
     openMailbox: () => native.openMailbox(connection),
     commitMailbox: (mailbox, expectedRevision, document) =>
       native.commitMailbox(scope(mailbox), expectedRevision, document),

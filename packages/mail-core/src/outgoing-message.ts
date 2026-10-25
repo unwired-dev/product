@@ -19,9 +19,12 @@ export type OutgoingMessage = Readonly<{
 // The largest message Gmail accepts through its messages.send upload.
 export const gmailMessageLimit = 35 * 1024 * 1024;
 // The largest message Microsoft Graph's sendMail accepts in one request: Graph limits a request to
-// 4 MB, and the message travels base64 encoded. shortcut: larger Microsoft messages need a draft
-// and attachment upload sessions; add them when a follow-up issue asks for it.
+// 4 MB, and the message travels base64 encoded. A larger one is kept as an Outlook draft without
+// its files, which are attached to it one by one, and that draft is sent.
 export const graphMessageLimit = 3_000_000;
+// The largest message an Exchange Online mailbox can be set to send; a mailbox's own lower limit
+// is Microsoft's to refuse.
+export const graphDraftLimit = 150 * 1024 * 1024;
 
 const crlf = '\r\n';
 const lineLength = 76;
@@ -311,28 +314,62 @@ const sizeOf = (
   );
 };
 
+// The images a Draft shows inline; a repeated image is one, however often the body shows it.
+const inlineImages = (draft: Draft) => [
+  ...new Map(
+    [
+      ...imagesOf(draft.body),
+      ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
+    ].map((image) => [image.id, image]),
+  ).values(),
+];
+
+// A file native code attaches to a Microsoft draft with its verified bytes: an inline image by its
+// Content-ID, or an attachment.
+export type DraftFile = Readonly<{
+  asset: Readonly<{ id: string; digest: string }>;
+  name: string;
+  type: string;
+  contentId?: string;
+}>;
+// The files `outgoingMessage` leaves out with `withoutFiles`. Every asset must be complete.
+export const draftFiles = (draft: Draft): readonly DraftFile[] =>
+  [
+    ...inlineImages(draft).map((asset) => [asset, true] as const),
+    ...(draft.attachments ?? []).map((asset) => [asset, false] as const),
+  ].map(([asset, inline]) => {
+    if (asset.state !== 'complete') {
+      throw new Error('Only complete assets are sent');
+    }
+    return {
+      asset: { id: asset.id, digest: asset.digest },
+      name: headerText(asset.name),
+      type: contentType(asset),
+      ...(inline ? { contentId: contentIdOf(asset) } : {}),
+    };
+  });
+
 // The message sent for a Draft: its recipients, subject and reply headers, the formatted body with a
 // plain-text alternative, inline images by Content-ID and attachments, and a Message-ID when the
-// sender names one. Boundaries start with `=_`, which base64 and the encoded headers never produce
-// at the start of a line. Every asset must be complete.
+// sender names one. `withoutFiles` leaves out every image and attachment, which `draftFiles` lists.
+// Boundaries start with `=_`, which base64 and the encoded headers never produce at the start of a
+// line. Every asset must be complete.
 export function outgoingMessage(
   draft: Draft,
   {
     date,
     boundary,
     messageId,
-  }: Readonly<{ date: number; boundary: string; messageId?: string }>,
+    withoutFiles = false,
+  }: Readonly<{
+    date: number;
+    boundary: string;
+    messageId?: string;
+    withoutFiles?: boolean;
+  }>,
 ): OutgoingMessage {
   const body = [...draft.body, ...(draft.quoted ?? [])];
-  // A repeated image is one part, however often the body shows it.
-  const images = [
-    ...new Map(
-      [
-        ...imagesOf(draft.body),
-        ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
-      ].map((image) => [image.id, image]),
-    ).values(),
-  ];
+  const images = withoutFiles ? [] : inlineImages(draft);
   const alternative = multipart('alternative', `=_${boundary}_a`, [
     textPart('text/plain', plainOf(body)),
     textPart(
@@ -346,7 +383,9 @@ export function outgoingMessage(
   ]);
   const content = nested('mixed', `=_${boundary}_m`, [
     related,
-    ...(draft.attachments ?? []).map((asset) => assetPart(asset, false)),
+    ...(withoutFiles ? [] : (draft.attachments ?? [])).map((asset) =>
+      assetPart(asset, false),
+    ),
   ]);
   const { response } = draft;
   const inReplyTo =

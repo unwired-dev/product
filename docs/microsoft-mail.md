@@ -116,8 +116,8 @@ The composer offers Microsoft mailboxes as senders beside Gmail mailboxes and
 [IMAP connections with SMTP](imap-mailboxes.md#sending). A Draft from a Microsoft
 mailbox goes through the same [Outbox](outbox.md): the **Undo Send Window**, the
 content-free claim through Convex and the recorded handoff come first, and only then
-is the exact message, with its files and inline images, handed to Microsoft
-through Graph's `sendMail`. Only definite non-delivery is retried. Replies carry their `In-Reply-To` and `References`
+is the exact message, with its files and inline images, handed to Microsoft.
+Only definite non-delivery is retried. Replies carry their `In-Reply-To` and `References`
 headers, which Outlook threads by; Bcc recipients receive the message without
 appearing in what others receive. The message is sent from the mailbox's own
 address, and its Message-ID names that address's domain.
@@ -137,12 +137,38 @@ Items**, which Microsoft files afterwards:
   **Not sent** with **Edit**. Neither the message's mailbox nor this device as its
   Delivery Owner changes.
 
-Graph accepts a message in one request of at most 4 MB, so a Microsoft mailbox sends
-messages of up to 3 MB here, files included; Send refuses a larger one and keeps the
-Draft open. Larger messages, which need Outlook drafts and attachment upload
-sessions, remain unimplemented in [#917](https://github.com/unwired-dev/product/issues/917).
-They are now required for the [confirmed launch](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24),
-within the selected mailbox's supported limits.
+Graph accepts a message in one request of at most 4 MB, so `sendMail` takes
+messages of up to 3 MB, files included. A larger message, up to 150 MB, is sent as
+an Outlook draft instead
+([#917](https://github.com/unwired-dev/product/issues/917)):
+
+- after the claim, and before the recorded handoff, this device saves the message
+  without its files in the mailbox's **Drafts** folder, then attaches each file.
+  A file under 3 MB is attached in one request; a larger one goes through an
+  attachment upload session in ranges. Only Microsoft's pre-authorized upload URL
+  receives those ranges; the Graph token never does. File bytes stay in native code.
+- nothing is delivered while the draft is prepared, so a refusal or interruption
+  leaves the message waiting or **Not sent** as before, and it is never
+  **Delivery unknown**. A refused step attempts to delete the new draft. A draft left behind
+  when the app stopped carries the message's Message-ID, and the next attempt
+  deletes it before saving a new one.
+- **Edit** remains available offline. Cleanup of a known-unsent Outlook draft
+  remains pending on this device after Edit and relaunch, and retries once the
+  same mailbox is authorized and reachable. Cleanup never sends the draft.
+  Removing authorization prevents cleanup; purging the account's local data also
+  removes its pending cleanup intent, so an Outlook draft can remain.
+- each file range requires current Trusted Device verification. Unavailable
+  verification stops the upload, and revocation clears local authorization.
+- the handoff is then recorded and the draft is sent once. Its outcome follows the
+  rules below: an unknown one is confirmed only from Sent Items by Message-ID, and
+  its draft is left alone because Microsoft may be sending it.
+- the mailbox's own size limit is Microsoft's to enforce: a message it refuses as
+  too large is **Not sent**. Send refuses a message over 150 MB, or one whose text
+  alone is over 3 MB, and keeps the Draft open.
+
+Real Graph behavior for drafts saved from MIME, upload sessions and their size
+refusals remains a release check in
+[#637](https://github.com/unwired-dev/product/issues/637).
 
 ## Credentials
 

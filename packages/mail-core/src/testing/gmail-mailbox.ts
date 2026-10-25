@@ -653,6 +653,8 @@ export function createSyntheticGmail({
     graphRequest: () => rejection('unavailable'),
     graphModify: () => rejection('unavailable'),
     graphSend: () => rejection('unavailable'),
+    graphPrepare: () => rejection('unavailable'),
+    graphDiscard: () => rejection('unavailable'),
     gmailModify: async ({ message: id, add, remove }, owner) => {
       if (
         owner.address !== address ||

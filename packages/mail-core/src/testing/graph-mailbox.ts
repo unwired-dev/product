@@ -5,6 +5,7 @@ import * as Order from 'effect/Order';
 
 import type { NativeGmailMailbox } from '../gmail-inbox.ts';
 import type { GraphChange } from '../microsoft-graph.ts';
+import type { DraftFile } from '../outgoing-message.ts';
 
 import { assembled, createSyntheticGmail } from './gmail-mailbox.ts';
 
@@ -45,6 +46,16 @@ type Failure =
 type ModifyFailure = Failure | { readonly lost: true };
 // A send Graph accepts but whose reply never arrives.
 type SendFailure = Failure | { readonly lost: true };
+// Keeping a draft fails once `after` of its files are attached: Graph refuses the next request,
+// or the attempt stops there, as when the app quits, leaving the draft behind.
+type PrepareFailure = (Failure | { readonly interrupted: true }) &
+  Readonly<{ after: number }>;
+// An Outlook draft graphPrepare kept: its MIME without files, its Message-ID and attached files.
+interface OutlookDraft {
+  readonly raw: string;
+  readonly messageId: string;
+  readonly attachments: SyntheticGraphAttachment[];
+}
 
 const wellKnown: Readonly<Record<string, string>> = {
   inbox: 'Inbox',
@@ -116,8 +127,16 @@ export function createSyntheticGraph({
   >();
   const missingFolders = new Set<string>();
   let nextFolder = 0;
-  // Messages Graph accepted from sendMail, as assembled, and the IDs of their Sent Items copies.
-  const sends: Array<{ raw: string; id: string }> = [];
+  // Messages Graph accepted, as assembled, the IDs of their Sent Items copies, and the files an
+  // Outlook draft carried.
+  const sends: Array<{
+    raw: string;
+    id: string;
+    attachments: readonly SyntheticGraphAttachment[];
+  }> = [];
+  const drafts = new Map<string, OutlookDraft>();
+  const prepareFailures: PrepareFailure[] = [];
+  const discardFailures: Failure[] = [];
   const sendFailures: SendFailure[] = [];
   // Accepted messages whose Sent Items copy Microsoft has not filed yet.
   let filing: SyntheticGraphMessage[] | undefined = undefined;
@@ -465,7 +484,10 @@ export function createSyntheticGraph({
     });
   };
   // Graph keeps an accepted message in Sent Items, under the Message-ID the message names.
-  const accept = (raw: string) => {
+  const accept = (
+    raw: string,
+    attachments: readonly SyntheticGraphAttachment[] = [],
+  ) => {
     nextId += 1;
     const id = `AAMkAGI2-${String(nextId).padStart(4, '0')}_s=`;
     const header = (name: string) =>
@@ -483,11 +505,11 @@ export function createSyntheticGraph({
       isRead: true,
       folder: 'sentitems',
       body: { contentType: 'text', content: '' },
-      attachments: [],
+      attachments,
       headers: [],
       ...(messageId === undefined ? {} : { internetMessageId: messageId }),
     };
-    sends.push({ raw, id });
+    sends.push({ raw, id, attachments });
     if (filing === undefined) {
       messages.set(id, copy);
     } else {
@@ -562,26 +584,105 @@ export function createSyntheticGraph({
     });
   };
 
+  // Graph's sendMail, and its send of a draft, answer 202 Accepted with no body; a lost answer
+  // follows acceptance.
+  const send = async (
+    raw: string,
+    attachments?: readonly SyntheticGraphAttachment[],
+    sent?: () => void,
+  ) => {
+    const failure = sendFailures.shift();
+    if (failure !== undefined && !('lost' in failure)) {
+      return fail(failure);
+    }
+    sent?.();
+    accept(raw, attachments);
+    await Promise.resolve();
+    return failure === undefined
+      ? { status: 202, body: '' }
+      : rejection('delivery-unknown');
+  };
+  // A file as Graph attaches it, or undefined when its bytes no longer verify.
+  const attachment = (
+    file: DraftFile,
+  ): SyntheticGraphAttachment | undefined => {
+    const bytes = assets?.(file.asset.id, file.asset.digest);
+    return bytes === undefined
+      ? undefined
+      : {
+          name: file.name,
+          contentType: file.type,
+          bytes: [...bytes],
+          ...(file.contentId === undefined
+            ? {}
+            : { isInline: true, contentId: file.contentId }),
+        };
+  };
+
   const native = {
     ...storage.native,
     gmailRequest: () => rejection('unavailable'),
     gmailModify: () => rejection('unavailable'),
     gmailSend: () => rejection('unavailable'),
-    // Graph's sendMail answers 202 Accepted with no body.
-    graphSend: async (outgoing) => {
-      const raw = assembled(outgoing.segments, assets);
+    graphSend: (outgoing) => {
+      if (!('draft' in outgoing)) {
+        const raw = assembled(outgoing.segments, assets);
+        return raw === undefined ? rejection('attachment-missing') : send(raw);
+      }
+      const kept = drafts.get(outgoing.draft);
+      // A sent draft leaves Drafts for Sent Items.
+      return kept === undefined
+        ? notFound()
+        : send(kept.raw, kept.attachments, () => {
+            drafts.delete(outgoing.draft);
+          });
+    },
+    // Deletes the drafts an earlier attempt left under this Message-ID, keeps the MIME as a draft
+    // and attaches each file's verified bytes. A refusal deletes the new draft, as native code does.
+    graphDiscard: async (messageId) => {
+      const failure = discardFailures.shift();
+      if (failure !== undefined) {
+        return fail(failure);
+      }
+      for (const [id, each] of drafts) {
+        if (each.messageId === messageId) {
+          drafts.delete(id);
+        }
+      }
+      return { status: 204, body: '' };
+    },
+    graphPrepare: async ({ segments, messageId, files }) => {
+      const raw = assembled(segments, assets);
       if (raw === undefined) {
         return rejection('attachment-missing');
       }
-      const failure = sendFailures.shift();
-      if (failure !== undefined && !('lost' in failure)) {
-        return fail(failure);
+      for (const [id, each] of drafts) {
+        if (each.messageId === messageId) {
+          drafts.delete(id);
+        }
       }
-      accept(raw);
+      nextId += 1;
+      const id = `AAMkAGI2-${String(nextId).padStart(4, '0')}_d=`;
+      const kept: OutlookDraft = { raw, messageId, attachments: [] };
+      drafts.set(id, kept);
+      const failure = prepareFailures.shift();
+      for (const file of files.slice(0, failure?.after)) {
+        const attached = attachment(file);
+        if (attached === undefined) {
+          drafts.delete(id);
+          return rejection('attachment-missing');
+        }
+        kept.attachments.push(attached);
+      }
       await Promise.resolve();
-      return failure === undefined
-        ? { status: 202, body: '' }
-        : rejection('delivery-unknown');
+      if (failure === undefined) {
+        return { status: 201, body: JSON.stringify({ id }) };
+      }
+      if ('interrupted' in failure) {
+        return rejection('unavailable');
+      }
+      drafts.delete(id);
+      return fail(failure);
     },
     graphModify: async (request) => {
       modifies.push(request);
@@ -618,6 +719,14 @@ export function createSyntheticGraph({
     sends,
     failSend: (...next: readonly SendFailure[]) => {
       sendFailures.push(...next);
+    },
+    // The Outlook drafts Graph keeps, by ID.
+    drafts,
+    failPrepare: (...next: readonly PrepareFailure[]) => {
+      prepareFailures.push(...next);
+    },
+    failDiscard: (...next: readonly Failure[]) => {
+      discardFailures.push(...next);
     },
     // Microsoft files Sent Items copies only once `fileSentCopies` is called, as when it is slow.
     holdSentCopies: () => {
