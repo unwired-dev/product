@@ -305,10 +305,11 @@ describe('on-device translation in the reader', () => {
     expect.hasAssertions();
     const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
     const busy = new Error('Translation is busy');
+    const retry = deferred();
     const lists = jest
       .fn<ReturnType<NativeTranslation['translationLanguages']>, []>()
       .mockRejectedValueOnce(busy)
-      .mockRejectedValueOnce(busy)
+      .mockReturnValueOnce(retry.promise)
       .mockResolvedValueOnce([{ code: 'es', name: 'Spanish' }]);
     const { native, asked } = scriptedTranslation();
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
@@ -328,6 +329,16 @@ describe('on-device translation in the reader', () => {
       await fireEvent.press(
         screen.getByLabelText('Try Again to load translation languages'),
       );
+      // The banner stays, loading, while the device is asked again.
+      expect(screen.getByText('Loading languages')).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('Try Again to load translation languages'),
+      ).toBeDisabled();
+      expect(screen.queryByLabelText('Translate this message')).toBeNull();
+      await act(async () => {
+        retry.reject(busy);
+        await Promise.resolve();
+      });
       await expect(
         screen.findByText('Translation languages couldn’t be loaded.'),
       ).resolves.toBeOnTheScreen();

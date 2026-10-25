@@ -156,7 +156,8 @@ function useLanguages(translation: NativeTranslation | undefined) {
 }
 
 // The device's target languages as native menu items, the chosen one checked. The list and its
-// Try Again come back too, so the reader can show a failure in place of its menu.
+// Try Again come back too, so the reader can show a failure in place of its menu. Only a failure
+// after Try Again is announced, so opening a message or Draft stays quiet.
 function useLanguageMenu(
   translation: NativeTranslation | undefined,
   selected: TranslationLanguage | undefined,
@@ -164,6 +165,17 @@ function useLanguageMenu(
 ) {
   const { t } = useLocalization();
   const [languages, reload] = useLanguages(translation);
+  const [retried, setRetried] = useState(false);
+  useOutcomeAnnouncement(
+    retried && languages === 'failed'
+      ? t('translation.languagesFailed')
+      : undefined,
+    false,
+  );
+  const retry = () => {
+    setRetried(true);
+    reload();
+  };
   const items = (): PopUpItem[] => {
     if (languages === 'failed') {
       return [
@@ -176,7 +188,7 @@ function useLanguageMenu(
           key: 'reload',
           title: t('translation.tryAgain'),
           accessibilityLabel: t('translation.tryAgainLabel'),
-          run: reload,
+          run: retry,
         },
       ];
     }
@@ -205,7 +217,7 @@ function useLanguageMenu(
       },
     }));
   };
-  return { languages, reload, items: items() };
+  return { languages, retried, retry, items: items() };
 }
 
 // The target language menu items. Nothing is translated until one is chosen.
@@ -418,18 +430,17 @@ function TranslationPanel({
   );
 }
 
-// A language list the device could not give, in place of the Translate pull-down.
+// A language list the device could not give, in place of the Translate pull-down, which stays
+// while Try Again asks the device again.
 function LanguagesFailed({
-  announce,
+  loading,
   onRetry,
 }: {
-  readonly announce: boolean;
+  readonly loading: boolean;
   readonly onRetry: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const message = t('translation.languagesFailed');
-  useOutcomeAnnouncement(announce ? message : undefined, false);
   return (
     <View style={[styles.banner, { backgroundColor: colors.fillQuiet }]}>
       <SFSymbol
@@ -439,12 +450,13 @@ function LanguagesFailed({
       <Text
         selectable
         style={[styles.bannerText, { color: colors.textPrimary }]}>
-        {message}
+        {t(loading ? 'translation.loading' : 'translation.languagesFailed')}
       </Text>
       <Action
         label={t('translation.tryAgain')}
         accessibilityLabel={t('translation.tryAgainLabel')}
         onPress={onRetry}
+        disabled={loading}
         variant="banner"
       />
     </View>
@@ -476,15 +488,13 @@ function ReaderTranslation({
     setTarget(language);
     translation.start(messageTranslationInput(body, language.code));
   });
-  // Only a failure after Try Again is announced, so opening messages stays quiet.
-  const [retried, setRetried] = useState(false);
-  if (target === undefined && menu.languages === 'failed') {
+  const retrying = menu.retried && menu.languages === 'loading';
+  if (target === undefined && (menu.languages === 'failed' || retrying)) {
     return (
       <LanguagesFailed
-        announce={retried}
+        loading={retrying}
         onRetry={() => {
-          setRetried(true);
-          menu.reload();
+          menu.retry();
         }}
       />
     );

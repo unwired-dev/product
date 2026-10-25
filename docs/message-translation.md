@@ -22,7 +22,8 @@ fallback and nothing is downloaded by the app.
   until a language is chosen.
 - When the device's Translation fails to list its languages, the reader says
   **Translation languages couldn’t be loaded.** with **Try Again**, which asks the
-  device again. On Mac this banner takes the place of **Translate**, and a Draft's
+  device again. On Mac this banner takes the place of **Translate**, and stays,
+  loading, while the device answers; a Draft's
   translation menu shows the failure followed by **Try Again**; on iPhone and iPad it
   takes the place of the language choices in the translation panel. VoiceOver hears
   a failure that follows the person's action: opening the panel on iPhone and iPad,
