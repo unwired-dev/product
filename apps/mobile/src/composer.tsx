@@ -1228,6 +1228,77 @@ export function CapturedAssistance({
   );
 }
 
+// The header's Close: a glass circle with the native glass press; disabled dims its symbol.
+export function CloseButton({
+  disabled = false,
+  expanded,
+  onPress,
+}: {
+  readonly disabled?: boolean;
+  // Close reports whether its save question is open.
+  readonly expanded?: boolean;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <Glass
+      cornerRadius={22}
+      interactive
+      style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
+      <Pressable
+        accessibilityLabel={t('drafts.close')}
+        accessibilityRole="button"
+        accessibilityState={{
+          disabled,
+          ...(expanded === undefined ? {} : { expanded }),
+        }}
+        disabled={disabled}
+        onPress={onPress}
+        style={[styles.circle, { opacity: disabled ? 0.4 : 1 }]}>
+        <SFSymbol
+          name="xmark"
+          color={colors.textPrimary}
+        />
+      </Pressable>
+    </Glass>
+  );
+}
+
+// The header's Send: the accent fill shows at 80% (CC) while pressed and dims to 40% disabled.
+export function SendButton({
+  disabled,
+  onPress,
+}: {
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <Pressable
+      accessibilityLabel={t('drafts.send')}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.circle,
+        {
+          backgroundColor: pressed
+            ? `${colors.accentFill}CC`
+            : colors.accentFill,
+          opacity: disabled ? 0.4 : 1,
+        },
+      ]}>
+      <SFSymbol
+        name="arrow.up"
+        color={colors.accentOnFill}
+      />
+    </Pressable>
+  );
+}
+
 // Why the composer stays open, or what it asks before discarding, above the format bar.
 export function ComposerNotices({
   closing,
@@ -2016,21 +2087,12 @@ function Editor({
         <View
           style={styles.header}
           {...paletteHeader.swipe}>
-          <Pressable
-            accessibilityLabel={t('drafts.close')}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: closing === 'saving' }}
+          <CloseButton
             disabled={closing === 'saving'}
             onPress={() => {
               void close();
             }}
-            style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-            <Glass cornerRadius={22} />
-            <SFSymbol
-              name="xmark"
-              color={colors.textPrimary}
-            />
-          </Pressable>
+          />
           <Text
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
@@ -2059,20 +2121,12 @@ function Editor({
               }
             }}
           />
-          <Pressable
-            accessibilityLabel={t('drafts.send')}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: closing === 'saving' }}
+          <SendButton
             disabled={closing === 'saving'}
             onPress={() => {
               void send();
             }}
-            style={[styles.circle, { backgroundColor: colors.accentFill }]}>
-            <SFSymbol
-              name="arrow.up"
-              color={colors.accentOnFill}
-            />
-          </Pressable>
+          />
         </View>
         <View style={styles.fromRow}>
           <View style={styles.bar}>
@@ -2303,17 +2357,7 @@ function ComposerFallback({
       <View
         style={styles.header}
         {...paletteHeader.swipe}>
-        <Pressable
-          accessibilityLabel={t('drafts.close')}
-          accessibilityRole="button"
-          onPress={onClose}
-          style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-          <Glass cornerRadius={22} />
-          <SFSymbol
-            name="xmark"
-            color={colors.textPrimary}
-          />
-        </Pressable>
+        <CloseButton onPress={onClose} />
         <View style={styles.grow} />
         <CommandInput />
       </View>
