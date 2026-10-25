@@ -631,6 +631,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   both with already-revealed history and after offline relaunch. Preserve older
   stored mail and distinguish a completed short listing from an interrupted one;
   otherwise an outage hides downloaded messages and scrolling cannot recover them.
+- `gmail-history-reveals.ts.reveal` or `request` counting raw segment rows toward
+  a view's reveal target. Apply the recorded changes, view membership and cached-ID
+  deduplication before deciding that scrolling has enough rows. Exercise deleted
+  leading history rows below the fold threshold after the recent cache refills;
+  otherwise a scroll decrypts only deleted or already-cached mail and stops without
+  revealing available older messages.
 
 - `registration.ts.removeProfile` removing confirmed mailboxes before enforcing
   the target Profile's removal protection. Keep the Primary Profile's mailboxes

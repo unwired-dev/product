@@ -545,6 +545,39 @@ describe('gmail history backfill', () => {
     inbox.forget();
   });
 
+  it.each(['INBOX', allMail])(
+    'scrolls past deleted history pages to reveal older %s mail',
+    async (label) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      const everything = mailbox(gmail, 1000, 0);
+      const inbox = createGmailInbox(gmail.native);
+      onTestFinished(() => inbox.forget());
+      await inbox.load();
+      await backfilled(inbox);
+      // Stay below the fold threshold, leaving deleted rows in the first segments.
+      for (const id of everything.slice(0, 150)) {
+        gmail.remove(id);
+      }
+      await inbox.load();
+      if (label !== 'INBOX') {
+        await inbox.openView(label);
+      }
+      expect(shown(inbox, label)).toHaveLength(200);
+      const requests = gmail.requests.length;
+
+      inbox.showOlder(label);
+
+      await vi.waitFor(() => {
+        expect(shown(inbox, label).length).toBeGreaterThan(200);
+      });
+      expect(ids(shown(inbox, label))).toStrictEqual(
+        everything.slice(150, 150 + shown(inbox, label).length),
+      );
+      expect(gmail.requests).toHaveLength(requests);
+    },
+  );
+
   it.each([
     {
       outcome: 'read',

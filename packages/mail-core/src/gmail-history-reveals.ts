@@ -111,7 +111,15 @@ export function createHistoryReveals<E>({
             entry.messages = [];
           }
           const name = names[entry.names.length];
-          if (entry.messages.length >= entry.target || name === undefined) {
+          const cached =
+            label === 'INBOX'
+              ? (current.document?.messages ?? [])
+              : (current.document?.views?.find((view) => view.label === label)
+                  ?.messages ?? []);
+          if (
+            withRevealed(label, cached, history).length >= entry.target ||
+            name === undefined
+          ) {
             break;
           }
           const segment = yield* read(current.scope, name);
@@ -167,8 +175,9 @@ export function createHistoryReveals<E>({
         messages: [],
         target: 0,
       };
-      if (entry.messages.length >= entry.target) {
-        entry.target = Math.max(entry.messages.length, cached.length) + count;
+      const visible = withRevealed(label, cached, document.history).length;
+      if (visible >= entry.target) {
+        entry.target = visible + count;
       }
       reveals.set(label, entry);
       return reveal(label);
