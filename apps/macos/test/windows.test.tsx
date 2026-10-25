@@ -1070,8 +1070,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
     },
   );
 
-  it('lists archived Gmail mail in the unified Archive and restores unified Trash mail to the Inbox', async () => {
-    expect.hasAssertions();
+  // A Gmail mailbox with archived mail and Trash, listed in one window from the given Favorites row.
+  const showUnified = async (favorite: string) => {
     const { registration } = await connectedRegistration();
     const gmail = createSyntheticGmail();
     const kept = gmail.deliver({
@@ -1094,40 +1094,48 @@ describe('mac windows over a connected Gmail mailbox', () => {
         second={false}
       />,
     );
+    const first = within(app.getByTestId('inbox-window-first'));
+    await fireEvent.press(
+      await first.findByRole('button', {
+        name: `${favorite}. In All mailboxes`,
+      }),
+    );
+    return { gmail, old, list, app, first };
+  };
+
+  it('lists archived Gmail mail in the unified Archive and keeps its open message as newer mail arrives', async () => {
+    expect.hasAssertions();
+    const { gmail, list, app, first } = await showUnified('Archive');
     try {
-      const first = within(app.getByTestId('inbox-window-first'));
-      await fireEvent.press(
-        await first.findByRole('button', {
-          name: 'Archive. In All mailboxes',
-        }),
-      );
-      await expect(
-        first.findByRole('button', {
-          name: /Kept receipt\. In alex@example\.invalid/u,
-        }),
-      ).resolves.toBeVisible();
-      const receipt = first.getByRole('button', { name: /Kept receipt/u });
+      expect(first.getByRole('header', { name: 'Archive' })).toBeVisible();
+      // The row names its connection even when the Profile has only one.
+      const receipt = await first.findByRole('button', {
+        name: /Kept receipt\. In alex@example\.invalid/u,
+      });
       expect(
         within(receipt).getByText('In alex@example.invalid'),
       ).toBeVisible();
-      expect(first.getByRole('header', { name: 'Archive' })).toBeVisible();
-      await fireEvent.press(
-        first.getByRole('button', { name: /Kept receipt/u }),
-      );
+      await fireEvent.press(receipt);
       await first.findByText('Paid in full.');
       expect(
         first.getByRole('button', { name: 'Move to Trash' }),
       ).toBeVisible();
-      // Newer archived mail joins the list above the open message without replacing it.
       gmail.archive(gmail.deliver({ subject: 'Newer receipt' }));
       await act(() => list.load());
       await expect(
         first.findByRole('button', { name: /Newer receipt/u }),
       ).resolves.toBeVisible();
       expect(first.getByText('Paid in full.')).toBeVisible();
-      await fireEvent.press(
-        first.getByRole('button', { name: 'Trash. In All mailboxes' }),
-      );
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('restores mail from the unified Trash to its Inbox', async () => {
+    expect.hasAssertions();
+    const { gmail, old, app, first } = await showUnified('Trash');
+    try {
       await fireEvent.press(
         await first.findByRole('button', { name: /Old newsletter/u }),
       );
