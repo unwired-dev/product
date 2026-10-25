@@ -21,6 +21,8 @@ interface WindowHost extends TurboModule {
   readonly openComposer: (draft: string, profile: string) => void;
   // Closes the window once its composer allows it; a refusal cancels a pending Quit.
   readonly finishClose: (window: string, allowed: boolean) => void;
+  // Shows or hides the Inbox window's sidebar, as its Show Sidebar / Hide Sidebar button does.
+  readonly toggleSidebar: (window: string) => void;
 }
 
 export const windowHost = () =>

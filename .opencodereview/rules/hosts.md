@@ -1138,22 +1138,21 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   activates covered content.
 
 - Mac `command-palette.tsx.CommandBar` opening from its native Command-P listener
-  while `message-body.tsx.LinkConfirmationProvider` covers that window. The
-  background's accessibility suppression does not disable native menu events:
-  check the window's shown confirmation before saving focus or mounting the query,
-  and retain entry in other windows and after dismissal. Otherwise the hidden
-  palette takes keyboard focus from the alert despite its full-window scrim.
+  while `message-body.tsx.LinkConfirmationProvider` presents a sheet on that
+  window. Trace `AppDelegate.mm.showCommands` through the key window's identifier
+  and the native sheet before requiring a JavaScript guard; retain entry in
+  other windows and after dismissal. A retained custom overlay must also block
+  native menu entry, or the hidden palette takes keyboard focus from the alert.
 
-- Mac `message-body.tsx.LinkConfirmation` leaving keyboard focus in the covered
-  reader or allowing Tab traversal outside its choices. Background accessibility
-  suppression does not remove AppKit key responders. Trace initial focus, forward
-  and reverse Tab, Escape and activation through the installed view focus command,
-  native responder chain and JavaScript key wrapper; otherwise a keyboard action
-  can change mail behind the alert or dismiss it without an available choice.
-  Include focus lost to selectable alert text: with no choice focused, Tab must
-  enter at the first choice and Shift-Tab at the last, for both ordinary and
-  caution alerts. A modular step from a missing-index sentinel can skip a choice.
-  Keep native keyboard qualification distinct from rendered callback evidence.
+- Mac link confirmation leaving keyboard focus in the covered reader or allowing
+  Tab traversal outside its choices. Trace `message-body.tsx`'s `askInSheet`
+  through `UnwiredAlert` and AppKit's sheet responder chain for initial focus,
+  forward and reverse Tab, Escape and activation, including selectable alert
+  text. Let the native presenter own those interactions. A retained custom
+  overlay needs equivalent keyboard ownership; accessibility suppression alone
+  does not remove AppKit key responders. Otherwise a keyboard action can change
+  mail behind the alert or dismiss it without an available choice. Keep native
+  keyboard qualification distinct from rendered callback evidence.
 
 - `apps/macos/src/message-body.tsx.LinkConfirmationProvider` or another Mac
   view using a React Native component whose native host is absent on macOS.
@@ -1162,17 +1161,16 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   Modal hosts. Use supported host views while preserving bounded content,
   dismissal and reader ownership; otherwise the confirmation has no native
   presentation even though types, bundles and rendered host tests pass.
-- Mac link confirmation mounted inside `message-detail.tsx.MailboxMessage`
-  instead of `window.tsx.WindowContents`. The window's selected mailbox store
-  and message must gate its overlay; cover the glass sidebar, command bar and
-  both columns and hide their background accessibility while it is open. Check
-  independent windows and queued input after selection changes, or the alert
-  leaves Mailboxes or the list usable beneath a partial scrim and can escape its
-  reader's ownership.
-  Core `accessibilityElementsHidden` and `accessibilityViewIsModal` are also
-  excluded by the Mac renderer; preserve the AppKit background wrapper's
-  accessibility-children and hit-test suppression rather than relying on props
-  that rendered tests recognize but the native host ignores. While
+- Mac `message-body.tsx.LinkConfirmationProvider` presenting without the window's
+  selected mailbox store and message gating its lifetime. Trace `askInSheet`'s
+  anchor to `UnwiredAlert`'s owning `NSWindow`; its AppKit sheet must own background
+  input and accessibility across the sidebar, command bar and both columns.
+  Check independent windows and queued input after selection changes, or the
+  confirmation can escape its reader's ownership or leave background mail usable.
+  A retained custom overlay must cover the whole window and provide native
+  accessibility-children and hit-test suppression: core
+  `accessibilityElementsHidden` and `accessibilityViewIsModal` are excluded by the
+  Mac renderer, even when rendered tests recognize those props. While
   `evaluation-composer.tsx` asks its Save question, verify the native presenter
   owns background input and accessibility, and pause the page. A retained custom
   overlay must supply the equivalent suppression and keyboard ownership, or

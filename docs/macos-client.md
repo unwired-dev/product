@@ -42,7 +42,7 @@ native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
 `UnwiredMenu` and `UnwiredAlert` presenters, `UnwiredAppleIDButton`,
-`UnwiredPushButton` and `UnwiredPopUpButton`. Pop-up controls are AppKit `NSPopUpButton`s through
+`UnwiredPushButton`, `UnwiredPopUpButton` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
 `UnwiredPopUpButton`. Settings rows, the IMAP security field and the composer's From
 and Text style show their current choice and open their menu over it, with the choice
 checked. The reader's Folders and the composer's actions and Writing tools are
@@ -94,8 +94,16 @@ Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 (the window's [Profile Switcher](private-inbox-storage.md#mail-profiles),
 **All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
 **Account**), the message list with its floating search and **New Message** bar,
-and the reader. The **Show Sidebar** / **Hide Sidebar** button before the list title
-toggles the sidebar; a window at most 900pt wide starts without it.
+and the reader. The sidebar is an AppKit split-view sidebar through
+`UnwiredSidebar`, which shows its React content in a sidebar item of the window's
+`NSSplitViewController`, beside the Inbox. The **Show Sidebar** / **Hide Sidebar**
+button before the list title asks AppKit to collapse or expand it, with the split
+view's animation; with Reduce Motion on, it collapses or expands at once. A window
+at most 900pt wide starts without it. Resizing a window below 900pt hides it,
+and widening that window again brings it back; the button's label follows each
+change. Expanding the sidebar in a narrower window widens the window. The
+account and registration pages show no sidebar. React Native macOS 0.81.9 has no
+split view; remove the adapter when it offers one.
 
 The Profile Switcher keeps its monogram trigger. It and the reader's More menu
 button use `accent/selection-subtle` while pressed or while their menu is open.

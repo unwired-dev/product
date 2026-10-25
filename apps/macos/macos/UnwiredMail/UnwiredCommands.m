@@ -183,6 +183,20 @@ RCT_EXPORT_METHOD(setWindowProfile:(NSString *)identifier profile:(NSString *)pr
   [windowNamed(identifier) invalidateRestorableState];
 }
 
+// Show Sidebar / Hide Sidebar: AppKit animates the Inbox window's sidebar, unless Reduce Motion is on.
+RCT_EXPORT_METHOD(toggleSidebar:(NSString *)identifier)
+{
+  NSSplitViewController *split = (NSSplitViewController *)windowNamed(identifier).contentViewController;
+  if (![split isKindOfClass:NSSplitViewController.class]) return;
+  NSSplitViewItem *sidebar = split.splitViewItems.firstObject;
+  if (sidebar.behavior != NSSplitViewItemBehaviorSidebar) return;
+  if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+    sidebar.collapsed = !sidebar.collapsed;
+  } else {
+    [split toggleSidebar:nil];
+  }
+}
+
 RCT_EXPORT_METHOD(restoreFocus:(NSString *)identifier)
 {
   NSWindow *window = windowNamed(identifier);

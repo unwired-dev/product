@@ -187,10 +187,13 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
   if (profile != nil) properties[@"profile"] = profile;
   NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredMail"
       initialProperties:properties];
-  rootView.frame = window.contentView.bounds;
   NSViewController *content = [NSViewController new];
   content.view = rootView;
-  window.contentViewController = content;
+  // The Inbox fills a split view, beside the Mailboxes sidebar that UnwiredSidebar adds to it.
+  NSSplitViewController *split = [NSSplitViewController new];
+  split.view.frame = window.contentView.bounds;
+  [split addSplitViewItem:[NSSplitViewItem splitViewItemWithViewController:content]];
+  window.contentViewController = split;
   NSWindowController *controller = [[NSWindowController alloc] initWithWindow:window];
   [self.inboxWindows addObject:controller];
   [window center];
