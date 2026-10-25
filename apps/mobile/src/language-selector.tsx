@@ -3,6 +3,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AnnouncedAlert } from './design.tsx';
 import { localization, useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -74,11 +75,9 @@ export function LanguageSelector() {
         ))}
       </View>
       {failed ? (
-        <Text
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
+        <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
           {t('language.saveFailed')}
-        </Text>
+        </AnnouncedAlert>
       ) : null}
     </View>
   );
