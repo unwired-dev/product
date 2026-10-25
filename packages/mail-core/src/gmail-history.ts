@@ -133,7 +133,13 @@ export const foldDue = (history: MailboxHistory) =>
 const restoredInto = (
   changes: ReadonlyMap<string, GmailMessage | undefined>,
   held: ReadonlySet<string>,
-  { oldest, newest }: Readonly<{ oldest?: string; newest?: string }>,
+  {
+    oldest,
+    newest,
+  }: Readonly<{
+    oldest: string | undefined;
+    newest: string | undefined;
+  }>,
 ) =>
   [...changes.values()].filter(
     (message): message is GmailMessage =>
@@ -170,22 +176,32 @@ export const foldStep = Effect.fnUntraced(function* <E>(
   const kept = pass.segments.slice(0, folding.segment);
   const rest = pass.segments.slice(folding.segment + foldSegments);
   const written: Array<readonly [string, readonly GmailMessage[]]> = [];
-  const found = [...folding.found];
+  const found = new Set(folding.found);
   let { newest } = folding;
   for (const segment of pass.segments.slice(
     folding.segment,
     folding.segment + foldSegments,
   )) {
-    const messages = yield* read(segment.name);
-    newest ??= messages[0]?.receivedAt;
-    const oldest = messages.at(-1)?.receivedAt;
+    const stored = yield* read(segment.name);
+    newest ??= stored[0]?.receivedAt;
+    const oldest = stored.at(-1)?.receivedAt;
+    // Equal receipts can place a changed message before the segment that already held it.
+    const messages = stored.filter(({ id }) => !found.has(id));
     const changed = messages.filter(({ id }) => changes.has(id));
-    const ids = new Set([...found, ...changed.map(({ id }) => id)]);
-    const placed = restoredInto(changes, ids, { oldest, newest });
-    if (changed.length === 0 && placed.length === 0) {
+    for (const { id } of changed) {
+      found.add(id);
+    }
+    const placed = restoredInto(changes, found, { oldest, newest });
+    if (
+      messages.length === stored.length &&
+      changed.length === 0 &&
+      placed.length === 0
+    ) {
       kept.push(segment);
     } else {
-      found.push(...changed.map(({ id }) => id), ...placed.map(({ id }) => id));
+      for (const { id } of placed) {
+        found.add(id);
+      }
       const next = Arr.sort(
         overlaid(history.changes.slice(0, folding.through), [
           ...messages,
@@ -208,17 +224,16 @@ export const foldStep = Effect.fnUntraced(function* <E>(
         folding: {
           segment: kept.length,
           through: folding.through,
-          found,
+          found: [...found],
           ...(newest === undefined ? {} : { newest }),
         },
       },
       written,
     };
   }
-  const held = new Set(found);
   const unheld = Arr.sort(
     [...changes].flatMap(([id, message]) =>
-      held.has(id) || message === undefined ? [] : [message],
+      found.has(id) || message === undefined ? [] : [message],
     ),
     newestFirst,
   );

@@ -603,6 +603,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-history.ts.foldStep` prepending every changed message absent from the
+  stored segments after a completed pass. Mail restored from Spam or Trash keeps
+  its original receipt date. Place it among the downloaded segments in receipt
+  order, since reveal stops reading once it has enough rows. Exercise restoration
+  both between retained pages and beyond the oldest page, then reopen and scroll
+  through the history. Otherwise old restored mail displaces newer downloaded
+  messages in an early scroll or disappears from later scrolling.
+  When equal receipt dates span pages, remove a changed message's original row
+  if the fold already placed it earlier, including across resumed fold steps.
+  Check downloaded counts as well as visible IDs, since reveal deduplication can
+  hide duplicated stored rows behind an inflated progress count.
 - `gmail-history-reveals.ts.request` admitting Spam or Trash to the All Mail
   history reader. Reject both before creating a reveal cursor: history excludes
   their messages. Exercise scrolling either view with a full recent cache and

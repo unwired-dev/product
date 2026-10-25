@@ -274,18 +274,37 @@ const downloaded = async () => {
 };
 
 describe('gmail history backfill', () => {
-  it('reveals older messages sharing the cached boundary timestamp', async () => {
+  it('reveals equal-timestamp pages without duplicating folded changes', async () => {
     expect.hasAssertions();
     const gmail = createGmail();
-    const everything = Array.from({ length: 400 }, () =>
+    const older = Array.from({ length: 1850 }, () =>
       gmail.deliver({ at: 1_700_000_000_000 }),
-    )
-      .toSorted()
-      .toReversed();
+    );
+    const newer = Array.from({ length: 450 }, () =>
+      gmail.deliver({ at: 1_700_000_001_000 }),
+    );
+    const everything = [
+      ...newer.toSorted().toReversed(),
+      ...older.toSorted().toReversed(),
+    ];
     const inbox = createGmailInbox(gmail.native);
+    onTestFinished(() => inbox.forget());
     await inbox.load();
     await backfilled(inbox);
-    await scrolled(inbox, 'INBOX', 400);
+    await scrolled(inbox, 'INBOX', everything.length);
+    expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
+    // These originals lie beyond the fold's first 20 segments, so deduplication must resume too.
+    for (const id of older.slice(-250)) {
+      gmail.markRead(id);
+    }
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(saved(gmail)).toContain('"changes":[]');
+    });
+    expect(ready(inbox.getSnapshot()).history?.downloaded).toBe(
+      everything.length,
+    );
+    await scrolled(inbox, 'INBOX', everything.length);
     expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
   });
 
@@ -560,7 +579,7 @@ describe('gmail history backfill', () => {
     onTestFinished(() => inbox.forget());
     await inbox.load();
     await backfilled(inbox);
-    const trashed = everything.slice(-250);
+    const trashed = [...everything.slice(300, 500), ...everything.slice(-50)];
     for (const id of trashed) {
       gmail.setLabel(id, 'TRASH', true);
     }
@@ -583,6 +602,11 @@ describe('gmail history backfill', () => {
     await scrolled(relaunched, allMail, 400);
     expect(ids(shown(relaunched, allMail)).slice(0, 400)).toStrictEqual(
       everything.slice(0, 400),
+    );
+    await scrolled(relaunched, allMail, everything.length);
+    expect(ids(shown(relaunched, allMail))).toStrictEqual(everything);
+    expect(ready(relaunched.getSnapshot()).history?.downloaded).toBe(
+      everything.length,
     );
   });
 
