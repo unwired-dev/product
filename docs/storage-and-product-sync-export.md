@@ -3,9 +3,10 @@
 Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](architecture/storage-and-product-sync-export.md).
 
-Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
-maintenance until cutover. Its implementation and qualification claims do not
-qualify the Expo or native React Native Mac replacement; use
+Scope: the SwiftUI and Mac Catalyst prototype, removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). This document records its
+behavior. Its implementation and qualification claims do not qualify the Expo or
+native React Native Mac replacement; use
 [the active documentation index](README.md) for that work.
 
 Privacy & Data > Storage & Export gives a signed-in person one place to inspect local mail storage, remove downloadable copies, and export Private Sync data.

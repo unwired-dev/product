@@ -7,7 +7,7 @@ Its vocabulary belongs to one domain, organized by reading topic below.
 Read the topic relevant to your task and its observable requirements. Only the
 review agent follows architecture and ADR links under the
 [implementation and review workflow](docs/agents/implementation-review.md).
-Definitions include the Swift prototype, accepted replacement and future
+Definitions include the retired Swift prototype, accepted replacement and future
 work. A term's presence does not establish first-release scope or implementation;
 use [the documentation index](docs/README.md) and the
 [power-user launch specification](docs/product/power-user-launch.md) for current
@@ -25,7 +25,7 @@ scope. The review agent verifies it against
 | Encryption, storage, synchronization and notifications  | [Privacy and sync](docs/domain/privacy-and-sync.md)           | [Privacy and sync notes](docs/product/privacy-and-sync.md)                                               |
 | Compose, response, understanding and translation        | [Assistance](docs/domain/assistance.md)                       | [Assistance notes](docs/product/assistance.md)                                                           |
 | External agents and their connections                   | [Agent access](docs/domain/agent-access.md)                   | [Agent access requirements](docs/product/agent-access.md)                                                |
-| Mock sessions, scenarios, harnesses and evidence        | [Testing](docs/domain/testing.md)                             | [Testing policy](docs/agents/testing.md), [Mock Mail Sessions](docs/mock-mail-sessions.md)               |
+| Mock sessions, scenarios and evidence                   | [Testing](docs/domain/testing.md)                             | [Testing policy](docs/agents/testing.md), [Mock Mail Sessions](docs/mock-mail-sessions.md)               |
 
 ## Relationships
 
