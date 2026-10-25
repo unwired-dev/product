@@ -37,6 +37,7 @@ export const registrationStyles = StyleSheet.create({
   title: { ...textStyles.largeTitle },
   heading: { ...textStyles.headline },
   text: { ...textStyles.body },
+  removalText: { ...textStyles.footnote },
   button: {
     padding: 16,
     borderWidth: 1,
@@ -75,4 +76,6 @@ export const registrationStyles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   device: { gap: 8 },
+  // A warning beside its message, or a pending action after its busy indicator.
+  inline: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
 });

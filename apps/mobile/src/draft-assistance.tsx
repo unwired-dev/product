@@ -15,7 +15,7 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import { OnDeviceMarker } from './design.tsx';
+import { OnDeviceMarker, useOutcomeAnnouncement } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -103,15 +103,17 @@ function Refusal({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const refusal = t(
+    issue === undefined
+      ? 'assistance.failed'
+      : `assistance.${purpose}${issue === 'inline-image' ? 'HasImage' : 'TooLong'}`,
+  );
+  useOutcomeAnnouncement(refusal, false);
   return (
     <Text
       accessibilityRole="alert"
       style={[styles.secondary, { color: colors.textSecondary }]}>
-      {t(
-        issue === undefined
-          ? 'assistance.failed'
-          : `assistance.${purpose}${issue === 'inline-image' ? 'HasImage' : 'TooLong'}`,
-      )}
+      {refusal}
     </Text>
   );
 }
@@ -128,6 +130,18 @@ function Status({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const failure =
+    !finished(state) || state.kind === 'ready'
+      ? undefined
+      : t(
+          `assistance.${state.kind === 'unavailable' ? state.reason : state.kind}`,
+        );
+  useOutcomeAnnouncement(
+    state.kind === 'ready'
+      ? `${t(`assistance.${purpose}Title`)}\n${state.text}`
+      : failure,
+    state.kind === 'ready',
+  );
   if (!finished(state)) {
     return (
       <View style={styles.row}>
@@ -148,9 +162,7 @@ function Status({
       <Text
         accessibilityRole="alert"
         style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t(
-          `assistance.${state.kind === 'unavailable' ? state.reason : state.kind}`,
-        )}
+        {failure}
       </Text>
     );
   }

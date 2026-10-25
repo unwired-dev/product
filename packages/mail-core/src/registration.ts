@@ -2,6 +2,7 @@ import type { Translate } from '@private-email/localization';
 
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
@@ -17,6 +18,7 @@ import type { NativeRegistrationVault } from './registration-vault.ts';
 
 import {
   decodeDiagnostic,
+  rejectionCode,
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
@@ -129,6 +131,8 @@ export type RegistrationState = Readonly<{
   profileFailure?: ProfileFailure;
   // The connection whose New Mail Notifications could not be changed; its policy is unchanged.
   notificationFailure?: string;
+  // Why removal failed, or could not be confirmed after saved state became unreadable.
+  mailboxRemovalFailure?: MailboxRemovalFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
   // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
   recoveryFailure?: RecoveryFailure;
@@ -139,6 +143,9 @@ export type RegistrationState = Readonly<{
   // Removal may have applied before its reply or local cleanup failed; retry confirms it.
   removalFailure?: RemovalFailure;
 }>;
+
+// `offline`: Product Sync or the mail provider could not be reached.
+export type MailboxRemovalFailure = 'offline' | 'failed' | 'unconfirmed';
 
 export type AccountRemoval = 'sign-out' | 'deletion';
 // Convex refused the deletion before removing anything, for example after a stale sign-in.
@@ -238,6 +245,19 @@ class NotificationRefused extends Schema.TaggedError<NotificationRefused>()(
   'NotificationRefused',
   { connection: Schema.String, snapshot: RegistrationSnapshotSchema },
 ) {}
+
+class MailboxRemovalRefused extends Schema.TaggedError<MailboxRemovalRefused>()(
+  'MailboxRemovalRefused',
+  {
+    failure: Schema.Literals(['offline', 'failed']),
+    snapshot: RegistrationSnapshotSchema,
+  },
+) {}
+
+// Hosts receive an unreachable service as `unavailable`, with the flow's `offline` as its cause.
+const isOffline = (cause: unknown): boolean =>
+  rejectionCode(cause) === 'offline' ||
+  (Predicate.hasProperty(cause, 'cause') && isOffline(cause.cause));
 
 // A refused deletion, with the account as it stands: the refusal may have settled an earlier
 // unanswered deletion.
@@ -366,6 +386,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       | LinkRefused
       | ProfileRefused
       | NotificationRefused
+      | MailboxRemovalRefused
       | DeletionRefused
       | RegistrationFailed
     >,
@@ -465,6 +486,11 @@ export function createRegistration(vault: NativeRegistrationVault) {
               Effect.sync((): RegistrationState => ({
                 ...settled(snapshot),
                 notificationFailure: connection,
+              })),
+            MailboxRemovalRefused: ({ failure, snapshot }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(snapshot),
+                mailboxRemovalFailure: failure,
               })),
             DeletionRefused: ({ snapshot }) =>
               Effect.sync((): RegistrationState => ({
@@ -640,7 +666,30 @@ export function createRegistration(vault: NativeRegistrationVault) {
         { imapSetup: setup },
       ),
     removeMailbox: (connection: string) =>
-      execute(request(native.removeMailbox(connection))),
+      execute(
+        // The removal can apply before its reply fails, so only a connection still saved failed.
+        request(native.removeMailbox(connection)).pipe(
+          Effect.catchTags({
+            RegistrationFailed: (error) =>
+              Effect.logError('Registration failed:', error.diagnostic).pipe(
+                Effect.andThen(request(native.snapshot())),
+                Effect.filterOrFail(
+                  (snapshot) =>
+                    !mailboxesOf(snapshot).some(({ id }) => id === connection),
+                  (snapshot) =>
+                    new MailboxRemovalRefused({
+                      failure: isOffline(error.cause) ? 'offline' : 'failed',
+                      snapshot,
+                    }),
+                ),
+              ),
+          }),
+        ),
+        (snapshot) => ({
+          ...settled(snapshot),
+          mailboxRemovalFailure: 'unconfirmed',
+        }),
+      ),
     createProfile: (name: string) =>
       changeProfile(request(native.createProfile(name))),
     renameProfile: (profile: string, name: string) =>
