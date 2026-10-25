@@ -37,6 +37,23 @@ const PendingActionSchema = Schema.Struct({
 });
 export type PendingAction = typeof PendingActionSchema.Type;
 
+const GraphCheckpointSchema = Schema.Union([
+  // A Microsoft folder, listed before its delta round: the round runs from the first page, or
+  // resumes at `link`, and the folder is listed again when it ends.
+  Schema.Struct({
+    kind: Schema.Literal('graph-listing'),
+    link: Schema.optionalKey(GraphDeltaLink),
+  }),
+  // Graph's link to the changes after the last applied delta page.
+  Schema.Struct({
+    kind: Schema.Literal('graph-current'),
+    link: GraphDeltaLink,
+    // An action shortened the full cache, whose oldest receipt this was; the next delta page
+    // refills it while the cache still counts as full.
+    refillUntil: Schema.optionalKey(Schema.String),
+  }),
+]);
+
 // The checkpoint is committed with the messages it produced, so a restart repeats no step twice.
 const MailboxDocumentSchema = Schema.Struct({
   version: Schema.Literal(1),
@@ -49,12 +66,13 @@ const MailboxDocumentSchema = Schema.Struct({
   labels: Schema.optionalKey(Schema.Array(GmailLabelSchema)),
   // More folders exist than were listed.
   labelsLimited: Schema.optionalKey(Schema.Literal(true)),
-  // Gmail views other than the Inbox that a reader opened, most recently opened first. Each keeps
-  // its newest messages; the mailbox's history keeps them current from the same checkpoint.
+  // Views other than the Inbox that a reader opened, most recently opened first. Each keeps its
+  // newest messages; a Gmail mailbox's history keeps them current from the same checkpoint, and
+  // each Microsoft folder from its own.
   views: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
-        // A label ID, or All Mail.
+        // A label or folder ID, or a system view such as All Mail or Trash.
         label: Schema.String,
         messages: Schema.Array(GmailMessageSchema),
         // Present while the view is listed from its first page, as for the Inbox's backfill.
@@ -65,6 +83,8 @@ const MailboxDocumentSchema = Schema.Struct({
             seen: Schema.Array(GmailId),
           }),
         ),
+        // A Microsoft folder's own delta checkpoint, absent until its first listing.
+        checkpoint: Schema.optionalKey(GraphCheckpointSchema),
       }),
     ),
   ),
@@ -78,20 +98,7 @@ const MailboxDocumentSchema = Schema.Struct({
       seen: Schema.Array(GmailId),
     }),
     Schema.Struct({ kind: Schema.Literal('current'), historyId: HistoryId }),
-    // A Microsoft Inbox, listed before its delta round: the round runs from the first page, or
-    // resumes at `link`, and the Inbox is listed again when it ends.
-    Schema.Struct({
-      kind: Schema.Literal('graph-listing'),
-      link: Schema.optionalKey(GraphDeltaLink),
-    }),
-    // Graph's link to the changes after the last applied delta page.
-    Schema.Struct({
-      kind: Schema.Literal('graph-current'),
-      link: GraphDeltaLink,
-      // An action shortened the full cache, whose oldest receipt this was; the next delta page
-      // refills it while the cache still counts as full.
-      refillUntil: Schema.optionalKey(Schema.String),
-    }),
+    ...GraphCheckpointSchema.members,
   ]),
 });
 export type MailboxDocument = typeof MailboxDocumentSchema.Type;

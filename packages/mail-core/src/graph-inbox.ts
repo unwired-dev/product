@@ -49,9 +49,9 @@ import {
   graphChange,
   graphChildFolders,
   graphFolders,
-  graphInbox,
-  graphInboxDelta,
-  graphInboxMessage,
+  graphDelta,
+  graphFolderMessage,
+  graphMessages,
   graphLabels,
   graphMessage,
   graphPayload,
@@ -137,8 +137,9 @@ const isGraphCheckpoint = (
 
 // Graph's synchronization and body reads share the store's cache and presentation boundaries.
 export function createGraphReader(native: NativeGraphMailbox) {
-  // Documents that saved the link of an empty delta round; their synchronization is current.
-  const quiet = new WeakSet<MailboxDocument>();
+  // Checkpoints that saved the link of an empty delta round; their folder is current. Documents and
+  // views derived from one keep it.
+  const quiet = new WeakSet<GraphCheckpoint>();
   // The new Inbox mail each document's delta page brought, which its commit reports.
   const arrivals = new WeakMap<MailboxDocument, readonly GmailMessage[]>();
   // One Graph read; a delta link Graph no longer accepts is GmailInvalidPage.
@@ -166,7 +167,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
         Effect.catchTag('GmailInvalidPage', Effect.die),
       );
 
-  // The newest Inbox messages replace the cached ones; the delta round keeps them current.
+  // A folder's newest messages replace the cached ones; the delta round keeps them current.
   // Pending changes and labels carry over from the document it replaces.
   const listGraph = Effect.fnUntraced(function* (
     scope: MailboxScope,
@@ -174,18 +175,26 @@ export function createGraphReader(native: NativeGraphMailbox) {
     {
       checkpoint,
       until,
+      view,
     }: Readonly<{
       checkpoint: MailboxDocument['checkpoint'];
       until?: string;
+      view: string;
     }>,
   ) {
-    let url = graphInbox(cacheLimit, until);
+    let url = graphMessages(view, cacheLimit, until);
     const messages = new Map<string, GmailMessage>();
     // A page may be shorter than $top. Bound even empty or repeated continuation pages.
     for (let pages = 0; pages < cacheLimit; pages += 1) {
       const page = yield* graphGet(scope)(url, decodeGraphInbox);
       for (const message of page.value) {
-        messages.set(message.id, listedMessage(message));
+        messages.set(
+          message.id,
+          listedMessage(message, [
+            view,
+            ...(message.isRead === false ? ['UNREAD'] : []),
+          ]),
+        );
       }
       const next = page['@odata.nextLink'];
       if (next === undefined || messages.size >= cacheLimit) {
@@ -214,13 +223,26 @@ export function createGraphReader(native: NativeGraphMailbox) {
   const applyDelta = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument,
-    { items, link }: Readonly<{ items: DeltaItems; link: string }>,
+    {
+      items,
+      link,
+      view,
+    }: Readonly<{ items: DeltaItems; link: string; view: string }>,
   ) {
     const changed = yield* Effect.forEach(
       deltaIds(items),
       (id) =>
-        graphGet(scope)(graphInboxMessage(id), decodeGraphListed).pipe(
-          Effect.map((message) => [id, listedMessage(message)] as const),
+        graphGet(scope)(graphFolderMessage(view, id), decodeGraphListed).pipe(
+          Effect.map(
+            (message) =>
+              [
+                id,
+                listedMessage(message, [
+                  view,
+                  ...(message.isRead === false ? ['UNREAD'] : []),
+                ]),
+              ] as const,
+          ),
           Effect.catchTag('GmailNotFound', () =>
             Effect.succeed([id, undefined] as const),
           ),
@@ -237,6 +259,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
       const listed = yield* listGraph(scope, document, {
         checkpoint: current,
         until: edge,
+        view,
       });
       messages = Arr.sort(
         [
@@ -253,7 +276,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
       messages,
       checkpoint: current,
     } satisfies MailboxDocument;
-    arrivals.set(next, deltaArrivals(document, changed));
+    if (view === 'INBOX') {
+      arrivals.set(next, deltaArrivals(document, changed));
+    }
     return next;
   });
 
@@ -263,15 +288,12 @@ export function createGraphReader(native: NativeGraphMailbox) {
     if ('link' in document.checkpoint && document.checkpoint.link === link) {
       return Option.none();
     }
-    const current: MailboxDocument = {
-      ...document,
-      checkpoint:
-        document.checkpoint.kind === 'graph-current'
-          ? { ...document.checkpoint, link }
-          : { kind: 'graph-current', link },
-    };
-    quiet.add(current);
-    return Option.some(current);
+    const checkpoint: GraphCheckpoint =
+      document.checkpoint.kind === 'graph-current'
+        ? { ...document.checkpoint, link }
+        : { kind: 'graph-current', link };
+    quiet.add(checkpoint);
+    return Option.some({ ...document, checkpoint });
   };
 
   // A Microsoft Inbox lists its newest messages, runs one delta round to the link for later
@@ -280,6 +302,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
   const advanceRound = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
+    view: string,
   ): Effect.fn.Return<
     Option.Option<MailboxDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
@@ -287,12 +310,12 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const listing = { kind: 'graph-listing' } as const;
     if (document === undefined || !isGraphCheckpoint(document.checkpoint)) {
       return Option.some(
-        yield* listGraph(scope, document, { checkpoint: listing }),
+        yield* listGraph(scope, document, { checkpoint: listing, view }),
       );
     }
     const { checkpoint } = document;
     const page = yield* graphRead(scope)(
-      checkpoint.link ?? graphInboxDelta,
+      checkpoint.link ?? graphDelta(view),
       decodeGraphDelta,
     ).pipe(
       Effect.asSome,
@@ -300,7 +323,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
     );
     if (Option.isNone(page)) {
       return Option.some(
-        yield* listGraph(scope, document, { checkpoint: listing }),
+        yield* listGraph(scope, document, { checkpoint: listing, view }),
       );
     }
     const next = page.value['@odata.nextLink'];
@@ -310,13 +333,18 @@ export function createGraphReader(native: NativeGraphMailbox) {
         next === undefined
           ? yield* listGraph(scope, document, {
               checkpoint: { kind: 'graph-current', link },
+              view,
             })
           : { ...document, checkpoint: { kind: 'graph-listing', link } },
       );
     }
     return page.value.value.length > 0 || next !== undefined
       ? Option.some(
-          yield* applyDelta(scope, document, { items: page.value.value, link }),
+          yield* applyDelta(scope, document, {
+            items: page.value.value,
+            link,
+            view,
+          }),
         )
       : quietRound(document, link);
   });
@@ -420,7 +448,11 @@ export function createGraphReader(native: NativeGraphMailbox) {
     document: MailboxDocument | undefined,
     step: number,
   ) => {
-    if (document !== undefined && quiet.has(document)) {
+    if (
+      document !== undefined &&
+      isGraphCheckpoint(document.checkpoint) &&
+      quiet.has(document.checkpoint)
+    ) {
       return Effect.succeedNone;
     }
     // Caches saved before organizing keep no labels; listing again adds them, and the round
@@ -432,6 +464,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
     ) {
       return listGraph(scope, document, {
         checkpoint: document.checkpoint,
+        view: 'INBOX',
       }).pipe(Effect.asSome);
     }
     if (step >= 200) {
@@ -443,8 +476,41 @@ export function createGraphReader(native: NativeGraphMailbox) {
         }),
       );
     }
-    return advanceRound(scope, document);
+    return advanceRound(scope, document, 'INBOX');
   };
+
+  // The next step of a folder view's own round, as for the Inbox, or none once a quiet round saved
+  // its link. A folder never listed is listed first.
+  const advanceView = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    entry: Readonly<{
+      label: string;
+      messages: readonly GmailMessage[];
+      checkpoint?: GraphCheckpoint;
+    }>,
+  ) {
+    if (entry.checkpoint !== undefined && quiet.has(entry.checkpoint)) {
+      return Option.none();
+    }
+    const next = yield* advanceRound(
+      scope,
+      entry.checkpoint === undefined
+        ? undefined
+        : {
+            version: 1,
+            messages: entry.messages,
+            checkpoint: entry.checkpoint,
+          },
+      entry.label,
+    );
+    return next.pipe(
+      Option.flatMap(({ messages, checkpoint }) =>
+        isGraphCheckpoint(checkpoint)
+          ? Option.some({ label: entry.label, messages, checkpoint })
+          : Option.none(),
+      ),
+    );
+  });
 
   // The mailbox's well-known folders by ID, read once per open mailbox; a mailbox without one, such
   // as Archive, simply lacks it.
@@ -614,6 +680,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
 
   return {
     advance,
+    advanceView,
     // The new Inbox mail the delta page that produced `document` brought; listings bring none.
     arrivals: (document: MailboxDocument) => arrivals.get(document) ?? [],
     partData,
