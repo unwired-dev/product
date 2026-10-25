@@ -190,11 +190,25 @@ function PolicySetting({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [refused, setRefused] = useState(false);
+  const [refused, setRefused] = useState<symbol>();
+  const change = useRef<symbol | undefined>(undefined);
   const notSaved = t('remoteContent.notSaved', {
     setting,
     choice: t(`remoteContent.policies.${selected}`),
   });
+  // Announce the committed saved choice, once for the current refusal.
+  useLayoutEffect(() => {
+    if (refused !== undefined && change.current === refused) {
+      change.current = undefined;
+      AccessibilityInfo.announceForAccessibility(notSaved);
+    }
+  }, [refused, notSaved]);
+  useLayoutEffect(
+    () => () => {
+      change.current = undefined;
+    },
+    [],
+  );
   return (
     <>
       <SettingsRow
@@ -205,17 +219,18 @@ function PolicySetting({
           selected={selected}
           choices={choices}
           onChoose={(choice) => {
-            setRefused(false);
+            const request = Symbol('remote-content-choice');
+            change.current = request;
+            setRefused(undefined);
             void (async () => {
-              if (!(await save(choice))) {
-                setRefused(true);
-                AccessibilityInfo.announceForAccessibility(notSaved);
+              if (!(await save(choice)) && change.current === request) {
+                setRefused(request);
               }
             })();
           }}
         />
       </SettingsRow>
-      {refused ? (
+      {refused === undefined ? null : (
         <View style={styles.notSaved}>
           <SFSymbol
             name="exclamationmark.triangle.fill"
@@ -225,7 +240,7 @@ function PolicySetting({
             {notSaved}
           </Label>
         </View>
-      ) : null}
+      )}
     </>
   );
 }
