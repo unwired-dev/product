@@ -1210,8 +1210,8 @@ extension UnwiredRegistration {
     }
   }
 
-  // `message` carries `segments`, each `{ text }` or `{ asset: { id, digest } }`. Not
-  // cancellable: once started, its outcome may only be unknown.
+  // `message` carries `segments`, each `{ text }` or `{ asset: { id, digest } }`, or the
+  // `draft` graphPrepare kept. Not cancellable: once started, its outcome may only be unknown.
   @objc(graphSend:mailbox:resolver:rejecter:)
   func graphSend(
     _ message: [String: Any], mailbox scope: [String: Any],
@@ -1220,11 +1220,46 @@ extension UnwiredRegistration {
   ) {
     mailbox("graphSend", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
+      if let draft = message["draft"] as? String {
+        return try await $0.graphSendDraft(
+          draft: draft, connection: connection, address: address, generation: generation)
+      }
       guard let segments = message["segments"] as? [Any] else {
         throw RegistrationError.unavailable
       }
       return try await $0.graphSend(
         segments: segments, connection: connection, address: address, generation: generation)
+    }
+  }
+
+  // `draft` carries the MIME `segments` without files, its `messageId`, and `files`, each
+  // `{ asset: { id, digest }, name, type, contentId? }`.
+  @objc(graphPrepare:mailbox:resolver:rejecter:)
+  func graphPrepare(
+    _ draft: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("graphPrepare", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let segments = draft["segments"] as? [Any],
+        let messageId = draft["messageId"] as? String, let files = draft["files"] as? [Any]
+      else { throw RegistrationError.unavailable }
+      return try await $0.graphPrepare(
+        segments: segments, messageId: messageId, files: files, connection: connection,
+        address: address, generation: generation)
+    }
+  }
+
+  @objc(graphDiscard:mailbox:resolver:rejecter:)
+  func graphDiscard(
+    _ messageId: String, mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("graphDiscard", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.graphDiscard(messageId: messageId, connection: connection,
+        address: address, generation: generation)
     }
   }
 

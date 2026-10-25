@@ -76,6 +76,7 @@ import {
   composerWindows,
   MacWindows,
   settingsWindow,
+  toggledSidebars,
 } from './settings-window.tsx';
 import { started } from './started.ts';
 
@@ -270,16 +271,13 @@ describe('mac window selection with the shared mock mailbox', () => {
       await fireEvent.press(
         await app.findByRole('button', { name: 'New Message' }),
       );
+      // AppKit's split view places the sidebar beside the panes, so only the list offsets it.
       await expect(app.findByTestId('composer-overlay')).resolves.toHaveStyle({
         height: 420,
-        left: 604,
+        left: 352,
       });
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
       expect(app.queryByRole('button', { name: 'New Message' })).toBeNull();
-      await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
-      expect(app.getByTestId('composer-overlay')).toHaveStyle({ left: 352 });
-      await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
-      expect(app.getByTestId('composer-overlay')).toHaveStyle({ left: 604 });
       await fireEvent.changeText(
         app.getByLabelText('Message body'),
         'Keep this draft.',
@@ -472,7 +470,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     },
   );
 
-  it('hides the Mailboxes sidebar in a narrow window until its toggle shows it', async () => {
+  it("asks AppKit to show or hide the window's sidebar and names the toggle after its collapse", async () => {
     expect.hasAssertions();
     const app = await render(
       <Windows
@@ -480,22 +478,22 @@ describe('mac window selection with the shared mock mailbox', () => {
         second={false}
       />,
     );
-    const window = app.getByTestId('inbox-window-first');
-    await expect(
-      app.findByRole('button', { name: 'All inboxes' }),
-    ).resolves.toBeVisible();
-    await fireEvent(window, 'layout', {
-      nativeEvent: { layout: { width: 900 } },
-    });
-    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
-    await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
-    expect(app.getByRole('button', { name: 'All inboxes' })).toBeVisible();
-    // The toggle's choice outlives later resizing.
-    await fireEvent(window, 'layout', {
-      nativeEvent: { layout: { width: 1280 } },
-    });
+    const allInboxes = await app.findByRole('button', { name: 'All inboxes' });
     await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
-    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+    expect(toggledSidebars()).toStrictEqual(['inbox-window-first']);
+    // AppKit reports each collapse, including one a narrowing window causes.
+    await fireEvent(allInboxes, 'collapse', {
+      nativeEvent: { collapsed: true },
+    });
+    await fireEvent.press(app.getByRole('button', { name: 'Show Sidebar' }));
+    expect(toggledSidebars()).toStrictEqual([
+      'inbox-window-first',
+      'inbox-window-first',
+    ]);
+    await fireEvent(allInboxes, 'collapse', {
+      nativeEvent: { collapsed: false },
+    });
+    expect(app.getByRole('button', { name: 'Hide Sidebar' })).toBeVisible();
   });
 
   it('shows saved search matches with the default row preview and result count', async () => {
@@ -780,6 +778,14 @@ describe('mac window selection with the shared mock mailbox', () => {
     expect(
       app.getByRole('button', { name: 'Open Command Palette' }),
     ).toBeVisible();
+    // AppKit shows the sidebar beside the bar's parent, so it has a layer of its own.
+    expect(app.queryByTestId('palette-outside-click')).toBeNull();
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(app.getByTestId('palette-outside-click'));
+    expect(app.queryByPlaceholderText('Type a command')).toBeNull();
+    expect(app.queryByTestId('palette-outside-click')).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 });

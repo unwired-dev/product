@@ -887,6 +887,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   after a request may reach Gmail, preserve its answer or an unknown outcome,
   never infer safe resubmission from a later generation change. Otherwise an
   ordinary refresh reports Not sent, or an uncertain handoff sends twice.
+- `outbox.ts.prepare` or another multi-request preparation relying only on a later
+  retry to remove provider drafts. Record cleanup intent durably before creation,
+  retain it through offline Edit, terminal non-delivery and failed deletion, and
+  fence it from sending or unknown outcomes. Check relaunch and Edit while native
+  preparation is pending. Serialize preparation with its durable handoff across
+  competing local stores, refreshing storage before provider work; otherwise a
+  writer can delete another writer's prepared draft or abandon an orphan when
+  Edit retires the frozen Message-ID. Credential loss and account-data purge must
+  have an explicit disposition rather than an unconditional cleanup promise.
 - `outbox.ts.handOff` or another durable provider-outcome transition ignoring a
   refused storage write. Preserve a known answer for storage-only recovery while
   its entry remains handed off; never repeat provider submission merely to record

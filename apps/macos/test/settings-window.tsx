@@ -16,6 +16,8 @@ let pendingOpen: (() => void) | undefined = undefined;
 // The New Message windows Expand asked AppKit to open, and the windows JavaScript closed.
 const composers: Array<{ draft: string; profile: string }> = [];
 const closed: string[] = [];
+// The Inbox windows whose sidebar JavaScript asked AppKit to show or hide.
+const sidebarToggles: string[] = [];
 const listeners = new Set<() => void>();
 const show = (next: boolean) => {
   shown = next;
@@ -58,6 +60,9 @@ const host = {
   openComposer: (draft: string, profile: string) => {
     composers.push({ draft, profile });
   },
+  toggleSidebar: (window: string) => {
+    sidebarToggles.push(window);
+  },
 };
 
 const { get } = TurboModuleRegistry;
@@ -76,6 +81,7 @@ afterEach(() => {
   pendingOpen = undefined;
   composers.length = 0;
   closed.length = 0;
+  sidebarToggles.length = 0;
 });
 
 // The app's windows: the given Inbox window, and the Settings window while it is open.
@@ -117,6 +123,8 @@ export const composerWindows = (): ReadonlyArray<{
   readonly profile: string;
 }> => composers;
 export const closedWindows = (): readonly string[] => closed;
+
+export const toggledSidebars = (): readonly string[] => sidebarToggles;
 
 // How often the Settings window brought an Inbox window forward.
 export const inboxFocused = () => focused;

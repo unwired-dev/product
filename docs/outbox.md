@@ -18,12 +18,19 @@ after a relaunch and reconciles uncertain ones with Gmail's Sent mailbox. Sendin
 with Mac windows closed and pausing within mobile execution limits is
 [#618](https://github.com/unwired-dev/product/issues/618).
 
-The [confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
+[#917](https://github.com/unwired-dev/product/issues/917) sends Microsoft messages too
+large for one Graph request as Outlook drafts, as
+[Microsoft sending](microsoft-mail.md#sending) describes. The
+[confirmed launch requirements](product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
 add [provider Draft retirement after durable Outbox admission and restoration on Undo #1275](https://github.com/unwired-dev/product/issues/1275),
-and [larger Microsoft messages #917](https://github.com/unwired-dev/product/issues/917).
-Those changes remain unimplemented. The current
-behavior and limits below remain accurate; the existing originating-device and
-uncertain-outcome protections also apply to the launch target.
+which remains unimplemented. The current behavior and limits below remain accurate;
+the existing originating-device and uncertain-outcome protections also apply to the
+launch target.
+
+Editing a known-unsent large Microsoft message preserves pending Outlook-draft
+cleanup on this device, including offline and across relaunch. Cleanup retries
+with current authorization without sending anything. A draft whose send outcome
+is unknown remains untouched because Microsoft may still be sending it.
 
 ## Application execution
 
@@ -63,7 +70,8 @@ it.
   - sends from a mailbox that cannot send, or whose address changed since the Draft
     chose it;
   - has a file that is still importing, failed, or does not verify on this device;
-  - is over its provider's message limit: 35 MB for Gmail, 3 MB for Microsoft;
+  - is over its provider's message limit: 35 MB for Gmail, 150 MB for Microsoft,
+    or 3 MB of text alone for Microsoft;
   - was changed in another window meanwhile;
   - cannot be saved.
 - While Send is pending, the composer accepts no edits: its fields, Undo, Redo,

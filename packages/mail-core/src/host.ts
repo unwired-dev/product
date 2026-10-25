@@ -305,6 +305,12 @@ export function createHost(
         observe('send', 'send-failed', () =>
           native().graphSend(message, mailbox),
         ),
+      graphPrepare: (draft, mailbox) =>
+        observe('send', 'send-failed', () =>
+          native().graphPrepare(draft, mailbox),
+        ),
+      graphDiscard: (messageId, mailbox) =>
+        native().graphDiscard(messageId, mailbox),
       openMailbox: (connection) => native().openMailbox(connection),
       imapOpen: (mailbox) => native().imapOpen(mailbox),
       imapCapabilities: (mailbox, session) =>

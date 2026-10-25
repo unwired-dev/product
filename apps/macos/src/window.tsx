@@ -1,5 +1,6 @@
 import type { openedTarget } from '@private-email/mail-core/notifications';
 import type { ProfileChoicesStore } from '@private-email/mail-core/profile-windows';
+import type { NativeSyntheticEvent, ViewProps } from 'react-native';
 
 import {
   commandTarget,
@@ -17,7 +18,12 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import {
+  Pressable,
+  requireNativeComponent,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import type { Selection } from './inbox.tsx';
 import type { MailboxView } from './sidebar.tsx';
@@ -26,6 +32,7 @@ import { CategorizationSpike } from './categorization-spike.ts';
 import {
   CommandBar,
   CommandPaletteProvider,
+  OutsideClickLayer,
   useCommandRegistry,
 } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
@@ -53,8 +60,6 @@ import { useSettingsRequest } from './settings-window.ts';
 import { Mailboxes } from './sidebar.tsx';
 import { usePalette } from './theme.ts';
 
-// A window narrower than this hides the sidebar until it is shown again.
-const narrowWindow = 900;
 const sidebarWidth = 236;
 const listWidth = 340;
 // The composer overlays the reading pane with 12pt insets at 70% of the panes' height,
@@ -66,14 +71,27 @@ const composerHeight = (panesHeight: number) =>
     Math.min(720, Math.max(420, panesHeight * 0.7)),
   );
 
+// The window's sidebar pane in AppKit's split view, which lays out its children beside the Inbox.
+const NativeSidebar = requireNativeComponent<
+  ViewProps & {
+    // The pane's width, which the window's sidebar keeps.
+    readonly thickness: number;
+    readonly onCollapse: (
+      event: NativeSyntheticEvent<{ readonly collapsed: boolean }>,
+    ) => void;
+  }
+>('UnwiredSidebar');
+
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   window: { flex: 1 },
   panes: { flex: 1, flexDirection: 'row' },
-  // The floating glass sidebar, inset from the window edges.
+  // The sidebar's children fill its pane; the host itself takes no space in the Inbox.
+  sidebarHost: { position: 'absolute', top: 0, bottom: 0, left: 0, width: 0 },
+  sidebarPane: { width: sidebarWidth + 2 * spacing.s, height: '100%' },
+  // The floating glass sidebar, inset from the pane's edges.
   sidebar: {
-    alignSelf: 'stretch',
-    width: sidebarWidth,
+    flex: 1,
     margin: spacing.s,
     padding: 0,
     borderRadius: radius.window,
@@ -259,10 +277,8 @@ function WindowContents({
   const [composing, setComposing] = useState<string>();
   const [height, setHeight] = useState(0);
   const [view, setView] = useState<MailboxView>({});
-  const [width, setWidth] = useState<number>();
-  // The sidebar follows the window width until the toggle chooses for it.
-  const [sidebar, setSidebar] = useState<boolean>();
-  const sidebarShown = sidebar ?? (width === undefined || width > narrowWindow);
+  // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
+  const [collapsed, setCollapsed] = useState(false);
   const inbox = useMailboxes().find(
     (mailbox) => mailbox.id === selected?.mailbox,
   )?.inbox;
@@ -316,10 +332,31 @@ function WindowContents({
   return (
     <View
       testID={`inbox-window-${windowId}`}
-      onLayout={({ nativeEvent }) => {
-        setWidth(nativeEvent.layout.width);
-      }}
       style={styles.fill}>
+      <NativeSidebar
+        thickness={sidebarWidth + 2 * spacing.s}
+        onCollapse={({ nativeEvent }) => {
+          setCollapsed(nativeEvent.collapsed);
+        }}
+        style={styles.sidebarHost}>
+        <View
+          style={[
+            styles.sidebarPane,
+            { backgroundColor: colors.surfaceSidebar },
+          ]}>
+          <GlassGroup
+            style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+            <Mailboxes
+              view={view}
+              onView={setView}
+              onProfile={(next) => {
+                void switchProfile(next);
+              }}
+            />
+          </GlassGroup>
+          <OutsideClickLayer />
+        </View>
+      </NativeSidebar>
       <LinkConfirmationProvider
         inbox={inbox}
         id={selected?.id}>
@@ -332,21 +369,6 @@ function WindowContents({
               setHeight(nativeEvent.layout.height);
             }}
             style={styles.panes}>
-            {sidebarShown ? (
-              <GlassGroup
-                style={[
-                  styles.sidebar,
-                  { boxShadow: colors.largeGlassShadow },
-                ]}>
-                <Mailboxes
-                  view={view}
-                  onView={setView}
-                  onProfile={(next) => {
-                    void switchProfile(next);
-                  }}
-                />
-              </GlassGroup>
-            ) : null}
             <View
               style={[
                 styles.list,
@@ -359,9 +381,9 @@ function WindowContents({
                 composing={composing}
                 leading={
                   <SidebarToggle
-                    shown={sidebarShown}
+                    shown={!collapsed}
                     onPress={() => {
-                      setSidebar(!sidebarShown);
+                      windowHost()?.toggleSidebar(`inbox-window-${windowId}`);
                     }}
                   />
                 }
@@ -407,10 +429,7 @@ function WindowContents({
                   styles.composer,
                   styles.composerOverlay,
                   {
-                    left:
-                      (sidebarShown ? sidebarWidth + 2 * spacing.s : 0) +
-                      listWidth +
-                      composerInset,
+                    left: listWidth + composerInset,
                     height: composerHeight(height),
                     borderColor: colors.separator,
                     boxShadow: colors.menuShadow,

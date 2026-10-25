@@ -729,7 +729,7 @@
       "assets": "Some files are not ready to send. Remove them, or wait until they are added.",
       "too-large": "This message is too large for Gmail. Remove some files and try again.",
       "too-large_imap": "This message is too large to send. Remove some files and try again.",
-      "too-large_microsoft": "This message is too large to send through Microsoft. A Microsoft mailbox sends messages of up to 3 MB here, including files. Remove some files and try again.",
+      "too-large_microsoft": "This message is too large to send through Microsoft. Make the message smaller and try again.",
       "changed": "This Draft changed in another window. Review it, then send it again.",
       "storage": "This message could not be queued because Drafts are not saved. Try again."
     },

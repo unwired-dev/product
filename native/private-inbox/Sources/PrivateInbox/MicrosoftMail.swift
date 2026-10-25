@@ -22,6 +22,9 @@ struct MicrosoftMailIdentity {
   func graph(
     _ identity: MicrosoftMailIdentity, url: URL, method: String, body: Data?, contentType: String
   ) async throws -> (Int, Data)
+  // One byte `range` of a file to an attachment upload session's URL, which carries its own
+  // authorization, so no token is sent. HTTP failures are returned, not thrown.
+  func upload(url: URL, body: Data, range: String) async throws -> (Int, Data)
 }
 
 // The tokens a Microsoft Mailbox Connection keeps as its credential.
@@ -142,6 +145,12 @@ struct MicrosoftTokens: Codable {
       token: identity.accessToken, url: url, body: body, session: session,
       contentType: contentType, method: method,
       headers: ["Prefer": #"IdType="ImmutableId", odata.maxpagesize=50"#])
+  }
+
+  func upload(url: URL, body: Data, range: String) async throws -> (Int, Data) {
+    try await GmailTransport.send(
+      token: nil, url: url, body: body, session: session, limit: 1024 * 1024,
+      contentType: "application/octet-stream", method: "PUT", headers: ["Content-Range": range])
   }
 
   // A Graph read during verification: a refusal or missing mailbox is gmailUnavailable; a busy
