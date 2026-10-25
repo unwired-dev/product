@@ -422,7 +422,9 @@ export const unifiedFolders = (
       .filter(
         ({ selectable, roles }) =>
           selectable &&
-          !['junk', 'trash', 'all'].some((excluded) => roles.includes(excluded)),
+          !['junk', 'trash', 'all'].some((excluded) =>
+            roles.includes(excluded),
+          ),
       )
       .map(({ name }) => name);
   }
