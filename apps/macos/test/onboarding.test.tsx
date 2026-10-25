@@ -24,6 +24,8 @@ describe('restoring', () => {
       loops.push(breathing);
       return breathing;
     });
+    // The loop's stop leaves the seal wherever it was; Reduce Motion shows it opaque.
+    const setValue = jest.spyOn(Animated.Value.prototype, 'setValue');
     try {
       await render(<Restoring />);
       await act(async () => {
@@ -35,24 +37,28 @@ describe('restoring', () => {
           stop.mock.calls.length,
         ]);
       const shown = breathing();
+      setValue.mockClear();
 
       await act(() => {
         changeReduceMotion(true);
       });
       const reduced = breathing();
+      const reset = setValue.mock.calls;
       await act(() => {
         changeReduceMotion(false);
       });
 
-      expect([shown, reduced, breathing()]).toStrictEqual([
+      expect([shown, reduced, reset, breathing()]).toStrictEqual([
         [[1, 0]],
         [[1, 1]],
+        [[1]],
         [
           [1, 1],
           [1, 0],
         ],
       ]);
     } finally {
+      setValue.mockRestore();
       loop.mockRestore();
     }
   });
