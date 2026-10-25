@@ -43,7 +43,7 @@ import type { PopUpItem } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
 import { PopUp } from './composer-controls.tsx';
-import { OnDeviceMarker, useOutcomeAnnouncement } from './design.tsx';
+import { OnDeviceMarker, SFSymbol, useOutcomeAnnouncement } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -62,6 +62,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xl,
   },
+  banner: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.s,
+    borderRadius: radius.card,
+  },
+  bannerText: { ...textStyles.body, flex: 1 },
   title: { ...textStyles.bodyEmphasized },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.body },
@@ -95,11 +105,17 @@ const languageLists = new WeakMap<
 // Language lists outlive any one control, so no request needs retiring with it.
 const keepLanguages = () => undefined;
 
+// A failed list is not an empty one: only the failure offers Try Again.
+type Languages =
+  | readonly TranslationLanguage[]
+  | 'loading'
+  | 'unavailable'
+  | 'failed';
+
 function useLanguages(translation: NativeTranslation | undefined) {
   const enabled = useMailAssistanceLifetime(keepLanguages);
-  const [languages, setLanguages] = useState<
-    readonly TranslationLanguage[] | 'loading' | 'unavailable'
-  >('loading');
+  const [languages, setLanguages] = useState<Languages>('loading');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (translation === undefined || !enabled()) {
       return;
@@ -114,10 +130,15 @@ function useLanguages(translation: NativeTranslation | undefined) {
       const loaded = await pending;
       const usable = loaded !== undefined && loaded.length > 0;
       if (!usable) {
-        // A later control asks the device again.
+        // Try Again or a later control asks the device again.
         languageLists.delete(translation);
       }
-      if (current) {
+      if (!current) {
+        return;
+      }
+      if (loaded === undefined) {
+        setLanguages('failed');
+      } else {
         setLanguages(usable ? loaded : 'unavailable');
       }
     };
@@ -125,43 +146,75 @@ function useLanguages(translation: NativeTranslation | undefined) {
     return () => {
       current = false;
     };
-  }, [translation, enabled]);
-  return languages;
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Try Again asks the device again.
+  }, [translation, enabled, attempt]);
+  const reload = () => {
+    setLanguages('loading');
+    setAttempt((count) => count + 1);
+  };
+  return [languages, reload] as const;
 }
 
-// The device's target languages as native menu items, the chosen one checked. Nothing is
-// translated until one is chosen.
+// The device's target languages as native menu items, the chosen one checked. The list and its
+// Try Again come back too, so the reader can show a failure in place of its menu.
+function useLanguageMenu(
+  translation: NativeTranslation | undefined,
+  selected: TranslationLanguage | undefined,
+  choose: (language: TranslationLanguage) => void,
+) {
+  const { t } = useLocalization();
+  const [languages, reload] = useLanguages(translation);
+  const items = (): PopUpItem[] => {
+    if (languages === 'failed') {
+      return [
+        {
+          key: 'languages',
+          title: t('translation.languagesFailed'),
+          disabled: true,
+        },
+        {
+          key: 'reload',
+          title: t('translation.tryAgain'),
+          accessibilityLabel: t('translation.tryAgainLabel'),
+          run: reload,
+        },
+      ];
+    }
+    if (typeof languages === 'string') {
+      return [
+        {
+          key: 'languages',
+          title: t(
+            languages === 'loading'
+              ? 'translation.loading'
+              : 'translation.noLanguages',
+          ),
+          disabled: true,
+        },
+      ];
+    }
+    return languages.map((language) => ({
+      key: `language:${language.code}`,
+      title: language.name,
+      accessibilityLabel: t('translation.targetLabel', {
+        language: language.name,
+      }),
+      checked: selected?.code === language.code,
+      run: () => {
+        choose(language);
+      },
+    }));
+  };
+  return { languages, reload, items: items() };
+}
+
+// The target language menu items. Nothing is translated until one is chosen.
 export function useTargetLanguages(
   translation: NativeTranslation | undefined,
   selected: TranslationLanguage | undefined,
   choose: (language: TranslationLanguage) => void,
 ): PopUpItem[] {
-  const { t } = useLocalization();
-  const languages = useLanguages(translation);
-  if (typeof languages === 'string') {
-    return [
-      {
-        key: 'languages',
-        title: t(
-          languages === 'loading'
-            ? 'translation.loading'
-            : 'translation.noLanguages',
-        ),
-        disabled: true,
-      },
-    ];
-  }
-  return languages.map((language) => ({
-    key: `language:${language.code}`,
-    title: language.name,
-    accessibilityLabel: t('translation.targetLabel', {
-      language: language.name,
-    }),
-    checked: selected?.code === language.code,
-    run: () => {
-      choose(language);
-    },
-  }));
+  return useLanguageMenu(translation, selected, choose).items;
 }
 
 const idle: TranslationState = { kind: 'idle' };
@@ -232,10 +285,7 @@ function useTranslation(
 }
 
 // The language named by its code, as the device lists it.
-const languageName = (
-  languages: ReturnType<typeof useLanguages>,
-  code: string,
-) =>
+const languageName = (languages: Languages, code: string) =>
   typeof languages === 'string'
     ? code
     : (languages.find((language) => language.code === code)?.name ?? code);
@@ -314,7 +364,7 @@ function TranslationPanel({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const languages = useLanguages(translation.native);
+  const [languages] = useLanguages(translation.native);
   const { state, retry, cancel } = translation;
   return (
     <View
@@ -368,6 +418,38 @@ function TranslationPanel({
   );
 }
 
+// A language list the device could not give, in place of the Translate pull-down.
+function LanguagesFailed({
+  announce,
+  onRetry,
+}: {
+  readonly announce: boolean;
+  readonly onRetry: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const message = t('translation.languagesFailed');
+  useOutcomeAnnouncement(announce ? message : undefined, false);
+  return (
+    <View style={[styles.banner, { backgroundColor: colors.fillQuiet }]}>
+      <SFSymbol
+        name="character.bubble"
+        color={colors.onDeviceInk}
+      />
+      <Text
+        selectable
+        style={[styles.bannerText, { color: colors.textPrimary }]}>
+        {message}
+      </Text>
+      <Action
+        label={t('translation.tryAgain')}
+        accessibilityLabel={t('translation.tryAgainLabel')}
+        onPress={onRetry}
+      />
+    </View>
+  );
+}
+
 function ReaderTranslation({
   translator,
   body,
@@ -386,13 +468,26 @@ function ReaderTranslation({
       : messageTranslationInput(body, target.code);
   const current = () => generation === session.current;
   const translation = useTranslation(translator, input, current);
-  const languages = useTargetLanguages(translator, target, (language) => {
+  const menu = useLanguageMenu(translator, target, (language) => {
     if (!current()) {
       return;
     }
     setTarget(language);
     translation.start(messageTranslationInput(body, language.code));
   });
+  // Only a failure after Try Again is announced, so opening messages stays quiet.
+  const [retried, setRetried] = useState(false);
+  if (target === undefined && menu.languages === 'failed') {
+    return (
+      <LanguagesFailed
+        announce={retried}
+        onRetry={() => {
+          setRetried(true);
+          menu.reload();
+        }}
+      />
+    );
+  }
   return (
     <>
       {/* A pull-down until a language is chosen, then a pop-up naming it. */}
@@ -411,7 +506,7 @@ function ReaderTranslation({
             title: t('translation.menuHeading'),
             disabled: true,
           },
-          ...languages,
+          ...menu.items,
         ]}
       />
       {target === undefined ? null : (

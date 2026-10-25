@@ -301,6 +301,73 @@ describe('on-device translation in the reader', () => {
     }
   });
 
+  it('offers Try Again for a language list the device could not give', async () => {
+    expect.hasAssertions();
+    const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
+    const busy = new Error('Translation is busy');
+    const lists = jest
+      .fn<ReturnType<NativeTranslation['translationLanguages']>, []>()
+      .mockRejectedValueOnce(busy)
+      .mockRejectedValueOnce(busy)
+      .mockResolvedValueOnce([{ code: 'es', name: 'Spanish' }]);
+    const { native, asked } = scriptedTranslation();
+    const { app } = await openReader({
+      ...native,
+      translationLanguages: lists,
+    });
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    try {
+      // The failure that comes with opening a message stays quiet.
+      await expect(
+        screen.findByText('Translation languages couldn’t be loaded.'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByLabelText('Translate this message')).toBeNull();
+      expect(announce).not.toHaveBeenCalled();
+
+      await fireEvent.press(
+        screen.getByLabelText('Load translation languages again'),
+      );
+      await expect(
+        screen.findByText('Translation languages couldn’t be loaded.'),
+      ).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([
+        ['Translation languages couldn’t be loaded.'],
+      ]);
+
+      await fireEvent.press(
+        screen.getByLabelText('Load translation languages again'),
+      );
+      await translateInto('Spanish');
+      expect(asked.map(({ target }) => target)).toStrictEqual(['es']);
+      expect(lists).toHaveBeenCalledTimes(3);
+    } finally {
+      await app.unmount();
+      logged.mockRestore();
+    }
+  });
+
+  it('keeps a device without translation languages free of Try Again', async () => {
+    expect.hasAssertions();
+    const { native } = scriptedTranslation();
+    const { app } = await openReader({
+      ...native,
+      translationLanguages: () => Promise.resolve([]),
+    });
+    try {
+      await fireEvent.press(
+        await screen.findByLabelText('Translate this message'),
+      );
+      expect(menuItems().map(({ title }) => title)).toStrictEqual([
+        'Translate Into',
+        'Translation is not available on this device.',
+      ]);
+      await dismissMenu();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('cancels on request and drops results after the message or account changes', async () => {
     expect.hasAssertions();
     const { native, asked, cancelled } = scriptedTranslation();
