@@ -585,6 +585,18 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-history.ts.foldDue` requiring an existing segment before folding a
+  completed pass. Exercise both an initially empty completed history and deletion
+  of every stored message, followed by more arrivals than the recent cache holds
+  and offline scrolling after reopen. Otherwise new mail never becomes scrollable
+  history and its recorded changes grow without folding.
+- `gmail-inbox.ts.withRevealed` excluding receipt timestamps equal to the recent
+  cache boundary, or applying recorded changes only to messages retained by an
+  earlier view filter. Exercise equal-timestamp pages and a message added to a
+  view after its segment was read, preserving ID deduplication and receipt order.
+  Otherwise downloaded messages disappear at the cache boundary or later label
+  changes cannot admit older mail until a fold or relaunch.
+
 - `registration.ts.removeProfile` removing confirmed mailboxes before enforcing
   the target Profile's removal protection. Keep the Primary Profile's mailboxes
   when its removal is refused through the public store, even if confirmation IDs
@@ -661,6 +673,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Check `everyView` additions and `settleObserved` callers with a full destination
   and a failed subsequent history read; otherwise restoring or labeling a message
   durably grows the bounded metadata cache beyond its newest-message limit.
+  Also record confirmed labels and authoritative absence in the history overlay
+  before retiring the pending action. Exercise read, removal and missing-message
+  settlement on revealed mail outside the recent cache with a failed subsequent
+  history read; otherwise a confirmed action restores stale rows or read state.
 
 - `gmail-inbox.ts.organized` admitting an absent message only when `action.add`
   explicitly names the view. Trace membership transitions when removing Spam or
