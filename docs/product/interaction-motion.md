@@ -288,12 +288,12 @@ responsiveness qualification remains with #626, using the visual evidence work i
 [DESIGN.md](../../DESIGN.md) assigns standard behavior and motion to native
 controls. [Inbox requirements](../gmail-inbox.md#filtering-the-inbox) include a
 Filter popover that fades in and closes without an exit animation. The
-[organizing-mail requirements](../gmail-inbox.md#organizing-mail) retain anchored
-Reply and Move entry, shrink-back dismissal and fade-only alternatives under
-Reduce Motion; toolbar panels ease in and fade out. Per the owner's #1046
-decision, Reply and Move move to native sheets with system motion (#1118, #1074)
-instead of repairing their custom lifecycle; native migration owners must
-preserve or explicitly reconcile these requirements before changing them.
+[organizing-mail requirements](../gmail-inbox.md#organizing-mail) give the native
+Reply sheet system presentation, dismissal and swipe-down behavior. Move retains
+anchored entry, shrink-back dismissal and a fade-only alternative under Reduce
+Motion until its native migration in #1074; toolbar panels ease in and fade out.
+The owner's #1046 decision supersedes the earlier custom Reply and Move motion
+with system sheet motion under #1118 and #1074.
 
 The [reader body-reveal contract](messages-and-delivery.md#thread-identity-and-reader-behavior)
 remains unchanged: preserve the topmost visible message and its text offset as
