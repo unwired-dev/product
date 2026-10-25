@@ -1,5 +1,4 @@
 [tools]
-java = "temurin-21"
 node = "24"
 pnpm = "11.5.2"
 ruby = "3.3.12"

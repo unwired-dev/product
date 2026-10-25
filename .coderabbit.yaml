@@ -29,7 +29,7 @@ reviews:
     - '!packages/convex/convex/_generated/**'
 
   path_instructions:
-    - path: 'apps/unwired-mail/**/*.swift'
+    - path: '**/*.swift'
       instructions: |
         Prioritize functional correctness, data protection, and Apple platform
         behavior over style already enforced by swift-format and SwiftLint.

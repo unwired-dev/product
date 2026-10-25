@@ -2100,6 +2100,7 @@ describe('mac windows of different Mail Profiles', () => {
     const store = createRegistration({
       ...vault,
       registration: () => vault.registration(),
+      recordProfiles: (next) => vault.recordProfiles(next),
     });
     await store.restore();
     const replaced = jest.replaceProperty(
@@ -2127,8 +2128,67 @@ describe('mac windows of different Mail Profiles', () => {
         await settings.findByRole('button', { name: 'Work' }),
       );
       const moving = 'Mail Profile for other@example.invalid';
+      await fireEvent.changeText(settings.getByDisplayValue('Work'), 'Office');
+      const { recordProfiles } = vault;
+      let releaseRename: () => void = () => undefined;
+      let startedRename: () => void = () => undefined;
+      let release: () => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const renaming = new Promise<void>((resolve) => {
+        releaseRename = resolve;
+      });
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const renameStarted = new Promise<void>((resolve) => {
+        startedRename = resolve;
+      });
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const movingMailbox = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // Hold native persistence while the real store serializes the move and editing completion.
+      jest
+        .spyOn(vault, 'recordProfiles')
+        .mockImplementationOnce(async (next) => {
+          await movingMailbox;
+          return recordProfiles(next);
+        })
+        .mockImplementation(async (next) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Refuse only the queued rename at the native persistence boundary.
+          if (next.profiles.some(({ pending }) => pending === 'Office')) {
+            startedRename();
+            await renaming;
+            throw Object.assign(new Error('Synthetic rename refused'), {
+              code: 'profile-changed',
+            });
+          }
+          return recordProfiles(next);
+        });
       await fireEvent.press(settings.getByRole('button', { name: moving }));
       await chooseMenuItem('Primary Profile');
+      // The pop-up reads the move's progress; the other Profile changes wait for it.
+      const pending = settings.getByRole('button', { name: moving });
+      expect(pending).toHaveAccessibilityValue({
+        text: 'Moving to Primary Profile…',
+      });
+      expect(pending).toBeDisabled();
+      for (const name of ['Add Mail Profile…', 'Remove Mail Profile…']) {
+        expect(settings.getByRole('button', { name })).toBeDisabled();
+      }
+      expect(settings.getByDisplayValue('Office')).toHaveProp(
+        'editable',
+        false,
+      );
+      expect(
+        settings.getByRole('button', { name: 'Primary Profile' }),
+      ).toBeEnabled();
+      // Disabling the edited native field can deliver its queued editing completion.
+      await act(() => {
+        settings.getByDisplayValue('Office').props.onEndEditing();
+      });
+      await act(async () => {
+        release();
+        await renameStarted;
+      });
       await waitFor(() => {
         expect(
           settings.getByRole('button', { name: 'Work' }).props
@@ -2136,6 +2196,25 @@ describe('mac windows of different Mail Profiles', () => {
         ).toBe('No mailboxes');
       });
       expect(settings.queryByRole('button', { name: moving })).toBeNull();
+      expect(
+        settings.getByRole('button', { name: 'Add Mail Profile…' }),
+      ).toBeDisabled();
+      await act(async () => {
+        releaseRename();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(settings.getByDisplayValue('Work')).toBeVisible();
+      });
+      expect(alert).toHaveBeenCalledWith(
+        'Rename Mail Profile',
+        'Another device changed these Mail Profiles first. Check them, then try again.',
+        [{ text: 'OK' }],
+      );
+      alert.mockClear();
+      expect(
+        settings.getByRole('button', { name: 'Add Mail Profile…' }),
+      ).toBeEnabled();
       // The Primary Profile lists both mailboxes and cannot be removed.
       await fireEvent.press(
         settings.getByRole('button', { name: 'Primary Profile' }),

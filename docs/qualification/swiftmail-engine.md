@@ -1,8 +1,9 @@
 # SwiftMail engine dependency
 
-Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
-maintenance until cutover. Its implementation and qualification claims do not
-qualify the Expo or native React Native Mac replacement; use
+Historical scope: the SwiftUI and Mac Catalyst prototype, removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). The implementation
+and qualification claims below record that prototype and do not qualify the
+maintained Expo or native React Native Mac clients; use
 [the active documentation index](../README.md) for that work.
 
 The Apple app approves and pins SwiftMail `1.11.0` at resolved commit

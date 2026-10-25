@@ -18,7 +18,6 @@
     "lint:boundaries": "depcruise . --ignore-known",
     "lint:fix": "oxlint --type-aware --type-check --report-unused-disable-directives --fix",
     "macos": "turbo run dev macos --filter=@private-email/macos",
-    "mail:test": "pnpm --filter @private-email/mail-test-harness mail:test",
     "native:build:macos": "turbo run native:build --filter=@private-email/macos --",
     "native:generate": "turbo run native:generate",
     "prepare": "effect-tsgo patch --oxlint",

@@ -41,7 +41,6 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/linked-sign-in.md](../linked-sign-in.md)                                   | [linked-sign-in.md](linked-sign-in.md)                                   |
 | [docs/microsoft-mail.md](../microsoft-mail.md)                                   | [microsoft-mail.md](microsoft-mail.md)                                   |
 | [docs/macos-client.md](../macos-client.md)                                       | [macos-client.md](macos-client.md)                                       |
-| [docs/mail-test-environment.md](../mail-test-environment.md)                     | [mail-test-environment.md](mail-test-environment.md)                     |
 | [docs/message-translation.md](../message-translation.md)                         | [message-translation.md](message-translation.md)                         |
 | [docs/mock-mail-sessions.md](../mock-mail-sessions.md)                           | [mock-mail-sessions.md](mock-mail-sessions.md)                           |
 | [docs/private-inbox-storage.md](../private-inbox-storage.md)                     | [private-inbox-storage.md](private-inbox-storage.md)                     |
@@ -53,7 +52,6 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/product/organization.md](../product/organization.md)                       | [product/organization.md](product/organization.md)                       |
 | [docs/product/privacy-and-sync.md](../product/privacy-and-sync.md)               | [product/privacy-and-sync.md](product/privacy-and-sync.md)               |
 | [docs/storage-and-product-sync-export.md](../storage-and-product-sync-export.md) | [storage-and-product-sync-export.md](storage-and-product-sync-export.md) |
-| [docs/swift-client.md](../swift-client.md)                                       | [swift-client.md](swift-client.md)                                       |
 
 ## Replacement decisions and evidence
 
@@ -107,8 +105,16 @@ These directories remain whole reviewer-only sources; use their original filenam
 - [Platform and provider qualification](../qualification/).
 - [Historical archive index](../archive/README.md).
 
-## Prototype qualification
+## Retired prototype architecture and qualification
 
+The Swift prototype and its local harness were removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). These records preserve
+the former implementation; their commands and test results do not qualify the
+maintained clients. The standalone SwiftMail provider tool and its disabled
+workflow remain available.
+
+- [Swift client architecture](swift-client.md)
+- [Local mail test environment architecture](mail-test-environment.md)
 - [SwiftMail engine](../qualification/swiftmail-engine.md) and [provider qualification](../qualification/swiftmail-provider.md)
 - [Mixed-provider qualification](../qualification/mixed-provider-unified-mailbox.md)
 - [Mail Assistance qualification](../qualification/mail-assistance.md)
@@ -121,10 +127,7 @@ Their links remain usable inside the repository, but their old implementation
 status and rollout plans are historical. ADRs keep their stable filenames and
 receive scope or supersession notes where needed.
 
-Update affected documentation in each implementation slice. At
-[cutover #627](https://github.com/unwired-dev/product/issues/627), remove the
-remaining Swift implementation, build targets and tests after their replacement
-slices are complete. Retire Swift operating instructions only after confirming
-their remaining operational use has ended.
-Keep useful historical decisions and provider evidence clearly scoped rather
-than presenting them as replacement qualification.
+[Cutover #627](https://github.com/unwired-dev/product/issues/627) tracks remaining
+backend and client-path cleanup, the development data reset, and clean registration
+verification. Keep historical decisions and provider evidence scoped to the
+implementation they exercised.

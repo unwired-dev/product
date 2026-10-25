@@ -3,7 +3,7 @@
 ## Start here
 
 The maintained clients are Expo in `apps/mobile` and React Native macOS in
-`apps/macos`; the SwiftUI and Mac Catalyst prototype remains in `apps/unwired-mail`.
+`apps/macos`.
 Use the [documentation index](docs/README.md) for feature scope and evidence.
 Set up the mise-managed toolchain and the nearest `package.json`
 package-manager version with the [setup instructions](README.md#local-development),
