@@ -167,8 +167,9 @@ export function MailProfilesSettings({
   // Editing completion can arrive after another control starts a change.
   const change = async (started: Pending, run: () => Promise<unknown>) => {
     setPending((current) => [...current, started]);
-    await run();
-    setPending((current) => current.filter((each) => each !== started));
+    await run().finally(() => {
+      setPending((current) => current.filter((each) => each !== started));
+    });
     return store.getSnapshot().profileFailure;
   };
   const progress = (control: string) =>
