@@ -23,6 +23,10 @@ _Avoid_: Spotlight, quick actions, search
 A user-defined set of explicit conditions and mail actions for organizing matching messages without model inference.
 _Avoid_: Notification Rule, Category, AI categorization
 
+**Provider Mail Rule**:
+A Mail Provider-owned rule that runs under the provider's execution policy, independently of Unwired's device-run **Mail Rules**.
+_Avoid_: Device-run Mail Rule, Notification Rule, Category
+
 **Blocked Sender**:
 An exact normalized sender email address whose future arriving messages are moved recoverably to the Mail Provider's Trash on each trusted device that can mutate that Mailbox Connection. The synchronized preference does not retroactively move existing mail, infer aliases, or permanently erase messages.
 _Avoid_: Display sender name, domain block, spam report
@@ -190,6 +194,10 @@ _Avoid_: Recipient Suggestion, automatically created contact, provider directory
 **Calendar Event Candidate**:
 A proposed local calendar event derived on device from a structured calendar invitation or from an unambiguous date and time in a message body already available on the device. Detection never fetches a missing body or synchronizes extracted event values; ambiguous date, time zone, duration, or location requires native event review.
 _Avoid_: Accepted invitation, Invite Message Category, automatically created event
+
+**Invitation Response**:
+An attendee's accepted, tentative or declined answer to a specific meeting invitation, distinct from creating a local calendar event.
+_Avoid_: Calendar Event Candidate, event creation, organizer cancellation
 
 **Feature Suggestion Preference**:
 A **Mail Workflow Preference** that enables or suppresses proactive suggestions for exactly one of Inbox Cleanup, Unsubscribe, Add to Contacts, or Add to Calendar.

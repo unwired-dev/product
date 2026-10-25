@@ -47,6 +47,10 @@ _Avoid_: Sent Mailbox, sent folder
 An editable, unsent outgoing message.
 _Avoid_: Outbox message, temporary composer
 
+**Forgotten Attachment Check**:
+A reviewable warning that authored outgoing message text refers to a file without a file **Attachment** in the **Draft**. An **Inline Image** alone does not satisfy the promised file.
+_Avoid_: Send Reminder, attachment download, automatic attachment selection
+
 **Semantic Message Document**:
 The editable message-body representation shared by Markdown input shortcuts, formatting controls, context actions, Draft synchronization, and outgoing format generation.
 _Avoid_: Stored Markdown, raw HTML draft
