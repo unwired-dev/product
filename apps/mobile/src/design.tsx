@@ -658,3 +658,16 @@ export function OnDeviceMarker({ label }: { readonly label: string }) {
     </View>
   );
 }
+
+// VoiceOver hears an assistance outcome once when it appears, since iOS and macOS ignore live
+// regions and the alert role: a ready result after current speech, a failure at once.
+export function useOutcomeAnnouncement(
+  words: string | undefined,
+  queue: boolean,
+) {
+  useEffect(() => {
+    if (words !== undefined) {
+      AccessibilityInfo.announceForAccessibilityWithOptions(words, { queue });
+    }
+  }, [words, queue]);
+}

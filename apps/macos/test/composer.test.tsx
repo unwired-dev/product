@@ -26,7 +26,7 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { AppState, View } from 'react-native';
+import { AccessibilityInfo, AppState, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -2618,6 +2618,14 @@ describe('composing Drafts', () => {
     await screen.findByLabelText('Cancel writing help');
     asked[0]?.answer.resolve('Let us meet on Friday. Thanks!');
     await screen.findByText('Let us meet on Friday. Thanks!');
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    // VoiceOver hears the result after current speech, and a failure at once.
+    expect(announce).toHaveBeenLastCalledWith(
+      'Rewrite\nLet us meet on Friday. Thanks!',
+      { queue: true },
+    );
     // The Draft is unchanged until the result is applied.
     expect(body()).toHaveTextContent(original, { exact: true });
     await press('Replace your text with this rewrite');
@@ -2660,6 +2668,10 @@ describe('composing Drafts', () => {
     });
     await screen.findByText(
       'This request cannot be answered. Your text is unchanged.',
+    );
+    expect(announce).toHaveBeenLastCalledWith(
+      'This request cannot be answered. Your text is unchanged.',
+      { queue: false },
     );
     expect(screen.queryByLabelText('Try writing help again')).toBeNull();
     await press('Keep your text and close this suggestion');

@@ -10,6 +10,7 @@ import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-stor
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useLayoutEffect } from 'react';
+import { AccessibilityInfo } from 'react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
@@ -186,6 +187,10 @@ describe('on-device message summaries in the reader', () => {
     expect.hasAssertions();
     const { native, asked } = scriptedAssistance();
     const { gmail, app } = await openReader(native);
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    announce.mockClear();
     try {
       expect(asked).toHaveLength(0);
       const reads = gmail.requests.length;
@@ -200,10 +205,15 @@ describe('on-device message summaries in the reader', () => {
           body: 'Please confirm the venue by Friday.',
         }),
       ]);
+      expect(announce).not.toHaveBeenCalled();
       asked[0]?.answer('Confirm the venue by Friday.');
       await expect(
         screen.findByText('Confirm the venue by Friday.'),
       ).resolves.toBeOnTheScreen();
+      // VoiceOver hears the result once, after current speech.
+      expect(announce.mock.calls).toStrictEqual([
+        ['Summary\nConfirm the venue by Friday.', { queue: true }],
+      ]);
       expect(
         screen.getByText(
           'Created on this device from the text shown here. It may be inaccurate and is not saved.',
@@ -218,6 +228,8 @@ describe('on-device message summaries in the reader', () => {
       await fireEvent.press(screen.getByLabelText('Dismiss summary'));
       expect(screen.queryByText('Confirm the venue by Friday.')).toBeNull();
       expect(screen.getByLabelText('Summarize this message')).toBeOnTheScreen();
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+      expect(announce).toHaveBeenCalledTimes(1);
     } finally {
       await app.unmount();
     }
@@ -228,6 +240,10 @@ describe('on-device message summaries in the reader', () => {
     const { app } = await openReader(
       createMockMailSession('assistance-unavailable').assistance,
     );
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    announce.mockClear();
     try {
       await fireEvent.press(screen.getByLabelText('Summarize this message'));
       await expect(
@@ -241,6 +257,17 @@ describe('on-device message summaries in the reader', () => {
       expect(
         screen.getByLabelText('Summarize this message again'),
       ).toBeOnTheScreen();
+      // The failure interrupts current speech, and failing again is heard again.
+      const failure = [
+        'Apple Intelligence is still getting ready. Try again later.',
+        { queue: false },
+      ];
+      expect(announce.mock.calls).toStrictEqual([failure]);
+      await fireEvent.press(
+        screen.getByLabelText('Summarize this message again'),
+      );
+      await screen.findByLabelText('Summarize this message again');
+      expect(announce.mock.calls).toStrictEqual([failure, failure]);
     } finally {
       await app.unmount();
     }
