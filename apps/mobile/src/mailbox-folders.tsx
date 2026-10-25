@@ -76,6 +76,7 @@ export function useMailboxFolder<E>(
       ? t('imap.foldersUnavailable')
       : undefined,
     limited: undefined,
+    downloading: undefined,
   };
 }
 
@@ -104,13 +105,18 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
   if (gmail === undefined) {
     return undefined;
   }
-  const { title, failure, limited } = gmailViewRow(t, gmail, folder);
+  const { title, failure, limited, downloading } = gmailViewRow(
+    t,
+    gmail,
+    folder,
+  );
   const { inbox } = gmail;
   return {
     title,
     listed,
     failure,
     limited,
+    downloading,
     showOlder: () => {
       inbox.showOlder(folder);
     },
