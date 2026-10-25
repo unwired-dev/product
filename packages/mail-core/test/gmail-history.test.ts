@@ -399,6 +399,25 @@ describe('gmail history backfill', () => {
     expect(view?.limited).toBeUndefined();
   });
 
+  it('reveals one batch of downloaded history per scroll', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    mailbox(gmail, 1000, 0);
+    const read = vi
+      .fn<Gmail['native']['openMailboxSegment']>()
+      .mockImplementation(gmail.native.openMailboxSegment);
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      openMailboxSegment: read,
+    });
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 201);
+    // One batch of 50 needs the first three pages of 100, not the whole mailbox.
+    expect(shown(inbox, 'INBOX')).toHaveLength(300);
+    expect(read.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
   it.each(['SPAM', 'TRASH'])(
     'keeps %s scrolling outside All Mail history reads',
     async (label) => {

@@ -190,10 +190,14 @@ export function createHistoryReveals<E>({
             history,
             cached.at(-1)?.receivedAt,
           );
-          // Rows kept from before a fold must be read again before the view stops.
+          // Rows kept from before a fold must be read again before the view stops; rows its
+          // segments already returned are not waiting.
+          const returned = new Set(entry.messages.map(({ id }) => id));
           const carried = entry.shown.some(
             (message) =>
-              frontier !== undefined && message.receivedAt <= frontier,
+              frontier !== undefined &&
+              message.receivedAt <= frontier &&
+              !returned.has(message.id),
           );
           if ((visible >= entry.target && !carried) || name === undefined) {
             break;
