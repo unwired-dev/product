@@ -92,6 +92,8 @@ it.
   Edit, and composer outcomes announce immediately. A message confirmed in Sent
   leaves the Outbox silently; when **Check Again** finds it there, VoiceOver
   hears “<subject> is in Sent.” after existing speech, with no visible change.
+  Overlapping requests share one confirmation. Editing the message or closing
+  its account during the check does not confirm delivery.
 - For 10 seconds a row says **Sending soon** and offers **Undo**. Undo returns the
   same Draft, with its identifier, files and reply details, and opens it in the
   composer. Nothing reaches Convex or Gmail before the window ends. Choosing
