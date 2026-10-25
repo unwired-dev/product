@@ -28,7 +28,7 @@ import {
 
 import type { SettingsButton } from './settings.tsx';
 
-import { SFSymbol } from './design.tsx';
+import { AnnouncedAlert, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   settingsColumns,
@@ -412,13 +412,12 @@ export function RemoteContentSettings({
           )}
         </View>
         {cleared === undefined ? null : (
-          <Text
-            accessibilityRole="alert"
+          <AnnouncedAlert
             style={[styles.text, { color: colors.textSecondary }]}>
             {cleared
               ? t('remoteContent.cleared')
               : t('remoteContent.clearFailed')}
-          </Text>
+          </AnnouncedAlert>
         )}
       </SettingsBlock>
     </SettingsGroup>

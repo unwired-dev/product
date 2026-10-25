@@ -21,6 +21,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
+import { AnnouncedAlert } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { ProviderList, ProviderRow } from './onboarding.tsx';
@@ -358,11 +359,9 @@ function FormNotes({
         </Label>
       )}
       {failure === undefined ? null : (
-        <Label
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
+        <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
           {t(`imap.failure.${failure}`)}
-        </Label>
+        </AnnouncedAlert>
       )}
     </>
   );

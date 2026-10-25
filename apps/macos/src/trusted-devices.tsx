@@ -15,6 +15,7 @@ import { Alert, Text, TextInput } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
+import { AnnouncedAlert } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
@@ -83,11 +84,9 @@ function RevocationProposal({
         value={entry}
       />
       {failure === 'mismatch' ? (
-        <Label
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.textPrimary }]}>
+        <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
           {t('revocation.mismatch')}
-        </Label>
+        </AnnouncedAlert>
       ) : null}
       {button(t('revocation.remove', { name }), () =>
         store.confirmRevocation(entry),
@@ -147,11 +146,9 @@ export function TrustedDevices({
       footer={devices.length === 0 ? undefined : t('revocation.description')}>
       {notice === undefined ? null : (
         <SettingsBlock>
-          <Label
-            accessibilityRole="alert"
-            style={[styles.text, { color: colors.textPrimary }]}>
+          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
             {notice}
-          </Label>
+          </AnnouncedAlert>
         </SettingsBlock>
       )}
       {proposal === undefined ? null : (
