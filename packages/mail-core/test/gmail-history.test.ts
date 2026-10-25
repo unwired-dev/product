@@ -373,6 +373,49 @@ describe('gmail history backfill', () => {
     expect(view?.limited).toBeUndefined();
   });
 
+  it.each(['SPAM', 'TRASH'])(
+    'keeps %s scrolling outside All Mail history reads',
+    async (label) => {
+      expect.hasAssertions();
+      vi.useFakeTimers();
+      const gmail = createSyntheticGmail();
+      for (const id of mailbox(gmail, 650, 0).slice(0, 250)) {
+        gmail.setLabel(id, label, true);
+      }
+      const read = vi
+        .fn<Gmail['native']['openMailboxSegment']>()
+        .mockImplementation(gmail.native.openMailboxSegment);
+      const inbox = createGmailInbox({
+        ...gmail.native,
+        openMailboxSegment: read,
+      });
+      try {
+        const loading = inbox.load();
+        await vi.runAllTimersAsync();
+        await loading;
+        expect(ready(inbox.getSnapshot()).history?.complete).toBe(true);
+        const opening = inbox.openView(label);
+        await vi.runAllTimersAsync();
+        await opening;
+        const before = shown(inbox, label);
+        expect(before).toHaveLength(200);
+
+        inbox.showOlder(label);
+        await vi.runAllTimersAsync();
+
+        expect(read).not.toHaveBeenCalled();
+        expect(shown(inbox, label)).toStrictEqual(before);
+        expect(
+          ready(inbox.getSnapshot()).views?.find((view) => view.label === label)
+            ?.limited,
+        ).toBe(true);
+      } finally {
+        inbox.forget();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('resumes an interrupted backfill after relaunch without rewinding or duplicating mail', async () => {
     expect.hasAssertions();
     const gmail = createGmail();

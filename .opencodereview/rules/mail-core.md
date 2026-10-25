@@ -603,6 +603,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-history-reveals.ts.request` admitting Spam or Trash to the All Mail
+  history reader. Reject both before creating a reveal cursor: history excludes
+  their messages. Exercise scrolling either view with a full recent cache and
+  downloaded history; otherwise it scans and decrypts unrelated segments without
+  revealing mail, delaying other views behind the reveal permit.
 - `gmail-history.ts.foldDue` requiring an existing segment before folding a
   completed pass. Exercise both an initially empty completed history and deletion
   of every stored message, followed by more arrivals than the recent cache holds

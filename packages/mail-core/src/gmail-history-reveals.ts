@@ -145,6 +145,9 @@ export function createHistoryReveals<E>({
     revealedAll,
     revealAll,
     request: (label: string, count: number) => {
+      if (label === 'SPAM' || label === 'TRASH') {
+        return undefined;
+      }
       const document = snapshot()?.document;
       const view = document?.views?.find((entry) => entry.label === label);
       const cached = label === 'INBOX' ? document?.messages : view?.messages;
