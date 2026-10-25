@@ -533,7 +533,8 @@ extension PrivateInboxTests {
         leftover = false
         return (204, Data())
       case ("POST", "/v1.0/me/messages"): return (201, Data(#"{"id":"AAMk-draft="}"#.utf8))
-      case ("POST", "/v1.0/me/messages/AAMk-draft=/attachments"): return (201, Data("{}".utf8))
+      case ("POST", "/v1.0/me/messages/AAMk-draft=/attachments"):
+        return (body.map { $0.count <= 4 * 1024 * 1024 } == true ? 201 : 413, Data("{}".utf8))
       case ("POST", "/v1.0/me/messages/AAMk-draft=/attachments/createUploadSession"):
         return (201, Data(#"{"uploadUrl":"https://outlook.office.com/api/v2.0/Messages('AAMk-draft=')/AttachmentSessions('s1')?authtoken=t"}"#.utf8))
       case ("POST", "/v1.0/me/messages/AAMk-draft=/send"): return try microsoft.sendReply()
@@ -584,6 +585,34 @@ extension PrivateInboxTests {
     ])
     #expect(microsoft.uploads.reduce(Data()) { $0 + $1.body } == large)
     #expect(microsoft.uploads.allSatisfy { $0.url.host == "outlook.office.com" })
+
+    // Slash-heavy base64 must still fit the whole JSON request. Files at 3 MB use sessions,
+    // leaving room for metadata below that boundary instead of filling 4 MiB with base64 alone.
+    for size in [2_500_000, 2_999_999, 3_000_000, 3 * 1024 * 1024 - 1] {
+      let bytes = Data(repeating: 0xff, count: size)
+      let file: [Any] = [[
+        "asset": try await imported("assetedge\(size)", bytes),
+        "name": String(repeating: "a", count: 240) + ".bin", "type": "application/octet-stream",
+      ]]
+      writes = []
+      let uploaded = microsoft.uploads.count
+      microsoft.uploadReply = { (201, Data()) }
+      let prepared = try await prepare(file)
+      #expect(prepared["status"] as? Int == 201)
+      if size < 3_000_000 {
+        #expect(writes.last?.request == "POST \(messages)/AAMk-draft=/attachments")
+        let body = try #require(writes.last?.body)
+        #expect(body.count <= 4 * 1024 * 1024)
+        let attachment = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect((attachment["contentBytes"] as? String).flatMap { Data(base64Encoded: $0) } == bytes)
+        #expect(microsoft.uploads.count == uploaded)
+      } else {
+        #expect(writes.last?.request == "POST \(messages)/AAMk-draft=/attachments/createUploadSession")
+        #expect(microsoft.uploads.count == uploaded + 1)
+        #expect(microsoft.uploads.last?.body == bytes)
+      }
+    }
+    microsoft.uploadReply = rangeReply
 
     // Each range requires fresh device proof, even though its URL carries upload permission.
     let beforeUnavailable = microsoft.uploads.count

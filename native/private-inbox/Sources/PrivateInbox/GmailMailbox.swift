@@ -146,7 +146,7 @@ extension RegistrationStore {
   static let graphMessageLimit = 3_000_000
   // Graph attaches a file of at least 3 MB only through an upload session, and a smaller one in one
   // request. Each uploaded range stays under the 4 MB request size, in multiples of 320 KiB.
-  static let graphUploadMinimum = 3 * 1024 * 1024
+  static let graphUploadMinimum = 3_000_000
   static let graphUploadRange = 12 * 320 * 1024
   static let graphMessages = "https://graph.microsoft.com/v1.0/me/messages"
 
@@ -288,7 +288,8 @@ extension RegistrationStore {
         item["@odata.type"] = "#microsoft.graph.fileAttachment"
         item["contentBytes"] = bytes.base64EncodedString()
         let (status, reply) = try await call(
-          URL(string: attachments), "POST", try JSONSerialization.data(withJSONObject: item))
+          URL(string: attachments), "POST",
+          try JSONSerialization.data(withJSONObject: item, options: .withoutEscapingSlashes))
         return status == 201 ? nil : reply
       }
       item["attachmentType"] = "file"
