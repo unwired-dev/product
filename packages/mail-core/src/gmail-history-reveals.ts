@@ -19,6 +19,40 @@ import { cacheLimit, newestFirst } from './mailbox-document.ts';
 const samePrefix = (names: readonly string[], pass: HistoryPass) =>
   names.every((name, index) => pass.segments[index]?.name === name);
 
+interface Reveal {
+  names: string[];
+  messages: GmailMessage[];
+  // The oldest receipt in the segments read so far.
+  frontier?: string | undefined;
+  target: number;
+  // The older messages last rendered, kept while a fold's renamed segments are read again.
+  shown: readonly GmailMessage[];
+}
+
+// Mail is in chronological order down to the read segments' frontier; once every segment of a
+// complete pass is read, nothing older is missing.
+const frontierOf = (
+  {
+    names,
+    frontier,
+  }: Readonly<{ names: readonly string[]; frontier?: string | undefined }>,
+  history: MailboxHistory,
+  oldest: string | undefined,
+) => {
+  const pass = shownPass(history);
+  if (!samePrefix(names, pass)) {
+    return oldest;
+  }
+  return pass.complete === true && names.length === pass.segments.length
+    ? undefined
+    : (frontier ?? oldest);
+};
+
+const cachedOf = (document: MailboxDocument | undefined, label: string) =>
+  label === 'INBOX'
+    ? (document?.messages ?? [])
+    : (document?.views?.find((view) => view.label === label)?.messages ?? []);
+
 // Owns only the device-memory cursors. The Inbox supplies its current snapshot, decoded segment
 // reads and publication, retaining mailbox fencing and failure recovery at that boundary.
 export function createHistoryReveals<E>({
@@ -35,10 +69,7 @@ export function createHistoryReveals<E>({
   ) => Effect.Effect<Option.Option<readonly GmailMessage[]>, E>;
   publish: () => void;
 }>) {
-  const reveals = new Map<
-    string,
-    { names: string[]; messages: GmailMessage[]; target: number }
-  >();
+  const reveals = new Map<string, Reveal>();
   const revealing = Semaphore.makeUnsafe(1);
   // A view's cached messages, then the older stored ones it revealed.
   const withRevealed = (
@@ -50,18 +81,20 @@ export function createHistoryReveals<E>({
     if (history === undefined || entry === undefined) {
       return cached;
     }
-    if (!samePrefix(entry.names, shownPass(history))) {
-      return cached;
-    }
     const oldest = cached.at(-1)?.receivedAt;
+    const frontier = frontierOf(entry, history, oldest);
+    const within = (message: GmailMessage) =>
+      frontier === undefined || message.receivedAt >= frontier;
     // Mail arriving while a pass lists can move a message onto the next page as well.
     const ids = new Set(cached.map(({ id }) => id));
-    // A later change can admit a message this view skipped when its segment was read.
+    // A later change can admit a message this view skipped when its segment was read, but only
+    // within the frontier: older restored mail waits until the mail between is read.
     const older = overlaid(history.changes, [
-      ...entry.messages,
+      ...(samePrefix(entry.names, shownPass(history)) ? entry.messages : []),
       ...history.changes.flatMap(({ message }) =>
-        message === undefined ? [] : [message],
+        message !== undefined && within(message) ? [message] : [],
       ),
+      ...entry.shown.filter((message) => !within(message)),
     ]).filter((message) => {
       const kept =
         !ids.has(message.id) &&
@@ -70,9 +103,43 @@ export function createHistoryReveals<E>({
       ids.add(message.id);
       return kept;
     });
+    entry.shown = older;
     return older.length === 0
       ? cached
       : Arr.sort([...cached, ...older], newestFirst);
+  };
+  // Adds a read segment's messages the view can show, and moves the frontier to its oldest
+  // receipt. Segments of a pass still listing can overlap, so the frontier is the oldest seen.
+  const advance = ({
+    label,
+    name,
+    segment,
+    history,
+  }: Readonly<{
+    label: string;
+    name: string;
+    segment: readonly GmailMessage[];
+    history: MailboxHistory;
+  }>) => {
+    const entry = reveals.get(label);
+    if (entry === undefined) {
+      return;
+    }
+    const changed = new Set(history.changes.map(({ id }) => id));
+    entry.names.push(name);
+    const last = segment.at(-1)?.receivedAt;
+    if (
+      last !== undefined &&
+      (entry.frontier === undefined || last < entry.frontier)
+    ) {
+      entry.frontier = last;
+    }
+    entry.messages.push(
+      ...segment.filter(
+        (message) =>
+          changed.has(message.id) || inView(label, labelsOf(message)),
+      ),
+    );
   };
   // A short cache is complete only after its listing finishes; a removal can leave a refill
   // interrupted. Otherwise every segment must be revealed. Spam and Trash stay outside history.
@@ -110,17 +177,22 @@ export function createHistoryReveals<E>({
           if (!samePrefix(entry.names, shownPass(history))) {
             entry.names = [];
             entry.messages = [];
+            entry.frontier = undefined;
           }
           const name = names[entry.names.length];
-          const cached =
-            label === 'INBOX'
-              ? (current.document?.messages ?? [])
-              : (current.document?.views?.find((view) => view.label === label)
-                  ?.messages ?? []);
-          if (
-            withRevealed(label, cached, history).length >= entry.target ||
-            name === undefined
-          ) {
+          const cached = cachedOf(current.document, label);
+          const visible = withRevealed(label, cached, history).length;
+          const frontier = frontierOf(
+            entry,
+            history,
+            cached.at(-1)?.receivedAt,
+          );
+          // Rows kept from before a fold must be read again before the view stops.
+          const carried = entry.shown.some(
+            (message) =>
+              frontier !== undefined && message.receivedAt < frontier,
+          );
+          if ((visible >= entry.target && !carried) || name === undefined) {
             break;
           }
           const segment = yield* read(current.scope, name);
@@ -129,14 +201,7 @@ export function createHistoryReveals<E>({
             if (Option.isNone(segment)) {
               break;
             }
-            const changed = new Set(history.changes.map(({ id }) => id));
-            entry.names.push(name);
-            entry.messages.push(
-              ...segment.value.filter(
-                (message) =>
-                  changed.has(message.id) || inView(label, labelsOf(message)),
-              ),
-            );
+            advance({ label, name, segment: segment.value, history });
           }
         }
         publish();
@@ -176,6 +241,7 @@ export function createHistoryReveals<E>({
         names: [],
         messages: [],
         target: 0,
+        shown: [],
       };
       const visible = withRevealed(label, cached, document.history).length;
       if (visible >= entry.target) {

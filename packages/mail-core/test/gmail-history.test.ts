@@ -571,6 +571,62 @@ describe('gmail history backfill', () => {
     inbox.forget();
   });
 
+  it('reveals mail restored from Trash only once the newer history before it is read', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 660, 0);
+    const restored = everything.slice(-60);
+    for (const id of restored) {
+      gmail.setLabel(id, 'TRASH', true);
+    }
+    const inbox = createGmailInbox(gmail.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    await backfilled(inbox);
+    for (const id of restored) {
+      gmail.setLabel(id, 'TRASH', false);
+    }
+    await inbox.load();
+    await inbox.openView(allMail);
+
+    await scrolled(inbox, allMail, 300);
+    const visible = ids(shown(inbox, allMail));
+    expect(visible).toStrictEqual(everything.slice(0, visible.length));
+    await scrolled(inbox, allMail, everything.length);
+    expect(ids(shown(inbox, allMail))).toStrictEqual(everything);
+  });
+
+  it('keeps revealed history rows while a fold renames their segments', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 1000, 0);
+    const inbox = createGmailInbox(gmail.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    await backfilled(inbox);
+    await inbox.openView(allMail);
+    await scrolled(inbox, allMail, 600);
+    const counts: number[] = [];
+    const unsubscribe = inbox.subscribe(() => {
+      counts.push(shown(inbox, allMail).length);
+    });
+    onTestFinished(unsubscribe);
+
+    for (const id of everything.slice(250, 500)) {
+      gmail.markRead(id);
+    }
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(saved(gmail)).toContain('"changes":[]');
+    });
+    await vi.waitFor(() => {
+      expect(ids(shown(inbox, allMail)).slice(0, 600)).toStrictEqual(
+        everything.slice(0, 600),
+      );
+    });
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(600);
+  });
+
   it('keeps mail restored from Trash in date order among downloaded history', async () => {
     expect.hasAssertions();
     const gmail = createGmail();
@@ -915,6 +971,9 @@ describe('gmail history backfill', () => {
     const everything = mailbox(gmail, 500, 300);
     const history = holdingHistory(gmail);
     const inbox = createGmailInbox(history.native);
+    // Revealed rows stay visible while the cursor reads the replacement pass again, so the view
+    // can be complete while reads continue; the store stops them before the native store closes.
+    onTestFinished(() => inbox.forget());
     await inbox.load();
     await backfilled(inbox);
     inbox.openView(allMail);
