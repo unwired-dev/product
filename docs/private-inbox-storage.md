@@ -70,9 +70,11 @@ The Gmail mailbox document keeps recent messages and checkpoints. Downloaded
 [Historical Metadata Backfill](gmail-inbox.md#historical-metadata-backfill) pages are
 separate encrypted segment files in the connection's `history` directory, each sealed
 with its own name as associated data so one cannot be read as another. A commit that
-writes segments writes them before the mailbox document and removes, after it, every
-segment the new document no longer names. An interrupted commit preserves the
-previously committed history; later history commits reclaim unreferenced files.
+writes segments writes them before the mailbox document, then attempts to remove
+every segment the new document no longer names. Cleanup is best effort after the
+document is stored: failure leaves unreferenced files for a later history commit
+to retry without rejecting the stored revision. An interrupted commit preserves
+the previously committed history.
 A segment name is 1–32 lowercase letters or
 digits, and opening one checks the same connection, address, Google account and
 generation as opening the mailbox. Removing the connection removes its segments with

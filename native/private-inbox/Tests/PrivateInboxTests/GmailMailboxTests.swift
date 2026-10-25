@@ -70,6 +70,94 @@ private final class ControlledGmailHTTP: URLProtocol, @unchecked Sendable {
 }
 
 extension PrivateInboxTests {
+  @Test @MainActor func mailboxWorkersFenceRepliesAndSerializeCompetingCommits() async throws {
+    let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let keys = DeviceKeychain(service: service)
+    defer {
+      try? keys.remove("registration")
+      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let threads = StoreThreads()
+    let store = google.store(
+      keys: keys,
+      mailCache: PrivateInboxStore(
+        directory: directory, service: service, protectedDataAvailable: { threads.check() }),
+      deviceRevoked: { _ in false })
+    _ = try await store.signIn()
+    _ = try await store.authorizeGmail()
+    let connection = MailboxConnection.id(subject: google.subject)
+    var generation = store.generation(google.subject)
+    _ = try await store.commitMailbox(
+      connection: connection, address: google.address, expectedRevision: 0, document: "initial",
+      generation: generation, history: (["older": "[]"], ["older"]))
+    #expect(threads.ranOffMain)
+
+    // A worker can finish after protection closes; neither its plaintext nor a commit reply escapes.
+    threads.lockDuringWork()
+    await #expect(throws: PrivateInboxError.locked) {
+      _ = try await store.openMailboxSegment(connection: connection, name: "older", generation: generation)
+    }
+    threads.unlock()
+    threads.lockDuringWork()
+    await #expect(throws: PrivateInboxError.locked) {
+      _ = try await store.commitMailbox(
+        connection: connection, address: google.address, expectedRevision: 1, document: "stored-before-lock",
+        generation: generation)
+    }
+    threads.unlock()
+    // Reopening reconciles a write that completed before its acknowledgement was refused.
+    #expect(try store.openMailbox(connection)["revision"] as? Int == 2)
+    #expect(try store.openMailbox(connection)["document"] as? String == "stored-before-lock")
+
+    // Exercise the defensive post-work fence independently of the bridge's registration gate.
+    threads.onWorker = {
+      DispatchQueue.main.sync {
+        MainActor.assumeIsolated { store.mailboxGenerations[connection] = UUID() }
+      }
+    }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openMailboxSegment(connection: connection, name: "older", generation: generation)
+    }
+    generation = store.generation(google.subject)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitMailbox(
+        connection: connection, address: google.address, expectedRevision: 2, document: "stored-before-invalidation",
+        generation: generation)
+    }
+    threads.onWorker = nil
+    generation = store.generation(google.subject)
+    #expect(try store.openMailbox(connection)["revision"] as? Int == 3)
+    #expect(try store.openMailbox(connection)["document"] as? String == "stored-before-invalidation")
+
+    // Even direct callers without the bridge gate cannot both replace the revision they read.
+    func competing(_ document: String) async throws -> Bool {
+      do {
+        _ = try await store.commitMailbox(
+          connection: connection, address: google.address, expectedRevision: 3, document: document,
+          generation: generation, history: ([document: document], [document]))
+        return true
+      } catch PrivateInboxError.conflict { return false }
+    }
+    let first = Task { @MainActor in try await competing("first") }
+    let second = Task { @MainActor in try await competing("second") }
+    let firstWon = try await first.value
+    let secondWon = try await second.value
+    #expect(firstWon != secondWon)
+    let winner = firstWon ? "first" : "second"
+    #expect(try store.openMailbox(connection)["revision"] as? Int == 4)
+    #expect(try store.openMailbox(connection)["document"] as? String == winner)
+    #expect(
+      try await store.openMailboxSegment(connection: connection, name: winner, generation: generation)["document"]
+        as? String == winner)
+    #expect(
+      try FileManager.default.contentsOfDirectory(
+        atPath: directory.appendingPathComponent("mailboxes/\(connection)/history").path) == [winner + ".enc"])
+  }
+
   // TypeScript names only a connection's own Gmail resources; its cache belongs to that connection,
   // replaces only the revision it read, and leaves with the connection or the account.
   @Test @MainActor func gmailReadsAndMailboxCacheStayWithTheirConnection() async throws {

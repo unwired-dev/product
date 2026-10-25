@@ -642,8 +642,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   segments; carry shown rows through cursor resets, including equal receipts
   spanning pages, until rereading passes their date or completes the pass.
   Apply current deletions and label/read changes to carried rows and keep reading
-  while they remain beyond that frontier. Otherwise a scroll skips newer mail,
-  a fold releases an open reader's body, or retired rows resurrect after reconciliation.
+  while unread carried rows remain at or beyond that frontier. Exclude rows the
+  current cursor's segments already returned from this continuation guard; verify
+  that one ordinary scroll reads only the segments needed for its visible batch.
+  Otherwise each newly revealed row keeps the loop running through the whole mailbox,
+  a scroll skips newer mail, a fold releases an open reader's body, or retired rows
+  resurrect after reconciliation.
 - `gmail-history-reveals.ts.withRevealed`, `request` or `revealedAll` treating a short
   recent cache as proof that no older mail exists while its refill is unfinished.
   Exercise a confirmed recent-message removal followed by failed provider reads,

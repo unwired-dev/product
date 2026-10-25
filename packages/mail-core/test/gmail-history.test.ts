@@ -11,6 +11,13 @@ const createGmail = () => withNativeHistory(createSyntheticGmail());
 type Inbox = ReturnType<typeof createGmailInbox>;
 type Gmail = ReturnType<typeof createSyntheticGmail>;
 
+// Stop background work before the signed storage process's earlier-registered teardown closes it.
+const createInbox = (...args: Parameters<typeof createGmailInbox>) => {
+  const inbox = createGmailInbox(...args);
+  onTestFinished(() => inbox.forget());
+  return inbox;
+};
+
 const ready = (state: GmailInboxState) => {
   if (state.kind !== 'ready') {
     throw new Error(`Expected a ready Inbox, received ${state.kind}`);
@@ -263,7 +270,7 @@ const downloaded = async () => {
   for (const id of spam) {
     gmail.setLabel(id, 'SPAM', true);
   }
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInbox(gmail.native);
   await inbox.load();
   return {
     gmail,
@@ -287,8 +294,7 @@ describe('gmail history backfill', () => {
       ...newer.toSorted().toReversed(),
       ...older.toSorted().toReversed(),
     ];
-    const inbox = createGmailInbox(gmail.native);
-    onTestFinished(() => inbox.forget());
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     await scrolled(inbox, 'INBOX', everything.length);
@@ -316,7 +322,7 @@ describe('gmail history backfill', () => {
       .fn<Gmail['native']['openMailboxSegment']>()
       .mockImplementation(gmail.native.openMailboxSegment)
       .mockRejectedValueOnce({ code: 'unavailable' });
-    const inbox = createGmailInbox({
+    const inbox = createInbox({
       ...gmail.native,
       openMailboxSegment: read,
     });
@@ -340,7 +346,7 @@ describe('gmail history backfill', () => {
       const gmail = createGmail();
       mailbox(gmail, 400, 0);
       const removed = vi.fn<() => void>();
-      const inbox = createGmailInbox(
+      const inbox = createInbox(
         {
           ...gmail.native,
           openMailboxSegment: vi
@@ -406,7 +412,7 @@ describe('gmail history backfill', () => {
     const read = vi
       .fn<Gmail['native']['openMailboxSegment']>()
       .mockImplementation(gmail.native.openMailboxSegment);
-    const inbox = createGmailInbox({
+    const inbox = createInbox({
       ...gmail.native,
       openMailboxSegment: read,
     });
@@ -430,7 +436,7 @@ describe('gmail history backfill', () => {
       const read = vi
         .fn<Gmail['native']['openMailboxSegment']>()
         .mockImplementation(gmail.native.openMailboxSegment);
-      const inbox = createGmailInbox({
+      const inbox = createInbox({
         ...gmail.native,
         openMailboxSegment: read,
       });
@@ -466,7 +472,7 @@ describe('gmail history backfill', () => {
     const gmail = createGmail();
     const everything = mailbox(gmail, 1000, 800);
     gmail.failPage('400', { code: 'unavailable' });
-    const interrupted = createGmailInbox(gmail.native);
+    const interrupted = createInbox(gmail.native);
     await interrupted.load();
     await vi.waitFor(() => {
       expect(historyPages(gmail)).toContain('400');
@@ -476,7 +482,7 @@ describe('gmail history backfill', () => {
       complete: false,
     });
 
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInbox(gmail.native);
     await relaunched.load();
     await backfilled(relaunched);
     expect(historyPages(gmail)).toStrictEqual([
@@ -504,7 +510,7 @@ describe('gmail history backfill', () => {
     expect.hasAssertions();
     const gmail = createGmail();
     const everything = mailbox(gmail, 600, 400);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
 
@@ -537,7 +543,7 @@ describe('gmail history backfill', () => {
       expect(saved(gmail)).toContain('"changes":[]');
     });
 
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInbox(gmail.native);
     await relaunched.load();
     relaunched.openView(allMail);
     await vi.waitFor(() => {
@@ -563,7 +569,7 @@ describe('gmail history backfill', () => {
     for (const id of everything.slice(0, 300)) {
       gmail.setLabel(id, label, true);
     }
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     inbox.openView(label);
@@ -598,8 +604,7 @@ describe('gmail history backfill', () => {
     for (const id of restored) {
       gmail.setLabel(id, 'TRASH', true);
     }
-    const inbox = createGmailInbox(gmail.native);
-    onTestFinished(() => inbox.forget());
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     for (const id of restored) {
@@ -619,8 +624,7 @@ describe('gmail history backfill', () => {
     expect.hasAssertions();
     const gmail = createGmail();
     const everything = mailbox(gmail, 1000, 0);
-    const inbox = createGmailInbox(gmail.native);
-    onTestFinished(() => inbox.forget());
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     await inbox.openView(allMail);
@@ -652,8 +656,7 @@ describe('gmail history backfill', () => {
     const everything = Array.from({ length: 1000 }, () =>
       gmail.deliver({ at: Date.UTC(2026, 8, 1) }),
     );
-    const inbox = createGmailInbox(gmail.native);
-    onTestFinished(() => inbox.forget());
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     await inbox.openView(allMail);
@@ -691,8 +694,7 @@ describe('gmail history backfill', () => {
     expect.hasAssertions();
     const gmail = createGmail();
     const everything = mailbox(gmail, 850, 0);
-    const inbox = createGmailInbox(gmail.native);
-    onTestFinished(() => inbox.forget());
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     const trashed = [...everything.slice(300, 500), ...everything.slice(-50)];
@@ -711,8 +713,7 @@ describe('gmail history backfill', () => {
       expect(saved(gmail)).toContain('"changes":[]');
     });
 
-    const relaunched = createGmailInbox(gmail.native);
-    onTestFinished(() => relaunched.forget());
+    const relaunched = createInbox(gmail.native);
     await relaunched.load();
     relaunched.openView(allMail);
     await scrolled(relaunched, allMail, 400);
@@ -732,8 +733,7 @@ describe('gmail history backfill', () => {
       expect.hasAssertions();
       const gmail = createGmail();
       const everything = mailbox(gmail, 1000, 0);
-      const inbox = createGmailInbox(gmail.native);
-      onTestFinished(() => inbox.forget());
+      const inbox = createInbox(gmail.native);
       await inbox.load();
       await backfilled(inbox);
       // Stay below the fold threshold, leaving deleted rows in the first segments.
@@ -785,9 +785,7 @@ describe('gmail history backfill', () => {
       expect.hasAssertions();
       const gmail = createGmail();
       mailbox(gmail, 400, 0);
-      const inbox = createGmailInbox(
-        withoutHistoryAfterOrganizing(gmail, deleted),
-      );
+      const inbox = createInbox(withoutHistoryAfterOrganizing(gmail, deleted));
       await inbox.load();
       await backfilled(inbox);
       await scrolled(inbox, 'INBOX', 400);
@@ -810,8 +808,7 @@ describe('gmail history backfill', () => {
       const gmail = createGmail();
       const everything = mailbox(gmail, 400, 0);
       const native = withoutHistoryAfterOrganizing(gmail, false, true);
-      const inbox = createGmailInbox(native);
-      onTestFinished(() => inbox.forget());
+      const inbox = createInbox(native);
       await inbox.load();
       await backfilled(inbox);
       inbox.openView(allMail);
@@ -823,8 +820,7 @@ describe('gmail history backfill', () => {
       expect(ids(shown(inbox, label))).toStrictEqual(everything.slice(1));
       inbox.forget();
 
-      const relaunched = createGmailInbox(native);
-      onTestFinished(() => relaunched.forget());
+      const relaunched = createInbox(native);
       await relaunched.load();
       expect(
         ready(relaunched.getSnapshot()).views?.find(
@@ -846,7 +842,7 @@ describe('gmail history backfill', () => {
       expect.hasAssertions();
       const gmail = createGmail();
       const before = mailbox(gmail, kept, 0);
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInbox(gmail.native);
       await inbox.load();
       await backfilled(inbox);
 
@@ -863,7 +859,7 @@ describe('gmail history backfill', () => {
         expect(saved(gmail)).toContain('"changes":[]');
       });
 
-      const relaunched = createGmailInbox(gmail.native);
+      const relaunched = createInbox(gmail.native);
       await relaunched.load();
       await scrolled(relaunched, 'INBOX', 300);
       expect(ids(shown(relaunched, 'INBOX'))).toStrictEqual(arrived);
@@ -876,7 +872,7 @@ describe('gmail history backfill', () => {
     const gmail = createSyntheticGmail();
     recentMailbox(gmail, 60);
     const prefetch = holdingPrefetch(gmail);
-    const inbox = createGmailInbox(prefetch.native);
+    const inbox = createInbox(prefetch.native);
     try {
       const loading = inbox.load();
       await vi.runAllTimersAsync();
@@ -903,7 +899,7 @@ describe('gmail history backfill', () => {
       const gmail = createSyntheticGmail();
       recentMailbox(gmail, 60);
       const prefetch = holdingPrefetch(gmail, status);
-      const inbox = createGmailInbox(prefetch.native);
+      const inbox = createInbox(prefetch.native);
       try {
         const loading = inbox.load();
         await vi.runAllTimersAsync();
@@ -930,7 +926,7 @@ describe('gmail history backfill', () => {
     vi.useFakeTimers();
     const gmail = createSyntheticGmail();
     const everything = recentMailbox(gmail, 300);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInbox(gmail.native);
     try {
       const loading = inbox.load();
       await vi.runAllTimersAsync();
@@ -957,7 +953,7 @@ describe('gmail history backfill', () => {
     const [newest] = mailbox(gmail, 300, 0);
     const history = holdingHistory(gmail);
     history.hold();
-    const inbox = createGmailInbox(history.native);
+    const inbox = createInbox(history.native);
     await inbox.load();
     await history.reached;
     await inbox.readMessage(at([newest], 0));
@@ -975,7 +971,7 @@ describe('gmail history backfill', () => {
     const history = holdingHistory(gmail);
     history.hold();
     const sync = recordingSyncPages(gmail, history.native);
-    const inbox = createGmailInbox(sync.native);
+    const inbox = createInbox(sync.native);
     await inbox.load();
     await history.reached;
     sync.pages.length = 0;
@@ -996,7 +992,7 @@ describe('gmail history backfill', () => {
     recentMailbox(gmail, 1);
     const prefetch = holdingPrefetch(gmail);
     const body = holdingBody(prefetch.native, older);
-    const inbox = createGmailInbox(body.native);
+    const inbox = createInbox(body.native);
     try {
       const loading = inbox.load();
       await vi.runAllTimersAsync();
@@ -1030,10 +1026,7 @@ describe('gmail history backfill', () => {
     const gmail = createGmail();
     const everything = mailbox(gmail, 500, 300);
     const history = holdingHistory(gmail);
-    const inbox = createGmailInbox(history.native);
-    // Revealed rows stay visible while the cursor reads the replacement pass again, so the view
-    // can be complete while reads continue; the store stops them before the native store closes.
-    onTestFinished(() => inbox.forget());
+    const inbox = createInbox(history.native);
     await inbox.load();
     await backfilled(inbox);
     inbox.openView(allMail);
@@ -1067,7 +1060,7 @@ describe('gmail history backfill', () => {
     expect.hasAssertions();
     const gmail = createGmail();
     const everything = mailbox(gmail, 20_000, 19_500);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     expect(ready(inbox.getSnapshot()).history).toStrictEqual({

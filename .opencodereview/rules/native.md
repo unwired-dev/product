@@ -459,6 +459,19 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   generation on every operation; a same-address subject change or purge/reconnect
   must reject old work before provider access or ciphertext replacement.
 
+- `RegistrationStore.commitMailbox` or `openMailboxSegment` running file or
+  CryptoKit work on the main actor. Keep the bridge registration gate across
+  detached work and repeat owner/generation and protected-data checks before
+  publishing. A refused post-write acknowledgement does not undo durable storage;
+  reopening must recover its revision. Keep revision comparison, segment writes,
+  document replacement and pruning under one file lock so competing commits
+  cannot both succeed or delete the winning document's segments.
+- `PrivateInboxStore.commitMailbox` rejecting a stored revision because later
+  segment pruning failed. Make post-publication cleanup best effort, retry all
+  unreferenced files on a later history commit, and preserve its current keep
+  list. Otherwise a successful write is reported as failed or retry cleanup
+  removes segments a later document still references.
+
 - `PrivateInboxStore` body admission that discounts another tier's file before
   admission succeeds. Reserve existing tier ciphertexts and the replacement, and
   plan eviction before deletion;
