@@ -1,3 +1,5 @@
+import { setImmediate } from 'node:timers/promises';
+
 import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
@@ -231,6 +233,32 @@ const holdingBody = (native: Gmail['native'], id: string) => {
         return native.gmailRequest(path, query, request);
       },
     },
+  };
+};
+
+// Holds the first prune that removes this body, before its new metadata is published.
+const holdingBodyPrune = (native: Gmail['native'], id: string) => {
+  const reached = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let holding = false;
+  return {
+    reached: reached.promise,
+    hold: () => {
+      holding = true;
+    },
+    release: () => release.resolve(undefined),
+    native: {
+      ...native,
+      retainMessageBodies: async (...args) => {
+        const reply = await native.retainMessageBodies(...args);
+        if (holding && !args[1].includes(id)) {
+          holding = false;
+          reached.resolve(undefined);
+          await release.promise;
+        }
+        return reply;
+      },
+    } satisfies Gmail['native'],
   };
 };
 
@@ -970,6 +998,35 @@ describe('gmail history backfill', () => {
     await expect(inbox.savedBodies([oldest])).resolves.toStrictEqual(
       new Set([oldest]),
     );
+  });
+
+  it('shows a downloaded body when a concurrent commit moves its message into revealed history', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const id = at(mailbox(gmail, 300, 0), 199);
+    const pruning = holdingBodyPrune(gmail.native, id);
+    const inbox = createInbox(pruning.native);
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 300);
+    gmail.deliver({ subject: 'New arrival' });
+    pruning.hold();
+    const refreshing = inbox.load();
+    try {
+      await pruning.reached;
+      const reading = inbox.readMessage(id);
+      // Let the download reach body admission while metadata publication is held.
+      await setImmediate();
+      pruning.release();
+      await refreshing;
+      await reading;
+
+      expect(ids(shown(inbox, 'INBOX'))).toContain(id);
+      expect(inbox.messageBody(id)?.kind).toBe('ready');
+      await expect(inbox.savedBodies([id])).resolves.toStrictEqual(new Set());
+    } finally {
+      pruning.release();
+    }
   });
 
   it('opens a message while history backfill holds the speculative lane', async () => {

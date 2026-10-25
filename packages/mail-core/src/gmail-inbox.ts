@@ -2755,8 +2755,18 @@ export function createGmailInbox(
       Effect.mapError((error) => malformed(error, 'failed')),
       Effect.flatMap((text) =>
         publication.withPermits(2)(
-          Effect.suspend(() =>
-            owner === reading && keepsBody(document.id)
+          Effect.suspend(() => {
+            if (owner !== reading || !readable(document.id)) {
+              return Effect.fail(
+                new SyncFailure({
+                  kind: 'invalidated',
+                  cause: 'message left',
+                  diagnostic: 'message left Inbox',
+                }),
+              );
+            }
+            // A commit can move a still-readable message out of the saved views while this waits.
+            return keepsBody(document.id)
               ? protectedBodies.pipe(
                   Effect.flatMap((protectedIds) =>
                     Effect.tryPromise({
@@ -2781,26 +2791,11 @@ export function createGmailInbox(
                     admitted ? shared.cache.changed : Effect.void,
                   ),
                 )
-              : Effect.fail(
-                  new SyncFailure({
-                    kind: 'invalidated',
-                    cause: 'message left',
-                    diagnostic: 'message left Inbox',
-                  }),
-                ),
-          ),
+              : Effect.succeed({ admitted: false });
+          }),
         ),
       ),
     );
-
-  // Saves a cached message's body; any other message's body is shown without being kept.
-  const keepBody = (
-    document: BodyDocument,
-    admission: Parameters<typeof store>[1],
-  ) =>
-    keepsBody(document.id)
-      ? store(document, admission)
-      : Effect.succeed({ admitted: false });
 
   // The cached body when this device has one, otherwise Gmail's, which is then cached when it fits.
   // Images a rejected grant left unresolved are read again after Gmail is authorized.
@@ -2853,7 +2848,7 @@ export function createGmailInbox(
         yield* askForGmail(reading, id);
       }
       if (completed.changed) {
-        yield* keepBody(completed.document, { scope, tier, reading }).pipe(
+        yield* store(completed.document, { scope, tier, reading }).pipe(
           Effect.ignore,
         );
       }
@@ -2863,7 +2858,7 @@ export function createGmailInbox(
     if (authentication) {
       yield* askForGmail(reading, id);
     }
-    yield* keepBody(document, { scope, tier, reading }).pipe(
+    yield* store(document, { scope, tier, reading }).pipe(
       // A body that could not be kept is still shown, unless its mailbox changed meanwhile.
       Effect.catchIf(
         (failure) => failure.kind !== 'invalidated',

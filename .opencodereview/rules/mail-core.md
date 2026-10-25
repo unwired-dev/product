@@ -1619,6 +1619,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   than 200 current-timestamp messages and synchronize again; older metadata must
   remain scrollable without expanding speculative body reads or protection.
   Otherwise scrolling starts extra downloads that recent-cache pruning removes.
+- `createGmailInbox.store` admitting bodies for revealed history that retention
+  does not keep, or treating loss of saved-view membership as loss of readability.
+  Check admission against the same cached views as pruning, after taking the
+  publication permit. A message another cached view keeps remains eligible;
+  a commit moving it into revealed history must still show its downloaded body
+  without saving it. Verify saved-body status separately from in-memory readiness,
+  or opens report a false download failure or promise offline content later pruned.
 - Body admission in `imap-inbox.ts` deriving the persistent eviction tier from a
   protected set that also includes active readers. Keep current recent-working-set
   membership separate from temporary reader protection: opening an older on-demand
