@@ -10,6 +10,7 @@ import type { TextInput } from 'react-native';
 
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
+  allMail,
   leavesView,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
@@ -923,10 +924,12 @@ export function Inbox({
                 message={t('mailboxes.notIncluded', {
                   mailbox: mailbox.address ?? mailbox.id,
                 })}
-                detail={t('mailboxes.notIncludedDetail', {
-                  view: folderName,
-                  ...(ipad ? {} : { context: 'iphone' }),
-                })}
+                detail={t(
+                  view.unified === allMail
+                    ? 'mailboxes.notIncludedAllMail'
+                    : 'mailboxes.notIncludedDetail',
+                  { view: folderName, ...(ipad ? {} : { context: 'iphone' }) },
+                )}
               />
             ))}
             {shown.map((mailbox) => (

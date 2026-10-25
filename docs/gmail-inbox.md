@@ -102,8 +102,9 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   Gmail contributes its system labels; its Archive is mail outside Inbox, Sent and
   Drafts. Microsoft contributes its well-known folders and IMAP the folders its
   server marks with a special-use role; All Mail is every message outside Spam and
-  Trash. A connection without the role is never guessed from folder names: the list
-  shows **… isn't included** for it, and its folders stay under it in the sidebar.
+  Trash, leaving out an IMAP server whose `\All` folder may hold both. A connection
+  without the role is never guessed from folder names: the list shows **… isn't
+  included** for it, and its folders stay under it in the sidebar.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are

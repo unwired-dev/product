@@ -417,12 +417,17 @@ export const unifiedFolders = (
       const name = imapRoleFolder(folders, imapRoles[role]);
       return name === undefined ? undefined : [name];
     }
-    // A server's \All folder may also hold Junk and Trash, so All Mail reads every other folder.
+    // A server's \All folder may hold Junk and Trash, and mail found nowhere else, so such a
+    // connection is not included. Otherwise All Mail reads every real folder outside Junk and
+    // Trash; a virtual \Flagged folder may gather Junk and Trash too.
+    if (folders.some(({ roles }) => roles.includes('all'))) {
+      return undefined;
+    }
     return folders
       .filter(
         ({ selectable, roles }) =>
           selectable &&
-          !['junk', 'trash', 'all'].some((excluded) =>
+          !['junk', 'trash', 'flagged'].some((excluded) =>
             roles.includes(excluded),
           ),
       )

@@ -265,6 +265,8 @@
     "notIncluded": "{{mailbox}} isn’t included",
     "notIncludedDetail": "Its server doesn’t mark any folder as {{view}}. Its folders are still listed under it in the sidebar.",
     "notIncludedDetail_iphone": "Its server doesn’t mark any folder as {{view}}. Its folders are still listed under it in Mailboxes.",
+    "notIncludedAllMail": "Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in the sidebar.",
+    "notIncludedAllMail_iphone": "Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in Mailboxes.",
     "sentItems": "Sent Items",
     "archive": "Archive",
     "junkEmail": "Junk Email",

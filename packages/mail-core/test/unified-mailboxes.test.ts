@@ -34,10 +34,12 @@ async function connections() {
   imap.addFolder('Sent Messages', ['sent']);
   imap.addFolder('Junk', ['junk']);
   imap.addFolder('Deleted Messages', ['trash']);
-  // A server's All folder may hold Junk too, so All Mail never reads it.
-  imap.addFolder('All Mail', ['all']);
+  // A virtual Flagged folder may gather Junk too, so All Mail never reads it.
+  imap.addFolder('Flagged', ['flagged']);
   // Named like Archive but not marked as it, so it is never guessed to be one.
   bare.addFolder('Archive');
+  // A server's All folder may hold Junk, Trash and mail found nowhere else.
+  bare.addFolder('All Mail', ['all']);
 
   const gmailInbox = createGmailInbox(gmail.native);
   const graphInbox = createGmailInbox(graph.native, {
@@ -123,7 +125,7 @@ describe('unified mailboxes across connections', () => {
     });
     imap.deliver('INBOX', { subject: 'IMAP inbox', received: minute(9) });
     imap.deliver('Junk', { subject: 'IMAP junk', received: minute(11) });
-    imap.deliver('All Mail', { subject: 'IMAP junk', received: minute(11) });
+    imap.deliver('Flagged', { subject: 'IMAP junk', received: minute(11) });
     graph.deliver({
       subject: 'Outlook draft',
       folder: 'drafts',
@@ -133,6 +135,7 @@ describe('unified mailboxes across connections', () => {
       subject: 'Not an archive',
       received: minute(10),
     });
+    bare.deliver('All Mail', { subject: 'Only in All', received: minute(12) });
     for (const { inbox } of stores) {
       await inbox.load();
     }
@@ -155,12 +158,12 @@ describe('unified mailboxes across connections', () => {
     ]);
 
     // All Mail is every message outside Spam and Trash, whatever folder holds it, Microsoft
-    // Drafts included.
+    // Drafts included. A connection with an All folder is not included rather than complete
+    // with Junk or incomplete without the mail only that folder holds.
     const everything = await opened(stores, allMail);
     expect(
       everything.entries.map(({ message }) => message.subject),
     ).toStrictEqual([
-      'Not an archive',
       'IMAP inbox',
       'IMAP sent',
       'IMAP archived',
@@ -171,7 +174,7 @@ describe('unified mailboxes across connections', () => {
       'Gmail kept',
       'Outlook draft',
     ]);
-    expect(everything.missing).toStrictEqual([]);
+    expect(everything.missing.map(({ id }) => id)).toStrictEqual(['bare']);
 
     const spam = await opened(stores, 'SPAM');
     expect(rows(spam)).toStrictEqual([

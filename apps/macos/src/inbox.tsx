@@ -11,6 +11,7 @@ import type { TextInput } from 'react-native';
 import { inboxCommands } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
+  allMail,
   leavesView,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
@@ -1004,9 +1005,12 @@ export function Inbox({
               message={t('mailboxes.notIncluded', {
                 mailbox: mailbox.address ?? mailbox.id,
               })}
-              detail={t('mailboxes.notIncludedDetail', {
-                view: folderTitle,
-              })}
+              detail={t(
+                view.unified === allMail
+                  ? 'mailboxes.notIncludedAllMail'
+                  : 'mailboxes.notIncludedDetail',
+                { view: folderTitle },
+              )}
             />
           ))}
           {shown.map((mailbox) => (
