@@ -22,6 +22,7 @@ import type {
   Cache,
   GmailMessage,
   MailboxDocument,
+  MailboxHistory,
   MailboxScope,
   PendingAction,
 } from './mailbox-document.ts';
@@ -56,9 +57,21 @@ import {
   GmailLabelSchema,
   inInbox,
   inView,
+  labelsOf,
   offeredViews,
   relabel,
 } from './gmail-actions.ts';
+import { createHistoryReveals } from './gmail-history-reveals.ts';
+import {
+  foldDue,
+  foldStep,
+  historyPageSize,
+  listed as listedHistory,
+  progress,
+  recorded,
+  restarted,
+  segmentNames,
+} from './gmail-history.ts';
 import { createGraphReader } from './graph-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { decodedSize, inlineImageLimits } from './inline-images.ts';
@@ -67,12 +80,15 @@ import {
   cacheLimit,
   decodeCache,
   decodeDocument,
+  decodeSegment,
   encodeDocument,
+  encodeSegment,
   GmailId,
   HistoryId,
   merge,
   newestFirst,
   sameCheckpoint,
+  sameHistory,
   sameGraphViews,
   sameMailbox,
 } from './mailbox-document.ts';
@@ -117,6 +133,12 @@ import {
 export type { GmailMessage } from './mailbox-document.ts';
 export type { RemoteResource } from './remote-content-loader.ts';
 
+// History segments to write, by name, and the names of every segment to keep.
+export type HistoryWrite = Readonly<{
+  segments: Readonly<Record<string, string>>;
+  keep: readonly string[];
+}>;
+
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
 // and keeps the cache encrypted; this module chooses the Gmail requests and owns the cached document.
 export interface NativeGmailMailbox
@@ -155,11 +177,19 @@ export interface NativeGmailMailbox
   ) => Promise<unknown>;
   // Resolves `{ revision, address, generation, document }`; another mailbox's document reads as null.
   readonly openMailbox: () => Promise<unknown>;
-  // Replaces the document read at `expectedRevision`, or rejects with `conflict`.
+  // Replaces the document read at `expectedRevision`, or rejects with `conflict`. History
+  // segments are written first; afterwards every segment `keep` does not name is removed.
+  // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
   readonly commitMailbox: (
     mailbox: Readonly<{ address: string; generation: string }>,
     expectedRevision: number,
     document: string,
+    history?: HistoryWrite,
+  ) => Promise<unknown>;
+  // Resolves `{ document }` for a history segment, null when it is absent.
+  readonly openMailboxSegment: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    name: string,
   ) => Promise<unknown>;
   // The Bounded Encrypted Body Cache, bound to the mailbox and message ID. Opening resolves
   // `{ document }`, null when absent; an unreadable entry is discarded and reads as null.
@@ -211,7 +241,11 @@ const sentPageSize = 20;
 const json = <S extends Schema.Top>(schema: S) =>
   Schema.decodeUnknownEffect(Schema.fromJsonString(schema));
 const decodeProfile = json(
-  Schema.Struct({ emailAddress: Schema.String, historyId: HistoryId }),
+  Schema.Struct({
+    emailAddress: Schema.String,
+    historyId: HistoryId,
+    messagesTotal: Schema.optionalKey(Schema.Int),
+  }),
 );
 const decodeList = json(
   Schema.Struct({
@@ -290,8 +324,16 @@ export type GmailView = Readonly<{
   label: string;
   messages: readonly GmailMessage[];
   status: 'syncing' | 'current' | 'failed';
-  // The view keeps as many messages as it can; older ones stay in Gmail.
+  // Older messages may follow: the view has not revealed the whole of a completed history.
   limited?: true;
+}>;
+
+// Historical Metadata Backfill progress: All Mail messages stored on this device, and Gmail's
+// count when it reported one.
+export type HistoryProgress = Readonly<{
+  downloaded: number;
+  total?: number;
+  complete: boolean;
 }>;
 
 export type GmailInboxState =
@@ -310,6 +352,8 @@ export type GmailInboxState =
       readonly labelsLimited?: true;
       // The Gmail views a reader opened, most recently opened first.
       readonly views?: readonly GmailView[];
+      // Absent until this mailbox starts its Historical Metadata Backfill.
+      readonly history?: HistoryProgress;
       // Folder-role actions this mailbox cannot perform, including while roles are unknown.
       readonly unavailableActions?: ReadonlyArray<GmailAction['kind']>;
       // Changes saved on this device that Gmail has not confirmed yet.
@@ -370,6 +414,9 @@ const decodeStoredBodies = Schema.decodeUnknownEffect(
     stored: Schema.Array(Schema.String),
     excluded: Schema.Array(Schema.String),
   }),
+);
+const decodeStoredSegment = Schema.decodeUnknownEffect(
+  Schema.Struct({ document: Schema.NullOr(Schema.String) }),
 );
 
 // One page of a mailbox's online search, or why Gmail could not answer.
@@ -465,9 +512,6 @@ export function threadMessages(state: GmailInboxState, id: string) {
         newestFirst,
       );
 }
-
-const labelsOf = (message: GmailMessage) =>
-  message.labels ?? (message.unread ? ['INBOX', 'UNREAD'] : ['INBOX']);
 
 const withLabels = (
   message: GmailMessage,
@@ -658,6 +702,13 @@ const settled = (
         [head.message.id, withLabels(cached ?? head.message, confirmed)],
       ]).slice(0, cacheLimit);
     }),
+    ...(document.history === undefined
+      ? {}
+      : {
+          history: recorded(document.history, [
+            [head.message.id, withLabels(head.message, confirmed)],
+          ]),
+        }),
     pending: rest,
   });
 };
@@ -738,12 +789,18 @@ const settleObserved = (
   labels: readonly string[] | undefined,
 ): MailboxDocument =>
   labels === undefined
-    ? withRefills(
-        document,
-        everyView(settled(document, undefined), (_view, messages) =>
+    ? withRefills(document, {
+        ...everyView(settled(document, undefined), (_view, messages) =>
           messages.filter(({ id }) => id !== head.message.id),
         ),
-      )
+        ...(document.history === undefined
+          ? {}
+          : {
+              history: recorded(document.history, [
+                [head.message.id, undefined],
+              ]),
+            }),
+      })
     : settled(document, labels);
 
 // Appends intents by intake ID, so a commit whose reply was lost never saves one twice.
@@ -1445,6 +1502,7 @@ export function createGmailInbox(
   });
 
   // Applies one Gmail history page from a current checkpoint.
+  // fallow-ignore-next-line complexity -- Each history record kind settles the cache, its views and the recorded changes.
   const applyHistory = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument,
@@ -1466,7 +1524,15 @@ export function createGmailInbox(
     );
     if (Option.isNone(history)) {
       // An expired or invalid history ID lists the Inbox again; cached messages stay visible.
-      return Option.some(yield* startListing(scope, document));
+      // Changes since then are unknown, so Historical Metadata Backfill lists All Mail again too.
+      return Option.some(
+        yield* startListing(
+          scope,
+          document.history === undefined
+            ? document
+            : { ...document, history: restarted(document.history) },
+        ),
+      );
     }
     const records = history.value.history ?? [];
     const historyId = nextHistoryId(history.value, records);
@@ -1477,7 +1543,7 @@ export function createGmailInbox(
     const fetched = yield* fetchAll(
       scope,
       changed,
-      document.views !== undefined,
+      document.views !== undefined || document.history !== undefined,
     );
     const observed = document.notificationHistoryId ?? checkpoint.historyId;
     const added = new Set(
@@ -1520,6 +1586,14 @@ export function createGmailInbox(
     });
     const updated: MailboxDocument = {
       ...next,
+      ...(next.history === undefined
+        ? {}
+        : {
+            history: recorded(next.history, [
+              ...fetched,
+              ...Array.from(deleted, (id) => [id, undefined] as const),
+            ]),
+          }),
       ...latestNotificationHistory(observed, historyId),
       ...(next.views === undefined
         ? {}
@@ -1829,6 +1903,8 @@ export function createGmailInbox(
   // at a time, so this drops the late results of one started for the previous account.
   let forgotten = false;
   let ownership = 0;
+  // Advances when the open Inbox closes, so a body or history read for the previous owner is dropped.
+  let owner = 0;
   const messageOwners = new WeakMap<
     GmailMessage,
     { readonly ownership: number; readonly scope: MailboxScope }
@@ -1886,6 +1962,13 @@ export function createGmailInbox(
     }
     return unfinished ? 'syncing' : 'current';
   };
+  const reveals = createHistoryReveals({
+    snapshot: () => shown,
+    read: (scope, name) => readSegment(scope, name),
+    publish: () => {
+      publish(render());
+    },
+  });
   // The requested and saved views with the requested changes applied, most recent first, each
   // message claimed for organizing; none when no view was opened.
   const renderedViews = (
@@ -1904,9 +1987,15 @@ export function createGmailInbox(
         })),
       ...saved.map((entry) => ({
         label: entry.label,
-        messages: organized(entry.messages, changes, entry.label),
+        messages: organized(
+          reveals.withRevealed(entry.label, entry.messages, document?.history),
+          changes,
+          entry.label,
+        ),
         status: viewStatus(entry),
-        limited: true as const,
+        ...(reveals.revealedAll(entry, document?.history)
+          ? {}
+          : { limited: true as const }),
       })),
     ];
     claim(views.flatMap((view) => view.messages));
@@ -1921,11 +2010,19 @@ export function createGmailInbox(
         ? [label]
         : [],
     );
-  const render = (): Extract<GmailInboxState, { kind: 'ready' }> => {
+  // fallow-ignore-next-line complexity -- Each optional part of the shown document maps to one field of the ready state.
+  function render(): Extract<GmailInboxState, { kind: 'ready' }> {
     const document = shown?.document;
     const durable = document?.pending ?? [];
     const changes = [...durable, ...queued.map((item) => item.pending)];
-    const messages = organized(document?.messages ?? [], changes);
+    const messages = organized(
+      reveals.withRevealed(
+        'INBOX',
+        document?.messages ?? [],
+        document?.history,
+      ),
+      changes,
+    );
     const listed = listedLabels(document);
     claim(messages);
     return {
@@ -1933,6 +2030,9 @@ export function createGmailInbox(
       messages,
       ...(found.size === 0 ? {} : { found: [...found.values()] }),
       ...renderedViews(document, changes),
+      ...(document?.history === undefined
+        ? {}
+        : { history: progress(document.history) }),
       sync: shownSyncState(),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
@@ -1946,12 +2046,12 @@ export function createGmailInbox(
         : { organizing: changes.map(({ message }) => message.id) }),
       ...presented(durable),
     };
-  };
-  const publish = (next: GmailInboxState) => {
+  }
+  function publish(next: GmailInboxState) {
     if (!forgotten) {
       notify(next);
     }
-  };
+  }
   // Bodies opened in this Inbox, in the order they were requested.
   const bodies = new Map<string, MessageBodyState>();
   const readers = new Map<string, number>();
@@ -2022,29 +2122,39 @@ export function createGmailInbox(
     publish(rendered);
   };
 
-  const ready = (
+  const ready = Effect.fnUntraced(function* (
     cache: Cache,
     document: MailboxDocument | undefined,
     next: Sync,
-  ) =>
-    Effect.sync(() => {
-      // A concurrent intake may already have published a newer durable revision.
-      if (
-        shown !== undefined &&
-        shown.scope.address === cache.address &&
-        shown.scope.owner === cache.owner &&
-        shown.scope.generation === cache.generation &&
-        shown.scope.revision > cache.revision
-      ) {
-        return;
-      }
-      shown = {
-        scope: cache,
-        document,
-        organize: cache.availability === undefined,
-      };
-      settle(next);
-    });
+  ) {
+    // A concurrent intake may already have published a newer durable revision.
+    if (
+      shown !== undefined &&
+      shown.scope.address === cache.address &&
+      shown.scope.owner === cache.owner &&
+      shown.scope.generation === cache.generation &&
+      shown.scope.revision > cache.revision
+    ) {
+      return;
+    }
+    if (shown === undefined || !sameMailbox(shown.scope, cache)) {
+      reveals.clear();
+    }
+    shown = {
+      scope: cache,
+      document,
+      organize: cache.availability === undefined,
+    };
+    settle(next);
+    const reading = owner;
+    yield* reveals.revealAll.pipe(
+      Effect.catchTag('SyncFailure', (failure) =>
+        failure.kind === 'locked' || failure.kind === 'revoked'
+          ? Effect.fail(failure)
+          : historyFailure(failure, reading),
+      ),
+    );
+  });
 
   // The recent working set of the latest selection; its stored bodies are protected from eviction.
   let selection: readonly string[] = [];
@@ -2062,7 +2172,7 @@ export function createGmailInbox(
       ...new Set([
         ...selection,
         ...recentWorkingSet(
-          state.kind === 'ready' ? state.messages : [],
+          state.kind === 'ready' ? state.messages.slice(0, cacheLimit) : [],
           reference,
         ),
       ]),
@@ -2101,16 +2211,18 @@ export function createGmailInbox(
       ),
     );
 
-  // Commits a document over the revision this synchronization read.
+  // Commits a document, and any history segments it names, over the revision this
+  // synchronization read.
   const commit = Effect.fnUntraced(function* (
     { address, revision, generation }: Cache,
     document: MailboxDocument,
+    history?: HistoryWrite,
   ) {
     const text = yield* encodeDocument(document).pipe(
       Effect.mapError((error) => malformed(error, 'failed')),
     );
     const committed = yield* storage(() =>
-      native.commitMailbox({ address, generation }, revision, text),
+      native.commitMailbox({ address, generation }, revision, text, history),
     );
     yield* retainBodies(committed, document);
     return committed;
@@ -2118,8 +2230,6 @@ export function createGmailInbox(
 
   // The mailbox whose cache the current Inbox shows; body reads use its native generation.
   let opened: MailboxScope | undefined = undefined;
-  // Advances when the open Inbox closes, so a body read for the previous owner is dropped.
-  let owner = 0;
   // Connection and account admission happen together, so all waiting reads can be reprioritized.
   const bodyLoadConnection = Symbol('body-load-connection');
   // The order a reader wants its messages' bodies in; unranked loads go first.
@@ -2633,8 +2743,14 @@ export function createGmailInbox(
     );
   });
 
+  // A message the saved document keeps. Its body is kept with it; older mail scrolling revealed
+  // from downloaded history and online search results are read without being kept.
+  const keepsBody = (id: string) =>
+    shown?.document !== undefined &&
+    cachedMessages(shown.document).some((message) => message.id === id);
+
   // Stores a body under the current working set's protection. Commits are fenced like mailbox
-  // commits: a message that left the Inbox, or a closed Inbox, stores nothing.
+  // commits: a message that left the cached mailbox, or a closed Inbox, stores nothing.
   const store = (
     document: BodyDocument,
     {
@@ -2652,8 +2768,18 @@ export function createGmailInbox(
       Effect.mapError((error) => malformed(error, 'failed')),
       Effect.flatMap((text) =>
         publication.withPermits(2)(
-          Effect.suspend(() =>
-            owner === reading && listed(document.id)
+          Effect.suspend(() => {
+            if (owner !== reading || !readable(document.id)) {
+              return Effect.fail(
+                new SyncFailure({
+                  kind: 'invalidated',
+                  cause: 'message left',
+                  diagnostic: 'message left Inbox',
+                }),
+              );
+            }
+            // A commit can move a still-readable message out of the saved views while this waits.
+            return keepsBody(document.id)
               ? protectedBodies.pipe(
                   Effect.flatMap((protectedIds) =>
                     Effect.tryPromise({
@@ -2678,26 +2804,11 @@ export function createGmailInbox(
                     admitted ? shared.cache.changed : Effect.void,
                   ),
                 )
-              : Effect.fail(
-                  new SyncFailure({
-                    kind: 'invalidated',
-                    cause: 'message left',
-                    diagnostic: 'message left Inbox',
-                  }),
-                ),
-          ),
+              : Effect.succeed({ admitted: false });
+          }),
         ),
       ),
     );
-
-  // Saves an Inbox message's body; an online search result is shown without being kept.
-  const keepBody = (
-    document: BodyDocument,
-    admission: Parameters<typeof store>[1],
-  ) =>
-    listed(document.id)
-      ? store(document, admission)
-      : Effect.succeed({ admitted: false });
 
   // The cached body when this device has one, otherwise Gmail's, which is then cached when it fits.
   // Images a rejected grant left unresolved are read again after Gmail is authorized.
@@ -2750,7 +2861,7 @@ export function createGmailInbox(
         yield* askForGmail(reading, id);
       }
       if (completed.changed) {
-        yield* keepBody(completed.document, { scope, tier, reading }).pipe(
+        yield* store(completed.document, { scope, tier, reading }).pipe(
           Effect.ignore,
         );
       }
@@ -2760,7 +2871,7 @@ export function createGmailInbox(
     if (authentication) {
       yield* askForGmail(reading, id);
     }
-    yield* keepBody(document, { scope, tier, reading }).pipe(
+    yield* store(document, { scope, tier, reading }).pipe(
       // A body that could not be kept is still shown, unless its mailbox changed meanwhile.
       Effect.catchIf(
         (failure) => failure.kind !== 'invalidated',
@@ -3020,22 +3131,27 @@ export function createGmailInbox(
     );
   });
 
-  const prefetchPaused = (reading: number, id: string) =>
+  let speculativeFailure = false;
+  const speculationPaused = (reading: number) =>
+    speculativeFailure ||
     owner !== reading ||
-    !listed(id) ||
     state.kind !== 'ready' ||
     state.sync === 'authentication' ||
     state.sync === 'retry';
+  const prefetchPaused = (reading: number, id: string) =>
+    speculationPaused(reading) || !listed(id);
 
-  // One speculative lane: selections run one at a time, and each body waits while an explicit
-  // read is waiting or running, then holds one of the connection's two loads.
+  // The connection's one speculative lane: a prefetch pass or a backfill step holds it, and each
+  // body or step waits while an explicit read is waiting or running.
+  const speculativeLane = Semaphore.makeUnsafe(1);
+  // Each body holds one of the connection's two loads.
   const prefetch = Effect.fnUntraced(function* (reading: number) {
     const scope = opened;
     if (scope === undefined || state.kind !== 'ready' || owner !== reading) {
       return;
     }
     selection = recentWorkingSet(
-      state.messages,
+      state.messages.slice(0, cacheLimit),
       selectionReference ?? (yield* DateTime.now),
     );
     const reply = yield* Effect.tryPromise({
@@ -3061,25 +3177,27 @@ export function createGmailInbox(
   let prefetching = false;
   let prefetchAgain = false;
   // Authentication stops provider work and asks for Gmail again; offline, quota and server
-  // failures pause prefetch until the next synchronization.
+  // failures pause prefetch or backfill until the next synchronization.
   const prefetchFailure =
-    (reading: number) =>
+    (reading: number, failed = 'Body prefetch failed:') =>
     ({
       kind,
       diagnostic,
-    }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) => {
-      if (kind === 'authentication') {
-        return Effect.sync(() => {
-          if (owner === reading) {
-            authenticationRejected = true;
-            publish(render());
-          }
-        });
-      }
-      return kind === 'invalidated' || kind === 'retry'
-        ? Effect.void
-        : Effect.logError('Body prefetch failed:', diagnostic);
-    };
+    }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) =>
+      Effect.gen(function* () {
+        if (owner !== reading) {
+          return;
+        }
+        speculativeFailure = true;
+        if (kind === 'authentication') {
+          authenticationRejected = true;
+          publish(render());
+          return;
+        }
+        if (kind !== 'invalidated' && kind !== 'retry') {
+          yield* Effect.logError(failed, diagnostic);
+        }
+      });
   // Starts the lane, or asks a running lane to select again after its current pass.
   const schedulePrefetch = Effect.sync(() => {
     if (prefetching) {
@@ -3093,7 +3211,8 @@ export function createGmailInbox(
         let again = true;
         while (again) {
           prefetchAgain = false;
-          yield* prefetch(reading);
+          yield* speculativeLane.withPermit(prefetch(reading));
+          yield* Effect.yieldNow;
           again = prefetchAgain && owner === reading;
         }
       }).pipe(
@@ -3112,7 +3231,100 @@ export function createGmailInbox(
     );
   });
 
+  // Historical Metadata Backfill: All Mail's stored segments, revealed below a view's cached
+  // messages as it scrolls.
+  const segmentName = Effect.map(
+    Effect.all([
+      Random.nextIntBetween(0, 2 ** 31 - 1),
+      Random.nextIntBetween(0, 2 ** 31 - 1),
+    ]),
+    ([high, low]) => `${high.toString(36)}${low.toString(36)}`,
+  );
+  // A segment's messages, none once a later commit removed it.
+  function readSegment(scope: MailboxScope, name: string) {
+    return Effect.tryPromise({
+      try: () => native.openMailboxSegment(scope, name),
+      catch: (cause) => rejected(cause, 'failed'),
+    }).pipe(
+      Effect.flatMap(decodeStoredSegment),
+      Effect.flatMap(({ document }) =>
+        document === null
+          ? Effect.succeedNone
+          : Effect.asSome(decodeSegment(document)),
+      ),
+      Effect.mapError((failure) =>
+        Schema.isSchemaError(failure) ? malformed(failure, 'failed') : failure,
+      ),
+    );
+  }
+  const storedSegment = (scope: MailboxScope) => (name: string) =>
+    readSegment(scope, name).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.fail(
+              new SyncFailure({
+                kind: 'failed',
+                cause: 'segment',
+                diagnostic: 'history segment missing',
+              }),
+            ),
+          onSome: Effect.succeed,
+        }),
+      ),
+    );
+
+  // Lists the next All Mail page into a new segment. Messages it lists again replace the changes
+  // recorded for them; an expired page token starts a new pass.
+  const listHistory = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    history: MailboxHistory,
+  ) {
+    const { pageToken } = history.current;
+    const page = yield* gmail(scope)(
+      'messages',
+      [
+        ['maxResults', String(historyPageSize)],
+        ...(pageToken === undefined ? [] : [['pageToken', pageToken] as const]),
+      ],
+      decodeList,
+    ).pipe(
+      Effect.asSome,
+      Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
+    );
+    if (Option.isNone(page)) {
+      return { history: restarted(history), written: [] };
+    }
+    const pageMessages = yield* fetchAll(
+      scope,
+      (page.value.messages ?? []).map(({ id }) => id),
+      true,
+    );
+    const messages = Arr.sort(
+      pageMessages.flatMap(([, message]) =>
+        message !== undefined && inView(allMail, labelsOf(message))
+          ? [message]
+          : [],
+      ),
+      newestFirst,
+    );
+    const changed = new Set(history.changes.map(({ id }) => id));
+    const name = yield* segmentName;
+    return {
+      history: listedHistory(
+        recorded(
+          history,
+          pageMessages.filter(([id]) => changed.has(id)),
+        ),
+        { name, count: messages.length },
+        page.value.nextPageToken,
+      ),
+      written: messages.length === 0 ? [] : [[name, messages] as const],
+    };
+  });
+
   // The latest saved document with `next` over it: intents intake saved since `base` was read stay.
+  // fallow-ignore-next-line complexity -- Each guard refuses a rebase over a checkpoint, history or view another store changed.
   const rebased = Effect.fnUntraced(function* ({
     cache,
     base,
@@ -3135,9 +3347,11 @@ export function createGmailInbox(
         diagnostic: 'another mailbox',
       });
     }
-    // Another store saved newer provider progress; synchronization restarts from it.
+    // Another store saved newer provider progress; synchronization restarts from it. Its
+    // history may have pruned segments this document still names.
     if (
       !sameCheckpoint(base.checkpoint, saved.checkpoint) ||
+      !sameHistory(base.history, saved.history) ||
       (graph !== undefined &&
         !sameGraphViews(base.views ?? [], saved.views ?? []))
     ) {
@@ -3157,14 +3371,16 @@ export function createGmailInbox(
   // Intake saves intent under its own permit, so a commit can meet a newer revision. Rebase only
   // unchanged provider progress; otherwise synchronization restarts from the durable checkpoint.
   // Keep commit, pruning and publication together against body admission.
+  // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
   const commitOver = Effect.fnUntraced(function* (
     cache: Cache,
     base: MailboxDocument | undefined,
     next: MailboxDocument,
+    history?: HistoryWrite,
   ) {
     let target = { cache, base, document: next };
     for (let attempt = 1; ; attempt += 1) {
-      const saved = yield* commit(target.cache, target.document).pipe(
+      const saved = yield* commit(target.cache, target.document, history).pipe(
         Effect.asSome,
         Effect.catchIf(
           (error) =>
@@ -3181,6 +3397,111 @@ export function createGmailInbox(
       target = yield* rebased(target);
     }
   }, publication.withPermit);
+
+  // One backfill step for the open Inbox, after its synchronization reached Gmail's current
+  // history: folds recorded changes, or lists the next page. False once nothing is left.
+  // fallow-ignore-next-line complexity -- Each guard keeps a step to the open, current mailbox it was scheduled for.
+  const backfillStep = Effect.fnUntraced(function* (reading: number) {
+    const scope = opened;
+    if (scope === undefined || speculationPaused(reading)) {
+      return false;
+    }
+    const cache = yield* storage(native.openMailbox);
+    const document = Option.getOrUndefined(yield* documentOf(cache));
+    if (
+      document?.checkpoint?.kind !== 'current' ||
+      cache.availability !== undefined ||
+      !sameMailbox(cache, scope)
+    ) {
+      return false;
+    }
+    let { history } = document;
+    if (history === undefined) {
+      const { messagesTotal } = yield* gmail(scope)(
+        'profile',
+        [],
+        decodeProfile,
+      );
+      history = {
+        ...(messagesTotal === undefined ? {} : { total: messagesTotal }),
+        current: { segments: [] },
+        changes: [],
+      };
+    }
+    const folding = foldDue(history);
+    if (!folding && history.current.complete === true) {
+      return false;
+    }
+    const step = folding
+      ? yield* foldStep(history, storedSegment(scope), segmentName)
+      : yield* listHistory(scope, history);
+    const segments: Record<string, string> = {};
+    for (const [name, messages] of step.written) {
+      segments[name] = yield* encodeSegment(messages).pipe(
+        Effect.mapError((error) => malformed(error, 'failed')),
+      );
+    }
+    yield* commitOver(
+      cache,
+      document,
+      { ...document, history: step.history },
+      { segments, keep: segmentNames(step.history) },
+    );
+    return true;
+  });
+
+  let backfilling = false;
+  let backfillAgain = false;
+  // Starts the backfill lane after a synchronization; it yields to body loads the user is
+  // waiting for and stops when the Inbox closes, its history is complete, or a step fails.
+  const scheduleBackfill = Effect.sync(() => {
+    if (backfilling) {
+      backfillAgain = true;
+      return;
+    }
+    backfilling = true;
+    const reading = owner;
+    void runLogged(
+      Effect.gen(function* () {
+        for (;;) {
+          yield* shared.idle.await;
+          if (
+            !(yield* speculativeLane.withPermit(
+              semaphore.withPermit(
+                // A read may have begun while either permit was queued. Release both before waiting.
+                Effect.suspend(() =>
+                  shared.idle.isOpen()
+                    ? backfillStep(reading)
+                    : Effect.succeed(true),
+                ),
+              ),
+            ))
+          ) {
+            return;
+          }
+          // Let queued synchronization and prefetch acquire their permits before the next step.
+          yield* Effect.yieldNow;
+        }
+      }).pipe(
+        // An expired history ID or page token waits for the next synchronization to restart.
+        Effect.catchTags({
+          GmailNotFound: () => Effect.void,
+          GmailInvalidPage: () => Effect.void,
+        }),
+        Effect.catchTag('SyncFailure', (failure) =>
+          historyFailure(failure, reading),
+        ),
+        Effect.ensuring(
+          Effect.suspend(() => {
+            backfilling = false;
+            const again = backfillAgain;
+            backfillAgain = false;
+            return again ? scheduleBackfill : Effect.void;
+          }),
+        ),
+      ),
+    );
+  });
 
   // Removes only matching intents: forget() may already have removed them, and newer intents stay.
   const removeQueued = (
@@ -3209,8 +3530,10 @@ export function createGmailInbox(
     remoteContent.releaseAll();
     queued.length = 0;
     shown = undefined;
+    reveals.clear();
     notice = undefined;
     authenticationRejected = false;
+    speculativeFailure = false;
     imagesAwaitingGmail.clear();
     opened = undefined;
     attachments.discard();
@@ -3253,6 +3576,9 @@ export function createGmailInbox(
     ).pipe(
       Effect.andThen(
         Effect.sync(() => {
+          if (forgotten) {
+            return;
+          }
           if (kind === 'revoked') {
             forgetOpenInbox();
             removed?.();
@@ -3268,6 +3594,18 @@ export function createGmailInbox(
         }),
       ),
     );
+
+  function historyFailure(
+    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
+    reading: number,
+  ) {
+    if (owner !== reading || forgotten) {
+      return Effect.void;
+    }
+    return failure.kind === 'locked' || failure.kind === 'revoked'
+      ? recover(failure)
+      : prefetchFailure(reading, 'History read failed:')(failure);
+  }
 
   // Intake uses its own permit: a blocked Gmail read must not delay recording intent. Native
   // compare-and-swap fences concurrent sync commits; each intake ID also reconciles a lost commit
@@ -3617,7 +3955,11 @@ export function createGmailInbox(
           ),
         ),
       )
-      .pipe(Effect.andThen(schedulePrefetch), Effect.andThen(rereadBodies));
+      .pipe(
+        Effect.andThen(schedulePrefetch),
+        Effect.andThen(scheduleBackfill),
+        Effect.andThen(rereadBodies),
+      );
 
   // Window exits release protection immediately; the next sync durably trims inactive extras.
   const trimViewCache = Effect.fnUntraced(function* (
@@ -3719,6 +4061,7 @@ export function createGmailInbox(
           }
           forgotten = false;
           authenticationRejected = false;
+          speculativeFailure = false;
           return queued.length === 0
             ? synchronize
             : persistence
@@ -4145,6 +4488,22 @@ export function createGmailInbox(
       return () => {
         activeViews.delete(token);
       };
+    },
+    // Reveals the next stored messages below the cached ones of the Inbox or an opened view;
+    // with an incomplete history, more appear as the backfill stores them.
+    showOlder: (label: string) => {
+      const requested = reveals.request(label, pageSize);
+      if (requested === undefined) {
+        return;
+      }
+      const reading = owner;
+      void runLogged(
+        requested.pipe(
+          Effect.catchTag('SyncFailure', (failure) =>
+            historyFailure(failure, reading),
+          ),
+        ),
+      );
     },
     // Lists a Gmail label, All Mail, Spam or Trash, kept current through mailbox history, or a
     // Microsoft folder, kept current through its own delta round.

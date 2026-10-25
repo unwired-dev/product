@@ -768,6 +768,7 @@ export function Inbox({
     failure,
     missing,
     folderOf,
+    showOlder,
   } = useListedMailbox(shown, inboxListed, { view, onView });
   // A message chosen outside the Inbox names its folder, which its actions can take it out of.
   const selectionOf = (mailbox: string, id: string) => {
@@ -1053,6 +1054,7 @@ export function Inbox({
             );
           }}
           contentContainerStyle={styles.list}
+          onEndReached={showOlder}
           sections={placed}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => {

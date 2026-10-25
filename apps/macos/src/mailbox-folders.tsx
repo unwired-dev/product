@@ -10,6 +10,7 @@ import {
   gmailMailbox,
   gmailViewRow,
   mailboxFolder,
+  unifiedFolders,
   unifiedMailbox,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
@@ -64,6 +65,15 @@ function useMailboxFolder<E>(
   }
   return {
     folder,
+    // Reaching the end of the Inbox reveals older Gmail mail its devices downloaded.
+    showOlder: () => {
+      if (folder !== inboxFolder) {
+        return;
+      }
+      for (const mailbox of shown) {
+        gmailMailbox(mailbox)?.inbox.showOlder(inboxFolder);
+      }
+    },
     title: folder === inboxFolder ? undefined : folder,
     listed: browsing?.entries ?? inbox,
     failure: imapFolderFailed(browsing?.view)
@@ -99,7 +109,16 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
     return undefined;
   }
   const { title, failure, limited } = gmailViewRow(t, gmail, folder);
-  return { title, listed, failure, limited };
+  const { inbox } = gmail;
+  return {
+    title,
+    listed,
+    failure,
+    limited,
+    showOlder: () => {
+      inbox.showOlder(folder);
+    },
+  };
 }
 
 // The chosen IMAP folder's messages as list entries, or undefined for the Inbox.
@@ -169,6 +188,14 @@ export function useListedMailbox<E>(
     listed: unified.entries,
     failure:
       unified.failed.length === 0 ? undefined : t('imap.foldersUnavailable'),
+    // Reaching the end reveals each Gmail mailbox's older downloaded mail with the role.
+    showOlder: () => {
+      for (const mailbox of shown) {
+        for (const view of unifiedFolders(mailbox, role) ?? []) {
+          gmailMailbox(mailbox)?.inbox.showOlder(view);
+        }
+      }
+    },
     // Mailboxes whose provider marks no folder with the role, which the list names as left out.
     missing: unified.missing,
     folderOf: (mailbox: string, id: string) =>

@@ -313,27 +313,52 @@ extension RegistrationStore {
   // A commit read for another mailbox or connection, or after removal began, changes nothing.
   func commitMailbox(
     connection id: String, address: String, expectedRevision: Int, document: String,
-    generation: String
-  ) throws
+    generation: String, history: (segments: [String: String], keep: Set<String>)? = nil
+  ) async throws
     -> [String: Any]
   {
-    guard let mailCache else { throw RegistrationError.unavailable }
-    guard mailboxGeneration(id).uuidString == generation else {
-      throw PrivateInboxError.mailboxInvalidated
+    let owner = { [self] () throws -> String in
+      guard mailboxGeneration(id).uuidString == generation else {
+        throw PrivateInboxError.mailboxInvalidated
+      }
+      guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
+      let mailbox = try connectedMailbox(id).1
+      guard mailbox.address == address else {
+        throw PrivateInboxError.mailboxInvalidated
+      }
+      return mailbox.subject
     }
-    guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
-    let mailbox = try connectedMailbox(id).1
-    guard mailbox.address == address, mailboxGeneration(id).uuidString == generation else {
-      throw PrivateInboxError.mailboxInvalidated
+    let (revision, subject) = try await mailboxWork(owner: owner) { mailCache, subject in
+      let stored = try mailCache.commitMailbox(
+        connection: id, address: address, subject: subject,
+        expectedRevision: expectedRevision, document: document, history: history)
+      guard let revision = stored["revision"] as? Int else { throw PrivateInboxError.invalidStore }
+      return (revision, subject)
     }
-    var result = try mailCache.commitMailbox(
-      connection: id, address: address, subject: mailbox.subject,
-      expectedRevision: expectedRevision, document: document)
-    result["generation"] = generation
     let product = try mailboxAccount(id)
-    result["owner"] = [product.productAccountId, product.trustedDeviceId, mailbox.subject,
-      try load()?.connection(id)?.epoch ?? "legacy"].joined(separator: "\n")
-    return result
+    return [
+      "revision": revision, "address": address, "document": document, "generation": generation,
+      "owner": [product.productAccountId, product.trustedDeviceId, subject,
+        try load()?.connection(id)?.epoch ?? "legacy"].joined(separator: "\n"),
+    ]
+  }
+
+  // A history segment of the open mailbox, read as `openMailbox` reads its document.
+  func openMailboxSegment(connection id: String, name: String, generation: String) async throws
+    -> [String: Any]
+  {
+    let owner = { [self] () throws -> (address: String, subject: String) in
+      guard verifiedMailboxes.contains(id) || cacheOnlyMailboxes.contains(id),
+        mailboxGeneration(id).uuidString == generation
+      else { throw PrivateInboxError.mailboxInvalidated }
+      let mailbox = try connectedMailbox(id).1
+      return (mailbox.address, mailbox.subject)
+    }
+    let document = try await mailboxWork(owner: owner) { mailCache, mailbox in
+      try mailCache.openMailboxSegment(
+        connection: id, address: mailbox.address, subject: mailbox.subject, name: name)
+    }
+    return ["document": document ?? NSNull()]
   }
 
   // The connection's Google account, when the caller's mailbox is still the open one. Saved
@@ -352,17 +377,28 @@ extension RegistrationStore {
     return mailbox.subject
   }
 
-  // Reads, decrypts, encrypts and writes bodies off the main actor. The mailbox operation gate
-  // keeps registration changes out until the work ends, protected data is checked here on the
-  // main actor, and the caller's mailbox is checked again before any result is published.
   private func bodyWork<Value: Sendable>(
     connection: String, address: String, generation: String, verified: Bool,
     discard: @escaping @Sendable (PrivateInboxStore, Value) throws -> Void = { _, _ in },
     _ work: @escaping @Sendable (PrivateInboxStore, String) throws -> Value
   ) async throws -> Value {
-    let subject = try bodyOwner(
-      connection: connection, address: address, generation: generation, verified: verified)
+    try await mailboxWork(
+      owner: {
+        try bodyOwner(
+          connection: connection, address: address, generation: generation, verified: verified)
+      }, discard: discard, work)
+  }
+
+  // Reads, decrypts, encrypts and writes mailbox files off the main actor. The mailbox operation
+  // gate keeps registration changes out until the work ends, protected data is checked here on
+  // the main actor, and `owner` checks the caller's mailbox again before any result is published.
+  private func mailboxWork<Owner: Sendable, Value: Sendable>(
+    owner: () throws -> Owner,
+    discard: @escaping @Sendable (PrivateInboxStore, Value) throws -> Void = { _, _ in },
+    _ work: @escaping @Sendable (PrivateInboxStore, Owner) throws -> Value
+  ) async throws -> Value {
     guard let mailCache else { throw RegistrationError.unavailable }
+    let subject = try owner()
     guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
     let value: Value
     do {
@@ -375,8 +411,7 @@ extension RegistrationStore {
     }
     do {
       guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
-      _ = try bodyOwner(
-        connection: connection, address: address, generation: generation, verified: verified)
+      _ = try owner()
     } catch {
       do { try await Task.detached { try discard(mailCache, value) }.value } catch {
         Self.logProductSyncFailure("Unacknowledged attachment cleanup failed", error)

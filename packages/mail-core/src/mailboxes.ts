@@ -7,6 +7,7 @@ import type {
   GmailInboxState,
   GmailMessage,
   GmailSearchPage,
+  HistoryWrite,
   NativeGmailMailbox,
   RemoteResource,
 } from './gmail-inbox.ts';
@@ -108,10 +109,17 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
   ) => Promise<unknown>;
   readonly openMailbox: (connection: string) => Promise<unknown>;
+  // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
   readonly commitMailbox: (
     mailbox: Scope,
     expectedRevision: number,
     document: string,
+    // The bridge needs every argument, so hosts pass null when no history segments change.
+    history?: HistoryWrite | null,
+  ) => Promise<unknown>;
+  readonly openMailboxSegment: (
+    mailbox: Scope,
+    name: string,
   ) => Promise<unknown>;
   readonly openMessageBody: (mailbox: Scope, id: string) => Promise<unknown>;
   readonly commitMessageBody: (
@@ -259,8 +267,11 @@ const bound = (
     graphDiscard: (messageId, mailbox) =>
       native.graphDiscard(messageId, scope(mailbox)),
     openMailbox: () => native.openMailbox(connection),
-    commitMailbox: (mailbox, expectedRevision, document) =>
-      native.commitMailbox(scope(mailbox), expectedRevision, document),
+    // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+    commitMailbox: (mailbox, expectedRevision, document, history) =>
+      native.commitMailbox(scope(mailbox), expectedRevision, document, history),
+    openMailboxSegment: (mailbox, name) =>
+      native.openMailboxSegment(scope(mailbox), name),
     openMessageBody: (mailbox, id) =>
       native.openMessageBody(scope(mailbox), id),
     commitMessageBody: (mailbox, id, admission) =>

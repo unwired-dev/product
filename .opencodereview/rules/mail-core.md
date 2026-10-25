@@ -392,6 +392,24 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `gmail-inbox.ts` scheduling recent-body prefetch and history backfill through
+  independent speculative owners. Share one connection-owned permit between a
+  prefetch pass and each history step, while explicit reads remain outside it.
+  Exercise current-timestamp mail with held prefetch metadata and queued history;
+  otherwise separate background flags violate the single speculative lane.
+  Carry authentication and transient-failure pauses across both kinds of work
+  until the next synchronization, rechecking after permit admission. Otherwise a
+  queued history page continues after the current speculative owner was refused.
+
+- `gmail-inbox.ts.scheduleBackfill` or `schedulePrefetch` immediately reacquiring
+  released permits in a repeat loop. Yield to the Effect scheduler between units
+  so queued synchronization and speculative work can acquire their permits, and
+  recheck the interactive-idle latch inside the final acquired locks before a
+  history step, releasing the locks before waiting if it closed. Exercise a
+  refresh queued behind a held history page and another while an explicit read
+  holds history behind prefetch's lane. Otherwise backfill monopolizes
+  synchronization or starts provider work from a stale idle check.
+
 - `imap-inbox.ts.load` resetting a concurrent prefetch authentication refusal
   inside its metadata-conflict retry boundary. Clear the refusal once when a new
   load acquires its permit, and preserve refusals raised during that load across
@@ -611,6 +629,75 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `gmail-history.ts.foldStep` prepending every changed message absent from the
+  stored segments after a completed pass. Mail restored from Spam or Trash keeps
+  its original receipt date. Place it among the downloaded segments in receipt
+  order, since reveal stops reading once it has enough rows. Exercise restoration
+  both between retained pages and beyond the oldest page, then reopen and scroll
+  through the history. Otherwise old restored mail displaces newer downloaded
+  messages in an early scroll or disappears from later scrolling.
+  When equal receipt dates span pages, remove a changed message's original row
+  if the fold already placed it earlier, including across resumed fold steps.
+  Check downloaded counts as well as visible IDs, since reveal deduplication can
+  hide duplicated stored rows behind an inflated progress count.
+- `gmail-history-reveals.ts.request` admitting Spam or Trash to the All Mail
+  history reader. Reject both before creating a reveal cursor: history excludes
+  their messages. Exercise scrolling either view with a full recent cache and
+  downloaded history; otherwise it scans and decrypts unrelated segments without
+  revealing mail, delaying other views behind the reveal permit.
+- `gmail-history.ts.foldDue` requiring an existing segment before folding a
+  completed pass. Exercise both an initially empty completed history and deletion
+  of every stored message, followed by more arrivals than the recent cache holds
+  and offline scrolling after reopen. Otherwise new mail never becomes scrollable
+  history and its recorded changes grow without folding.
+- `gmail-history.ts.restarted` or `listed` carrying a pre-reconciliation overlay
+  into a completed replacement pass. Preserve known states while the old pass
+  is shown, then retire its overlay prefix with it, retaining changes recorded
+  during the pass and deferring folds until that boundary retires. Exercise an
+  old recorded change followed by history expiry and provider deletion; otherwise
+  the stale overlay resurrects messages the new pass authoritatively omitted.
+- `gmail-history-reveals.ts.withRevealed` excluding receipt timestamps equal to the recent
+  cache boundary, or applying recorded changes only to messages retained by an
+  earlier view filter. Exercise equal-timestamp pages and a message added to a
+  view after its segment was read, preserving ID deduplication and receipt order.
+  Otherwise downloaded messages disappear at the cache boundary or later label
+  changes cannot admit older mail until a fold or relaunch.
+- `gmail-history-reveals.ts.withRevealed` admitting overlay arrivals beyond the
+  segments' read frontier, or dropping already-shown rows when a fold renames
+  those segments. Gate new arrivals by the oldest receipt read across overlapping
+  segments; carry shown rows through cursor resets, including equal receipts
+  spanning pages, until rereading passes their date or completes the pass.
+  Apply current deletions and label/read changes to carried rows and keep reading
+  while unread carried rows remain at or beyond that frontier. Exclude rows the
+  current cursor's segments already returned from this continuation guard; verify
+  that one ordinary scroll reads only the segments needed for its visible batch.
+  Otherwise each newly revealed row keeps the loop running through the whole mailbox,
+  a scroll skips newer mail, a fold releases an open reader's body, or retired rows
+  resurrect after reconciliation.
+- `gmail-history-reveals.ts.withRevealed`, `request` or `revealedAll` treating a short
+  recent cache as proof that no older mail exists while its refill is unfinished.
+  Exercise a confirmed recent-message removal followed by failed provider reads,
+  both with already-revealed history and after offline relaunch. Preserve older
+  stored mail and distinguish a completed short listing from an interrupted one;
+  otherwise an outage hides downloaded messages and scrolling cannot recover them.
+- `gmail-inbox.ts.ready` adopting a rewritten history without reconciling existing
+  reveal cursors. Exercise another store folding a completed pass, then reload
+  through both verified and cache-only access without another scroll. Reconcile
+  even when backfill has no remaining step; otherwise carried rows resurrect
+  messages whose deletion overlay the fold already retired.
+- `gmail-inbox.ts.recover` handling a former owner's asynchronous access failure
+  after `forget`, including a segment read awaited by `ready`. Fence recovery as
+  well as publication: hold that read, forget, queue a reload and reject the old
+  read as revoked. Preserve current-owner lock/revocation handling and the durable
+  commit preceding a reveal failure; otherwise a stale removal callback cancels
+  the new owner's queued load or closes its registration.
+- `gmail-history-reveals.ts.reveal` or `request` counting raw segment rows toward
+  a view's reveal target. Apply the recorded changes, view membership and cached-ID
+  deduplication before deciding that scrolling has enough rows. Exercise deleted
+  leading history rows below the fold threshold after the recent cache refills;
+  otherwise a scroll decrypts only deleted or already-cached mail and stops without
+  revealing available older messages.
+
 - `registration.ts.removeProfile` removing confirmed mailboxes before enforcing
   the target Profile's removal protection. Keep the Primary Profile's mailboxes
   when its removal is refused through the public store, even if confirmation IDs
@@ -687,6 +774,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Check `everyView` additions and `settleObserved` callers with a full destination
   and a failed subsequent history read; otherwise restoring or labeling a message
   durably grows the bounded metadata cache beyond its newest-message limit.
+  Also record confirmed labels and authoritative absence in the history overlay
+  before retiring the pending action. Exercise read, removal and missing-message
+  settlement on revealed mail outside the recent cache with a failed subsequent
+  history read; otherwise a confirmed action restores stale rows or read state.
 
 - `gmail-inbox.ts.organized` admitting an absent message only when `action.add`
   explicitly names the view. Trace membership transitions when removing Spam or
@@ -1560,6 +1651,18 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   alongside active speculative selection; otherwise an opened body can evict recent
   offline bodies during delayed synchronization. Preserve ordered native retention
   and refusal under the hard budget.
+- `gmail-inbox.ts.prefetch` or `protectedBodies` selecting from every revealed
+  history row instead of the scoped newest-200 Inbox working set. Reveal more
+  than 200 current-timestamp messages and synchronize again; older metadata must
+  remain scrollable without expanding speculative body reads or protection.
+  Otherwise scrolling starts extra downloads that recent-cache pruning removes.
+- `createGmailInbox.store` admitting bodies for revealed history that retention
+  does not keep, or treating loss of saved-view membership as loss of readability.
+  Check admission against the same cached views as pruning, after taking the
+  publication permit. A message another cached view keeps remains eligible;
+  a commit moving it into revealed history must still show its downloaded body
+  without saving it. Verify saved-body status separately from in-memory readiness,
+  or opens report a false download failure or promise offline content later pruned.
 - Body admission in `imap-inbox.ts` deriving the persistent eviction tier from a
   protected set that also includes active readers. Keep current recent-working-set
   membership separate from temporary reader protection: opening an older on-demand

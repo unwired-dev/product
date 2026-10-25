@@ -670,6 +670,7 @@ export function Inbox({
     limited,
     missing,
     folderOf: listedFolder,
+    showOlder,
   } = useListedMailbox(shown, inboxListed, { view, onView });
   const searchState = useInboxSearch(search, {
     mailboxes,
@@ -979,6 +980,7 @@ export function Inbox({
             onRefresh={() => {
               void refresh();
             }}
+            onEndReached={showOlder}
             sections={placed}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {

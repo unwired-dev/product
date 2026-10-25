@@ -335,8 +335,16 @@ export function createHost(
         native().imapFileSent(mailbox, request),
       imapFindSent: (mailbox, request) =>
         native().imapFindSent(mailbox, request),
-      commitMailbox: (mailbox, expectedRevision, document) =>
-        native().commitMailbox(mailbox, expectedRevision, document),
+      // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+      commitMailbox: (mailbox, expectedRevision, document, history) =>
+        native().commitMailbox(
+          mailbox,
+          expectedRevision,
+          document,
+          history ?? null,
+        ),
+      openMailboxSegment: (mailbox, name) =>
+        native().openMailboxSegment(mailbox, name),
       openMessageBody: (mailbox, id) => native().openMessageBody(mailbox, id),
       commitMessageBody: (mailbox, id, admission) =>
         native().commitMessageBody(mailbox, id, admission),

@@ -66,6 +66,20 @@ belongs to, so its saved changes survive. Removing the legacy connection before
 opening its Inbox also removes its earlier cache and bodies, without needing their
 key. Removing another connection preserves that legacy connection's pending changes.
 
+The Gmail mailbox document keeps recent messages and checkpoints. Downloaded
+[Historical Metadata Backfill](gmail-inbox.md#historical-metadata-backfill) pages are
+separate encrypted segment files in the connection's `history` directory, each sealed
+with its own name as associated data so one cannot be read as another. A commit that
+writes segments writes them before the mailbox document, then attempts to remove
+every segment the new document no longer names. Cleanup is best effort after the
+document is stored: failure leaves unreferenced files for a later history commit
+to retry without rejecting the stored revision. An interrupted commit preserves
+the previously committed history.
+A segment name is 1–32 lowercase letters or
+digits, and opening one checks the same connection, address, Google account and
+generation as opening the mailbox. Removing the connection removes its segments with
+its directory.
+
 ## Saved registration
 
 The native vault keeps the full saved registration in device-only Keychain storage,
@@ -304,7 +318,9 @@ sending connection, and Settings offers one switch per Profile.
 ## Message body cache
 
 Opened and prefetched [Gmail message bodies](gmail-inbox.md#reading-messages) are kept in the
-**Bounded Encrypted Body Cache**, also excluded from backups. Bodies are bound to
+**Bounded Encrypted Body Cache**, also excluded from backups. Only messages in the
+saved cached views keep bodies; messages revealed only from
+[downloaded history](gmail-inbox.md#historical-metadata-backfill) are read without saving theirs. Bodies are bound to
 their Google account, mailbox and message, so a saved body moved to another
 message or mailbox fails to open. A damaged or mismatched body reads as absent and is removed only when writes
 are authorized. Cache-only reads preserve files and access times. Opening is
@@ -420,12 +436,29 @@ requirement.
 
 ## Verification
 
-Deterministic shared and component tests use `makeMockInboxStorage` only at the
-native boundary. [Native Mock Mail Sessions](mock-mail-sessions.md) use the real
+Ordinary shared and component tests use synthetic native storage.
+[Native Mock Mail Sessions](mock-mail-sessions.md) use the real
 encrypted store and a disposable app/Keychain namespace. Shared
 and component tests exercise application state, retry, malformed responses,
 window selection and read changes. They do not prove encryption or process
 persistence. Run their lint, format, type and test checks through the root workspace.
+
+The Gmail history journeys additionally run the real shared Inbox against
+`PrivateInboxStore`, including encrypted files and Data Protection Keychain,
+through a signed test-only Mac process. They cover 20,000 messages, interrupted
+backfill, expired history, offline scrolling and subsequent metadata changes.
+Each native operation constructs a new store instance over the same files and
+Keychain namespace. Gmail responses remain controlled, and the React Native
+bridge and iPhone/iPad scrolling are not exercised by this runner. With the Mac
+signing identity, team and storage profile below configured, run:
+
+```sh
+mise exec -- zsh native/private-inbox/integration/history.zsh
+```
+
+The runner removes its app after completion, and each test process removes its
+own synthetic files and Keychain item when its input closes. Logs remain in
+`artifacts/private-inbox/history.*/journeys.log`.
 
 The app-hosted Swift Testing suite uses the real filesystem, CryptoKit and
 Keychain. It checks reopening, ciphertext without fixture plaintext, Draft owner and revision checks, Draft Asset sealing, digests and cleanup, rejection
