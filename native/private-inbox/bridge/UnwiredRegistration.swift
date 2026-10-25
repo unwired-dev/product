@@ -1517,7 +1517,7 @@ extension UnwiredRegistration {
         else { throw RegistrationError.unavailable }
         segments = (written, Set(keep))
       }
-      return try $0.commitMailbox(
+      return try await $0.commitMailbox(
         connection: connection, address: address, expectedRevision: revision, document: document,
         generation: generation, history: segments)
     }
@@ -1531,7 +1531,7 @@ extension UnwiredRegistration {
     mailbox("openMailboxSegment", resolve, reject: reject) {
       let (connection, _, generation) = try Self.scope(scope)
       try await $0.prepareMailbox(connection)
-      return try $0.openMailboxSegment(connection: connection, name: name, generation: generation)
+      return try await $0.openMailboxSegment(connection: connection, name: name, generation: generation)
     }
   }
 

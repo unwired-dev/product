@@ -246,9 +246,11 @@ public final class PrivateInboxStore: @unchecked Sendable {
         JSONEncoder().encode(next), file: file, key: key, authenticating: mailboxAssociatedData)
       if let keep = history?.keep {
         let folder = directory.appendingPathComponent(try connectionPath(connection, "history"))
-        try removeURLs(
-          try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-            .filter { !keep.contains($0.deletingPathExtension().lastPathComponent) })
+        // The document is stored, so removal is best effort: a segment that stays is unnamed and
+        // removed by a later history commit, rather than turning this stored commit into a refusal.
+        try? removeURLs(
+          (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil))?
+            .filter { !keep.contains($0.deletingPathExtension().lastPathComponent) } ?? [])
       }
       return ["revision": next.revision, "address": address, "document": document]
     }
