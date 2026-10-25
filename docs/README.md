@@ -16,7 +16,7 @@ maintenance route. Publication of a plan does not prove implementation or releas
 
 - [Deterministic Mock Mail Sessions and external runners](mock-mail-sessions.md)
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
-- [Google registration, Gmail consent and protected OAuth qualification](google-registration.md)
+- [Google registration, Gmail consent, production authorization and protected OAuth qualification](google-registration.md)
 - [Apple registration, mailbox choice and current Gmail authorization](apple-registration.md)
 - [Gmail Inbox synchronization and its encrypted cache](gmail-inbox.md)
 - [Microsoft mail connection and Graph Inbox](microsoft-mail.md)
