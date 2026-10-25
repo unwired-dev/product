@@ -93,7 +93,7 @@ replaces it.
   through the shared package export; otherwise separate hosts can accept different
   payloads and malformed messages can mutate Drafts. Keep the host decoder separate
   from page-facing conversion code so Schema/Effect stays outside the packaged page.
-- An import of `@private-email/convex`, `@private-email/mail-test-harness`, a `mail-core` path outside its `exports`, or the other host's source.
+- An import of `@private-email/convex`, a `mail-core` path outside its `exports`, or the other host's source.
 - The same logic added to both hosts in one change. Compare the added non-React
   helpers and projections across the hosts, including `ContextMenu` serialization,
   `MessageMenu` and row-menu action selection, and `useMessageCommands` filtering.

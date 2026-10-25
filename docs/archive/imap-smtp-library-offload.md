@@ -62,13 +62,13 @@ The present implementation hand-builds IMAP and SMTP command flows on
 - [`SystemIMAPMailboxClient.swift`](https://github.com/unwired-dev/product/blob/391217c924f584a6bed76b62fc97a8b0b273d8ef/apps/unwired-mail/unwired-mail/Services/Mailbox/SystemIMAPMailboxClient.swift)
   owns IMAP login, command framing, response parsing, metadata paging, and body
   decoding.
-- [`SystemGenericMailEndpointVerifier.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/SystemGenericMailEndpointVerifier.swift)
+- [`SystemGenericMailEndpointVerifier.swift`](https://github.com/unwired-dev/product/blob/5093483205fefa20e63f50c59ce97924b381d0bd/apps/unwired-mail/unwired-mail/Services/Mailbox/SystemGenericMailEndpointVerifier.swift)
   owns IMAP/SMTP/POP endpoint negotiation, STARTTLS/implicit TLS, authentication,
   and mailbox-role discovery.
-- [`IMAPMailboxConnectionAdapter.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/IMAPMailboxConnectionAdapter.swift)
+- [`IMAPMailboxConnectionAdapter.swift`](https://github.com/unwired-dev/product/blob/5093483205fefa20e63f50c59ce97924b381d0bd/apps/unwired-mail/unwired-mail/Services/Mailbox/IMAPMailboxConnectionAdapter.swift)
   currently exposes only generic IMAP reading; search, push, mutations, and send
   remain unsupported.
-- [`OutboxDeliveryService.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/OutboxDeliveryService.swift)
+- [`OutboxDeliveryService.swift`](https://github.com/unwired-dev/product/blob/5093483205fefa20e63f50c59ce97924b381d0bd/apps/unwired-mail/unwired-mail/Services/Mailbox/OutboxDeliveryService.swift)
   already owns the durable product-level treatment of ambiguous delivery.
 
 A qualified engine can replace the first two files' protocol mechanics and later
