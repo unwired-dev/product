@@ -27,7 +27,8 @@ returns only status/body. The ephemeral URL session keeps HTTP response caches
 off disk. Native and TypeScript diagnostics use fixed allow-listed values.
 
 The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `gmailCreateLabel(name, mailbox)`, `openMailbox(connection)` and
-`commitMailbox(mailbox, expectedRevision, document)`. The cache reply contains
+`commitMailbox(mailbox, expectedRevision, document, history)` and
+`openMailboxSegment(mailbox, name)`. Hosts pass null for an unchanged history. The cache reply contains
 revision, address, an opaque native generation, a non-secret owner identity and an optional document, with `availability: retry` only for
 cache-only access. The mailbox argument names the connection and pairs the opened address and generation. Native errors distinguish grant rejection, protected storage,
 revision conflict, mailbox invalidation and ordinary unavailability.
@@ -39,8 +40,25 @@ Each page commits its applied messages and a backfill checkpoint containing that
 history ID, next page token and seen IDs in one encrypted document. Metadata reads
 queue at most four requests; native custody serializes transport with registration.
 List pages request 50, and the final cache retains 200
-newest messages. This bounded whole-document cache postpones indexed Historical
-Metadata Backfill. Message IDs deduplicate replayed work.
+newest messages. Issue #1368 adds complete All Mail metadata beside this bounded
+document in encrypted segments. Message IDs deduplicate replayed work.
+
+After synchronization reaches current history, a background lane lists 100 All
+Mail messages per page. Each step owns the sync semaphore for one page or fold
+and yields to interactive body work before the next step. The document checkpoints
+segment names and the next page token together. History changes wait in its overlay
+until 200 changes trigger a fold of at most 20 segments per step. Folds use new
+names and persist their position so interruption can resume. An expired history ID
+or page token starts a reconciling pass while the previous pass remains visible,
+then replaces it on completion. Progress exposes downloaded count, the provider
+profile total and completion per connection.
+
+Views retain a device-memory reveal cursor into the shown pass and merge selected
+segments with the recent cache by message identity and receipt order. Equal receipt
+timestamps remain eligible across the cache boundary. Native access failures use
+owner-fenced Inbox recovery; forgetting an Inbox releases revealed plaintext.
+The history journeys can substitute the real native vault through the test-only
+signed line-protocol process, retaining controlled provider responses.
 
 Relisting retains cached entries for availability but prioritizes verified list
 entries before applying the bound, then discards unseen entries at completion.

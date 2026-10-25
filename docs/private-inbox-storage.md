@@ -71,9 +71,9 @@ The Gmail mailbox document keeps recent messages and checkpoints. Downloaded
 separate encrypted segment files in the connection's `history` directory, each sealed
 with its own name as associated data so one cannot be read as another. A commit that
 writes segments writes them before the mailbox document and removes, after it, every
-segment the new document no longer names, so an interrupted commit leaves only
-unreferenced segments that the next one removes. Segments are never rewritten in
-place; changed ones get new names. A segment name is 1–32 lowercase letters or
+segment the new document no longer names. An interrupted commit preserves the
+previously committed history; later history commits reclaim unreferenced files.
+A segment name is 1–32 lowercase letters or
 digits, and opening one checks the same connection, address, Google account and
 generation as opening the mailbox. Removing the connection removes its segments with
 its directory.
@@ -432,12 +432,29 @@ requirement.
 
 ## Verification
 
-Deterministic shared and component tests use `makeMockInboxStorage` only at the
-native boundary. [Native Mock Mail Sessions](mock-mail-sessions.md) use the real
+Ordinary shared and component tests use synthetic native storage.
+[Native Mock Mail Sessions](mock-mail-sessions.md) use the real
 encrypted store and a disposable app/Keychain namespace. Shared
 and component tests exercise application state, retry, malformed responses,
 window selection and read changes. They do not prove encryption or process
 persistence. Run their lint, format, type and test checks through the root workspace.
+
+The Gmail history journeys additionally run the real shared Inbox against
+`PrivateInboxStore`, including encrypted files and Data Protection Keychain,
+through a signed test-only Mac process. They cover 20,000 messages, interrupted
+backfill, expired history, offline scrolling and subsequent metadata changes.
+Each native operation constructs a new store instance over the same files and
+Keychain namespace. Gmail responses remain controlled, and the React Native
+bridge and iPhone/iPad scrolling are not exercised by this runner. With the Mac
+signing identity, team and storage profile below configured, run:
+
+```sh
+mise exec -- zsh native/private-inbox/integration/history.zsh
+```
+
+The runner removes its app after completion, and each test process removes its
+own synthetic files and Keychain item when its input closes. Logs remain in
+`artifacts/private-inbox/history.*/journeys.log`.
 
 The app-hosted Swift Testing suite uses the real filesystem, CryptoKit and
 Keychain. It checks reopening, ciphertext without fixture plaintext, Draft owner and revision checks, Draft Asset sealing, digests and cleanup, rejection

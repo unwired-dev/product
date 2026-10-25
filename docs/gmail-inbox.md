@@ -273,10 +273,8 @@ with the page token that resumes the pass, so relaunching or an interrupted page
 continues where the last saved page ended without listing earlier pages again. The
 opened-view bounds never evict downloaded history.
 
-Changes Gmail history reports after a page is saved, such as new mail, deletions,
-archiving, labels and read state, are kept as a list of changes over the segments
-and win over them when history is read. After 200 such changes the device folds
-them into the segments, rewriting at most 20 segments at a time. When Gmail no
+Changes Gmail reports after a page is saved, such as new mail, deletions,
+archiving, labels and read state, also update downloaded history. When Gmail no
 longer has the saved history ID, the device starts a new pass while the earlier
 complete or partial history stays visible, and replaces it once the new pass
 completes. An expired page token also starts a new pass.
@@ -1318,6 +1316,16 @@ out. Explicit sign-out clears it, and a concurrent account deletion keeps its ow
 explanation.
 
 ## Deterministic evidence
+
+The history journeys also run with the real native encrypted store using
+`native/private-inbox/integration/history.zsh` on Mac. They cover 20,000 messages,
+interruption and resume, offline scrolling, later changes and an expired history
+ID while earlier mail stays visible. The runner needs the Mac signing identity,
+team and `UNWIRED_STORAGE_PROFILE` described in
+[storage validation](private-inbox-storage.md#verification). It supplies controlled
+Gmail responses and reopens native storage for every operation. This proves the
+shared Inbox and native persistence together; React Native bridge, iPhone/iPad
+scrolling and live Gmail qualification remain separate checks.
 
 The shared integration tests drive the real synchronization through a controlled
 Gmail API and mailbox cache (`@private-email/mail-core/testing/gmail-mailbox`).

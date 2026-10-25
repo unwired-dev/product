@@ -4,6 +4,10 @@ import { allMail } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 
+import { withNativeHistory } from './native-history-store.ts';
+
+const createGmail = () => withNativeHistory(createSyntheticGmail());
+
 type Inbox = ReturnType<typeof createGmailInbox>;
 type Gmail = ReturnType<typeof createSyntheticGmail>;
 
@@ -121,7 +125,7 @@ const holdingHistory = (gmail: Gmail) => {
 
 // A mailbox with spam whose history is downloaded, and the All Mail IDs newest first.
 const downloaded = async () => {
-  const gmail = createSyntheticGmail();
+  const gmail = createGmail();
   const everything = mailbox(gmail, 1000, 700);
   const spam = everything.slice(-5);
   for (const id of spam) {
@@ -140,7 +144,7 @@ const downloaded = async () => {
 describe('gmail history backfill', () => {
   it('reveals older messages sharing the cached boundary timestamp', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     const everything = Array.from({ length: 400 }, () =>
       gmail.deliver({ at: 1_700_000_000_000 }),
     )
@@ -155,7 +159,7 @@ describe('gmail history backfill', () => {
 
   it('recovers from a failed history read when scrolling again', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     mailbox(gmail, 400, 0);
     const read = vi
       .fn<Gmail['native']['openMailboxSegment']>()
@@ -169,7 +173,7 @@ describe('gmail history backfill', () => {
     await backfilled(inbox);
     inbox.showOlder('INBOX');
     await vi.waitFor(() => {
-      expect(read).toHaveBeenCalledOnce();
+      expect(read).toHaveBeenCalledWith(expect.anything(), expect.any(String));
     });
     await scrolled(inbox, 'INBOX', 400);
     expect(shown(inbox, 'INBOX')).toHaveLength(400);
@@ -182,7 +186,7 @@ describe('gmail history backfill', () => {
     'closes access when scrolling discovers $code',
     async ({ code, kind, removals }) => {
       expect.hasAssertions();
-      const gmail = createSyntheticGmail();
+      const gmail = createGmail();
       mailbox(gmail, 400, 0);
       const removed = vi.fn<() => void>();
       const inbox = createGmailInbox(
@@ -246,7 +250,7 @@ describe('gmail history backfill', () => {
 
   it('resumes an interrupted backfill after relaunch without rewinding or duplicating mail', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     const everything = mailbox(gmail, 1000, 800);
     gmail.failPage('400', { code: 'unavailable' });
     const interrupted = createGmailInbox(gmail.native);
@@ -285,7 +289,7 @@ describe('gmail history backfill', () => {
 
   it('applies new mail, deletions and read changes to downloaded history, also after folding them in', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     const everything = mailbox(gmail, 600, 400);
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
@@ -338,9 +342,42 @@ describe('gmail history backfill', () => {
     ).toBe(true);
   });
 
+  it.each([
+    { history: 'completed empty', kept: 0 },
+    { history: 'emptied after completing', kept: 250 },
+  ])(
+    'keeps mail arriving after a $history history scrollable offline',
+    async ({ kept }) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      const before = mailbox(gmail, kept, 0);
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      await backfilled(inbox);
+
+      for (const id of before) {
+        gmail.remove(id);
+      }
+      await inbox.load();
+      await vi.waitFor(() => {
+        expect(saved(gmail)).toContain('"changes":[]');
+      });
+      const arrived = mailbox(gmail, 300, 0);
+      await inbox.load();
+      await vi.waitFor(() => {
+        expect(saved(gmail)).toContain('"changes":[]');
+      });
+
+      const relaunched = createGmailInbox(gmail.native);
+      await relaunched.load();
+      await scrolled(relaunched, 'INBOX', 300);
+      expect(ids(shown(relaunched, 'INBOX'))).toStrictEqual(arrived);
+    },
+  );
+
   it('keeps downloaded history visible while a pass after an expired history ID reconciles it', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     const everything = mailbox(gmail, 500, 300);
     const history = holdingHistory(gmail);
     const inbox = createGmailInbox(history.native);
@@ -369,7 +406,7 @@ describe('gmail history backfill', () => {
 
   it('backfills tens of thousands of messages in pages', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     const everything = mailbox(gmail, 20_000, 19_500);
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();

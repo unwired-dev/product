@@ -118,11 +118,13 @@ export const listed = (
   };
 };
 
+// A complete pass folds even without segments: its arrivals become the first one. An incomplete
+// pass without segments waits for its listing to reach them.
 export const foldDue = (history: MailboxHistory) =>
   history.folding !== undefined ||
   (history.previous === undefined &&
     history.changes.length >= foldAt &&
-    history.current.segments.length > 0);
+    (history.current.segments.length > 0 || history.current.complete === true));
 
 // Writes the recorded changes into the next segments. When the last segment is written, changed
 // messages no segment held join a new first segment if they arrived after the pass began or the
