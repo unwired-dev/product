@@ -41,7 +41,7 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
-import { OnDeviceMarker } from './design.tsx';
+import { OnDeviceMarker, useOutcomeAnnouncement } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -279,14 +279,24 @@ function Outcome({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const failure =
+    state.kind === 'ready'
+      ? undefined
+      : t(
+          `translation.${state.kind === 'unavailable' ? state.reason : state.kind}`,
+        );
+  useOutcomeAnnouncement(
+    state.kind === 'ready'
+      ? `${t('translation.title', { language: target })}\n${state.text}`
+      : failure,
+    state.kind === 'ready',
+  );
   if (state.kind !== 'ready') {
     return (
       <Text
         accessibilityRole="alert"
         style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t(
-          `translation.${state.kind === 'unavailable' ? state.reason : state.kind}`,
-        )}
+        {failure}
       </Text>
     );
   }
@@ -527,6 +537,15 @@ export function DraftTranslation({
     />
   );
   const issue = draftTextIssue(text);
+  const refusal =
+    issue === undefined
+      ? undefined
+      : t(
+          issue === 'inline-image'
+            ? 'translation.selectionHasImage'
+            : 'translation.selectionTooLong',
+        );
+  useOutcomeAnnouncement(refusal, false);
   if (issue !== undefined) {
     return (
       <View
@@ -538,11 +557,7 @@ export function DraftTranslation({
         <Text
           accessibilityRole="alert"
           style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t(
-            issue === 'inline-image'
-              ? 'translation.selectionHasImage'
-              : 'translation.selectionTooLong',
-          )}
+          {refusal}
         </Text>
         {keep}
       </View>
