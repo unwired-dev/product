@@ -260,6 +260,10 @@
     "allMail": "All Mail",
     "spam": "Spam",
     "trash": "Trash",
+    "sentItems": "Sent Items",
+    "archive": "Archive",
+    "junkEmail": "Junk Email",
+    "deletedItems": "Deleted Items",
     "viewUnavailable": "{{view}} could not be read from {{provider}}. Try again when {{provider}} can be reached.",
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread"

@@ -79,6 +79,35 @@ An explicit open over a budget reports the body as failed, including when an
 attachment's MIME type or Content-ID exceeds its limit. Metadata is never truncated.
 If Graph also refuses the grant, the Inbox asks for authorization again instead.
 
+## Browsing folders
+
+Under its Inbox, each Microsoft mailbox's sidebar section lists **Sent Items**,
+**Archive**, **Junk Email** and **Deleted Items**, then the mailbox's own folders by
+path, such as **Projects / Launch**
+([#1005](https://github.com/unwired-dev/product/issues/1005)). Archive, Junk Email
+and Deleted Items appear once their folder roles are known and present, like the
+actions that move mail there. Choosing a folder lists its newest messages, using the
+same per-window choice, list heading, unread counts and bound as
+[Gmail's label views](gmail-inbox.md#gmail-mailboxes): the newest 200 messages per
+folder, the eight most recently opened folders, and every folder a window shows.
+
+Each folder keeps its own Graph delta link beside the Inbox's, so each
+synchronization reads only that folder's changes, and the saved folders, their links
+and waiting changes survive relaunch. A folder that loses a message from a full list
+admits the next older one; an expired link lists the folder again while its saved
+mail stays visible. Every folder says that only its newest mail is saved and older
+mail stays in Microsoft. A folder Microsoft could not read keeps its saved messages
+and shows **… could not be read from Microsoft** in the list and on its sidebar row
+until a later synchronization reads it, while the Inbox stays current. A folder
+removed in Outlook leaves the sidebar with its saved messages, and a window that
+showed it returns to the Inbox. Restoring a window's chosen folder after relaunch
+remains with [#1010](https://github.com/unwired-dev/product/issues/1010).
+
+The [organizing actions](#organizing-and-searching) apply in every folder: Move to
+Trash, Report spam and Move to take a message out of the folder it is listed in, and
+Archive stays an Inbox action. In Deleted Items and Junk Email, **Move to Inbox**
+replaces Move to Trash and Report spam, and restores the message to the Inbox.
+
 ## Organizing and searching
 
 Microsoft mail offers the organizing actions Outlook has, in the reader and as
@@ -205,7 +234,13 @@ bounded delta continuation work with saved progress for retry,
 refilling a full cache, an HTML body with an inline image, an attachment download
 by its decoded size, hidden/unreferenced images, optional image and attachment-metadata failures with
 retry after relaunch, a refused grant, and a unified Inbox that searches both
-providers online and sends from both. Organizing tests check Graph's read-state
+providers online and sends from both. Folder tests in
+`packages/mail-core/test/microsoft-folders.test.ts` list Sent Items, Junk Email and
+nested folders of the mailbox's own from their own delta links, keep them current
+through Outlook changes and relaunch without listing them again, delete from a
+folder and restore from Deleted Items and Junk Email, refill a full folder, keep a
+folder whose read fails with its saved mail, drop a folder removed in Outlook and
+leave out a well-known folder the mailbox lacks. Organizing tests check Graph's read-state
 and move requests, nested folder listing by path and its limit, Undo, an outage across relaunch, a lost reply,
 throttling and server errors, a concurrent Outlook move, incomplete placement
 replies, a deleted message or folder, missing folder roles, a read-only grant,

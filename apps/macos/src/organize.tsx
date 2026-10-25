@@ -616,8 +616,8 @@ function GmailMessageActions({
   ) {
     return null;
   }
-  // A label Gmail removed falls back to the Inbox, as the list does.
-  const view = gmailViewName(state, opened);
+  // A label or folder the provider removed falls back to the Inbox, as the list does.
+  const view = gmailViewName(state, opened, provider);
   const message = viewMessage(state, id, view);
   // Responses also work for online results and saved mail without organizing permission.
   if (message === undefined || !canOrganize(message)) {

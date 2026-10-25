@@ -883,7 +883,11 @@ export function Inbox({
         run: () => {
           leaving(
             leavesView(
-              gmailViewName(state, selected?.folder ?? inboxFolder),
+              gmailViewName(
+                state,
+                selected?.folder ?? inboxFolder,
+                mailbox.provider,
+              ),
               message.labels ?? [],
               action,
             ),
@@ -1061,11 +1065,9 @@ export function Inbox({
                 query={searched}
                 search={online}
               />
-              {limited && results === undefined ? (
+              {limited !== undefined && results === undefined ? (
                 <Text style={[styles.footer, { color: colors.textSecondary }]}>
-                  {t('inbox.footerView', {
-                    provider: t('mailProviders.gmail'),
-                  })}
+                  {limited}
                 </Text>
               ) : null}
               <Text style={[styles.footer, { color: colors.textSecondary }]}>
