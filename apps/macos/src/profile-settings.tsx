@@ -16,7 +16,13 @@ import {
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Alert, StyleSheet, Text, TextInput } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+} from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
 import { SFSymbol } from './design.tsx';
@@ -80,11 +86,13 @@ export function promptNewProfile(
 function ProfileName({
   profile,
   name,
-  store,
+  disabled,
+  rename,
 }: {
   readonly profile: string;
   readonly name: string;
-  readonly store: Registration;
+  readonly disabled: boolean;
+  readonly rename: (name: string) => Promise<ProfileFailure | undefined>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -96,14 +104,13 @@ function ProfileName({
       </Text>
     );
   }
-  const rename = async () => {
+  const submit = async () => {
     const chosen = entry.trim();
     if (chosen === '' || chosen === name) {
       setEntry(name);
       return;
     }
-    await store.renameProfile(profile, chosen);
-    const failure = store.getSnapshot().profileFailure;
+    const failure = await rename(chosen);
     if (failure !== undefined) {
       setEntry(name);
       refused(t, 'rename', failure);
@@ -113,8 +120,9 @@ function ProfileName({
     <TextInput
       accessibilityLabel={t('profiles.name')}
       autoCorrect={false}
+      editable={!disabled}
       onEndEditing={() => {
-        void rename();
+        void submit();
       }}
       onChangeText={setEntry}
       style={[styles.name, { color: colors.textSecondary }]}
@@ -122,6 +130,9 @@ function ProfileName({
     />
   );
 }
+
+// A queued Mail Profile change: the control that started it and, for a move, its progress text.
+type Pending = Readonly<{ control: string; progress?: string }>;
 
 // Settings › Mail Profiles: every Profile with its connections, Add Mail Profile…, the selected
 // Profile's name, and this device's Startup Profile.
@@ -151,16 +162,38 @@ export function MailProfilesSettings({
   const startup = windowProfile({ startup: choices?.startup, profiles });
   const nameOf = (id: string) => profileName(t, id, profiles);
   const owned = mailboxes.filter(({ profile }) => profile === selected);
+  const [pending, setPending] = useState<Pending>();
+  const busy = pending !== undefined;
+  // Changes run one at a time: the pending control shows progress and the others wait for it.
+  const change = async (started: Pending, run: () => Promise<unknown>) => {
+    setPending(started);
+    await run();
+    setPending(undefined);
+    return store.getSnapshot().profileFailure;
+  };
+  const progress = (control: string) =>
+    pending?.control === control ? (
+      <ActivityIndicator
+        size="small"
+        color={colors.textSecondary}
+      />
+    ) : undefined;
   const move = async (mailbox: string, profile: string) => {
-    await store.moveMailbox(mailbox, profile);
-    const failure = store.getSnapshot().profileFailure;
+    const failure = await change(
+      {
+        control: mailbox,
+        progress: t('profiles.moving', { name: nameOf(profile) }),
+      },
+      () => store.moveMailbox(mailbox, profile),
+    );
     if (failure !== undefined) {
       refused(t, 'move', failure);
     }
   };
   const remove = async (profile: string, confirmed: readonly string[]) => {
-    await store.removeProfile(profile, confirmed);
-    const failure = store.getSnapshot().profileFailure;
+    const failure = await change({ control: 'remove' }, () =>
+      store.removeProfile(profile, confirmed),
+    );
     if (failure !== undefined) {
       refused(t, 'remove', failure);
     }
@@ -219,28 +252,36 @@ export function MailProfilesSettings({
         <SettingsRowButton
           accessibilityRole="button"
           accessibilityLabel={t('profiles.add')}
+          disabled={busy}
           onPress={() => {
-            promptNewProfile(t, async (name) => {
-              await store.createProfile(name);
-              return store.getSnapshot().profileFailure;
-            });
+            promptNewProfile(t, (name) =>
+              change({ control: 'new' }, () => store.createProfile(name)),
+            );
           }}>
           <SettingsRow
             title={t('profiles.add')}
             titleTone="accent"
-          />
+            disabled={busy}>
+            {progress('new')}
+          </SettingsRow>
         </SettingsRowButton>
       </SettingsGroup>
       <SettingsGroup
         title={nameOf(selected)}
         footer={t('profiles.settings.synchronized')}>
         <SettingsRow title={t('profiles.name')}>
+          {progress('rename')}
           <ProfileName
             // A rename elsewhere, or another selected Profile, starts from the listed name.
             key={`${selected}\n${nameOf(selected)}`}
             profile={selected}
             name={nameOf(selected)}
-            store={store}
+            disabled={busy}
+            rename={(name) =>
+              change({ control: 'rename' }, () =>
+                store.renameProfile(selected, name),
+              )
+            }
           />
         </SettingsRow>
       </SettingsGroup>
@@ -254,11 +295,18 @@ export function MailProfilesSettings({
               icon="at"
               title={mailbox.address}
               subtitle={t(`mailProviders.${mailbox.provider}`)}>
+              {progress(mailbox.id)}
               <PopUp
                 accessibilityLabel={t('profiles.moveMailbox', {
                   address: mailbox.address,
                 })}
-                label={nameOf(selected)}
+                disabled={busy}
+                label={
+                  pending?.control === mailbox.id &&
+                  pending.progress !== undefined
+                    ? pending.progress
+                    : nameOf(selected)
+                }
                 items={ids.map((id) => ({
                   key: id,
                   title: nameOf(id),
@@ -279,11 +327,14 @@ export function MailProfilesSettings({
           <SettingsRowButton
             accessibilityRole="button"
             accessibilityLabel={t('profiles.remove')}
+            disabled={busy}
             onPress={confirmRemoval}>
             <SettingsRow
               title={t('profiles.remove')}
               titleTone="destructive"
-            />
+              disabled={busy}>
+              {progress('remove')}
+            </SettingsRow>
           </SettingsRowButton>
         </SettingsGroup>
       )}

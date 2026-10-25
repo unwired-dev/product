@@ -1327,13 +1327,43 @@ describe('the mobile Profile Switcher', () => {
       expect(screen.getByLabelText(moving)).toHaveAccessibilityValue({
         text: 'Work',
       });
+      // Hold the queued move so its pending state stays on screen.
+      const { moveMailbox } = registration;
+      let release: () => void = () => undefined;
+      jest
+        .spyOn(registration, 'moveMailbox')
+        .mockImplementationOnce(async (...move) => {
+          // oxlint-disable-next-line promise/avoid-new -- Hold the move until the test releases it.
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return moveMailbox(...move);
+        });
       await choose(moving, defaultProfile);
+      // Only the indicator replaces the pop-up; the other Profile changes wait for the move.
+      expect(screen.getByLabelText('Moving to Primary Profile…')).toBeVisible();
+      expect(screen.queryByLabelText(moving)).toBeNull();
+      for (const name of ['Add Mail Profile…', 'Remove Mail Profile…']) {
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      }
+      expect(screen.getByDisplayValue('Work')).toHaveProp('editable', false);
+      expect(
+        screen.getByRole('button', { name: 'Primary Profile' }),
+      ).toBeEnabled();
+      await act(async () => {
+        release();
+        await Promise.resolve();
+      });
       await waitFor(() => {
         expect(
           screen.getByRole('button', { name: 'Work' }).props.accessibilityHint,
         ).toBe('No mailboxes');
       });
       expect(screen.queryByLabelText(moving)).toBeNull();
+      expect(screen.queryByLabelText('Moving to Primary Profile…')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+      ).toBeEnabled();
       // The Primary Profile lists both mailboxes and cannot be removed.
       await fireEvent.press(
         screen.getByRole('button', { name: 'Primary Profile' }),

@@ -2127,8 +2127,37 @@ describe('mac windows of different Mail Profiles', () => {
         await settings.findByRole('button', { name: 'Work' }),
       );
       const moving = 'Mail Profile for other@example.invalid';
+      // Hold the queued move so its pending state stays on screen.
+      const { moveMailbox } = store;
+      let release: () => void = () => undefined;
+      jest
+        .spyOn(store, 'moveMailbox')
+        .mockImplementationOnce(async (...move) => {
+          // oxlint-disable-next-line promise/avoid-new -- Hold the move until the test releases it.
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return moveMailbox(...move);
+        });
       await fireEvent.press(settings.getByRole('button', { name: moving }));
       await chooseMenuItem('Primary Profile');
+      // The pop-up reads the move's progress; the other Profile changes wait for it.
+      const pending = settings.getByRole('button', { name: moving });
+      expect(pending).toHaveAccessibilityValue({
+        text: 'Moving to Primary Profile…',
+      });
+      expect(pending).toBeDisabled();
+      for (const name of ['Add Mail Profile…', 'Remove Mail Profile…']) {
+        expect(settings.getByRole('button', { name })).toBeDisabled();
+      }
+      expect(settings.getByDisplayValue('Work')).toHaveProp('editable', false);
+      expect(
+        settings.getByRole('button', { name: 'Primary Profile' }),
+      ).toBeEnabled();
+      await act(async () => {
+        release();
+        await Promise.resolve();
+      });
       await waitFor(() => {
         expect(
           settings.getByRole('button', { name: 'Work' }).props
@@ -2136,6 +2165,9 @@ describe('mac windows of different Mail Profiles', () => {
         ).toBe('No mailboxes');
       });
       expect(settings.queryByRole('button', { name: moving })).toBeNull();
+      expect(
+        settings.getByRole('button', { name: 'Add Mail Profile…' }),
+      ).toBeEnabled();
       // The Primary Profile lists both mailboxes and cannot be removed.
       await fireEvent.press(
         settings.getByRole('button', { name: 'Primary Profile' }),
