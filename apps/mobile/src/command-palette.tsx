@@ -450,6 +450,7 @@ function Palette({
               accessibilityLabel={prompt}
               autoCapitalize="none"
               autoCorrect={false}
+              editable={open}
               key={choosing === undefined ? 'commands' : 'choices'}
               onChangeText={choosing === undefined ? setQuery : setChoiceQuery}
               // The input receives focus as soon as the palette, or its picker, appears.

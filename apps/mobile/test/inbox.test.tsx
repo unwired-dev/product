@@ -2528,10 +2528,8 @@ describe('command palette', () => {
     try {
       const header = await screen.findByRole('header', { name: 'Inbox' });
       await openPalette(header);
-      await fireEvent.changeText(
-        screen.getByPlaceholderText('Type a command'),
-        'se',
-      );
+      const input = screen.getByPlaceholderText('Type a command');
+      await fireEvent.changeText(input, 'se');
       await fireEvent.press(
         openedPalette().getByRole('button', { name: 'Cancel' }),
       );
@@ -2540,6 +2538,9 @@ describe('command palette', () => {
         screen.getByTestId('command-palette', { includeHiddenElements: true }),
       ).toHaveProp('pointerEvents', 'none');
       expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
+      // A Return delivered to the retained field must not run Search Mail after closing.
+      await fireEvent(input, 'submitEditing');
+      expect(screen.getByRole('header', { name: 'Inbox' })).toBeOnTheScreen();
       await openPalette(header);
       expect(screen.getByPlaceholderText('Type a command')).toHaveDisplayValue(
         '',
