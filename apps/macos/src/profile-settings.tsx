@@ -162,17 +162,17 @@ export function MailProfilesSettings({
   const startup = windowProfile({ startup: choices?.startup, profiles });
   const nameOf = (id: string) => profileName(t, id, profiles);
   const owned = mailboxes.filter(({ profile }) => profile === selected);
-  const [pending, setPending] = useState<Pending>();
-  const busy = pending !== undefined;
-  // Changes run one at a time: the pending control shows progress and the others wait for it.
+  const [pending, setPending] = useState<readonly Pending[]>([]);
+  const busy = pending.length > 0;
+  // Editing completion can arrive after another control starts a change.
   const change = async (started: Pending, run: () => Promise<unknown>) => {
-    setPending(started);
+    setPending((current) => [...current, started]);
     await run();
-    setPending(undefined);
+    setPending((current) => current.filter((each) => each !== started));
     return store.getSnapshot().profileFailure;
   };
   const progress = (control: string) =>
-    pending?.control === control ? (
+    pending.some((each) => each.control === control) ? (
       <ActivityIndicator
         size="small"
         color={colors.textSecondary}
@@ -302,10 +302,8 @@ export function MailProfilesSettings({
                 })}
                 disabled={busy}
                 label={
-                  pending?.control === mailbox.id &&
-                  pending.progress !== undefined
-                    ? pending.progress
-                    : nameOf(selected)
+                  pending.find((each) => each.control === mailbox.id)
+                    ?.progress ?? nameOf(selected)
                 }
                 items={ids.map((id) => ({
                   key: id,
