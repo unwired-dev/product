@@ -173,9 +173,9 @@ export const styles = StyleSheet.create({
     gap: ipad ? 10 * scale : spacing.m,
     paddingVertical: ipad ? 14 * scale : spacing.l,
     paddingLeft: ipad ? 22 * scale : 18,
-    paddingRight: spacing.m,
+    paddingRight: ipad ? spacing.m * scale : spacing.m,
   },
-  downloadingText: { flex: 1, gap: 2 },
+  downloadingText: { flex: 1, gap: 2 * scale },
   downloadingTitle: {
     ...(ipad ? body : textStyles.subheadline),
     fontWeight: '600',

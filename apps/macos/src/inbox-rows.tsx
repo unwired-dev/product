@@ -302,9 +302,13 @@ export function DownloadingOlder({
       accessibilityLabel={detail === undefined ? title : `${title} ${detail}`}
       accessibilityRole="progressbar"
       style={styles.downloading}>
-      <ActivityIndicator size="small" />
+      <ActivityIndicator
+        size="small"
+        color={colors.textSecondary}
+      />
       <View style={styles.downloadingText}>
-        <Text style={[styles.downloadingTitle, { color: colors.textPrimary }]}>
+        <Text
+          style={[styles.downloadingTitle, { color: colors.textSecondary }]}>
           {title}
         </Text>
         {detail === undefined ? null : (
