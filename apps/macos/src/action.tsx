@@ -34,7 +34,7 @@ export function Action({
   readonly onPress: () => void;
   readonly disabled?: boolean;
   readonly destructive?: boolean;
-  readonly variant?: 'reader' | 'composer';
+  readonly variant?: 'reader' | 'composer' | 'banner';
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
@@ -62,7 +62,7 @@ export function Action({
         <View
           style={[
             styles.capsule,
-            variant === 'reader' ? styles.outset : null,
+            variant === 'composer' ? null : styles.outset,
             {
               backgroundColor: pressed
                 ? colors.accentSelectionSubtle
@@ -71,7 +71,13 @@ export function Action({
                 focused && !disabled ? colors.accentInk : 'transparent',
             },
           ]}>
-          <Text style={[styles.label, { color }]}>{label}</Text>
+          <Text
+            style={[
+              variant === 'banner' ? textStyles.bodyEmphasized : styles.label,
+              { color },
+            ]}>
+            {label}
+          </Text>
         </View>
       )}
     </Pressable>

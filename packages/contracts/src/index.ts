@@ -4,14 +4,12 @@ export {
   type HealthResponse,
 } from './health.ts';
 export {
-  gmailProviderConnectionStatusValidator,
   productAccountConnectResponseValidator,
   productAccountDeletionResponseValidator,
   signInLinkRequestResponseValidator,
   signInLinkResponseValidator,
   signInProviderValidator,
   trustedDeviceUnregistrationResponseValidator,
-  type GmailProviderConnectionStatus,
   type ProductAccountConnectResponse,
   type ProductAccountDeletionResponse,
   type SignInLinkRequestResponse,
