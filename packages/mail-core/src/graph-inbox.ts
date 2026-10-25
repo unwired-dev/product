@@ -286,6 +286,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
   // on an expiring one; saving it ends this synchronization.
   const quietRound = (document: MailboxDocument, link: string) => {
     if ('link' in document.checkpoint && document.checkpoint.link === link) {
+      quiet.add(document.checkpoint);
       return Option.none();
     }
     const checkpoint: GraphCheckpoint =

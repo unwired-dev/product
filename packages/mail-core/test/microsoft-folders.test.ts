@@ -1,11 +1,17 @@
-import type { GmailInboxState, GmailView } from '../src/gmail-inbox.ts';
+import type {
+  GmailInboxState,
+  GmailView,
+} from '@private-email/mail-core/gmail-inbox';
 
-import { gmailAction } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
-import { inboxFolder } from '../src/imap-inbox.ts';
-import { gmailViewName, mailboxSidebar } from '../src/mailboxes.ts';
-import { defaultProfile } from '../src/registration.ts';
-import { createSyntheticGraph } from '../src/testing/graph-mailbox.ts';
+import { gmailAction } from '@private-email/mail-core/gmail-actions';
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import {
+  gmailViewName,
+  mailboxSidebar,
+} from '@private-email/mail-core/mailboxes';
+import { defaultProfile } from '@private-email/mail-core/registration';
+import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
 type Graph = ReturnType<typeof createSyntheticGraph>;
 type Inbox = ReturnType<typeof createGmailInbox>;
@@ -81,6 +87,21 @@ const failingFolder = (
     failing() && decodeURIComponent(url).includes(folder)
       ? Promise.resolve({ status: 503, body: '{}' })
       : graph.native.graphRequest(url, owner),
+});
+
+// A provider throttles redundant delta polls within the same synchronization.
+const throttledPolling = (
+  graph: Graph,
+  read: Set<string>,
+): Graph['native'] => ({
+  ...graph.native,
+  graphRequest: (url, owner) => {
+    const repeated = read.has(url);
+    read.add(url);
+    return repeated && url.includes('/messages/delta?')
+      ? Promise.resolve({ status: 429, body: '{}' })
+      : graph.native.graphRequest(url, owner);
+  },
 });
 
 describe('browsing Microsoft mail folders', () => {
@@ -175,6 +196,32 @@ describe('browsing Microsoft mail folders', () => {
     expect(graph.folderOf(offer)).toBe('inbox');
     expect(view(relaunched, 'SPAM').messages).toStrictEqual([]);
     expect(ids(ready(relaunched.getSnapshot()).messages)).toContain(offer);
+  });
+
+  it('finishes opening a folder without polling quiet folders again, then reads their later changes', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ pageSize: 1 });
+    const projects = graph.createFolder('Projects');
+    const travel = graph.createFolder('Travel');
+    const flight = graph.deliver({ subject: 'Flight', folder: travel });
+    const hotel = graph.deliver({ subject: 'Hotel', folder: travel });
+    const read = new Set<string>();
+    const inbox = await opened(throttledPolling(graph, read));
+    read.clear();
+    await inbox.openView(projects);
+    read.clear();
+    await inbox.openView(travel);
+    expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    expect(view(inbox, projects).status).toBe('current');
+    expect(view(inbox, travel).status).toBe('current');
+    expect(ids(view(inbox, travel).messages)).toStrictEqual([hotel, flight]);
+
+    // A new synchronization still reads changes since the quiet checkpoint.
+    const plan = graph.deliver({ subject: 'Plan', folder: projects });
+    read.clear();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    expect(ids(view(inbox, projects).messages)).toStrictEqual([plan]);
   });
 
   it('keeps a folder whose read fails with its saved messages, and drops a folder Outlook removed', async () => {
