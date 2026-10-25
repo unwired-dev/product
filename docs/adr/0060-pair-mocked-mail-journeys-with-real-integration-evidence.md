@@ -4,6 +4,15 @@ status: accepted
 
 # Pair mocked mail journeys with real integration evidence
 
+## Prototype retirement — 2026-10-25
+
+[#1371](https://github.com/unwired-dev/product/issues/1371) removed the Swift
+prototype, its tests, local harness and assistance workflow. This supersedes the
+source and command availability described in the 2026-09-29 amendment below.
+The standalone SwiftMail provider tool and its disabled workflow remain.
+Replacement coverage and release evidence requirements remain unchanged, as do
+privacy, identity-isolation, encryption and delivery-safety boundaries.
+
 ## Launch scope amendment — 2026-10-11
 
 The power-user Apple launch extends the first-release real-integration scope to

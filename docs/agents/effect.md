@@ -12,14 +12,13 @@ run the [install](../../README.md#local-development) before reading it.
 
 ## Where Effect is required
 
-| Code                                                                                                                | Effect use                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Every untrusted boundary: native bridge results, HTTP bodies, provider responses, tokens, persisted JSON, selectors | Decode with `Schema`                                                                                           |
-| Shared application logic in `packages/mail-core`                                                                    | Effect programs behind a host-facing store                                                                     |
-| Convex actions that call external services                                                                          | Effect programs, run once in the handler                                                                       |
-| Convex queries and mutations                                                                                        | Convex validators for arguments; `Schema` for embedded unknown payloads                                        |
-| React components and hooks                                                                                          | Plain TypeScript consuming stores through `useSyncExternalStore`                                               |
-| `packages/mail-test-harness`                                                                                        | None; this legacy prototype harness is retired at [cutover](https://github.com/unwired-dev/product/issues/627) |
+| Code                                                                                                                | Effect use                                                              |
+| ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Every untrusted boundary: native bridge results, HTTP bodies, provider responses, tokens, persisted JSON, selectors | Decode with `Schema`                                                    |
+| Shared application logic in `packages/mail-core`                                                                    | Effect programs behind a host-facing store                              |
+| Convex actions that call external services                                                                          | Effect programs, run once in the handler                                |
+| Convex queries and mutations                                                                                        | Convex validators for arguments; `Schema` for embedded unknown payloads |
+| React components and hooks                                                                                          | Plain TypeScript consuming stores through `useSyncExternalStore`        |
 
 ## Boundaries
 
@@ -103,8 +102,7 @@ configurations:
 - `effect-boundaries/no-object-typeof-guard` rejects `typeof … === 'object'`
   guards, `effect-boundaries/no-json-parse` rejects `JSON.parse`, and
   `effecttsgo/extends-native-error` rejects untagged error classes, in tests as
-  in production code. Other hand-rolled parsing is a review concern. The legacy
-  harness stays exempt until [cutover #627](https://github.com/unwired-dev/product/issues/627).
+  in production code. Other hand-rolled parsing is a review concern.
 - `effect-imports/namespace-imports` requires
   `import * as Module from 'effect/Module'`.
 
