@@ -1,6 +1,9 @@
 # Mail test environment: architecture notes
 
-Reviewer-only companion to [docs/mail-test-environment.md](../mail-test-environment.md).
+Historical architecture companion to the [retired guide](https://github.com/unwired-dev/product/blob/5093483205fefa20e63f50c59ce97924b381d0bd/docs/mail-test-environment.md).
+The Swift prototype and its local harness were removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). The descriptions and
+commands below record the former implementation and are no longer operational.
 Read under the [implementation and review workflow](../agents/implementation-review.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.

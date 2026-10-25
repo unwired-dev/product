@@ -114,16 +114,15 @@ enrollment. No record is written before publication succeeds. The legacy
 recovery-material replacement route still requires recent authentication.
 
 Convex checks for the account's recovery envelope before single-record inserts
-or updates and before atomic record checks, deletes or writes. The legacy
-`markProductSyncMaterialInitialized` mutation likewise requires the envelope.
+or updates and before atomic record checks, deletes or writes.
 Both `productSync:initialize` and first publication through the legacy
 recovery-material route use the same helper to insert the envelope and set
 `productSyncMaterialInitializedAt` in one mutation. An existing marker or record
 without an envelope prevents both paths from creating new key material; the
 legacy route returns HTTP `409`. This preserves earlier encrypted data instead
 of silently resetting its keys. An envelope left without a marker by the earlier
-legacy route can still acquire the marker through the guarded marker mutation
-or an exact-envelope retry of `initialize`, without replacing that envelope.
+legacy route can still acquire the marker through an exact-envelope retry of
+`initialize`, without replacing that envelope.
 
 The vault
 keeps the mailbox list it last decrypted, so the list stays visible, and records

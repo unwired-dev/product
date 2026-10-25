@@ -1,6 +1,7 @@
 """Python port of the Swift prototype's RuleBasedClassificationEngine.
 
-Source: apps/unwired-mail/unwired-mail/Services/Gmail/MessageCategorizationService.swift
+Source, removed with the prototype in #1371:
+apps/unwired-mail/unwired-mail/Services/Gmail/MessageCategorizationService.swift
 (systemCategories, RuleBasedClassificationEngine, ClassificationTokenizer). The prototype's
 legacy Promotions and Invoices keyword sets stand for Newsletters & Promotions and Orders.
 Future Learning Signals are omitted: the corpus has no User Overrides.

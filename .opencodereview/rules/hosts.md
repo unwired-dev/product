@@ -93,7 +93,7 @@ replaces it.
   through the shared package export; otherwise separate hosts can accept different
   payloads and malformed messages can mutate Drafts. Keep the host decoder separate
   from page-facing conversion code so Schema/Effect stays outside the packaged page.
-- An import of `@private-email/convex`, `@private-email/mail-test-harness`, a `mail-core` path outside its `exports`, or the other host's source.
+- An import of `@private-email/convex`, a `mail-core` path outside its `exports`, or the other host's source.
 - The same logic added to both hosts in one change. Compare the added non-React
   helpers and projections across the hosts, including `ContextMenu` serialization,
   `MessageMenu` and row-menu action selection, and `useMessageCommands` filtering.
@@ -213,6 +213,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   operation owned by that interaction settles. Exercise a fast rejection beside
   explicitly held work; otherwise the indicator ends early and admits another
   interaction while synchronization is still running.
+
+- `profile-settings.tsx.change` or another host progress owner retiring its
+  pending entry only after a fulfilled store action. Trace rejected promises as
+  well as state-reported refusals; cleanup must retire that operation on either
+  settlement while retaining other queued entries and the rejection contract.
+  Otherwise a store defect leaves every Mail Profile action disabled indefinitely.
 
 - `inbox-bar.tsx.SearchField` echoing a render-captured query into native text
   while newer edits are already in flight. Check the installed TextInput's
@@ -676,6 +682,17 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
   live enablement predicate at that call boundary; hiding the panel on a later
   render does not retire its pending effect. Exercise Off between layout setup
   and passive effects, or a disabled account can still reach Apple Translation.
+
+- `translation.tsx.useLanguageMenu` or its reader and Draft consumers announcing
+  an initial Mac language-list failure, or failing to announce a repeated failure after
+  **Try Again**. Trace every consumer of the shared hook: opening a Mac message
+  or Draft stays quiet, while an explicitly retried failure is announced even
+  after the native menu closes. Hold the retry response and check visible loading
+  feedback as well as recovery; the Mac reader keeps its banner with **Try Again**
+  disabled, rather than returning to a closed Translate menu that hides progress.
+  Otherwise one surface can pass while another loses the action's outcome or
+  appears idle during the request. Mobile panel-opening failures retain their
+  explicit-action announcement under the owning translation contract.
 
 - `translation.tsx.DraftTranslation` accepting captured ready text without checking
   the live store's exact result and committed owner, or `composer.tsx` invalidating

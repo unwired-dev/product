@@ -23,6 +23,10 @@ release waits for expanded provider/native qualification. GitHub owns current
 titles, status and native dependencies; the historical tables below are not the
 current launch dependency graph.
 
+The Swift prototype and its local harness were removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). References below to
+their paths and commands belong to the historical snapshot.
+
 Research date: 2026-09-09.
 
 Status: product-scope interview and shared-understanding confirmation complete;
@@ -184,7 +188,7 @@ must explicitly reassess that trade-off before adopting it in production.
 
 ### Mock journeys and provider correctness need distinct evidence
 
-The existing [Mail Test Harness](../mail-test-environment.md) runs synthetic mail
+The existing [Mail Test Harness](https://github.com/unwired-dev/product/blob/5093483205fefa20e63f50c59ce97924b381d0bd/docs/mail-test-environment.md) runs synthetic mail
 through the real client, persistence, and local IMAP/SMTP servers. Its
 [test bootstrap](../adr/0033-bootstrap-mail-tests-without-external-product-authentication.md)
 bypasses external Product Account authentication in test-only builds.

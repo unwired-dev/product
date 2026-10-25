@@ -19,6 +19,7 @@ import type {
 import {
   gmailViewSymbol,
   gmailViewTitle,
+  providerViews,
   systemViews,
 } from './gmail-actions.ts';
 import { imapFolderFailed, imapFolderName, inboxFolder } from './imap-inbox.ts';
@@ -63,12 +64,16 @@ export const failedFolders = (
     (name) => name !== inboxFolder && imapFolderFailed(inbox.folder(name)),
   );
 
-// The Gmail view a window shows: the one it chose while the mailbox still has it, otherwise the
-// Inbox, as for an IMAP folder the server no longer offers.
-export const gmailViewName = (state: GmailInboxState, requested: string) =>
+// The Gmail or Microsoft view a window shows: the one it chose while the mailbox still has it,
+// otherwise the Inbox, as for an IMAP folder the server no longer offers.
+export const gmailViewName = (
+  state: GmailInboxState,
+  requested: string,
+  provider: MailProvider | undefined,
+) =>
   state.kind !== 'ready' ||
   requested === inboxFolder ||
-  systemViews.some((view) => view === requested) ||
+  providerViews(provider, state.unavailableActions).includes(requested) ||
   state.labels.some(({ id }) => id === requested)
     ? requested
     : inboxFolder;
@@ -96,37 +101,51 @@ type BrowsableMailbox = Readonly<{
   state: GmailInboxState | ImapInboxState | InboxState;
 }>;
 
-// Only a ready Gmail connection offers label views; Microsoft shares its store, without views.
+// A ready Gmail or Microsoft connection offers views of its labels or folders; Microsoft shares
+// the Gmail store.
 export const gmailMailbox = (mailbox: BrowsableMailbox | undefined) => {
-  if (mailbox === undefined || (mailbox.provider ?? 'gmail') !== 'gmail') {
+  const provider = mailbox?.provider ?? 'gmail';
+  if (mailbox === undefined || provider === 'imap') {
     return undefined;
   }
   const { inbox, state } = mailbox;
   return 'openView' in inbox && state.kind === 'ready' && 'labels' in state
-    ? { inbox, state }
+    ? { inbox, state, provider }
     : undefined;
 };
 
-// A Gmail view as both hosts show it, in the sidebar and the list: its name, SF Symbol, the
-// notice for a failed read, and whether it keeps only its newest messages.
+// A Gmail or Microsoft view as both hosts show it, in the sidebar and the list: its name, SF
+// Symbol, the notice for a failed read, and whether it keeps only its newest messages.
 export const gmailViewRow = (
   t: Translate,
-  state: Extract<GmailInboxState, { kind: 'ready' }>,
+  {
+    state,
+    provider,
+  }: Readonly<{
+    state: Extract<GmailInboxState, { kind: 'ready' }>;
+    provider: MailProvider;
+  }>,
   label: string,
 ) => {
   const view = state.views?.find((entry) => entry.label === label);
-  const title = gmailViewTitle(t, label, state.labels);
+  const title = gmailViewTitle(t, label, { labels: state.labels, provider });
+  const name = t(
+    provider === 'microsoft-graph'
+      ? 'mailProviders.microsoft-graph'
+      : 'mailProviders.gmail',
+  );
   return {
     title,
     icon: gmailViewSymbol(label),
     failure:
       view?.status === 'failed'
-        ? t('mailboxes.viewUnavailable', {
-            view: title,
-            provider: t('mailProviders.gmail'),
-          })
+        ? t('mailboxes.viewUnavailable', { view: title, provider: name })
         : undefined,
-    limited: view?.limited === true,
+    // Says that only the view's newest mail is saved on this device.
+    limited:
+      view?.limited === true
+        ? t('inbox.footerView', { provider: name })
+        : undefined,
   };
 };
 
@@ -148,7 +167,7 @@ export const mailboxFolder = (
   const gmail = gmailMailbox(mailbox);
   return gmail === undefined
     ? requested
-    : gmailViewName(gmail.state, requested);
+    : gmailViewName(gmail.state, requested, gmail.provider);
 };
 
 // A window's chosen mailbox and the connections whose authorization notices its Inbox shows. A
@@ -180,8 +199,10 @@ export function inboxChoice<C extends Pick<MailboxConnection, 'id' | 'state'>>({
     : { keepsChoice: true, chosenWaiting, waiting: [chosenWaiting] };
 }
 
-// A mailbox's sidebar rows: an IMAP connection's selectable folders, or a Gmail mailbox's Inbox,
-// its own labels by name, then All Mail, Spam and Trash; other mailboxes list their Inbox.
+// A mailbox's sidebar rows: an IMAP connection's selectable folders, a Gmail mailbox's Inbox, its
+// own labels by name, then All Mail, Spam and Trash, or a Microsoft mailbox's Inbox, Sent Items,
+// the Archive, Junk Email and Deleted Items it has, then its own folders by path; other
+// mailboxes list their Inbox.
 const folderNames = (
   state: InboxState | GmailInboxState | ImapInboxState,
   provider: MailProvider | undefined,
@@ -194,13 +215,19 @@ const folderNames = (
       .filter(({ selectable }) => selectable)
       .map(({ name }) => name);
   }
-  return 'labels' in state && (provider ?? 'gmail') === 'gmail'
-    ? [inboxFolder, ...state.labels.map(({ id }) => id), ...systemViews]
-    : [inboxFolder];
+  if (!('labels' in state)) {
+    return [inboxFolder];
+  }
+  const labels = state.labels.map(({ id }) => id);
+  const views = providerViews(provider, state.unavailableActions);
+  return provider === 'microsoft-graph'
+    ? [inboxFolder, ...views, ...labels]
+    : [inboxFolder, ...labels, ...views];
 };
 
-// The unread mail of an opened Gmail label's saved view; Gmail counts none for All Mail, Spam
-// and Trash, and an IMAP folder's count is not known here.
+// The unread mail of an opened Gmail label's or Microsoft folder's saved view; none is counted for
+// All Mail, Spam and Trash, nor Junk Email and Deleted Items, and an IMAP folder's count is not
+// known here.
 const viewUnread = (
   state: InboxState | GmailInboxState | ImapInboxState,
   name: string,

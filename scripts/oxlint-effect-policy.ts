@@ -49,7 +49,3 @@ export const boundaryRules: DummyRuleMap = {
   'effect-boundaries/no-object-typeof-guard': 'deny',
   'effecttsgo/extends-native-error': 'deny',
 };
-
-export const boundaryExemptions: DummyRuleMap = Object.fromEntries(
-  Object.keys(boundaryRules).map((rule) => [rule, 'allow']),
-);

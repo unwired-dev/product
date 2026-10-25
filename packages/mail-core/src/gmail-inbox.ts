@@ -55,8 +55,8 @@ import {
   GmailLabelSchema,
   inInbox,
   inView,
+  providerViews,
   relabel,
-  systemViews,
 } from './gmail-actions.ts';
 import { createGraphReader } from './graph-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
@@ -72,6 +72,7 @@ import {
   merge,
   newestFirst,
   sameCheckpoint,
+  sameGraphViews,
   sameMailbox,
 } from './mailbox-document.ts';
 import { GraphId } from './mailbox-message.ts';
@@ -546,17 +547,44 @@ const cachedMessages = (document: MailboxDocument) => [
 
 // Microsoft's next delta page refills a full cache a settlement shortened, and still classifies the
 // mail it names; until then the cache keeps its previous oldest receipt as its edge.
+type GraphCheckpoint = NonNullable<
+  NonNullable<MailboxDocument['views']>[number]['checkpoint']
+>;
 const awaitingRefill = (
+  before: readonly GmailMessage[],
+  after: readonly GmailMessage[],
+  checkpoint: GraphCheckpoint,
+): GraphCheckpoint =>
+  checkpoint.kind === 'graph-current' &&
+  before.length === cacheLimit &&
+  after.length < cacheLimit
+    ? { ...checkpoint, refillUntil: before.at(-1)?.receivedAt ?? '' }
+    : checkpoint;
+
+// A Microsoft Inbox and each folder a settlement shortened await their own refill.
+const graphRefills = (
   before: MailboxDocument,
   after: MailboxDocument,
-  checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'graph-current' }>,
-): MailboxDocument => ({
-  ...after,
-  checkpoint: {
-    ...checkpoint,
-    refillUntil: before.messages.at(-1)?.receivedAt ?? '',
-  },
-});
+  checkpoint: GraphCheckpoint,
+): MailboxDocument => {
+  const refilled = (entry: NonNullable<MailboxDocument['views']>[number]) =>
+    entry.checkpoint === undefined
+      ? entry
+      : {
+          ...entry,
+          checkpoint: awaitingRefill(
+            before.views?.find(({ label }) => label === entry.label)
+              ?.messages ?? [],
+            entry.messages,
+            entry.checkpoint,
+          ),
+        };
+  return {
+    ...after,
+    checkpoint: awaitingRefill(before.messages, after.messages, checkpoint),
+    ...(after.views === undefined ? {} : { views: after.views.map(refilled) }),
+  };
+};
 
 // History and delta cannot name the older message that now fits after a settlement removes one, so a
 // full Inbox or view it shortened is listed again from the history already applied.
@@ -567,8 +595,11 @@ const withRefills = (
   const { checkpoint } = before;
   const shortened =
     before.messages.length === cacheLimit && after.messages.length < cacheLimit;
-  if (checkpoint.kind === 'graph-current' && shortened) {
-    return awaitingRefill(before, after, checkpoint);
+  if (
+    checkpoint.kind === 'graph-current' ||
+    checkpoint.kind === 'graph-listing'
+  ) {
+    return graphRefills(before, after, checkpoint);
   }
   if (checkpoint.kind !== 'current' && checkpoint.kind !== 'backfill') {
     return after;
@@ -640,10 +671,9 @@ const sameListing = (before: MailboxDocument, after: MailboxDocument) =>
 
 // Whether a mailbox with these labels still offers a view: its own labels, All Mail, Spam and Trash.
 const offeredBy =
-  (labels: readonly GmailLabel[]) =>
+  (labels: readonly GmailLabel[], system: readonly string[]) =>
   ({ label }: Readonly<{ label: string }>) =>
-    systemViews.some((view) => view === label) ||
-    labels.some(({ id }) => id === label);
+    system.includes(label) || labels.some(({ id }) => id === label);
 
 // The labels or folders a document lists, and whether some were left out.
 const listedLabels = (document: MailboxDocument | undefined) => ({
@@ -1218,6 +1248,8 @@ export function createGmailInbox(
 ) {
   const graph =
     provider === 'microsoft-graph' ? createGraphReader(native) : undefined;
+  // The views besides the Inbox and own labels or folders, once Graph knows the folder roles.
+  const ownViews = () => providerViews(provider, graph?.unavailableActions());
   // One Gmail read; Gmail refusing a listing's page token is GmailInvalidPage.
   const gmail =
     (scope: MailboxScope) =>
@@ -1578,14 +1610,17 @@ export function createGmailInbox(
 
   // The document with the first requested view most recently opened, or none once every
   // requested view is.
-  const openedView = (document: MailboxDocument, historyId: string) => {
+  // A Gmail view is listed from the history already applied; a Microsoft folder from its own round.
+  const openedView = (document: MailboxDocument, historyId?: string) => {
     for (const requested of requestedViews) {
       const views = document.views ?? [];
       if (views[0]?.label !== requested) {
         const entry = views.find(({ label }) => label === requested) ?? {
           label: requested,
           messages: [],
-          listing: { historyId, seen: [] },
+          ...(historyId === undefined
+            ? {}
+            : { listing: { historyId, seen: [] } }),
         };
         return {
           ...document,
@@ -1641,6 +1676,63 @@ export function createGmailInbox(
     );
   };
 
+  // The next step of a Microsoft folder's own round. A folder Graph cannot read now, such as a
+  // removed one, keeps its saved messages until the next synchronization.
+  const readFolder = (scope: MailboxScope, entry: ViewEntry) => {
+    const failed = Effect.sync(() => {
+      failedViews.add(entry.label);
+    }).pipe(Effect.as(Option.none()));
+    return graph === undefined
+      ? Effect.succeedNone
+      : graph.advanceView(scope, entry).pipe(
+          Effect.catchTags({
+            GmailNotFound: () => failed,
+            SyncFailure: (failure) =>
+              failure.kind === 'retry' ? failed : Effect.fail(failure),
+          }),
+        );
+  };
+
+  // After a current Microsoft Inbox, a requested folder becomes the most recently opened and each
+  // folder takes the next step of its own round.
+  const advanceFolders = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    document: MailboxDocument | undefined,
+    step: number,
+  ) {
+    if (document === undefined) {
+      return Option.none<MailboxDocument>();
+    }
+    const opened = openedView(document);
+    if (opened !== undefined) {
+      return Option.some(opened);
+    }
+    const readable = (document.views ?? []).filter(
+      ({ label }) => !failedViews.has(label),
+    );
+    for (const entry of readable) {
+      const next = yield* readFolder(scope, entry);
+      // Folder work left after the round's page budget waits for the next synchronization, as the
+      // Inbox's does; the progress already committed stays.
+      if (Option.isSome(next) && step >= 200) {
+        return yield* new SyncFailure({
+          kind: 'retry',
+          cause: 'delta',
+          diagnostic: 'delta page limit',
+        });
+      }
+      if (Option.isSome(next)) {
+        return Option.some<MailboxDocument>({
+          ...document,
+          views: (document.views ?? []).map((view) =>
+            view === entry ? { ...view, ...next.value } : view,
+          ),
+        });
+      }
+    }
+    return Option.none<MailboxDocument>();
+  });
+
   // The next document to commit, or none when the cache is current. After the Inbox's own
   // listing, a requested view becomes the most recently opened and the views are listed, before
   // the history that keeps them all current.
@@ -1653,7 +1745,13 @@ export function createGmailInbox(
     SyncFailure | GmailNotFound | GmailInvalidPage
   > => {
     if (graph !== undefined) {
-      return graph.advance(scope, document, step);
+      return graph
+        .advance(scope, document, step)
+        .pipe(
+          Effect.filterOrElse(Option.isSome, () =>
+            advanceFolders(scope, document, step),
+          ),
+        );
     }
     if (document === undefined) {
       return startListing(scope, undefined).pipe(Effect.asSome);
@@ -1763,6 +1861,11 @@ export function createGmailInbox(
   const found = new Map<string, GmailMessage>();
   // Membership at the last durable publication, before any later optimistic hiding.
   let settledMessages = new Set<string>();
+  // A Gmail view is unfinished while listed; a Microsoft folder until its own delta round is current.
+  const unfinishedView = (entry: ViewEntry) =>
+    graph === undefined
+      ? entry.listing !== undefined
+      : entry.checkpoint?.kind !== 'graph-current';
   // A requested view waits for the synchronization it started; a saved view still being listed
   // after a synchronization could not be read.
   const viewStatus = (entry?: ViewEntry): GmailView['status'] => {
@@ -1771,13 +1874,11 @@ export function createGmailInbox(
         ? 'failed'
         : 'syncing';
     }
-    if (
-      failedViews.has(entry.label) ||
-      (entry.listing !== undefined && sync !== 'syncing')
-    ) {
+    const unfinished = unfinishedView(entry);
+    if (failedViews.has(entry.label) || (unfinished && sync !== 'syncing')) {
       return 'failed';
     }
-    return entry.listing === undefined ? 'current' : 'syncing';
+    return unfinished ? 'syncing' : 'current';
   };
   // The requested and saved views with the requested changes applied, most recent first, each
   // message claimed for organizing; none when no view was opened.
@@ -3029,7 +3130,11 @@ export function createGmailInbox(
       });
     }
     // Another store saved newer provider progress; synchronization restarts from it.
-    if (!sameCheckpoint(base.checkpoint, saved.checkpoint)) {
+    if (
+      !sameCheckpoint(base.checkpoint, saved.checkpoint) ||
+      (graph !== undefined &&
+        !sameGraphViews(base.views ?? [], saved.views ?? []))
+    ) {
       return yield* new SyncFailure({
         kind: 'conflict',
         cause: 'checkpoint',
@@ -3464,7 +3569,7 @@ export function createGmailInbox(
       // A view of a label Gmail no longer has leaves with it.
       ...(document.views === undefined
         ? {}
-        : { views: document.views.filter(offeredBy(labels)) }),
+        : { views: document.views.filter(offeredBy(labels, ownViews())) }),
     };
     if (sameListing(document, next)) {
       return { cache, document };
@@ -4035,15 +4140,11 @@ export function createGmailInbox(
         activeViews.delete(token);
       };
     },
-    // Lists a Gmail label, All Mail, Spam or Trash, kept current through mailbox history.
+    // Lists a Gmail label, All Mail, Spam or Trash, kept current through mailbox history, or a
+    // Microsoft folder, kept current through its own delta round.
     openView: (label: string) => {
       const labels = shown?.document?.labels ?? [];
-      if (
-        graph !== undefined ||
-        forgotten ||
-        (systemViews.every((view) => view !== label) &&
-          labels.every(({ id }) => id !== label))
-      ) {
+      if (forgotten || !offeredBy(labels, ownViews())({ label })) {
         return Promise.resolve();
       }
       requestedViews.add(label);

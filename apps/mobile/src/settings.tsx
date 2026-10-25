@@ -738,7 +738,7 @@ export function SettingsRow({
           color={colors.accentInk}
         />
       )}
-      <View style={[styles.rowText, disabled && { opacity: 0.45 }]}>
+      <View style={[styles.rowText, disabled && { opacity: 0.4 }]}>
         <Text
           numberOfLines={titleNumberOfLines}
           style={[

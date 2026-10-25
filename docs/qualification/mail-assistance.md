@@ -1,13 +1,15 @@
 # On-Device Mail Assistance qualification
 
-Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
-maintenance until cutover. Its implementation and qualification claims do not
-qualify the Expo or native React Native Mac replacement; use
+Historical scope: the SwiftUI and Mac Catalyst prototype, removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). The implementation
+and qualification claims below record that prototype and do not qualify the
+maintained Expo or native React Native Mac clients; use
 [the active documentation index](../README.md) for that work.
 
 The maintainer disabled this legacy qualification workflow on 2026-09-28.
-The commands and evidence below are historical; dispatching the workflow skips
-its job until the workflow is explicitly re-enabled.
+The workflow and its test target were removed with the prototype in #1371.
+The commands and evidence below are historical and cannot be run from this tree;
+[maintained assistance qualification](../assistance-qualification.md) owns current checks.
 
 Issue [#416](https://github.com/unwired-dev/product/issues/416) owns the release evidence for
 Compose, Response, Understanding, and Translation Assistance. Ordinary pull-request CI proves the

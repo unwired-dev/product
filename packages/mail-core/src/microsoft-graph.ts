@@ -18,15 +18,16 @@ const graphRoot = 'https://graph.microsoft.com/v1.0';
 const listed =
   'id,conversationId,receivedDateTime,subject,bodyPreview,from,isRead';
 
-// The newest Inbox messages, or older mail for a cache refill, newest first.
-export const graphInbox = (limit: number, until?: string) =>
-  `${graphRoot}/me/mailFolders/inbox/messages?$select=${listed}&$orderby=receivedDateTime%20desc&$top=${limit}${until === undefined ? '' : `&$filter=receivedDateTime%20le%20${encodeURIComponent(until)}`}`;
+// A folder's newest messages, or older mail for a cache refill, newest first.
+export const graphMessages = (view: string, limit: number, until?: string) =>
+  `${graphRoot}/me/mailFolders/${graphFolder(view)}/messages?$select=${listed}&$orderby=receivedDateTime%20desc&$top=${limit}${until === undefined ? '' : `&$filter=receivedDateTime%20le%20${encodeURIComponent(until)}`}`;
 
-// A full delta round over the Inbox; its last page links to the changes after it.
-export const graphInboxDelta = `${graphRoot}/me/mailFolders/inbox/messages/delta?$select=${listed}&$orderby=receivedDateTime%20desc`;
+// A full delta round over a folder; its last page links to the changes after it.
+export const graphDelta = (view: string) =>
+  `${graphRoot}/me/mailFolders/${graphFolder(view)}/messages/delta?$select=${listed}&$orderby=receivedDateTime%20desc`;
 
-export const graphInboxMessage = (id: string) =>
-  `${graphRoot}/me/mailFolders/inbox/messages/${id}?$select=${listed}`;
+export const graphFolderMessage = (view: string, id: string) =>
+  `${graphRoot}/me/mailFolders/${graphFolder(view)}/messages/${id}?$select=${listed}`;
 
 export const graphMessage = (id: string) =>
   `${graphRoot}/me/messages/${id}?$select=body,from,toRecipients,ccRecipients,replyTo,internetMessageId,internetMessageHeaders,hasAttachments`;
@@ -198,10 +199,15 @@ export const fileData = (contentBytes: string) => {
 // cannot falsely confirm an interrupted archive.
 const roleLabels: Partial<Record<WellKnownFolder, string>> = {
   inbox: 'INBOX',
+  sentitems: 'SENT',
   archive: 'ARCHIVE',
   deleteditems: 'TRASH',
   junkemail: 'SPAM',
 };
+// The Graph folder a view lists: a well-known folder by its role's label, or a folder by its ID.
+function graphFolder(view: string) {
+  return wellKnownFolders.find((name) => roleLabels[name] === view) ?? view;
+}
 // Well-known folders by their IDs in one mailbox.
 export type FolderRoles = ReadonlyMap<string, WellKnownFolder>;
 export const graphLabels = (
