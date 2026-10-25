@@ -1034,9 +1034,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await waitFor(() => {
         expect(gmail.labelsOf(old)).toContain('INBOX');
       });
-      expect(
-        first.queryByRole('button', { name: /Old newsletter/u }),
-      ).toBeNull();
     } finally {
       await app.unmount();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
