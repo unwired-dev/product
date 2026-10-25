@@ -413,14 +413,21 @@ export const unifiedFolders = (
   }
   if ('openFolder' in inbox && 'folders' in state) {
     const { folders } = state;
+    // A server's readable \All folder may hold Junk and Trash, and mail found nowhere else.
+    const holdsAll = ({ name }: { readonly name: string }) =>
+      folders.some(
+        (folder) =>
+          folder.name === name &&
+          folder.selectable &&
+          folder.roles.includes('all'),
+      );
     if (role !== allMail) {
       const name = imapRoleFolder(folders, imapRoles[role]);
-      return name === undefined ? undefined : [name];
+      return name === undefined || holdsAll({ name }) ? undefined : [name];
     }
-    // A server's \All folder may hold Junk and Trash, and mail found nowhere else, so such a
-    // connection is not included. Otherwise All Mail reads every real folder outside Junk and
-    // Trash; a virtual \Flagged folder may gather Junk and Trash too.
-    if (folders.some(({ roles }) => roles.includes('all'))) {
+    // A connection with an \All folder is not included. Otherwise All Mail reads every real
+    // folder outside Junk and Trash; a virtual \Flagged folder may gather Junk and Trash too.
+    if (folders.some(holdsAll)) {
       return undefined;
     }
     return folders

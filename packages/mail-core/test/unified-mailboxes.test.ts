@@ -212,6 +212,31 @@ describe('unified mailboxes across connections', () => {
     expect(selectedFolders(sidebar)).toStrictEqual([]);
   });
 
+  it('reads past an unreadable All folder and never takes an All folder as Archive', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive', 'all']);
+    imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Everything', ['all'], false);
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const [mailbox] = snapshot([{ id: 'imap', provider: 'imap', inbox }]);
+    assert.ok(mailbox !== undefined);
+    // Archive is also the server's readable All folder, so neither mailbox includes it.
+    expect(unifiedFolders(mailbox, 'ARCHIVE')).toBeUndefined();
+    expect(unifiedFolders(mailbox, allMail)).toBeUndefined();
+    imap.addFolder('Archive', ['archive']);
+    await inbox.load();
+    const [refreshed] = snapshot([{ id: 'imap', provider: 'imap', inbox }]);
+    assert.ok(refreshed !== undefined);
+    // The unreadable All folder holds no mail the client can list, so All Mail reads the rest.
+    expect(unifiedFolders(refreshed, 'ARCHIVE')).toStrictEqual(['Archive']);
+    expect(unifiedFolders(refreshed, allMail)).toStrictEqual([
+      'INBOX',
+      'Archive',
+    ]);
+  });
+
   it('lists only the window Profile’s connections', async () => {
     expect.hasAssertions();
     const { gmail, imap, stores } = await connections();

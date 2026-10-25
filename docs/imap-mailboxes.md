@@ -147,10 +147,11 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
 - The folder list is read on each synchronization, with the special-use roles the
   server declares. The unified Sent, Archive, Spam and Trash mailboxes under
   Favorites list the one selectable folder declaring `\Sent`, `\Archive`, `\Junk` or
-  `\Trash`; without exactly one such folder the mailbox shows as not included. All
-  Mail lists every selectable folder outside Junk, Trash and a virtual `\Flagged`
-  folder. A server with an `\All` folder is not included there, since that folder
-  may hold Junk, Trash and mail found nowhere else. After the refreshed list is saved successfully, a folder it no
+  `\Trash`; without exactly one such folder, or when that folder is also the
+  server's `\All` folder, the mailbox shows as not included. All Mail lists every
+  selectable folder outside Junk, Trash and a virtual `\Flagged` folder. A server
+  with a selectable `\All` folder is not included there, since that folder may hold
+  Junk, Trash and mail found nowhere else. After the refreshed list is saved successfully, a folder it no
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 folders, preserves the prior
