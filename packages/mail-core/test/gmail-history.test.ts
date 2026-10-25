@@ -1,8 +1,8 @@
-import type { GmailInboxState } from '../src/gmail-inbox.ts';
+import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
-import { allMail } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
-import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+import { allMail } from '@private-email/mail-core/gmail-actions';
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 
 type Inbox = ReturnType<typeof createGmailInbox>;
 type Gmail = ReturnType<typeof createSyntheticGmail>;
@@ -138,6 +138,21 @@ const downloaded = async () => {
 };
 
 describe('gmail history backfill', () => {
+  it('reveals older messages sharing the cached boundary timestamp', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const everything = Array.from({ length: 400 }, () =>
+      gmail.deliver({ at: 1_700_000_000_000 }),
+    )
+      .toSorted()
+      .toReversed();
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 400);
+    expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
+  });
+
   it('downloads All Mail in pages after the Inbox is usable', async () => {
     expect.hasAssertions();
     const { gmail, inbox, everything, allMailIds } = await downloaded();

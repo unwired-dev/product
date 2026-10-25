@@ -1873,14 +1873,14 @@ export function createGmailInbox(
     const older = overlaid(history, entry.messages).filter((message) => {
       const kept =
         !ids.has(message.id) &&
-        message.receivedAt < oldest &&
+        message.receivedAt <= oldest &&
         inView(label, labelsOf(message));
       ids.add(message.id);
       return kept;
     });
     return older.length === 0
       ? cached
-      : [...cached, ...Arr.sort(older, newestFirst)];
+      : Arr.sort([...cached, ...older], newestFirst);
   };
   // Whether a view holds the whole of a completed history: its cache was never full, or it
   // revealed every segment. Spam and Trash stay outside the history.
