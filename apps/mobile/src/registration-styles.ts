@@ -75,4 +75,6 @@ export const registrationStyles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   device: { gap: 8 },
+  // A warning beside its message, or a pending action after its busy indicator.
+  inline: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
 });

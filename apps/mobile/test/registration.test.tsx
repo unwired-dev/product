@@ -1450,6 +1450,70 @@ describe('product registration', () => {
     ).toBeEnabled();
   });
 
+  it('keeps a mailbox removal open while it runs and names an offline failure', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-declined');
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await render(
+      <RegistrationGate
+        store={started(createRegistration(synthetic.vault))}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    const button = (name: string) => screen.getByRole('button', { name });
+    await press('Continue');
+    await press('Sign in with Apple');
+    await press('Choose another Google mailbox');
+    await backToSettings();
+    await openSettings('Email Accounts');
+    const remove = 'Remove other@example.invalid';
+    await press(remove);
+    // Removal stays pending until the native removal answers, here that the iPhone is offline.
+    let answer: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the native removal while Removing… shows.
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const { removeMailbox } = synthetic.vault;
+    jest
+      .spyOn(synthetic.vault, 'removeMailbox')
+      .mockImplementationOnce(async (id) => {
+        await answered;
+        return removeMailbox(id);
+      });
+    synthetic.backend.mailboxRemovalFailure = 'offline';
+    await press(remove);
+    expect([
+      button('Removing…').props.accessibilityState?.disabled,
+      button('Cancel').props.accessibilityState?.disabled,
+    ]).toStrictEqual([true, true]);
+    await act(async () => {
+      answer();
+      await answered;
+    });
+    const failure =
+      'Couldn’t remove other@example.invalid because this iPhone is offline. It is still connected here and on your other devices. Try again when you’re online.';
+    await expect(screen.findByText(failure)).resolves.toBeVisible();
+    expect(announce).toHaveBeenCalledWith(failure);
+    expect(screen.queryByText(/deletes its Gmail access/u)).toBeNull();
+    expect(button(remove)).toBeEnabled();
+    expect(button('Cancel')).toBeEnabled();
+    // A removal that applied before its reply was lost is not reported as still connected.
+    synthetic.backend.mailboxRemovalFailure = undefined;
+    synthetic.backend.loseReply = true;
+    await press(remove);
+    synthetic.backend.loseReply = false;
+    expect(screen.queryByText('other@example.invalid')).toBeNull();
+    expect(screen.queryByText(failure)).toBeNull();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves adding, switching, reauthorizing and removing mailboxes. */
   it('adds, switches, reauthorizes and removes Gmail mailboxes without mixing their mail', async () => {
     expect.hasAssertions();
