@@ -13,6 +13,7 @@ import type {
   ImapInbox,
   ImapInboxState,
 } from './imap-inbox.ts';
+import type { ImapFolder } from './imap-model.ts';
 import type { InboxState, PersistentInbox } from './persistent-inbox.ts';
 import type {
   MailboxConnection,
@@ -401,6 +402,59 @@ const imapRoles = {
   TRASH: 'trash',
 } as const;
 
+// An IMAP mailbox's folders with the role. A server's readable \All folder may hold Junk and
+// Trash, and mail found nowhere else, so it is never taken for a role and a connection with one
+// is not included in All Mail. Otherwise All Mail reads every real folder outside Junk and Trash;
+// a virtual \Flagged folder may gather Junk and Trash too.
+const imapUnifiedFolders = (
+  folders: readonly ImapFolder[],
+  role: UnifiedRole,
+): readonly string[] | undefined => {
+  const holdsAll = (name: string) =>
+    folders.some(
+      (folder) =>
+        folder.name === name &&
+        folder.selectable &&
+        folder.roles.includes('all'),
+    );
+  if (role !== allMail) {
+    const name = imapRoleFolder(folders, imapRoles[role]);
+    return name === undefined || holdsAll(name) ? undefined : [name];
+  }
+  if (folders.some(({ name }) => holdsAll(name))) {
+    return undefined;
+  }
+  return folders
+    .filter(
+      ({ selectable, roles }) =>
+        selectable &&
+        !['junk', 'trash', 'flagged'].some((excluded) =>
+          roles.includes(excluded),
+        ),
+    )
+    .map(({ name }) => name);
+};
+
+// A Gmail mailbox's system label with the role, or a Microsoft mailbox's well-known folders.
+const providerUnifiedFolders = (
+  { provider, state }: Readonly<NonNullable<ReturnType<typeof gmailMailbox>>>,
+  role: UnifiedRole,
+): readonly string[] | undefined => {
+  if (provider !== 'microsoft-graph') {
+    return [role === 'ARCHIVE' ? gmailArchive : role];
+  }
+  const views = providerViews(provider, state.unavailableActions);
+  if (role !== allMail) {
+    return views.includes(role) ? [role] : undefined;
+  }
+  return [
+    inboxFolder,
+    ...views.filter((view) => view !== 'SPAM' && view !== 'TRASH'),
+    ...microsoftAllMailViews,
+    ...state.labels.map(({ id }) => id),
+  ];
+};
+
 // The folders or views a mailbox lists in a Unified Mailbox, or undefined when its provider marks
 // none with that role. A role is never guessed from a folder's name.
 export const unifiedFolders = (
@@ -412,51 +466,13 @@ export const unifiedFolders = (
     return [];
   }
   if ('openFolder' in inbox && 'folders' in state) {
-    const { folders } = state;
-    // A server's readable \All folder may hold Junk and Trash, and mail found nowhere else.
-    const holdsAll = ({ name }: { readonly name: string }) =>
-      folders.some(
-        (folder) =>
-          folder.name === name &&
-          folder.selectable &&
-          folder.roles.includes('all'),
-      );
-    if (role !== allMail) {
-      const name = imapRoleFolder(folders, imapRoles[role]);
-      return name === undefined || holdsAll({ name }) ? undefined : [name];
-    }
-    // A connection with an \All folder is not included. Otherwise All Mail reads every real
-    // folder outside Junk and Trash; a virtual \Flagged folder may gather Junk and Trash too.
-    if (folders.some(holdsAll)) {
-      return undefined;
-    }
-    return folders
-      .filter(
-        ({ selectable, roles }) =>
-          selectable &&
-          !['junk', 'trash', 'flagged'].some((excluded) =>
-            roles.includes(excluded),
-          ),
-      )
-      .map(({ name }) => name);
+    return imapUnifiedFolders(state.folders, role);
   }
   const gmail = gmailMailbox(mailbox);
   if (gmail === undefined) {
     return role === allMail ? [inboxFolder] : [];
   }
-  if (gmail.provider !== 'microsoft-graph') {
-    return [role === 'ARCHIVE' ? gmailArchive : role];
-  }
-  const views = providerViews(gmail.provider, gmail.state.unavailableActions);
-  if (role !== allMail) {
-    return views.includes(role) ? [role] : undefined;
-  }
-  return [
-    inboxFolder,
-    ...views.filter((view) => view !== 'SPAM' && view !== 'TRASH'),
-    ...microsoftAllMailViews,
-    ...gmail.state.labels.map(({ id }) => id),
-  ];
+  return providerUnifiedFolders(gmail, role);
 };
 
 // One window's retained Unified Mailbox views. Store identity is part of ownership, so repairing
@@ -541,6 +557,37 @@ function openUnifiedFolder(
   return () => undefined;
 }
 
+const viewMessages = (
+  views: Extract<GmailInboxState, { kind: 'ready' }>['views'],
+  label: string,
+) => {
+  const view = views?.find((shown) => shown.label === label);
+  return { messages: view?.messages ?? [], failed: view?.status === 'failed' };
+};
+
+const imapFolderMessages = (view: ImapFolderView | undefined) => ({
+  messages: view?.kind === 'ready' ? view.messages : [],
+  failed: imapFolderFailed(view),
+});
+
+// The messages a mailbox lists in one of its folders or views, and whether reading it failed.
+const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
+  const { inbox, state } = mailbox;
+  if (name === inboxFolder) {
+    return {
+      messages: 'messages' in state ? state.messages : [],
+      failed: false,
+    };
+  }
+  const gmail = gmailMailbox(mailbox);
+  if (gmail !== undefined) {
+    return viewMessages(gmail.state.views, name);
+  }
+  return imapFolderMessages(
+    'openFolder' in inbox ? inbox.folder(name) : undefined,
+  );
+};
+
 // A Unified Mailbox of a Profile's ready mailboxes, newest first. Each entry names the folder or
 // view it is listed in, so its actions are those of that folder at its own connection. Mailboxes
 // without the role are `missing`; a folder or view that could not be read makes its mailbox
@@ -559,25 +606,12 @@ export const unifiedMailbox = <
       missing.push(mailbox);
       return [];
     }
-    const { state } = mailbox;
-    const gmail = gmailMailbox(mailbox);
     const messagesIn = (name: string) => {
-      if (name === inboxFolder) {
-        return 'messages' in state ? state.messages : [];
-      }
-      if (gmail !== undefined) {
-        const view = gmail.state.views?.find(({ label }) => label === name);
-        if (view?.status === 'failed') {
-          failed.push(mailbox);
-        }
-        return view?.messages ?? [];
-      }
-      const view =
-        'openFolder' in mailbox.inbox ? mailbox.inbox.folder(name) : undefined;
-      if (imapFolderFailed(view)) {
+      const listed = folderMessages(mailbox, name);
+      if (listed.failed) {
         failed.push(mailbox);
       }
-      return view?.kind === 'ready' ? view.messages : [];
+      return listed.messages;
     };
     return names.flatMap((name) =>
       messagesIn(name).map((message) => ({
