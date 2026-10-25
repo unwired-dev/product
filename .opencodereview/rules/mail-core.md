@@ -11,6 +11,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- A newly offered provider view recognized by `createGmailInbox.openView` but
+  rejected by `mailbox-views.ts.gmailViewName`. Trace the row's selected folder
+  into both hosts' reader actions and `viewMessage`; otherwise mail outside
+  Inbox opens without organizing controls. For Gmail moves from aggregate or
+  Sent views, remove only a writable source label: synthetic view names are not
+  Gmail labels, and `SENT` cannot be removed. Exercise the reader controls and
+  the resulting provider request through their public interfaces.
 - `mailbox-motion.ts.unchanged` comparing row keys without retaining the latest
   displayed items. Synchronize unread or star metadata without changing row
   membership, then remove that message through an organizing action. Its leaving

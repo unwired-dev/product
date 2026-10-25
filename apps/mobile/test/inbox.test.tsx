@@ -1456,6 +1456,37 @@ describe('connected Gmail Inbox', () => {
     ).toStrictEqual([[unsaved]]);
   });
 
+  it.each([
+    { title: 'Archive', label: 'STARRED' },
+    { title: 'Sent', label: 'SENT' },
+  ])(
+    'keeps Gmail reader actions available from unified $title',
+    async ({ title, label }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        subject: 'Saved receipt',
+        content: { text: 'Paid in full.' },
+      });
+      gmail.archive(id);
+      gmail.setLabel(id, label, true);
+      await renderConnected(gmail.native);
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: `${title}. In All mailboxes`,
+        }),
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', { name: /Saved receipt/u }),
+      );
+      await expect(screen.findByText('Paid in full.')).resolves.toBeVisible();
+      await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+      expect(
+        screen.getByRole('button', { name: 'Move to Trash' }),
+      ).toBeVisible();
+    },
+  );
+
   it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

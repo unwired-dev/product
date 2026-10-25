@@ -95,12 +95,24 @@ export const gmailAction = {
     add: [],
     remove: [label],
   }),
-  // Gmail's Move to: the label replaces the view's label, or the Inbox from All Mail, and every
-  // other label stays.
-  move: (label: string, view = 'INBOX'): GmailAction => ({
+  // Gmail's aggregate and immutable Sent views remove Inbox; Microsoft moves out of its folder.
+  move: (
+    label: string,
+    view = 'INBOX',
+    provider: MailProvider = 'gmail',
+  ): GmailAction => ({
     kind: 'move',
     add: [label],
-    remove: label === view ? [] : [view === allMail ? 'INBOX' : view],
+    remove:
+      label === view
+        ? []
+        : [
+            view === allMail ||
+            view === gmailArchive ||
+            (view === 'SENT' && provider === 'gmail')
+              ? 'INBOX'
+              : view,
+          ],
   }),
   // Takes a message out of Trash or Spam and back into the Inbox.
   restore: (view: string) => ({

@@ -24,6 +24,7 @@ import {
   gmailArchive,
   gmailViewSymbol,
   gmailViewTitle,
+  offeredViews,
   providerViews,
   systemViews,
 } from './gmail-actions.ts';
@@ -79,7 +80,7 @@ export const gmailViewName = (
 ) =>
   state.kind !== 'ready' ||
   requested === inboxFolder ||
-  providerViews(provider, state.unavailableActions).includes(requested) ||
+  offeredViews(provider, state.unavailableActions).includes(requested) ||
   state.labels.some(({ id }) => id === requested)
     ? requested
     : inboxFolder;

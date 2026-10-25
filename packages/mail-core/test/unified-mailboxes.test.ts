@@ -1,5 +1,15 @@
-import { allMail, gmailArchive } from '@private-email/mail-core/gmail-actions';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import assert from 'node:assert/strict';
+
+import {
+  allMail,
+  gmailAction,
+  gmailArchive,
+  leavesView,
+} from '@private-email/mail-core/gmail-actions';
+import {
+  createGmailInbox,
+  viewMessage,
+} from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import {
   mailboxSidebar,
@@ -213,5 +223,63 @@ describe('unified mailboxes across connections', () => {
     expect(rows(await opened(scoped(defaultProfile), 'SENT'))).toStrictEqual([
       ['gmail', 'Personal sent', 'SENT'],
     ]);
+  });
+
+  it.each([
+    { role: 'SENT', view: 'SENT', kept: 'SENT' },
+    { role: 'ARCHIVE', view: gmailArchive, kept: 'STARRED' },
+  ] as const)(
+    'moves Gmail mail from $role without removing a system or synthetic label',
+    async ({ role, view, kept }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const destination = gmail.createLabel('Receipts');
+      const id = gmail.deliver({ subject: 'Saved receipt' });
+      gmail.archive(id);
+      gmail.setLabel(id, kept, true);
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      const list = await opened(
+        [{ id: 'gmail', provider: 'gmail', inbox }],
+        role,
+      );
+      expect(list.entries).toHaveLength(1);
+      const state = inbox.getSnapshot();
+      assert.ok(state.kind === 'ready');
+      const message = viewMessage(state, id, view);
+      assert.ok(message !== undefined);
+      await inbox.organize(message, gmailAction.move(destination, view));
+      expect(gmail.modifies.at(-1)).toStrictEqual({
+        id,
+        add: [destination],
+        remove: ['INBOX'],
+      });
+      expect(gmail.labelsOf(id)).toContain(destination);
+      expect(gmail.labelsOf(id)).toContain(kept);
+    },
+  );
+
+  it('moves Microsoft Sent mail out of its source folder', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph();
+    const destination = graph.createFolder('Receipts');
+    const id = graph.deliver({ subject: 'Sent receipt', folder: 'sentitems' });
+    const inbox = createGmailInbox(graph.native, {
+      provider: 'microsoft-graph',
+    });
+    await inbox.load();
+    await inbox.openView('SENT');
+    const state = inbox.getSnapshot();
+    assert.ok(state.kind === 'ready');
+    const message = viewMessage(state, id, 'SENT');
+    assert.ok(message !== undefined);
+    assert.ok(message.labels !== undefined);
+    const action = gmailAction.move(destination, 'SENT', 'microsoft-graph');
+    expect(leavesView('SENT', message.labels, action)).toBe(true);
+    await inbox.organize(message, action);
+    const after = inbox.getSnapshot();
+    assert.ok(after.kind === 'ready');
+    expect(viewMessage(after, id, 'SENT')).toBeUndefined();
+    expect(graph.folderOf(id)).toBe(destination);
   });
 });

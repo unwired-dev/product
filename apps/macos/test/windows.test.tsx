@@ -1011,7 +1011,10 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await fireEvent.press(
         first.getByRole('button', { name: /Kept receipt/u }),
       );
-      await expect(first.findByText('Paid in full.')).resolves.toBeVisible();
+      await first.findByText('Paid in full.');
+      expect(
+        first.getByRole('button', { name: 'Move to Trash' }),
+      ).toBeVisible();
       // Newer archived mail joins the list above the open message without replacing it.
       gmail.archive(gmail.deliver({ subject: 'Newer receipt' }));
       await act(() => inbox.load());
