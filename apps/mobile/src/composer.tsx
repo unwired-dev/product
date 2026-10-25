@@ -1242,29 +1242,26 @@ export function CloseButton({
   const colors = usePalette();
   const { t } = useLocalization();
   return (
-    <Pressable
-      accessibilityLabel={t('drafts.close')}
-      accessibilityRole="button"
-      accessibilityState={{
-        disabled,
-        ...(expanded === undefined ? {} : { expanded }),
-      }}
-      disabled={disabled}
-      onPress={onPress}
+    <Glass
+      cornerRadius={22}
+      interactive
       style={[styles.circle, { boxShadow: colors.smallGlassShadow }]}>
-      {/* The symbol sits inside the glass so a touch anywhere on the circle reaches it. */}
-      <Glass
-        cornerRadius={22}
-        interactive
-        style={styles.circle}>
-        <View style={{ opacity: disabled ? 0.4 : 1 }}>
-          <SFSymbol
-            name="xmark"
-            color={colors.textPrimary}
-          />
-        </View>
-      </Glass>
-    </Pressable>
+      <Pressable
+        accessibilityLabel={t('drafts.close')}
+        accessibilityRole="button"
+        accessibilityState={{
+          disabled,
+          ...(expanded === undefined ? {} : { expanded }),
+        }}
+        disabled={disabled}
+        onPress={onPress}
+        style={[styles.circle, { opacity: disabled ? 0.4 : 1 }]}>
+        <SFSymbol
+          name="xmark"
+          color={colors.textPrimary}
+        />
+      </Pressable>
+    </Glass>
   );
 }
 
