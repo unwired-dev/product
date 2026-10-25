@@ -675,9 +675,25 @@ describe('sending a Draft', () => {
       // #918: close the unavailable composer left after Send before checking bar feedback.
       await press('Close');
       await press('Edit');
+      const refused = 'Couldn’t return the message to Drafts.';
+      const undo = jest.spyOn(sender.outbox, 'undo');
+      sender.storage.hold();
       sender.storage.failNextCommit('locked');
       await press('Edit Anyway');
-      const refused = 'Couldn’t return the message to Drafts.';
+      // Cancel supersedes the pending Edit, even when storage refuses it afterward.
+      await press('Cancel');
+      await act(async () => {
+        sender.storage.release();
+        await Promise.all(undo.mock.results.map(({ value }) => value));
+      });
+      undo.mockRestore();
+      expect(screen.queryByText('Try Again')).toBeNull();
+      expect(announce.mock.calls.map(([words]) => words)).not.toContain(
+        refused,
+      );
+      await press('Edit');
+      sender.storage.failNextCommit('locked');
+      await press('Edit Anyway');
       expect(screen.getByText(refused)).toBeOnTheScreen();
       // Cancelling the warning is the next Outbox action, so the older refusal leaves.
       await press('Cancel');
@@ -720,10 +736,12 @@ describe('sending a Draft', () => {
         'Discard this Draft? It is deleted from this device.',
         warning,
         warning,
+        warning,
         refused,
         warning,
       ]);
     } finally {
+      sender.storage.release();
       sender.outbox.dispose();
     }
   });
