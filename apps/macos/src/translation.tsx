@@ -445,6 +445,7 @@ function LanguagesFailed({
         label={t('translation.tryAgain')}
         accessibilityLabel={t('translation.tryAgainLabel')}
         onPress={onRetry}
+        variant="banner"
       />
     </View>
   );
