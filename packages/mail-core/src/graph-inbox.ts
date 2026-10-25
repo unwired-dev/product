@@ -130,6 +130,8 @@ type GraphCheckpoint = Extract<
   MailboxDocument['checkpoint'],
   { kind: 'graph-listing' | 'graph-current' }
 >;
+type GraphDocument = MailboxDocument &
+  Readonly<{ checkpoint: GraphCheckpoint }>;
 const isGraphCheckpoint = (
   checkpoint: MailboxDocument['checkpoint'],
 ): checkpoint is GraphCheckpoint =>
@@ -177,7 +179,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
       until,
       view,
     }: Readonly<{
-      checkpoint: MailboxDocument['checkpoint'];
+      checkpoint: GraphCheckpoint;
       until?: string;
       view: string;
     }>,
@@ -305,7 +307,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
     document: MailboxDocument | undefined,
     view: string,
   ): Effect.fn.Return<
-    Option.Option<MailboxDocument>,
+    Option.Option<GraphDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
   > {
     const listing = { kind: 'graph-listing' } as const;
@@ -505,11 +507,11 @@ export function createGraphReader(native: NativeGraphMailbox) {
       entry.label,
     );
     return next.pipe(
-      Option.flatMap(({ messages, checkpoint }) =>
-        isGraphCheckpoint(checkpoint)
-          ? Option.some({ label: entry.label, messages, checkpoint })
-          : Option.none(),
-      ),
+      Option.map(({ messages, checkpoint }) => ({
+        label: entry.label,
+        messages,
+        checkpoint,
+      })),
     );
   });
 
