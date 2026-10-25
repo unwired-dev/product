@@ -3430,7 +3430,7 @@ export function createGmailInbox(
           GmailInvalidPage: () => Effect.void,
         }),
         Effect.catchTag('SyncFailure', (failure) =>
-          prefetchFailure(reading, 'History backfill failed:')(failure),
+          historyFailure(failure, reading),
         ),
         Effect.ensuring(
           Effect.suspend(() => {
@@ -3471,6 +3471,7 @@ export function createGmailInbox(
     remoteContent.releaseAll();
     queued.length = 0;
     shown = undefined;
+    reveals.clear();
     notice = undefined;
     authenticationRejected = false;
     imagesAwaitingGmail.clear();
@@ -3530,6 +3531,18 @@ export function createGmailInbox(
         }),
       ),
     );
+
+  function historyFailure(
+    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
+    reading: number,
+  ) {
+    if (owner !== reading || forgotten) {
+      return Effect.void;
+    }
+    return failure.kind === 'locked' || failure.kind === 'revoked'
+      ? recover(failure)
+      : prefetchFailure(reading, 'History read failed:')(failure);
+  }
 
   // Intake uses its own permit: a blocked Gmail read must not delay recording intent. Native
   // compare-and-swap fences concurrent sync commits; each intake ID also reconciles a lost commit
@@ -4433,13 +4446,15 @@ export function createGmailInbox(
         target: 0,
       };
       if (entry.messages.length >= entry.target) {
-        entry.target = Math.max(entry.messages.length, cached.length) + pageSize;
+        entry.target =
+          Math.max(entry.messages.length, cached.length) + pageSize;
       }
       reveals.set(label, entry);
+      const reading = owner;
       void runLogged(
         reveal(label).pipe(
-          Effect.catchTag('SyncFailure', ({ diagnostic }) =>
-            Effect.logError('History reveal failed:', diagnostic),
+          Effect.catchTag('SyncFailure', (failure) =>
+            historyFailure(failure, reading),
           ),
         ),
       );

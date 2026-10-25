@@ -169,11 +169,40 @@ describe('gmail history backfill', () => {
     await backfilled(inbox);
     inbox.showOlder('INBOX');
     await vi.waitFor(() => {
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledOnce();
     });
     await scrolled(inbox, 'INBOX', 400);
     expect(shown(inbox, 'INBOX')).toHaveLength(400);
   });
+
+  it.each([
+    { code: 'mailbox-revoked', kind: 'loading', removals: 1 },
+    { code: 'locked', kind: 'locked', removals: 0 },
+  ])(
+    'closes access when scrolling discovers $code',
+    async ({ code, kind, removals }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      mailbox(gmail, 400, 0);
+      const removed = vi.fn<() => void>();
+      const inbox = createGmailInbox(
+        {
+          ...gmail.native,
+          openMailboxSegment: vi
+            .fn<Gmail['native']['openMailboxSegment']>()
+            .mockRejectedValue({ code }),
+        },
+        { removed },
+      );
+      await inbox.load();
+      await backfilled(inbox);
+      inbox.showOlder('INBOX');
+      await vi.waitFor(() => {
+        expect(inbox.getSnapshot().kind).toBe(kind);
+      });
+      expect(removed).toHaveBeenCalledTimes(removals);
+    },
+  );
 
   it('downloads All Mail in pages after the Inbox is usable', async () => {
     expect.hasAssertions();
