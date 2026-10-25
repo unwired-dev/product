@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 2,
     borderRadius: 14,
   },
 });
@@ -235,6 +235,8 @@ function SidebarToggle({
           shown ? 'native.hideSidebar' : 'native.showSidebar',
         )}
         accessibilityRole="button"
+        // The control's accent/ink ring replaces the system focus ring.
+        enableFocusRing={false}
         focusable
         onBlur={() => {
           setFocused(false);
@@ -243,9 +245,14 @@ function SidebarToggle({
           setFocused(true);
         }}
         onPress={onPress}
-        style={[
+        style={({ pressed }) => [
           styles.toggleTarget,
-          { borderColor: focused ? colors.accentInk : 'transparent' },
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : 'transparent',
+            borderColor: focused ? colors.accentInk : 'transparent',
+          },
         ]}>
         <SFSymbol
           name="sidebar.leading"
