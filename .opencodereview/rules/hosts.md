@@ -126,6 +126,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `onboarding.tsx.Welcome` stopping the Restoring seal's CSS animation only by
+  removing its declaration. Follow the installed engine's unregister path and
+  React Native's filtered prop diff: unregistering can leave the last native
+  opacity when the remaining props produce no native update. Restore a fully
+  opaque seal without replacing or restarting the status line, and check a
+  mid-breath Reduce Motion toggle; declaration absence in Jest proves neither
+  the opacity reset nor native animation appearance.
 - Mobile `organize-motion` starting a reader action's exit after an estimated
   Back duration or route closure. Follow the native Split column's completed
   appearance through `_layout.tsx` and Inbox, and exercise a delayed appearance;

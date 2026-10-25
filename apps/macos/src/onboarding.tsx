@@ -4,7 +4,6 @@ import type { ViewProps } from 'react-native';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useMemo } from 'react';
 import {
-  AccessibilityInfo,
   Animated,
   Easing,
   Pressable,
@@ -15,7 +14,12 @@ import {
   View,
 } from 'react-native';
 
-import { Button, ModalBackground, SFSymbol } from './design.tsx';
+import {
+  Button,
+  ModalBackground,
+  SFSymbol,
+  useReducedMotion,
+} from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -116,15 +120,31 @@ const easeInOut = Easing.bezier(0.42, 0, 0.58, 1);
 const easeOut = Easing.bezier(0, 0, 0.58, 1);
 
 // While launch reads the saved account, the seal breathes and the status arrives after a moment, so
-// a quick launch shows only the seal. Reduce Motion keeps the seal still.
+// a quick launch shows only the seal. Reduce Motion keeps the seal still, following changes.
 function useRestoringMotion(restoring: boolean) {
   const seal = useMemo(() => new Animated.Value(1), []);
   const status = useMemo(() => new Animated.Value(0), []);
+  const reduced = useReducedMotion();
   useEffect(() => {
     if (!restoring) {
       return undefined;
     }
-    let current = true;
+    const arriving = Animated.timing(status, {
+      toValue: 1,
+      duration: 200,
+      delay: 600,
+      easing: easeOut,
+      useNativeDriver: true,
+    });
+    arriving.start();
+    return () => {
+      arriving.stop();
+    };
+  }, [restoring, status]);
+  useEffect(() => {
+    if (!restoring || reduced) {
+      return undefined;
+    }
     const breathing = Animated.loop(
       Animated.sequence(
         [0.35, 1].map((toValue) =>
@@ -137,26 +157,12 @@ function useRestoringMotion(restoring: boolean) {
         ),
       ),
     );
-    const arriving = Animated.timing(status, {
-      toValue: 1,
-      duration: 200,
-      delay: 600,
-      easing: easeOut,
-      useNativeDriver: true,
-    });
-    arriving.start();
-    const breathe = async () => {
-      if (!(await AccessibilityInfo.isReduceMotionEnabled()) && current) {
-        breathing.start();
-      }
-    };
-    void breathe();
+    breathing.start();
     return () => {
-      current = false;
       breathing.stop();
-      arriving.stop();
+      seal.setValue(1);
     };
-  }, [restoring, seal, status]);
+  }, [restoring, reduced, seal]);
   return { seal, status };
 }
 

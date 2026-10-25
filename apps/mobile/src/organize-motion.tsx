@@ -11,7 +11,7 @@ import {
   restingRowMotion,
 } from '@private-email/mail-core/mailboxes';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -22,6 +22,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { useReducedMotion } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
 
 // The approved removal and Undo motion. Rows apply Reduce Motion themselves, so Reanimated's own
@@ -47,33 +48,6 @@ type Shown<I> = Omit<ShownRows<I>, 'covered'> &
       | Readonly<{ mailbox: string; id: string; folder?: string }>
       | undefined;
   }>;
-
-// Reduce Motion, following changes while the list is shown.
-function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    let current = true;
-    const read = async () => {
-      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
-      if (current) {
-        setReduced(enabled);
-      }
-    };
-    void read();
-    const subscription = AccessibilityInfo.addEventListener(
-      'reduceMotionChanged',
-      (enabled) => {
-        current = false;
-        setReduced(enabled);
-      },
-    );
-    return () => {
-      current = false;
-      subscription.remove();
-    };
-  }, []);
-  return reduced;
-}
 
 // Removal and Undo continuity for a list: the sections with leaving rows still in place, each
 // row's motion, and the interruptions that finish rows still leaving.
