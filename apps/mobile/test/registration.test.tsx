@@ -1514,6 +1514,64 @@ describe('product registration', () => {
     expect(screen.queryByText(failure)).toBeNull();
   });
 
+  it('keeps an unconfirmed mailbox removal open without claiming it is connected', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-declined');
+    const readRegistration = synthetic.vault.registration;
+    const registration = jest.spyOn(synthetic.vault, 'registration');
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await render(
+      <RegistrationGate
+        store={started(createRegistration(synthetic.vault))}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    const button = (name: string) => screen.getByRole('button', { name });
+    await press('Continue');
+    await press('Sign in with Apple');
+    await press('Choose another Google mailbox');
+    await backToSettings();
+    await openSettings('Email Accounts');
+    const remove = 'Remove other@example.invalid';
+    await press(remove);
+    const { removeMailbox } = synthetic.vault;
+    jest
+      .spyOn(synthetic.vault, 'removeMailbox')
+      .mockImplementationOnce(async (id) => {
+        try {
+          return await removeMailbox(id);
+        } finally {
+          registration.mockRejectedValue(
+            Object.assign(new Error('Synthetic read failure'), {
+              code: 'unavailable',
+            }),
+          );
+        }
+      });
+    synthetic.backend.loseReply = true;
+    await press(remove);
+    const unconfirmed =
+      'Couldn’t confirm whether other@example.invalid was removed. Try again.';
+    await expect(screen.findByText(unconfirmed)).resolves.toBeVisible();
+    expect(announce).toHaveBeenCalledWith(unconfirmed);
+    expect([
+      button(remove).props.accessibilityState?.disabled,
+      button('Cancel').props.accessibilityState?.disabled,
+    ]).toStrictEqual([false, false]);
+    registration.mockImplementation(readRegistration);
+    synthetic.backend.loseReply = false;
+    await press(remove);
+    expect(screen.queryByText('other@example.invalid')).toBeNull();
+    expect(screen.queryByText(unconfirmed)).toBeNull();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves adding, switching, reauthorizing and removing mailboxes. */
   it('adds, switches, reauthorizes and removes Gmail mailboxes without mixing their mail', async () => {
     expect.hasAssertions();

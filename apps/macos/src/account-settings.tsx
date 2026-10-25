@@ -99,7 +99,9 @@ function RemoveConfirmation({
               return;
             }
             const message = t(
-              'mailboxes.removeFailed',
+              failure === 'unconfirmed'
+                ? 'mailboxes.removeUnconfirmed'
+                : 'mailboxes.removeFailed',
               failure === 'offline' ? { address, context: 'mac' } : { address },
             );
             setFailed(message);

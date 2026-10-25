@@ -131,7 +131,7 @@ export type RegistrationState = Readonly<{
   profileFailure?: ProfileFailure;
   // The connection whose New Mail Notifications could not be changed; its policy is unchanged.
   notificationFailure?: string;
-  // Why the Mailbox Connection being removed could not be; it is still connected.
+  // Why removal failed, or could not be confirmed after saved state became unreadable.
   mailboxRemovalFailure?: MailboxRemovalFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
   // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
@@ -145,7 +145,7 @@ export type RegistrationState = Readonly<{
 }>;
 
 // `offline`: Product Sync or the mail provider could not be reached.
-export type MailboxRemovalFailure = 'offline' | 'failed';
+export type MailboxRemovalFailure = 'offline' | 'failed' | 'unconfirmed';
 
 export type AccountRemoval = 'sign-out' | 'deletion';
 // Convex refused the deletion before removing anything, for example after a stale sign-in.
@@ -685,6 +685,10 @@ export function createRegistration(vault: NativeRegistrationVault) {
               ),
           }),
         ),
+        (snapshot) => ({
+          ...settled(snapshot),
+          mailboxRemovalFailure: 'unconfirmed',
+        }),
       ),
     createProfile: (name: string) =>
       changeProfile(request(native.createProfile(name))),
