@@ -11,7 +11,7 @@ import { ActivityIndicator } from 'react-native';
 import { Button } from './design.tsx';
 import { ImapForm } from './imap-setup.tsx';
 import { Label } from './label.tsx';
-import { LanguageSelector } from './language-selector.tsx';
+import { WelcomeLanguage } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import {
   FinePrint,
@@ -110,7 +110,7 @@ export function SignedOutPage({
           openSettings(undefined, 'errorReporting');
         }}
       />
-      <LanguageSelector />
+      <WelcomeLanguage />
     </SignIn>
   );
 }

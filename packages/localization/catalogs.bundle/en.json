@@ -72,6 +72,8 @@
   "language": {
     "title": "Language",
     "system": "System default",
+    "systemDefault": "System Default",
+    "detail": "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
     "saveFailed": "The language could not be saved. Try again."
   },
   "native": {

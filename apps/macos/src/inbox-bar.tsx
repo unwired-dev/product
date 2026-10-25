@@ -24,7 +24,7 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 2,
     borderRadius: 20,
   },
   search: { ...textStyles.body, flex: 1, minHeight: 40 },
@@ -132,6 +132,8 @@ function NewMessageButton({
           accessibilityRole="button"
           accessibilityState={{ disabled }}
           disabled={disabled}
+          // The control's accent/ink ring replaces the system focus ring.
+          enableFocusRing={false}
           focusable
           onBlur={() => {
             setFocused(false);
@@ -142,13 +144,19 @@ function NewMessageButton({
           onPress={() => {
             void compose();
           }}
-          style={[
+          style={({ pressed }) => [
             styles.newMessage,
-            { borderColor: focused ? colors.accentInk : 'transparent' },
+            {
+              backgroundColor: pressed
+                ? colors.accentSelectionSubtle
+                : 'transparent',
+              borderColor: focused ? colors.accentInk : 'transparent',
+              opacity: disabled ? 0.4 : 1,
+            },
           ]}>
           <SFSymbol
             name="square.and.pencil"
-            color={disabled ? colors.textSecondary : colors.accentInk}
+            color={colors.accentInk}
           />
         </Pressable>
       </GlassGroup>

@@ -14,10 +14,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import Animated, { css, useReducedMotion } from 'react-native-reanimated';
+import Animated, { css } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Glass, SFSymbol } from './design.tsx';
+import { Glass, SFSymbol, useReducedMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -200,6 +200,7 @@ export function Welcome({
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
+  const breathing = restoring && !reduced;
   const ink = { color: colors.brandOnDeep };
   // Welcome's own content keeps its place while launch progress shows, unseen and unreachable.
   const hidden = restoring
@@ -264,12 +265,14 @@ export function Welcome({
         scrollEnabled={!restoring}>
         <View
           style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
+          {/* A detached CSS animation can retain native opacity; replace only the seal. */}
           <Animated.View
+            key={breathing ? 'breathing' : 'still'}
             style={[
               styles.seal,
               ipad && styles.ipadSeal,
               { backgroundColor: colors.brandSeal },
-              restoring && !reduced && motion.breathing,
+              breathing && motion.breathing,
             ]}
           />
           <View>

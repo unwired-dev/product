@@ -87,16 +87,9 @@ export function NavigationChrome(props: NavigationChromeProps) {
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
 
-// Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
-// A menu barely grows, a sheet grows from its control and a dropped panel arrives 8pt from above.
-export function useMenuMotion(open: boolean, kind: 'menu' | 'grow' | 'drop') {
-  const [shown, setShown] = useState(open);
-  const progress = useMemo(() => new Animated.Value(0), []);
+// Reduce Motion, following changes while shown. It reads as on until the system answers.
+export function useReducedMotion() {
   const [reduced, setReduced] = useState(true);
-  const enteringDuration = kind === 'grow' && !reduced ? 300 : 200;
-  if (open && !shown) {
-    setShown(true);
-  }
   useEffect(() => {
     let current = true;
     const read = async () => {
@@ -118,6 +111,19 @@ export function useMenuMotion(open: boolean, kind: 'menu' | 'grow' | 'drop') {
       subscription.remove();
     };
   }, []);
+  return reduced;
+}
+
+// Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
+// A menu barely grows, a sheet grows from its control and a dropped panel arrives 8pt from above.
+export function useMenuMotion(open: boolean, kind: 'menu' | 'grow' | 'drop') {
+  const [shown, setShown] = useState(open);
+  const progress = useMemo(() => new Animated.Value(0), []);
+  const reduced = useReducedMotion();
+  const enteringDuration = kind === 'grow' && !reduced ? 300 : 200;
+  if (open && !shown) {
+    setShown(true);
+  }
   useEffect(() => {
     const animation = Animated.timing(progress, {
       toValue: open ? 1 : 0,

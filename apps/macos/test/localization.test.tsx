@@ -1,9 +1,11 @@
 import { fireEvent, render, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
+import { LanguageSettings } from '../src/language-selector.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
 import { PreviewWindow } from '../src/window.tsx';
+import { chooseMenuItem, menuItems } from './native-menu.ts';
 
 jest.mock(
   // oxlint-disable-next-line vitest/prefer-import-in-mock -- Test-only language; production ships English.
@@ -59,8 +61,18 @@ function Surface() {
       <View testID="second">
         <PreviewWindow windowId="second" />
       </View>
+      <LanguageSettings />
     </View>
   );
+}
+
+// Settings' Language pop-up, and choosing an interface language from its menu.
+const languagePopUp = (app: Awaited<ReturnType<typeof render>>) =>
+  app.getByRole('button', { name: 'Language' });
+
+async function choose(app: Awaited<ReturnType<typeof render>>, name: string) {
+  await fireEvent.press(languagePopUp(app));
+  await chooseMenuItem(name);
 }
 
 async function prepare() {
@@ -83,13 +95,15 @@ describe('language selection', () => {
     await prepare();
     const app = await render(<Surface />);
     const first = within(app.getByTestId('first'));
-    await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
+    await choose(app, 'System Default');
     await expect(
       first.findByRole('header', {
         name: /^Boîte de réception\. .* pour Preview mailbox$/u,
       }),
     ).resolves.toBeVisible();
-    expect(first.getByRole('radio', { name: 'System default' })).toBeChecked();
+    expect(languagePopUp(app)).toHaveAccessibilityValue({
+      text: 'System Default',
+    });
     expect(
       first.getByText(/unread(?: messages)? pour Preview mailbox$/u),
     ).toBeVisible();
@@ -104,9 +118,17 @@ describe('language selection', () => {
         name: /^Boîte de réception\. .* pour Preview mailbox$/u,
       }),
     ).toBeVisible();
-    await fireEvent.press(first.getByRole('radio', { name: 'English' }));
+    await fireEvent.press(languagePopUp(app));
+    expect(
+      menuItems().map(({ title, checked }) => [title, checked]),
+    ).toStrictEqual([
+      ['System Default', true],
+      ['English', false],
+      ['Français', false],
+    ]);
+    await chooseMenuItem('English');
     await expect(first.findByText('All Inboxes')).resolves.toBeVisible();
-    expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
+    expect(languagePopUp(app)).toHaveAccessibilityValue({ text: 'English' });
   });
   /* oxlint-enable vitest/max-expects */
 
@@ -118,17 +140,17 @@ describe('language selection', () => {
       .mockRejectedValueOnce(new Error('unavailable'));
     const app = await render(<Surface />);
     const first = within(app.getByTestId('first'));
-    await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
-    await expect(first.findByRole('alert')).resolves.toHaveTextContent(
+    await choose(app, 'System Default');
+    await expect(app.findByRole('alert')).resolves.toHaveTextContent(
       'The language could not be saved. Try again.',
     );
-    expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
-    await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
+    expect(languagePopUp(app)).toHaveAccessibilityValue({ text: 'English' });
+    await choose(app, 'System Default');
     await expect(
       first.findByRole('header', {
         name: /^Boîte de réception\. .* pour Preview mailbox$/u,
       }),
     ).resolves.toBeVisible();
-    expect(first.queryByRole('alert')).toBeNull();
+    expect(app.queryByRole('alert')).toBeNull();
   });
 });

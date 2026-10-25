@@ -320,8 +320,8 @@ delivery, accessibility and distribution still require their own checks.
 
 ## Interface language
 
-The Inbox, the welcome page and Settings' **Language** offer System default and a saved English
-override, which also titles the native menus and windows. See
+Settings' **Language** row and the end of the sign-in page offer System Default and a saved
+English override in a native pop-up, which also titles the native menus and windows. See
 [interface translations](localization.md) for catalogs, adding languages, native
 menu behavior, and language verification.
 
