@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { PressableProps } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, useState } from 'react';
@@ -147,6 +148,11 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
   },
   footer: { paddingHorizontal: spacing.m },
+  rowFocus: {
+    borderWidth: 2,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
   monogram: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -537,6 +543,45 @@ export function SettingsRow({
         <View style={styles.trailing}>{children}</View>
       )}
     </View>
+  );
+}
+
+// A row that acts when clicked: the subtle selection fill while pressed and, on keyboard focus,
+// the 2pt accent/ink ring in place of the system focus ring, drawn over the row so layout holds.
+export function SettingsRowButton({
+  children,
+  ...props
+}: Omit<PressableProps, 'style' | 'children'> & {
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  const [focused, setFocused] = useState(false);
+  return (
+    <Pressable
+      {...props}
+      enableFocusRing={false}
+      focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
+      style={({ pressed }) =>
+        pressed && { backgroundColor: colors.accentSelectionSubtle }
+      }>
+      {children}
+      {focused ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.rowFocus,
+            { borderColor: colors.accentInk },
+          ]}
+        />
+      ) : null}
+    </Pressable>
   );
 }
 

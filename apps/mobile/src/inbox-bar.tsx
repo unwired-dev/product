@@ -84,6 +84,14 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     paddingHorizontal: spacing.l,
   },
+  // A toast centered 12pt above the 48pt bar.
+  notice: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: spacing.l,
+  },
   side: {
     flex: 1,
     flexDirection: 'row',
@@ -347,11 +355,15 @@ export function SearchField({
 // rather than over the list column. Compact layouts provide none and keep the bar in the list.
 export function createWindowBar() {
   // A hidden bar stays mounted so its controls keep their commands.
-  let bar: Readonly<{ content: ReactNode; hidden: boolean }> | null = null;
+  let bar: Readonly<{
+    content: ReactNode;
+    hidden: boolean;
+    notice: ReactNode;
+  }> | null = null;
   const listeners = new Set<() => void>();
   return {
-    show: (content: ReactNode, hidden = false) => {
-      bar = content === null ? null : { content, hidden };
+    show: (content: ReactNode, hidden = false, notice: ReactNode = null) => {
+      bar = content === null ? null : { content, hidden, notice };
       for (const listener of listeners) {
         listener();
       }
@@ -426,6 +438,17 @@ export function WindowBarHost({
         ]}>
         {bar.content}
       </View>
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.notice,
+          {
+            bottom: bottom + 48 + spacing.m,
+            display: bar.hidden ? 'none' : 'flex',
+          },
+        ]}>
+        {bar.notice}
+      </View>
     </>
   );
 }
@@ -437,12 +460,15 @@ export function FloatingBar({
   paddingBottom = spacing.l,
   leading,
   trailing,
+  notice = null,
   children,
 }: {
   readonly hidden?: boolean;
   readonly paddingBottom?: number;
   readonly leading: ReactNode;
   readonly trailing: ReactNode;
+  // A toast above the bar.
+  readonly notice?: ReactNode;
   // The search field, or the button that opens it.
   readonly children: ReactNode;
 }) {
@@ -463,7 +489,7 @@ export function FloatingBar({
     </>
   );
   useLayoutEffect(() => {
-    windowBar?.show(content, hidden);
+    windowBar?.show(content, hidden, notice);
   });
   useLayoutEffect(
     () => () => {
@@ -486,6 +512,19 @@ export function FloatingBar({
           {leading}
           {children}
           {trailing}
+        </View>
+      ) : null}
+      {windowBar === undefined ? (
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.notice,
+            {
+              bottom: paddingBottom + 48 + spacing.m,
+              display: hidden ? 'none' : 'flex',
+            },
+          ]}>
+          {notice}
         </View>
       ) : null}
     </>

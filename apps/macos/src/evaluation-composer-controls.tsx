@@ -1,6 +1,7 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
+import type { TranslationLanguage } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
@@ -22,12 +23,15 @@ import { ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { AssistanceContext } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
-import { TranslationContext } from './translation.tsx';
+import { TranslationContext, useTargetLanguages } from './translation.tsx';
 
 const s = composerStyles;
 
 export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
-type Capture = (purpose: CapturedDraftText['purpose']) => void;
+type Capture = (
+  purpose: CapturedDraftText['purpose'],
+  target?: TranslationLanguage,
+) => void;
 
 // The current composer's file controls, through the system open panel. Native code reads the
 // chosen files.
@@ -55,6 +59,13 @@ export function PageFormatBar({
   const { t } = useLocalization();
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
+  const targetLanguages = useTargetLanguages(
+    translation,
+    undefined,
+    (language) => {
+      onCapture('translate', language);
+    },
+  );
   return (
     <FormatBar
       active={page.marks}
@@ -107,7 +118,7 @@ export function PageFormatBar({
               : [
                   {
                     key: 'translate',
-                    title: t('translation.translate'),
+                    title: t('translation.translateTo'),
                     accessibilityLabel: t(
                       'translation.translateSelectionLabel',
                     ),
@@ -118,9 +129,7 @@ export function PageFormatBar({
                         translationInputLimit + 1,
                       ),
                     ),
-                    run: () => {
-                      onCapture('translate');
-                    },
+                    items: targetLanguages,
                   },
                 ]),
             ...(assistance !== undefined && canSuggestReply(draft)

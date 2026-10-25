@@ -15,7 +15,11 @@ fallback and nothing is downloaded by the app.
   **Summarize**. Opening a message never translates it.
 - Choosing **Translate** lists the target languages the device's Translation
   supports. Nothing runs until the person picks one; picking another language
-  replaces the pending or shown translation.
+  replaces the pending or shown translation. On Mac, **Translate** is a native
+  pull-down menu headed **Translate Into**; while a translation shows, it becomes a
+  pop-up naming the target, with the chosen language checked. The menu reads the
+  language list once assistance is on, so it can open with it; no mail text is sent
+  until a language is chosen.
 - A reader translation reads only the readable text already shown: the plain-text
   presentation of a Gmail or Microsoft body from the encrypted cache, or the preview fixture's
   body. It never fetches a missing body, attachments, Inline Images or remote
@@ -24,11 +28,14 @@ fallback and nothing is downloaded by the app.
   inside a surrogate pair), and a cut translation says so.
 - A reader translation is a read-only preview beside the unchanged message, naming
   the identified source language and the target and saying it was made on this
-  device, may be inaccurate and is not saved. **Dismiss** forgets it. It is never
+  device, may be inaccurate and is not saved. **Dismiss** (**Show Original** on Mac)
+  forgets it. It is never
   stored, synchronized or written into mail.
 - In a Draft, **Translate** in the formatting toolbar is enabled while body text is
   selected. It captures the selected text without list markers and opens a review
-  panel. The Draft is unchanged until **Replace selection**, which replaces exactly
+  panel. On Mac, **Translate** is a menu of the same languages, and the Writing tools
+  menu's **Translate To** submenu lists them; choosing one captures the selection
+  and starts that translation. The Draft is unchanged until **Replace selection**, which replaces exactly
   the captured selection as one edit that one **Undo** reverts. **Keep original**
   closes the panel. When the translation retains the selected line breaks, those
   lines keep their list and block formatting. The inserted text takes the formatting of the text

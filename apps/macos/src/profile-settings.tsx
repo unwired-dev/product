@@ -16,13 +16,13 @@ import {
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput } from 'react-native';
+import { Alert, StyleSheet, Text, TextInput } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
-import { SettingsGroup, SettingsRow } from './settings.tsx';
+import { SettingsGroup, SettingsRow, SettingsRowButton } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -185,7 +185,7 @@ export function MailProfilesSettings({
     <>
       <SettingsGroup title={t('profiles.settings.profiles')}>
         {ids.map((id) => (
-          <Pressable
+          <SettingsRowButton
             key={id}
             accessibilityRole="button"
             accessibilityLabel={nameOf(id)}
@@ -196,15 +196,9 @@ export function MailProfilesSettings({
                 ? { text: t('profiles.startup') }
                 : undefined
             }
-            focusable
             onPress={() => {
               setChosen(id);
-            }}
-            style={({ pressed }) =>
-              pressed && {
-                backgroundColor: colors.accentSelectionSubtle,
-              }
-            }>
+            }}>
             <SettingsRow
               icon="person.crop.rectangle.stack"
               title={nameOf(id)}
@@ -220,12 +214,11 @@ export function MailProfilesSettings({
                 color={colors.textSecondary}
               />
             </SettingsRow>
-          </Pressable>
+          </SettingsRowButton>
         ))}
-        <Pressable
+        <SettingsRowButton
           accessibilityRole="button"
           accessibilityLabel={t('profiles.add')}
-          focusable
           onPress={() => {
             promptNewProfile(t, async (name) => {
               await store.createProfile(name);
@@ -236,7 +229,7 @@ export function MailProfilesSettings({
             title={t('profiles.add')}
             titleTone="accent"
           />
-        </Pressable>
+        </SettingsRowButton>
       </SettingsGroup>
       <SettingsGroup
         title={nameOf(selected)}
@@ -283,16 +276,15 @@ export function MailProfilesSettings({
       )}
       {selected === defaultProfile ? null : (
         <SettingsGroup footer={t('profiles.settings.removeFooter')}>
-          <Pressable
+          <SettingsRowButton
             accessibilityRole="button"
             accessibilityLabel={t('profiles.remove')}
-            focusable
             onPress={confirmRemoval}>
             <SettingsRow
               title={t('profiles.remove')}
               titleTone="destructive"
             />
-          </Pressable>
+          </SettingsRowButton>
         </SettingsGroup>
       )}
       {choices === undefined ? null : (

@@ -22,7 +22,7 @@ import type { SettingsDestination } from './settings.tsx';
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { errorReporting } from './registration.ts';
-import { SettingsGroup, SettingsRow } from './settings.tsx';
+import { SettingsGroup, SettingsRow, SettingsRowButton } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 export const ErrorReportingContext =
@@ -111,12 +111,11 @@ export function ErrorReportingEntry({
         );
   return (
     <SettingsGroup title={t('errorReporting.title')}>
-      <Pressable
+      <SettingsRowButton
         accessibilityLabel={t('errorReporting.title')}
         accessibilityRole="button"
         accessibilityValue={status === undefined ? undefined : { text: status }}
-        onPress={onPress}
-        focusable>
+        onPress={onPress}>
         <SettingsRow title={t('errorReporting.title')}>
           {status === undefined ? null : (
             <Text style={[textStyles.body, { color: colors.textSecondary }]}>
@@ -129,7 +128,7 @@ export function ErrorReportingEntry({
             color={colors.textSecondary}
           />
         </SettingsRow>
-      </Pressable>
+      </SettingsRowButton>
     </SettingsGroup>
   );
 }

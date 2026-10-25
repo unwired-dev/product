@@ -528,9 +528,11 @@ final class WindowTests: XCTestCase {
     }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
       window.webViews.staticTexts.firstMatch.doubleClick()
-      self.writingTool("Translate the selected text", in: window, of: app).click()
-      window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Translate into German"))
-        .firstMatch.click()
+      // Translate To opens its submenu of the device's languages.
+      self.writingTool("Translate the selected text", in: window, of: app).hover()
+      let german = app.menuItems["Translate into German"]
+      XCTAssertTrue(german.waitForExistence(timeout: 10))
+      german.click()
     }
     window.buttons["Close"].click()
     waitUntil { window.webViews.count == 0 }

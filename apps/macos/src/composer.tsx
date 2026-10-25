@@ -23,7 +23,10 @@ import type {
   Selection,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
-import type { NativeTranslation } from '@private-email/mail-core/translation';
+import type {
+  NativeTranslation,
+  TranslationLanguage,
+} from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 import type {
   KeyEvent,
@@ -132,7 +135,11 @@ import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
-import { DraftTranslation, TranslationContext } from './translation.tsx';
+import {
+  DraftTranslation,
+  TranslationContext,
+  useTargetLanguages,
+} from './translation.tsx';
 
 // The body sits 32pt in; fields, chips and notices 24pt, with a 64pt right-aligned label column.
 const bodyInset = 32;
@@ -1254,17 +1261,20 @@ export function CapturedAssistance({
   onApply,
   onClose,
 }: {
-  readonly captured: CapturedDraftText;
+  readonly captured: CapturedDraftText & {
+    readonly target?: TranslationLanguage | undefined;
+  };
   readonly assistance: NativeAssistance | undefined;
   readonly translation: NativeTranslation | undefined;
   readonly onApply: (text: string) => void;
   readonly onClose: () => void;
 }) {
   if (captured.purpose === 'translate') {
-    return translation === undefined ? null : (
+    return translation === undefined || captured.target === undefined ? null : (
       <DraftTranslation
         translator={translation}
         text={captured.text}
+        target={captured.target}
         onApply={onApply}
         onClose={onClose}
       />
@@ -1438,7 +1448,12 @@ function Editor({
   // its result is applied or the original kept.
   const profile = use(MailAssistanceProfileContext);
   const [captured, setCaptured] = useState<
-    CapturedDraftText & { readonly id: number; readonly profile: string }
+    CapturedDraftText & {
+      readonly id: number;
+      readonly profile: string;
+      // The language a translation was requested into.
+      readonly target?: TranslationLanguage | undefined;
+    }
   >();
   const captureNow = useRef<typeof captured>(undefined);
   const assistanceEnabled = useMailAssistanceLifetime(
@@ -1710,7 +1725,11 @@ function Editor({
     }
   };
   // Captures authored text for an explicitly requested translation, rewrite or reply suggestion.
-  const capture = (purpose: CapturedDraftText['purpose'], at: Selection) => {
+  const capture = (
+    purpose: CapturedDraftText['purpose'],
+    at: Selection,
+    target?: TranslationLanguage,
+  ) => {
     if (
       sendingNow.current ||
       !lifetime.current.mounted ||
@@ -1723,6 +1742,7 @@ function Editor({
       ...captureDraftText(purpose, authored.current, at),
       id: captureGeneration.current,
       profile,
+      target,
     };
     captureNow.current = next;
     setCaptured(next);
@@ -1960,6 +1980,23 @@ function Editor({
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
+  const targetLanguages = useTargetLanguages(
+    translation,
+    undefined,
+    (language) => {
+      const at = selectionNow.current;
+      const { body } = authored.current;
+      const text = selectedText(body, at, translationInputLimit + 1);
+      if (
+        sendingNow.current ||
+        !lifetime.current.mounted ||
+        !hasTranslatableText(text)
+      ) {
+        return;
+      }
+      capture('translate', at, language);
+    },
+  );
 
   return (
     <View
@@ -2037,27 +2074,16 @@ function Editor({
         />
         <View style={styles.grow} />
         {translation === undefined ? null : (
-          <Button
+          <PopUp
             disabled={lockedUnless(
               hasTranslatableText(
                 selectedText(draft.body, selection, translationInputLimit + 1),
               ),
             )}
+            icon="translate"
             label={t('translation.translate')}
             accessibilityLabel={t('translation.translateSelectionLabel')}
-            onPress={() => {
-              const at = selectionNow.current;
-              const { body } = authored.current;
-              const text = selectedText(body, at, translationInputLimit + 1);
-              if (
-                sendingNow.current ||
-                !lifetime.current.mounted ||
-                !hasTranslatableText(text)
-              ) {
-                return;
-              }
-              capture('translate', at);
-            }}
+            items={targetLanguages}
           />
         )}
         {assistance === undefined ? null : (
