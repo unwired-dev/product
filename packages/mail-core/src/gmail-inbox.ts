@@ -1676,9 +1676,25 @@ export function createGmailInbox(
     );
   };
 
+  // The next step of a Microsoft folder's own round. A folder Graph cannot read now, such as a
+  // removed one, keeps its saved messages until the next synchronization.
+  const readFolder = (scope: MailboxScope, entry: ViewEntry) => {
+    const failed = Effect.sync(() => {
+      failedViews.add(entry.label);
+    }).pipe(Effect.as(Option.none()));
+    return graph === undefined
+      ? Effect.succeedNone
+      : graph.advanceView(scope, entry).pipe(
+          Effect.catchTags({
+            GmailNotFound: () => failed,
+            SyncFailure: (failure) =>
+              failure.kind === 'retry' ? failed : Effect.fail(failure),
+          }),
+        );
+  };
+
   // After a current Microsoft Inbox, a requested folder becomes the most recently opened and each
-  // folder takes the next step of its own round. A folder Graph cannot read now, such as a removed
-  // one, keeps its saved messages until the next synchronization.
+  // folder takes the next step of its own round.
   const advanceFolders = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
@@ -1691,23 +1707,20 @@ export function createGmailInbox(
     if (opened !== undefined) {
       return Option.some(opened);
     }
-    if (graph === undefined || step >= 200) {
-      return Option.none<MailboxDocument>();
-    }
     const readable = (document.views ?? []).filter(
       ({ label }) => !failedViews.has(label),
     );
     for (const entry of readable) {
-      const failed = Effect.sync(() => {
-        failedViews.add(entry.label);
-      }).pipe(Effect.as(Option.none()));
-      const next = yield* graph.advanceView(scope, entry).pipe(
-        Effect.catchTags({
-          GmailNotFound: () => failed,
-          SyncFailure: (failure) =>
-            failure.kind === 'retry' ? failed : Effect.fail(failure),
-        }),
-      );
+      const next = yield* readFolder(scope, entry);
+      // Folder work left after the round's page budget waits for the next synchronization, as the
+      // Inbox's does; the progress already committed stays.
+      if (Option.isSome(next) && step >= 200) {
+        return yield* new SyncFailure({
+          kind: 'retry',
+          cause: 'delta',
+          diagnostic: 'delta page limit',
+        });
+      }
       if (Option.isSome(next)) {
         return Option.some<MailboxDocument>({
           ...document,

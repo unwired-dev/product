@@ -319,6 +319,22 @@ describe('browsing Microsoft mail folders', () => {
     expect(ids(ready(inbox.getSnapshot()).messages)).toContain(newest.id);
   });
 
+  it('reports a folder round longer than one synchronization as unfinished, then finishes it', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ pageSize: 1 });
+    Array.from({ length: 201 }, (_, index) =>
+      graph.deliver({ subject: `Archived ${index}`, folder: 'archive' }),
+    );
+    const inbox = await opened(graph.native);
+    await inbox.openView('ARCHIVE');
+    expect(ready(inbox.getSnapshot()).sync).toBe('retry');
+    expect(view(inbox, 'ARCHIVE').status).toBe('failed');
+    expect(view(inbox, 'ARCHIVE').messages).toHaveLength(200);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    expect(view(inbox, 'ARCHIVE').status).toBe('current');
+  });
+
   it('offers only the well-known folders the mailbox has', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph();
