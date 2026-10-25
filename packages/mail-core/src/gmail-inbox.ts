@@ -3452,21 +3452,21 @@ export function createGmailInbox(
       Effect.gen(function* () {
         for (;;) {
           yield* shared.idle.await;
-          if (
-            !(yield* speculativeLane.withPermit(
-              semaphore.withPermit(
-                // A read may have begun while either permit was queued. Release both before waiting.
-                Effect.suspend(() =>
-                  shared.idle.isOpen()
-                    ? backfillStep(reading)
-                    : Effect.succeed(true),
-                ),
+          const more = yield* speculativeLane.withPermit(
+            semaphore.withPermit(
+              // A read may have begun while either permit was queued. Release both before waiting.
+              Effect.suspend(() =>
+                shared.idle.isOpen()
+                  ? backfillStep(reading)
+                  : Effect.succeed(true),
               ),
-            ))
-          ) {
+            ),
+          );
+          // Revealed rows follow segments another store folded, even when no step remains.
+          yield* reveals.revealAll;
+          if (!more) {
             return;
           }
-          yield* reveals.revealAll;
           // Let queued synchronization and prefetch acquire their permits before the next step.
           yield* Effect.yieldNow;
         }
