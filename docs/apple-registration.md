@@ -92,7 +92,7 @@ Connecting [Microsoft mail](microsoft-mail.md) after Apple sign-in requires no
 Google account or Gmail consent; other non-Gmail providers must keep that property.
 
 `APPLE_BUNDLE_ID` on the Convex deployment names the hosts' token audience,
-`dev.unwired.mail`, which the Swift prototype shares. It has no default: a
+`dev.unwired.mail`, which the retired Swift prototype shared. It has no default: a
 deployment without `APPLE_BUNDLE_ID` or `APPLE_PRODUCT_CLIENT_IDS` accepts no Apple
 token. Set `APPLE_PRODUCT_CLIENT_IDS` only to accept further comma-separated bundle
 IDs, then deploy the auth configuration. These are public token audiences.

@@ -14,7 +14,5 @@ export default extendOxfmtConfig({
     'tools/system-category-benchmark/custom/golden-v1.json',
     // Agent tools such as graft and turbo rewrite their managed AGENTS.md blocks.
     '**/AGENTS.md',
-    // Icon Composer owns this document's layout.
-    'apps/unwired-mail/unwired-mail/AppIcon.icon/icon.json',
   ],
 });

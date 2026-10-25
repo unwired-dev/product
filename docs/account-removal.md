@@ -118,7 +118,7 @@ follows:
 aborted the deletion before fencing anything and kept the account.
 
 The existing `productAccountDeletion:deleteProductAccount` action still requires an
-Apple authorization code; the Swift prototype uses it. Sign-out calls
+Apple authorization code; the retired Swift prototype used it. Sign-out calls
 `productAccount:unregisterTrustedDevice` for a Trusted Device, or
 `productAccount:unregisterPendingDevice` with the installation identifier for a
 Pending Device. If admission succeeded but its reply was lost, the latter removes

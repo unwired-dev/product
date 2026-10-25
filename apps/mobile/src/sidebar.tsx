@@ -346,7 +346,7 @@ function FolderRows({
   // A folder or Gmail view's name, SF Symbol and failed-read notice.
   const row = (folder: string, isInbox: boolean) => {
     if (gmail !== undefined) {
-      return gmailViewRow(t, gmail.state, folder);
+      return gmailViewRow(t, gmail, folder);
     }
     return {
       title: isInbox ? t('inbox.title') : folder,

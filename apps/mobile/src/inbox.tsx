@@ -570,8 +570,8 @@ function InboxFooter({
   readonly syncing: boolean;
   // Whether a signed-in account's mail, rather than sample messages, is listed.
   readonly connected: boolean;
-  // Whether the listed Gmail view keeps only its newest messages.
-  readonly limited: boolean;
+  // Says that the listed view keeps only its newest messages.
+  readonly limited: string | undefined;
   // The empty state.
   readonly children: ReactNode;
 }) {
@@ -582,11 +582,11 @@ function InboxFooter({
       {empty ? children : null}
       {syncing ? <SkeletonRows /> : null}
       <LanguageSelector />
-      {limited ? (
+      {limited === undefined ? null : (
         <Text style={[styles.footer, { color: colors.textSecondary }]}>
-          {t('inbox.footerView', { provider: t('mailProviders.gmail') })}
+          {limited}
         </Text>
-      ) : null}
+      )}
       <Text style={[styles.footer, { color: colors.textSecondary }]}>
         {connected ? t('inbox.footerConnected') : t('inbox.footer')}
       </Text>
@@ -831,7 +831,11 @@ export function Inbox({
         run: () => {
           leaving(
             leavesView(
-              gmailViewName(state, selected?.folder ?? inboxFolder),
+              gmailViewName(
+                state,
+                selected?.folder ?? inboxFolder,
+                mailbox.provider,
+              ),
               message.labels ?? [],
               action,
             ),

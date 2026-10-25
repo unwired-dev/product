@@ -4,6 +4,11 @@ Reviewer-only under the [implementation and review workflow](../agents/implement
 The [architecture index](../architecture/README.md) routes the replacement
 decisions and evidence.
 
+The Swift prototype and its local test harness were removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). Decisions about
+prototype-only implementations and tooling retain their historical scope; they
+do not establish current commands or replacement qualification.
+
 ## Numbering
 
 ADR filenames are stable and never renumbered. Some numbers were issued more than

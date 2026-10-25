@@ -3,7 +3,7 @@
 Private email client and Convex backend.
 
 The maintained clients are Expo for iPhone and iPad and native React Native macOS.
-The SwiftUI and Mac Catalyst prototype remains available. The maintained clients target a
+They target a
 [power-user Apple launch](docs/product/power-user-launch.md)
 with Gmail, IMAP/SMTP and Microsoft mail. Android and Windows remain later slices.
 Google and Apple Product Sign-In replace Apple-only login.
@@ -21,10 +21,8 @@ its evidence through the architecture index.
 - `apps/mobile`: Expo client; see its [current feature guides](docs/README.md).
 - `apps/macos`: AppKit React Native macOS client and windows.
 - `packages/mail-core`: framework-independent mail, identity, sync and assistance logic, plus theme tokens.
-- `apps/unwired-mail`: SwiftUI client for iPhone, iPad, and Mac Catalyst.
 - `packages/contracts`: shared API contracts and fixtures.
 - `packages/convex`: Convex backend.
-- `packages/mail-test-harness`: current local mail test tooling.
 
 One root workspace and lockfile use a shared catalog and named `mobile` and `macos` catalogs under
 [Expo workspace setup](docs/expo-client.md#dependencies-and-coding-rules).
@@ -86,9 +84,10 @@ terminal; non-interactive shells run the package scripts directly.
 
 If `.env.local` does not exist, copy `.env.example` to it before starting Convex.
 
-Follow [the Swift prototype setup](docs/swift-client.md) for app environment
-settings, signing, provider configuration, and current behavior. Keep credentials
-and developer-specific deployment values out of source control.
+Follow [Expo setup](docs/expo-client.md) and [Mac setup](docs/macos-client.md) for app
+environment settings and signing, and the [Apple](docs/apple-registration.md) and
+[Google](docs/google-registration.md) registration guides for provider configuration. Keep
+credentials and developer-specific deployment values out of source control.
 
 ## Validation
 
@@ -131,12 +130,12 @@ Run `pnpm format:fix` after `pnpm changeset` to format generated frontmatter bef
 
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 [the native validation guide](docs/agents/native-validation.md) for resource
-ownership during native checks. The [mail test environment](docs/mail-test-environment.md) documents the
-existing harness; the replacement's [isolated Mock Mail Sessions](docs/mock-mail-sessions.md) keep deterministic mocked journeys distinct from real integration evidence.
+ownership during native checks. [Isolated Mock Mail Sessions](docs/mock-mail-sessions.md) keep
+deterministic mocked journeys distinct from real integration evidence.
 
-CI covers both replacement hosts, shared core/contracts, and the retained Convex backend. Legacy
-Swift build, performance, Core Mail Loop and provider-qualification jobs are disabled
-by maintainer decision; their test sources and local commands remain available.
+CI covers both replacement hosts, shared core/contracts, and the retained Convex backend. The
+legacy SwiftMail provider-qualification job is disabled by maintainer decision; its test
+sources and local commands remain available.
 
 ## Working on the project
 

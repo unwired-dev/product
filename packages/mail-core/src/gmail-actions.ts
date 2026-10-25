@@ -44,6 +44,27 @@ export type GmailLabel = typeof GmailLabelSchema.Type;
 export const allMail = 'ALL_MAIL';
 // The views every Gmail mailbox has after its Inbox and its own labels.
 export const systemViews = [allMail, 'SPAM', 'TRASH'] as const;
+// A Microsoft mailbox's well-known folders after its Inbox, by their role's label: Sent Items,
+// Archive, Junk Email and Deleted Items.
+export const microsoftViews = ['SENT', 'ARCHIVE', 'SPAM', 'TRASH'] as const;
+// The organizing action whose folder each Microsoft role view lists; without that folder's role,
+// neither the action nor the view is offered.
+const folderActions = {
+  ARCHIVE: 'archive',
+  SPAM: 'spam',
+  TRASH: 'trash',
+} as const;
+// The views a mailbox offers besides its Inbox and its own labels or folders.
+export const providerViews = (
+  provider: MailProvider | undefined,
+  unavailableActions: ReadonlyArray<GmailAction['kind']> = [],
+): readonly string[] =>
+  provider === 'microsoft-graph'
+    ? microsoftViews.filter(
+        (view) =>
+          view === 'SENT' || !unavailableActions.includes(folderActions[view]),
+      )
+    : systemViews;
 
 export const gmailAction = {
   read: { kind: 'read', add: [], remove: ['UNREAD'] },
@@ -95,12 +116,28 @@ export const inInbox = (labels: readonly string[]) => inView('INBOX', labels);
 export const labelsOf = (message: GmailMessage) =>
   message.labels ?? (message.unread ? ['INBOX', 'UNREAD'] : ['INBOX']);
 
-// A Gmail view's name: the Inbox, one of the mailbox's own labels, All Mail, Spam or Trash.
+// Microsoft's names for the well-known folders it lists after the Inbox.
+const microsoftTitles = {
+  SENT: 'mailboxes.sentItems',
+  ARCHIVE: 'mailboxes.archive',
+  SPAM: 'mailboxes.junkEmail',
+  TRASH: 'mailboxes.deletedItems',
+} as const;
+
+// A view's name: the Inbox, one of the mailbox's own labels or folders, Gmail's All Mail, Spam or
+// Trash, or Microsoft's Sent Items, Archive, Junk Email or Deleted Items.
 export const gmailViewTitle = (
   t: Translate,
   view: string,
-  labels: readonly GmailLabel[],
+  {
+    labels,
+    provider,
+  }: Readonly<{ labels: readonly GmailLabel[]; provider: MailProvider }>,
 ) => {
+  const microsoft = microsoftViews.find((known) => known === view);
+  if (provider === 'microsoft-graph' && microsoft !== undefined) {
+    return t(microsoftTitles[microsoft]);
+  }
   if (view === allMail) {
     return t('mailboxes.allMail');
   }
@@ -115,8 +152,10 @@ const viewSymbols: Readonly<Record<string, string>> = {
   [allMail]: 'tray.2',
   SPAM: 'xmark.bin',
   TRASH: 'trash',
+  SENT: 'paperplane',
+  ARCHIVE: 'archivebox',
 };
-// The SF Symbol of a Gmail view's sidebar row; a label is a folder.
+// The SF Symbol of a view's sidebar row; a label is a folder.
 export const gmailViewSymbol = (view: string) => viewSymbols[view] ?? 'folder';
 
 export const relabel = (labels: readonly string[], action: GmailAction) => [

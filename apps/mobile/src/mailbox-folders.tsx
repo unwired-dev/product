@@ -75,7 +75,7 @@ export function useMailboxFolder<E>(
     failure: imapFolderFailed(browsing?.view)
       ? t('imap.foldersUnavailable')
       : undefined,
-    limited: false,
+    limited: undefined,
   };
 }
 
@@ -104,7 +104,7 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
   if (gmail === undefined) {
     return undefined;
   }
-  const { title, failure, limited } = gmailViewRow(t, gmail.state, folder);
+  const { title, failure, limited } = gmailViewRow(t, gmail, folder);
   const { inbox } = gmail;
   return {
     title,

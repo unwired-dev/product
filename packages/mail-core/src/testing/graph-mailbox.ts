@@ -10,7 +10,7 @@ import type { DraftFile } from '../outgoing-message.ts';
 import { assembled, createSyntheticGmail } from './gmail-mailbox.ts';
 
 // A controlled Microsoft Graph mailbox for tests. It answers the Graph requests a Microsoft Inbox
-// makes with Graph's response shapes: the Inbox list, delta rounds with page and delta links,
+// makes with Graph's response shapes: each folder's list, delta rounds with page and delta links,
 // messages and their attachments, folders, search, and read-state and move changes. The native
 // mailbox cache, bodies and files are the synthetic Gmail mailbox's, which follow the same native
 // rules for every provider.
@@ -82,8 +82,13 @@ const notFound = () =>
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error('Synthetic failure'), { code }));
 
-const deltaLink = (query: string) =>
-  `${graph}/me/mailfolders('inbox')/messages/delta?${query}`;
+const deltaLink = (folder: string, query: string) =>
+  `${graph}/me/mailfolders('${folder}')/messages/delta?${query}`;
+
+// A folder's messages, its delta or one of its messages, by a well-known folder's name or a folder's
+// ID, as `mailFolders/{folder}` or `mailFolders('{folder}')`.
+const folderMessagesPath =
+  /^\/v1\.0\/me\/mail[Ff]olders(?:\/(?<plain>[^/(]+)|\('(?<quoted>[^']+)'\))\/messages(?:\/(?<rest>[^/]+))?$/u;
 
 // Graph's attachment size counts more than the file's bytes.
 const graphSize = (attachment: SyntheticGraphAttachment) =>
@@ -150,6 +155,7 @@ export function createSyntheticGraph({
     body = { contentType: 'text', content: `${preview}\n\nSynthetic body.` },
     attachments = [],
     headers = [],
+    folder = 'inbox',
   }: {
     readonly from?: SyntheticGraphMessage['from'];
     readonly subject?: string;
@@ -159,6 +165,8 @@ export function createSyntheticGraph({
     readonly body?: SyntheticGraphMessage['body'];
     readonly attachments?: readonly SyntheticGraphAttachment[];
     readonly headers?: SyntheticGraphMessage['headers'];
+    // A well-known folder's name or a folder's ID.
+    readonly folder?: string;
   } = {}) => {
     nextId += 1;
     // Graph IDs are long URL-safe base64 text.
@@ -171,7 +179,7 @@ export function createSyntheticGraph({
       bodyPreview: preview,
       from,
       isRead,
-      folder: 'inbox',
+      folder,
       body,
       attachments,
       headers,
@@ -211,12 +219,15 @@ export function createSyntheticGraph({
     isRead,
     from: { emailAddress: from },
   });
-  const inInbox = (
-    message: SyntheticGraphMessage | undefined,
-  ): message is SyntheticGraphMessage => message?.folder === 'inbox';
-  const newest = () =>
+  const inFolder =
+    (folder: string) =>
+    (
+      message: SyntheticGraphMessage | undefined,
+    ): message is SyntheticGraphMessage =>
+      message?.folder === folder;
+  const newest = (folder: string) =>
     Arr.sort(
-      [...messages.values()].filter(inInbox),
+      [...messages.values()].filter(inFolder(folder)),
       Order.flip(
         Order.mapInput(
           Order.String,
@@ -225,9 +236,9 @@ export function createSyntheticGraph({
       ),
     );
 
-  // The first round lists every Inbox message over several pages; a later round names each
-  // message changed since its link, or `@removed` when it left the Inbox.
-  const delta = (url: URL) => {
+  // The first round lists every message in the folder over several pages; a later round names each
+  // message changed since its link, or `@removed` when it left the folder.
+  const delta = (url: URL, folder: string) => {
     const token = url.searchParams.get('$deltatoken');
     if (token !== null) {
       const after = Number(token.split('r')[0]);
@@ -241,11 +252,12 @@ export function createSyntheticGraph({
       return respond({
         value: changed.flatMap((id): unknown[] => {
           const message = messages.get(id);
-          return inInbox(message)
+          return inFolder(folder)(message)
             ? [listed(message)]
             : [{ id, '@removed': { reason: 'changed' } }];
         }),
         '@odata.deltaLink': deltaLink(
+          folder,
           rotating
             ? `$deltatoken=${changes.length}r${(rounds += 1)}`
             : `$deltatoken=${changes.length}`,
@@ -258,13 +270,15 @@ export function createSyntheticGraph({
       .split('.')
       .filter(Boolean)
       .map(Number);
-    const inbox = newest();
+    const listing = newest(folder);
     const end = offset + pageSize;
     return respond({
-      value: inbox.slice(offset, end).map(listed),
-      ...(end < inbox.length
-        ? { '@odata.nextLink': deltaLink(`$skiptoken=${end}.${issued}`) }
-        : { '@odata.deltaLink': deltaLink(`$deltatoken=${issued}`) }),
+      value: listing.slice(offset, end).map(listed),
+      ...(end < listing.length
+        ? {
+            '@odata.nextLink': deltaLink(folder, `$skiptoken=${end}.${issued}`),
+          }
+        : { '@odata.deltaLink': deltaLink(folder, `$deltatoken=${issued}`) }),
     });
   };
 
@@ -336,12 +350,12 @@ export function createSyntheticGraph({
       ? rejection(failure.code)
       : Promise.resolve({ status: failure.status, body: failure.body ?? '{}' });
 
-  const inboxPage = (url: URL) => {
+  const folderPage = (url: URL, folder: string) => {
     const offset = Number(url.searchParams.get('$skip') ?? 0);
     const until = url.searchParams
       .get('$filter')
       ?.replace('receivedDateTime le ', '');
-    const inbox = newest().filter(
+    const listing = newest(folder).filter(
       (each) =>
         until === undefined ||
         Date.parse(each.receivedDateTime) <= Date.parse(until),
@@ -349,8 +363,8 @@ export function createSyntheticGraph({
     const next = new URL(url);
     next.searchParams.set('$skip', String(offset + pageSize));
     return respond({
-      value: inbox.slice(offset, offset + pageSize).map(listed),
-      ...(offset + pageSize < inbox.length
+      value: listing.slice(offset, offset + pageSize).map(listed),
+      ...(offset + pageSize < listing.length
         ? {
             '@odata.nextLink': next.toString(),
           }
@@ -404,19 +418,34 @@ export function createSyntheticGraph({
       ? respond({ id: folderId(name) })
       : notFound();
   };
-  // One Inbox message, as a delta change is read; one that left the Inbox is not found there.
-  const inboxMessage = (url: URL) => {
-    if (
-      !url.pathname
-        .toLowerCase()
-        .startsWith('/v1.0/me/mailfolders/inbox/messages/')
-    ) {
+  // A well-known folder's name or a folder's ID as a path names it, or undefined when it is gone.
+  const pathFolder = (segment: string) => {
+    const name = decodeURIComponent(segment);
+    const known = name.toLowerCase();
+    if (known in wellKnown) {
+      return missingFolders.has(known) ? undefined : known;
+    }
+    return folders.has(name) ? name : undefined;
+  };
+  // A folder's newest messages, its delta, or one of its messages, as a delta change is read; a
+  // message that left the folder, and a folder that is gone, are not found.
+  const folderMessages = (url: URL) => {
+    const groups = folderMessagesPath.exec(url.pathname)?.groups;
+    if (groups === undefined) {
       return undefined;
     }
-    const found = messages.get(
-      decodeURIComponent(url.pathname.split('/').at(-1) ?? ''),
-    );
-    return inInbox(found) ? respond(listed(found)) : notFound();
+    const folder = pathFolder(groups.plain ?? groups.quoted ?? '');
+    if (folder === undefined) {
+      return notFound();
+    }
+    if (groups.rest === undefined) {
+      return folderPage(url, folder);
+    }
+    if (groups.rest === 'delta') {
+      return delta(url, folder);
+    }
+    const found = messages.get(decodeURIComponent(groups.rest));
+    return inFolder(folder)(found) ? respond(listed(found)) : notFound();
   };
   // Where a message is, as organizing reads it back.
   const placementRead = (url: URL) => {
@@ -536,17 +565,14 @@ export function createSyntheticGraph({
     if (failure !== undefined) {
       return fail(failure);
     }
-    if (url.pathname.toLowerCase() === '/v1.0/me/mailfolders/inbox/messages') {
-      return inboxPage(url);
-    }
-    if (url.pathname.endsWith('/messages/delta')) {
-      return delta(url);
-    }
-    if (url.pathname === '/v1.0/me/mailFolders/sentitems/messages') {
+    if (
+      url.pathname === '/v1.0/me/mailFolders/sentitems/messages' &&
+      url.searchParams.get('$filter')?.startsWith('internetMessageId') === true
+    ) {
       return sentCopies(url);
     }
     return (
-      inboxMessage(url) ??
+      folderMessages(url) ??
       folderRead(url) ??
       searchPage(url) ??
       placementRead(url) ??
@@ -754,6 +780,12 @@ export function createSyntheticGraph({
     restore: (id: string) => {
       change(id, (found) => {
         found.folder = 'inbox';
+      });
+    },
+    // The message moves to a well-known folder's name or a folder's ID, as in Outlook.
+    move: (id: string, folder: string) => {
+      change(id, (found) => {
+        found.folder = folder;
       });
     },
     // The message is deleted for good, as when emptied from Deleted Items in Outlook.

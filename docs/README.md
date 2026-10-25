@@ -3,8 +3,7 @@
 The maintained Expo and native Mac clients include production-provider features
 and explicit Mock Mail Sessions. Feature guides below own their current behavior
 and limitations. The launch specification owns target scope; GitHub issues own
-completion status. The retained SwiftUI and Mac Catalyst prototype has a separate
-maintenance route. Publication of a plan does not prove implementation or release.
+completion status. Publication of a plan does not prove implementation or release.
 
 ## Replacement requirements and operations
 
@@ -61,20 +60,18 @@ maintenance route. Publication of a plan does not prove implementation or releas
 - [Native validation and resource ownership](agents/native-validation.md)
 - [GitHub issue workflow and triage labels](agents/issue-tracker.md)
 - [Automated reviews and PR babysitting](agents/pull-request-babysitting.md)
+- [Protected Gmail test tenant](gmail-provider-test-tenant.md)
 
 The implementer uses this index to find requirements and operational guidance.
 Only the review agent opens architecture docs and decision records under the
 [implementation and review workflow](agents/implementation-review.md).
 
-## Current Swift maintenance
+## Retired Swift prototype
 
-These operating guides remain useful while the prototype is present. Their
-commands and results do not transfer to new hosts.
+The SwiftUI and Mac Catalyst prototype was removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). This guide records its
+behavior; it does not describe or qualify the maintained hosts.
 
-- [Swift setup and current behavior](swift-client.md)
-- [Scoped Swift agent guide](../apps/unwired-mail/AGENTS.md)
-- [Mail test environment](mail-test-environment.md)
-- [Protected Gmail test tenant](gmail-provider-test-tenant.md)
 - [Storage and Private Sync export](storage-and-product-sync-export.md)
 
 ## Review handoff
@@ -84,7 +81,6 @@ companions, ADRs, patterns, research, qualification evidence and historical sour
 Implementers do not open those files. The reviewer verifies applicable decisions
 and deferred release checks under the [handoff workflow](agents/implementation-review.md).
 
-Update affected operational documentation in each implementation slice. At
-[cutover #627](https://github.com/unwired-dev/product/issues/627), remove the remaining
-Swift implementation, build targets and tests after their replacement slices are
-complete. Prototype commands and results do not qualify replacement hosts.
+Update affected operational documentation in each implementation slice.
+[Cutover #627](https://github.com/unwired-dev/product/issues/627) tracks what remains of
+the prototype's retirement. Prototype commands and results do not qualify replacement hosts.

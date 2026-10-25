@@ -4,11 +4,7 @@ import convexPlugin from '@convex-dev/eslint-plugin';
 import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
-import {
-  boundaryExemptions,
-  boundaryRules,
-  effectRules,
-} from './scripts/oxlint-effect-policy.ts';
+import { boundaryRules, effectRules } from './scripts/oxlint-effect-policy.ts';
 
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the plugin declares its recommended configuration as `any`.
 const convexRecommended = convexPlugin.configs.recommended as ReadonlyArray<{
@@ -60,17 +56,6 @@ export default buildOxlintConfig({
         rules: {
           'eslint/no-underscore-dangle': 'allow',
           // Convex contexts, documents, and ids are generated mutable types.
-          'typescript/prefer-readonly-parameter-types': 'allow',
-        },
-      },
-      {
-        // The legacy prototype harness is retired at cutover (#627).
-        files: ['packages/mail-test-harness/**/*.ts'],
-        rules: {
-          ...boundaryExemptions,
-          'eslint/no-use-before-define': 'allow',
-          'node/no-top-level-await': 'allow',
-          'promise/avoid-new': 'allow',
           'typescript/prefer-readonly-parameter-types': 'allow',
         },
       },

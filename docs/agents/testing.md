@@ -131,8 +131,10 @@ The workflow files [CI](../../.github/workflows/ci.yml) and
 [Mobile](../../.github/workflows/mobile.yml) and [Mac](../../.github/workflows/macos.yml) define the automated commands.
 [Expo validation](../expo-client.md#validate) documents local commands and their
 limits. The native E2E jobs run the iPhone and iPad Inbox journeys on hosted macOS;
-no nightly validation matrix is currently configured. Legacy Swift jobs and the legacy mail harness
-are excluded from primary CI by maintainer decision.
+no nightly validation matrix is currently configured. The Swift prototype tests
+and local mail harness were removed in
+[#1371](https://github.com/unwired-dev/product/issues/1371). The standalone SwiftMail
+provider-qualification workflow remains disabled by maintainer decision.
 
 Add affected regression and contract checks as replacement slices land.
 Deterministic Mock Mail Sessions must remain distinct from real integration
