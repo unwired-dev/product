@@ -375,7 +375,8 @@ describe('gmail history backfill', () => {
     );
     await scrolled(inbox, 'INBOX', everything.length);
     expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
-  });
+    // 2,300 messages are downloaded, folded and scrolled twice; shared CI runners need longer.
+  }, 30_000);
 
   it('recovers from a failed history read when scrolling again', async () => {
     expect.hasAssertions();
