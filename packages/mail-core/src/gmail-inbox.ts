@@ -1869,18 +1869,14 @@ export function createGmailInbox(
     history: MailboxHistory | undefined,
   ) => {
     const entry = reveals.get(label);
-    if (
-      history === undefined ||
-      entry === undefined ||
-      cached.length < cacheLimit
-    ) {
+    if (history === undefined || entry === undefined) {
       return cached;
     }
     const names = shownPass(history).segments.map(({ name }) => name);
     if (entry.names.some((name, index) => names[index] !== name)) {
       return cached;
     }
-    const oldest = cached.at(-1)?.receivedAt ?? '';
+    const oldest = cached.at(-1)?.receivedAt;
     // Mail arriving while a pass lists can move a message onto the next page as well.
     const ids = new Set(cached.map(({ id }) => id));
     // A later change can admit a message this view skipped when its segment was read.
@@ -1892,7 +1888,7 @@ export function createGmailInbox(
     ]).filter((message) => {
       const kept =
         !ids.has(message.id) &&
-        message.receivedAt <= oldest &&
+        (oldest === undefined || message.receivedAt <= oldest) &&
         inView(label, labelsOf(message));
       ids.add(message.id);
       return kept;
@@ -1901,11 +1897,10 @@ export function createGmailInbox(
       ? cached
       : Arr.sort([...cached, ...older], newestFirst);
   };
-  // Whether a view holds the whole of a completed history: its cache was never full, or it
-  // revealed every segment. Spam and Trash stay outside the history.
+  // A short cache is complete only after its listing finishes; a removal can leave a refill
+  // interrupted. Otherwise every segment must be revealed. Spam and Trash stay outside history.
   const revealedAll = (
-    label: string,
-    cached: readonly GmailMessage[],
+    { label, messages, listing }: NonNullable<MailboxDocument['views']>[number],
     history: MailboxHistory | undefined,
   ) => {
     const pass = history === undefined ? undefined : shownPass(history);
@@ -1913,7 +1908,7 @@ export function createGmailInbox(
       return false;
     }
     return (
-      cached.length < cacheLimit ||
+      (messages.length < cacheLimit && listing === undefined) ||
       reveals.get(label)?.names.length === pass.segments.length
     );
   };
@@ -1941,7 +1936,7 @@ export function createGmailInbox(
           entry.label,
         ),
         status: viewStatus(entry),
-        ...(revealedAll(entry.label, entry.messages, document?.history)
+        ...(revealedAll(entry, document?.history)
           ? {}
           : { limited: true as const }),
       })),
@@ -2108,7 +2103,7 @@ export function createGmailInbox(
       ...new Set([
         ...selection,
         ...recentWorkingSet(
-          state.kind === 'ready' ? state.messages : [],
+          state.kind === 'ready' ? state.messages.slice(0, cacheLimit) : [],
           reference,
         ),
       ]),
@@ -3068,12 +3063,15 @@ export function createGmailInbox(
     );
   });
 
-  const prefetchPaused = (reading: number, id: string) =>
+  let speculativeFailure = false;
+  const speculationPaused = (reading: number) =>
+    speculativeFailure ||
     owner !== reading ||
-    !listed(id) ||
     state.kind !== 'ready' ||
     state.sync === 'authentication' ||
     state.sync === 'retry';
+  const prefetchPaused = (reading: number, id: string) =>
+    speculationPaused(reading) || !listed(id);
 
   // The connection's one speculative lane: a prefetch pass or a backfill step holds it, and each
   // body or step waits while an explicit read is waiting or running.
@@ -3085,7 +3083,7 @@ export function createGmailInbox(
       return;
     }
     selection = recentWorkingSet(
-      state.messages,
+      state.messages.slice(0, cacheLimit),
       selectionReference ?? (yield* DateTime.now),
     );
     const reply = yield* Effect.tryPromise({
@@ -3117,19 +3115,21 @@ export function createGmailInbox(
     ({
       kind,
       diagnostic,
-    }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) => {
-      if (kind === 'authentication') {
-        return Effect.sync(() => {
-          if (owner === reading) {
-            authenticationRejected = true;
-            publish(render());
-          }
-        });
-      }
-      return kind === 'invalidated' || kind === 'retry'
-        ? Effect.void
-        : Effect.logError(failed, diagnostic);
-    };
+    }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) =>
+      Effect.gen(function* () {
+        if (owner !== reading) {
+          return;
+        }
+        speculativeFailure = true;
+        if (kind === 'authentication') {
+          authenticationRejected = true;
+          publish(render());
+          return;
+        }
+        if (kind !== 'invalidated' && kind !== 'retry') {
+          yield* Effect.logError(failed, diagnostic);
+        }
+      });
   // Starts the lane, or asks a running lane to select again after its current pass.
   const schedulePrefetch = Effect.sync(() => {
     if (prefetching) {
@@ -3378,7 +3378,7 @@ export function createGmailInbox(
   // history: folds recorded changes, or lists the next page. False once nothing is left.
   const backfillStep = Effect.fnUntraced(function* (reading: number) {
     const scope = opened;
-    if (scope === undefined || owner !== reading) {
+    if (scope === undefined || speculationPaused(reading)) {
       return false;
     }
     const cache = yield* storage(native.openMailbox);
@@ -3509,6 +3509,7 @@ export function createGmailInbox(
     reveals.clear();
     notice = undefined;
     authenticationRejected = false;
+    speculativeFailure = false;
     imagesAwaitingGmail.clear();
     opened = undefined;
     attachments.discard();
@@ -4033,6 +4034,7 @@ export function createGmailInbox(
           }
           forgotten = false;
           authenticationRejected = false;
+          speculativeFailure = false;
           return queued.length === 0
             ? synchronize
             : persistence
@@ -4464,14 +4466,16 @@ export function createGmailInbox(
     // with an incomplete history, more appear as the backfill stores them.
     showOlder: (label: string) => {
       const document = shown?.document;
-      const cached =
+      const view = document?.views?.find((entry) => entry.label === label);
+      const cached = label === 'INBOX' ? document?.messages : view?.messages;
+      const listing =
         label === 'INBOX'
-          ? document?.messages
-          : document?.views?.find((view) => view.label === label)?.messages;
+          ? document?.checkpoint.kind === 'backfill'
+          : view?.listing !== undefined;
       if (
         document?.history === undefined ||
         cached === undefined ||
-        cached.length < cacheLimit
+        (cached.length < cacheLimit && !listing && !reveals.has(label))
       ) {
         return;
       }

@@ -1,5 +1,3 @@
-import { setTimeout } from 'node:timers/promises';
-
 import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
@@ -140,9 +138,10 @@ const recentMailbox = (gmail: Gmail, count: number) => {
 };
 
 // Holds recent-body prefetch's first metadata request until released.
-const holdingPrefetch = (gmail: Gmail) => {
+const holdingPrefetch = (gmail: Gmail, status = 200) => {
   const metadata = Promise.withResolvers<undefined>();
   const reached = Promise.withResolvers<undefined>();
+  let responseStatus = status;
   const native: Gmail['native'] = {
     ...gmail.native,
     gmailRequest: async (path, query, request) => {
@@ -158,6 +157,9 @@ const holdingPrefetch = (gmail: Gmail) => {
       ) {
         reached.resolve(undefined);
         await metadata.promise;
+        if (responseStatus !== 200) {
+          return { status: responseStatus, body: '{}' };
+        }
       }
       return gmail.native.gmailRequest(path, query, request);
     },
@@ -167,6 +169,9 @@ const holdingPrefetch = (gmail: Gmail) => {
     reached: reached.promise,
     release: () => {
       metadata.resolve(undefined);
+    },
+    resume: () => {
+      responseStatus = 200;
     },
   };
 };
@@ -216,7 +221,11 @@ const holdingBody = (native: Gmail['native'], id: string) => {
 };
 
 // A provider action settles, but the following history read cannot refresh older segments.
-const withoutHistoryAfterOrganizing = (gmail: Gmail, deleted: boolean) => {
+const withoutHistoryAfterOrganizing = (
+  gmail: Gmail,
+  deleted: boolean,
+  refuseAll = false,
+) => {
   let refuseHistory = false;
   return {
     ...gmail.native,
@@ -233,7 +242,7 @@ const withoutHistoryAfterOrganizing = (gmail: Gmail, deleted: boolean) => {
     gmailRequest: (
       ...[path, query, request]: Parameters<Gmail['native']['gmailRequest']>
     ) =>
-      path === 'history' && refuseHistory
+      (refuseAll || path === 'history') && refuseHistory
         ? Promise.reject(new Error('Controlled history outage'))
         : gmail.native.gmailRequest(path, query, request),
   };
@@ -539,6 +548,40 @@ describe('gmail history backfill', () => {
     },
   );
 
+  it.each(['INBOX', allMail])(
+    'keeps older %s mail available when a confirmed removal cannot refill its recent cache',
+    async (label) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      const everything = mailbox(gmail, 400, 0);
+      const native = withoutHistoryAfterOrganizing(gmail, false, true);
+      const inbox = createGmailInbox(native);
+      onTestFinished(() => inbox.forget());
+      await inbox.load();
+      await backfilled(inbox);
+      inbox.openView(allMail);
+      await vi.waitFor(() => {
+        expect(shown(inbox, allMail)).toHaveLength(200);
+      });
+      await scrolled(inbox, label, 400);
+      await inbox.organize(at(shown(inbox, label), 0), gmailAction.trash);
+      expect(ids(shown(inbox, label))).toStrictEqual(everything.slice(1));
+      inbox.forget();
+
+      const relaunched = createGmailInbox(native);
+      onTestFinished(() => relaunched.forget());
+      await relaunched.load();
+      expect(
+        ready(relaunched.getSnapshot()).views?.find(
+          (view) => view.label === allMail,
+        )?.limited,
+      ).toBe(true);
+      await scrolled(relaunched, label, 399);
+      expect(ids(shown(relaunched, label))).toStrictEqual(everything.slice(1));
+      relaunched.forget();
+    },
+  );
+
   it.each([
     { history: 'completed empty', kept: 0 },
     { history: 'emptied after completing', kept: 250 },
@@ -574,21 +617,83 @@ describe('gmail history backfill', () => {
 
   it("runs recent-body prefetch and history backfill in the connection's one speculative lane", async () => {
     expect.hasAssertions();
-    const gmail = createGmail();
+    vi.useFakeTimers();
+    const gmail = createSyntheticGmail();
     recentMailbox(gmail, 60);
     const prefetch = holdingPrefetch(gmail);
     const inbox = createGmailInbox(prefetch.native);
-    await inbox.load();
-    await prefetch.reached;
-    // Gives a second lane time to reach Gmail.
-    await setTimeout(100);
+    try {
+      const loading = inbox.load();
+      await vi.runAllTimersAsync();
+      await loading;
+      await prefetch.reached;
+      expect(historyPages(gmail)).toStrictEqual([]);
 
-    expect(historyPages(gmail)).toStrictEqual([]);
+      prefetch.release();
+      await vi.runAllTimersAsync();
+      expect(ready(inbox.getSnapshot()).history?.complete).toBe(true);
+      expect(historyPages(gmail)).toStrictEqual(['']);
+    } finally {
+      prefetch.release();
+      inbox.forget();
+      vi.useRealTimers();
+    }
+  });
 
-    prefetch.release();
-    await backfilled(inbox);
+  it.each([401, 503])(
+    'pauses queued history after prefetch receives HTTP %s until the next synchronization',
+    async (status) => {
+      expect.hasAssertions();
+      vi.useFakeTimers();
+      const gmail = createSyntheticGmail();
+      recentMailbox(gmail, 60);
+      const prefetch = holdingPrefetch(gmail, status);
+      const inbox = createGmailInbox(prefetch.native);
+      try {
+        const loading = inbox.load();
+        await vi.runAllTimersAsync();
+        await loading;
+        prefetch.release();
+        await vi.runAllTimersAsync();
+        expect(historyPages(gmail)).toStrictEqual([]);
 
-    expect(historyPages(gmail)).toStrictEqual(['']);
+        prefetch.resume();
+        const refreshing = inbox.load();
+        await vi.runAllTimersAsync();
+        await refreshing;
+        expect(ready(inbox.getSnapshot()).history?.complete).toBe(true);
+      } finally {
+        prefetch.release();
+        inbox.forget();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('keeps revealed history outside the bounded recent-body prefetch selection', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const gmail = createSyntheticGmail();
+    const everything = recentMailbox(gmail, 300);
+    const inbox = createGmailInbox(gmail.native);
+    try {
+      const loading = inbox.load();
+      await vi.runAllTimersAsync();
+      await loading;
+      inbox.showOlder('INBOX');
+      await vi.runAllTimersAsync();
+      expect(shown(inbox, 'INBOX')).toHaveLength(300);
+
+      const refreshing = inbox.load();
+      await vi.runAllTimersAsync();
+      await refreshing;
+      expect([...gmail.cachedBodies().keys()]).toStrictEqual(
+        everything.slice(0, 200),
+      );
+    } finally {
+      inbox.forget();
+      vi.useRealTimers();
+    }
   });
 
   it('opens a message while history backfill holds the speculative lane', async () => {
@@ -679,6 +784,11 @@ describe('gmail history backfill', () => {
     });
     await scrolled(inbox, allMail, 500);
 
+    // A pre-expiry overlay must stay visible during reconciliation, then lose mail the new pass
+    // no longer lists. Otherwise that old overlay can resurrect a provider-deleted message.
+    gmail.markRead(at(everything, -1));
+    gmail.markRead(at(everything, -3));
+    await inbox.load();
     // The fake keeps its history ID until the next change, so expire before removing.
     gmail.expireHistory();
     gmail.remove(at(everything, -1));
@@ -686,6 +796,7 @@ describe('gmail history backfill', () => {
     await inbox.load();
     expect(ready(inbox.getSnapshot()).history?.complete).toBe(false);
     expect(ids(shown(inbox, allMail))).toStrictEqual(everything);
+    expect(shown(inbox, allMail).at(-3)?.unread).toBe(false);
 
     history.release();
     await backfilled(inbox);

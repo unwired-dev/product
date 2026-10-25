@@ -51,7 +51,7 @@ export const recorded = (
   if (found.length === 0) {
     return history;
   }
-  const through = history.folding?.through ?? 0;
+  const through = history.folding?.through ?? history.reconcilingThrough ?? 0;
   const ids = new Set(found.map(([id]) => id));
   return {
     ...history,
@@ -93,6 +93,7 @@ export const restarted = (history: MailboxHistory): MailboxHistory => {
     ...(history.total === undefined ? {} : { total: history.total }),
     current: { segments: [] },
     ...(previous === undefined ? {} : { previous }),
+    reconcilingThrough: history.changes.length,
     changes: history.changes,
   };
 };
@@ -114,7 +115,7 @@ export const listed = (
   return {
     ...(history.total === undefined ? {} : { total: history.total }),
     current: { segments, complete: true },
-    changes: history.changes,
+    changes: history.changes.slice(history.reconcilingThrough ?? 0),
   };
 };
 
@@ -123,6 +124,7 @@ export const listed = (
 export const foldDue = (history: MailboxHistory) =>
   history.folding !== undefined ||
   (history.previous === undefined &&
+    history.reconcilingThrough === undefined &&
     history.changes.length >= foldAt &&
     (history.current.segments.length > 0 || history.current.complete === true));
 

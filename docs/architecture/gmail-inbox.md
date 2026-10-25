@@ -53,6 +53,12 @@ or page token starts a reconciling pass while the previous pass remains visible,
 then replaces it on completion. Progress exposes downloaded count, the provider
 profile total and completion per connection.
 
+A reconciling pass freezes the pre-pass overlay prefix until completion. The old
+pass and prefix retire together; page observations and history changes recorded
+since the pass began remain. This prevents a pre-expiry message state from
+resurrecting mail the completed replacement pass no longer lists. Folding waits
+until reconciliation finishes, even if its old pass had no segments.
+
 Views retain a device-memory reveal cursor into the shown pass and merge selected
 segments with the recent cache by message identity and receipt order. Equal receipt
 timestamps remain eligible across the cache boundary. Native access failures use

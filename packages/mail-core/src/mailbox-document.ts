@@ -57,6 +57,10 @@ const MailboxHistorySchema = Schema.Struct({
   current: HistoryPassSchema,
   // The last pass, still shown while a pass after an expired history ID lists everything again.
   previous: Schema.optionalKey(HistoryPassSchema),
+  // Changes before a reconciling pass began stay visible with the old pass, then retire together.
+  reconcilingThrough: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
   // Messages Gmail changed since their segment was written, newest last; an absent message left
   // All Mail. Reads apply them over the segments until a fold writes them in.
   changes: Schema.Array(

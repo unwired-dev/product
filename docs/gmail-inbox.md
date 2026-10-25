@@ -283,8 +283,10 @@ The Gmail Inbox state reports the progress per mailbox as downloaded messages,
 Gmail's total from the mailbox profile while the pass runs, and whether the pass
 is complete. Per-connection status in the interface is
 [#1369](https://github.com/unwired-dev/product/issues/1369). Scrolling to the end
-of the Inbox or a Gmail view reveals older downloaded messages 50 at a time from
+of the Inbox or a Gmail view reveals older downloaded messages in batches from
 the segments, without asking Gmail, so they stay available offline.
+If a confirmed removal leaves the recent cache short and its refill cannot finish,
+older downloaded mail remains available, including after an offline relaunch.
 
 Later synchronizations read Gmail history from the committed history ID and apply
 arrivals, deletions, archiving and read changes. If Gmail no longer has that
