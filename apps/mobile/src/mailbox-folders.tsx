@@ -185,7 +185,12 @@ function useUnifiedMailbox(
 ) {
   const [, changed] = useReducer((count: number) => count + 1, 0);
   // What each opened folder or view holds open, by mailbox and name.
-  const held = useRef(new Map<string, () => void>());
+  const held = useRef(
+    new Map<
+      string,
+      Readonly<{ inbox: InboxMailbox['inbox']; release: () => void }>
+    >(),
+  );
   const opened = useMemo(
     () =>
       role === undefined
@@ -202,23 +207,28 @@ function useUnifiedMailbox(
   // Opens only what newly joined the list and releases what left it, so a snapshot that changes
   // nothing it lists asks no provider again.
   useLayoutEffect(() => {
-    const keys = new Set(opened.map(({ key }) => key));
-    for (const [key, release] of held.current) {
-      if (!keys.has(key)) {
+    const owners = new Map(
+      opened.map(({ key, mailbox }) => [key, mailbox.inbox]),
+    );
+    for (const [key, { inbox, release }] of held.current) {
+      if (owners.get(key) !== inbox) {
         release();
         held.current.delete(key);
       }
     }
     for (const { key, mailbox, name } of opened) {
       if (name !== inboxFolder && !held.current.has(key)) {
-        held.current.set(key, open(mailbox, name, changed));
+        held.current.set(key, {
+          inbox: mailbox.inbox,
+          release: open(mailbox, name, changed),
+        });
       }
     }
   }, [opened]);
   useLayoutEffect(() => {
     const { current } = held;
     return () => {
-      for (const release of current.values()) {
+      for (const { release } of current.values()) {
         release();
       }
       current.clear();

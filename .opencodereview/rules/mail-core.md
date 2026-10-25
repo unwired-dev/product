@@ -11,6 +11,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- `mailbox-views.ts.unifiedFolders` treating an IMAP folder blacklist as proof
+  of All Mail membership. An `all` folder can be the only source of archived
+  mail, and virtual `flagged`, `drafts` or `trash` folders can overlap other
+  folders. Verify complete non-Spam/non-Trash membership through trustworthy
+  provider identity or membership, without correlating folder-scoped UIDs or
+  message subjects; otherwise All Mail silently omits ordinary mail or includes
+  Spam and Trash.
+- `mailbox-views.ts.unifiedFolders` deriving Microsoft All Mail only from
+  sidebar views and custom labels while `graph-inbox.ts` omits well-known
+  folders from that custom list. Exercise Drafts and Outbox through the public
+  store as well as Inbox, Sent and Archive; otherwise All Mail drops messages
+  in provider folders the sidebar does not offer.
+
 - A newly offered provider view recognized by `createGmailInbox.openView` but
   rejected by `mailbox-views.ts.gmailViewName`. Trace the row's selected folder
   into both hosts' reader actions and `viewMessage`; otherwise mail outside
