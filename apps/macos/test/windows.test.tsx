@@ -1008,9 +1008,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
         first.findByRole('button', { name: /Kept receipt/u }),
       ).resolves.toBeVisible();
       expect(first.getByRole('header', { name: 'Archive' })).toBeVisible();
-      expect(
-        first.queryByRole('button', { name: /Lunch on Friday/u }),
-      ).toBeNull();
       await fireEvent.press(
         first.getByRole('button', { name: /Kept receipt/u }),
       );

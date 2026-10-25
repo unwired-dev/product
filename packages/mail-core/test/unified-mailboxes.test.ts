@@ -199,14 +199,14 @@ describe('unified mailboxes across connections', () => {
       await inbox.load();
     }
     // The IMAP connection belongs to the Work Profile; the others to the default one.
-    const scoped = (profile: string) =>
-      profileMailboxes(
-        stores.map((store) => ({
-          ...store,
-          profile: store.id === 'imap' ? 'work' : defaultProfile,
-        })),
-        profile,
-      );
+    const [gmailStore, graphStore, imapStore, bareStore] = stores;
+    const registered = [
+      { ...gmailStore!, profile: defaultProfile },
+      { ...graphStore!, profile: defaultProfile },
+      { ...imapStore!, profile: 'work' },
+      { ...bareStore!, profile: defaultProfile },
+    ];
+    const scoped = (profile: string) => profileMailboxes(registered, profile);
     expect(rows(await opened(scoped('work'), 'SENT'))).toStrictEqual([
       ['imap', 'Work sent', 'Sent Messages'],
     ]);
