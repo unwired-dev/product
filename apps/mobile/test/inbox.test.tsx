@@ -39,7 +39,6 @@ import {
   Dimensions,
   Linking,
   StyleSheet,
-  View,
 } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -121,14 +120,6 @@ function InboxJourney() {
     </InboxProvider>
   );
 }
-
-const modalFor = (panel: ReturnType<typeof screen.getByTestId>) => {
-  let modal = panel.parent;
-  while (modal !== null && modal.props.animationType === undefined) {
-    modal = modal.parent;
-  }
-  return modal;
-};
 
 describe('preview Inbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
@@ -430,7 +421,7 @@ describe('preview Inbox', () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Filtered by Unread' }),
       );
-      const sheet = within(screen.getByTestId('filters-sheet'));
+      const sheet = within(screen.getByTestId('bottom-sheet'));
       expect(sheet.getByRole('header', { name: 'Filters' })).toBeVisible();
       // A single mailbox offers no mailboxes to leave out.
       expect(sheet.queryByText('Include Mail From')).toBeNull();
@@ -439,14 +430,14 @@ describe('preview Inbox', () => {
       // Leaving the sheet discards its edits and restores the applied criterion.
       await fireEvent.press(unread);
       await fireEvent(
-        screen.getByTestId('filters-sheet'),
+        screen.getByTestId('bottom-sheet'),
         'accessibilityEscape',
       );
-      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
       await fireEvent.press(
         screen.getByRole('button', { name: 'Filtered by Unread' }),
       );
-      const reopened = within(screen.getByTestId('filters-sheet'));
+      const reopened = within(screen.getByTestId('bottom-sheet'));
       expect(reopened.getByRole('checkbox', { name: 'Unread' })).toBeChecked();
       await fireEvent.press(reopened.getByRole('checkbox', { name: 'Unread' }));
       await fireEvent(
@@ -458,7 +449,7 @@ describe('preview Inbox', () => {
       await fireEvent.press(
         reopened.getByRole('button', { name: 'Apply Filters' }),
       );
-      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
       expect(
         screen.getByRole('button', { name: 'Filtered by Today' }),
       ).toBeVisible();
@@ -488,7 +479,7 @@ describe('preview Inbox', () => {
         screen.getByRole('button', { name: 'Filtered by Today' }),
       );
       await fireEvent(
-        within(screen.getByTestId('filters-sheet')).getByLabelText(
+        within(screen.getByTestId('bottom-sheet')).getByLabelText(
           'Only Mail from Today',
         ),
         'valueChange',
@@ -514,15 +505,9 @@ describe('preview Inbox', () => {
     }
   });
 
-  it('spans a regular-width window with its bar and opens Filters as a popover above the Filter control', async () => {
+  it('spans a regular-width window with its bar and opens Filters as a popover on the Filter control', async () => {
     expect.hasAssertions();
     const window = Dimensions.get('window');
-    // The Filter control's place in the window, which the test host cannot lay out.
-    const measure = jest
-      .spyOn(View.prototype, 'measureInWindow')
-      .mockImplementation((measured) => {
-        measured(240, 770, 124, 48);
-      });
     function WindowJourney({
       keyboardLift = 0,
     }: {
@@ -557,40 +542,26 @@ describe('preview Inbox', () => {
       await fireEvent.press(
         bar.getByRole('button', { name: 'Filtered by Unread' }),
       );
-      expect(screen.queryByTestId('filters-sheet')).toBeNull();
-      // jest-expo's window is 750 by 1334 points.
-      expect(screen.getByTestId('filters-popover')).toHaveStyle({
-        width: 420,
-        left: 240,
-        bottom: 1334 - 770 + 8,
-      });
-      // The popover fades on entry only; the native modal must not animate dismissal.
-      expect(modalFor(screen.getByTestId('filters-popover'))).toHaveProp(
-        'animationType',
-        'none',
-      );
-      const popover = within(screen.getByTestId('filters-popover'));
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
+      const popover = within(screen.getByTestId('popover'));
+      expect(popover.getByTestId('filters')).toHaveStyle({ width: 420 });
       expect(popover.getByRole('header', { name: 'Filters' })).toBeVisible();
+      // Resizing the window keeps the popover and its edits; iOS keeps it on the control.
       await fireEvent.press(popover.getByRole('checkbox', { name: 'Unread' }));
-      measure.mockImplementation((measured) => {
-        measured(180, 700, 124, 48);
-      });
       await act(() => {
         Dimensions.set({ window: { ...window, width: 1024, height: 768 } });
       });
-      expect(screen.getByTestId('filters-popover')).toHaveStyle({
-        left: 180,
-        bottom: 768 - 700 + 8,
-      });
-      expect(popover.getByRole('checkbox', { name: 'Unread' })).toHaveProp(
-        'accessibilityState',
-        { checked: false },
-      );
-      await fireEvent(
-        screen.getByTestId('filters-popover'),
-        'accessibilityEscape',
-      );
-      expect(screen.queryByTestId('filters-popover')).toBeNull();
+      expect(
+        within(screen.getByTestId('popover')).getByRole('checkbox', {
+          name: 'Unread',
+        }),
+      ).toHaveProp('accessibilityState', { checked: false });
+      // Dismissing it discards the edits.
+      await fireEvent(screen.getByTestId('popover'), 'accessibilityEscape');
+      expect(screen.queryByTestId('popover')).toBeNull();
+      expect(
+        bar.getByRole('button', { name: 'Filtered by Unread' }),
+      ).toBeVisible();
       await fireEvent(
         bar.getByLabelText('Search senders and subjects'),
         'focus',
@@ -603,7 +574,6 @@ describe('preview Inbox', () => {
       expect(edge).toHaveStyle({ bottom: 280 });
     } finally {
       Dimensions.set({ window });
-      measure.mockRestore();
     }
   });
 
