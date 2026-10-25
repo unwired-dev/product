@@ -1,6 +1,6 @@
 import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
-import { allMail } from '@private-email/mail-core/gmail-actions';
+import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 
@@ -82,7 +82,7 @@ const savedIds = (gmail: Gmail) =>
     ({ groups }) => groups?.id,
   );
 
-const at = (messages: readonly string[], index: number) => {
+const at = <T>(messages: readonly T[], index: number) => {
   const id = messages.at(index);
   if (id === undefined) {
     throw new Error(`Expected a message at ${index}`);
@@ -120,6 +120,30 @@ const holdingHistory = (gmail: Gmail) => {
       holding = false;
       listing.resolve(undefined);
     },
+  };
+};
+
+// A provider action settles, but the following history read cannot refresh older segments.
+const withoutHistoryAfterOrganizing = (gmail: Gmail, deleted: boolean) => {
+  let refuseHistory = false;
+  return {
+    ...gmail.native,
+    gmailModify: async (
+      ...args: Parameters<Gmail['native']['gmailModify']>
+    ) => {
+      if (deleted) {
+        gmail.remove(args[0].message);
+      }
+      const reply = await gmail.native.gmailModify(...args);
+      refuseHistory = true;
+      return reply;
+    },
+    gmailRequest: (
+      ...[path, query, request]: Parameters<Gmail['native']['gmailRequest']>
+    ) =>
+      path === 'history' && refuseHistory
+        ? Promise.reject(new Error('Controlled history outage'))
+        : gmail.native.gmailRequest(path, query, request),
   };
 };
 
@@ -341,6 +365,87 @@ describe('gmail history backfill', () => {
         .every(({ unread }) => !unread),
     ).toBe(true);
   });
+
+  it('reveals an older message added to a view after its segment was read', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 600, 0);
+    const label = gmail.createLabel('History');
+    for (const id of everything.slice(0, 300)) {
+      gmail.setLabel(id, label, true);
+    }
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await backfilled(inbox);
+    inbox.openView(label);
+    await vi.waitFor(() => {
+      expect(shown(inbox, label)).toHaveLength(200);
+    });
+    await scrolled(inbox, label, 300);
+    inbox.showOlder(label);
+    await vi.waitFor(() => {
+      expect(
+        ready(inbox.getSnapshot()).views?.find((view) => view.label === label)
+          ?.limited,
+      ).toBeUndefined();
+    });
+    const restored = at(everything, -1);
+    gmail.setLabel(restored, label, true);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(ids(shown(inbox, label))).toStrictEqual([
+        ...everything.slice(0, 300),
+        restored,
+      ]);
+    });
+    inbox.forget();
+  });
+
+  it.each([
+    {
+      outcome: 'read',
+      action: gmailAction.read,
+      deleted: false,
+      count: 400,
+      unread: false,
+    },
+    {
+      outcome: 'archive',
+      action: gmailAction.archive,
+      deleted: false,
+      count: 399,
+      unread: undefined,
+    },
+    {
+      outcome: 'deleted',
+      action: gmailAction.read,
+      deleted: true,
+      count: 399,
+      unread: undefined,
+    },
+  ])(
+    'keeps $outcome settlement on revealed mail if history refresh fails',
+    async ({ action, deleted, count, unread }) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      mailbox(gmail, 400, 0);
+      const inbox = createGmailInbox(
+        withoutHistoryAfterOrganizing(gmail, deleted),
+      );
+      await inbox.load();
+      await backfilled(inbox);
+      await scrolled(inbox, 'INBOX', 400);
+      const oldest = at(shown(inbox, 'INBOX'), -1);
+      expect(oldest.unread).toBe(true);
+      await inbox.organize(oldest, action);
+      expect(ready(inbox.getSnapshot()).pending).toBe(0);
+      expect(shown(inbox, 'INBOX')).toHaveLength(count);
+      expect(
+        shown(inbox, 'INBOX').find(({ id }) => id === oldest.id)?.unread,
+      ).toBe(unread);
+      inbox.forget();
+    },
+  );
 
   it.each([
     { history: 'completed empty', kept: 0 },

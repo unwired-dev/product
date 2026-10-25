@@ -673,6 +673,13 @@ const settled = (
         [head.message.id, withLabels(cached ?? head.message, confirmed)],
       ]).slice(0, cacheLimit);
     }),
+    ...(document.history === undefined
+      ? {}
+      : {
+          history: recorded(document.history, [
+            [head.message.id, withLabels(head.message, confirmed)],
+          ]),
+        }),
     pending: rest,
   });
 };
@@ -754,12 +761,18 @@ const settleObserved = (
   labels: readonly string[] | undefined,
 ): MailboxDocument =>
   labels === undefined
-    ? withRefills(
-        document,
-        everyView(settled(document, undefined), (_view, messages) =>
+    ? withRefills(document, {
+        ...everyView(settled(document, undefined), (_view, messages) =>
           messages.filter(({ id }) => id !== head.message.id),
         ),
-      )
+        ...(document.history === undefined
+          ? {}
+          : {
+              history: recorded(document.history, [
+                [head.message.id, undefined],
+              ]),
+            }),
+      })
     : settled(document, labels);
 
 // Appends intents by intake ID, so a commit whose reply was lost never saves one twice.
@@ -1870,7 +1883,13 @@ export function createGmailInbox(
     const oldest = cached.at(-1)?.receivedAt ?? '';
     // Mail arriving while a pass lists can move a message onto the next page as well.
     const ids = new Set(cached.map(({ id }) => id));
-    const older = overlaid(history, entry.messages).filter((message) => {
+    // A later change can admit a message this view skipped when its segment was read.
+    const older = overlaid(history, [
+      ...entry.messages,
+      ...history.changes.flatMap(({ message }) =>
+        message === undefined ? [] : [message],
+      ),
+    ]).filter((message) => {
       const kept =
         !ids.has(message.id) &&
         message.receivedAt <= oldest &&

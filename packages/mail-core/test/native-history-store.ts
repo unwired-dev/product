@@ -81,7 +81,8 @@ export const withNativeHistory = (gmail: Readonly<Gmail>): Gmail => {
   };
   child.on('error', failed);
   child.stdin.on('error', failed);
-  child.on('exit', (code) => {
+  // stdout can still contain the final reply when exit fires; close waits for its drain.
+  child.on('close', (code) => {
     if (code === 0 && pending.length === 0) {
       exited.resolve(undefined);
     } else {
