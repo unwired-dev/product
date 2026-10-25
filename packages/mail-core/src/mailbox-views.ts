@@ -389,7 +389,7 @@ const unifiedTitles = {
 // A Unified Mailbox's Favorites row and list title.
 export const unifiedRow = (t: Translate, role: UnifiedRole) => ({
   title: t(unifiedTitles[role]),
-  icon: gmailViewSymbol(role === 'ARCHIVE' ? gmailArchive : role),
+  icon: gmailViewSymbol(role),
 });
 
 const imapRoles = {
@@ -464,7 +464,7 @@ export const unifiedMailbox = <
     }
     const { state } = mailbox;
     const gmail = gmailMailbox(mailbox);
-    const listed = names.map((name) => {
+    const messagesIn = (name: string) => {
       if (name === inboxFolder) {
         return 'messages' in state ? state.messages : [];
       }
@@ -480,9 +480,9 @@ export const unifiedMailbox = <
         failed.push(mailbox);
       }
       return view?.kind === 'ready' ? view.messages : [];
-    });
-    return names.flatMap((name, index) =>
-      (listed[index] ?? []).map((message) => ({
+    };
+    return names.flatMap((name) =>
+      messagesIn(name).map((message) => ({
         mailbox,
         message,
         folder: name,
