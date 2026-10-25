@@ -30,6 +30,17 @@ Interruption
 after identity authorization persists the credential before the backend call;
 retry resumes the same subject and stable installation ID.
 
+## Production authorization review
+
+The [operational inventory and release actions](../google-registration.md#production-authorization)
+own the current scopes, disclosures and Google verification requirements.
+The relay persists Gmail history IDs in `gmailPushVerificationSignals`, connection
+proof fields and scheduled wake arguments. This conflicts with
+[ADR 0002](../adr/0002-device-held-mail-provider-tokens-with-push-relay.md)'s
+transient push-payload requirement. The inventory records the actual data flow;
+it does not amend that decision. Resolve the retention conflict before production
+qualification and reassess Google's requirements against the resulting flow.
+
 ## TypeScript flow and native vault
 
 The registration flow runs in TypeScript, in

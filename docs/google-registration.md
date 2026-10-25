@@ -210,7 +210,8 @@ Configuration in the repository:
 
 Sources: [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification),
 [Gmail API scopes](https://developers.google.com/workspace/gmail/api/auth/scopes),
-[OAuth app audience](https://support.google.com/cloud/answer/15549945).
+[OAuth app audience](https://support.google.com/cloud/answer/15549945),
+[Google Workspace user data and developer policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy).
 
 - **Audience.** The protected test tenant's internal audience admits only its own
   organization. An external app in **Testing** admits at most 100 listed test users,
@@ -224,31 +225,40 @@ Sources: [restricted-scope verification](https://developers.google.com/identity/
   domain-wide installation.
 - **Verification.** Brand verification, domain ownership verified in Google Search
   Console, a public home page, and a privacy policy on that domain meeting the
-  Limited Use requirements. Also an unlisted YouTube demo video showing sign-in,
+  Limited Use requirements. The home page must describe the app and link to the
+  privacy policy. Also an unlisted YouTube demo video showing sign-in,
   Gmail consent and the features using the requested scope, and a justification
   of why narrower scopes are insufficient (above).
+  The video must show the consent flow in English, the app name and OAuth client
+  ID, and data access for each client submitted for verification.
 - **Security assessment.** Google requires one when restricted-scope data is stored
   on servers or transmitted through them. Google's pages make no exception for
   device-local credentials or end-to-end encryption. The current backend handles:
   - **Push wakes:** Pub/Sub delivers each Gmail notification, with its mailbox
     address and history ID, to the Convex relay. The relay keeps keyed address
     digests and history IDs to match wakes to routes.
-  - **Private Sync:** [mailbox descriptions](private-product-sync.md#initialization-and-relaunch)
+  - **Private Sync:** [mailbox descriptions](private-product-sync.md#keys-and-envelopes)
     contain provider names and addresses. [Reply and forward Drafts](drafts.md#replies-and-forwards)
     hold quoted text, and forwards carry attachments as Draft Assets. These records
     and assets are stored end-to-end encrypted in Convex.
 
   Plan for a security assessment, renewed with reverification at least every 12
   months, unless Google confirms that the actual data flows are out of scope.
+  The relay's persisted history IDs also need reconciliation with the product's
+  requirement that push payload values remain transient. This inventory describes
+  the implementation; production qualification must resolve that retention conflict.
 
 ### Google user data disclosure
 
 Publish these disclosures in the privacy policy for Google's review. Revise them
-with any change to the flows above.
+with any change to the flows above. Google's Workspace policy also requires a
+prominent in-app disclosure immediately before consent; the privacy policy alone
+does not satisfy it. Verify that disclosure and user help for managing and deleting
+data before submission. This documentation slice does not qualify either.
 
 - **Access:** the Google account's name, email address and profile picture for
-  Product Sign-In; Gmail messages, labels and sending through `gmail.modify` for
-  each mailbox the person connects.
+  Google Product Sign-In and GoogleSignIn mailbox consent; Gmail messages, labels
+  and sending through `gmail.modify` for each mailbox the person connects.
 - **Use:** only to provide the mail features the person uses. Summaries,
   translation, rewrites and categorization run on the person's device. Google user
   data is not used for advertising and is not used to develop, improve or train
@@ -271,10 +281,13 @@ with any change to the flows above.
 
 ### Remaining owner actions
 
-1. Decide the security-assessment route above.
-2. Configure the production project: external audience, the four scopes above, app
-   name and logo, support and developer contacts, and the verified domain's home page
-   and privacy policy, including the disclosure above.
+1. Resolve the push-history retention conflict and decide the security-assessment
+   route above using the resulting data flows.
+2. Configure the production project: external audience, **In production** publishing
+   status, the four scopes above, app name and logo, support and developer contacts,
+   and the verified domain's home page and privacy policy, including the disclosure
+   above. Verify the required in-app
+   disclosure and data-management and deletion help before submission.
 3. Submit brand and restricted-scope verification with the scope justification and
    demo video, and complete any security assessment.
 4. After approval, on iPhone, iPad and Mac with a dedicated account outside the
