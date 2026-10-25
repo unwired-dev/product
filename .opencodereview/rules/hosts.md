@@ -126,6 +126,13 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `outbox.tsx.useOutboxActions` hiding a refused Undo/Edit toast only while the
+  message is ineligible to return. Retire the refusal when its owning entry leaves
+  or changes delivery state; later eligibility must not reopen an earlier retry.
+  Exercise refused Undo followed by sending and an unknown outcome on both hosts,
+  preserving the explicit Edit Anyway warning. Otherwise the stale Try Again can
+  return an uncertain delivery to Drafts without that warning and invite a duplicate send.
+
 - `onboarding.tsx.Welcome` stopping the Restoring seal's CSS animation only by
   removing its declaration. Follow the installed engine's unregister path and
   React Native's filtered prop diff: unregistering can leave the last native
