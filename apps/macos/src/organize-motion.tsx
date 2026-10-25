@@ -12,7 +12,6 @@ import {
 } from '@private-email/mail-core/mailboxes';
 import { useEffect, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
   Animated,
   Easing,
   StyleSheet,
@@ -20,7 +19,7 @@ import {
   View,
 } from 'react-native';
 
-import { ModalBackground } from './design.tsx';
+import { ModalBackground, useReducedMotion } from './design.tsx';
 
 // Core macOS views ignore accessibilityElementsHidden; the existing native container hides its subtree.
 const AnimatedRow = Animated.createAnimatedComponent(ModalBackground);
@@ -45,33 +44,6 @@ type Shown<I> = Omit<ShownRows<I>, 'covered'> &
       | Readonly<{ mailbox: string; id: string; folder?: string }>
       | undefined;
   }>;
-
-// Reduce Motion, following changes while the list is shown.
-function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    let current = true;
-    const read = async () => {
-      const enabled = await AccessibilityInfo.isReduceMotionEnabled();
-      if (current) {
-        setReduced(enabled);
-      }
-    };
-    void read();
-    const subscription = AccessibilityInfo.addEventListener(
-      'reduceMotionChanged',
-      (enabled) => {
-        current = false;
-        setReduced(enabled);
-      },
-    );
-    return () => {
-      current = false;
-      subscription.remove();
-    };
-  }, []);
-  return reduced;
-}
 
 // Removal and Undo continuity for a list: the sections with leaving rows still in place, each
 // row's motion, and the interruptions that finish rows still leaving.

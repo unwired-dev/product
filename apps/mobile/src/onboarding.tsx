@@ -14,10 +14,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import Animated, { css, useReducedMotion } from 'react-native-reanimated';
+import Animated, { css } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Glass, SFSymbol } from './design.tsx';
+import { Glass, SFSymbol, useReducedMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
