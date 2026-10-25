@@ -760,6 +760,7 @@ export function Inbox({
     listed,
     failure,
     limited,
+    showOlder,
   } = useMailboxFolder(shown, inboxListed, {
     view,
     onView,
@@ -1024,6 +1025,7 @@ export function Inbox({
             );
           }}
           contentContainerStyle={styles.list}
+          onEndReached={showOlder}
           sections={placed}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => {

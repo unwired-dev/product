@@ -662,6 +662,7 @@ export function Inbox({
     listed,
     failure,
     limited,
+    showOlder,
   } = useMailboxFolder(shown, inboxListed, {
     view,
     onView,
@@ -951,6 +952,7 @@ export function Inbox({
             onRefresh={() => {
               void refresh();
             }}
+            onEndReached={showOlder}
             sections={placed}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {

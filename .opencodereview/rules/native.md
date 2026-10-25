@@ -212,6 +212,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `UnwiredRegistration.openMailboxSegment` running `prepareMailbox` before each
+  local segment read. Keep backend revocation preflight on mailbox opens and
+  commits, and retain the segment primitive's local owner, generation and
+  protected-data checks under the operation gate. Trace the actual bridge as well
+  as direct vault tests; otherwise offline scrolling and `ready` reconciliation
+  send per-segment backend requests and wait for their network failures.
+
 - `RegistrationStore.gmailCreateLabel` or another provider-name validator using
   a broad Foundation character set as if it matched one Unicode general category.
   Check the admitted scalar categories against the provider contract, including
@@ -458,6 +465,19 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   resettable cache revision. Carry and validate the cache-open authorization
   generation on every operation; a same-address subject change or purge/reconnect
   must reject old work before provider access or ciphertext replacement.
+
+- `RegistrationStore.commitMailbox` or `openMailboxSegment` running file or
+  CryptoKit work on the main actor. Keep the bridge registration gate across
+  detached work and repeat owner/generation and protected-data checks before
+  publishing. A refused post-write acknowledgement does not undo durable storage;
+  reopening must recover its revision. Keep revision comparison, segment writes,
+  document replacement and pruning under one file lock so competing commits
+  cannot both succeed or delete the winning document's segments.
+- `PrivateInboxStore.commitMailbox` rejecting a stored revision because later
+  segment pruning failed. Make post-publication cleanup best effort, retry all
+  unreferenced files on a later history commit, and preserve its current keep
+  list. Otherwise a successful write is reported as failed or retry cleanup
+  removes segments a later document still references.
 
 - `PrivateInboxStore` body admission that discounts another tier's file before
   admission succeeds. Reserve existing tier ciphertexts and the replacement, and

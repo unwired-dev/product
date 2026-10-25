@@ -28,6 +28,16 @@ const subjects = (mailboxes: Mailboxes, id: string) => {
     : [];
 };
 
+// Loads every mailbox and waits for its Historical Metadata Backfill, which reads in the background.
+const loaded = async (mailboxes: Mailboxes) => {
+  await mailboxes.load();
+  await vi.waitFor(() => {
+    for (const { state } of mailboxes.getSnapshot()) {
+      expect(state?.kind === 'ready' && state.history?.complete).toBe(true);
+    }
+  });
+};
+
 // A Product Account with Alex's and Other's mailboxes, each backed by its own controlled Gmail.
 async function twoMailboxes(messages = 0, connectOther = true) {
   const gmail = {
@@ -143,12 +153,12 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     const { mailboxes, freshness } = launch();
     // The window that opened the Inbox closes; nothing subscribes to the mailboxes any more.
     const closeWindow = mailboxes.subscribe(() => undefined);
-    await mailboxes.load();
+    await loaded(mailboxes);
     // A failed verification leaves the native mailbox cache-only until registration verifies again.
     setOnline(false);
     await freshness.refresh();
     const offlineRequests = gmail.alex.requests.length;
-    await mailboxes.load();
+    await loaded(mailboxes);
     expect(gmail.alex.requests).toHaveLength(offlineRequests);
     closeWindow();
     const stop = freshness.keepAlive(5);
@@ -234,7 +244,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
       const { gmail, beforeVerification, addElsewhere, launch } =
         await twoMailboxes(0, false);
       const { mailboxes, freshness } = launch();
-      await mailboxes.load();
+      await loaded(mailboxes);
       gmail.alex.deliver({ subject: 'Routed arrival' });
       gmail.other.deliver({ subject: 'Unrouted arrival' });
       const routes = new Map([['route-alex', alex]]);
@@ -266,7 +276,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     const { gmail, registration, beforeVerification, launch } =
       await twoMailboxes();
     const { mailboxes, freshness } = launch();
-    await mailboxes.load();
+    await loaded(mailboxes);
     const routes = new Map([
       ['route-alex', alex],
       ['route-other', other],
@@ -329,7 +339,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     const output = vi.spyOn(console, 'error').mockReturnValue(undefined);
     const { gmail, launch } = await twoMailboxes();
     const { mailboxes, freshness } = launch();
-    await mailboxes.load();
+    await loaded(mailboxes);
     let lookup = async (): Promise<unknown> => ({
       routes: { 'route-alex': alex },
       complete: true,
@@ -397,7 +407,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     expect.hasAssertions();
     const { gmail, beforeVerification, launch } = await twoMailboxes();
     const { mailboxes, freshness } = launch();
-    await mailboxes.load();
+    await loaded(mailboxes);
     let routes: Record<string, string> = { 'route-alex': alex };
     const host = hostWakes(async () => ({ routes, complete: true }));
     beforeVerification(async () => {
@@ -423,7 +433,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     vi.useFakeTimers();
     const { gmail, launch } = await twoMailboxes();
     const { mailboxes, freshness } = launch();
-    await mailboxes.load();
+    await loaded(mailboxes);
     const requests = gmail.alex.requests.length;
     const coverage = Promise.withResolvers<boolean>();
     const lookupStarted = Promise.withResolvers<undefined>();
@@ -450,7 +460,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     vi.useFakeTimers();
     const { gmail, launch } = await twoMailboxes();
     const { mailboxes, freshness } = launch();
-    await mailboxes.load();
+    await loaded(mailboxes);
     let routes: unknown = { routes: { 'route-alex': alex }, complete: true };
     const host = hostWakes(async () => routes);
     const stop = freshness.keepAlive(5, async () => pushCovers(host.native));

@@ -1375,11 +1375,15 @@ describe('the isolated rich reader', () => {
       gmail.requests.filter(({ path }) => path.startsWith(`messages/${id}`));
     // A multipart message gets an exclusion marker after the body-free preflight only.
     expect(
-      requested(multipart).map(({ query }) => query.getAll('metadataHeaders')),
-    ).toStrictEqual([
-      ['From', 'Subject'],
-      ['Content-Type', 'Content-Disposition'],
-    ]);
+      requested(multipart).every(
+        ({ query }) => query.get('format') === 'metadata',
+      ),
+    ).toBe(true);
+    expect(
+      requested(multipart)
+        .map(({ query }) => query.getAll('metadataHeaders'))
+        .filter((headers) => headers.includes('Content-Type')),
+    ).toStrictEqual([['Content-Type', 'Content-Disposition']]);
     expect(
       parseJson(String(gmail.cachedBodies().get(multipart))),
     ).toMatchObject({

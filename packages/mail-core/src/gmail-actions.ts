@@ -112,6 +112,10 @@ export const inView = (view: string, labels: readonly string[]) =>
 
 export const inInbox = (labels: readonly string[]) => inView('INBOX', labels);
 
+// Caches saved before labels were kept contain only Inbox membership and read state.
+export const labelsOf = (message: GmailMessage) =>
+  message.labels ?? (message.unread ? ['INBOX', 'UNREAD'] : ['INBOX']);
+
 // Microsoft's names for the well-known folders it lists after the Inbox.
 const microsoftTitles = {
   SENT: 'mailboxes.sentItems',
