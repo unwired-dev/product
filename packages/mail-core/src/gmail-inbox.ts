@@ -4432,10 +4432,9 @@ export function createGmailInbox(
         messages: [],
         target: 0,
       };
-      if (entry.messages.length < entry.target) {
-        return;
+      if (entry.messages.length >= entry.target) {
+        entry.target = Math.max(entry.messages.length, cached.length) + pageSize;
       }
-      entry.target = Math.max(entry.messages.length, cached.length) + pageSize;
       reveals.set(label, entry);
       void runLogged(
         reveal(label).pipe(

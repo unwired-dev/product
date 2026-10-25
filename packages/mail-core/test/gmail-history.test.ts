@@ -153,6 +153,28 @@ describe('gmail history backfill', () => {
     expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
   });
 
+  it('recovers from a failed history read when scrolling again', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    mailbox(gmail, 400, 0);
+    const read = vi
+      .fn<Gmail['native']['openMailboxSegment']>()
+      .mockImplementation(gmail.native.openMailboxSegment)
+      .mockRejectedValueOnce({ code: 'unavailable' });
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      openMailboxSegment: read,
+    });
+    await inbox.load();
+    await backfilled(inbox);
+    inbox.showOlder('INBOX');
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+    await scrolled(inbox, 'INBOX', 400);
+    expect(shown(inbox, 'INBOX')).toHaveLength(400);
+  });
+
   it('downloads All Mail in pages after the Inbox is usable', async () => {
     expect.hasAssertions();
     const { gmail, inbox, everything, allMailIds } = await downloaded();
