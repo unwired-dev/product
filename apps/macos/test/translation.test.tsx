@@ -10,6 +10,7 @@ import {
 } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
@@ -133,6 +134,10 @@ describe('on-device translation in the reader', () => {
     expect.hasAssertions();
     const { native, asked } = scriptedTranslation();
     const { gmail, app } = await openReader(native);
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    announce.mockClear();
     try {
       const reads = gmail.requests.length;
       // The native menu lists the device's languages; nothing is translated until one is chosen.
@@ -164,6 +169,13 @@ describe('on-device translation in the reader', () => {
       await expect(
         screen.findByText('Confirma el lugar antes del viernes.'),
       ).resolves.toBeOnTheScreen();
+      // VoiceOver hears the result once, after current speech.
+      expect(announce.mock.calls).toStrictEqual([
+        [
+          'Translation into Spanish\nConfirma el lugar antes del viernes.',
+          { queue: true },
+        ],
+      ]);
       expect(
         screen.getByText(
           'Translated from English to Spanish on this device. It may be inaccurate and is not saved.',
@@ -266,6 +278,8 @@ describe('on-device translation in the reader', () => {
     const { app } = await openReader(
       createMockMailSession('assistance-unavailable').translation,
     );
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
     try {
       await translateInto('Spanish');
       await expect(
@@ -277,6 +291,11 @@ describe('on-device translation in the reader', () => {
         screen.getByText('Please confirm the venue by Friday.'),
       ).toBeOnTheScreen();
       expect(screen.getByLabelText('Translate again')).toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([
+        [
+          'Download this language in the system Translate settings, then try again. Nothing is downloaded here.',
+        ],
+      ]);
     } finally {
       await app.unmount();
     }
