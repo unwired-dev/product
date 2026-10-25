@@ -946,8 +946,12 @@ describe('remote message content', () => {
       expect(settings.getSnapshot()).toBe(previous);
     } finally {
       held.resolve(undefined);
-      await Promise.all([never, override, ask]);
     }
+    await expect(Promise.all([never, override, ask])).resolves.toStrictEqual([
+      false,
+      true,
+      true,
+    ]);
     expect(write.mock.calls.map(([text]) => text)).toStrictEqual([
       '{"policy":"never","overrides":{}}',
       '{"policy":"always","overrides":{"connection-a":"ask"}}',

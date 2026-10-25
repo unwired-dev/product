@@ -17,6 +17,8 @@ import {
   useSyncExternalStore,
 } from 'react';
 import {
+  AccessibilityInfo,
+  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -145,6 +147,20 @@ const styles = StyleSheet.create({
   },
   label: { ...textStyles.subheadline },
   text: { ...textStyles.body },
+  // The approved warning row keeps the Mac inset and small type on iPhone and iPad.
+  notSaved: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingLeft: 40,
+    paddingRight: spacing.m,
+    paddingBottom: 10,
+  },
+  notSavedText: {
+    ...typography.macos.subheadline,
+    flexShrink: 1,
+  },
+  clear: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
 });
 
 type Choice = RemoteContentPolicy | 'device';
@@ -241,6 +257,83 @@ export function PolicyChoice({
   );
 }
 
+// One remote image policy. A choice storage refuses leaves the saved one in place and says so
+// under the row until the next choice.
+function PolicySetting({
+  icon,
+  title,
+  label,
+  setting,
+  selected,
+  choices,
+  save,
+}: {
+  readonly icon: string;
+  readonly title: string;
+  // Names the setting for each button's accessibility label and for the refusal.
+  readonly label: string;
+  readonly setting: string;
+  readonly selected: Choice;
+  readonly choices: readonly Choice[];
+  readonly save: (choice: Choice) => Promise<boolean>;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [refused, setRefused] = useState<symbol>();
+  const change = useRef<symbol | undefined>(undefined);
+  const notSaved = t('remoteContent.notSaved', {
+    setting,
+    choice: t(`remoteContent.policies.${selected}`),
+  });
+  // Announce the committed saved choice, once for the current refusal.
+  useLayoutEffect(() => {
+    if (refused !== undefined && change.current === refused) {
+      change.current = undefined;
+      AccessibilityInfo.announceForAccessibility(notSaved);
+    }
+  }, [refused, notSaved]);
+  useLayoutEffect(
+    () => () => {
+      change.current = undefined;
+    },
+    [],
+  );
+  return (
+    <>
+      <PolicyRow
+        icon={icon}
+        title={title}>
+        <PolicyChoice
+          label={label}
+          selected={selected}
+          choices={choices}
+          onChoose={(choice) => {
+            const request = Symbol('remote-content-choice');
+            change.current = request;
+            setRefused(undefined);
+            void (async () => {
+              if (!(await save(choice)) && change.current === request) {
+                setRefused(request);
+              }
+            })();
+          }}
+        />
+      </PolicyRow>
+      {refused === undefined ? null : (
+        <View style={styles.notSaved}>
+          <SFSymbol
+            name="exclamationmark.triangle.fill"
+            color={colors.statusWarning}
+          />
+          <Text style={[styles.notSavedText, { color: colors.textSecondary }]}>
+            {notSaved}
+          </Text>
+        </View>
+      )}
+    </>
+  );
+}
+
 // The device's remote image policy, each mailbox's override and Clear Remote Content.
 export function RemoteContentSettings({
   button,
@@ -256,6 +349,7 @@ export function RemoteContentSettings({
     store?.subscribe ?? noSubscription,
     () => store?.getSnapshot(),
   );
+  const [clearing, setClearing] = useState(false);
   const [cleared, setCleared] = useState<boolean>();
   if (store === undefined || settings === undefined) {
     return null;
@@ -264,27 +358,31 @@ export function RemoteContentSettings({
     <SettingsGroup
       title={t('remoteContent.title')}
       footer={t('remoteContent.description')}>
-      <PolicyRow
+      <PolicySetting
         icon="photo"
-        title={t('settings.remoteContent')}>
-        <PolicyChoice
-          label={t('remoteContent.device')}
-          selected={settings.policy}
-          choices={['ask', 'never', 'always']}
-          onChoose={(choice) => {
-            if (choice !== 'device') {
-              void store.setPolicy(choice);
-            }
-          }}
-        />
-      </PolicyRow>
-      {mailboxes.map((mailbox) => (
-        <PolicyRow
-          key={mailbox.id}
+        title={t('settings.remoteContent')}
+        label={t('remoteContent.device')}
+        setting={t('settings.remoteContent')}
+        selected={settings.policy}
+        choices={['ask', 'never', 'always']}
+        save={(choice) =>
+          // The device's own choices offer no `device`.
+          choice === 'device' ? Promise.resolve(true) : store.setPolicy(choice)
+        }
+      />
+      {mailboxes.map(({ id, address }) => (
+        <PolicySetting
+          key={id}
           icon="at"
-          title={mailbox.address}>
-          <MailboxRemoteContent {...mailbox} />
-        </PolicyRow>
+          title={address}
+          label={t('remoteContent.mailbox', { address })}
+          setting={t('remoteContent.mailbox', { address })}
+          selected={settings.overrides[id] ?? 'device'}
+          choices={['device', 'ask', 'never', 'always']}
+          save={(choice) =>
+            store.setOverride(id, choice === 'device' ? undefined : choice)
+          }
+        />
       ))}
       <SettingsRow
         title={t('settings.trackingPixels')}
@@ -294,9 +392,25 @@ export function RemoteContentSettings({
         </Text>
       </SettingsRow>
       <SettingsBlock>
-        {button(t('remoteContent.clear'), async () => {
-          setCleared(await store.clear());
-        })}
+        <View style={styles.clear}>
+          {clearing ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.textSecondary}
+            />
+          ) : null}
+          {button(
+            t(clearing ? 'remoteContent.clearing' : 'remoteContent.clear'),
+            async () => {
+              setCleared(undefined);
+              setClearing(true);
+              const result = await store.clear();
+              setClearing(false);
+              setCleared(result);
+            },
+            { disabled: clearing },
+          )}
+        </View>
         {cleared === undefined ? null : (
           <Text
             accessibilityRole="alert"
@@ -308,28 +422,5 @@ export function RemoteContentSettings({
         )}
       </SettingsBlock>
     </SettingsGroup>
-  );
-}
-
-// One mailbox's remote image policy, or the device's.
-function MailboxRemoteContent({ id, address }: MailboxConnection) {
-  const { t } = useLocalization();
-  const store = use(RemoteContentContext);
-  const override = useSyncExternalStore(
-    store?.subscribe ?? noSubscription,
-    () => store?.getSnapshot()?.overrides[id],
-  );
-  if (store === undefined) {
-    return null;
-  }
-  return (
-    <PolicyChoice
-      label={t('remoteContent.mailbox', { address })}
-      selected={override ?? 'device'}
-      choices={['device', 'ask', 'never', 'always']}
-      onChoose={(choice) => {
-        void store.setOverride(id, choice === 'device' ? undefined : choice);
-      }}
-    />
   );
 }
