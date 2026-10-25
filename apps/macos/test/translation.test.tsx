@@ -311,12 +311,12 @@ describe('on-device translation in the reader', () => {
       .mockRejectedValueOnce(busy)
       .mockResolvedValueOnce([{ code: 'es', name: 'Spanish' }]);
     const { native, asked } = scriptedTranslation();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
     const { app } = await openReader({
       ...native,
       translationLanguages: lists,
     });
-    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
-    announce.mockClear();
     try {
       // The failure that comes with opening a message stays quiet.
       await expect(
