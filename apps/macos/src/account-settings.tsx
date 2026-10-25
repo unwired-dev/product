@@ -66,7 +66,7 @@ function RemoveConfirmation({
           {description}
         </Label>
       ) : (
-        <View style={styles.inline}>
+        <View style={[styles.inline, { alignItems: 'flex-start' }]}>
           <SFSymbol
             name="exclamationmark.triangle.fill"
             color={colors.statusWarning}

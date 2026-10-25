@@ -37,6 +37,7 @@ export const registrationStyles = StyleSheet.create({
   title: { ...textStyles.largeTitle },
   heading: { ...textStyles.headline },
   text: { ...textStyles.body },
+  removalText: { ...textStyles.footnote },
   button: {
     padding: 16,
     borderWidth: 1,

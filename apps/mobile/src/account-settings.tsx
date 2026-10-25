@@ -66,7 +66,7 @@ function RemoveConfirmation({
   return (
     <>
       {failed === undefined ? (
-        <Text style={[styles.text, { color: colors.textPrimary }]}>
+        <Text style={[styles.removalText, { color: colors.textPrimary }]}>
           {description}
         </Text>
       ) : (
@@ -76,7 +76,7 @@ function RemoveConfirmation({
             color={colors.statusWarning}
           />
           <View style={styles.grow}>
-            <Text style={[styles.text, { color: colors.textPrimary }]}>
+            <Text style={[styles.removalText, { color: colors.textPrimary }]}>
               {failed}
             </Text>
           </View>
