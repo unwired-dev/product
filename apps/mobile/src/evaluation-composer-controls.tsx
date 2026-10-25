@@ -32,13 +32,14 @@ import {
   MenuItem,
 } from './composer-controls.tsx';
 import {
+  CloseButton,
   ComposerLayoutContext,
   composerStyles,
   Recipients,
   rewriteLabel,
+  SendButton,
 } from './composer.tsx';
 import {
-  Glass,
   GlassGroup,
   GlassPanel,
   SFSymbol,
@@ -744,19 +745,11 @@ export function EditorHeader({
             styles.headerLeading,
             regular ? styles.regularHeaderLeading : null,
           ]}>
-          <Pressable
-            accessibilityLabel={t('drafts.close')}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy, expanded: closeOpen }}
+          <CloseButton
             disabled={busy}
+            expanded={closeOpen}
             onPress={onClose}
-            style={[s.circle, { boxShadow: colors.smallGlassShadow }]}>
-            <Glass cornerRadius={22} />
-            <SFSymbol
-              name="xmark"
-              color={colors.textPrimary}
-            />
-          </Pressable>
+          />
           <Text
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
@@ -780,18 +773,10 @@ export function EditorHeader({
         </View>
         <View style={styles.headerTrailing}>
           {regular ? <View style={styles.sender}>{sender}</View> : null}
-          <Pressable
-            accessibilityLabel={t('drafts.send')}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy }}
+          <SendButton
             disabled={busy}
             onPress={onSend}
-            style={[s.circle, { backgroundColor: colors.accentFill }]}>
-            <SFSymbol
-              name="arrow.up"
-              color={colors.accentOnFill}
-            />
-          </Pressable>
+          />
         </View>
       </View>
       {regular ? null : (
