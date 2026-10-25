@@ -285,7 +285,8 @@ is complete. While the pass runs, All Mail's subtitle shows the progress, such a
 "41,210 of 86,400 downloaded", and All Mail ends with a "Downloading older mail…"
 row naming the month the list has reached, in place of the note that older mail
 stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
-The Sync Status Overlay's per-connection history status and Try Again belong to
+The Sync Status Overlay's per-connection history status and Try Again remain in
+[#1369](https://github.com/unwired-dev/product/issues/1369) and depend on
 [#1155](https://github.com/unwired-dev/product/issues/1155). Scrolling to the end
 of the Inbox or a Gmail view reveals older downloaded messages in batches from
 the segments, without asking Gmail, so they stay available offline. Messages outside
