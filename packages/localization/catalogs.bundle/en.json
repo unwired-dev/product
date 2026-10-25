@@ -477,6 +477,7 @@
     "omitted": "Only the beginning of this long message was translated.",
     "dismiss": "Dismiss",
     "dismissLabel": "Dismiss translation",
+    "menuHeading": "Translate Into",
     "showOriginal": "Show Original",
     "showOriginalLabel": "Show the original message and forget the translation",
     "replace": "Replace selection",

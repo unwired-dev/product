@@ -136,9 +136,13 @@ describe('on-device translation in the reader', () => {
     try {
       const reads = gmail.requests.length;
       // The native menu lists the device's languages; nothing is translated until one is chosen.
+      expect(screen.getByLabelText('Translate this message')).toHaveProp(
+        'pullsDown',
+        true,
+      );
       await fireEvent.press(screen.getByLabelText('Translate this message'));
       expect(menuItems()).toStrictEqual([
-        expect.objectContaining({ title: 'Translate into', disabled: true }),
+        expect.objectContaining({ title: 'Translate Into', disabled: true }),
         expect.objectContaining({ title: 'English', checked: false }),
         expect.objectContaining({ title: 'German', checked: false }),
         expect.objectContaining({
@@ -171,6 +175,14 @@ describe('on-device translation in the reader', () => {
       ).toBeOnTheScreen();
       expect(gmail.requests).toHaveLength(reads);
       // The control now names the shown language, checked in its menu.
+      expect(screen.getByLabelText('Translate into Spanish')).toHaveProp(
+        'pullsDown',
+        false,
+      );
+      expect(screen.getByLabelText('Translate into Spanish')).toHaveProp(
+        'symbol',
+        'translate',
+      );
       await fireEvent.press(screen.getByLabelText('Translate into Spanish'));
       expect(menuItems()).toContainEqual(
         expect.objectContaining({ title: 'Spanish', checked: true }),

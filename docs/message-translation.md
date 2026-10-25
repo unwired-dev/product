@@ -16,7 +16,7 @@ fallback and nothing is downloaded by the app.
 - Choosing **Translate** lists the target languages the device's Translation
   supports. Nothing runs until the person picks one; picking another language
   replaces the pending or shown translation. On Mac, **Translate** is a native
-  pull-down menu headed **Translate into**; while a translation shows, it becomes a
+  pull-down menu headed **Translate Into**; while a translation shows, it becomes a
   pop-up naming the target, with the chosen language checked. The menu reads the
   language list once assistance is on, so it can open with it; no mail text is sent
   until a language is chosen.

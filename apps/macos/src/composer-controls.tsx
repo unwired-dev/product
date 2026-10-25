@@ -144,6 +144,7 @@ const NativePopUpButton = requireNativeComponent<
     readonly items: readonly NativePopUpItem[];
     readonly text: string | undefined;
     readonly symbol: string | undefined;
+    readonly pullsDown: boolean;
     readonly label: string;
     readonly destructiveColor: ReturnType<typeof processColor>;
     readonly enabled: boolean;
@@ -151,13 +152,13 @@ const NativePopUpButton = requireNativeComponent<
   }
 >('UnwiredPopUpButton');
 
-// A pop-up button that AppKit draws, focuses and opens: a label shows the current choice; an icon
-// makes it a pull-down button, titled by any label. A choice runs the latest item while the control
-// is mounted.
+// AppKit draws, focuses and opens the control. Icon controls default to pull-downs; a selected
+// choice can retain its icon as a pop-up. A choice runs the latest item while mounted.
 export function PopUp({
   label,
   accessibilityLabel,
   icon,
+  pullsDown,
   variant = 'compact',
   disabled = false,
   items,
@@ -165,6 +166,7 @@ export function PopUp({
   readonly label?: string;
   readonly accessibilityLabel: string;
   readonly icon?: string | undefined;
+  readonly pullsDown?: boolean;
   readonly variant?: 'compact' | 'field';
   readonly disabled?: boolean;
   readonly items: readonly PopUpItem[];
@@ -205,6 +207,7 @@ export function PopUp({
         accessibilityValue={label === undefined ? undefined : { text: label }}
         destructiveColor={processColor(colors.statusDestructive)}
         enabled={!disabled}
+        pullsDown={pullsDown ?? icon !== undefined}
         items={nativeItems(items)}
         label={accessibilityLabel}
         onSelect={({ nativeEvent }) => {

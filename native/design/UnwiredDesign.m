@@ -672,14 +672,15 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 }
 @end
 
-// A pop-up button that AppKit draws, focuses and opens: with a symbol, a pull-down showing it;
-// otherwise a pop-up showing `text`, its chosen item's title. The button sits inside a plain view,
+// A pop-up or pull-down button that AppKit draws, focuses and opens, showing `text` and an optional
+// symbol in either mode. The button sits inside a plain view,
 // so that React Native's wrapper stays out of accessibility and VoiceOver reaches only the button.
 // React Native macOS 0.81.9 has no pop-up button; remove this view when it offers one.
 @interface UnwiredPopUpButtonView : NSView
 @property (nonatomic, copy) NSArray<NSDictionary *> *items;
 @property (nonatomic, copy) NSString *text;
 @property (nonatomic, copy) NSString *symbol;
+@property (nonatomic) BOOL pullsDown;
 @property (nonatomic, copy) NSString *label;
 @property (nonatomic, copy) NSColor *destructiveColor;
 @property (nonatomic) BOOL enabled;
@@ -715,7 +716,7 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
   }
   // A pull-down shows its first item, which its menu leaves out.
-  _button.pullsDown = self.symbol.length > 0;
+  _button.pullsDown = self.pullsDown;
   if (_button.pullsDown) [menu insertItem:shown atIndex:0];
   _button.menu = menu;
   NSPopUpButtonCell *cell = _button.cell;
@@ -951,6 +952,7 @@ RCT_EXPORT_MODULE(UnwiredPopUpButton)
 RCT_EXPORT_VIEW_PROPERTY(items, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(text, NSString)
 RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
+RCT_EXPORT_VIEW_PROPERTY(pullsDown, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(label, NSString)
 RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)

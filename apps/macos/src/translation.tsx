@@ -387,7 +387,8 @@ function ReaderTranslation({
     <>
       {/* A pull-down until a language is chosen, then a pop-up naming it. */}
       <PopUp
-        icon={target === undefined ? 'translate' : undefined}
+        icon="translate"
+        pullsDown={target === undefined}
         label={target === undefined ? t('translation.translate') : target.name}
         accessibilityLabel={
           target === undefined
@@ -397,7 +398,7 @@ function ReaderTranslation({
         items={[
           {
             key: 'heading',
-            title: t('translation.target'),
+            title: t('translation.menuHeading'),
             disabled: true,
           },
           ...languages,
