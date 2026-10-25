@@ -149,6 +149,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
   // The words outlast the toast so it can fade out.
   const [refused, setRefused] = useState<{
     readonly id: string;
+    readonly state: OutboxSnapshotEntry['state'];
     readonly message: string;
     readonly open: boolean;
   }>();
@@ -156,16 +157,22 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
   const dismiss = () => {
     setRefused((toast) => toast && { ...toast, open: false });
   };
+  // A refusal speaks for the message as it was. Once that changes it retires rather than hides, so
+  // an unknown outcome after sending cannot offer Try Again without the Edit Anyway warning.
+  if (refused?.open === true && current?.state !== refused.state) {
+    setRefused({ ...refused, open: false });
+  }
   const returnToDrafts = (entry: OutboxSnapshotEntry) => {
     dismiss();
     void (async () => {
       const id = await outbox.undo(entry.id);
       if (id !== false) {
         await onOpen(id);
-      } else if (
-        // Not when another press already returned it or its sending began.
-        returnable(outbox.getSnapshot().find((each) => each.id === entry.id))
-      ) {
+        return;
+      }
+      const now = outbox.getSnapshot().find((each) => each.id === entry.id);
+      // Not when another press already returned it or its sending began.
+      if (now !== undefined && returnable(now)) {
         // The iPhone's narrow toast leaves out the subject.
         const message =
           Platform.OS === 'ios' && Platform.isPad
@@ -173,7 +180,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
                 subject: draftSummary(t, entry.draft).subject,
               })
             : t('outbox.refusedShort');
-        setRefused({ id: entry.id, message, open: true });
+        setRefused({ id: entry.id, state: now.state, message, open: true });
         AccessibilityInfo.announceForAccessibility(message);
       }
     })();
@@ -193,7 +200,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
     refused === undefined ? null : (
       <RefusedToast
         message={refused.message}
-        open={refused.open && returnable(current)}
+        open={refused.open}
         onTryAgain={() => {
           if (current !== undefined) {
             returnToDrafts(current);

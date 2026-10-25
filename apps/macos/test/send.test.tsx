@@ -761,6 +761,44 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('retires a refusal once the message starts sending', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      // Gmail keeps the message without answering, and Sent cannot be read.
+      sender.gmail.failSend({ lost: true });
+      sender.gmail.native.gmailRequest = () =>
+        Promise.reject(
+          Object.assign(new Error('Synthetic failure'), {
+            code: 'unavailable',
+          }),
+        );
+      await compose('Lisbon');
+      await press('Send');
+      // #918: the admitted Draft can unmount its editor before Send closes the composer.
+      await press('Close');
+      sender.storage.failNextCommit('locked');
+      await press('Undo');
+      expect(
+        screen.getByText('Couldn’t return “Lisbon” to Drafts.'),
+      ).toBeOnTheScreen();
+      await later(sender, 10_000);
+      // Returning it now needs the Edit Anyway warning, so the old Try Again does not come back.
+      expect(
+        screen.getByLabelText(
+          'Lisbon. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText('Try Again')).toBeNull();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
   it('says a message is in Sent only when Check Again finds it there', async () => {
     expect.hasAssertions();
     const sender = device();

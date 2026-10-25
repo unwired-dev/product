@@ -405,6 +405,27 @@ export function createOutbox({
     }
   };
 
+  // Ends a Check Again once its lookup finishes, unless another ask replaced it meanwhile.
+  const settle = (id: string, request: CheckRequest) => {
+    if (asked.get(id) !== request) {
+      return;
+    }
+    const current = entryOf(id);
+    // Removal, another Send of the Draft or another Product Account meanwhile ends it quietly.
+    if (current !== undefined && checkOf(current) === 'checking') {
+      asked.set(id, { ...request, check: 'unconfirmed' });
+    } else {
+      asked.delete(id);
+    }
+    publish();
+  };
+  // Whether this ask saved the Sent outcome, within the execution and account it began in.
+  const confirmed = (id: string, request: CheckRequest, started: number) =>
+    confirmedChecks.has(request) &&
+    started === execution &&
+    request.owner === ownerOf(registration) &&
+    entryOf(id) === undefined;
+
   // Saves an outcome storage refused earlier. Resolves whether one was waiting.
   const resave = async (entry: OutboxEntry) => {
     const outcome = unrecorded.get(entry.id);
@@ -1103,23 +1124,11 @@ export function createOutbox({
         checks.add(id);
       }
       await process();
-      const current = entryOf(id);
-      if (request !== undefined && asked.get(id) === request) {
-        // Removal, another Send of the Draft or another Product Account meanwhile ends it quietly.
-        if (current !== undefined && checkOf(current) === 'checking') {
-          asked.set(id, { ...request, check: 'unconfirmed' });
-        } else {
-          asked.delete(id);
-        }
-        publish();
+      if (request === undefined) {
+        return false;
       }
-      return (
-        request !== undefined &&
-        confirmedChecks.has(request) &&
-        started === execution &&
-        request.owner === ownerOf(registration) &&
-        current === undefined
-      );
+      settle(id, request);
+      return confirmed(id, request, started);
     },
     // Ends this execution opportunity without cancelling a request already handed to its provider.
     pause: () => {
