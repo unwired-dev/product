@@ -385,6 +385,9 @@ function Palette({
       ? undefined
       : matchCommands(choiceQuery, choosing.choices);
   const submit = () => {
+    if (!open) {
+      return;
+    }
     if (choices === undefined) {
       const first = listed.find(({ disabled }) => disabled === undefined);
       if (first !== undefined) {

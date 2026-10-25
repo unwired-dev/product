@@ -2514,6 +2514,7 @@ describe('command palette', () => {
     ).toBeVisible();
   });
 
+  /* oxlint-disable vitest/max-expects -- One held exit proves the closing input gates and fresh reopening. */
   it('keeps a closing palette out of reach while it fades and reopens it empty', async () => {
     expect.hasAssertions();
     await renderConnected(
@@ -2538,8 +2539,12 @@ describe('command palette', () => {
         screen.getByTestId('command-palette', { includeHiddenElements: true }),
       ).toHaveProp('pointerEvents', 'none');
       expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
-      // A Return delivered to the retained field must not run Search Mail after closing.
+      expect(input).toHaveProp('editable', false);
+      // New input is disabled; a native Return already queued before closing must be ignored too.
       await fireEvent(input, 'submitEditing');
+      await act(() => {
+        input.props.onSubmitEditing();
+      });
       expect(screen.getByRole('header', { name: 'Inbox' })).toBeOnTheScreen();
       await openPalette(header);
       expect(screen.getByPlaceholderText('Type a command')).toHaveDisplayValue(
@@ -2554,6 +2559,7 @@ describe('command palette', () => {
       timing.mockRestore();
     }
   });
+  /* oxlint-enable vitest/max-expects */
 
   /* oxlint-disable vitest/max-expects -- One journey proves each entry, the fixed order, narrowing and the picker. */
   it('lists contextual commands first, narrows by typing and moves the open message from its picker', async () => {
