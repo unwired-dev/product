@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { ViewProps } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -40,7 +40,14 @@ const styles = StyleSheet.create({
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   restoringStatus: { position: 'absolute', top: 0, left: 0, right: 0 },
   hidden: { opacity: 0 },
-  privacy: { minHeight: 44, justifyContent: 'center', alignItems: 'center' },
+  privacy: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    outlineWidth: 2,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
   points: { gap: 14, marginTop: 36, marginBottom: 28 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { fontSize: 15, lineHeight: 16, opacity: 0.85 },
@@ -69,6 +76,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.m,
     borderRadius: radius.control,
     borderCurve: 'continuous',
+    outlineWidth: 2,
   },
   apple: { height: 40 },
   providers: {
@@ -96,6 +104,11 @@ const styles = StyleSheet.create({
   providerText: { flex: 1, gap: 1 },
   providerName: { ...textStyles.bodyEmphasized },
   providerDetail: { ...textStyles.subheadline },
+  providerFocus: {
+    borderWidth: 2,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
   card: {
     gap: spacing.m,
     padding: 28,
@@ -193,6 +206,7 @@ export function Welcome({
   const colors = usePalette();
   const { t } = useLocalization();
   const motion = useRestoringMotion(restoring);
+  const [privacyFocused, setPrivacyFocused] = useState(false);
   const ink = { color: colors.brandOnDeep };
   const concealed = restoring ? styles.hidden : undefined;
   const points = [
@@ -256,9 +270,25 @@ export function Welcome({
                 accessibilityRole="button"
                 accessibilityLabel={t('settings.destinations.privacy')}
                 disabled={restoring}
+                enableFocusRing={false}
+                onBlur={() => {
+                  setPrivacyFocused(false);
+                }}
+                onFocus={() => {
+                  setPrivacyFocused(true);
+                }}
                 onPress={onPrivacy}
                 focusable={!restoring}
-                style={[styles.continue, styles.privacy]}>
+                style={[
+                  styles.continue,
+                  styles.privacy,
+                  // On the deep page the focus ring takes the page's ink, as the Outbox toast's does.
+                  {
+                    outlineColor: privacyFocused
+                      ? colors.brandOnDeep
+                      : 'transparent',
+                  },
+                ]}>
                 <Text style={[textStyles.body, ink]}>
                   {t('settings.destinations.privacy')}
                 </Text>
@@ -348,17 +378,31 @@ export function OnboardingAction({
   readonly disabled?: boolean;
 }) {
   const colors = usePalette();
+  const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      enableFocusRing={false}
       focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={onPress}
-      style={[
+      style={({ pressed }) => [
         styles.action,
-        { backgroundColor: colors.fillQuiet, opacity: disabled ? 0.4 : 1 },
+        {
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : colors.fillQuiet,
+          opacity: disabled ? 0.4 : 1,
+          outlineColor: focused && !disabled ? colors.accentInk : 'transparent',
+        },
       ]}>
       <Text style={[textStyles.body, { color: colors.textPrimary }]}>
         {label}
@@ -416,6 +460,7 @@ export function ProviderRow({
   readonly last?: boolean;
 }) {
   const colors = usePalette();
+  const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityHint={detail}
@@ -423,7 +468,14 @@ export function ProviderRow({
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      enableFocusRing={false}
       focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.provider,
@@ -453,6 +505,17 @@ export function ProviderRow({
         size={11}
         color={colors.textSecondary}
       />
+      {/* The 2pt accent/ink focus ring, drawn over the row so its layout holds. */}
+      {focused ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.providerFocus,
+            { borderColor: colors.accentInk },
+          ]}
+        />
+      ) : null}
     </Pressable>
   );
 }
