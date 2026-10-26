@@ -29,9 +29,9 @@ for path do
 done
 
 printf '%s\n' 'Implementer conflicts:'
-eval "git --no-pager diff --name-only --diff-filter=U -- ':(top)'$excluded"
+eval "git --no-pager diff --no-relative --name-only --diff-filter=U -- ':(top)'$excluded"
 printf '%s\n' 'Reviewer-only conflicts (hand to the next reviewer; do not open):'
-eval "git --no-pager diff --name-only --diff-filter=U --$included"
+eval "git --no-pager diff --no-relative --name-only --diff-filter=U --$included"
 if [ "$diff" = true ]; then
-  eval "git --no-pager diff --no-ext-diff --no-textconv --diff-filter=U -- ':(top)'$excluded"
+  eval "git --no-pager diff --no-relative --no-ext-diff --no-textconv --diff-filter=U -- ':(top)'$excluded"
 fi

@@ -294,6 +294,7 @@ test('implementer-conflicts names reviewer-only conflicts without their content'
     encoding: 'utf8',
   });
   assert.equal(merge.status, 1, merge.stderr);
+  git('config', 'diff.relative', 'true');
   for (const from of ['.', 'docs']) {
     const result = spawnSync(conflicts, [], {
       cwd: path.join(cwd, from),
