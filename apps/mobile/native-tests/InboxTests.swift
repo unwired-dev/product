@@ -1192,10 +1192,8 @@ final class InboxTests: XCTestCase {
       selectWord(app) { self.menuControl("Translate the selected text", from: "Writing tools", in: app).isEnabled }
       app.buttons["Translate the selected text"].tap()
       // On a loaded iPad the first tap on a language can be lost; choose it again until it applies.
-      let german = app.descendants(matching: .any)
-        .matching(NSPredicate(format: "label == %@", "Translate into German")).firstMatch
       for _ in 0..<3 where !app.staticTexts["Synthetic translation of local mail."].exists {
-        german.tap()
+        menuControl("German", from: "Translate into", in: app).tap()
         _ = app.staticTexts["Synthetic translation of local mail."].waitForExistence(timeout: 10)
       }
     }
