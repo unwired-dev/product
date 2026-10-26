@@ -1,5 +1,5 @@
 import { Host, Picker, Text } from '@expo/ui/swift-ui';
-import { disabled, pickerStyle, tag } from '@expo/ui/swift-ui/modifiers';
+import { disabled, pickerStyle, tag, tint } from '@expo/ui/swift-ui/modifiers';
 import { languages } from '@private-email/localization';
 import { useState } from 'react';
 import { StyleSheet } from 'react-native';
@@ -52,7 +52,11 @@ export function LanguageSelector({
             onSelectionChange={(selection: string) => {
               void select(selection);
             }}
-            modifiers={[pickerStyle('menu'), disabled(pending !== undefined)]}>
+            modifiers={[
+              pickerStyle('menu'),
+              tint(colors.textPrimary),
+              disabled(pending !== undefined),
+            ]}>
             <Text modifiers={[tag(systemDefault)]}>
               {t('language.systemDefault')}
             </Text>

@@ -137,6 +137,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
   pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
   tag: (tag) => ({ $type: 'tag', tag }),
+  tint: (tint) => ({ $type: 'tint', tint }),
   presentationBackground: (style) => ({
     $type: 'presentationBackground',
     style,
