@@ -344,7 +344,8 @@ styles) so the file stays editable.
   Synchronization and authorization problems appear beside the affected Mailbox
   Connection. Conditional [Outbox](docs/outbox.md#sending) sits above Drafts.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
-  The reference mockups show Favorites and per-list banners and omit the secondary mailboxes.
+  The unified Archive frames on each platform's New features page show the secondary
+  mailboxes under Favorites and a connection without that role; other mockups omit them.
   iPhone Mailboxes puts Settings in a glass **Account** circle at the header's trailing
   edge and a glass New Message at the bottom trailing corner; the frames' **Edit**
   beside Account has no feature behind it yet.

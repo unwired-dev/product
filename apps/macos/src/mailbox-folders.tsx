@@ -1,17 +1,24 @@
+import type { UnifiedRole } from '@private-email/mail-core/mailboxes';
+
 import {
   imapFolderFailed,
   inboxFolder,
 } from '@private-email/mail-core/imap-inbox';
 import {
   createGmailViewEntries,
+  createUnifiedMailboxRetention,
   gmailMailbox,
   gmailViewRow,
   mailboxFolder,
+  unifiedFolders,
+  unifiedMailbox,
+  unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useSyncExternalStore,
 } from 'react';
 
@@ -25,7 +32,7 @@ const noSubscription = () => () => undefined;
 // A mailbox shown on its own lists the IMAP folder or Gmail view its window chose; the Inbox is
 // listed otherwise. A folder or label the mailbox no longer offers falls back to the Inbox and
 // drops the choice, so a recreated one of that name is not reopened from a stale cache.
-export function useMailboxFolder<E>(
+function useMailboxFolder<E>(
   shown: readonly InboxMailbox[],
   // The Inbox entries listed when no other folder is chosen.
   inbox: readonly E[],
@@ -53,14 +60,11 @@ export function useMailboxFolder<E>(
   }, [dropped, onView, view.mailbox]);
   const browsing = useFolderEntries(chosen, folder);
   const gmail = useGmailView(chosen, folder);
-  // A message chosen outside the Inbox names its view, which its actions can take it out of.
-  const selection = folder === inboxFolder ? {} : { folder };
   if (gmail !== undefined) {
-    return { folder, selection, ...gmail };
+    return { folder, ...gmail };
   }
   return {
     folder,
-    selection,
     // Reaching the end of the Inbox reveals older Gmail mail its devices downloaded.
     showOlder: () => {
       if (folder !== inboxFolder) {
@@ -144,4 +148,80 @@ function useFolderEntries(
           },
     [mailbox, view],
   );
+}
+
+// The list a window shows: the Unified Mailbox it chose, or else its chosen mailbox's folder.
+// `folderOf` names the folder or view a row is listed in, which its actions are those of.
+export function useListedMailbox<E>(
+  shown: readonly InboxMailbox[],
+  // The Inbox entries listed when no other folder is chosen.
+  inbox: readonly E[],
+  options: Readonly<{
+    view: MailboxView;
+    onView: (view: MailboxView) => void;
+  }>,
+) {
+  const { t } = useLocalization();
+  const chosen = useMailboxFolder(shown, inbox, options);
+  const role = options.view.unified;
+  const unified = useUnifiedMailbox(shown, role);
+  const rowFolder = useMemo(
+    () =>
+      new Map(
+        unified?.entries.map(({ mailbox, message, folder }) => [
+          `${mailbox.id}\n${message.id}`,
+          folder,
+        ]),
+      ),
+    [unified],
+  );
+  if (role === undefined || unified === undefined) {
+    return {
+      ...chosen,
+      missing: [],
+      folderOf: (_mailbox: string, _id: string) => chosen.folder,
+    };
+  }
+  return {
+    ...chosen,
+    title: unifiedRow(t, role).title,
+    listed: unified.entries,
+    failure:
+      unified.failed.length === 0 ? undefined : t('imap.foldersUnavailable'),
+    // Reaching the end reveals each Gmail mailbox's older downloaded mail with the role.
+    showOlder: () => {
+      for (const mailbox of shown) {
+        for (const view of unifiedFolders(mailbox, role) ?? []) {
+          gmailMailbox(mailbox)?.inbox.showOlder(view);
+        }
+      }
+    },
+    // Mailboxes whose provider marks no folder with the role, which the list names as left out.
+    missing: unified.missing,
+    folderOf: (mailbox: string, id: string) =>
+      rowFolder.get(`${mailbox}\n${id}`) ?? inboxFolder,
+  };
+}
+
+// A Unified Mailbox of the window's mailboxes. Each mailbox's folders or views with the role are
+// retained and opened while it is shown, and the list follows them as they sync.
+function useUnifiedMailbox(
+  mailboxes: readonly InboxMailbox[],
+  role: UnifiedRole | undefined,
+) {
+  const [, changed] = useReducer((count: number) => count + 1, 0);
+  const retained = useMemo(
+    () => createUnifiedMailboxRetention(changed),
+    [changed],
+  );
+  useLayoutEffect(() => {
+    retained.update(mailboxes, role);
+  }, [retained, mailboxes, role]);
+  useLayoutEffect(
+    () => () => {
+      retained.dispose();
+    },
+    [retained],
+  );
+  return role === undefined ? undefined : unifiedMailbox(mailboxes, role);
 }
