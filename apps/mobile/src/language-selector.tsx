@@ -1,84 +1,82 @@
+import { Host, Picker, Text } from '@expo/ui/swift-ui';
+import { disabled, pickerStyle, tag, tint } from '@expo/ui/swift-ui/modifiers';
 import { languages } from '@private-email/localization';
-import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { AnnouncedAlert } from './design.tsx';
 import { localization, useLocalization } from './localization.ts';
+import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-const styles = StyleSheet.create({
-  container: { paddingHorizontal: spacing.xl, gap: spacing.s },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  option: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.s,
-    borderWidth: 1,
-    borderRadius: radius.control,
-  },
-  text: { ...textStyles.subheadline },
-});
+const styles = StyleSheet.create({ text: { ...textStyles.subheadline } });
 
-export function LanguageSelector() {
+// SwiftUI tags cannot be null, so System Default's null preference takes a UI-only tag.
+const systemDefault = 'system';
+
+// The interface language as a row whose native menu checks the saved choice; Settings adds its
+// explanation below.
+export function LanguageSelector({
+  footer,
+}: {
+  readonly footer?: string | undefined;
+}) {
   const { t, settings } = useLocalization();
   const colors = usePalette();
-  const [saving, setSaving] = useState(false);
+  // The choice being saved. Clearing it after a refused save changes the selection back, which
+  // is the only way the native picker drops the choice it already shows.
+  const [pending, setPending] = useState<string>();
   const [failed, setFailed] = useState(false);
-  const options = [{ code: null, name: t('language.system') }, ...languages];
 
-  async function select(language: string | null) {
-    setSaving(true);
+  async function select(selection: string) {
+    setPending(selection);
     setFailed(false);
     try {
-      await localization.setLanguage(language);
+      await localization.setLanguage(
+        selection === systemDefault ? null : selection,
+      );
     } catch {
       setFailed(true);
     }
-    setSaving(false);
+    setPending(undefined);
   }
 
   return (
-    <View style={styles.container}>
-      <Text
-        accessibilityRole="header"
-        style={[styles.text, { color: colors.textSecondary }]}>
-        {t('language.title')}
-      </Text>
-      <View style={styles.options}>
-        {options.map(({ code, name }) => (
-          <Pressable
-            key={code ?? 'system'}
-            testID={`language-${code ?? 'system'}`}
-            accessibilityRole="radio"
-            accessibilityState={{
-              checked: settings.preference === code,
-              disabled: saving,
+    <SettingsGroup footer={footer}>
+      <SettingsRow title={t('language.title')}>
+        <Host matchContents>
+          <Picker
+            testID="language"
+            label={t('language.title')}
+            selection={pending ?? settings.preference ?? systemDefault}
+            onSelectionChange={(selection: string) => {
+              void select(selection);
             }}
-            disabled={saving}
-            onPress={() => {
-              void select(code);
-            }}
-            style={[
-              styles.option,
-              {
-                borderColor:
-                  settings.preference === code
-                    ? colors.accentInk
-                    : colors.separator,
-              },
+            modifiers={[
+              pickerStyle('menu'),
+              tint(colors.textPrimary),
+              disabled(pending !== undefined),
             ]}>
-            <Text style={[styles.text, { color: colors.textPrimary }]}>
-              {name}
+            <Text modifiers={[tag(systemDefault)]}>
+              {t('language.systemDefault')}
             </Text>
-          </Pressable>
-        ))}
-      </View>
+            {languages.map(({ code, name }) => (
+              <Text
+                key={code}
+                modifiers={[tag(code)]}>
+                {name}
+              </Text>
+            ))}
+          </Picker>
+        </Host>
+      </SettingsRow>
       {failed ? (
-        <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
-          {t('language.saveFailed')}
-        </AnnouncedAlert>
+        <SettingsBlock>
+          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
+            {t('language.saveFailed')}
+          </AnnouncedAlert>
+        </SettingsBlock>
       ) : null}
-    </View>
+    </SettingsGroup>
   );
 }

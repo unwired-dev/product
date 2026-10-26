@@ -75,7 +75,7 @@ jest.mock('react-native-screens', () => {
 // accessibility escape dismisses it; a sheet finishes dismissing at once.
 jest.mock('@expo/ui/swift-ui', () => {
   const React = require('react');
-  const { View } = require('react-native');
+  const { Pressable, Text, View } = require('react-native');
   function Passthrough({ children }) {
     return React.createElement(React.Fragment, null, children);
   }
@@ -117,7 +117,6 @@ jest.mock('@expo/ui/swift-ui', () => {
   }
   // An alert shows its title, message and actions while presented.
   function Alert({ testID, title, isPresented, children }) {
-    const { Text } = require('react-native');
     return isPresented
       ? React.createElement(
           View,
@@ -131,11 +130,43 @@ jest.mock('@expo/ui/swift-ui', () => {
   Alert.Actions = Passthrough;
   Alert.Message = Passthrough;
   function Button({ label, onPress }) {
-    const { Pressable, Text } = require('react-native');
     return React.createElement(
       Pressable,
       { accessibilityRole: 'button', accessibilityLabel: label, onPress },
       React.createElement(Text, null, label),
+    );
+  }
+  // A menu picker lists its options as radios; each option's tag modifier is its value.
+  function Picker({
+    label,
+    selection,
+    onSelectionChange,
+    modifiers,
+    children,
+  }) {
+    const disabled = modifiers?.some(
+      (modifier) => modifier.$type === 'disabled' && modifier.disabled,
+    );
+    return React.createElement(
+      View,
+      { accessibilityLabel: label, accessibilityRole: 'radiogroup' },
+      React.Children.map(children, (option) => {
+        const value = option.props.modifiers.find(
+          (modifier) => modifier.$type === 'tag',
+        ).tag;
+        return React.createElement(
+          Pressable,
+          {
+            accessibilityRole: 'radio',
+            accessibilityState: { checked: value === selection, disabled },
+            disabled,
+            onPress: () => {
+              onSelectionChange?.(value);
+            },
+          },
+          React.createElement(Text, null, option.props.children),
+        );
+      }),
     );
   }
   // A popover keeps its trigger in place and presents its content beside it.
@@ -163,16 +194,21 @@ jest.mock('@expo/ui/swift-ui', () => {
     Alert,
     BottomSheet,
     Button,
-    Text: require('react-native').Text,
     Popover,
     Group: Passthrough,
     Host: Passthrough,
+    Picker,
     RNHostView: Passthrough,
     Spacer: () => null,
+    Text,
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  disabled: (disabled) => ({ $type: 'disabled', disabled }),
   frame: (params) => ({ $type: 'frame', ...params }),
+  pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
+  tag: (tag) => ({ $type: 'tag', tag }),
+  tint: (tint) => ({ $type: 'tint', tint }),
   presentationBackground: (style) => ({
     $type: 'presentationBackground',
     style,

@@ -2,6 +2,7 @@ import { fireEvent, render, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
 import { Inbox } from '../src/inbox.tsx';
+import { LanguageSelector } from '../src/language-selector.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -67,6 +68,7 @@ function Surface() {
           selected={undefined}
           onSelect={jest.fn()}
         />
+        <LanguageSelector />
       </View>
     </InboxProvider>
   );
@@ -91,9 +93,9 @@ describe('language selection', () => {
     await prepare();
     const app = await render(<Surface />);
     const first = within(app.getByTestId('first'));
-    await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
+    await fireEvent.press(first.getByRole('radio', { name: 'System Default' }));
     await expect(first.findByText('Boîte de réception')).resolves.toBeVisible();
-    expect(first.getByRole('radio', { name: 'System default' })).toBeChecked();
+    expect(first.getByRole('radio', { name: 'System Default' })).toBeChecked();
     expect(
       first.getByText(/unread(?: messages)? pour Preview mailbox$/u),
     ).toBeVisible();
@@ -117,12 +119,12 @@ describe('language selection', () => {
       .mockRejectedValueOnce(new Error('unavailable'));
     const app = await render(<Surface />);
     const first = within(app.getByTestId('first'));
-    await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
+    await fireEvent.press(first.getByRole('radio', { name: 'System Default' }));
     await expect(first.findByRole('alert')).resolves.toHaveTextContent(
       'The language could not be saved. Try again.',
     );
     expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
-    await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
+    await fireEvent.press(first.getByRole('radio', { name: 'System Default' }));
     await expect(first.findByText('Boîte de réception')).resolves.toBeVisible();
     expect(first.queryByRole('alert')).toBeNull();
   });
