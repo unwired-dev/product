@@ -153,9 +153,9 @@ spawning implementers.
 Run the relevant checks under the [testing policy](../../../docs/agents/testing.md)
 and setup guides. Record actual results and unavailable checks; an unavailable
 check is never a pass. Local subsets can pass where CI fails, so before the
-first reviewer handoff and again after each reviewer's fixes, run the
-[validation commands](../../../README.md#validation) CI runs for the change,
-including the blocking Fallow audit, and put the result in the handoff. A shared
+first reviewer handoff and again after each reviewer's fixes, run
+`mise exec -- scripts/pre-handoff.sh`, which runs CI's TypeScript and Fallow
+job commands, and put its verdict line in the handoff. A shared
 package change needs its dependents' suites; when the full test run is too broad,
 `mise exec -- pnpm turbo run test --filter='...[origin/main]'` selects changed
 packages and their dependents. List them in the handoff.

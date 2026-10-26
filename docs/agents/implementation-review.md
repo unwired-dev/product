@@ -98,7 +98,11 @@ check; qualification records retain the detailed evidence and unavailable status
 The reviewer owns architecture extraction and edits, updates links to moved
 sections, and preserves every requirement and decision. Hand back actionable
 outcomes and verification results without copying architecture documents into
-the implementer's context. When a task's requirements appear only in reviewer-only
+the implementer's context. During a merge, the implementer lists conflicts with
+`scripts/implementer-conflicts` (`--diff` prints hunks only for readable paths),
+leaves reviewer-only conflicts unresolved and hands them to the next pinned
+reviewer, who resolves and stages them; the implementer then concludes the merge.
+When a task's requirements appear only in reviewer-only
 sources, delegate their extraction before implementing: the reviewer records them
 in the operational owner, or, when edits are out of scope, returns acceptance-level
 statements and source paths without document content. File separation supports this reading policy; it does
@@ -153,7 +157,8 @@ over generic skill examples for both roles.
 4. Pin the actual comparison and hand off first to a separate simplicity reviewer
    with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"` and `fork_turns: "none"`.
    Include the checkout, request and issue, acceptance criteria, original starting
-   commit, summary, task-owned files, pre-existing changes, checks/results,
+   commit, summary, task-owned files, pre-existing changes, checks/results
+   (including the `scripts/pre-handoff.sh` verdict line for code changes),
    limitations and [round history](#four-round-safeguard). For UI, include the
    selected API, remaining gaps and native evidence or deferred checks. Include
    prior findings, their dispositions and any completed review conclusions
@@ -277,7 +282,8 @@ Before further implementation edits or review after either limit is reached:
    checkout, preserving unrelated work. Update affected tests and documentation,
    including architecture docs when needed. This assignment includes fixes,
    even when a review skill's default output is only a findings report.
-5. Run the checks appropriate to the fixes, inspect the final diff, and review
+5. Run the checks appropriate to the fixes, including `scripts/pre-handoff.sh`
+   after code fixes, inspect the final diff, and review
    the corrected result again. Repeat until there are no unresolved issues within
    the authorized scope, subject to the
    [four-round safeguard's reviewer cycle limit](#bound-reviewer-fix-loops).

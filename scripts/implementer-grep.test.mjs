@@ -260,3 +260,63 @@ test('rejects pagers and textconv helpers that can read excluded files', (t) => 
     [...readable].toSorted(),
   );
 });
+
+test('implementer-conflicts names reviewer-only conflicts without their content', (t) => {
+  const { cwd } = repository(t);
+  const conflicts = fileURLToPath(
+    new URL('implementer-conflicts', import.meta.url),
+  );
+  const git = (...args) =>
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        ...args,
+      ],
+      { cwd, encoding: 'utf8' },
+    );
+  const files = [...reviewerOnly, ...readable];
+  const commitAll = (branch, text) => {
+    git('checkout', '-q', '-B', branch, 'fixture');
+    for (const file of files) {
+      writeFileSync(path.join(cwd, file), `${text}\n`);
+    }
+    git('commit', '-qam', branch);
+  };
+  git('branch', 'fixture');
+  commitAll('theirs', 'reviewer-only theirs content');
+  commitAll('ours', 'reviewer-only ours content');
+  assert.equal(
+    spawnSync('git', ['merge', '-q', 'theirs'], { cwd }).status,
+    1,
+    'the fixture merge must conflict',
+  );
+  for (const from of ['.', 'docs']) {
+    const result = spawnSync(conflicts, [], {
+      cwd: path.join(cwd, from),
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const [implementer, reviewer] = result.stdout
+      .split('Reviewer-only conflicts')
+      .map((section) => section.trim().split('\n').slice(1).toSorted());
+    assert.deepEqual(implementer, [...readable].toSorted());
+    assert.deepEqual(reviewer, [...reviewerOnly].toSorted());
+  }
+  const result = spawnSync(conflicts, ['--diff'], { cwd, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(
+    result.stdout
+      .split('\n')
+      .filter((line) => line.startsWith('diff --cc '))
+      .toSorted(),
+    readable.map((file) => `diff --cc ${file}`).toSorted(),
+  );
+});
