@@ -765,15 +765,29 @@ final class InboxTests: XCTestCase {
     enter(String(first.suffix(4)), into: initialEntry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     let proposed = app.staticTexts["revocation-recovery-key"]
-    func prepare() {
+    // The system alert explains removal; its Cancel keeps the device without preparing anything.
+    func confirm(_ choice: String) {
       XCTAssertTrue(app.buttons["Remove iPad"].waitForExistence(timeout: 15))
       app.buttons["Remove iPad"].tap()
-      let dialog = app.otherElements["device-removal-confirmation"]
+      let dialog = app.alerts["Remove “iPad”?"]
       XCTAssertTrue(dialog.waitForExistence(timeout: 15))
-      XCTAssertTrue(text("cannot be erased remotely", in: app).exists)
-      dialog.buttons["Remove iPad"].tap()
+      XCTAssertTrue(
+        dialog.staticTexts.containing(
+          NSPredicate(format: "label CONTAINS %@", "cannot be erased remotely")
+        ).firstMatch.exists)
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "Trusted Device removal alert"
+      shot.lifetime = .keepAlways
+      add(shot)
+      dialog.buttons[choice].tap()
+      XCTAssertTrue(dialog.waitForNonExistence(timeout: 15))
+    }
+    func prepare() {
+      confirm("Remove iPad")
       XCTAssertTrue(proposed.waitForExistence(timeout: 15))
     }
+    confirm("Cancel")
+    XCTAssertFalse(proposed.exists)
     prepare()
     // Cancelling the prepared removal keeps the device.
     app.buttons["Cancel"].tap()

@@ -90,14 +90,42 @@ jest.mock('@expo/ui/swift-ui', () => {
     }, [shown, isPresented, onDismiss]);
     return shown ? children : null;
   }
+  // An alert shows its title, message and actions while presented.
+  function Alert({ testID, title, isPresented, children }) {
+    const { Text, View } = require('react-native');
+    return isPresented
+      ? React.createElement(
+          View,
+          { testID, accessibilityViewIsModal: true },
+          React.createElement(Text, { accessibilityRole: 'header' }, title),
+          children,
+        )
+      : null;
+  }
+  Alert.Trigger = Passthrough;
+  Alert.Actions = Passthrough;
+  Alert.Message = Passthrough;
+  function Button({ label, onPress }) {
+    const { Pressable, Text } = require('react-native');
+    return React.createElement(
+      Pressable,
+      { accessibilityRole: 'button', accessibilityLabel: label, onPress },
+      React.createElement(Text, null, label),
+    );
+  }
   return {
+    Alert,
     BottomSheet,
+    Button,
+    Text: require('react-native').Text,
     Group: Passthrough,
     Host: Passthrough,
     RNHostView: Passthrough,
+    Spacer: () => null,
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  frame: (params) => ({ $type: 'frame', ...params }),
   presentationBackground: (style) => ({
     $type: 'presentationBackground',
     style,
