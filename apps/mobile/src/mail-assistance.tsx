@@ -17,7 +17,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import { Pressable, Switch } from 'react-native';
+import { Switch } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
@@ -221,22 +221,14 @@ function ProfileSwitch({
           } as const
         )[saveState],
       )}>
-      <Pressable
-        accessible={false}
-        focusable={false}
-        onPress={() => {
-          void store.setEnabled(account, profile, !enabled);
+      <Switch
+        accessibilityLabel={label}
+        onValueChange={(on) => {
+          void store.setEnabled(account, profile, on);
         }}
-        style={{ minHeight: 44, justifyContent: 'center' }}>
-        <Switch
-          accessibilityLabel={label}
-          onValueChange={(on) => {
-            void store.setEnabled(account, profile, on);
-          }}
-          trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
-          value={enabled}
-        />
-      </Pressable>
+        trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+        value={enabled}
+      />
     </SettingsRow>
   );
 }
