@@ -1,3 +1,4 @@
+import { isomorphicDecode } from '@exodus/bytes/encoding-lite.js';
 import * as Base64 from 'effect/encoding/Base64';
 import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Result from 'effect/Result';
@@ -10,14 +11,6 @@ import type { GmailPart } from './message-body.ts';
 // refused rather than walked.
 const limits = { depth: 32, parts: 10_000, headerBytes: 256 * 1024 };
 
-// One byte per character, so structure is found without decoding any charset.
-const binary = (bytes: Readonly<Uint8Array>) => {
-  let text = '';
-  for (let index = 0; index < bytes.length; index += 0x80_00) {
-    text += String.fromCodePoint(...bytes.subarray(index, index + 0x80_00));
-  }
-  return text;
-};
 const bytesOf = (text: string) =>
   Uint8Array.from(text, (character) => character.codePointAt(0) ?? 0);
 
@@ -90,7 +83,7 @@ const base64 = (text: string) => {
   const bytes = Base64.decode(
     clean.padEnd(Math.ceil(clean.length / 4) * 4, '='),
   );
-  return Result.isSuccess(bytes) ? binary(bytes.success) : '';
+  return Result.isSuccess(bytes) ? isomorphicDecode(bytes.success) : '';
 };
 
 const decoded = (body: string, encoding = '') => {
@@ -191,6 +184,7 @@ export function parseMime(raw: Readonly<Uint8Array>): GmailPart | undefined {
     }
     return { mimeType, filename, headers, body: leaf(headers, body) };
   };
-  const tree = parse(binary(raw), 0);
+  // One byte per character, so structure is found without decoding any charset.
+  const tree = parse(isomorphicDecode(raw), 0);
   return exceeded ? undefined : tree;
 }

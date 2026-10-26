@@ -1,5 +1,7 @@
 import * as Vitest from '@effect/vitest';
 import * as Effect from 'effect/Effect';
+import * as Base64 from 'effect/encoding/Base64';
+import * as Base64Url from 'effect/encoding/Base64Url';
 import PostalMime from 'postal-mime';
 
 import type { GmailPart } from '../src/message-body.ts';
@@ -115,6 +117,37 @@ describe('parsing raw IMAP messages into MIME trees', () => {
       ]);
     } finally {
       transformed.mockRestore();
+    }
+  });
+
+  it('keeps every leaf byte through the one-byte-per-character view', () => {
+    expect.hasAssertions();
+    // Empty, all 256 values, and lengths around the 32 KiB chunks the previous decoder used.
+    for (const length of [
+      0,
+      256,
+      0x80_00 - 1,
+      0x80_00,
+      0x80_00 + 1,
+      0x4_00_01,
+    ]) {
+      const bytes = Uint8Array.from({ length }, (_, index) => index % 256);
+      const raw = (encoding: string, body: Readonly<Uint8Array>) => {
+        const head = new TextEncoder().encode(
+          `Content-Type: application/octet-stream\r\nContent-Transfer-Encoding: ${encoding}\r\n\r\n`,
+        );
+        const message = new Uint8Array(head.length + body.length);
+        message.set(head);
+        message.set(body, head.length);
+        return message;
+      };
+      const base64 = new TextEncoder().encode(Base64.encode(bytes));
+      for (const message of [raw('binary', bytes), raw('base64', base64)]) {
+        expect(treeOf(message).body).toStrictEqual({
+          size: length,
+          data: Base64Url.encode(bytes),
+        });
+      }
     }
   });
 
