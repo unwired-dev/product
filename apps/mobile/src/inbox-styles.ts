@@ -184,5 +184,7 @@ export const styles = StyleSheet.create({
     ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
   },
   notice: { ...textStyles.body, padding: spacing.xl },
+  // The text action's own target supplies the rest of a notice's height.
+  noticeAction: { paddingHorizontal: spacing.xl, paddingVertical: spacing.s },
   mailbox: { ...textStyles.footnote },
 });
