@@ -22,6 +22,7 @@ import {
   preparedRemoval,
   recoveryVerifier,
   replacementRecoveryVerifier,
+  trustedConnection,
 } from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
@@ -577,21 +578,27 @@ describe('productAccount.connect', () => {
   it('resumes the same product account for the same Apple identity', async () => {
     expect.assertions(2);
 
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
+    const asUser = convexTest(schema, modules).withIdentity(appleIdentity);
 
-    const firstConnect = await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
+    const firstConnect = trustedConnection(
+      await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      }),
+    );
 
-    const resumedConnect = await connectTrusted(t, asUser, {
+    const resumedConnect = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
 
-    expect(resumedConnect.productAccountId).toBe(firstConnect.productAccountId);
-    expect(resumedConnect.deviceRegistered).toBe(true);
+    // The first installation is a Trusted Device, so the second waits for approval.
+    expect(resumedConnect).toMatchObject({
+      accountCreated: false,
+      pendingDeviceId: expect.any(String),
+      productAccountId: firstConnect.productAccountId,
+    });
+    expect(resumedConnect).not.toHaveProperty('trustedDeviceId');
   });
 
   it('lists every trusted device with its user-facing name', async () => {
