@@ -152,6 +152,14 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
       const entries = readdirSync(artifacts);
       assert.equal(entries.length, 1);
       const evidence = path.join(artifacts, entries[0]);
+      const hostLoad = readFileSync(
+        path.join(evidence, 'host-load.txt'),
+        'utf8',
+      );
+      assert.match(hostLoad, /before .* attempt 1/u);
+      if (scenario !== 'terminated') {
+        assert.match(hostLoad, /after .* attempt 1/u);
+      }
       const ownership = parseJson(
         readFileSync(path.join(evidence, 'ownership.json'), 'utf8'),
       );

@@ -27,7 +27,8 @@ needed to verify a requirement; it does not require product tests merely because
 prose changed. Changes to OCR rules or selection configuration also validate
 rule resolution through the delegation commands.
 
-All review agents use `gpt-6.1-sol` with `high` reasoning and a fresh context.
+Except for the [model-policy exceptions](#subagent-model-policy), all review
+agents use `gpt-6.1-sol` with `high` reasoning and a fresh context.
 Pass both settings explicitly. An unavailable required reviewer leaves that
 review incomplete; implementer self-review does not replace it. Leave the
 implementer's model, host defaults and saved OCR provider configuration unchanged.
@@ -45,7 +46,7 @@ to implementation, review, research and other delegated work through native
 subagent tools or T3 delegation, including nested delegation. Pass this policy
 to each child agent. Skills and tool defaults must follow it.
 
-The optional advisory [decision panel](#decision-panel) is the only exception. Keep its prescribed
+The optional advisory [decision panel](#decision-panel) is one exception. Keep its prescribed
 `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra` panelists; the Claude panelist
 remains read-only and does not receive implementation or review work.
 
@@ -186,8 +187,9 @@ over generic skill examples for both roles.
 5. Pause implementer writes while a reviewer owns the checkout and wait for its
    final report before the next pass. Run applicable maintainability and design
    passes after the independent documentation or OCR review, giving each the
-   original task comparison, evidence and earlier reports. Use the same explicit
-   model, reasoning and fresh-context settings for every reviewer. Never run two
+   original task comparison, evidence and earlier reports. Follow the
+   [subagent model policy](#subagent-model-policy) and pass explicit reasoning
+   and fresh-context settings for every reviewer. Never run two
    writing reviewers at once. Record inapplicable passes with their reason,
    including design review when no client-visible behavior changed.
    A failed, cancelled or interrupted reviewer is incomplete whatever its summary
@@ -432,8 +434,8 @@ styles, copy, icons, motion, notifications or accessibility labels.
 ## Design approval
 
 A request for visual design or redesign, or any change to how a maintained
-client looks that the Figma frames do not already show, starts in Figma. Code
-waits for the user's approval of the frames. Tasks that do not request visual
+client looks that the Figma frames do not already show, starts in Figma.
+Design-dependent code waits for the user's approval of the frames. Tasks that do not request visual
 design or redesign may implement existing frames without another approval,
 provided their visual design stays unchanged.
 
@@ -444,7 +446,7 @@ provided their visual design stays unchanged.
    macOS, iPadOS and iOS pages, in Light and Dark, using DESIGN.md's tokens,
    the file's components and variables, and SF Symbols.
 2. Ask the user to review: link each changed frame, summarize what changed and
-   why, and list open questions. Stop and wait for the answer. This explicit design approval cannot be
+   why, and list open questions. This explicit design approval cannot be
    replaced by an advisory panel.
 3. Apply requested changes in Figma and ask again. Start code that depends on
    the design only after the user explicitly approves; design-independent work

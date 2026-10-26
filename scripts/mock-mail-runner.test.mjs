@@ -344,6 +344,20 @@ if (command === 'xcodebuild') {
         result.status,
       );
       assert.ok(existsSync(path.join(evidence, 'xcodebuild.log')));
+      const hostLoad = readFileSync(
+        path.join(evidence, 'host-load.txt'),
+        'utf8',
+      );
+      assert.match(
+        hostLoad,
+        /before testIndependentWindowsCloseReopenAndQuit/u,
+      );
+      if (!terminate) {
+        assert.match(
+          hostLoad,
+          /after testIndependentWindowsCloseReopenAndQuit/u,
+        );
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

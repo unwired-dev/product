@@ -51,31 +51,37 @@ const child = async (pid) => {
 
 test('stop ends a recorded process and its descendants', async (t) => {
   const { ledger, shell } = setup(t);
+  const unrelated = setup(t).shell;
   const sleep = await child(shell.pid);
   assert.equal(owned('record', ledger, String(shell.pid)).status, 0);
   const result = owned('stop', ledger);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(running(sleep), false);
+  assert.equal(running(unrelated.pid), true);
   assert.equal(existsSync(ledger), false);
+  assert.equal(owned('stop', ledger).status, 0);
 });
 
-test('stop leaves a PID running when it no longer matches the record', async (t) => {
-  const { ledger, shell } = setup(t);
-  await child(shell.pid);
-  assert.equal(owned('record', ledger, String(shell.pid)).status, 0);
-  const [pid, cwd, , command] = readFileSync(ledger, 'utf8')
-    .trimEnd()
-    .split('\t');
-  writeFileSync(
-    ledger,
-    `${pid}\t${cwd}\tMon Jan  1 00:00:00 2024\t${command}\n`,
-  );
-  const result = owned('stop', ledger);
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /no longer the recorded process/u);
-  assert.equal(running(shell.pid), true);
-  assert.equal(existsSync(ledger), true);
-});
+for (const [field, index] of [
+  ['working directory', 1],
+  ['start time', 2],
+  ['command', 3],
+]) {
+  test(`stop leaves a PID and its descendants running when its ${field} differs`, async (t) => {
+    const { ledger, shell } = setup(t);
+    const sleep = await child(shell.pid);
+    assert.equal(owned('record', ledger, String(shell.pid)).status, 0);
+    const fields = readFileSync(ledger, 'utf8').trimEnd().split('\t');
+    fields[index] = 'no longer matches';
+    writeFileSync(ledger, `${fields.join('\t')}\n`);
+    const result = owned('stop', ledger);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /no longer the recorded process/u);
+    assert.equal(running(shell.pid), true);
+    assert.equal(running(sleep), true);
+    assert.equal(existsSync(ledger), true);
+  });
+}
 
 test('record rejects anything but a running PID', () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'owned-process-'));
