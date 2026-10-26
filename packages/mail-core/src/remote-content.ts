@@ -4,6 +4,7 @@ import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
 import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
+import { createSubscribable } from './subscribable.ts';
 
 // How Remote Message Content loads on this device: ask for each presentation (the default),
 // never, or always. A Mailbox Connection may override the device's choice.
@@ -64,14 +65,9 @@ const logFailure =
 export function createRemoteContentSettings(native: NativeRemoteContent) {
   const operations = Semaphore.makeUnsafe(1);
   // Unresolved until the first read settles; an unreadable or failed read asks.
-  let settings: RemoteContentSettings | undefined = undefined;
-  const listeners = new Set<() => void>();
-  const publish = (next: RemoteContentSettings) => {
-    settings = next;
-    for (const listener of listeners) {
-      listener();
-    }
-  };
+  const settings = createSubscribable<RemoteContentSettings | undefined>(
+    undefined,
+  );
   const save = (
     update: (current: RemoteContentSettings) => RemoteContentSettings,
   ) =>
@@ -79,11 +75,11 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
       operations
         .withPermit(
           Effect.gen(function* () {
-            const next = update(settings ?? defaults);
+            const next = update(settings.getSnapshot() ?? defaults);
             yield* call(() =>
               native.setRemoteContentSettings(encodeSettings(next)),
             );
-            publish(next);
+            settings.set(next);
           }),
         )
         .pipe(
@@ -96,13 +92,8 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
         ),
     );
   return {
-    getSnapshot: () => settings,
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    getSnapshot: settings.getSnapshot,
+    subscribe: settings.subscribe,
     load: () =>
       runLogged(
         operations
@@ -110,7 +101,7 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
             call(() => native.remoteContentSettings()).pipe(
               Effect.tap((reply) =>
                 Effect.sync(() => {
-                  publish(
+                  settings.set(
                     Option.getOrElse(
                       Option.map(
                         decodeStored(reply),
@@ -131,7 +122,7 @@ export function createRemoteContentSettings(native: NativeRemoteContent) {
               ).pipe(
                 Effect.andThen(
                   Effect.sync(() => {
-                    publish(settings ?? defaults);
+                    settings.set(settings.getSnapshot() ?? defaults);
                   }),
                 ),
               ),

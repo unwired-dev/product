@@ -201,6 +201,11 @@ describe('command palette targets', () => {
     const unsubscribe = registry.subscribe(() => {
       seen.push(registry.getSnapshot().length);
     });
+    const once: number[] = [];
+    const stop = registry.subscribe(() => {
+      once.push(registry.getSnapshot().length);
+      stop();
+    });
     const unregister = registry.register(Symbol('inbox'), [
       command({ id: 'search', section: 'app', title: 'Search Mail' }),
     ]);
@@ -208,6 +213,7 @@ describe('command palette targets', () => {
     unsubscribe();
     registry.register(Symbol('inbox'), [placeholder]);
     expect(seen).toStrictEqual([1, 0]);
+    expect(once).toStrictEqual([1]);
   });
 });
 
