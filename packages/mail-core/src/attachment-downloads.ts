@@ -134,6 +134,8 @@ export function createAttachmentDownloads<S extends Scope, E>(
     state: AttachmentState;
     saved?: Readonly<{ scope: S; file: string }>;
     abort?: AbortController;
+    // The running download, which a second request for the same attachment awaits.
+    operation?: Promise<void>;
   }>;
   const downloads = new Map<string, Download>();
   const views = new Map<string, readonly ReceivedAttachment[]>();
@@ -177,28 +179,30 @@ export function createAttachmentDownloads<S extends Scope, E>(
   const descriptor = (id: string, locator: string) =>
     listed(id)?.find((attachment) => attachment.locator === locator);
 
-  // Downloads one listed attachment into private temporary storage. Cancelling, closing the
-  // message or a change of mailbox drops the result and deletes any file saved for it.
-  const download = (id: string, locator: string) => {
+  // Downloads one listed attachment into private temporary storage, resolving once it settles; a
+  // request while it runs returns the same Promise. Cancelling, closing the message or a change of
+  // mailbox drops the result and deletes any file saved for it.
+  const download = (id: string, locator: string): Promise<void> => {
+    const key = attachmentKey(id, locator);
     const opened = scope();
     const attachment = descriptor(id, locator);
-    const current = downloads.get(attachmentKey(id, locator))?.state.kind;
+    const current = downloads.get(key);
+    if (current?.state.kind === 'downloading') {
+      return current.operation ?? Promise.resolve();
+    }
     if (
       opened === undefined ||
       !readable(id) ||
       attachment === undefined ||
       attachment.size > attachmentLimit ||
-      current === 'downloading' ||
-      current === 'downloaded'
+      current?.state.kind === 'downloaded'
     ) {
       return Promise.resolve();
     }
     const reading = owner();
     const abort = new AbortController();
-    setDownload(id, locator, { state: attachmentStates.downloading, abort });
     const live = () =>
-      owner() === reading &&
-      downloads.get(attachmentKey(id, locator))?.abort === abort;
+      owner() === reading && downloads.get(key)?.abort === abort;
     // Saving and recording the file cannot be interrupted, so a cancelled download still deletes it.
     const save = (data: string, size: number) =>
       Effect.tryPromise({
@@ -275,7 +279,20 @@ export function createAttachmentDownloads<S extends Scope, E>(
         resume(Effect.void);
       });
     });
-    return runLogged(Effect.raceFirst(program, cancelled).pipe(Effect.asVoid));
+    // The program starts synchronously, so it is recorded first and published with its operation:
+    // a result it reaches at once still applies, and a subscriber asking again awaits it.
+    downloads.set(key, { state: attachmentStates.downloading, abort });
+    const operation = runLogged(
+      Effect.raceFirst(program, cancelled).pipe(Effect.asVoid),
+    );
+    if (live()) {
+      setDownload(id, locator, {
+        state: attachmentStates.downloading,
+        abort,
+        operation,
+      });
+    }
+    return operation;
   };
 
   return {
