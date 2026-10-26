@@ -148,10 +148,10 @@ connects both mailboxes and times its interactions over them; the Mac
 drives them by keyboard. The Expo native journey connects the Microsoft mailbox and
 [drives it by hardware keyboard](agents/native-validation.md#iphone-and-ipad-keyboard-and-accessibility-journey)
 on iPhone and iPad. CI runs none of them.
-The Mac-only `categorization-spike` build reuses the `open-read-relaunch` mailbox and
-adds the [DeBERTa categorization spike](categorization-spike.md) page to the empty
-reader. It has no native journey; its evidence comes from the page and the Swift
-package's golden tests.
+The Mac, iPhone and iPad `categorization-spike` builds reuse the `open-read-relaunch`
+mailbox and add the [DeBERTa categorization spike](categorization-spike.md) page to
+the empty reader; iPhone opens on it. They have no native journey; their evidence
+comes from the page and the Swift package's golden tests.
 The `assistance-qualification` build also reuses the `open-read-relaunch` mailbox, but
 compiles Apple's model and Translation into its native binding and runs the
 [assistance qualification](assistance-qualification.md) corpus at launch. It has no

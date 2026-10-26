@@ -27,7 +27,7 @@ import type { ActionCtx } from './_generated/server.js';
 import type { CallFailed } from './effectRuntime.js';
 
 import { internal } from './_generated/api.js';
-import { action, internalAction } from './_generated/server.js';
+import { internalAction } from './_generated/server.js';
 import { call, failureDiagnostic, runConvexProgram } from './effectRuntime.js';
 import { trustedDeviceCredentialArgs } from './productAccountAuth.js';
 
@@ -166,8 +166,8 @@ const configuredAppleClientIds = Config.all([
   ),
 );
 
-// A host names the Apple client that issued its authorization; a host that
-// names none is the Swift prototype, which uses APPLE_BUNDLE_ID.
+// The maintained hosts name the Apple client that issued their authorization;
+// a caller that names none uses APPLE_BUNDLE_ID.
 const appleClientId = Effect.fnUntraced(function* (
   requested: string | undefined,
 ) {
@@ -659,22 +659,6 @@ export const deleteRecentlyAuthenticatedProductAccount = internalAction({
     runConvexProgram(
       deleteAccount(ctx, args, randomUUID()),
       thrownHttpDeletionError,
-    ),
-  returns: productAccountDeletionResponseValidator,
-});
-
-export const deleteProductAccount = action({
-  args: {
-    ...trustedDeviceCredentialArgs,
-    // The bundle ID of the host whose Sign in with Apple issued the authorization code.
-    appleClientId: v.optional(v.string()),
-    authorizationCode: v.string(),
-    trustedDeviceId: v.id('trustedDevices'),
-  },
-  handler: async (ctx, args): Promise<{ deleted: boolean }> =>
-    runConvexProgram(
-      deleteAccount(ctx, args, randomUUID()),
-      thrownDeletionError,
     ),
   returns: productAccountDeletionResponseValidator,
 });

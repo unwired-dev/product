@@ -100,7 +100,7 @@ Hosts delete through `POST /product-account/delete` on the deployment's
 - `trustedDeviceId` and `trustedDeviceCredential`, or `pendingDeviceId` and
   `pendingDeviceCredential`, the device proof;
 - with Sign in with Apple only, the `authorizationCode` and the host's bundle ID
-  as `appleClientId`.
+  as `appleClientId`. The field is optional; omitting it uses `APPLE_BUNDLE_ID`.
 
 The route applies the same five-minute `iat` check as the
 [sign-in link routes](linked-sign-in.md#identity-boundaries). It responds as
@@ -117,9 +117,7 @@ follows:
 `PRODUCT_ACCOUNT_DELETION_ABORTED` means Apple refused the authorization, so Convex
 aborted the deletion before fencing anything and kept the account.
 
-The existing `productAccountDeletion:deleteProductAccount` action still requires an
-Apple authorization code; the retired Swift prototype used it. Sign-out calls
-`productAccount:unregisterTrustedDevice` for a Trusted Device, or
+Sign-out calls `productAccount:unregisterTrustedDevice` for a Trusted Device, or
 `productAccount:unregisterPendingDevice` with the installation identifier for a
 Pending Device. If admission succeeded but its reply was lost, the latter removes
 the admitted device using the credential carried over from its pending record.

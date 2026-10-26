@@ -40,6 +40,7 @@
     "./translation": "./src/translation.ts",
     "./assistance-qualification": "./src/assistance-qualification.ts",
     "./testing/assistance-qualification": "./src/testing/assistance-qualification.ts",
+    "./testing/categorization-spike": "./src/testing/categorization-spike.ts",
     "./drafts": "./src/drafts.ts",
     "./semantic-document": "./src/semantic-document.ts",
     "./testing/drafts": "./src/testing/drafts.ts",

@@ -129,10 +129,36 @@ jest.mock('@expo/ui/swift-ui', () => {
   Alert.Trigger = Passthrough;
   Alert.Actions = Passthrough;
   Alert.Message = Passthrough;
-  function Button({ label, onPress }) {
+  // Form controls render their text, and a button its pressable label, for component journeys.
+  function Section({ title, header, footer, children }) {
+    return React.createElement(
+      React.Fragment,
+      null,
+      title === undefined ? header : React.createElement(Text, null, title),
+      children,
+      footer,
+    );
+  }
+  function Labeled({ label, title, children }) {
+    return React.createElement(
+      React.Fragment,
+      null,
+      typeof (label ?? title) === 'string'
+        ? React.createElement(Text, null, label ?? title)
+        : label,
+      children,
+    );
+  }
+  function Button({ label, onPress, modifiers }) {
     return React.createElement(
       Pressable,
-      { accessibilityRole: 'button', accessibilityLabel: label, onPress },
+      {
+        accessibilityRole: 'button',
+        onPress,
+        disabled: modifiers?.some(
+          (each) => each.$type === 'disabled' && each.disabled,
+        ),
+      },
       React.createElement(Text, null, label),
     );
   }
@@ -194,19 +220,32 @@ jest.mock('@expo/ui/swift-ui', () => {
     Alert,
     BottomSheet,
     Button,
+    Form: Passthrough,
     Popover,
     Group: Passthrough,
     Host: Passthrough,
+    Label: Labeled,
+    LabeledContent: Labeled,
     Picker,
+    ProgressView: () => null,
     RNHostView: Passthrough,
+    Section,
     Spacer: () => null,
     Text,
+    VStack: Passthrough,
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
+  foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
   frame: (params) => ({ $type: 'frame', ...params }),
+  listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
+  monospacedDigit: () => ({ $type: 'monospacedDigit' }),
   pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
+  scrollContentBackground: (visible) => ({
+    $type: 'scrollContentBackground',
+    visible,
+  }),
   tag: (tag) => ({ $type: 'tag', tag }),
   tint: (tint) => ({ $type: 'tint', tint }),
   presentationBackground: (style) => ({

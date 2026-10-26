@@ -1,8 +1,8 @@
 import Foundation
 import React
 
-// Spike #831: classifies bundled public/synthetic samples with the frozen DeBERTa candidates
-// through Core ML inside the Mac host. Compiled only into the `categorization-spike` Mock Mail
+// Spikes #831 and #830: classify bundled public/synthetic samples with the frozen DeBERTa
+// candidates through Core ML inside the Mac host and the iPhone and iPad client. Compiled only into the `categorization-spike` Mock Mail
 // Session build; it reads no mailbox, changes no assignment and has no cloud fallback.
 @objc(UnwiredCategorizationSpike)
 final class UnwiredCategorizationSpike: NSObject {
@@ -154,11 +154,17 @@ final class UnwiredCategorizationSpike: NSObject {
     }
   }
 
+  // The model identifier, such as Mac16,10 or iPad16,5; iOS reports it as the machine.
   private static func hardwareModel() -> String {
+    #if os(iOS)
+      let name = "hw.machine"
+    #else
+      let name = "hw.model"
+    #endif
     var size = 0
-    sysctlbyname("hw.model", nil, &size, nil, 0)
+    sysctlbyname(name, nil, &size, nil, 0)
     var model = [CChar](repeating: 0, count: size)
-    sysctlbyname("hw.model", &model, &size, nil, 0)
+    sysctlbyname(name, &model, &size, nil, 0)
     return String(cString: model)
   }
 

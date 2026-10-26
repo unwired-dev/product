@@ -1,7 +1,36 @@
+import type {
+  Busy,
+  CatalogValue,
+  ClassificationValue,
+  Kind,
+  ProgressValue,
+  ResultValue,
+  Selection,
+  SpikeModule,
+} from '@private-email/mail-core/testing/categorization-spike';
 import type { TurboModule } from 'react-native';
 
+import {
+  autorun,
+  categoryCounts,
+  categoryName,
+  decodeProgress,
+  loadCatalog,
+  median,
+  ms,
+  probability,
+  rounds,
+  spikeSession,
+  units,
+} from '@private-email/mail-core/testing/categorization-spike';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -9,64 +38,15 @@ import {
   View,
 } from 'react-native';
 
-import type {
-  CatalogValue,
-  ClassificationValue,
-  ProgressValue,
-  ResultValue,
-} from './categorization-spike-client.ts';
-
-import {
-  decodeCatalog,
-  decodeProgress,
-  decodeResult,
-  failureText,
-  median,
-  unavailable,
-} from './categorization-spike-client.ts';
 import { PopUp } from './composer-controls.tsx';
 import { Button, Notice } from './design.tsx';
 import { Label } from './label.tsx';
 import { SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-// Spike #831, compiled only into the `categorization-spike` Mock Mail Session build: classifies
-// bundled public and synthetic samples with the frozen DeBERTa candidates through Core ML on this
-// Mac. It reads no mailbox, changes no assignment and has no server fallback. Its research copy
-// stays English and outside the localization catalogs because the page never ships.
+// Spike #831's Mac page, compiled only into the `categorization-spike` Mock Mail Session build.
+// The session, wire format and unattended runs live in mail-core's testing/categorization-spike.
 
-interface SpikeModule extends TurboModule {
-  readonly catalog: () => Promise<string>;
-  readonly classify: (request: string, body: string) => Promise<string>;
-  readonly benchmark: (request: string, body: string) => Promise<string>;
-  readonly golden: (request: string, body: string) => Promise<string>;
-  readonly computePlan: (request: string, body: string) => Promise<string>;
-  readonly progress: (request: string) => Promise<unknown>;
-  readonly cancel: (request: string) => Promise<void>;
-  readonly release: () => Promise<unknown>;
-}
-
-const units = [
-  ['all', 'CPU, GPU and Neural Engine'],
-  ['cpuAndGPU', 'CPU and GPU'],
-  ['cpuAndNeuralEngine', 'CPU and Neural Engine'],
-  ['cpuOnly', 'CPU only'],
-] as const;
-type Unit = (typeof units)[number][0];
-// The six Custom Categories with golden outputs (custom_report.py GOLDEN_CATEGORIES).
-const goldenCategories = [
-  'online-purchases',
-  'flights-booked',
-  'statements',
-  'kids-school',
-  'event-invitations',
-  'family-friends',
-];
-const categoryCounts = [6, 5, 20, 50] as const;
-type CategoryCount = (typeof categoryCounts)[number];
-const rounds = 3;
-// All Mac windows share this runtime, so identities survive page remounts too.
-let requests = 0;
 const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 40,
@@ -83,20 +63,8 @@ const styles = StyleSheet.create({
   pick: { flexShrink: 1, maxWidth: 220 },
 });
 
-type Kind = 'classify' | 'benchmark' | 'golden' | 'plan';
-type Busy = Readonly<{ request: string; kind: Kind }>;
 type Choice = readonly [string, string];
-type Selection = Readonly<{
-  run: string;
-  precision: 'fp16' | 'int8';
-  unit: Unit;
-  message: string;
-  count: CategoryCount;
-}>;
 
-const ms = (value: number) => `${value.toFixed(value < 10 ? 1 : 0)} ms`;
-
-const probability = (value: number) => value.toFixed(value < 0.01 ? 3 : 2);
 const candidateName = (run: string) => {
   const model = run.includes('mdeberta')
     ? 'mDeBERTa v3 Base'
@@ -105,165 +73,42 @@ const candidateName = (run: string) => {
     ? `Custom · adapted ${model}`
     : `System · ${model}`;
 };
-const categoryName = (catalog: CatalogValue, language: string, id: string) => {
-  const found = catalog.categories.find((each) => each.id === id);
-  if (found === undefined) {
-    return id;
-  }
-  return (language === 'cs' ? found.cs : found.en).name;
-};
-
-// The request body for one bridge call: the golden categories when they are selected, otherwise
-// the first `count` Custom Categories.
-const requestBody = (selection: Selection & Readonly<{ custom: boolean }>) => {
-  const categories =
-    selection.custom && selection.count === 6
-      ? { categories: goldenCategories }
-      : { categoryCount: selection.custom ? selection.count : 0 };
-  return JSON.stringify({
-    run: selection.run,
-    precision: selection.precision,
-    units: selection.unit,
-    message: selection.message,
-    rounds,
-    ...categories,
-  });
-};
-
-const pause = (seconds: number) =>
-  // oxlint-disable-next-line promise/avoid-new -- Hold each state long enough to capture it.
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, seconds * 1000);
-  });
-
-type Autorun = Readonly<{
-  start: (kind: Kind, picked: Selection) => Promise<void>;
-  cancel: () => void;
-  dismiss: () => void;
-}>;
-
-const systemSmall = 'deberta-xsmall-body256';
-const systemBase = 'deberta-mdeberta-body512';
-const customSmall = 'xsmall-zs-adapted-body256-description';
-const customBase = 'mdeberta-nli-adapted-body256-description';
-
-// The design states in order: a System result, an Uncategorized Custom result, a benchmark that
-// Cancel stops, and a benchmark that dismissal stops.
-async function autorunStates(catalog: CatalogValue, actions: Autorun) {
-  const message =
-    catalog.messages.find((each) => each.subject === 'Your change fee receipt')
-      ?.id ?? '';
-  const base: Selection = {
-    run: systemSmall,
-    precision: 'fp16',
-    unit: 'all',
-    message,
-    count: 6,
-  };
-  await actions.start('classify', base);
-  await pause(15);
-  await actions.start('classify', {
-    ...base,
-    run: customSmall,
-    precision: 'int8',
-    unit: 'cpuAndNeuralEngine',
-  });
-  await pause(15);
-  const cancelled = actions.start('benchmark', {
-    ...base,
-    run: customBase,
-    count: 20,
-  });
-  await pause(20);
-  actions.cancel();
-  await cancelled;
-  await pause(15);
-  void actions.start('benchmark', { ...base, run: customBase, count: 50 });
-  await pause(20);
-  actions.dismiss();
-}
-
-// Every candidate and precision: golden outputs, a classification and benchmarks (Custom
-// Category counts 5, 20 and 50), compute plans, then the compute-unit comparison.
-async function autorunMatrix(catalog: CatalogValue, actions: Autorun) {
-  const base: Selection = {
-    run: systemSmall,
-    precision: 'fp16',
-    unit: 'all',
-    message: catalog.messages[0]?.id ?? '',
-    count: 6,
-  };
-  for (const run of [systemSmall, systemBase, customSmall, customBase]) {
-    const counts: CategoryCount[] = run.includes('adapted') ? [5, 20, 50] : [6];
-    for (const precision of ['fp16', 'int8'] as const) {
-      const picked = { ...base, run, precision };
-      await actions.start('golden', picked);
-      await actions.start('classify', picked);
-      for (const count of counts) {
-        await actions.start('benchmark', { ...picked, count });
-      }
-    }
-    for (const unit of ['all', 'cpuAndNeuralEngine'] as const) {
-      await actions.start('plan', { ...base, run, unit });
-    }
-  }
-  for (const unit of ['cpuOnly', 'cpuAndGPU', 'cpuAndNeuralEngine'] as const) {
-    await actions.start('benchmark', { ...base, unit });
-  }
-}
-
-const call = (module: SpikeModule, kind: Kind) =>
-  ({
-    classify: module.classify,
-    benchmark: module.benchmark,
-    golden: module.golden,
-    plan: module.computePlan,
-  })[kind];
 
 export function CategorizationSpike() {
   const native = useMemo(
-    () => TurboModuleRegistry.get<SpikeModule>('UnwiredCategorizationSpike'),
+    () =>
+      TurboModuleRegistry.get<SpikeModule & TurboModule>(
+        'UnwiredCategorizationSpike',
+      ),
     [],
   );
-  const [catalog, setCatalog] = useState<
-    CatalogValue | 'loading' | 'unavailable'
-  >(native === null ? 'unavailable' : 'loading');
-
+  const [catalog, setCatalog] = useState<CatalogValue | 'loading' | undefined>(
+    'loading',
+  );
   useEffect(() => {
-    if (native === null) {
-      return undefined;
-    }
     const load = async () => {
-      try {
-        const decoded = decodeCatalog(await native.catalog());
-        setCatalog(
-          decoded !== undefined && decoded.candidates.length > 0
-            ? decoded
-            : 'unavailable',
-        );
-      } catch {
-        setCatalog('unavailable');
-      }
+      setCatalog(await loadCatalog(native));
     };
     void load();
-    return undefined;
   }, [native]);
   const [dismissed, setDismissed] = useState(false);
+  // Unmounts the page as closing the window would; only the unattended run uses it.
+  const dismiss = useCallback(() => {
+    setDismissed(true);
+  }, []);
 
   if (catalog === 'loading') {
     return null;
   }
   let page = null;
-  if (catalog === 'unavailable' || native === null) {
+  if (catalog === undefined || native === null) {
     page = <Unavailable />;
   } else if (!dismissed) {
     page = (
       <Spike
         catalog={catalog}
         module={native}
-        onDismiss={() => {
-          setDismissed(true);
-        }}
+        onDismiss={dismiss}
       />
     );
   }
@@ -282,23 +127,17 @@ function Spike({
 }: {
   readonly catalog: CatalogValue;
   readonly module: SpikeModule;
-  // Unmounts the page as closing the window would; only the unattended run uses it.
   readonly onDismiss: () => void;
 }) {
   const colors = usePalette();
-  const [selection, setSelection] = useState<Selection>({
-    run: catalog.candidates[0]?.run ?? '',
-    precision: 'fp16',
-    unit: 'all',
-    message: catalog.messages[0]?.id ?? '',
-    count: 6,
-  });
-  const [busy, setBusy] = useState<Busy>();
-  const [result, setResult] = useState<ResultValue>();
-  const [failure, setFailure] = useState<string>();
-  const current = useRef<string>(undefined);
-  const mounted = useRef(true);
-  const cancelled = useRef<string>(undefined);
+  // oxlint-disable-next-line react/hook-use-state -- The page keeps one session until it unmounts.
+  const [session] = useState(() =>
+    spikeSession({ module, catalog, device: 'Mac' }),
+  );
+  const { selection, busy, result, failure } = useSyncExternalStore(
+    session.subscribe,
+    session.getSnapshot,
+  );
   const candidate = catalog.candidates.find(
     (each) => each.run === selection.run,
   );
@@ -306,104 +145,18 @@ function Spike({
 
   // Dismissal stops the running request before its next model pass and releases the model.
   useEffect(() => {
-    mounted.current = true;
+    autorun(catalog, session, onDismiss);
     return () => {
-      mounted.current = false;
-      const request = current.current;
-      current.current = undefined;
-      if (request !== undefined) {
-        void module.cancel(request);
-      }
-      void module.release();
+      session.close();
     };
-  }, [module]);
-
-  const cancel = useCallback(() => {
-    const request = current.current;
-    if (request !== undefined) {
-      cancelled.current = request;
-      void module.cancel(request);
-      void module.release();
-    }
-  }, [module]);
-
-  const start = useCallback(
-    async (kind: Kind, picked: Selection) => {
-      if (!mounted.current) {
-        return;
-      }
-      setSelection(picked);
-      requests += 1;
-      const request = `${kind}-${requests}`;
-      current.current = request;
-      setBusy({ request, kind });
-      setFailure(undefined);
-      setResult(undefined);
-      const body = requestBody({
-        ...picked,
-        custom:
-          catalog.candidates.find((each) => each.run === picked.run)?.mode ===
-          'custom',
-      });
-      let text: string | undefined = undefined;
-      try {
-        text = await call(module, kind)(request, body);
-      } catch (error) {
-        if (current.current === request) {
-          setFailure(failureText(error));
-        }
-      }
-      if (current.current !== request) {
-        return;
-      }
-      current.current = undefined;
-      setBusy(undefined);
-      if (cancelled.current === request) {
-        setFailure(failureText({ code: 'cancelled' }));
-        return;
-      }
-      if (text !== undefined) {
-        const decoded = decodeResult(text);
-        if (decoded === undefined) {
-          setFailure(unavailable);
-        } else {
-          setResult(decoded);
-        }
-      }
-    },
-    [catalog, module],
-  );
-
-  // An unattended run, selected at launch for hosts without UI automation, through the same
-  // actions as the buttons. It starts once; later renders only refresh the effect's inputs.
-  const autorunStarted = useRef(false);
-  useEffect(() => {
-    if (autorunStarted.current || catalog.autorun === null) {
-      return;
-    }
-    autorunStarted.current = true;
-    const actions: Autorun = {
-      start,
-      cancel,
-      dismiss: () => {
-        if (mounted.current) {
-          onDismiss();
-        }
-      },
-    };
-    void (catalog.autorun === 'states'
-      ? autorunStates(catalog, actions)
-      : autorunMatrix(catalog, actions));
-  }, [cancel, catalog, onDismiss, start]);
+  }, [catalog, onDismiss, session]);
 
   return (
     <>
       <Setup
         selection={selection}
         onChange={(picked) => {
-          setSelection(picked);
-          setResult(undefined);
-          setFailure(undefined);
+          session.choose(picked);
         }}
         catalog={catalog}
         disabled={busy !== undefined}
@@ -413,15 +166,19 @@ function Spike({
           module={module}
           request={busy.request}
           samples={catalog.messages.length}
-          onCancel={cancel}
+          onCancel={() => {
+            session.cancel();
+          }}
         />
       ) : (
         <Actions
           busy={busy}
           onStart={(kind) => {
-            void start(kind, selection);
+            void session.start(kind, selection);
           }}
-          onCancel={cancel}
+          onCancel={() => {
+            session.cancel();
+          }}
         />
       )}
       {failure === undefined ? null : (
