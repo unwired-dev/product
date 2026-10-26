@@ -33,7 +33,6 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
   TurboModuleRegistry,
@@ -41,7 +40,12 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
-import { OnDeviceMarker, useOutcomeAnnouncement } from './design.tsx';
+import {
+  MenuButton,
+  OnDeviceMarker,
+  SFSymbol,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -60,13 +64,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xl,
   },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  option: {
+  menu: { alignSelf: 'flex-start', minHeight: 44 },
+  popUp: {
     minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.s,
-    borderWidth: 1,
-    borderRadius: radius.control,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   title: { ...textStyles.subheadline, fontWeight: '600' },
   text: { ...textStyles.reading.body },
@@ -192,38 +195,40 @@ function TargetLanguages({
       </Text>
     );
   }
+  // A system menu that starts with no language chosen: opening it neither chooses nor translates.
   return (
-    <View
+    <MenuButton
       accessibilityLabel={t('translation.target')}
-      accessibilityRole="radiogroup"
-      style={styles.options}>
-      {languages.map((language) => (
-        <Pressable
-          key={language.code}
-          accessibilityRole="radio"
-          accessibilityLabel={t('translation.targetLabel', {
-            language: language.name,
-          })}
-          accessibilityState={{ checked: selected?.code === language.code }}
-          onPress={() => {
-            onSelect(language);
-          }}
-          style={[
-            styles.option,
-            {
-              borderColor:
-                selected?.code === language.code
-                  ? colors.accentInk
-                  : colors.separator,
+      accessibilityValue={
+        selected === undefined ? undefined : { text: selected.name }
+      }
+      sections={[
+        {
+          items: languages.map((language) => ({
+            key: `language:${language.code}`,
+            title: language.name,
+            symbol: '',
+            checked: selected?.code === language.code,
+            run: () => {
+              onSelect(language);
             },
-          ]}>
-          <Text style={[styles.secondary, { color: colors.textPrimary }]}>
-            {selected?.code === language.code ? '✓ ' : ''}
-            {language.name}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
+          })),
+        },
+      ]}
+      style={styles.menu}>
+      <View style={styles.popUp}>
+        <Text style={[styles.secondary, { color: colors.textPrimary }]}>
+          {selected === undefined
+            ? t('translation.target')
+            : t('translation.targetLabel', { language: selected.name })}
+        </Text>
+        <SFSymbol
+          name="chevron.up.chevron.down"
+          size={12}
+          color={colors.textSecondary}
+        />
+      </View>
+    </MenuButton>
   );
 }
 
