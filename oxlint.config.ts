@@ -31,9 +31,10 @@ export default buildOxlintConfig({
     extends: [EffectPresets.recommended],
     ignorePatterns: [
       '**/convex/_generated/**',
-      // The Expo skill bundles are pinned upstream code, not application code.
-      '.agents/skills/expo-ui/**',
-      '.agents/skills/expo-router/**',
+      // The Expo and animation skill bundles are pinned upstream code, not application code.
+      '.agents/skills/expo-*/**',
+      '.agents/skills/eas-*/**',
+      '.agents/skills/ios-animations/**',
     ],
     rules: {
       'effect-imports/namespace-imports': 'deny',
