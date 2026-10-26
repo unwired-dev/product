@@ -87,7 +87,9 @@ Run these commands from the repository root:
 ```sh
 swift test --package-path native/categorization-spike
 mise exec -- pnpm --filter @private-email/macos exec jest test/categorization-spike.test.tsx
-mise exec -- pnpm --filter @private-email/mobile exec jest test/categorization-spike.test.tsx
+mise exec -- pnpm --filter @private-email/mobile exec jest test/categorization-spike.test.tsx test/categorization-spike-routing.test.tsx
+UNWIRED_MOCK_SCENARIO=categorization-spike mise exec -- pnpm --filter @private-email/mobile build
+UNWIRED_MOCK_SCENARIO=categorization-spike mise exec -- pnpm --filter @private-email/mobile verify:bundle
 UNWIRED_MOCK_SCENARIO=categorization-spike mise exec -- pnpm --filter @private-email/macos build
 UNWIRED_MOCK_SCENARIO=categorization-spike mise exec -- pnpm --filter @private-email/macos verify:bundle
 ```
@@ -98,6 +100,7 @@ is missing fails with the export command to run. The component tests cover the u
 decoded results, a malformed result failing closed, Cancel and dismissal. Mac
 results do not establish feasibility on the physical iPhone and iPad. Following the
 owner's [#1106](https://github.com/unwired-dev/product/issues/1106) decision, #830
-qualifies the available iPhone 17 Pro Max and iPad Pro 13-inch M4 on version-27
-systems. A standard non-Pro iPhone is not a prerequisite. Results hold for each
+targets the available iPhone 17 Pro Max and iPad Pro 13-inch M4 on version-27
+systems. Only the iPhone is measured so far; the iPad run is deferred (see the
+[mobile report](../tools/deberta-mac-spike/MOBILE.md)). A standard non-Pro iPhone is not a prerequisite. Results hold for each
 tested configuration only, never for untested hardware.

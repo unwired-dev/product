@@ -134,7 +134,26 @@ export async function loadCatalog(module: SpikeModule | null) {
       const value = yield* nativeCall(() => module.catalog());
       const decoded = yield* Schema.decodeEffect(Catalog)(value);
       return decoded.candidates.length > 0 ? decoded : undefined;
-    }).pipe(Effect.orElseSucceed(() => undefined)),
+    }).pipe(
+      Effect.catchTags({
+        SpikeFailure: (error) =>
+          Effect.as(
+            Effect.logError(
+              'Categorization spike catalog unavailable',
+              rejectionDiagnostic(error.cause),
+            ),
+            undefined,
+          ),
+        SchemaError: (error) =>
+          Effect.as(
+            Effect.logError(
+              'Invalid categorization spike catalog',
+              decodeDiagnostic(error),
+            ),
+            undefined,
+          ),
+      }),
+    ),
   );
 }
 

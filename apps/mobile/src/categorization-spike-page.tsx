@@ -45,7 +45,13 @@ import {
   units,
 } from '@private-email/mail-core/testing/categorization-spike';
 import { spacing } from '@private-email/mail-core/theme';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   Platform,
   StyleSheet,
@@ -95,8 +101,12 @@ export function CategorizationSpike({
   const colors = usePalette();
   const secondary = foregroundStyle(colors.textSecondary);
   const { width } = useWindowDimensions();
-  const native = TurboModuleRegistry.get<SpikeModule & TurboModule>(
-    'UnwiredCategorizationSpike',
+  const native = useMemo(
+    () =>
+      TurboModuleRegistry.get<SpikeModule & TurboModule>(
+        'UnwiredCategorizationSpike',
+      ),
+    [],
   );
   const [catalog, setCatalog] = useState<CatalogValue | 'loading' | undefined>(
     'loading',
