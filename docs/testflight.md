@@ -287,7 +287,9 @@ test-boundary inspection, an upload, a notes update and exit status 0.
 
 Scheduled [run 40068072948](https://github.com/unwired-dev/product/actions/runs/40068072948)
 deployed the backend from `5ab122843` but built `98b299120`, because `main` moved
-while the run was queued. Builds now check out the triggering commit.
+while the run was queued. Builds now check out the triggering commit. The next
+protected run from `main` without a `ref` input must show one commit in the
+Convex deploy, the upload checkout, `UnwiredCommit` and the What to Test notes.
 
 Archive certificate inspection, renewal, keychain cleanup after an interrupted
 upload, and installation from TestFlight on an iPhone and a Mac remain deferred.
