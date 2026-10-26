@@ -167,7 +167,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
       !manager.fileExists(atPath: directory.appendingPathComponent(
         try connectionPath(connection, "mailbox.enc")).path),
       // An unreadable legacy cache is left alone rather than blocking this connection.
-      let cache = (try? readMailbox(file: "mailbox.enc")) ?? nil,
+      let cache = (try? readMailbox(file: "mailbox.enc", authenticating: mailboxAssociatedData))
+        ?? nil,
       cache.address == address, cache.subject == subject
     else { return }
     let target = directory.appendingPathComponent(try connectionPath(connection, ""))
@@ -206,7 +207,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   {
     try transaction {
       try adoptLegacyMailbox(connection: connection, address: address, subject: subject)
-      let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
+      let cache = try readMailbox(
+        file: try connectionPath(connection, "mailbox.enc"), authenticating: mailboxAssociatedData)
       let owned = cache.flatMap { $0.address == address && $0.subject == subject ? $0 : nil }
       return [
         "revision": cache?.revision ?? 0, "address": address,
@@ -215,24 +217,68 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
+  // `history`, when given, also writes the named history segments before the document and then
+  // removes every stored segment the document no longer keeps. Segment names are never reused, so
+  // an interrupted commit leaves only unreferenced files, which the next history commit removes.
   public func commitMailbox(
-    connection: String, address: String, subject: String, expectedRevision: Int, document: String
+    connection: String, address: String, subject: String, expectedRevision: Int, document: String,
+    history: (segments: [String: String], keep: Set<String>)? = nil
   ) throws -> [String: Any] {
     try transaction {
       try adoptLegacyMailbox(connection: connection, address: address, subject: subject)
       let file = try connectionPath(connection, "mailbox.enc")
-      let cache = try readMailbox(file: file)
+      let cache = try readMailbox(file: file, authenticating: mailboxAssociatedData)
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let key = try writingKey(replacing: cache != nil)
       let next = MailboxCache(
         revision: expectedRevision + 1, address: address, subject: subject, document: document)
       try FileManager.default.createDirectory(
-        at: directory.appendingPathComponent(try connectionPath(connection, "")),
+        at: directory.appendingPathComponent(
+          try connectionPath(connection, history == nil ? "" : "history")),
         withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      for (name, segment) in history?.segments ?? [:] {
+        let stored = MailboxCache(revision: 1, address: address, subject: subject, document: segment)
+        try write(
+          JSONEncoder().encode(stored), file: try segmentPath(connection, name), key: key,
+          authenticating: segmentAssociatedData(name))
+      }
       try write(
         JSONEncoder().encode(next), file: file, key: key, authenticating: mailboxAssociatedData)
+      if let keep = history?.keep {
+        let folder = directory.appendingPathComponent(try connectionPath(connection, "history"))
+        // The document is stored, so removal is best effort: a segment that stays is unnamed and
+        // removed by a later history commit, rather than turning this stored commit into a refusal.
+        try? removeURLs(
+          FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { !keep.contains($0.deletingPathExtension().lastPathComponent) })
+      }
       return ["revision": next.revision, "address": address, "document": document]
     }
+  }
+
+  // One history segment the mailbox's document names; another mailbox's or a missing one is nil.
+  public func openMailboxSegment(
+    connection: String, address: String, subject: String, name: String
+  ) throws -> String? {
+    try transaction {
+      guard
+        let segment = try readMailbox(
+          file: try segmentPath(connection, name), authenticating: segmentAssociatedData(name))
+      else { return nil }
+      return segment.address == address && segment.subject == subject ? segment.document : nil
+    }
+  }
+
+  private func segmentPath(_ connection: String, _ name: String) throws -> String {
+    guard name.range(of: "^[0-9a-z]{1,32}$", options: .regularExpression) != nil else {
+      throw PrivateInboxError.invalidStore
+    }
+    return try connectionPath(connection, "history/\(name).enc")
+  }
+
+  // Sealed to its name, so one segment cannot stand in for another.
+  private func segmentAssociatedData(_ name: String) -> Data {
+    Data("dev.unwired.private-inbox.mailbox-history.v1\n\(name)".utf8)
   }
 
   // The key for a commit: the existing one when replacing encrypted data, and otherwise a new one
@@ -650,7 +696,9 @@ public final class PrivateInboxStore: @unchecked Sendable {
   ) throws -> Bool {
     try transaction {
       if let expectedRevision {
-        let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
+        let cache = try readMailbox(
+          file: try connectionPath(connection, "mailbox.enc"), authenticating: mailboxAssociatedData
+        )
         guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       }
       let (name, identity) = bodyName(address: address, subject: subject, id: id)
@@ -706,7 +754,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
     protectedIds: [String]
   ) throws {
     try transaction {
-      let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
+      let cache = try readMailbox(
+        file: try connectionPath(connection, "mailbox.enc"), authenticating: mailboxAssociatedData)
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let kept = Set(ids.map { bodyName(address: address, subject: subject, id: $0).0 })
       for entry in try bodies(connection) where !kept.contains(entry.name) {
@@ -911,7 +960,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
-  private func readMailbox(file: String) throws -> MailboxCache? {
+  private func readMailbox(file: String, authenticating: Data) throws -> MailboxCache? {
     let data: Data
     do {
       data = try Data(contentsOf: directory.appendingPathComponent(file))
@@ -922,7 +971,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     do {
       let box = try AES.GCM.SealedBox(combined: data)
       let plaintext = try AES.GCM.open(
-        box, using: SymmetricKey(data: key), authenticating: mailboxAssociatedData)
+        box, using: SymmetricKey(data: key), authenticating: authenticating)
       let cache = try JSONDecoder().decode(MailboxCache.self, from: plaintext)
       guard cache.revision > 0 else { throw PrivateInboxError.invalidStore }
       return cache

@@ -1,6 +1,6 @@
 import { ok } from 'node:assert/strict';
 
-import { gmailAction } from '@private-email/mail-core/gmail-actions';
+import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
@@ -64,6 +64,41 @@ describe('message list', () => {
       await cleanup();
       inbox.forget();
       frames.mockRestore();
+    }
+  });
+
+  it('shows how much of All Mail has downloaded and ends it with older mail still arriving', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    for (const index of Array.from({ length: 250 }, (_, at) => at)) {
+      gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
+    }
+    // Gmail stops answering partway through the history download.
+    gmail.failPage('200', { code: 'unavailable' });
+    const inbox = createGmailInbox(gmail.native);
+    try {
+      await render(
+        <InboxProvider mailboxes={singleMailbox(inbox, 'work-mailbox')}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+            view={{ mailbox: 'work-mailbox', folder: allMail }}
+          />
+        </InboxProvider>,
+      );
+      await expect(
+        screen.findByRole('header', {
+          name: 'All Mail. Preview mailbox · 200 of 250 downloaded',
+        }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByRole('progressbar', {
+          name: /^Downloading older mail… Mail from before \S.* appears here as it arrives\./u,
+        }),
+      ).toBeVisible();
+    } finally {
+      await cleanup();
+      inbox.forget();
     }
   });
 

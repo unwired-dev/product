@@ -87,14 +87,27 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   distinct active views, the bound grows to that active count; inactive extras leave
   on the next synchronization after windows close or change views. These views stay
   current by the same Gmail history as the Inbox and are saved across relaunch; a view
-  that loses one of 200 messages is listed again. Every view says that only its
-  newest mail is saved and older mail stays in Gmail. A view Gmail could not read
+  that loses one of 200 messages is listed again. Scrolling past a view's 200 saved
+  messages reveals its older mail from the downloaded history described under
+  [Historical Metadata Backfill](#historical-metadata-backfill), without asking Gmail.
+  Until that history is complete and fully shown, a view says that older mail stays
+  in Gmail; Spam and Trash always do, since the history leaves them out. A view Gmail could not read
   keeps its saved messages and shows **… could not be read from Gmail** in the list
   and on its sidebar row until a later synchronization reads it. A label removed in
   Gmail leaves the sidebar with its saved view, and a window that showed it returns
-  to the Inbox. The unified Sent, Archive, All Mail, Spam and Trash mailboxes and
-  complete history remain with [#1006](https://github.com/unwired-dev/product/issues/1006)
-  and [#1007](https://github.com/unwired-dev/product/issues/1007).
+  to the Inbox. Complete history remains with
+  [#1007](https://github.com/unwired-dev/product/issues/1007).
+- **Unified mailboxes.** Under **Favorites**, after **All inboxes**, the sidebar offers
+  **Sent**, **Archive**, **All Mail**, **Spam** and **Trash** across the window's
+  Profile ([#1006](https://github.com/unwired-dev/product/issues/1006)). Each lists the
+  matching mailbox of every connection newest first, ties by mailbox order then
+  message ID, and each row names its mailbox and offers that connection's own actions.
+  Gmail contributes its system labels; its Archive is mail outside Inbox, Sent and
+  Drafts. Microsoft contributes its well-known folders and IMAP the folders its
+  server marks with a special-use role; All Mail is every message outside Spam and
+  Trash, leaving out an IMAP server whose `\All` folder may hold both. A connection
+  without the role is never guessed from folder names: the list shows **… isn't
+  included** for it, and its folders stay under it in the sidebar.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
@@ -128,9 +141,10 @@ the sender's name and address and the subject. Every word of the query must appe
 in one of them, ignoring case and accents, so `cafe oliver` finds Oliver's
 `Café on Saturday`. Search asks Gmail nothing and needs no network, so it also works
 in a [Saved Gmail Inbox](#mailbox-sync-status) during an outage; no search index
-leaves the device or reaches Convex. It covers the newest 200 Inbox messages each
-mailbox keeps; older mail stays in Gmail, and [searching Gmail online](#searching-gmail-online)
-reaches it.
+leaves the device or reaches Convex. It covers the Inbox messages each mailbox lists:
+the newest 200 and the older ones scrolling has revealed from
+[downloaded history](#historical-metadata-backfill). Other mail is reached by
+[searching Gmail online](#searching-gmail-online).
 
 - **Search mode.** On iPhone and iPad, focusing the field opens search: the Inbox's
   heading and rows give way to an empty list until a query is typed, and **Close Search**
@@ -254,9 +268,41 @@ own labels and the [organizing actions](#organizing-mail).
 A first synchronization reads the mailbox's current history ID, then lists the
 Inbox newest first, 50 messages per page. Each page is shown as soon as it is
 committed, so the newest 50 are usable before the rest arrive (**Initial Mailbox
-Availability**). The device keeps the newest 200 Inbox messages; older ones stay
-in Gmail. **Historical Metadata Backfill** of the complete mailbox is not part of
-this slice.
+Availability**). The mailbox document keeps the newest 200 Inbox messages; older
+ones come from the downloaded history below.
+
+### Historical Metadata Backfill
+
+Once a synchronization has made the Inbox current, the device downloads the
+metadata of every All Mail message in the background, newest first, 100 messages
+per page ([#1368](https://github.com/unwired-dev/product/issues/1368), part of
+[#1007](https://github.com/unwired-dev/product/issues/1007)). It yields to body
+loads and to every synchronization, and it never blocks using the Inbox. Each page
+is saved as its own encrypted history segment beside the mailbox document, together
+with the page token that resumes the pass, so relaunching or an interrupted page
+continues where the last saved page ended without listing earlier pages again. The
+opened-view bounds never evict downloaded history.
+
+Changes Gmail reports after a page is saved, such as new mail, deletions,
+archiving, labels and read state, also update downloaded history. When Gmail no
+longer has the saved history ID, the device starts a new pass while the earlier
+complete or partial history stays visible, and replaces it once the new pass
+completes. An expired page token also starts a new pass.
+
+The Gmail Inbox state reports the progress per mailbox as downloaded messages,
+Gmail's total from the mailbox profile while the pass runs, and whether the pass
+is complete. While the pass runs, All Mail's subtitle shows the progress, such as
+"41,210 of 86,400 downloaded", and All Mail ends with a "Downloading older mail…"
+row naming the month the list has reached, in place of the note that older mail
+stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
+The Sync Status Overlay's per-connection history status and Try Again remain in
+[#1369](https://github.com/unwired-dev/product/issues/1369) and depend on
+[#1155](https://github.com/unwired-dev/product/issues/1155). Scrolling to the end
+of the Inbox, a Gmail view or a unified mailbox reveals older downloaded messages in batches from
+the segments, without asking Gmail, so they stay available offline. Messages outside
+the saved cached views are read on demand without saving their bodies.
+If a confirmed removal leaves the recent cache short and its refill cannot finish,
+older downloaded mail remains available, including after an offline relaunch.
 
 Later synchronizations read Gmail history from the committed history ID and apply
 arrivals, deletions, archiving and read changes. If Gmail no longer has that
@@ -436,9 +482,8 @@ including its waiting changes, after the account page explains that. A cache wri
 
 [#605](https://github.com/unwired-dev/product/issues/605) requires isolated rich
 HTML presentation and recent-body prefetch on iPhone, iPad and Mac. The requirements
-below cover the current single-mailbox Inbox with its newest 200 cached metadata
-entries. They do not add Sent Mailbox, pins, multiple Profiles or a complete
-historical metadata backfill.
+below cover the current single-mailbox Inbox with its cached metadata
+entries. They do not add Sent Mailbox, pins or multiple Profiles.
 
 Opening a listed message first reads the **Bounded Encrypted Body Cache** on this
 device. A valid hit, including after an offline relaunch, contacts nothing and
@@ -1290,6 +1335,16 @@ out. Explicit sign-out clears it, and a concurrent account deletion keeps its ow
 explanation.
 
 ## Deterministic evidence
+
+The history journeys also run with the real native encrypted store using
+`native/private-inbox/integration/history.zsh` on Mac. They cover 20,000 messages,
+interruption and resume, offline scrolling, later changes and an expired history
+ID while earlier mail stays visible. The runner needs the Mac signing identity,
+team and `UNWIRED_STORAGE_PROFILE` described in
+[storage validation](private-inbox-storage.md#verification). It supplies controlled
+Gmail responses and reopens native storage for every operation. This proves the
+shared Inbox and native persistence together; React Native bridge, iPhone/iPad
+scrolling and live Gmail qualification remain separate checks.
 
 The shared integration tests drive the real synchronization through a controlled
 Gmail API and mailbox cache (`@private-email/mail-core/testing/gmail-mailbox`).

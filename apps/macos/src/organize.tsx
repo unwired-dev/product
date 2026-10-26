@@ -1,5 +1,4 @@
 import type { Translate } from '@private-email/localization';
-import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type {
@@ -49,15 +48,15 @@ import {
   View,
 } from 'react-native';
 
+import type { PopUpItem } from './composer-controls.tsx';
+
 import { RegisterCommands } from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
 import {
   askForText,
   askInSheet,
   GlassGroup,
-  MenuButton,
   Notice,
-  SFSymbol,
   ToolbarButton,
 } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -77,14 +76,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  more: {
-    minWidth: 32,
-    minHeight: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
   button: {
     minHeight: 28,
     minWidth: 28,
@@ -241,12 +232,11 @@ function Toolbar({
 }: {
   readonly actions: readonly Named[];
   readonly move?: ReactNode;
-  readonly more: readonly MenuSection[];
+  readonly more: readonly PopUpItem[];
   readonly children: ReactNode;
   // The view a sheet asked from the toolbar attaches to.
   readonly ref?: Ref<View>;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const button = ({ name, label, onPress }: Named) => (
     <ToolbarButton
@@ -276,16 +266,11 @@ function Toolbar({
       {children}
       <GlassGroup>
         {rest.map(button)}
-        <MenuButton
+        <PopUp
           accessibilityLabel={t('message.more')}
-          sections={more}
-          style={styles.more}>
-          <SFSymbol
-            name="ellipsis"
-            size={16}
-            color={colors.textPrimary}
-          />
-        </MenuButton>
+          icon="ellipsis"
+          items={more}
+        />
       </GlassGroup>
     </View>
   );
@@ -309,46 +294,44 @@ const moreMenu = (
     readonly folders: readonly Folder[];
     readonly onMove: (folder: string) => void;
     // Gmail's Labels submenu, in groups.
-    readonly labels?: readonly MenuSection[] | undefined;
+    readonly labels?: PopUpItem['sections'];
   },
-): readonly MenuSection[] => [
-  {
-    items: [
-      ...actions
-        .filter(({ name }) => name === 'read' || name === 'unread')
-        .map(({ name, onPress }) => ({
-          key: `${target}\n${name}`,
-          title: t(name === 'read' ? 'contextMenu.read' : 'contextMenu.unread'),
-          symbol: icons[name] ?? 'envelope',
-          run: onPress,
-        })),
-      ...(folders.length === 0
-        ? []
-        : [
-            {
-              title: t('contextMenu.moveTo'),
-              symbol: 'folder',
-              items: folders.map(({ id, name, symbol = 'folder' }) => ({
-                key: `${target}\nmove\n${id}`,
-                title: name,
-                symbol,
-                run: () => {
-                  onMove(id);
-                },
-              })),
+): readonly PopUpItem[] => [
+  ...actions
+    .filter(({ name }) => name === 'read' || name === 'unread')
+    .map(({ name, onPress }) => ({
+      key: `${target}\n${name}`,
+      title: t(name === 'read' ? 'contextMenu.read' : 'contextMenu.unread'),
+      symbol: icons[name] ?? 'envelope',
+      run: onPress,
+    })),
+  ...(folders.length === 0
+    ? []
+    : [
+        {
+          key: `${target}\nmoveTo`,
+          title: t('contextMenu.moveTo'),
+          symbol: 'folder',
+          items: folders.map(({ id, name, symbol = 'folder' }) => ({
+            key: `${target}\nmove\n${id}`,
+            title: name,
+            symbol,
+            run: () => {
+              onMove(id);
             },
-          ]),
-      ...(labels === undefined
-        ? []
-        : [
-            {
-              title: t('gmailActions.labels'),
-              symbol: 'tag',
-              sections: labels,
-            },
-          ]),
-    ],
-  },
+          })),
+        },
+      ]),
+  ...(labels === undefined
+    ? []
+    : [
+        {
+          key: `${target}\nlabels`,
+          title: t('gmailActions.labels'),
+          symbol: 'tag',
+          sections: labels,
+        },
+      ]),
 ];
 
 // Move to a folder from the system menu dropped below the Move button; notes are disabled items.
@@ -634,7 +617,7 @@ function GmailMessageActions({
   };
   const applied = new Set(message.labels);
   const move = (folder: string) => {
-    act(gmailAction.move(folder, view));
+    act(gmailAction.move(folder, view, provider));
   };
   const actions = quickActions(t, message, {
     provider,
@@ -699,7 +682,6 @@ function GmailMessageActions({
                     items: state.labels.map(({ id: label, name }) => ({
                       key: `${target}\nlabel\n${label}`,
                       title: name,
-                      symbol: '',
                       checked: applied.has(label),
                       run: () => {
                         act(
@@ -715,7 +697,6 @@ function GmailMessageActions({
                       {
                         key: `${target}\nnewLabel`,
                         title: t('gmailActions.newLabel'),
-                        symbol: '',
                         run: () => {
                           setNaming({
                             message,

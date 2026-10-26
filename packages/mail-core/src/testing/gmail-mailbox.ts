@@ -3,7 +3,11 @@ import * as Arr from 'effect/Array';
 import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Order from 'effect/Order';
 
-import type { NativeGmailMailbox, OutgoingSend } from '../gmail-inbox.ts';
+import type {
+  HistoryWrite,
+  NativeGmailMailbox,
+  OutgoingSend,
+} from '../gmail-inbox.ts';
 
 import { base64Lines } from '../outgoing-message.ts';
 import { createSyntheticRemoteContent } from './remote-content.ts';
@@ -203,6 +207,8 @@ export function createSyntheticGmail({
   const commits: string[] = [];
   let cache: { revision: number; address: string; document: string } | null =
     null;
+  // History segments by name, written and pruned with the mailbox document they belong to.
+  const historySegments = new Map<string, string>();
   // The Bounded Encrypted Body Cache, keyed by address and message ID.
   const bodies = new Map<string, string>();
   // The bodies stored as prefetch exclusion markers, in native's own tier.
@@ -296,14 +302,22 @@ export function createSyntheticGmail({
       ),
     );
   // Gmail's own search covers all mail outside spam and trash, sender, subject and content alike.
-  // Every word must appear, ignoring case; real Gmail operators are beyond this stand-in.
+  // Every word must appear, ignoring case; of Gmail's operators only `-in:` is modelled, leaving
+  // out a system label such as `-in:inbox`.
   const searched = (query: string) => {
-    const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+    const terms = query.toLowerCase().split(/\s+/u).filter(Boolean);
+    const excluded = terms
+      .filter((term) => term.startsWith('-in:'))
+      .map((term) => term.slice('-in:'.length).toUpperCase());
+    const words = terms.filter((term) => !term.startsWith('-in:'));
     return Arr.sort(
       [...messages.values()].filter(
         ({ labels, from, subject, snippet, content }) =>
           !labels.has('SPAM') &&
           !labels.has('TRASH') &&
+          excluded.every(
+            (label) => !labels.has(label === 'DRAFTS' ? 'DRAFT' : label),
+          ) &&
           words.every((word) =>
             [from, subject, snippet, content.text ?? '', content.html ?? '']
               .join('\n')
@@ -531,7 +545,11 @@ export function createSyntheticGmail({
   };
   const respondTo = (path: string, params: URLSearchParams) => {
     if (path === 'profile') {
-      return respond({ emailAddress: address, historyId: String(historyId) });
+      return respond({
+        emailAddress: address,
+        historyId: String(historyId),
+        messagesTotal: messages.size,
+      });
     }
     if (path === 'messages') {
       return listPage(params);
@@ -733,6 +751,10 @@ export function createSyntheticGmail({
           }
         : rejection('delivery-unknown');
     },
+    openMailboxSegment: (owner, name) =>
+      current(owner)
+        ? Promise.resolve({ document: historySegments.get(name) ?? null })
+        : rejection('mailbox-invalidated'),
     openMailbox: () => {
       const code = openFailures.shift();
       return code === undefined
@@ -745,7 +767,14 @@ export function createSyntheticGmail({
           })
         : rejection(code);
     },
-    commitMailbox: (owner, expectedRevision, document) => {
+    /* oxlint-disable eslint/max-params -- The history write rides on the native commit. */
+    // fallow-ignore-next-line complexity -- Mirrors the native store's owner, revision and history-write refusals.
+    commitMailbox: (
+      owner: Readonly<{ address: string; generation: string }>,
+      expectedRevision: number,
+      document: string,
+      written?: HistoryWrite,
+    ) => {
       const code = commitFailures.shift();
       if (code !== undefined) {
         return rejection(code);
@@ -764,6 +793,16 @@ export function createSyntheticGmail({
         address: owner.address,
         document,
       };
+      if (written !== undefined) {
+        for (const [name, segment] of Object.entries(written.segments)) {
+          historySegments.set(name, segment);
+        }
+        for (const name of historySegments.keys()) {
+          if (!written.keep.includes(name)) {
+            historySegments.delete(name);
+          }
+        }
+      }
       commits.push(document);
       return Promise.resolve({
         ...cache,
@@ -771,6 +810,7 @@ export function createSyntheticGmail({
         owner: `synthetic-owner-${generation}`,
       });
     },
+    /* oxlint-enable eslint/max-params */
     openMessageBody: (owner, id) => {
       const code = bodyFailures.shift();
       if (code !== undefined) {
@@ -896,6 +936,7 @@ export function createSyntheticGmail({
       address = next;
       generation += 1;
       cache = null;
+      historySegments.clear();
       bodies.clear();
       // Native code removes the previous connection's files with its cache.
       attachments.savedFiles.clear();

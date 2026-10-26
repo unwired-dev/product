@@ -5,11 +5,12 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
+  allMail,
   leavesView,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
@@ -52,7 +53,12 @@ import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
-import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
+import {
+  DateDivider,
+  DownloadingOlder,
+  MessageRow,
+  SkeletonRows,
+} from './inbox-rows.tsx';
 import {
   InboxBar,
   OnlineResults,
@@ -62,7 +68,7 @@ import {
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailboxFolder } from './mailbox-folders.tsx';
+import { useListedMailbox } from './mailbox-folders.tsx';
 import {
   MailboxScope,
   useDrafts,
@@ -435,16 +441,22 @@ function scopeOf(
   t: Translate,
   shown: readonly InboxMailbox[],
   {
+    unified,
     several,
     gmail,
     waiting,
   }: Readonly<{
+    // Whether the list is a Unified Mailbox, which spans every mailbox.
+    unified: boolean;
     several: boolean;
     gmail: boolean;
     // The chosen connection while it waits for authorization, which has no Inbox to show.
     waiting: Readonly<{ address: string }> | undefined;
   }>,
 ) {
+  if (unified) {
+    return t('mailboxes.allMailboxes');
+  }
   if (waiting !== undefined) {
     return waiting.address;
   }
@@ -464,7 +476,8 @@ const offline = (state: InboxMailbox['state']) =>
   (('sync' in state && state.sync === 'retry') ||
     ('status' in state && state.status === 'retry'));
 
-// The subtitle's status: checking the server, cut off from it, or how much is unread.
+// The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
+// downloaded, or how much is unread.
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
@@ -472,12 +485,14 @@ function statusOf(
     unread,
     searchOffline,
     waiting,
+    downloading,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
     searchOffline: boolean;
     // The chosen connection while it waits for authorization, whose unread mail is unknown.
     waiting: Readonly<{ provider: MailProvider }> | undefined;
+    downloading: string | undefined;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -492,6 +507,9 @@ function statusOf(
   }
   if (searchOffline || shown.some(({ state }) => offline(state))) {
     return t('inbox.offline');
+  }
+  if (downloading !== undefined) {
+    return downloading;
   }
   return unread === 0
     ? t('inbox.noUnread')
@@ -564,6 +582,9 @@ function InboxFooter({
   syncing,
   connected,
   limited,
+  downloading,
+  oldest,
+  now,
   children,
 }: {
   readonly empty: boolean;
@@ -572,6 +593,10 @@ function InboxFooter({
   readonly connected: boolean;
   // Says that the listed view keeps only its newest messages.
   readonly limited: string | undefined;
+  // All Mail's history progress while its older mail downloads.
+  readonly downloading: string | undefined;
+  readonly oldest: ComponentProps<typeof DownloadingOlder>['oldest'];
+  readonly now: number;
   // The empty state.
   readonly children: ReactNode;
 }) {
@@ -581,6 +606,12 @@ function InboxFooter({
     <>
       {empty ? children : null}
       {syncing ? <SkeletonRows /> : null}
+      {downloading === undefined ? null : (
+        <DownloadingOlder
+          oldest={oldest}
+          now={now}
+        />
+      )}
       <LanguageSelector />
       {limited === undefined ? null : (
         <Text style={[styles.footer, { color: colors.textSecondary }]}>
@@ -657,15 +688,15 @@ export function Inbox({
   );
   const {
     folder,
-    selection,
     title: folderName,
     listed,
     failure,
     limited,
-  } = useMailboxFolder(shown, inboxListed, {
-    view,
-    onView,
-  });
+    downloading,
+    missing,
+    folderOf: listedFolder,
+    showOlder,
+  } = useListedMailbox(shown, inboxListed, { view, onView });
   const searchState = useInboxSearch(search, {
     mailboxes,
     shown,
@@ -676,10 +707,14 @@ export function Inbox({
     folder,
   });
   const { searching, searched, results, online } = searchState;
-  // Search widened to every Inbox lists Inbox mail, whatever view the list shows.
-  const origin = searchState.searchesAll
-    ? { view: inboxFolder, selection: {} }
-    : { view: folder, selection };
+  // Search widened to every Inbox lists Inbox mail, whatever view the list shows; in a Unified
+  // Mailbox each row is otherwise listed in its own connection's folder or view.
+  const folderOf = (mailbox: string, id: string) =>
+    searchState.searchesAll ? inboxFolder : listedFolder(mailbox, id);
+  const selectionOf = (mailbox: string, id: string) => {
+    const listedIn = folderOf(mailbox, id);
+    return listedIn === inboxFolder ? {} : { folder: listedIn };
+  };
   // Asked again when a result is opened or the reader closes, since opening saves the body.
   const saved = useSavedBodies(
     results,
@@ -720,6 +755,7 @@ export function Inbox({
       profile,
       scope,
       folder,
+      view.unified,
       searching,
       searched,
       searchState.searchesAll,
@@ -744,6 +780,7 @@ export function Inbox({
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const scopeName = scopeOf(t, shown, {
+    unified: view.unified !== undefined,
     several,
     gmail,
     waiting: chosenWaiting,
@@ -752,6 +789,7 @@ export function Inbox({
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
+    downloading,
   });
   const title =
     folderName ??
@@ -790,6 +828,7 @@ export function Inbox({
     message: Message | GmailMessage | ImapMessage,
   ): readonly RowAction[] => {
     const { state, inbox } = mailbox;
+    const listedIn = folderOf(mailbox.id, message.id);
     const leaving = (away: boolean) => {
       if (
         away &&
@@ -823,7 +862,7 @@ export function Inbox({
       return quickActions(t, message, {
         provider: mailbox.provider ?? 'gmail',
         unavailableActions: state.unavailableActions,
-        view: origin.view,
+        view: listedIn,
       }).map(({ name, label, action }) => ({
         name,
         label,
@@ -904,6 +943,22 @@ export function Inbox({
                 messageRole="alert"
               />
             )}
+            {missing.map((mailbox) => (
+              <Notice
+                key={`missing\n${mailbox.id}`}
+                icon="exclamationmark.triangle.fill"
+                iconColor={colors.statusWarning}
+                message={t('mailboxes.notIncluded', {
+                  mailbox: mailbox.address ?? mailbox.id,
+                })}
+                detail={t(
+                  view.unified === allMail
+                    ? 'mailboxes.notIncludedAllMail'
+                    : 'mailboxes.notIncludedDetail',
+                  { view: folderName, ...(ipad ? {} : { context: 'iphone' }) },
+                )}
+              />
+            ))}
             {shown.map((mailbox) => (
               <MailboxScope
                 key={mailbox.id}
@@ -951,6 +1006,7 @@ export function Inbox({
             onRefresh={() => {
               void refresh();
             }}
+            onEndReached={showOlder}
             sections={placed}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {
@@ -1012,6 +1068,9 @@ export function Inbox({
                 <InboxFooter
                   connected={gmail}
                   limited={limited}
+                  downloading={downloading}
+                  oldest={listed.at(-1)}
+                  now={now}
                   empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
                   syncing={syncing}>
                   {empty}
@@ -1051,7 +1110,11 @@ export function Inbox({
                     motion.settle(rowKey(item));
                   }}>
                   <MessageRow
-                    mailbox={several ? item.mailbox.address : undefined}
+                    mailbox={
+                      several || view.unified !== undefined
+                        ? item.mailbox.address
+                        : undefined
+                    }
                     message={item.message}
                     actions={
                       section.key === 'gmail'
@@ -1072,7 +1135,9 @@ export function Inbox({
                       void select({
                         mailbox: item.mailbox.id,
                         id: item.message.id,
-                        ...(section.key === 'gmail' ? {} : origin.selection),
+                        ...(section.key === 'gmail'
+                          ? {}
+                          : selectionOf(item.mailbox.id, item.message.id)),
                       });
                     }}
                     selected={

@@ -1661,6 +1661,10 @@ describe('organizing Gmail mail', () => {
     const gmail = createSyntheticGmail({ messages: 2 });
     const first = createGmailInbox(gmail.native);
     await first.load();
+    // Background backfill commits would shift which write the held store pauses.
+    await vi.waitFor(() => {
+      expect(ready(first.getSnapshot()).history?.complete).toBe(true);
+    });
     const target = required(
       ready(first.getSnapshot()).messages[0],
       'the message',

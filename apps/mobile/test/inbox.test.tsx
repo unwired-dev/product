@@ -1456,6 +1456,41 @@ describe('connected Gmail Inbox', () => {
     ).toStrictEqual([[unsaved]]);
   });
 
+  it.each([
+    { title: 'Archive', label: 'STARRED' },
+    { title: 'Sent', label: 'SENT' },
+  ])(
+    'keeps Gmail reader actions available from unified $title',
+    async ({ title, label }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        subject: 'Saved receipt',
+        content: { text: 'Paid in full.' },
+      });
+      gmail.archive(id);
+      gmail.setLabel(id, label, true);
+      await renderConnected(gmail.native);
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: `${title}. In All mailboxes`,
+        }),
+      );
+      const receipt = await screen.findByRole('button', {
+        name: /Saved receipt\..* In alex@example\.invalid/u,
+      });
+      expect(
+        within(receipt).getByText('In alex@example.invalid'),
+      ).toBeVisible();
+      await fireEvent.press(receipt);
+      await expect(screen.findByText('Paid in full.')).resolves.toBeVisible();
+      await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+      expect(
+        screen.getByRole('button', { name: 'Move to Trash' }),
+      ).toBeVisible();
+    },
+  );
+
   it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
@@ -1483,11 +1518,6 @@ describe('connected Gmail Inbox', () => {
       screen.findByRole('button', { name: /Flight to Zagreb/u }),
     ).resolves.toBeVisible();
     expect(screen.getByRole('header', { name: 'Travel' })).toBeVisible();
-    expect(
-      screen.getByText(
-        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
-      ),
-    ).toBeVisible();
     expect(screen.queryByText('Lunch on Friday')).toBeNull();
     // Archived mail in a label has nothing for Archive to remove.
     await fireEvent.press(
@@ -1500,9 +1530,14 @@ describe('connected Gmail Inbox', () => {
         screen.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
       );
     });
-    await fireEvent.press(
-      await screen.findByRole('button', { name: /Old receipt/u }),
-    );
+    const trashed = await screen.findByRole('button', { name: /Old receipt/u });
+    // Downloaded history leaves out Spam and Trash, so their older mail stays in Gmail.
+    expect(
+      screen.getByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeVisible();
+    await fireEvent.press(trashed);
     // Trashed mail moves back to the Inbox instead of being archived again.
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'More' }));
@@ -1551,6 +1586,39 @@ describe('connected Gmail Inbox', () => {
     );
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+  });
+
+  it('shows how much of All Mail has downloaded and ends it with older mail still arriving', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    for (const index of Array.from({ length: 250 }, (_, at) => at)) {
+      gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
+    }
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    // Gmail stops answering partway through the history download.
+    gmail.failPage('200', { code: 'unavailable' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'All Mail. In alex@example.invalid',
+        }),
+      );
+    });
+    await expect(
+      screen.findByText('alex@example.invalid · 200 of 251 downloaded'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByRole('progressbar', {
+        name: /^Downloading older mail… Mail from before \S.* appears here as it arrives\./u,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeNull();
   });
 
   it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {

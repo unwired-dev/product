@@ -1498,9 +1498,10 @@ extension UnwiredRegistration {
     }
   }
 
-  @objc(commitMailbox:expectedRevision:document:resolver:rejecter:)
+  // `history`, when not null, carries `segments` (name to document) and the names to `keep`.
+  @objc(commitMailbox:expectedRevision:document:history:resolver:rejecter:)
   func commitMailbox(
-    _ scope: [String: Any], expectedRevision: Double, document: String,
+    _ scope: [String: Any], expectedRevision: Double, document: String, history: [String: Any]?,
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("commitMailbox", resolve, reject: reject) {
@@ -1509,9 +1510,27 @@ extension UnwiredRegistration {
       guard let revision = Int(exactly: expectedRevision) else {
         throw RegistrationError.unavailable
       }
-      return try $0.commitMailbox(
+      var segments: (segments: [String: String], keep: Set<String>)?
+      if let history {
+        guard let written = history["segments"] as? [String: String],
+          let keep = history["keep"] as? [String]
+        else { throw RegistrationError.unavailable }
+        segments = (written, Set(keep))
+      }
+      return try await $0.commitMailbox(
         connection: connection, address: address, expectedRevision: revision, document: document,
-        generation: generation)
+        generation: generation, history: segments)
+    }
+  }
+
+  @objc(openMailboxSegment:name:resolver:rejecter:)
+  func openMailboxSegment(
+    _ scope: [String: Any], name: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openMailboxSegment", resolve, reject: reject) {
+      let (connection, _, generation) = try Self.scope(scope)
+      return try await $0.openMailboxSegment(connection: connection, name: name, generation: generation)
     }
   }
 

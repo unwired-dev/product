@@ -6,6 +6,7 @@ import {
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
+import { waitFor } from '@testing-library/react-native';
 import { TurboModuleRegistry } from 'react-native';
 
 import {
@@ -137,6 +138,12 @@ describe('attachment transfer cancellation bridge', () => {
       await registration.addMailbox();
       await gmailMailboxes.load();
       const inbox = required(gmailMailboxes.getSnapshot()[0]?.inbox);
+      // History downloads in the background through the module this test restores.
+      await waitFor(() => {
+        expect(inbox.getSnapshot()).toMatchObject({
+          history: { complete: true },
+        });
+      });
       close = inbox.retainMessage(id);
       await inbox.readMessage(id);
       const locator = required(inbox.messageAttachments(id)?.[0]?.locator);
