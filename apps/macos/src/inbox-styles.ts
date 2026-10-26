@@ -88,5 +88,7 @@ export const styles = StyleSheet.create({
   notices: { gap: spacing.s, paddingHorizontal: 14 },
   footer: { ...textStyles.subheadline, padding: spacing.xl },
   notice: { ...textStyles.body, padding: spacing.xl },
+  // The text action's own target supplies the rest of a notice's height.
+  noticeAction: { paddingHorizontal: spacing.xl, paddingVertical: spacing.m },
   mailbox: { ...textStyles.subheadline },
 });

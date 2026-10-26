@@ -37,18 +37,13 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  ActivityIndicator,
-  SectionList,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, SectionList, Text, View } from 'react-native';
 
 import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
+import { Action } from './action.tsx';
 import { RegisterCommands } from './command-palette.tsx';
 import {
   DraftHeading,
@@ -402,16 +397,14 @@ function OnlineResults({
   }
   if (found === undefined && !searching) {
     return (
-      <Pressable
-        accessibilityLabel={t('search.online', { query })}
-        accessibilityRole="button"
-        onPress={() => {
-          void search.search();
-        }}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('search.online', { query })}
-        </Text>
-      </Pressable>
+      <View style={styles.noticeAction}>
+        <Action
+          label={t('search.online', { query })}
+          onPress={() => {
+            void search.search();
+          }}
+        />
+      </View>
     );
   }
   return (
@@ -425,28 +418,24 @@ function OnlineResults({
         <ActivityIndicator accessibilityLabel={t('search.searching')} />
       ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
-        <Pressable
-          accessibilityLabel={t('search.more')}
-          accessibilityRole="button"
-          onPress={() => {
-            void search.more();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.more')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            label={t('search.more')}
+            onPress={() => {
+              void search.more();
+            }}
+          />
+        </View>
       ) : null}
       {!searching && found !== undefined && found.failures.length > 0 ? (
-        <Pressable
-          accessibilityLabel={t('search.retry')}
-          accessibilityRole="button"
-          onPress={() => {
-            void search.search();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.retry')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            label={t('search.retry')}
+            onPress={() => {
+              void search.search();
+            }}
+          />
+        </View>
       ) : null}
     </View>
   );

@@ -21,17 +21,12 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import { Action } from './action.tsx';
 import { RegisterCommands, useMessageCommands } from './command-palette.tsx';
 import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
@@ -88,7 +83,6 @@ const styles = StyleSheet.create({
   fromText: { flex: 1, minHeight: 28 },
   sender: { ...textStyles.bodyEmphasized },
   address: { ...textStyles.body },
-  control: { minHeight: 28, minWidth: 28, justifyContent: 'center' },
   assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
   secondary: { ...textStyles.subheadline },
   body: { ...textStyles.reading.body },
@@ -216,17 +210,12 @@ function AttachToNewMessage({
                 : t('drafts.listFailed')}
             </Text>
           </View>
-          <Pressable
-            style={styles.control}
-            accessibilityRole="button"
-            accessibilityLabel={t('common.retry')}
+          <Action
+            label={t('common.retry')}
             onPress={() => {
               void store.load();
-            }}>
-            <Text style={[styles.secondary, { color: colors.accentInk }]}>
-              {t('common.retry')}
-            </Text>
-          </Pressable>
+            }}
+          />
         </View>
       ) : null}
       {failed ? (
@@ -602,16 +591,12 @@ function MailboxMessage({
           style={[styles.emptyDescription, { color: colors.textPrimary }]}>
           {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
-        <Pressable
-          style={styles.control}
-          accessibilityRole="button"
+        <Action
+          label={t('common.retry')}
           onPress={() => {
             void actions.load();
-          }}>
-          <Text style={[styles.secondary, { color: colors.accentInk }]}>
-            {t('common.retry')}
-          </Text>
-        </Pressable>
+          }}
+        />
       </View>
     );
   }
