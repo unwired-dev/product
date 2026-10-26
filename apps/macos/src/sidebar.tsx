@@ -1,5 +1,8 @@
 import type { Translate } from '@private-email/localization';
-import type { MailboxProblem } from '@private-email/mail-core/mailboxes';
+import type {
+  MailboxProblem,
+  UnifiedRole,
+} from '@private-email/mail-core/mailboxes';
 import type { MailProvider } from '@private-email/mail-core/registration';
 
 import {
@@ -7,6 +10,8 @@ import {
   gmailMailbox,
   gmailViewRow,
   mailboxSidebar,
+  unifiedRoles,
+  unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
   profileMenu,
@@ -32,11 +37,12 @@ import { promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-// What the message list shows: every mailbox of the Profile, one mailbox, or one of its IMAP
-// folders. The Inbox folder is the default of a mailbox.
+// What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, or a
+// Unified Mailbox of every mailbox. The Inbox folder is the default of a mailbox.
 export type MailboxView = Readonly<{
   mailbox?: string | undefined;
   folder?: string | undefined;
+  unified?: UnifiedRole | undefined;
 }>;
 
 const styles = StyleSheet.create({
@@ -384,6 +390,24 @@ export function Mailboxes({
               onView({});
             }}
           />
+          {unifiedRoles.map((role) => {
+            const { title, icon } = unifiedRow(t, role);
+            return (
+              <Item
+                key={role}
+                icon={icon}
+                label={title}
+                accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                  row: title,
+                  mailbox: t('mailboxes.allMailboxes'),
+                })}
+                selected={view.unified === role}
+                onPress={() => {
+                  onView({ unified: role });
+                }}
+              />
+            );
+          })}
           {sidebar.entries.map((entry) => {
             if ('section' in entry) {
               const { mailbox, folders, problem } = entry.section;
