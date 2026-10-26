@@ -176,6 +176,7 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 10))
     }
     app.buttons["Continue"].tap()
+    verifyLanguagePreference(in: app)
     app.buttons["Sign in with Apple"].tap()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
@@ -1626,7 +1627,6 @@ final class InboxTests: XCTestCase {
     verifyCompactBackHold(app)
     verifyCompactInboxSwipeBack(app)
     verifyCompactInboxBottom(app, scrollToEnd: true)
-    verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
@@ -2131,28 +2131,36 @@ final class InboxTests: XCTestCase {
     }
   }
 
+  // Sign In's Language menu keeps a chosen language across relaunch, then returns to System
+  // Default; the SwiftUI picker reports its choice as the button's value.
   private func verifyLanguagePreference(in app: XCUIApplication) {
-    let english = app.descendants(matching: .any)["language-en"]
-    XCTAssertTrue(english.waitForExistence(timeout: 10))
-    english.tap()
-    let checked = NSPredicate(format: "value CONTAINS 'checked' AND NOT value CONTAINS 'unchecked'")
-    XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
-      .completed)
+    let language = app.buttons["Language"]
+    func shows(_ name: String) {
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [
+            XCTNSPredicateExpectation(
+              predicate: NSPredicate(format: "value == %@", name), object: language)
+          ], timeout: 10),
+        .completed)
+    }
+    func choose(_ name: String) {
+      language.tap()
+      let option = app.buttons[name]
+      XCTAssertTrue(option.waitForExistence(timeout: 10))
+      option.tap()
+      shows(name)
+    }
+    XCTAssertTrue(language.waitForExistence(timeout: 10))
+    shows("System Default")
+    choose("English")
     app.terminate()
     app.launch()
-    XCTAssertTrue(english.waitForExistence(timeout: 20))
-    XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
-      .completed)
-    let system = app.descendants(matching: .any)["language-system"]
-    system.tap()
-    XCTAssertEqual(
-      XCTWaiter.wait(
-        for: [XCTNSPredicateExpectation(predicate: checked, object: system)], timeout: 10),
-      .completed)
+    XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 20))
+    app.buttons["Continue"].tap()
+    XCTAssertTrue(language.waitForExistence(timeout: 10))
+    shows("English")
+    choose("System Default")
   }
 
 }

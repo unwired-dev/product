@@ -90,14 +90,53 @@ jest.mock('@expo/ui/swift-ui', () => {
     }, [shown, isPresented, onDismiss]);
     return shown ? children : null;
   }
+  // A menu picker lists its options as radios; each option's tag modifier is its value.
+  function Picker({
+    label,
+    selection,
+    onSelectionChange,
+    modifiers,
+    children,
+  }) {
+    const { Pressable, Text, View } = require('react-native');
+    const disabled = modifiers?.some(
+      (modifier) => modifier.$type === 'disabled' && modifier.disabled,
+    );
+    return React.createElement(
+      View,
+      { accessibilityLabel: label, accessibilityRole: 'radiogroup' },
+      React.Children.map(children, (option) => {
+        const value = option.props.modifiers.find(
+          (modifier) => modifier.$type === 'tag',
+        ).tag;
+        return React.createElement(
+          Pressable,
+          {
+            accessibilityRole: 'radio',
+            accessibilityState: { checked: value === selection, disabled },
+            disabled,
+            onPress: () => {
+              onSelectionChange?.(value);
+            },
+          },
+          React.createElement(Text, null, option.props.children),
+        );
+      }),
+    );
+  }
   return {
     BottomSheet,
     Group: Passthrough,
     Host: Passthrough,
+    Picker,
     RNHostView: Passthrough,
+    Text: Passthrough,
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  disabled: (disabled) => ({ $type: 'disabled', disabled }),
+  pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
+  tag: (tag) => ({ $type: 'tag', tag }),
   presentationBackground: (style) => ({
     $type: 'presentationBackground',
     style,

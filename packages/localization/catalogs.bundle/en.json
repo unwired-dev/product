@@ -71,9 +71,9 @@
   },
   "language": {
     "title": "Language",
-    "system": "System default",
     "systemDefault": "System Default",
     "detail": "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
+    "deviceDetail": "System Default follows your device’s preferred languages and falls back to English.",
     "saveFailed": "The language could not be saved. Try again."
   },
   "native": {
