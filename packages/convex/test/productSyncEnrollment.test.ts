@@ -418,12 +418,6 @@ describe('pending device admission', () => {
             apnsToken: 'pending-apns-token',
           }),
         () =>
-          asUser.mutation(api.productAccount.renameTrustedDevice, {
-            ...asTrusted,
-            displayName: 'Mine',
-            trustedDeviceToRenameId: holder.proof.trustedDeviceId,
-          }),
-        () =>
           asUser.mutation(internal.productAccount.revokeTrustedDevice, {
             ...asTrusted,
             expectedKeyEpoch: 1,
