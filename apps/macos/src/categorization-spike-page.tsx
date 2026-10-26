@@ -7,7 +7,6 @@ import type {
   ResultValue,
   Selection,
   SpikeModule,
-  SpikeState,
 } from '@private-email/mail-core/testing/categorization-spike';
 import type { TurboModule } from 'react-native';
 
@@ -25,7 +24,13 @@ import {
   units,
 } from '@private-email/mail-core/testing/categorization-spike';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -125,12 +130,14 @@ function Spike({
   readonly onDismiss: () => void;
 }) {
   const colors = usePalette();
-  const [state, setState] = useState<SpikeState>();
   // oxlint-disable-next-line react/hook-use-state -- The page keeps one session until it unmounts.
   const [session] = useState(() =>
-    spikeSession({ module, catalog, device: 'Mac', onChange: setState }),
+    spikeSession({ module, catalog, device: 'Mac' }),
   );
-  const { selection, busy, result, failure } = state ?? session.initial;
+  const { selection, busy, result, failure } = useSyncExternalStore(
+    session.subscribe,
+    session.getSnapshot,
+  );
   const candidate = catalog.candidates.find(
     (each) => each.run === selection.run,
   );

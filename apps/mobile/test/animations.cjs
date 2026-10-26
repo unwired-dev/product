@@ -124,6 +124,18 @@ jest.mock('@expo/ui/swift-ui', () => {
       React.createElement(Text, null, label),
     );
   }
+  function Picker({ label, selection, onSelectionChange, children }) {
+    return React.createElement(
+      Pressable,
+      {
+        accessibilityLabel: label,
+        accessibilityValue: { text: selection },
+        onSelectionChange,
+      },
+      React.createElement(Text, null, label),
+      children,
+    );
+  }
   return {
     BottomSheet,
     Button,
@@ -132,7 +144,7 @@ jest.mock('@expo/ui/swift-ui', () => {
     Host: Passthrough,
     Label: Labeled,
     LabeledContent: Labeled,
-    Picker: Labeled,
+    Picker,
     ProgressView: () => null,
     RNHostView: Passthrough,
     Section,

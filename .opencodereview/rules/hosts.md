@@ -101,11 +101,10 @@ replaces it.
   move the shared logic to `mail-core` unless it depends on a host API. Keep
   React subscriptions, rendering and native adapters in their host.
 
-The isolated #831 `categorization-spike` research build has a narrow exception to
-shared-store ownership. Its Mac-only request and presentation state may remain in
-`categorization-spike-page.tsx`; all native payload decoding belongs in the
-non-React `categorization-spike-client.ts` adapter. This exception adds no shared
-product behavior or production adoption. See `docs/architecture/macos-client.md`.
+The former #831 Mac-only research-state exception does not cover #830's shared
+`testing/categorization-spike` session. Both pages consume that session through
+the normal store interface and Effect boundary. Research-only bundle isolation
+still applies. See `docs/architecture/macos-client.md`.
 
 #### Exception forwarding
 

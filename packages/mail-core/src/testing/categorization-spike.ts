@@ -1,7 +1,15 @@
 import * as Arr from 'effect/Array';
+import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
+
+import {
+  decodeDiagnostic,
+  rejectionDiagnostic,
+  runLogged,
+} from '../diagnostics.ts';
 
 // Spikes #831 (Mac) and #830 (iPhone and iPad), compiled only into the `categorization-spike`
 // Mock Mail Session build: the native Core ML runner's wire format and one page session, which
@@ -92,9 +100,15 @@ const Progress = Schema.NullOr(
 );
 export type ProgressValue = typeof Progress.Type;
 const NativeCode = Schema.Struct({ code: Schema.String });
+class SpikeFailure extends Schema.TaggedError<SpikeFailure>()('SpikeFailure', {
+  cause: Schema.Defect(),
+}) {}
+const nativeCall = <A>(run: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) => new SpikeFailure({ cause }),
+  });
 
-export const decodeCatalog = (value: unknown) =>
-  Option.getOrUndefined(Schema.decodeUnknownOption(Catalog)(value));
 export const decodeProgress = (value: unknown) =>
   Option.getOrUndefined(Schema.decodeUnknownOption(Progress)(value));
 
@@ -115,14 +129,13 @@ export async function loadCatalog(module: SpikeModule | null) {
   if (module === null) {
     return undefined;
   }
-  try {
-    const decoded = decodeCatalog(await module.catalog());
-    return decoded !== undefined && decoded.candidates.length > 0
-      ? decoded
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  return runLogged(
+    Effect.gen(function* () {
+      const value = yield* nativeCall(() => module.catalog());
+      const decoded = yield* Schema.decodeEffect(Catalog)(value);
+      return decoded.candidates.length > 0 ? decoded : undefined;
+    }).pipe(Effect.orElseSucceed(() => undefined)),
+  );
 }
 
 export const units = [
@@ -213,12 +226,10 @@ export function spikeSession({
   module,
   catalog,
   device,
-  onChange,
 }: Readonly<{
   module: SpikeModule;
   catalog: CatalogValue;
   device: string;
-  onChange: (state: SpikeState) => void;
 }>) {
   let state: SpikeState = {
     selection: {
@@ -235,86 +246,141 @@ export function spikeSession({
   let current: string | undefined = undefined;
   let cancelled: string | undefined = undefined;
   let closed = false;
+  const listeners = new Set<() => void>();
+  const gate = Semaphore.makeUnsafe(1);
   const unavailable = `The candidate could not run on this ${device}. Categorization stays unavailable; it has no server fallback.`;
   const cancelledText =
     'Cancelled before the next model pass; no partial result is shown.';
   const set = (next: Partial<SpikeState>) => {
     state = { ...state, ...next };
     if (!closed) {
-      onChange(state);
+      for (const listener of listeners) {
+        listener();
+      }
     }
   };
+  const cleanup = (request: string | undefined) => {
+    const release = nativeCall(() => module.release()).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('SpikeFailure', (error) =>
+        Effect.logError(
+          'Categorization spike release failed',
+          rejectionDiagnostic(error.cause),
+        ),
+      ),
+    );
+    return runLogged(
+      Effect.gen(function* () {
+        if (request !== undefined) {
+          yield* nativeCall(() => module.cancel(request)).pipe(
+            Effect.catchTag('SpikeFailure', (error) =>
+              Effect.logError(
+                'Categorization spike cancel failed',
+                rejectionDiagnostic(error.cause),
+              ),
+            ),
+          );
+        }
+        yield* release;
+      }),
+    );
+  };
   return {
-    initial: state,
+    getSnapshot: () => state,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     get closed() {
       return closed;
     },
     // A new selection retires the shown result.
     choose(selection: Selection) {
+      if (closed || state.busy !== undefined) {
+        return;
+      }
       set({ selection, result: undefined, failure: undefined });
     },
-    async start(kind: Kind, picked: Selection) {
-      if (closed) {
-        return;
-      }
-      requests += 1;
-      const request = `${kind}-${requests}`;
-      current = request;
-      set({
-        selection: picked,
-        busy: { request, kind },
-        result: undefined,
-        failure: undefined,
-      });
-      const custom =
-        catalog.candidates.find((each) => each.run === picked.run)?.mode ===
-        'custom';
-      let text: string | undefined = undefined;
-      let failed = false;
-      try {
-        text = await call(module, kind)(
-          request,
-          requestBody({ ...picked, custom }),
-        );
-      } catch (error) {
-        failed = true;
-        const code = Schema.decodeUnknownOption(NativeCode)(error);
-        if (Option.isSome(code) && code.value.code === 'cancelled') {
-          cancelled = request;
-        }
-      }
-      if (current !== request) {
-        return;
-      }
-      current = undefined;
-      if (cancelled === request) {
-        set({ busy: undefined, failure: cancelledText });
-        return;
-      }
-      const decoded = failed
-        ? undefined
-        : Option.getOrUndefined(Schema.decodeUnknownOption(Result)(text));
-      set(
-        decoded === undefined
-          ? { busy: undefined, failure: unavailable }
-          : { busy: undefined, result: decoded },
+    start(kind: Kind, picked: Selection) {
+      return runLogged(
+        gate.withPermitsIfAvailable(1)(
+          Effect.gen(function* () {
+            if (closed) {
+              return;
+            }
+            requests += 1;
+            const request = `${kind}-${requests}`;
+            current = request;
+            set({
+              selection: picked,
+              busy: { request, kind },
+              result: undefined,
+              failure: undefined,
+            });
+            const custom =
+              catalog.candidates.find((each) => each.run === picked.run)
+                ?.mode === 'custom';
+            const decoded = yield* nativeCall(() =>
+              call(module, kind)(request, requestBody({ ...picked, custom })),
+            ).pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Result)),
+              Effect.catchTags({
+                SpikeFailure: (error) =>
+                  Effect.gen(function* () {
+                    const code = Schema.decodeUnknownOption(NativeCode)(
+                      error.cause,
+                    );
+                    if (
+                      Option.isSome(code) &&
+                      code.value.code === 'cancelled'
+                    ) {
+                      cancelled = request;
+                    } else {
+                      yield* Effect.logError(
+                        'Categorization spike failed',
+                        rejectionDiagnostic(error.cause),
+                      );
+                    }
+                    return undefined;
+                  }),
+                SchemaError: (error) =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError(
+                      'Invalid categorization spike result',
+                      decodeDiagnostic(error),
+                    );
+                    return undefined;
+                  }),
+              }),
+            );
+            if (current !== request) {
+              return;
+            }
+            current = undefined;
+            if (cancelled === request) {
+              set({ busy: undefined, failure: cancelledText });
+              return;
+            }
+            set(
+              decoded === undefined
+                ? { busy: undefined, failure: unavailable }
+                : { busy: undefined, result: decoded },
+            );
+          }),
+        ),
       );
     },
     cancel() {
       if (current !== undefined) {
         cancelled = current;
-        void module.cancel(current);
-        void module.release();
+        void cleanup(current);
       }
     },
     close() {
       closed = true;
       const request = current;
       current = undefined;
-      if (request !== undefined) {
-        void module.cancel(request);
-      }
-      void module.release();
+      void cleanup(request);
     },
   };
 }

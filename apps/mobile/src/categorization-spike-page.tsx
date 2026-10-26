@@ -6,7 +6,6 @@ import type {
   ResultValue,
   Selection,
   SpikeModule,
-  SpikeState,
 } from '@private-email/mail-core/testing/categorization-spike';
 import type { ComponentProps } from 'react';
 import type { TurboModule } from 'react-native';
@@ -46,7 +45,7 @@ import {
   units,
 } from '@private-email/mail-core/testing/categorization-spike';
 import { spacing } from '@private-email/mail-core/theme';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import {
   Platform,
   StyleSheet,
@@ -273,12 +272,12 @@ function Spike({
   readonly catalog: CatalogValue;
   readonly onDismiss: () => void;
 }) {
-  const [state, setState] = useState<SpikeState>();
   // oxlint-disable-next-line react/hook-use-state -- The page keeps one session until it unmounts.
-  const [session] = useState(() =>
-    spikeSession({ module, catalog, device, onChange: setState }),
+  const [session] = useState(() => spikeSession({ module, catalog, device }));
+  const { selection, busy, result, failure } = useSyncExternalStore(
+    session.subscribe,
+    session.getSnapshot,
   );
-  const { selection, busy, result, failure } = state ?? session.initial;
   // Leaving the page cancels the running request and releases the model.
   useEffect(() => {
     autorun(catalog, session, onDismiss);

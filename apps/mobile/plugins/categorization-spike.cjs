@@ -43,27 +43,30 @@ module.exports = function categorizationSpike(config) {
     const existing = Object.entries(phases).find(
       ([, phase]) => phase?.name === `"${phaseName}"`,
     );
-    if (spike && existing === undefined) {
+    const shellScript = [
+      'set -e',
+      'spike="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/CategorizationSpike"',
+      ...(spike
+        ? [
+            'mkdir -p "$spike"',
+            'benchmark="$SRCROOT/../../../tools/system-category-benchmark/custom"',
+            'cp "$benchmark/golden-v1.json" "$benchmark/categories-v1.json" "$spike/"',
+            '# Exported by tools/deberta-mac-spike/export.py; without them the page reports the models unavailable.',
+            'models="$SRCROOT/../../../tools/deberta-mac-spike/work/models"',
+            'if [ -d "$models" ]; then rsync -a --delete --exclude \'*.mlpackage\' "$models/" "$spike/models/"; else rm -rf "$spike/models"; fi',
+          ]
+        : ['rm -rf "$spike"']),
+    ].join('\n');
+    if (existing === undefined) {
       project.addBuildPhase([], 'PBXShellScriptBuildPhase', phaseName, target, {
         shellPath: '/bin/sh',
         alwaysOutOfDate: 1,
-        shellScript: [
-          'set -e',
-          'spike="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/CategorizationSpike"',
-          'mkdir -p "$spike"',
-          'benchmark="$SRCROOT/../../../tools/system-category-benchmark/custom"',
-          'cp "$benchmark/golden-v1.json" "$benchmark/categories-v1.json" "$spike/"',
-          '# Exported by tools/deberta-mac-spike/export.py; without them the page reports the models unavailable.',
-          'models="$SRCROOT/../../../tools/deberta-mac-spike/work/models"',
-          'if [ -d "$models" ]; then rsync -a --delete --exclude \'*.mlpackage\' "$models/" "$spike/models/"; else rm -rf "$spike/models"; fi',
-        ].join('\n'),
+        shellScript,
       });
-    } else if (!spike && existing !== undefined) {
-      const [uuid] = existing;
-      Reflect.deleteProperty(phases, uuid);
-      Reflect.deleteProperty(phases, `${uuid}_comment`);
-      const app = project.hash.project.objects.PBXNativeTarget[target];
-      app.buildPhases = app.buildPhases.filter(({ value }) => value !== uuid);
+    } else {
+      // Xcode retains script-created resources on an incremental build. Other scenarios must
+      // actively remove the prior spike's models, not just remove its copy phase.
+      existing[1].shellScript = JSON.stringify(shellScript);
     }
     return result;
   });

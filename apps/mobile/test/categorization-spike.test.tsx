@@ -95,6 +95,22 @@ describe('iPhone and iPad categorization spike page', () => {
     expect(screen.queryByText('Classify')).toBeNull();
   });
 
+  it('keeps the running workload when an already-open picker delivers a late choice', async () => {
+    expect.hasAssertions();
+    const { module } = scriptedSpike();
+    await renderWith(module);
+    await fireEvent.press(screen.getByText('Classify'));
+    // A picker opened before Classify can deliver its choice after Setup becomes disabled.
+    await fireEvent(
+      screen.getByLabelText('Precision'),
+      'selectionChange',
+      'int8',
+    );
+    expect(screen.getByLabelText('Precision')).toHaveAccessibilityValue({
+      text: 'fp16',
+    });
+  });
+
   it('shows the scores and memberships, and leaving cancels and releases the model', async () => {
     expect.hasAssertions();
     const { module, answers } = scriptedSpike();

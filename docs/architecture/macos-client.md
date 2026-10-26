@@ -89,9 +89,9 @@ compositing or display presentation. The probe and runtime hook compile only in
 
 Issue #831 authorizes an isolated, build-time `categorization-spike` Mock Mail
 Session, with public/synthetic bundled samples and no mailbox assignments or
-production adoption. The Mac-local `categorization-spike-client.ts` adapter owns
+production adoption. The original Mac-local `categorization-spike-client.ts` adapter owned
 Schema decoding for native payloads; the React page owns only this research
-interaction's request and presentation state. This narrowly qualifies the normal
+interaction's request and presentation state. This narrowly qualified the normal
 shared-store ownership rule for this one Mac-specific research build. Future
 product integration follows the normal mail-core store rules and needs its own
 qualification. Bundle verification excludes both page and adapter from every
@@ -104,3 +104,11 @@ chose A, because there is no shared product behavior to own and adding a shared
 experimental API would broaden the spike. All required decoding and production
 isolation remain enforced. No earlier model/runtime or visual-design decision
 changed.
+
+Issue #830 adds the iPhone and iPad host and moves the shared research session
+and native decoding to `mail-core/testing/categorization-spike`. The earlier
+Mac-only exception no longer applies to that shared state: both pages subscribe
+to its framework-independent store and its actions use the normal Effect
+boundary. The 2026-10-15 choice remains the historical decision for the Mac-only
+spike. This extension changes neither model adoption nor production behavior;
+every other scenario and production still omit the page, session and native runner.
