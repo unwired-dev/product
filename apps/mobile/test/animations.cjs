@@ -75,7 +75,7 @@ jest.mock('react-native-screens', () => {
 // accessibility escape dismisses it; a sheet finishes dismissing at once.
 jest.mock('@expo/ui/swift-ui', () => {
   const React = require('react');
-  const { View } = require('react-native');
+  const { Pressable, Text, View } = require('react-native');
   function Passthrough({ children }) {
     return React.createElement(React.Fragment, null, children);
   }
@@ -116,7 +116,6 @@ jest.mock('@expo/ui/swift-ui', () => {
       : null;
   }
   // Form controls render their text, and a button its pressable label, for component journeys.
-  const { Pressable, Text } = require('react-native');
   function Section({ title, header, footer, children }) {
     return React.createElement(
       React.Fragment,
@@ -149,16 +148,37 @@ jest.mock('@expo/ui/swift-ui', () => {
       React.createElement(Text, null, label),
     );
   }
-  function Picker({ label, selection, onSelectionChange, children }) {
+  // A menu picker lists its options as radios; each option's tag modifier is its value.
+  function Picker({
+    label,
+    selection,
+    onSelectionChange,
+    modifiers,
+    children,
+  }) {
+    const disabled = modifiers?.some(
+      (modifier) => modifier.$type === 'disabled' && modifier.disabled,
+    );
     return React.createElement(
-      Pressable,
-      {
-        accessibilityLabel: label,
-        accessibilityValue: { text: selection },
-        onSelectionChange,
-      },
-      React.createElement(Text, null, label),
-      children,
+      View,
+      { accessibilityLabel: label, accessibilityRole: 'radiogroup' },
+      React.Children.map(children, (option) => {
+        const value = option.props.modifiers.find(
+          (modifier) => modifier.$type === 'tag',
+        ).tag;
+        return React.createElement(
+          Pressable,
+          {
+            accessibilityRole: 'radio',
+            accessibilityState: { checked: value === selection, disabled },
+            disabled,
+            onPress: () => {
+              onSelectionChange?.(value);
+            },
+          },
+          React.createElement(Text, null, option.props.children),
+        );
+      }),
     );
   }
   // A popover keeps its trigger in place and presents its content beside it.
@@ -204,6 +224,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
   monospacedDigit: () => ({ $type: 'monospacedDigit' }),
+  pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
   scrollContentBackground: (visible) => ({
     $type: 'scrollContentBackground',
     visible,

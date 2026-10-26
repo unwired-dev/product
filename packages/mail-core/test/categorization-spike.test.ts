@@ -225,6 +225,34 @@ describe('categorization spike session', () => {
     });
   });
 
+  it('a late picker choice keeps the running workload and the closed page unchanged', async () => {
+    expect.hasAssertions();
+
+    const answers: Array<(value: string) => void> = [];
+    const { module } = runner(
+      () =>
+        // oxlint-disable-next-line promise/avoid-new -- Hold the native answer until the test settles it.
+        new Promise<string>((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    const session = spikeSession({
+      module,
+      catalog: catalog(null),
+      device: 'iPhone',
+    });
+
+    // A picker opened before Classify can deliver its choice after Setup locks.
+    const running = session.start('classify', selection);
+    session.choose({ ...selection, precision: 'int8' });
+    expect(session.getSnapshot().selection.precision).toBe('fp16');
+    answers[0]?.(result);
+    await running;
+    session.close();
+    session.choose({ ...selection, precision: 'int8' });
+    expect(session.getSnapshot().selection.precision).toBe('fp16');
+  });
+
   it('a failed or unreadable native answer stays unavailable, without any fallback', async () => {
     expect.hasAssertions();
 

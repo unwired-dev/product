@@ -501,7 +501,9 @@ function SettingsPage({
             <SettingsGroup footer={copy.description} />
           </>
         ) : null}
-        {destination === 'language' ? <LanguageSelector /> : null}
+        {destination === 'language' ? (
+          <LanguageSelector footer={t('language.deviceDetail')} />
+        ) : null}
         <ErrorReportingDestination
           destination={selectedDestination}
           onDestination={setDestination}
@@ -669,7 +671,6 @@ function RegistrationPage({
           pending={snapshot.removalPending}
           store={store}
         />
-        <LanguageSelector />
       </View>
     </ScrollView>
   );

@@ -66,7 +66,6 @@ import {
   useInboxSearch,
 } from './inbox-search.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
-import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import { useListedMailbox } from './mailbox-folders.tsx';
 import {
@@ -576,7 +575,7 @@ const hasNoMail = ({
 const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
   search.found?.failures.some(({ reason }) => reason === 'offline') === true;
 
-// Below the Inbox: its empty state, loading rows, the Language control and the storage note.
+// Below the Inbox: its empty state, loading rows and the storage note.
 function InboxFooter({
   empty,
   syncing,
@@ -612,7 +611,6 @@ function InboxFooter({
           now={now}
         />
       )}
-      <LanguageSelector />
       {limited === undefined ? null : (
         <Text style={[styles.footer, { color: colors.textSecondary }]}>
           {limited}
