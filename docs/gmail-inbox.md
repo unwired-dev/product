@@ -371,13 +371,16 @@ cannot be reached, an alert says the label could not be created and nothing is a
 The new label joins **Labels** and the Move menus as soon as Gmail creates it, and is saved
 with the message's pending label change without waiting for synchronization. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
-over the bottom of the reader holds **Archive**, **Folders**, **Reply** and
-**More**, beside a separate circular New Message button. Reply
+over the bottom of the reader holds **Archive**, **Folders** and **Reply**, beside a
+separate circular New Message button; it has no **More**, because the Reply sheet offers
+the same actions. Mail without Reply, such as IMAP mail or mail in a mailbox that cannot send,
+keeps **More** after **Folders**. Reply
 opens a native sheet on the opaque content surface: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — star and read state, then
-Move, Report spam and Move to Trash, offering only what the provider supports. **More** stays in the toolbar
-beside them.
+Move, **Labels** for Gmail, Report spam and Move to Trash, offering only what the provider
+supports. **Labels** opens the label checkboxes in a glass panel above the toolbar; a tap
+outside it or VoiceOver's escape gesture closes it.
 The system owns Reply's presentation, dismissal and swipe-down gesture. Choosing an
 action closes the sheet before running it. For every
 provider, iPhone's **Folders** grows a tall glass Move picker out of the button:
