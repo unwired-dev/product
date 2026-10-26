@@ -1,4 +1,4 @@
-"""Refuse incomplete or failed corpus-v3 qualification while retaining its evidence."""
+"""Refuse incomplete or failed corpus-v4 qualification while retaining its evidence."""
 import json
 from pathlib import Path
 import sys
@@ -6,7 +6,8 @@ import sys
 expected = {
     'summary': ['lease-deadline', 'instruction-in-body', 'long-newsletter',
                 'committee-meeting', 'delivery-address'],
-    'rewrite': ['rough-note', 'long-draft', 'czech-note'],
+    'rewrite': ['rough-note', 'long-draft', 'czech-note', 'german-note',
+                'instruction-like-note', 'short-czech-note'],
     'reply': ['confirm-meeting', 'long-quoted-message', 'answer-in-german'],
     'translation': ['german-to-english', 'czech-to-english', 'english-to-german',
                     'same-language', 'unidentified-language'],
@@ -50,11 +51,11 @@ cases = rows[1:-1]
 counts = {result: sum(row.get('result') == result for row in cases)
           for result in ('pass', 'limited', 'fail')}
 if (not rows or rows[0].get('kind') != 'device'
-        or any(row.get('corpusVersion') != 3 for row in rows)
+        or any(row.get('corpusVersion') != 4 for row in rows)
         or len(cases) != len(identities)
         or {(row.get('kind'), row.get('id')) for row in cases} != identities
         or sum(counts.values()) != len(cases)
-        or rows[-1] != {'corpusVersion': 3, 'kind': 'complete', **counts}
+        or rows[-1] != {'corpusVersion': 4, 'kind': 'complete', **counts}
         or not all(described(row) for row in rows[:-1])):
     raise SystemExit('Incomplete or malformed assistance qualification evidence')
 if counts['fail']:

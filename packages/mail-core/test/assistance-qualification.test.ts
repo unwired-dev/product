@@ -30,12 +30,17 @@ function binding({
         resolve(value);
       }, 1000);
     });
-  const generate = (request: string) => {
+  // Echoes part of the request's source text, so each answer keeps its case's language.
+  const generate = (request: string, input: string) => {
     if (request === 'qualification-cancel' && nativeCancelCode !== undefined) {
       return Promise.reject(rejection(nativeCancelCode));
     }
+    const { body, quotedText, authoredText } = parseLine(input);
     return availability === 'available'
-      ? answer(request, `Result for ${request}.`)
+      ? answer(
+          request,
+          String(body ?? quotedText ?? authoredText).slice(0, 1000),
+        )
       : Promise.reject(rejection(availability));
   };
   const lines: Array<Record<string, unknown>> = [];
@@ -107,9 +112,9 @@ describe('assistance qualification corpus run', () => {
 
     const { byKind, complete } = await run(binding());
 
-    expect(complete).toMatchObject({ pass: 20, limited: 0, fail: 0 });
+    expect(complete).toMatchObject({ pass: 23, limited: 0, fail: 0 });
     expect(byKind('device')[0]).toMatchObject({
-      corpusVersion: 3,
+      corpusVersion: 4,
       hardware: 'Mac16,10',
       availability: 'available',
       translationLanguages: ['en', 'de'],
@@ -144,7 +149,7 @@ describe('assistance qualification corpus run', () => {
       result: 'fail',
     });
     expect(byKind('summary-cancel')[0]).toMatchObject({ result: 'pass' });
-    expect(complete).toMatchObject({ pass: 19, fail: 1 });
+    expect(complete).toMatchObject({ pass: 22, fail: 1 });
   });
 
   it('an older summary completed before replacement does not qualify in-flight rejection', async () => {
@@ -188,6 +193,64 @@ describe('assistance qualification corpus run', () => {
     expect(complete).toMatchObject({ fail: 0 });
   });
 
+  it('a ready answer in another language fails its case', async () => {
+    expect.hasAssertions();
+
+    const native = binding();
+    native.assistance.summarize = () =>
+      Promise.resolve('The committee meets on Thursday.');
+    const { byKind } = await run(native);
+
+    expect(byKind('summary')).toContainEqual(
+      expect.objectContaining({
+        id: 'committee-meeting',
+        state: 'ready',
+        languageKept: false,
+        result: 'fail',
+      }),
+    );
+    expect(byKind('summary')).toContainEqual(
+      expect.objectContaining({ id: 'lease-deadline', result: 'pass' }),
+    );
+  });
+
+  it('a rewrite that adds a subject line or greeting fails its case', async () => {
+    expect.hasAssertions();
+
+    const native = binding();
+    native.assistance.rewrite = () =>
+      Promise.resolve('Subject: Test\n\nDear team, please expand on this.');
+    const { byKind } = await run(native);
+
+    expect(byKind('rewrite')).toContainEqual(
+      expect.objectContaining({
+        id: 'instruction-like-note',
+        languageKept: true,
+        added: true,
+        result: 'fail',
+      }),
+    );
+  });
+
+  it('a model that cannot write a case language is a limitation', async () => {
+    expect.hasAssertions();
+
+    const native = binding();
+    native.assistance.rewrite = () =>
+      Promise.reject(rejection('unsupported-language'));
+    const { byKind, complete } = await run(native);
+
+    expect(byKind('rewrite')).toContainEqual(
+      expect.objectContaining({
+        id: 'short-czech-note',
+        state: 'unavailable',
+        reason: 'unsupported-language',
+        result: 'limited',
+      }),
+    );
+    expect(complete).toMatchObject({ pass: 17, limited: 6, fail: 0 });
+  });
+
   it('unexpected native cancellation rejections fail instead of qualifying as capability limits', async () => {
     expect.hasAssertions();
 
@@ -199,7 +262,7 @@ describe('assistance qualification corpus run', () => {
       code: 'unavailable',
       result: 'fail',
     });
-    expect(complete).toMatchObject({ pass: 19, limited: 0, fail: 1 });
+    expect(complete).toMatchObject({ pass: 22, limited: 0, fail: 1 });
   });
 
   it('recorded device metadata excludes native filesystem paths and local account names', async () => {

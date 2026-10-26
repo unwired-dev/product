@@ -31,7 +31,12 @@ system language model. There is no cloud or product-backend model fallback.
   why: the device does not support Apple Intelligence, Apple Intelligence is turned
   off, the model is still getting ready, or the device language is not supported.
   A refusal and other failures have their own messages. **Try again** is offered
-  except on an ineligible device or after a refusal.
+  except on an ineligible device, after a refusal, or for a message in a language
+  the model cannot write.
+- A summary is written in the language of the message. When the model cannot
+  write that language, the reader says summaries are not available in the
+  message's language rather than summarizing it in another
+  ([#1164](https://github.com/unwired-dev/product/issues/1164)).
 
 ## Mail Assistance Enablement
 
@@ -89,7 +94,7 @@ module offers:
 | Method                      | Result                                                                                                                                 |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `availability()`            | `available`, `device-ineligible`, `assistance-disabled`, `model-not-ready` or `unsupported-locale`                                     |
-| `summarize(request, input)` | The summary text, or a rejection coded `refused`, `cancelled`, `unsupported-locale`, `model-not-ready` or `unavailable`                |
+| `summarize(request, input)` | The summary text, or a rejection coded `refused`, `cancelled`, `unsupported-language`, `model-not-ready` or `unavailable`              |
 | `cancel(request)`           | Cancels that request's generation, including a [Draft rewrite or reply](draft-assistance.md), or [translation](message-translation.md) |
 
 The shared core supplies `input` as a typed JSON request with `operation: summary`
@@ -102,6 +107,16 @@ questions and stated dates or deadlines. Generation uses temperature 0 and at mo
 300 response tokens. The prompt asks for plain prose without JSON or field names:
 without that, the model answered with the request's JSON fields wrapped around the
 summary ([#971](https://github.com/unwired-dev/product/issues/971)).
+
+Asked only to write in the language of the email, the model still answered Czech
+and German messages in English, so the binding names the language. It identifies
+the language of the subject and body with `NLLanguageRecognizer`, ignoring a guess
+below 50% confidence such as a single word. A language
+`SystemLanguageModel.default` does not support is rejected as
+`unsupported-language` before generating; otherwise the instructions end with
+"Respond in <language>." A result the recognizer confidently places in another
+language is also rejected as `unsupported-language`, never shown. Text whose
+language cannot be identified is summarized without a language instruction.
 `@private-email/mail-core/assistance` checks availability
 before each request, decodes every native result with Schema (summaries up to
 4,000 characters that are not a serialized JSON object) and fails closed on anything else. Failure logs carry only the
@@ -151,9 +166,12 @@ writes.
 
 [Assistance qualification](assistance-qualification.md) has exercised the real
 binding on the nominated Mac mini M4, iPhone 17 Pro Max and iPad Pro M4 with a
-versioned synthetic corpus, including long input. Czech and German messages
-produced English summaries on all three, tracked in
-[#1164](https://github.com/unwired-dev/product/issues/1164).
+versioned synthetic corpus, including long input. Before
+[#1164](https://github.com/unwired-dev/product/issues/1164), Czech and German
+messages produced English summaries on all three. Corpus version 4 fails any
+ready summary in another language than its message; physical iPhone and iPad runs
+of it remain the owner session in
+[#625](https://github.com/unwired-dev/product/issues/625).
 The [owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
 accept the iPhone/iPad manual checks and waive the Mac manual checks. On the
 tested iOS 27.2 and iPadOS 27.0.1 builds, the model still reported `available`

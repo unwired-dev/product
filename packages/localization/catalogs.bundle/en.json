@@ -313,6 +313,7 @@
     "checkFailed": "Apple Intelligence availability could not be checked. Try again.",
     "device-ineligible": "This device does not support Apple Intelligence.",
     "assistance-disabled": "Turn on Apple Intelligence in system settings.",
+    "unsupported-language": "Apple Intelligence is not available in this language yet.",
     "unsupported-locale": "Apple Intelligence is not available in this device’s language yet."
   },
   "privateSync": {
@@ -475,6 +476,7 @@
     "device-ineligible": "Summaries need a device that supports Apple Intelligence.",
     "assistance-disabled": "Turn on Apple Intelligence to summarize messages.",
     "model-not-ready": "Apple Intelligence is still getting ready. Try again later.",
+    "unsupported-language": "Summaries are not available in this message’s language yet.",
     "unsupported-locale": "Summaries are not available in this device’s language yet.",
     "refused": "This message cannot be summarized.",
     "failed": "The summary could not be created.",
@@ -548,6 +550,7 @@
     "device-ineligible": "Writing help needs a device that supports Apple Intelligence.",
     "assistance-disabled": "Turn on Apple Intelligence to get writing help.",
     "model-not-ready": "Apple Intelligence is still getting ready. Try again later.",
+    "unsupported-language": "Writing help is not available in this language yet.",
     "unsupported-locale": "Writing help is not available in this device’s language yet.",
     "refused": "This request cannot be answered. Your text is unchanged.",
     "failed": "The suggestion could not be created. Your text is unchanged.",
