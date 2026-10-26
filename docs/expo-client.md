@@ -280,7 +280,7 @@ build.
 
 ## Interface language
 
-The Inbox, the welcome page and Settings' **Language** offer System default and a saved English
-override. See
+The Sign In page and Settings' **Language** offer a Language menu picker with System Default and a
+saved English override. See
 [interface translations](localization.md) for catalogs, adding languages, native
 menu behavior, and language verification.

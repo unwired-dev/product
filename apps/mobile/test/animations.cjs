@@ -75,7 +75,7 @@ jest.mock('react-native-screens', () => {
 // accessibility escape dismisses it; a sheet finishes dismissing at once.
 jest.mock('@expo/ui/swift-ui', () => {
   const React = require('react');
-  const { View } = require('react-native');
+  const { Pressable, Text, View } = require('react-native');
   function Passthrough({ children }) {
     return React.createElement(React.Fragment, null, children);
   }
@@ -115,6 +115,39 @@ jest.mock('@expo/ui/swift-ui', () => {
         )
       : null;
   }
+  // A menu picker lists its options as radios; each option's tag modifier is its value.
+  function Picker({
+    label,
+    selection,
+    onSelectionChange,
+    modifiers,
+    children,
+  }) {
+    const disabled = modifiers?.some(
+      (modifier) => modifier.$type === 'disabled' && modifier.disabled,
+    );
+    return React.createElement(
+      View,
+      { accessibilityLabel: label, accessibilityRole: 'radiogroup' },
+      React.Children.map(children, (option) => {
+        const value = option.props.modifiers.find(
+          (modifier) => modifier.$type === 'tag',
+        ).tag;
+        return React.createElement(
+          Pressable,
+          {
+            accessibilityRole: 'radio',
+            accessibilityState: { checked: value === selection, disabled },
+            disabled,
+            onPress: () => {
+              onSelectionChange?.(value);
+            },
+          },
+          React.createElement(Text, null, option.props.children),
+        );
+      }),
+    );
+  }
   // A popover keeps its trigger in place and presents its content beside it.
   function Popover({ isPresented, onIsPresentedChange, children }) {
     return React.Children.map(children, (child) => {
@@ -141,10 +174,16 @@ jest.mock('@expo/ui/swift-ui', () => {
     Popover,
     Group: Passthrough,
     Host: Passthrough,
+    Picker,
     RNHostView: Passthrough,
+    Text: Passthrough,
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  disabled: (disabled) => ({ $type: 'disabled', disabled }),
+  pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
+  tag: (tag) => ({ $type: 'tag', tag }),
+  tint: (tint) => ({ $type: 'tint', tint }),
   presentationBackground: (style) => ({
     $type: 'presentationBackground',
     style,
