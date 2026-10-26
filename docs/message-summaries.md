@@ -114,7 +114,7 @@ the language of the subject and body with `NLLanguageRecognizer`, ignoring a gue
 below 50% confidence such as a single word. A language
 `SystemLanguageModel.default` does not support is rejected as
 `unsupported-language` before generating; otherwise the instructions end with
-"Respond in <language>." A result the recognizer confidently places in another
+`Respond in <language>.` A result the recognizer confidently places in another
 language is also rejected as `unsupported-language`, never shown. Text whose
 language cannot be identified is summarized without a language instruction.
 `@private-email/mail-core/assistance` checks availability
@@ -168,8 +168,9 @@ writes.
 binding on the nominated Mac mini M4, iPhone 17 Pro Max and iPad Pro M4 with a
 versioned synthetic corpus, including long input. Before
 [#1164](https://github.com/unwired-dev/product/issues/1164), Czech and German
-messages produced English summaries on all three. Corpus version 4 fails any
-ready summary in another language than its message; physical iPhone and iPad runs
+messages produced English summaries on all three. Corpus version 4 adds a
+[heuristic language check](assistance-qualification.md#the-qualification-build);
+every recorded answer still needs human review. Physical iPhone and iPad runs
 of it remain the owner session in
 [#625](https://github.com/unwired-dev/product/issues/625).
 The [owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)

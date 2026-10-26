@@ -138,8 +138,9 @@ writes.
 [Assistance qualification](assistance-qualification.md) has exercised the real
 binding, including long input, on the nominated Mac mini M4, iPhone 17 Pro Max
 and iPad Pro M4 with a versioned synthetic corpus. Generated text still needs
-human review. Corpus version 4 fails a ready rewrite in another language or with
-an added subject line, greeting or sign-off
+human review. Corpus version 4 adds
+[heuristic checks](assistance-qualification.md#the-qualification-build) for
+language switches and added letter framing
 ([#1164](https://github.com/unwired-dev/product/issues/1164)); physical iPhone and
 iPad runs of it remain the owner session in
 [#625](https://github.com/unwired-dev/product/issues/625).

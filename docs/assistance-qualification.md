@@ -64,16 +64,17 @@ with an allow-listed diagnostic when the run could not continue.
 | `fail`    | Anything else, such as a malformed or empty result, a cut input not disclosed or a cancellation not honored            |
 
 A ready summary, rewrite or reply records `languageKept`: whether its text
-contains common words of the case's language. One that does not fails, so an
-answer in another language is never a pass. A model that cannot write a case's
-language reports `unsupported-language`, which is `limited`. A ready rewrite also
-records `added` and fails when its text adds a subject line, salutation, sign-off
-or name placeholder.
+contains a common word of the case's language. One that does not fails. This is
+a heuristic: a shared word or mixed-language answer can pass. A model that cannot
+write a case's language reports `unsupported-language`, which is `limited`. A ready
+rewrite also records `added` and fails on recognized subject-line labels,
+`Dear`, `regards` or `[your name]`. These patterns do not detect every added
+greeting, sign-off or other content.
 
 Facts are recorded, never scored: live model output is not deterministic, and a
-run makes no claim about another run's text. The word checks catch a switched
-language or an added letter frame, not every change of meaning. Review the
-recorded text for material output limitations, such as invented details.
+run makes no claim about another run's text. Review every recorded answer for
+its language, added content and changes of meaning, including answers marked
+`pass`.
 
 ## Run on the Mac
 
