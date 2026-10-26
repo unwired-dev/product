@@ -98,7 +98,10 @@ check; qualification records retain the detailed evidence and unavailable status
 The reviewer owns architecture extraction and edits, updates links to moved
 sections, and preserves every requirement and decision. Hand back actionable
 outcomes and verification results without copying architecture documents into
-the implementer's context. File separation supports this reading policy; it does
+the implementer's context. When a task's requirements appear only in reviewer-only
+sources, delegate their extraction before implementing: the reviewer records them
+in the operational owner, or, when edits are out of scope, returns acceptance-level
+statements and source paths without document content. File separation supports this reading policy; it does
 not itself restrict filesystem or Git-history access.
 
 ## Simplicity skills
@@ -262,7 +265,9 @@ Before further implementation edits or review after either limit is reached:
    apply the resolved rules. An incremental range narrows changed-code coverage, not the
    context needed to assess it: inspect affected callers, invariants and
    collaborating modules, and verify prior findings against the new result.
-   A full pass covers the entire task.
+   A full pass covers the entire task. When the change adds a component, flow
+   or guard that parallels an existing one, compare their state transitions,
+   copy and failure paths, and check every path the guard should cover.
    Use the installed `code-review` guidance where applicable, with the handoff's
    actual comparison and specification. For OCR-excluded task-owned files, apply
    the same repository checklist through the appropriate artifact review.

@@ -35,7 +35,10 @@ work and the stages left undone. After all required
 
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
-threads. Implementation edits made while babysitting follow
+threads. Each pass reads the full feedback state from GitHub (review comments,
+reviews, top-level comments and unresolved review threads), not only what the
+wakeup names: the T3 Code watcher skips comments posted from the agent's own
+GitHub account, which is often the user's. Implementation edits made while babysitting follow
 [review depth and invalidation](implementation-review.md#review-depth) before
 they are pushed. OCR reuse also follows the
 [incremental checkpoint procedure](implementation-review.md#incremental-ocr-checkpoints). Each
