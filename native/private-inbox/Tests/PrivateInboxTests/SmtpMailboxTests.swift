@@ -135,6 +135,15 @@ extension PrivateInboxTests {
     }
     proofAvailable = true
     revoked = true
+    // A purge that fails is reported as itself, and the account stays for the next attempt.
+    store.stopErrorReporting = { throw PrivateInboxError.locked }
+    await #expect(throws: PrivateInboxError.locked) {
+      _ = try await store.imapFileSent(
+        segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
+        address: "alex@example.invalid", generation: generation)
+    }
+    #expect(try store.load() != nil)
+    store.stopErrorReporting = {}
     await #expect(throws: RegistrationError.revoked) {
       _ = try await store.imapFileSent(
         segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
