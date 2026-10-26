@@ -16,8 +16,7 @@ import {
   View,
 } from 'react-native';
 
-import { ImapMessageBody } from '../src/imap-message-body.tsx';
-import { GmailMessageBody, ReaderScrollView } from '../src/message-body.tsx';
+import { MessageBody, ReaderScrollView } from '../src/message-body.tsx';
 import {
   RemoteContentContext,
   RemoteContentSettings,
@@ -88,7 +87,7 @@ async function openReader(
   const app = await render(
     <RemoteContentContext value={settings}>
       <ReaderScrollView>
-        <GmailMessageBody
+        <MessageBody
           inbox={inbox}
           id={id}
           connection="connection-a"
@@ -235,7 +234,7 @@ describe('remote message content in the reader', () => {
     const reader = (inbox: typeof first.inbox) => (
       <RemoteContentContext value={settings}>
         <ReaderScrollView>
-          <GmailMessageBody
+          <MessageBody
             inbox={inbox}
             id={first.id}
             connection="connection-a"
@@ -482,7 +481,7 @@ describe('remote message content in IMAP mail', () => {
     const reader = await render(
       <RemoteContentContext value={settings}>
         <ReaderScrollView>
-          <ImapMessageBody
+          <MessageBody
             inbox={inbox}
             id={id}
             connection="imap-a"

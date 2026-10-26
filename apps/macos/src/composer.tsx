@@ -1779,11 +1779,9 @@ function Editor({
     selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
   };
-  const close = useCallback(async () => {
-    if (discarded.current || lifetime.current.finishing > 0) {
-      return false;
-    }
-    // Entries still being typed become recipients; invalid text keeps the Draft open.
+  // Entries still being typed become recipients as one undoable correction; invalid text stays
+  // in its field. Returns the finished Draft.
+  const finishEntries = useCallback(() => {
     const latest = authored.current;
     let finished = latest;
     for (const field of ['to', 'cc', 'bcc'] as const) {
@@ -1797,6 +1795,14 @@ function Editor({
       commitHistory((current) => keepIdentity(record(current, finished)));
       update(finished);
     }
+    return finished;
+  }, [commitHistory, keepIdentity, update]);
+  const close = useCallback(async () => {
+    if (discarded.current || lifetime.current.finishing > 0) {
+      return false;
+    }
+    // Invalid text keeps the Draft open.
+    const finished = finishEntries();
     if (finished.entries !== undefined) {
       setClosing('recipients');
       return false;
@@ -1827,15 +1833,7 @@ function Editor({
     }
     setClosing('blocked');
     return false;
-  }, [
-    commitHistory,
-    finishOperation,
-    keepIdentity,
-    onClose,
-    onClosedAfterRemoval,
-    store,
-    update,
-  ]);
+  }, [finishEntries, finishOperation, onClose, onClosedAfterRemoval, store]);
   const navigation = useComposerNavigation();
   useCloseGuard(navigation.leave);
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
@@ -1935,20 +1933,7 @@ function Editor({
     if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
-    const latest = authored.current;
-    let finished = latest;
-    for (const field of ['to', 'cc', 'bcc'] as const) {
-      finished = addRecipients(finished, {
-        field,
-        text: entryOf(finished, field),
-        all: true,
-      }).draft;
-    }
-    if (finished !== latest) {
-      commitHistory((current) => keepIdentity(record(current, finished)));
-      update(finished);
-    }
-    if (finished.entries !== undefined) {
+    if (finishEntries().entries !== undefined) {
       setClosing(undefined);
       setRefused('entries');
       return;

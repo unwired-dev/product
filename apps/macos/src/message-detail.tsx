@@ -29,7 +29,6 @@ import type { InboxStore } from './private-storage.ts';
 import { Action } from './action.tsx';
 import { RegisterCommands, useMessageCommands } from './command-palette.tsx';
 import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
-import { ImapMessageBody } from './imap-message-body.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -44,7 +43,7 @@ import {
 } from './mailbox.tsx';
 import {
   AttachContext,
-  GmailMessageBody,
+  MessageBody,
   ReaderScrollView,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
@@ -478,19 +477,9 @@ function ReaderBody({
   readonly connection: string | undefined;
 }) {
   const colors = usePalette();
-  if ('openFolder' in inbox) {
+  if ('openFolder' in inbox || 'responseSource' in inbox) {
     return (
-      <ImapMessageBody
-        id={message.id}
-        inbox={inbox}
-        subject={message.subject}
-        connection={connection}
-      />
-    );
-  }
-  if ('responseSource' in inbox) {
-    return (
-      <GmailMessageBody
+      <MessageBody
         id={message.id}
         inbox={inbox}
         subject={message.subject}

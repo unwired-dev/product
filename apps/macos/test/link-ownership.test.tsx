@@ -7,11 +7,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
 import { Linking, View } from 'react-native';
 
-import { ImapMessageBody } from '../src/imap-message-body.tsx';
-import {
-  GmailMessageBody,
-  LinkConfirmationProvider,
-} from '../src/message-body.tsx';
+import { MessageBody, LinkConfirmationProvider } from '../src/message-body.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
 
 // Capture the application callback through the same composite-fiber boundary as fireEvent.
@@ -42,7 +38,7 @@ const view = (store: ReturnType<typeof createGmailInbox>, id: string) => (
   <LinkConfirmationProvider
     inbox={store}
     id={id}>
-    <GmailMessageBody
+    <MessageBody
       inbox={store}
       id={id}
     />
@@ -71,18 +67,12 @@ const linkMailbox = (
   };
 };
 
-const reader = (store: ReturnType<typeof linkMailbox>['store'], id: string) =>
-  'openFolder' in store ? (
-    <ImapMessageBody
-      inbox={store}
-      id={id}
-    />
-  ) : (
-    <GmailMessageBody
-      inbox={store}
-      id={id}
-    />
-  );
+const reader = (store: ReturnType<typeof linkMailbox>['store'], id: string) => (
+  <MessageBody
+    inbox={store}
+    id={id}
+  />
+);
 
 // These are rendered host/store tests. Only WebKit and the native clipboard/opener are substituted.
 describe('queued message link privacy', () => {

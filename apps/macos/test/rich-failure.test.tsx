@@ -2,7 +2,7 @@ import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { act, render, screen } from '@testing-library/react-native';
 
-import { GmailMessageBody } from '../src/message-body.tsx';
+import { MessageBody } from '../src/message-body.tsx';
 
 const png = [
   ...Buffer.from(
@@ -40,7 +40,7 @@ describe('rich message failure', () => {
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
     const app = await render(
-      <GmailMessageBody
+      <MessageBody
         inbox={inbox}
         id={id}
       />,
