@@ -34,6 +34,19 @@ matches() {
   return 1
 }
 
+wait_for_exit() {
+  local delay=$1 row attempt
+  shift
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    alive=()
+    for row in "$@"; do
+      if matches "$row"; then alive+=("$row"); fi
+    done
+    ((${#alive[@]})) || break
+    sleep "$delay"
+  done
+}
+
 collect() {
   local entry=$1 pid child row parent result children
   pid=${entry%%$'\t'*}
@@ -89,27 +102,13 @@ case "${1-} ${#}" in
       row=${entries[i]}
       if matches "$row"; then kill -TERM "${row%%$'\t'*}" 2>/dev/null || status=1; fi
     done
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      alive=()
-      for row in ${entries[@]+"${entries[@]}"}; do
-        if matches "$row"; then alive+=("$row"); fi
-      done
-      ((${#alive[@]})) || break
-      sleep 0.5
-    done
+    wait_for_exit 0.5 ${entries[@]+"${entries[@]}"}
     for row in ${alive[@]+"${alive[@]}"}; do
       if matches "$row"; then kill -KILL "${row%%$'\t'*}" 2>/dev/null || status=1; fi
     done
     # A successful kill request is not yet evidence that a stuck process exited.
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      remaining=()
-      for row in ${alive[@]+"${alive[@]}"}; do
-        if matches "$row"; then remaining+=("$row"); fi
-      done
-      ((${#remaining[@]})) || break
-      sleep 0.1
-    done
-    if ((${#remaining[@]})); then
+    wait_for_exit 0.1 ${alive[@]+"${alive[@]}"}
+    if ((${#alive[@]})); then
       printf 'owned-process: processes still running; retained ledger: %s\n' "$ledger" >&2
       status=1
     fi

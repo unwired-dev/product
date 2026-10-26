@@ -18,10 +18,9 @@ work and the stages left undone. After all required
 
 1. Commits the reviewed changes (preserving unrelated work) on the task branch
    created or selected before implementation, and pushes the branch.
-2. Updates the task's open same-repository PR when one exists; otherwise opens
-   one that references its issue. Target `main`, or the immediate parent branch
-   for a stack. After that parent merges, retarget `main` and synchronize it
-   before automatic merge. Use the `pr`
+2. Updates the task's open same-repository PR or opens one referencing its issue.
+   Target `main`, or a stack's immediate parent branch. After the parent merges,
+   retarget and synchronize with `main` before automatic merge. Use the `pr`
    skill for the body and record any decision-panel outcomes. The PR is
    ready for review, with a draft promoted and a `[WIP]` title marker dropped,
    unless the request forbids merging: then it is a draft (convert a reused

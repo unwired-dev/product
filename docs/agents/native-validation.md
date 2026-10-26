@@ -9,16 +9,14 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
 
 ## Own the resources used by the check
 
-- Record each long-running process you start with
-  `scripts/owned-process record <ledger> <pid>` and stop them with
-  `scripts/owned-process stop <ledger>`. Give each task its own ledger with
-  one writer. Cleanup records live descendants before signaling them and
-  rechecks each process's start time, command and working directory before
-  every signal, including escalation to KILL. Failed verification or signaling
-  retains the ledger for recovery. Record a parent while it is still running;
-  descendants orphaned before cleanup discovers them cannot be identified
-  safely from the parent PID alone. Never stop builds, Simulators or test runners by name
-  or relative path: the shared host runs other sessions' work too.
+- Give each task a single-writer ledger. Record long-running processes with
+  `scripts/owned-process record <ledger> <pid>` while the parent is running;
+  stop them with `scripts/owned-process stop <ledger>`. Cleanup records live
+  descendants before signaling and rechecks start time, command and working
+  directory before every signal, including KILL. Verification or signaling
+  failures retain the ledger for recovery. Descendants orphaned before discovery
+  cannot be safely identified from the parent PID alone. Never stop builds,
+  Simulators or test runners by name or relative path on this shared host.
 - Both native runners record host load (`host-load.txt`: load averages,
   `xcodebuild` processes, booted Simulators) before and after each journey.
   Before attributing a timing or idle-wait failure to the host, compare it with
