@@ -2,9 +2,8 @@
 
 The Expo iOS/iPadOS and React Native Mac clients ship English. The **Language**
 control offers the system default and **English**, so the language can be chosen before signing
-in. On iPhone and iPad it offers **System default** below the Inbox, at the end of the Sign In
-and setup pages and in Settings' **Language**. On the Mac it is a pop-up offering **System
-Default** in Settings' **Language** and at the end of the sign-in page. The system default
+in. It is a pop-up offering **System Default** in Settings' **Language** and on the sign-in
+page: a SwiftUI menu picker on iPhone and iPad, an AppKit pop-up on the Mac. The system default
 matches the device's preferred languages against the shipped catalogs, including
 regional variants, and falls back to English. An explicit selection overrides the
 device language, persists across launches, and applies to every open Mac window.
@@ -91,7 +90,8 @@ cached lookups. It removes its preferences domain and temporary bundle.
 French exists only in tests; it is not shipped.
 
 Follow [Expo native validation](expo-client.md#validate) for the packaged iPhone
-and iPad journey, which also checks language selection across relaunch. The
+and iPad journey, whose Apple registration scenario also checks the Sign In page's Language
+menu across relaunch. The
 focused Mac language journey chooses from the sign-in page's Language pop-up in two
 windows. It checks that repeated preference changes keep one Window menu entry per
 open window, remove closed windows and survive relaunch. Build with
