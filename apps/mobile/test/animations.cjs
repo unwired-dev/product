@@ -115,6 +115,20 @@ jest.mock('@expo/ui/swift-ui', () => {
         )
       : null;
   }
+  // An alert shows its title, message and actions while presented.
+  function Alert({ testID, title, isPresented, children }) {
+    return isPresented
+      ? React.createElement(
+          View,
+          { testID, accessibilityViewIsModal: true },
+          React.createElement(Text, { accessibilityRole: 'header' }, title),
+          children,
+        )
+      : null;
+  }
+  Alert.Trigger = Passthrough;
+  Alert.Actions = Passthrough;
+  Alert.Message = Passthrough;
   // Form controls render their text, and a button its pressable label, for component journeys.
   function Section({ title, header, footer, children }) {
     return React.createElement(
@@ -203,6 +217,7 @@ jest.mock('@expo/ui/swift-ui', () => {
   Popover.Trigger = Passthrough;
   Popover.Content = Content;
   return {
+    Alert,
     BottomSheet,
     Button,
     Form: Passthrough,
@@ -215,6 +230,7 @@ jest.mock('@expo/ui/swift-ui', () => {
     ProgressView: () => null,
     RNHostView: Passthrough,
     Section,
+    Spacer: () => null,
     Text,
     VStack: Passthrough,
   };
@@ -222,6 +238,7 @@ jest.mock('@expo/ui/swift-ui', () => {
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
   foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
+  frame: (params) => ({ $type: 'frame', ...params }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
   monospacedDigit: () => ({ $type: 'monospacedDigit' }),
   pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
