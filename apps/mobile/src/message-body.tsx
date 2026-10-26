@@ -340,9 +340,12 @@ function MessageLinks({
         onPress={() => {
           onChoose(link);
         }}
-        style={[
+        style={({ pressed }) => [
           styles.linkControl,
           {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : 'transparent',
             borderColor:
               focused === index ? colors.accentInk : colors.surfaceContent,
           },

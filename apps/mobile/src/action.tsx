@@ -19,7 +19,8 @@ const styles = StyleSheet.create({
 });
 
 // A text button: pressed fills, keyboard focus rings, disabled greys. Composer actions are padded
-// controls at the body size of its fields.
+// controls at the body size of its fields; list actions, such as online search, keep the reader's
+// alignment at the body size of the list's notices.
 export function Action({
   label,
   accessibilityLabel,
@@ -35,7 +36,7 @@ export function Action({
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly expanded?: boolean;
-  readonly variant?: 'reader' | 'composer';
+  readonly variant?: 'reader' | 'composer' | 'list';
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
@@ -62,7 +63,7 @@ export function Action({
         <View
           style={[
             styles.capsule,
-            variant === 'reader' ? styles.outset : null,
+            variant === 'composer' ? null : styles.outset,
             {
               backgroundColor: pressed
                 ? colors.accentSelectionSubtle
