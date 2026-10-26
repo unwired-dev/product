@@ -20,12 +20,17 @@ const candidate = (run: string, mode: 'system' | 'custom') => ({
   precisions: ['fp16', 'int8'] as const,
 });
 
+const systemSmall = 'deberta-xsmall-body256';
+const systemBase = 'deberta-mdeberta-body512';
+const customSmall = 'xsmall-zs-adapted-body256-description';
+const customBase = 'mdeberta-nli-adapted-body256-description';
+
 const catalog = (autorunMode: CatalogValue['autorun']): CatalogValue => ({
   candidates: [
-    candidate('deberta-xsmall-body256', 'system'),
-    candidate('deberta-mdeberta-body512', 'system'),
-    candidate('xsmall-zs-adapted-body256-description', 'custom'),
-    candidate('mdeberta-nli-adapted-body256-description', 'custom'),
+    candidate(systemSmall, 'system'),
+    candidate(systemBase, 'system'),
+    candidate(customSmall, 'custom'),
+    candidate(customBase, 'custom'),
   ],
   messages: [
     {
@@ -80,6 +85,9 @@ const selection = {
   count: 6,
 } as const;
 
+const categorySelection = (count: number | readonly string[]) =>
+  typeof count === 'number' ? { categoryCount: count } : { categories: count };
+
 describe('categorization spike session', () => {
   it('the matrix run sends every request the evidence check expects, in order', async () => {
     expect.hasAssertions();
@@ -93,36 +101,78 @@ describe('categorization spike session', () => {
     autorun(catalog('matrix'), session, vi.fn<() => void>());
 
     await vi.waitFor(() => {
-      expect(sent).toHaveLength(43);
+      expect([sent.length, session.getSnapshot().busy]).toStrictEqual([
+        43,
+        undefined,
+      ]);
     });
-    const custom = sent.filter(
-      (each) => each.body.run === 'xsmall-zs-adapted-body256-description',
+    const golden = [
+      'online-purchases',
+      'flights-booked',
+      'statements',
+      'kids-school',
+      'event-invitations',
+      'family-friends',
+    ];
+    // Pin the evidence contract independently of the scheduler's loops and exported constants.
+    const expected = [
+      ['golden', systemSmall, 'fp16', 'all', 0],
+      ['classify', systemSmall, 'fp16', 'all', 0],
+      ['benchmark', systemSmall, 'fp16', 'all', 0],
+      ['golden', systemSmall, 'int8', 'all', 0],
+      ['classify', systemSmall, 'int8', 'all', 0],
+      ['benchmark', systemSmall, 'int8', 'all', 0],
+      ['plan', systemSmall, 'fp16', 'all', 0],
+      ['plan', systemSmall, 'fp16', 'cpuAndNeuralEngine', 0],
+      ['golden', systemBase, 'fp16', 'all', 0],
+      ['classify', systemBase, 'fp16', 'all', 0],
+      ['benchmark', systemBase, 'fp16', 'all', 0],
+      ['golden', systemBase, 'int8', 'all', 0],
+      ['classify', systemBase, 'int8', 'all', 0],
+      ['benchmark', systemBase, 'int8', 'all', 0],
+      ['plan', systemBase, 'fp16', 'all', 0],
+      ['plan', systemBase, 'fp16', 'cpuAndNeuralEngine', 0],
+      ['golden', customSmall, 'fp16', 'all', golden],
+      ['classify', customSmall, 'fp16', 'all', golden],
+      ['benchmark', customSmall, 'fp16', 'all', 5],
+      ['benchmark', customSmall, 'fp16', 'all', 20],
+      ['benchmark', customSmall, 'fp16', 'all', 50],
+      ['golden', customSmall, 'int8', 'all', golden],
+      ['classify', customSmall, 'int8', 'all', golden],
+      ['benchmark', customSmall, 'int8', 'all', 5],
+      ['benchmark', customSmall, 'int8', 'all', 20],
+      ['benchmark', customSmall, 'int8', 'all', 50],
+      ['plan', customSmall, 'fp16', 'all', golden],
+      ['plan', customSmall, 'fp16', 'cpuAndNeuralEngine', golden],
+      ['golden', customBase, 'fp16', 'all', golden],
+      ['classify', customBase, 'fp16', 'all', golden],
+      ['benchmark', customBase, 'fp16', 'all', 5],
+      ['benchmark', customBase, 'fp16', 'all', 20],
+      ['benchmark', customBase, 'fp16', 'all', 50],
+      ['golden', customBase, 'int8', 'all', golden],
+      ['classify', customBase, 'int8', 'all', golden],
+      ['benchmark', customBase, 'int8', 'all', 5],
+      ['benchmark', customBase, 'int8', 'all', 20],
+      ['benchmark', customBase, 'int8', 'all', 50],
+      ['plan', customBase, 'fp16', 'all', golden],
+      ['plan', customBase, 'fp16', 'cpuAndNeuralEngine', golden],
+      ['benchmark', systemSmall, 'fp16', 'cpuOnly', 0],
+      ['benchmark', systemSmall, 'fp16', 'cpuAndGPU', 0],
+      ['benchmark', systemSmall, 'fp16', 'cpuAndNeuralEngine', 0],
+    ] as const;
+    expect(sent).toStrictEqual(
+      expected.map(([kind, run, precision, units, categories]) => ({
+        kind,
+        body: {
+          run,
+          precision,
+          units,
+          message: 'synthetic:en-1',
+          rounds: 3,
+          ...categorySelection(categories),
+        },
+      })),
     );
-    expect(custom.map((each) => each.kind)).toStrictEqual([
-      'golden',
-      'classify',
-      'benchmark',
-      'benchmark',
-      'benchmark',
-      'golden',
-      'classify',
-      'benchmark',
-      'benchmark',
-      'benchmark',
-      'plan',
-      'plan',
-    ]);
-    expect(
-      custom
-        .filter((each) => each.kind === 'benchmark')
-        .map((each) => each.body.categoryCount),
-    ).toStrictEqual([5, 20, 50, 5, 20, 50]);
-    expect(sent[0]?.body).toMatchObject({ categoryCount: 0, rounds: 3 });
-    expect(sent.slice(-3).map((each) => each.body.units)).toStrictEqual([
-      'cpuOnly',
-      'cpuAndGPU',
-      'cpuAndNeuralEngine',
-    ]);
     expect(session.getSnapshot().result?.passMs?.p50).toBe(13.4);
   });
 
