@@ -95,9 +95,19 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   keeps its saved messages and shows **… could not be read from Gmail** in the list
   and on its sidebar row until a later synchronization reads it. A label removed in
   Gmail leaves the sidebar with its saved view, and a window that showed it returns
-  to the Inbox. The unified Sent, Archive, All Mail, Spam and Trash mailboxes and
-  complete history remain with [#1006](https://github.com/unwired-dev/product/issues/1006)
-  and [#1007](https://github.com/unwired-dev/product/issues/1007).
+  to the Inbox. Complete history remains with
+  [#1007](https://github.com/unwired-dev/product/issues/1007).
+- **Unified mailboxes.** Under **Favorites**, after **All inboxes**, the sidebar offers
+  **Sent**, **Archive**, **All Mail**, **Spam** and **Trash** across the window's
+  Profile ([#1006](https://github.com/unwired-dev/product/issues/1006)). Each lists the
+  matching mailbox of every connection newest first, ties by mailbox order then
+  message ID, and each row names its mailbox and offers that connection's own actions.
+  Gmail contributes its system labels; its Archive is mail outside Inbox, Sent and
+  Drafts. Microsoft contributes its well-known folders and IMAP the folders its
+  server marks with a special-use role; All Mail is every message outside Spam and
+  Trash, leaving out an IMAP server whose `\All` folder may hold both. A connection
+  without the role is never guessed from folder names: the list shows **… isn't
+  included** for it, and its folders stay under it in the sidebar.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
@@ -179,11 +189,13 @@ leading edge of the floating bar on iPhone and iPad. Filtering starts off at eac
 launch. Turning it on keeps unread mail; the bar then shows **Filtered by** with the
 filter's one criterion, or how many apply. On iPhone the field gives way to a
 **Search** button beside New Message; a regular-width iPad window keeps its field.
-Pressing the summary opens **Filters**: a full-height sheet on iPhone and in a
-compact-width iPad window, and in a regular-width iPad window a 420pt popover that
-fades in above the Filter control and closes without an exit animation when tapped
-outside. Within regular width it stays anchored while the window changes size and
-retains the edited choices:
+Pressing the summary opens **Filters**: the system sheet (`BottomSheet` from
+`@expo/ui`) on iPhone and in a compact-width iPad window, and in a regular-width iPad
+window a 420pt system popover (`Popover` from `@expo/ui`) on the Filter control. iOS
+presents, places and dismisses both. Swipe down to dismiss the sheet or tap outside
+to dismiss the popover. The popover stays on the control while the window changes
+size; narrowing the window to compact width closes it without applying. Both keep
+the edited choices until they close:
 
 - **Include Mail From**, in **All inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.
@@ -281,9 +293,14 @@ completes. An expired page token also starts a new pass.
 
 The Gmail Inbox state reports the progress per mailbox as downloaded messages,
 Gmail's total from the mailbox profile while the pass runs, and whether the pass
-is complete. Per-connection status in the interface is
-[#1369](https://github.com/unwired-dev/product/issues/1369). Scrolling to the end
-of the Inbox or a Gmail view reveals older downloaded messages in batches from
+is complete. While the pass runs, All Mail's subtitle shows the progress, such as
+"41,210 of 86,400 downloaded", and All Mail ends with a "Downloading older mail…"
+row naming the month the list has reached, in place of the note that older mail
+stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
+The Sync Status Overlay's per-connection history status and Try Again remain in
+[#1369](https://github.com/unwired-dev/product/issues/1369) and depend on
+[#1155](https://github.com/unwired-dev/product/issues/1155). Scrolling to the end
+of the Inbox, a Gmail view or a unified mailbox reveals older downloaded messages in batches from
 the segments, without asking Gmail, so they stay available offline. Messages outside
 the saved cached views are read on demand without saving their bodies.
 If a confirmed removal leaves the recent cache short and its refill cannot finish,

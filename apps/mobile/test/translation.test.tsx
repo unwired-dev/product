@@ -16,6 +16,7 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageTranslation, TranslationContext } from '../src/translation.tsx';
+import { targetChoice, translateInto } from './translation-menu.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -121,10 +122,19 @@ const queuedPress = (label: string) => {
   throw new Error('Expected a rendered press handler');
 };
 
-const translateInto = async (language: string) => {
-  await fireEvent.press(
-    await screen.findByRole('radio', { name: `Translate into ${language}` }),
-  );
+// The target-language menu's spoken value and the language it checks.
+const targetMenu = () => {
+  const menu = screen.getByLabelText('Translate into');
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ title: string; checked?: boolean }>;
+  }> = menu.props.sections;
+  return {
+    value: menu.props.accessibilityValue,
+    checked: sections
+      .flatMap(({ items }) => items)
+      .filter(({ checked }) => checked === true)
+      .map(({ title }) => title),
+  };
 };
 
 // A rendered host/store test of the reader's on-device translation. Only WebKit and Apple
@@ -142,11 +152,17 @@ describe('on-device translation in the reader', () => {
     try {
       const reads = gmail.requests.length;
       await fireEvent.press(screen.getByLabelText('Translate this message'));
-      // Nothing is translated until a target language is chosen.
-      await screen.findByRole('radio', { name: 'Translate into Spanish' });
+      // Nothing is chosen or translated until a language is picked from the system menu.
+      await screen.findByLabelText('Translate into');
+      expect(targetMenu()).toStrictEqual({ value: undefined, checked: [] });
       expect(asked).toHaveLength(0);
       await translateInto('Spanish');
       expect(asked).toHaveLength(1);
+      expect(targetMenu()).toStrictEqual({
+        value: { text: 'Spanish' },
+        checked: ['Spanish'],
+      });
+      expect(screen.getByText('Translate into Spanish')).toBeOnTheScreen();
       expect(asked[0]?.input).toBe('Please confirm the venue by Friday.');
       expect(asked[0]?.target).toBe('es');
       asked[0]?.answer.resolve({
@@ -185,11 +201,11 @@ describe('on-device translation in the reader', () => {
   });
 
   it.each([
-    { action: 'target', label: 'Translate into German' },
-    { action: 'retry', label: 'Translate again' },
+    { action: 'target', queued: () => targetChoice('German') },
+    { action: 'retry', queued: () => queuedPress('Translate again') },
   ])(
     'rejects queued $action input after reader dismissal or request replacement',
-    async ({ label }) => {
+    async ({ queued }) => {
       expect.hasAssertions();
       const { native, asked, cancelled } = scriptedTranslation();
       const { app } = await openReader(native);
@@ -199,7 +215,7 @@ describe('on-device translation in the reader', () => {
         const oldCancel = queuedPress('Cancel translation');
         await fireEvent.press(screen.getByLabelText('Cancel translation'));
         await screen.findByText('Translation cancelled.');
-        const oldAction = queuedPress(label);
+        const oldAction = await queued();
         const oldDismiss = queuedPress('Dismiss translation');
         await act(() => {
           oldDismiss();
@@ -210,7 +226,7 @@ describe('on-device translation in the reader', () => {
 
         // Reopening is a new session; input retained from the old one cannot affect it.
         await fireEvent.press(screen.getByLabelText('Translate this message'));
-        await screen.findByRole('radio', { name: 'Translate into German' });
+        await screen.findByLabelText('Translate into');
         expect(screen.queryByLabelText('Translate again')).toBeNull();
         expect(screen.queryByLabelText('Cancel translation')).toBeNull();
         await translateInto('German');

@@ -344,7 +344,8 @@ styles) so the file stays editable.
   Synchronization and authorization problems appear beside the affected Mailbox
   Connection. Conditional [Outbox](docs/outbox.md#sending) sits above Drafts.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
-  The reference mockups show Favorites and per-list banners and omit the secondary mailboxes.
+  The unified Archive frames on each platform's New features page show the secondary
+  mailboxes under Favorites and a connection without that role; other mockups omit them.
   iPhone Mailboxes puts Settings in a glass **Account** circle at the header's trailing
   edge and a glass New Message at the bottom trailing corner; the frames' **Edit**
   beside Account has no feature behind it yet.
@@ -462,7 +463,8 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
-- iPad popovers, such as Filters, use the 18pt `radius.popover`.
+- iPad popovers, such as Filters, are system popovers and keep the iOS corner radius
+  and arrow.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset

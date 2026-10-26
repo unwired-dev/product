@@ -11,6 +11,32 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- `mailbox-views.ts.unifiedFolders` treating an IMAP folder blacklist as proof
+  of All Mail membership. An `all` folder can be the only source of archived
+  mail, and virtual `flagged`, `drafts` or `trash` folders can overlap other
+  folders. Apply the [#1006 owner decision](https://github.com/unwired-dev/product/issues/1006#issuecomment-6403429711):
+  connections advertising a selectable `all` folder are visibly not included;
+  an unselectable `all` folder does not exclude the connection. Other connections
+  contribute every selectable folder outside `junk`, `trash` and `flagged`.
+  A role folder that is also selectable `all` cannot supply that unified role.
+  Verify the host's reason line and continued access to connection-local folders.
+  The reason must not claim that no folder declares the role when its mapped
+  folder is excluded because it is also `all`.
+  Do not infer cross-folder identity from UIDs or message subjects, or silently
+  claim complete membership where the approved contract exposes missing coverage.
+- `mailbox-views.ts.unifiedFolders` deriving Microsoft All Mail only from
+  sidebar views and custom labels while `graph-inbox.ts` omits well-known
+  folders from that custom list. Exercise Drafts and Outbox through the public
+  store as well as Inbox, Sent and Archive; otherwise All Mail drops messages
+  in provider folders the sidebar does not offer.
+
+- A newly offered provider view recognized by `createGmailInbox.openView` but
+  rejected by `mailbox-views.ts.gmailViewName`. Trace the row's selected folder
+  into both hosts' reader actions and `viewMessage`; otherwise mail outside
+  Inbox opens without organizing controls. For Gmail moves from aggregate or
+  Sent views, remove only a writable source label: synthetic view names are not
+  Gmail labels, and `SENT` cannot be removed. Exercise the reader controls and
+  the resulting provider request through their public interfaces.
 - `mailbox-motion.ts.unchanged` comparing row keys without retaining the latest
   displayed items. Synchronize unread or star metadata without changing row
   membership, then remove that message through an organizing action. Its leaving

@@ -71,13 +71,32 @@ jest.mock('react-native-screens', () => {
   return { ...screens, ScreenStack, ScreenStackItem };
 });
 
-// Without SwiftUI, a sheet shows its content while presented and finishes dismissing at once.
+// Without SwiftUI, a sheet or popover shows its content while presented, and the system's
+// accessibility escape dismisses it; a sheet finishes dismissing at once.
 jest.mock('@expo/ui/swift-ui', () => {
   const React = require('react');
+  const { View } = require('react-native');
   function Passthrough({ children }) {
     return React.createElement(React.Fragment, null, children);
   }
-  function BottomSheet({ isPresented, onDismiss, children }) {
+  function Presented({ testID, onIsPresentedChange, children }) {
+    return React.createElement(
+      View,
+      {
+        testID,
+        onAccessibilityEscape: () => {
+          onIsPresentedChange?.(false);
+        },
+      },
+      children,
+    );
+  }
+  function BottomSheet({
+    isPresented,
+    onIsPresentedChange,
+    onDismiss,
+    children,
+  }) {
     const [shown, setShown] = React.useState(isPresented);
     if (isPresented && !shown) {
       setShown(true);
@@ -88,11 +107,17 @@ jest.mock('@expo/ui/swift-ui', () => {
         onDismiss?.();
       }
     }, [shown, isPresented, onDismiss]);
-    return shown ? children : null;
+    return shown
+      ? React.createElement(
+          Presented,
+          { testID: 'bottom-sheet', onIsPresentedChange },
+          children,
+        )
+      : null;
   }
   // An alert shows its title, message and actions while presented.
   function Alert({ testID, title, isPresented, children }) {
-    const { Text, View } = require('react-native');
+    const { Text } = require('react-native');
     return isPresented
       ? React.createElement(
           View,
@@ -113,11 +138,33 @@ jest.mock('@expo/ui/swift-ui', () => {
       React.createElement(Text, null, label),
     );
   }
+  // A popover keeps its trigger in place and presents its content beside it.
+  function Popover({ isPresented, onIsPresentedChange, children }) {
+    return React.Children.map(children, (child) => {
+      if (child.type !== Popover.Content) {
+        return child;
+      }
+      return isPresented
+        ? React.createElement(
+            Presented,
+            { testID: 'popover', onIsPresentedChange },
+            child,
+          )
+        : null;
+    });
+  }
+  // A distinct component, so Popover can tell its content from its trigger.
+  function Content({ children }) {
+    return React.createElement(React.Fragment, null, children);
+  }
+  Popover.Trigger = Passthrough;
+  Popover.Content = Content;
   return {
     Alert,
     BottomSheet,
     Button,
     Text: require('react-native').Text,
+    Popover,
     Group: Passthrough,
     Host: Passthrough,
     RNHostView: Passthrough,

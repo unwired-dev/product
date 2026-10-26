@@ -39,7 +39,7 @@ import {
   Dimensions,
   Linking,
   StyleSheet,
-  View,
+  useWindowDimensions,
 } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -121,14 +121,6 @@ function InboxJourney() {
     </InboxProvider>
   );
 }
-
-const modalFor = (panel: ReturnType<typeof screen.getByTestId>) => {
-  let modal = panel.parent;
-  while (modal !== null && modal.props.animationType === undefined) {
-    modal = modal.parent;
-  }
-  return modal;
-};
 
 describe('preview Inbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
@@ -430,7 +422,7 @@ describe('preview Inbox', () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Filtered by Unread' }),
       );
-      const sheet = within(screen.getByTestId('filters-sheet'));
+      const sheet = within(screen.getByTestId('bottom-sheet'));
       expect(sheet.getByRole('header', { name: 'Filters' })).toBeVisible();
       // A single mailbox offers no mailboxes to leave out.
       expect(sheet.queryByText('Include Mail From')).toBeNull();
@@ -439,14 +431,14 @@ describe('preview Inbox', () => {
       // Leaving the sheet discards its edits and restores the applied criterion.
       await fireEvent.press(unread);
       await fireEvent(
-        screen.getByTestId('filters-sheet'),
+        screen.getByTestId('bottom-sheet'),
         'accessibilityEscape',
       );
-      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
       await fireEvent.press(
         screen.getByRole('button', { name: 'Filtered by Unread' }),
       );
-      const reopened = within(screen.getByTestId('filters-sheet'));
+      const reopened = within(screen.getByTestId('bottom-sheet'));
       expect(reopened.getByRole('checkbox', { name: 'Unread' })).toBeChecked();
       await fireEvent.press(reopened.getByRole('checkbox', { name: 'Unread' }));
       await fireEvent(
@@ -458,7 +450,7 @@ describe('preview Inbox', () => {
       await fireEvent.press(
         reopened.getByRole('button', { name: 'Apply Filters' }),
       );
-      expect(screen.queryByTestId('filters-sheet')).toBeNull();
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
       expect(
         screen.getByRole('button', { name: 'Filtered by Today' }),
       ).toBeVisible();
@@ -488,7 +480,7 @@ describe('preview Inbox', () => {
         screen.getByRole('button', { name: 'Filtered by Today' }),
       );
       await fireEvent(
-        within(screen.getByTestId('filters-sheet')).getByLabelText(
+        within(screen.getByTestId('bottom-sheet')).getByLabelText(
           'Only Mail from Today',
         ),
         'valueChange',
@@ -514,23 +506,19 @@ describe('preview Inbox', () => {
     }
   });
 
-  it('spans a regular-width window with its bar and opens Filters as a popover above the Filter control', async () => {
+  it('spans a regular-width window with its bar and opens Filters as a popover on the Filter control', async () => {
     expect.hasAssertions();
     const window = Dimensions.get('window');
-    // The Filter control's place in the window, which the test host cannot lay out.
-    const measure = jest
-      .spyOn(View.prototype, 'measureInWindow')
-      .mockImplementation((measured) => {
-        measured(240, 770, 124, 48);
-      });
     function WindowJourney({
       keyboardLift = 0,
     }: {
       readonly keyboardLift?: number;
     }) {
+      const { width } = useWindowDimensions();
       const windowBar = useMemo(() => createWindowBar(), []);
       return (
-        <WindowBarContext value={windowBar}>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Like the app, only a regular-width window has the bar.
+        <WindowBarContext value={width >= 600 ? windowBar : undefined}>
           <InboxJourney />
           <WindowBarHost
             windowBar={windowBar}
@@ -557,40 +545,48 @@ describe('preview Inbox', () => {
       await fireEvent.press(
         bar.getByRole('button', { name: 'Filtered by Unread' }),
       );
-      expect(screen.queryByTestId('filters-sheet')).toBeNull();
-      // jest-expo's window is 750 by 1334 points.
-      expect(screen.getByTestId('filters-popover')).toHaveStyle({
-        width: 420,
-        left: 240,
-        bottom: 1334 - 770 + 8,
-      });
-      // The popover fades on entry only; the native modal must not animate dismissal.
-      expect(modalFor(screen.getByTestId('filters-popover'))).toHaveProp(
-        'animationType',
-        'none',
-      );
-      const popover = within(screen.getByTestId('filters-popover'));
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
+      const popover = within(screen.getByTestId('popover'));
+      expect(popover.getByTestId('filters')).toHaveStyle({ width: 420 });
       expect(popover.getByRole('header', { name: 'Filters' })).toBeVisible();
+      // Resizing the window keeps the popover and its edits; iOS keeps it on the control.
       await fireEvent.press(popover.getByRole('checkbox', { name: 'Unread' }));
-      measure.mockImplementation((measured) => {
-        measured(180, 700, 124, 48);
-      });
       await act(() => {
         Dimensions.set({ window: { ...window, width: 1024, height: 768 } });
       });
-      expect(screen.getByTestId('filters-popover')).toHaveStyle({
-        left: 180,
-        bottom: 768 - 700 + 8,
+      expect(
+        within(screen.getByTestId('popover')).getByRole('checkbox', {
+          name: 'Unread',
+        }),
+      ).toHaveProp('accessibilityState', { checked: false });
+      // Dismissing it discards the edits.
+      await fireEvent(screen.getByTestId('popover'), 'accessibilityEscape');
+      expect(screen.queryByTestId('popover')).toBeNull();
+      expect(
+        bar.getByRole('button', { name: 'Filtered by Unread' }),
+      ).toBeVisible();
+      // Crossing into a compact window closes Filters without applying their edits.
+      await fireEvent.press(
+        bar.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      await fireEvent.press(
+        within(screen.getByTestId('popover')).getByRole('checkbox', {
+          name: 'Unread',
+        }),
+      );
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 500, height: 768 } });
       });
-      expect(popover.getByRole('checkbox', { name: 'Unread' })).toHaveProp(
-        'accessibilityState',
-        { checked: false },
-      );
-      await fireEvent(
-        screen.getByTestId('filters-popover'),
-        'accessibilityEscape',
-      );
-      expect(screen.queryByTestId('filters-popover')).toBeNull();
+      expect(screen.queryByTestId('popover')).toBeNull();
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 1024, height: 768 } });
+      });
+      expect(
+        within(screen.getByTestId('window-bar')).getByRole('button', {
+          name: 'Filtered by Unread',
+        }),
+      ).toBeVisible();
       await fireEvent(
         bar.getByLabelText('Search senders and subjects'),
         'focus',
@@ -603,7 +599,6 @@ describe('preview Inbox', () => {
       expect(edge).toHaveStyle({ bottom: 280 });
     } finally {
       Dimensions.set({ window });
-      measure.mockRestore();
     }
   });
 
@@ -1456,6 +1451,41 @@ describe('connected Gmail Inbox', () => {
     ).toStrictEqual([[unsaved]]);
   });
 
+  it.each([
+    { title: 'Archive', label: 'STARRED' },
+    { title: 'Sent', label: 'SENT' },
+  ])(
+    'keeps Gmail reader actions available from unified $title',
+    async ({ title, label }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        subject: 'Saved receipt',
+        content: { text: 'Paid in full.' },
+      });
+      gmail.archive(id);
+      gmail.setLabel(id, label, true);
+      await renderConnected(gmail.native);
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: `${title}. In All mailboxes`,
+        }),
+      );
+      const receipt = await screen.findByRole('button', {
+        name: /Saved receipt\..* In alex@example\.invalid/u,
+      });
+      expect(
+        within(receipt).getByText('In alex@example.invalid'),
+      ).toBeVisible();
+      await fireEvent.press(receipt);
+      await expect(screen.findByText('Paid in full.')).resolves.toBeVisible();
+      await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+      expect(
+        screen.getByRole('button', { name: 'Move to Trash' }),
+      ).toBeVisible();
+    },
+  );
+
   it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
@@ -1551,6 +1581,39 @@ describe('connected Gmail Inbox', () => {
     );
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+  });
+
+  it('shows how much of All Mail has downloaded and ends it with older mail still arriving', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    for (const index of Array.from({ length: 250 }, (_, at) => at)) {
+      gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
+    }
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    // Gmail stops answering partway through the history download.
+    gmail.failPage('200', { code: 'unavailable' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'All Mail. In alex@example.invalid',
+        }),
+      );
+    });
+    await expect(
+      screen.findByText('alex@example.invalid · 200 of 251 downloaded'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByRole('progressbar', {
+        name: /^Downloading older mail… Mail from before \S.* appears here as it arrives\./u,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeNull();
   });
 
   it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {

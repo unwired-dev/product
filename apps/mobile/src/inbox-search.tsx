@@ -8,17 +8,12 @@ import {
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
 import { use, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Keyboard,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Keyboard, Text, View } from 'react-native';
 
 import type { useInboxFilter } from './inbox-filters.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 
+import { Action } from './action.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
 import {
   BarButton,
@@ -241,15 +236,15 @@ export function OnlineResults({
   }
   if (found === undefined && !searching) {
     return (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => {
-          void search.search();
-        }}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('search.online', { query })}
-        </Text>
-      </Pressable>
+      <View style={styles.noticeAction}>
+        <Action
+          variant="list"
+          label={t('search.online', { query })}
+          onPress={() => {
+            void search.search();
+          }}
+        />
+      </View>
     );
   }
   return (
@@ -263,26 +258,26 @@ export function OnlineResults({
         <ActivityIndicator accessibilityLabel={t('search.searching')} />
       ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void search.more();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.more')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            variant="list"
+            label={t('search.more')}
+            onPress={() => {
+              void search.more();
+            }}
+          />
+        </View>
       ) : null}
       {!searching && found !== undefined && found.failures.length > 0 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void search.search();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.retry')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            variant="list"
+            label={t('search.retry')}
+            onPress={() => {
+              void search.search();
+            }}
+          />
+        </View>
       ) : null}
     </View>
   );
