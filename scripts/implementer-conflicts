@@ -1,0 +1,37 @@
+#!/bin/sh
+# Lists unmerged paths during a merge without printing reviewer-only content.
+# Reviewer-only paths match scripts/implementer-grep; only their names print.
+# Usage: scripts/implementer-conflicts [--diff]
+# --diff also prints the conflict hunks of implementer-readable paths.
+set -eu
+
+case "${1-}" in
+  '') diff=false ;;
+  --diff) diff=true ;;
+  *) printf '%s\n' 'usage: scripts/implementer-conflicts [--diff]' >&2; exit 2 ;;
+esac
+
+set -- \
+  'docs/architecture' \
+  'docs/adr' \
+  '.patterns' \
+  '.opencodereview/rule.json' \
+  '.opencodereview/rules' \
+  'docs/research' \
+  'docs/qualification' \
+  'docs/archive' \
+  'artifacts/review-*'
+excluded=
+included=
+for path do
+  excluded="$excluded ':(top,exclude)$path'"
+  included="$included ':(top)$path'"
+done
+
+printf '%s\n' 'Implementer conflicts:'
+eval "git --no-pager diff --no-relative --name-only --diff-filter=U -- ':(top)'$excluded"
+printf '%s\n' 'Reviewer-only conflicts (hand to the next reviewer; do not open):'
+eval "git --no-pager diff --no-relative --name-only --diff-filter=U --$included"
+if [ "$diff" = true ]; then
+  eval "git --no-pager diff --no-relative --no-ext-diff --no-textconv --diff-filter=U -- ':(top)'$excluded"
+fi

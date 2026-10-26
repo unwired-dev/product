@@ -27,7 +27,8 @@ needed to verify a requirement; it does not require product tests merely because
 prose changed. Changes to OCR rules or selection configuration also validate
 rule resolution through the delegation commands.
 
-All review agents use `gpt-6.1-sol` with `high` reasoning and a fresh context.
+Except for the [model-policy exceptions](#subagent-model-policy), all review
+agents use `gpt-6.1-sol` with `high` reasoning and a fresh context.
 Pass both settings explicitly. An unavailable required reviewer leaves that
 review incomplete; implementer self-review does not replace it. Leave the
 implementer's model, host defaults and saved OCR provider configuration unchanged.
@@ -45,10 +46,18 @@ to implementation, review, research and other delegated work through native
 subagent tools or T3 delegation, including nested delegation. Pass this policy
 to each child agent. Skills and tool defaults must follow it.
 
-The optional advisory [decision panel](#decision-panel) is the only exception. Keep its prescribed
+The optional advisory [decision panel](#decision-panel) is one exception. Keep its prescribed
 `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra` panelists; the Claude panelist
-remains read-only and does not receive implementation or review work. Outside
-that panel, ChatGPT/Codex must not start Claude or other non-GPT subagents.
+remains read-only and does not receive implementation or review work.
+
+Figma work is the second exception: [design approval](#design-approval) and the
+[design review](#design-review) run in a Claude subagent that has the Figma MCP
+server. Before handing off, confirm the child can reach Figma, for example with
+its `whoami` tool; an unreachable server blocks the design work. Outside these
+two exceptions, ChatGPT/Codex must not start Claude or other non-GPT subagents.
+
+When the user overrides a reviewer model for the session, record the override
+in each review report and in the PR description.
 
 Keep the required review model and reasoning settings above. If an eligible
 GPT model is unavailable, report that delegation as blocked and continue
@@ -98,7 +107,14 @@ check; qualification records retain the detailed evidence and unavailable status
 The reviewer owns architecture extraction and edits, updates links to moved
 sections, and preserves every requirement and decision. Hand back actionable
 outcomes and verification results without copying architecture documents into
-the implementer's context. File separation supports this reading policy; it does
+the implementer's context. During a merge, the implementer lists conflicts with
+`scripts/implementer-conflicts` (`--diff` prints hunks only for readable paths),
+leaves reviewer-only conflicts unresolved and hands them to the next pinned
+reviewer, who resolves and stages them; the implementer then concludes the merge.
+When a task's requirements appear only in reviewer-only
+sources, delegate their extraction before implementing: the reviewer records them
+in the operational owner, or, when edits are out of scope, returns acceptance-level
+statements and source paths without document content. File separation supports this reading policy; it does
 not itself restrict filesystem or Git-history access.
 
 ## Simplicity skills
@@ -131,7 +147,7 @@ over generic skill examples for both roles.
 
 1. Before editing, record `git status --short` and classify staged, unstaged and
    untracked changes as task-owned or unrelated. Select the task's existing
-   same-repository PR branch against `main`, otherwise its existing task branch,
+   same-repository PR branch against its actual target base, otherwise its existing task branch,
    otherwise a new branch from the latest `main`. Work in this checkout or an
    isolated worktree without moving unrelated edits. Record the starting commit;
    for existing task commits without completed review, use the merge-base with
@@ -139,7 +155,8 @@ over generic skill examples for both roles.
    makes an existing ready PR a draft before further work.
 2. Identify acceptance criteria, [review depth](#review-depth) and relevant
    checks under the [testing policy](testing.md). Complete any required
-   [design approval](#design-approval) before code edits.
+   [design approval](#design-approval) before editing code that depends on the
+   pending design. Record which code that is; design-independent work proceeds.
 3. Load and apply the [simplicity skills](#simplicity-skills) before implementation.
    For standard UI work, record the
    [component choice](native-components.md#choose-the-provided-implementation)
@@ -149,8 +166,11 @@ over generic skill examples for both roles.
    workflow contracts.
 4. Pin the actual comparison and hand off first to a separate simplicity reviewer
    with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"` and `fork_turns: "none"`.
+   Link or quote the [subagent model policy](#subagent-model-policy) with every
+   exception rather than paraphrasing it, and name any session override.
    Include the checkout, request and issue, acceptance criteria, original starting
-   commit, summary, task-owned files, pre-existing changes, checks/results,
+   commit, summary, task-owned files, pre-existing changes, checks/results
+   (including the `scripts/pre-handoff.sh` verdict line for code changes),
    limitations and [round history](#four-round-safeguard). For UI, include the
    selected API, remaining gaps and native evidence or deferred checks. Include
    prior findings, their dispositions and any completed review conclusions
@@ -167,10 +187,14 @@ over generic skill examples for both roles.
 5. Pause implementer writes while a reviewer owns the checkout and wait for its
    final report before the next pass. Run applicable maintainability and design
    passes after the independent documentation or OCR review, giving each the
-   original task comparison, evidence and earlier reports. Use the same explicit
-   model, reasoning and fresh-context settings for every reviewer. Never run two
+   original task comparison, evidence and earlier reports. Follow the
+   [subagent model policy](#subagent-model-policy) and pass explicit reasoning
+   and fresh-context settings for every reviewer. Never run two
    writing reviewers at once. Record inapplicable passes with their reason,
    including design review when no client-visible behavior changed.
+   A failed, cancelled or interrupted reviewer is incomplete whatever its summary
+   says. Before a fresh handoff, inventory its changed paths, commits, artifacts,
+   processes and devices; the replacement validates that inherited work.
 6. Apply the [review-depth rule](#review-depth) to later fixes and PR feedback.
    Identify invalidated conclusions explicitly. OCR reuse must satisfy its
    checkpoint helper; an unchanged valid checkpoint can reuse its completed
@@ -262,7 +286,9 @@ Before further implementation edits or review after either limit is reached:
    apply the resolved rules. An incremental range narrows changed-code coverage, not the
    context needed to assess it: inspect affected callers, invariants and
    collaborating modules, and verify prior findings against the new result.
-   A full pass covers the entire task.
+   A full pass covers the entire task. When the change adds a component, flow
+   or guard that parallels an existing one, compare their state transitions,
+   copy and failure paths, and check every path the guard should cover.
    Use the installed `code-review` guidance where applicable, with the handoff's
    actual comparison and specification. For OCR-excluded task-owned files, apply
    the same repository checklist through the appropriate artifact review.
@@ -272,7 +298,8 @@ Before further implementation edits or review after either limit is reached:
    checkout, preserving unrelated work. Update affected tests and documentation,
    including architecture docs when needed. This assignment includes fixes,
    even when a review skill's default output is only a findings report.
-5. Run the checks appropriate to the fixes, inspect the final diff, and review
+5. Run the checks appropriate to the fixes, including `scripts/pre-handoff.sh`
+   after code fixes, inspect the final diff, and review
    the corrected result again. Repeat until there are no unresolved issues within
    the authorized scope, subject to the
    [four-round safeguard's reviewer cycle limit](#bound-reviewer-fix-loops).
@@ -371,7 +398,12 @@ styles, copy, icons, motion, notifications or accessibility labels.
 1. Read [DESIGN.md](../../DESIGN.md) and the issue. Through the Figma MCP server,
    locate the frames for every changed screen and state in the
    [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
-   file on its macOS, iPadOS and iOS pages, in Light and Dark. Use the frames'
+   file on its macOS, iPadOS and iOS pages, in Light and Dark. Enumerate every
+   page from the full document (`figma.root.children` through `use_figma`) and
+   record that list with the searches before concluding that no frame exists;
+   metadata showing only the Cover page is incomplete. When a section's result is
+   too large, extract a compact frame ID and name index from the saved result,
+   then fetch context for the selected frames. Use the frames'
    screenshots as reference and their design context or variables for exact
    values.
 2. Capture the implemented result for the same screens and states: the Mac host
@@ -402,8 +434,8 @@ styles, copy, icons, motion, notifications or accessibility labels.
 ## Design approval
 
 A request for visual design or redesign, or any change to how a maintained
-client looks that the Figma frames do not already show, starts in Figma. Code
-waits for the user's approval of the frames. Tasks that do not request visual
+client looks that the Figma frames do not already show, starts in Figma.
+Design-dependent code waits for the user's approval of the frames. Tasks that do not request visual
 design or redesign may implement existing frames without another approval,
 provided their visual design stays unchanged.
 
@@ -414,16 +446,17 @@ provided their visual design stays unchanged.
    macOS, iPadOS and iOS pages, in Light and Dark, using DESIGN.md's tokens,
    the file's components and variables, and SF Symbols.
 2. Ask the user to review: link each changed frame, summarize what changed and
-   why, and list open questions. Stop and wait for the answer. This explicit design approval cannot be
+   why, and list open questions. This explicit design approval cannot be
    replaced by an advisory panel.
-3. Apply requested changes in Figma and ask again. Start code only after the
-   user explicitly approves, and record the approval and approved frame links
+3. Apply requested changes in Figma and ask again. Start code that depends on
+   the design only after the user explicitly approves; design-independent work
+   can proceed meanwhile. Record the approval and approved frame links
    in the issue and the PR description.
 4. Implement against the approved frames; the [design review](#design-review)
    compares the result with them.
 
-Missing Figma access blocks the task; report it instead of implementing
-without approved frames.
+Missing Figma access blocks the design-dependent work; report it instead of
+implementing without approved frames.
 
 ## Decision panel
 
@@ -451,7 +484,9 @@ votes alone do not change requirements or grant authority.
 2. Delegate in parallel with explicit `high` reasoning to `claude-fable-5-1`,
    `gpt-6.1-sol` and `gpt-6-astra`. Keep the Claude panelist read-only. Each returns
    a recommendation and rationale, making no edits.
-3. Set a bounded deadline. Record recommendations, disagreements, unavailable
+3. Set a bounded deadline. The main thread enforces it: it tracks each
+   panelist against the deadline, cancels late ones and records them as
+   unavailable; a deadline written only in the prompt is not enforced. Record recommendations, disagreements, unavailable
    panelists and the chosen approach. Do not manufacture a consensus from failed
    or invalid responses. Model availability does not block a reversible choice
    already within the implementer's authority.

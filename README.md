@@ -122,6 +122,10 @@ predecessor SHA instead. A later `origin/main` may differ. The root `pnpm fallow
 alias is a diagnostic inventory scan; it does not run this blocking audit gate.
 The [CI workflow](.github/workflows/ci.yml) owns the automated comparison.
 
+`mise exec -- scripts/pre-handoff.sh [comparison-base]` runs the TypeScript and
+Fallow job commands from that workflow, comparing against the merge-base with
+`origin/main` by default, and ends with one `pre-handoff: PASS` or `FAIL` line.
+
 `pnpm lint` and `pnpm format` run Oxlint and Oxfmt once from the root over the
 whole repository; the app configurations apply to their own files. `pnpm lint:fix`
 and `pnpm format:fix` apply fixes. Turborepo caches them as the root `lint` and
