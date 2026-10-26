@@ -30,7 +30,6 @@ import {
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireProductAccountNotDeleted,
-  requireTrustedDevice,
   signInProvidersForAccount,
   trustedDeviceCredentialArgs,
   trustedDeviceCredentialDigest,
@@ -875,40 +874,6 @@ export const listTrustedDevices = query({
     return devices.map(trustedDeviceSummary);
   },
   returns: v.array(trustedDeviceSummaryValidator),
-});
-
-export const renameTrustedDevice = mutation({
-  args: {
-    ...trustedDeviceCredentialArgs,
-    displayName: v.string(),
-    trustedDeviceId: v.id('trustedDevices'),
-    trustedDeviceToRenameId: v.id('trustedDevices'),
-  },
-  handler: async (ctx, args) => {
-    const account = await requireAuthenticatedTrustedDevice(
-      ctx,
-      args.trustedDeviceId,
-      args.trustedDeviceCredential,
-    );
-    await requireTrustedDevice(
-      ctx,
-      account.productAccountId,
-      args.trustedDeviceToRenameId,
-    );
-    const device = await ctx.db.get(
-      'trustedDevices',
-      args.trustedDeviceToRenameId,
-    );
-    if (device === null) {
-      throw new Error('Trusted device required');
-    }
-    const displayName = normalizedTrustedDeviceName(args.displayName);
-    await ctx.db.patch('trustedDevices', args.trustedDeviceToRenameId, {
-      displayName,
-    });
-    return trustedDeviceSummary({ ...device, displayName });
-  },
-  returns: trustedDeviceSummaryValidator,
 });
 
 export const keyRotationErrorCodes = {

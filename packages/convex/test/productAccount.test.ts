@@ -628,61 +628,6 @@ describe('productAccount.connect', () => {
     ]);
   });
 
-  it('renames a trusted device without changing its registration identity', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    const otherDevice = await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-002',
-      platform: 'macos',
-    });
-
-    await expect(
-      asUser.mutation(api.productAccount.renameTrustedDevice, {
-        displayName: '  Work Mac  ',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-        trustedDeviceToRenameId: otherDevice.trustedDeviceId,
-      }),
-    ).resolves.toMatchObject({
-      displayName: 'Work Mac',
-      id: otherDevice.trustedDeviceId,
-      platform: 'macos',
-    });
-  });
-
-  it('rejects renaming a trusted device owned by another Product Account', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const asOtherUser = t.withIdentity({
-      issuer: 'https://appleid.apple.com',
-      subject: 'apple-user-002',
-      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
-    });
-    const currentDevice = await connectTrusted(t, asUser, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    const otherDevice = await connectTrusted(t, asOtherUser, {
-      deviceIdentifier: 'device-002',
-      platform: 'macos',
-    });
-
-    await expect(
-      asUser.mutation(api.productAccount.renameTrustedDevice, {
-        displayName: 'Not Mine',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-        trustedDeviceToRenameId: otherDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Trusted device required');
-  });
-
   /* oxlint-disable vitest/max-expects -- Each removal journey proves one atomic transition and that refusals change nothing. */
   it('requires recent authentication from the bearer token to revoke a trusted device', async () => {
     expect.assertions(3);
@@ -2249,10 +2194,14 @@ describe('gmail operational connection registration', () => {
       });
 
       await expect(
-        asUser.action(api.productAccountDeletion.deleteProductAccount, {
-          authorizationCode: 'recent-apple-authorization-code',
-          trustedDeviceId: currentDevice.trustedDeviceId,
-        }),
+        asUser.action(
+          internal.productAccountDeletion
+            .deleteRecentlyAuthenticatedProductAccount,
+          {
+            authorizationCode: 'recent-apple-authorization-code',
+            trustedDeviceId: currentDevice.trustedDeviceId,
+          },
+        ),
       ).resolves.toStrictEqual({ deleted: true });
     } finally {
       vi.stubEnv('APPLE_SIGN_IN_PRIVATE_KEY', privateKey);
@@ -2296,12 +2245,16 @@ describe('gmail operational connection registration', () => {
       });
 
       await expect(
-        asUser.action(api.productAccountDeletion.deleteProductAccount, {
-          authorizationCode: 'recent-apple-authorization-code',
-          trustedDeviceCredential:
-            reconnectedCurrentDevice.trustedDeviceCredential,
-          trustedDeviceId: currentDevice.trustedDeviceId,
-        }),
+        asUser.action(
+          internal.productAccountDeletion
+            .deleteRecentlyAuthenticatedProductAccount,
+          {
+            authorizationCode: 'recent-apple-authorization-code',
+            trustedDeviceCredential:
+              reconnectedCurrentDevice.trustedDeviceCredential,
+            trustedDeviceId: currentDevice.trustedDeviceId,
+          },
+        ),
       ).resolves.toStrictEqual({ deleted: false });
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       await expect(
@@ -2446,10 +2399,14 @@ describe('gmail operational connection registration', () => {
     });
 
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'recent-apple-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).resolves.toStrictEqual({ deleted: true });
     await expect(
       t.run(async (ctx) => ({
@@ -2500,10 +2457,14 @@ describe('gmail operational connection registration', () => {
       }),
     ).rejects.toMatchObject({ data: { code: 'PRODUCT_ACCOUNT_DELETED' } });
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'retry-after-lost-response',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'retry-after-lost-response',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).resolves.toStrictEqual({ deleted: true });
   });
 
@@ -2699,11 +2660,15 @@ describe('gmail operational connection registration', () => {
     );
 
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'recent-apple-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Apple authorization revocation failed');
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
     ).resolves.toHaveLength(1);
@@ -2830,11 +2795,15 @@ describe('gmail operational connection registration', () => {
     const fetchCallCount = fetchMock.mock.calls.length;
 
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'recent-apple-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Apple authorization exchange failed');
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     expect(fetch).toHaveBeenCalledTimes(fetchCallCount + 2);
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
@@ -2860,10 +2829,14 @@ describe('gmail operational connection registration', () => {
     );
 
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'recent-apple-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).rejects.toThrow(
       'Apple authorization revocation is temporarily unavailable',
     );
@@ -2893,10 +2866,14 @@ describe('gmail operational connection registration', () => {
       return new Response(null, { status: 200 });
     });
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'replacement-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'replacement-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).resolves.toStrictEqual({ deleted: true });
   });
 
@@ -2936,10 +2913,14 @@ describe('gmail operational connection registration', () => {
     }
 
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'recent-apple-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).rejects.toThrow(
       'Apple authorization revocation is temporarily unavailable',
     );
@@ -2999,10 +2980,14 @@ describe('gmail operational connection registration', () => {
     });
 
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'unused-retry-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'unused-retry-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).resolves.toStrictEqual({ deleted: true });
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
@@ -3049,11 +3034,15 @@ describe('gmail operational connection registration', () => {
     });
 
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'unused-retry-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Apple authorization revocation failed');
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'unused-retry-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
     ).resolves.toHaveLength(1);
@@ -3110,10 +3099,14 @@ describe('gmail operational connection registration', () => {
 
     const fetchCallCount = vi.mocked(fetch).mock.calls.length;
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'unused-retry-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'unused-retry-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).resolves.toStrictEqual({ deleted: true });
     expect(fetch).toHaveBeenCalledTimes(fetchCallCount);
     await expect(
@@ -3445,10 +3438,14 @@ describe('gmail operational connection registration', () => {
       t.run(async (ctx) => ctx.db.query('trustedDevices').collect()),
     ).resolves.toStrictEqual([]);
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'unused-retry-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'unused-retry-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
     ).resolves.toStrictEqual({ deleted: true });
   });
 
@@ -3789,18 +3786,26 @@ describe('gmail operational connection registration', () => {
 
       // An unconfigured client is rejected before Apple is contacted.
       await expect(
-        asUser.action(api.productAccountDeletion.deleteProductAccount, {
-          appleClientId: 'dev.unwired.mail.unconfigured',
-          authorizationCode: 'recent-apple-authorization-code',
-          trustedDeviceId: currentDevice.trustedDeviceId,
-        }),
-      ).rejects.toThrow('Recent authentication must match the Product Account');
+        asUser.action(
+          internal.productAccountDeletion
+            .deleteRecentlyAuthenticatedProductAccount,
+          {
+            appleClientId: 'dev.unwired.mail.unconfigured',
+            authorizationCode: 'recent-apple-authorization-code',
+            trustedDeviceId: currentDevice.trustedDeviceId,
+          },
+        ),
+      ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
       await expect(
-        asUser.action(api.productAccountDeletion.deleteProductAccount, {
-          appleClientId: replacementClientId,
-          authorizationCode: 'recent-apple-authorization-code',
-          trustedDeviceId: currentDevice.trustedDeviceId,
-        }),
+        asUser.action(
+          internal.productAccountDeletion
+            .deleteRecentlyAuthenticatedProductAccount,
+          {
+            appleClientId: replacementClientId,
+            authorizationCode: 'recent-apple-authorization-code',
+            trustedDeviceId: currentDevice.trustedDeviceId,
+          },
+        ),
       ).rejects.toThrow(
         'Apple authorization revocation is temporarily unavailable',
       );
@@ -3874,13 +3879,15 @@ describe('gmail operational connection registration', () => {
         );
 
         await expect(
-          asUser.action(api.productAccountDeletion.deleteProductAccount, {
-            authorizationCode: 'other-users-authorization-code',
-            trustedDeviceId: currentDevice.trustedDeviceId,
-          }),
-        ).rejects.toThrow(
-          'Recent authentication must match the Product Account',
-        );
+          asUser.action(
+            internal.productAccountDeletion
+              .deleteRecentlyAuthenticatedProductAccount,
+            {
+              authorizationCode: 'other-users-authorization-code',
+              trustedDeviceId: currentDevice.trustedDeviceId,
+            },
+          ),
+        ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
         await expect(
           t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
         ).resolves.toHaveLength(1);
@@ -3905,10 +3912,14 @@ describe('gmail operational connection registration', () => {
     const fetchMock = vi.mocked(fetch);
     const deleteWithAppleTokenResponse = async (body: unknown) => {
       fetchMock.mockImplementationOnce(async () => Response.json(body));
-      return asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'malformed-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      });
+      return asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'malformed-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
     };
 
     await expect(
@@ -3917,27 +3928,31 @@ describe('gmail operational connection registration', () => {
         id_token: `${header}.${claims}.${invalidSignature}`,
         token_type: 'Bearer',
       }),
-    ).rejects.toThrow('Apple authorization exchange failed');
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     await expect(
       deleteWithAppleTokenResponse({
         id_token: `${header}.${Buffer.from('null').toString('base64url')}.${invalidSignature}`,
         refresh_token: 'apple-refresh-token',
       }),
-    ).rejects.toThrow('Apple authorization exchange failed');
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     await expect(
       deleteWithAppleTokenResponse({ refresh_token: 'apple-refresh-token' }),
-    ).rejects.toThrow('Apple authorization exchange failed');
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     // Apple publishes no usable RSA key for the token's key identifier.
     fetchMock.mockImplementationOnce(async () => appleTokenResponse());
     fetchMock.mockImplementationOnce(async () =>
       Response.json({ keys: [{ ...appleIdentitySigningKey, kty: 'EC' }] }),
     );
     await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'unverifiable-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Apple authorization exchange failed');
+      asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'unverifiable-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      ),
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
     ).resolves.toHaveLength(1);
@@ -3966,17 +3981,21 @@ describe('gmail operational connection registration', () => {
       fetchMock.mockImplementationOnce(async () =>
         Response.json({ keys: [appleIdentitySigningKey] }),
       );
-      return asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'stale-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      });
+      return asUser.action(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        {
+          authorizationCode: 'stale-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
     };
     await expect(
       deleteWithAppleClaims({ exp: Math.floor(Date.now() / 1000) }),
-    ).rejects.toThrow('Apple authorization exchange failed');
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     await expect(
       deleteWithAppleClaims({ iss: 'https://accounts.google.com' }),
-    ).rejects.toThrow('Apple authorization exchange failed');
+    ).rejects.toThrow('PRODUCT_ACCOUNT_DELETION_ABORTED');
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
     ).resolves.toHaveLength(1);
