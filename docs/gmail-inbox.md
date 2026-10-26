@@ -292,8 +292,13 @@ completes. An expired page token also starts a new pass.
 
 The Gmail Inbox state reports the progress per mailbox as downloaded messages,
 Gmail's total from the mailbox profile while the pass runs, and whether the pass
-is complete. Per-connection status in the interface is
-[#1369](https://github.com/unwired-dev/product/issues/1369). Scrolling to the end
+is complete. While the pass runs, All Mail's subtitle shows the progress, such as
+"41,210 of 86,400 downloaded", and All Mail ends with a "Downloading older mail…"
+row naming the month the list has reached, in place of the note that older mail
+stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
+The Sync Status Overlay's per-connection history status and Try Again remain in
+[#1369](https://github.com/unwired-dev/product/issues/1369) and depend on
+[#1155](https://github.com/unwired-dev/product/issues/1155). Scrolling to the end
 of the Inbox, a Gmail view or a unified mailbox reveals older downloaded messages in batches from
 the segments, without asking Gmail, so they stay available offline. Messages outside
 the saved cached views are read on demand without saving their bodies.

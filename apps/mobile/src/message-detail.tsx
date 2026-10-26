@@ -41,6 +41,7 @@ import type { SavedAttachment } from './message-body.tsx';
 import type { ReaderPanel } from './organize.tsx';
 import type { InboxStore } from './private-storage.ts';
 
+import { Action } from './action.tsx';
 import {
   CommandInput,
   CommandInputRow,
@@ -136,7 +137,6 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  control: { minHeight: 44, minWidth: 44, justifyContent: 'center' },
   assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
   secondary: { ...textStyles.footnote },
   body: { ...textStyles.reading.body },
@@ -277,17 +277,12 @@ function AttachToNewMessage({
                 : t('drafts.listFailed')}
             </Text>
           </View>
-          <Pressable
-            style={styles.control}
-            accessibilityRole="button"
-            accessibilityLabel={t('common.retry')}
+          <Action
+            label={t('common.retry')}
             onPress={() => {
               void store.load();
-            }}>
-            <Text style={[styles.secondary, { color: colors.accentInk }]}>
-              {t('common.retry')}
-            </Text>
-          </Pressable>
+            }}
+          />
         </View>
       ) : null}
       {failed ? (
@@ -787,16 +782,12 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
           {...header.action}>
           {kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
-        <Pressable
-          style={styles.control}
-          accessibilityRole="button"
+        <Action
+          label={t('common.retry')}
           onPress={() => {
             void actions.load();
-          }}>
-          <Text style={[styles.secondary, { color: colors.accentInk }]}>
-            {t('common.retry')}
-          </Text>
-        </Pressable>
+          }}
+        />
       </View>
     </SafeAreaView>
   );

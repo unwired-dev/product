@@ -7,6 +7,7 @@ import type {
   GmailInbox,
   GmailInboxState,
   GmailMessage,
+  HistoryProgress,
 } from './gmail-inbox.ts';
 import type {
   ImapFolderView,
@@ -123,8 +124,16 @@ export const gmailMailbox = (mailbox: BrowsableMailbox | undefined) => {
     : undefined;
 };
 
+// How far a connection's Historical Metadata Backfill has come, with the provider's count when it
+// reported one.
+const historyStatus = (t: Translate, { downloaded, total }: HistoryProgress) =>
+  total === undefined
+    ? t('inbox.historyDownloaded', { downloaded })
+    : t('inbox.historyProgress', { downloaded, total });
+
 // A Gmail or Microsoft view as both hosts show it, in the sidebar and the list: its name, SF
-// Symbol, the notice for a failed read, and whether it keeps only its newest messages.
+// Symbol, the notice for a failed read, whether it keeps only its newest messages, and All Mail's
+// progress while its history downloads.
 export const gmailViewRow = (
   t: Translate,
   {
@@ -137,6 +146,10 @@ export const gmailViewRow = (
   label: string,
 ) => {
   const view = state.views?.find((entry) => entry.label === label);
+  const downloading =
+    label === allMail && state.history?.complete === false
+      ? state.history
+      : undefined;
   const title = gmailViewTitle(t, label, { labels: state.labels, provider });
   const name = t(
     provider === 'microsoft-graph'
@@ -150,11 +163,14 @@ export const gmailViewRow = (
       view?.status === 'failed'
         ? t('mailboxes.viewUnavailable', { view: title, provider: name })
         : undefined,
-    // Says that only the view's newest mail is saved on this device.
+    // Says that only the view's newest mail is saved on this device; older mail still downloading
+    // is not.
     limited:
-      view?.limited === true
+      view?.limited === true && downloading === undefined
         ? t('inbox.footerView', { provider: name })
         : undefined,
+    downloading:
+      downloading === undefined ? undefined : historyStatus(t, downloading),
   };
 };
 

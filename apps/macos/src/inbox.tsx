@@ -5,7 +5,7 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ReactNode, RefObject } from 'react';
+import type { ComponentProps, ReactNode, RefObject } from 'react';
 import type { TextInput } from 'react-native';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
@@ -38,18 +38,13 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  ActivityIndicator,
-  SectionList,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, SectionList, Text, View } from 'react-native';
 
 import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
+import { Action } from './action.tsx';
 import { RegisterCommands } from './command-palette.tsx';
 import {
   DraftHeading,
@@ -60,7 +55,12 @@ import {
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
-import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
+import {
+  DateDivider,
+  DownloadingOlder,
+  MessageRow,
+  SkeletonRows,
+} from './inbox-rows.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
@@ -403,16 +403,14 @@ function OnlineResults({
   }
   if (found === undefined && !searching) {
     return (
-      <Pressable
-        accessibilityLabel={t('search.online', { query })}
-        accessibilityRole="button"
-        onPress={() => {
-          void search.search();
-        }}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('search.online', { query })}
-        </Text>
-      </Pressable>
+      <View style={styles.noticeAction}>
+        <Action
+          label={t('search.online', { query })}
+          onPress={() => {
+            void search.search();
+          }}
+        />
+      </View>
     );
   }
   return (
@@ -426,28 +424,24 @@ function OnlineResults({
         <ActivityIndicator accessibilityLabel={t('search.searching')} />
       ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
-        <Pressable
-          accessibilityLabel={t('search.more')}
-          accessibilityRole="button"
-          onPress={() => {
-            void search.more();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.more')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            label={t('search.more')}
+            onPress={() => {
+              void search.more();
+            }}
+          />
+        </View>
       ) : null}
       {!searching && found !== undefined && found.failures.length > 0 ? (
-        <Pressable
-          accessibilityLabel={t('search.retry')}
-          accessibilityRole="button"
-          onPress={() => {
-            void search.search();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.retry')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            label={t('search.retry')}
+            onPress={() => {
+              void search.search();
+            }}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -538,7 +532,37 @@ const offline = (state: InboxMailbox['state']) =>
   (('sync' in state && state.sync === 'retry') ||
     ('status' in state && state.status === 'retry'));
 
-// The subtitle's status: checking the server, cut off from it, or how much is unread.
+// Below a view's listed mail: its older mail still downloading, or that only its newest mail is
+// saved on this device.
+function FolderFooter({
+  limited,
+  downloading,
+  oldest,
+  now,
+}: Readonly<{
+  limited: string | undefined;
+  downloading: string | undefined;
+  oldest: ComponentProps<typeof DownloadingOlder>['oldest'];
+  now: number;
+}>) {
+  const colors = usePalette();
+  if (downloading !== undefined) {
+    return (
+      <DownloadingOlder
+        oldest={oldest}
+        now={now}
+      />
+    );
+  }
+  return limited === undefined ? null : (
+    <Text style={[styles.footer, { color: colors.textSecondary }]}>
+      {limited}
+    </Text>
+  );
+}
+
+// The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
+// downloaded, or how much is unread.
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
@@ -546,12 +570,14 @@ function statusOf(
     unread,
     searchOffline,
     waiting,
+    downloading,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
     searchOffline: boolean;
     // The chosen connection while it waits for authorization, whose unread mail is unknown.
     waiting: Readonly<{ provider: MailProvider }> | undefined;
+    downloading: string | undefined;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -566,6 +592,9 @@ function statusOf(
   }
   if (searchOffline || shown.some(({ state }) => offline(state))) {
     return t('inbox.offline');
+  }
+  if (downloading !== undefined) {
+    return downloading;
   }
   return unread === 0
     ? t('inbox.noUnread')
@@ -763,6 +792,7 @@ export function Inbox({
   const {
     folder,
     limited,
+    downloading,
     listed,
     title: folderTitle,
     failure,
@@ -840,6 +870,7 @@ export function Inbox({
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
+    downloading,
   });
   const { title, subtitle, emptyScope } = headingOf(t, {
     scope,
@@ -1096,10 +1127,13 @@ export function Inbox({
                 query={searched}
                 search={online}
               />
-              {limited !== undefined && results === undefined ? (
-                <Text style={[styles.footer, { color: colors.textSecondary }]}>
-                  {limited}
-                </Text>
+              {results === undefined ? (
+                <FolderFooter
+                  limited={limited}
+                  downloading={downloading}
+                  oldest={listed.at(-1)}
+                  now={now}
+                />
               ) : null}
               <Text style={[styles.footer, { color: colors.textSecondary }]}>
                 {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
