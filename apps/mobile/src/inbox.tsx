@@ -5,7 +5,7 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
@@ -53,7 +53,12 @@ import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
-import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
+import {
+  DateDivider,
+  DownloadingOlder,
+  MessageRow,
+  SkeletonRows,
+} from './inbox-rows.tsx';
 import {
   InboxBar,
   OnlineResults,
@@ -471,7 +476,8 @@ const offline = (state: InboxMailbox['state']) =>
   (('sync' in state && state.sync === 'retry') ||
     ('status' in state && state.status === 'retry'));
 
-// The subtitle's status: checking the server, cut off from it, or how much is unread.
+// The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
+// downloaded, or how much is unread.
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
@@ -479,12 +485,14 @@ function statusOf(
     unread,
     searchOffline,
     waiting,
+    downloading,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
     searchOffline: boolean;
     // The chosen connection while it waits for authorization, whose unread mail is unknown.
     waiting: Readonly<{ provider: MailProvider }> | undefined;
+    downloading: string | undefined;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -499,6 +507,9 @@ function statusOf(
   }
   if (searchOffline || shown.some(({ state }) => offline(state))) {
     return t('inbox.offline');
+  }
+  if (downloading !== undefined) {
+    return downloading;
   }
   return unread === 0
     ? t('inbox.noUnread')
@@ -571,6 +582,9 @@ function InboxFooter({
   syncing,
   connected,
   limited,
+  downloading,
+  oldest,
+  now,
   children,
 }: {
   readonly empty: boolean;
@@ -579,6 +593,10 @@ function InboxFooter({
   readonly connected: boolean;
   // Says that the listed view keeps only its newest messages.
   readonly limited: string | undefined;
+  // All Mail's history progress while its older mail downloads.
+  readonly downloading: string | undefined;
+  readonly oldest: ComponentProps<typeof DownloadingOlder>['oldest'];
+  readonly now: number;
   // The empty state.
   readonly children: ReactNode;
 }) {
@@ -588,6 +606,12 @@ function InboxFooter({
     <>
       {empty ? children : null}
       {syncing ? <SkeletonRows /> : null}
+      {downloading === undefined ? null : (
+        <DownloadingOlder
+          oldest={oldest}
+          now={now}
+        />
+      )}
       <LanguageSelector />
       {limited === undefined ? null : (
         <Text style={[styles.footer, { color: colors.textSecondary }]}>
@@ -668,6 +692,7 @@ export function Inbox({
     listed,
     failure,
     limited,
+    downloading,
     missing,
     folderOf: listedFolder,
     showOlder,
@@ -764,6 +789,7 @@ export function Inbox({
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
+    downloading,
   });
   const title =
     folderName ??
@@ -1042,6 +1068,9 @@ export function Inbox({
                 <InboxFooter
                   connected={gmail}
                   limited={limited}
+                  downloading={downloading}
+                  oldest={listed.at(-1)}
+                  now={now}
                   empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
                   syncing={syncing}>
                   {empty}

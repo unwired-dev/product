@@ -1588,6 +1588,39 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
   });
 
+  it('shows how much of All Mail has downloaded and ends it with older mail still arriving', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    for (const index of Array.from({ length: 250 }, (_, at) => at)) {
+      gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
+    }
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    // Gmail stops answering partway through the history download.
+    gmail.failPage('200', { code: 'unavailable' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Lunch on Friday/u });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'All Mail. In alex@example.invalid',
+        }),
+      );
+    });
+    await expect(
+      screen.findByText('alex@example.invalid · 200 of 251 downloaded'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByRole('progressbar', {
+        name: /^Downloading older mail… Mail from before \S.* appears here as it arrives\./u,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeNull();
+  });
+
   it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

@@ -166,6 +166,23 @@ export const styles = StyleSheet.create({
   emptyText: { ...body, textAlign: 'center' },
   notices: { gap: spacing.s, paddingHorizontal: spacing.l },
   footer: { ...textStyles.footnote, padding: spacing.xl },
+  // Within the rows' leading inset, the spinner and its text 12pt apart (10pt scaled on iPad).
+  downloading: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: ipad ? 10 * scale : spacing.m,
+    paddingVertical: ipad ? 14 * scale : spacing.l,
+    paddingLeft: ipad ? 22 * scale : 18,
+    paddingRight: ipad ? spacing.m * scale : spacing.m,
+  },
+  downloadingText: { flex: 1, gap: 2 * scale },
+  downloadingTitle: {
+    ...(ipad ? body : textStyles.subheadline),
+    fontWeight: '600',
+  },
+  downloadingDetail: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
+  },
   notice: { ...textStyles.body, padding: spacing.xl },
   mailbox: { ...textStyles.footnote },
 });
