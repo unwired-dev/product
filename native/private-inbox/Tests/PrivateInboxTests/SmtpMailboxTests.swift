@@ -125,7 +125,7 @@ extension PrivateInboxTests {
         generation: generation)
     }
     #expect(imap.requests().allSatisfy { $0.1 == "app-password" })
-    // Filing is a provider write too: no server access without a current device proof.
+    // Filing and submission are provider writes: no server access without a current device proof.
     let requests = imap.requests().count
     proofAvailable = false
     await #expect(throws: RegistrationError.unavailable) {
@@ -133,14 +133,34 @@ extension PrivateInboxTests {
         segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
         address: "alex@example.invalid", generation: generation)
     }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.imapSend(
+        segments: [["text": head + body]], recipients: recipients, connection: id,
+        address: "alex@example.invalid", generation: generation)
+    }
     proofAvailable = true
     revoked = true
+    // A purge that fails is reported as itself, and the account stays for the next attempt.
+    store.stopErrorReporting = { throw PrivateInboxError.locked }
+    await #expect(throws: PrivateInboxError.locked) {
+      _ = try await store.imapFileSent(
+        segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
+        address: "alex@example.invalid", generation: generation)
+    }
+    await #expect(throws: PrivateInboxError.locked) {
+      _ = try await store.imapSend(
+        segments: [["text": head + body]], recipients: recipients, connection: id,
+        address: "alex@example.invalid", generation: generation)
+    }
+    #expect(try store.load() != nil)
+    store.stopErrorReporting = {}
     await #expect(throws: RegistrationError.revoked) {
       _ = try await store.imapFileSent(
         segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
         address: "alex@example.invalid", generation: generation)
     }
     #expect(imap.requests().count == requests)
+    #expect(smtp.submissions().count == 1)
     #expect(try store.load() == nil)
   }
 

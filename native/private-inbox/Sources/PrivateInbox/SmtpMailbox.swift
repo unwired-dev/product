@@ -162,11 +162,7 @@ extension RegistrationStore {
       throw PrivateInboxError.mailboxInvalidated
     }
     // A submission requires a current Trusted Device proof, as every provider write does.
-    guard let deviceRevoked else { throw RegistrationError.unavailable }
-    if try await deviceRevoked(product) {
-      try await purge()
-      throw RegistrationError.revoked
-    }
+    try await requireTrustedDevice(product)
     guard mailboxGeneration(id).uuidString == generation, verifiedMailboxes.contains(id) else {
       throw PrivateInboxError.mailboxInvalidated
     }
@@ -189,11 +185,7 @@ extension RegistrationStore {
     let product = try mailboxAccount(id)
     let message = try await outgoingMessage(
       segments: segments, owner: product.productAccountId)
-    guard let deviceRevoked else { throw RegistrationError.unavailable }
-    if try await deviceRevoked(product) {
-      try await purge()
-      throw RegistrationError.revoked
-    }
+    try await requireTrustedDevice(product)
     try await imapWork(connection: id, address: address, generation: generation) {
       try await imap.fileSent($0, password: $1, folder: folder, boundary: boundary, message: message)
     }

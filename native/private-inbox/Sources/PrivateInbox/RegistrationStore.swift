@@ -861,6 +861,16 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     if (try? await deviceRevoked?(product)) == true { throw RegistrationError.revoked }
   }
 
+  // A provider write's proof for the account its caller already selected. Unlike the preflight
+  // above, a missing or failed proof refuses the write, and a removed device purges first.
+  func requireTrustedDevice(_ product: ProductRegistrationReceipt) async throws {
+    guard let deviceRevoked else { throw RegistrationError.unavailable }
+    if try await deviceRevoked(product) {
+      try await purge()
+      throw RegistrationError.revoked
+    }
+  }
+
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
   func purge(notice: String? = nil) async throws {
