@@ -92,11 +92,11 @@ jest.mock('@expo/ui/swift-ui', () => {
   }
   // Form controls render their text, and a button its pressable label, for component journeys.
   const { Pressable, Text } = require('react-native');
-  function Section({ title, footer, children }) {
+  function Section({ title, header, footer, children }) {
     return React.createElement(
       React.Fragment,
       null,
-      title === undefined ? null : React.createElement(Text, null, title),
+      title === undefined ? header : React.createElement(Text, null, title),
       children,
       footer,
     );

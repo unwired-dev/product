@@ -903,6 +903,12 @@ still applies. See `docs/architecture/macos-client.md`.
   selected editor without attempting to leave it, or invalid recipient entry
   can strand the hidden editor behind a refused destination change.
 
+- Mobile `app/_layout.tsx` replacing Expo Router's `Slot` with a temporary page
+  while Inbox actions still call `router.replace`. Keep the navigation outlet
+  mounted while hiding its content, and exercise a message selection from the
+  temporary page in the packaged app. Without the outlet's navigator, selection
+  leaves the page visible; a synchronous Jest router mock cannot prove navigation.
+
 - Mobile `app/_layout.tsx` keeping route state in a ref such as `reader` for a
   callback that runs after an awaited save (composer Close, `compose`) while
   only a render-time `useLayoutEffect` refreshes it. Installed Expo Router

@@ -78,7 +78,6 @@ const styles = StyleSheet.create({
 });
 
 type Choice = readonly [string, string];
-const secondary = foregroundStyle({ type: 'hierarchical', style: 'secondary' });
 const device = Platform.OS === 'ios' && Platform.isPad ? 'iPad' : 'iPhone';
 const capitalized = (text: string) =>
   `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
@@ -94,6 +93,7 @@ export function CategorizationSpike({
   readonly compact: boolean;
 }) {
   const colors = usePalette();
+  const secondary = foregroundStyle(colors.textSecondary);
   const { width } = useWindowDimensions();
   const native = TurboModuleRegistry.get<SpikeModule & TurboModule>(
     'UnwiredCategorizationSpike',
@@ -119,7 +119,7 @@ export function CategorizationSpike({
     page = (
       <Group
         footer={
-          <SwiftText>
+          <SwiftText modifiers={[secondary]}>
             {`Export the frozen candidates, then rebuild the categorization-spike scenario. Categorization stays unavailable on this ${device}; it has no server fallback.`}
           </SwiftText>
         }>
@@ -170,7 +170,10 @@ export function CategorizationSpike({
           {title}
         </NavigationChrome>
       ) : (
-        <View style={styles.header}>{title}</View>
+        <View style={styles.header}>
+          <NavigationChrome />
+          {title}
+        </View>
       )}
       <Host style={styles.form}>
         <Form
@@ -180,7 +183,7 @@ export function CategorizationSpike({
           ]}>
           <Group
             footer={
-              <SwiftText>
+              <SwiftText modifiers={[secondary]}>
                 {`Research build: classifies bundled public and synthetic samples with the frozen DeBERTa candidates on this ${device}. It never reads your mail or contacts a server.`}
               </SwiftText>
             }>
@@ -194,11 +197,20 @@ export function CategorizationSpike({
 }
 
 // A form section whose rows sit on the lighter fill over the page's content surface.
-function Group(props: ComponentProps<typeof Section>) {
+function Group({ title, ...props }: ComponentProps<typeof Section>) {
   const colors = usePalette();
   return (
     <Section
       {...props}
+      header={
+        title === undefined ? (
+          props.header
+        ) : (
+          <SwiftText modifiers={[foregroundStyle(colors.textSecondary)]}>
+            {title}
+          </SwiftText>
+        )
+      }
       modifiers={[listRowBackground(colors.surfaceBubble)]}
     />
   );
@@ -272,6 +284,7 @@ function Spike({
   readonly catalog: CatalogValue;
   readonly onDismiss: () => void;
 }) {
+  const secondary = foregroundStyle(usePalette().textSecondary);
   // oxlint-disable-next-line react/hook-use-state -- The page keeps one session until it unmounts.
   const [session] = useState(() => spikeSession({ module, catalog, device }));
   const { selection, busy, result, failure } = useSyncExternalStore(
@@ -378,7 +391,7 @@ function Spike({
           <Group
             title="Measurements"
             footer={
-              <SwiftText>
+              <SwiftText modifiers={[secondary]}>
                 {`${catalog.host.model} · ${catalog.host.os} · evidence ${catalog.evidence}`}
               </SwiftText>
             }>
@@ -386,7 +399,9 @@ function Spike({
               <LabeledContent
                 key={title}
                 label={title}>
-                <SwiftText modifiers={[monospacedDigit()]}>{value}</SwiftText>
+                <SwiftText modifiers={[monospacedDigit(), secondary]}>
+                  {value}
+                </SwiftText>
               </LabeledContent>
             ))}
           </Group>
@@ -456,7 +471,7 @@ function Setup({
     count === 6 ? '6 golden categories' : `${count} categories`,
   ]);
   return (
-    <Group title="Setup">
+    <Group>
       <Pick
         label="Candidate"
         value={selection.run}
@@ -481,7 +496,7 @@ function Setup({
       <Pick
         label="Compute Units"
         value={selection.unit}
-        choices={units}
+        choices={units.map(([id, title]) => [id, id === 'all' ? 'All' : title])}
         locked={locked}
         onChange={(unit) => {
           onChange({
@@ -528,6 +543,7 @@ function BenchmarkProgress({
   readonly samples: number;
   readonly onCancel: () => void;
 }) {
+  const colors = usePalette();
   const [progress, setProgress] = useState<ProgressValue>(null);
   useEffect(() => {
     const poll = async () => {
@@ -547,7 +563,7 @@ function BenchmarkProgress({
     <Group
       title={`Benchmark · ${rounds} rounds of ${samples} samples`}
       footer={
-        <SwiftText>
+        <SwiftText modifiers={[foregroundStyle(colors.textSecondary)]}>
           Leaving this page cancels the benchmark and discards its partial
           results.
         </SwiftText>
@@ -562,6 +578,7 @@ function BenchmarkProgress({
         </SwiftText>
         <ProgressView
           value={progress === null ? 0 : progress.done / progress.total}
+          modifiers={[tint(colors.accentFill)]}
         />
       </VStack>
       <Button
@@ -587,22 +604,26 @@ function Scores({
   readonly classification: ClassificationValue;
   readonly custom: boolean;
 }) {
+  const secondary = foregroundStyle(usePalette().textSecondary);
   const decided = classification.categories.map((id) =>
     categoryName(catalog, language, id),
   );
   return (
     <>
       <Group
-        title={`Input · ${classification.tokens[0] ?? 0} of ${maxLength} tokens`}>
-        <SwiftText modifiers={[secondary]}>
-          {input.replaceAll('\n', ' · ')}
-        </SwiftText>
+        title={`Input · ${classification.tokens[0] ?? 0} of ${maxLength} tokens`}
+        footer={
+          <SwiftText modifiers={[secondary]}>
+            {input.replaceAll('\n', ' · ')}
+          </SwiftText>
+        }>
+        {null}
       </Group>
       <Group
         title={`Result · ${decided.length === 0 ? 'Uncategorized' : decided.join(' and ')}`}
         footer={
           decided.length === 0 ? (
-            <SwiftText>
+            <SwiftText modifiers={[secondary]}>
               {`No ${custom ? 'Custom Category' : 'category'} reached its threshold, so the spike abstains and the message stays uncategorized.`}
             </SwiftText>
           ) : undefined
@@ -621,7 +642,7 @@ function Scores({
                   </SwiftText>
                 </VStack>
               }>
-              <SwiftText modifiers={[monospacedDigit()]}>
+              <SwiftText modifiers={[monospacedDigit(), secondary]}>
                 {probability(score.probability)}
               </SwiftText>
             </LabeledContent>

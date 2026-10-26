@@ -70,6 +70,7 @@ const phone = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  hidden: { display: 'none' },
   overlay: {
     position: 'absolute',
     right: spacing.m,
@@ -161,12 +162,19 @@ function ReadingColumn({
   readonly reader: string | undefined;
   readonly compact: boolean;
 }) {
-  return spike && reader === undefined && CategorizationSpike !== undefined ? (
-    <ReaderPane>
-      <CategorizationSpike compact={compact} />
-    </ReaderPane>
-  ) : (
-    <Slot />
+  const showingSpike =
+    spike && reader === undefined && CategorizationSpike !== undefined;
+  return (
+    <>
+      <View style={showingSpike ? styles.hidden : styles.fill}>
+        <Slot />
+      </View>
+      {showingSpike && CategorizationSpike !== undefined ? (
+        <ReaderPane>
+          <CategorizationSpike compact={compact} />
+        </ReaderPane>
+      ) : null}
+    </>
   );
 }
 
