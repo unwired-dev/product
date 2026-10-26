@@ -55,7 +55,6 @@ catalog:
   vitest: ^5.0.3
 
 patchedDependencies:
-  '@expo/ui@57.0.26': patches/@expo__ui@57.0.26.patch
   expo-glass-effect@57.0.4: patches/expo-glass-effect@57.0.4.patch
   react-native-webview@13.16.1: patches/react-native-webview@13.16.1.patch
 
