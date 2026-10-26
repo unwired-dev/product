@@ -1577,14 +1577,19 @@ final class InboxTests: XCTestCase {
     where issue.element?.elementType == .staticText
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
-    // Text the audit locates no element for, over the reader; iPad's composer leaves it in view,
-    // and it appears while iPad's system Filters popover is open, whose content is all labelled.
+    // Text the audit locates no element for, over the reader; iPad's composer leaves it in view.
     case .elementDetection
     where (screen == "Reader"
-      || (["Composer", "Filters"].contains(screen) && UIDevice.current.userInterfaceIdiom == .pad))
+      || (screen == "Composer" && UIDevice.current.userInterfaceIdiom == .pad))
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
       return "#1213"
+    // Undiagnosed: the same unlocated text while iPad's system Filters popover is open.
+    case .elementDetection
+    where screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad
+      && issue.element == nil
+      && issue.compactDescription == "Potentially inaccessible text":
+      return "#1403"
     default:
       return nil
     }
@@ -1714,6 +1719,10 @@ final class InboxTests: XCTestCase {
     committed.name = "Committed read state"
     committed.lifetime = .keepAlways
     add(committed)
+    verifyReadStateAfterRelaunch(app)
+  }
+
+  private func verifyReadStateAfterRelaunch(_ app: XCUIApplication) {
     app.terminate()
     // Larger text from here on: the preview message's few commands otherwise fit above the
     // keyboard, and the palette check below needs a list that reaches beneath it (#982).

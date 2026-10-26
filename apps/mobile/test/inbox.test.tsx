@@ -39,6 +39,7 @@ import {
   Dimensions,
   Linking,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -513,9 +514,11 @@ describe('preview Inbox', () => {
     }: {
       readonly keyboardLift?: number;
     }) {
+      const { width } = useWindowDimensions();
       const windowBar = useMemo(() => createWindowBar(), []);
       return (
-        <WindowBarContext value={windowBar}>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Like the app, only a regular-width window has the bar.
+        <WindowBarContext value={width >= 600 ? windowBar : undefined}>
           <InboxJourney />
           <WindowBarHost
             windowBar={windowBar}
@@ -561,6 +564,28 @@ describe('preview Inbox', () => {
       expect(screen.queryByTestId('popover')).toBeNull();
       expect(
         bar.getByRole('button', { name: 'Filtered by Unread' }),
+      ).toBeVisible();
+      // Crossing into a compact window closes Filters without applying their edits.
+      await fireEvent.press(
+        bar.getByRole('button', { name: 'Filtered by Unread' }),
+      );
+      await fireEvent.press(
+        within(screen.getByTestId('popover')).getByRole('checkbox', {
+          name: 'Unread',
+        }),
+      );
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 500, height: 768 } });
+      });
+      expect(screen.queryByTestId('popover')).toBeNull();
+      expect(screen.queryByTestId('bottom-sheet')).toBeNull();
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 1024, height: 768 } });
+      });
+      expect(
+        within(screen.getByTestId('window-bar')).getByRole('button', {
+          name: 'Filtered by Unread',
+        }),
       ).toBeVisible();
       await fireEvent(
         bar.getByLabelText('Search senders and subjects'),
