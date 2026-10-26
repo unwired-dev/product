@@ -13,7 +13,7 @@ import { StrictMode, useLayoutEffect } from 'react';
 import { AccessibilityInfo } from 'react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
-import { GmailMessageBody } from '../src/message-body.tsx';
+import { MessageBody } from '../src/message-body.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext, MessageSummary } from '../src/message-summary.tsx';
 
@@ -94,7 +94,7 @@ async function openReader(assistance: NativeAssistance) {
   await inbox.load();
   const reader = (id: string, subject: string) => (
     <AssistanceContext value={assistance}>
-      <GmailMessageBody
+      <MessageBody
         inbox={inbox}
         id={id}
         subject={subject}

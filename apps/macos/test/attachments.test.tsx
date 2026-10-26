@@ -5,10 +5,9 @@ import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailb
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
 
-import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
-import { GmailMessageBody } from '../src/message-body.tsx';
+import { MessageBody } from '../src/message-body.tsx';
 
 // The application callback behind a rendered control, as delayed native input would invoke it.
 const pressHandler = (
@@ -59,7 +58,7 @@ describe('received attachments in the reader', () => {
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
     const app = await render(
-      <GmailMessageBody
+      <MessageBody
         inbox={inbox}
         id={id}
       />,
@@ -120,7 +119,7 @@ describe('received attachments in the reader', () => {
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
     const app = await render(
-      <GmailMessageBody
+      <MessageBody
         key={id}
         inbox={inbox}
         id={id}
@@ -168,7 +167,7 @@ describe('received attachments in the reader', () => {
         await inbox.load();
       });
       await app.rerender(
-        <GmailMessageBody
+        <MessageBody
           key={next}
           inbox={inbox}
           id={next}
@@ -199,7 +198,7 @@ describe('received attachments in the reader', () => {
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
     const app = await render(
-      <GmailMessageBody
+      <MessageBody
         inbox={inbox}
         id={first}
       />,
@@ -213,7 +212,7 @@ describe('received attachments in the reader', () => {
       // Delivered during the switch's commit, before the previous reader's passive cleanup.
       await app.rerender(
         <>
-          <GmailMessageBody
+          <MessageBody
             inbox={inbox}
             id={second}
           />
@@ -236,7 +235,7 @@ describe('received attachments in the reader', () => {
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
     const app = await render(
-      <GmailMessageBody
+      <MessageBody
         key="previous"
         inbox={inbox}
         id={id}
@@ -259,7 +258,7 @@ describe('received attachments in the reader', () => {
       );
       // Closing the previous reader cancels its attempt; the replacement owns a new one.
       await app.rerender(
-        <GmailMessageBody
+        <MessageBody
           key="replacement"
           inbox={inbox}
           id={id}
@@ -292,7 +291,7 @@ describe('received attachments in the reader', () => {
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
     const app = await render(
-      <GmailMessageBody
+      <MessageBody
         inbox={inbox}
         id={id}
       />,
@@ -382,7 +381,7 @@ describe('received attachments in IMAP mail', () => {
     await inbox.load();
     const id = imapMessageId(inbox);
     const app = await render(
-      <ImapMessageBody
+      <MessageBody
         inbox={inbox}
         id={id}
       />,
