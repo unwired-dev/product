@@ -333,35 +333,18 @@ export const respond = (
 export async function forwardedAttachments(
   inbox: Pick<
     GmailInbox,
-    'messageAttachments' | 'downloadAttachment' | 'attachmentFile' | 'subscribe'
+    'messageAttachments' | 'downloadAttachment' | 'attachmentFile'
   >,
   { mailbox, id }: Readonly<{ mailbox: string; id: string }>,
 ): Promise<readonly PickedFile[]> {
-  const stateOf = (locator: string) =>
-    inbox.messageAttachments(id)?.find((each) => each.locator === locator)
-      ?.state.kind;
-  // A download already running when Forward was chosen is awaited rather than started again.
-  const settled = (locator: string) =>
-    // oxlint-disable-next-line promise/avoid-new -- Waits for the Inbox store's download state.
-    new Promise<void>((resolve) => {
-      let unsubscribe: (() => void) | undefined = undefined;
-      const check = () => {
-        if (stateOf(locator) !== 'downloading') {
-          unsubscribe?.();
-          resolve();
-        }
-      };
-      unsubscribe = inbox.subscribe(check);
-      check();
-    });
   return Promise.all(
     (inbox.messageAttachments(id) ?? []).map(
       async ({ locator, name, mimeType, state }): Promise<PickedFile> => {
         if (state.kind === 'oversized') {
           return { name, type: mimeType, source: { kind: 'oversized' } };
         }
+        // A download already running when Forward was chosen is awaited rather than started again.
         await inbox.downloadAttachment(id, locator);
-        await settled(locator);
         const saved = inbox.attachmentFile(id, locator);
         return {
           name,
@@ -405,7 +388,6 @@ export async function startResponse(
       | 'messageAttachments'
       | 'downloadAttachment'
       | 'attachmentFile'
-      | 'subscribe'
     >;
   }>,
   t: Translate,

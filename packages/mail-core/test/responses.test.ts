@@ -536,6 +536,46 @@ describe('replying to and forwarding a received message', () => {
     expect(draftOf(reopened.getSnapshot(), forward.id)).toStrictEqual(settled);
   });
 
+  it('forwards an attachment already downloading by awaiting that download', async () => {
+    expect.hasAssertions();
+    const { id, inbox, start, draft, storage, gmail } = await reader();
+    const notes = present(inbox.messageAttachments(id)?.[0], 'notes.txt');
+    const save = gmail.native.saveAttachment;
+    const saving = Promise.withResolvers<undefined>();
+    const saveHeld = Promise.withResolvers<undefined>();
+    gmail.native.saveAttachment = async (...args) => {
+      saving.resolve(undefined);
+      await saveHeld.promise;
+      return save(...args);
+    };
+    const downloading = inbox.downloadAttachment(id, notes.locator);
+    await saving.promise;
+
+    // Forward is chosen while the file is still being saved.
+    storage.holdImports();
+    const forwarding = start('forward');
+    saveHeld.resolve(undefined);
+    await downloading;
+    const files = [...gmail.savedFiles];
+    for (const [file, { bytes }] of files) {
+      storage.addFile(file, String.fromCodePoint(...bytes));
+    }
+    storage.releaseImports();
+    const forward = draft(await forwarding);
+    await vi.waitFor(() => {
+      expect(
+        present(draft(forward.id).attachments, 'forwarded attachments').map(
+          ({ name, state }) => ({ name, state }),
+        ),
+      ).toStrictEqual([{ name: 'notes.txt', state: 'complete' }]);
+    });
+    // Forward used the download already running rather than reading the attachment again.
+    expect(
+      gmail.requests.filter(({ path }) => path.includes('/attachments/')),
+    ).toHaveLength(1);
+    expect(files).toHaveLength(1);
+  });
+
   it('never answers from another mailbox, and needs the opened message first', async () => {
     expect.hasAssertions();
     // The receiving mailbox waits for Gmail authorization on this device, so it cannot send.

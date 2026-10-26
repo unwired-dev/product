@@ -411,6 +411,91 @@ describe('received attachments', () => {
     await refresh;
   });
 
+  it('shares a running download with every caller until its file is saved', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox } = await opened();
+    const notes = locatorOf(inbox, id, 'notes.txt');
+    const save = gmail.native.saveAttachment;
+    const saving = Promise.withResolvers<undefined>();
+    const saveHeld = Promise.withResolvers<undefined>();
+    gmail.native.saveAttachment = async (...args) => {
+      saving.resolve(undefined);
+      await saveHeld.promise;
+      return save(...args);
+    };
+    // A subscriber asking again as the download starts receives the running operation.
+    let reentered: Promise<void> | undefined = undefined;
+    const unsubscribe = inbox.subscribe(() => {
+      reentered ??= inbox.downloadAttachment(id, notes);
+    });
+    const first = inbox.downloadAttachment(id, notes);
+    unsubscribe();
+    const second = inbox.downloadAttachment(id, notes);
+    expect(reentered).toBe(first);
+    expect(second).toBe(first);
+
+    let settled = false;
+    const waiting = (async () => {
+      await second;
+      settled = true;
+    })();
+    await saving.promise;
+    expect(settled).toBe(false);
+    saveHeld.resolve(undefined);
+    await waiting;
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloaded',
+    });
+    expect(attachmentRequests(gmail)).toHaveLength(1);
+    expect(gmail.savedFiles.size).toBe(1);
+  });
+
+  it('keeps a download started after a cancellation when the cancelled one finishes saving', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox } = await opened();
+    const notes = locatorOf(inbox, id, 'notes.txt');
+    const save = gmail.native.saveAttachment;
+    // Each save waits until the journey releases it.
+    const saves = [
+      Promise.withResolvers<undefined>(),
+      Promise.withResolvers<undefined>(),
+    ];
+    const saving = [
+      Promise.withResolvers<undefined>(),
+      Promise.withResolvers<undefined>(),
+    ];
+    let count = 0;
+    gmail.native.saveAttachment = async (...args) => {
+      const index = count;
+      count += 1;
+      saving[index]?.resolve(undefined);
+      await saves[index]?.promise;
+      return save(...args);
+    };
+    const cancelled = inbox.downloadAttachment(id, notes);
+    await saving[0]?.promise;
+    inbox.cancelAttachment(id, notes);
+    const again = inbox.downloadAttachment(id, notes);
+    expect(again).not.toBe(cancelled);
+    await saving[1]?.promise;
+
+    // The cancelled save finishes first: its file is deleted, and the new download is untouched.
+    saves[0]?.resolve(undefined);
+    await cancelled;
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloading',
+    });
+    expect(inbox.downloadAttachment(id, notes)).toBe(again);
+    saves[1]?.resolve(undefined);
+    await again;
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloaded',
+    });
+    expect([...gmail.savedFiles.values()]).toStrictEqual([
+      { name: 'notes.txt', bytes: new TextEncoder().encode(notesText) },
+    ]);
+  });
+
   it('drops a downloaded file when a refresh changes its attachment at the same position', async () => {
     expect.hasAssertions();
     const { gmail, id, inbox } = await opened({
