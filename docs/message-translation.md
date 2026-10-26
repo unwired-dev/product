@@ -19,14 +19,17 @@ fallback and nothing is downloaded by the app.
   pull-down menu headed **Translate Into**; while a translation shows, it becomes a
   pop-up naming the target, with the chosen language checked. The menu reads the
   language list once assistance is on, so it can open with it; no mail text is sent
-  until a language is chosen.
+  until a language is chosen. On iPhone and iPad the translation panel shows a
+  native pop-up, **Translate into**, that opens a system menu of the languages;
+  opening it chooses nothing, and once a language is chosen it reads
+  **Translate into** that language, with the language checked in the menu.
 - When the device's Translation fails to list its languages, the reader says
   **Translation languages couldn’t be loaded.** with **Try Again**, which asks the
   device again. On Mac this banner takes the place of **Translate** and stays
   visible with **Loading languages** and a small activity indicator while the
   device answers; a Draft's
   translation menu shows the failure followed by **Try Again**; on iPhone and iPad it
-  takes the place of the language choices in the translation panel. VoiceOver hears
+  takes the place of the language pop-up in the translation panel. VoiceOver hears
   a failure that follows the person's action: opening the panel on iPhone and iPad,
   or **Try Again**. A device that lists no languages instead says **Translation is
   not available on this device.**, without **Try Again**.
