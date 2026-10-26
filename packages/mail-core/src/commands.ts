@@ -14,6 +14,7 @@ import * as Semaphore from 'effect/Semaphore';
 import type { ResponseKind } from './responses.ts';
 
 import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
+import { createSubscribable } from './subscribable.ts';
 
 export type CommandSection = 'selection' | 'app' | 'navigation';
 
@@ -254,22 +255,13 @@ export const runWhenOffered = (
  */
 export const createCommandRegistry = () => {
   const owners = new Map<symbol, readonly Command[]>();
-  const listeners = new Set<() => void>();
-  let snapshot: readonly Command[] = [];
+  const snapshot = createSubscribable<readonly Command[]>([]);
   const notify = () => {
-    snapshot = [...owners.values()].flat();
-    for (const listener of listeners) {
-      listener();
-    }
+    snapshot.set([...owners.values()].flat());
   };
   return {
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    getSnapshot: () => snapshot,
+    subscribe: snapshot.subscribe,
+    getSnapshot: snapshot.getSnapshot,
     register: (owner: symbol, commands: readonly Command[]) => {
       owners.set(owner, commands);
       notify();
@@ -583,25 +575,15 @@ export const savePreference = (
  */
 export const createPaletteHint = (native: NativePreferences) => {
   const operations = Semaphore.makeUnsafe(1);
-  let due = false;
-  const listeners = new Set<() => void>();
+  const due = createSubscribable(false);
   const publish = (next: boolean) => {
-    if (next === due) {
-      return;
-    }
-    due = next;
-    for (const listener of listeners) {
-      listener();
+    if (next !== due.getSnapshot()) {
+      due.set(next);
     }
   };
   return {
-    getSnapshot: () => due,
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    getSnapshot: due.getSnapshot,
+    subscribe: due.subscribe,
     // Due until the saved preference says it was seen. An unreadable or malformed preference
     // keeps it hidden.
     load: () =>
@@ -634,7 +616,7 @@ export const createPaletteHint = (native: NativePreferences) => {
         operations
           .withPermit(
             Effect.gen(function* () {
-              if (!due) {
+              if (!due.getSnapshot()) {
                 return;
               }
               publish(false);

@@ -201,6 +201,11 @@ describe('command palette targets', () => {
     const unsubscribe = registry.subscribe(() => {
       seen.push(registry.getSnapshot().length);
     });
+    const once: number[] = [];
+    const stop = registry.subscribe(() => {
+      once.push(registry.getSnapshot().length);
+      stop();
+    });
     const unregister = registry.register(Symbol('inbox'), [
       command({ id: 'search', section: 'app', title: 'Search Mail' }),
     ]);
@@ -208,6 +213,7 @@ describe('command palette targets', () => {
     unsubscribe();
     registry.register(Symbol('inbox'), [placeholder]);
     expect(seen).toStrictEqual([1, 0]);
+    expect(once).toStrictEqual([1]);
   });
 });
 
@@ -255,10 +261,11 @@ describe('command palette hint preference', () => {
     expect(hint.getSnapshot()).toBe(true);
     await hint.dismiss();
     await hint.dismiss();
-    expect(seen).toStrictEqual([true, false]);
     expect(saved).toStrictEqual(['command-palette-hint']);
     await hint.load();
     expect(hint.getSnapshot()).toBe(false);
+    // Loading the same value again does not notify.
+    expect(seen).toStrictEqual([true, false]);
     const malformed = createPaletteHint({
       preference: () => Promise.resolve({ value: 7 }),
       setPreference: () => Promise.reject(new Error('unavailable')),

@@ -8,6 +8,7 @@ import {
   runLogged,
 } from './diagnostics.ts';
 import { fixtureMessages, MessageSchema } from './index.ts';
+import { createSubscribable } from './subscribable.ts';
 
 const Snapshot = Schema.Struct({
   version: Schema.Literal(1),
@@ -88,14 +89,7 @@ export function createPersistentInbox(
   > = () => Promise.resolve(fixtureMessages),
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
-  let state: InboxState = { kind: 'loading' };
-  const listeners = new Set<() => void>();
-  const publish = (next: InboxState) => {
-    state = next;
-    for (const listener of listeners) {
-      listener();
-    }
-  };
+  const state = createSubscribable<InboxState>({ kind: 'loading' });
   const execute = (
     operation: Effect.Effect<unknown, StorageLocked | StorageFailure>,
   ) =>
@@ -103,20 +97,15 @@ export function createPersistentInbox(
       synchronize(operation).pipe(
         Effect.flatMap((next) =>
           Effect.sync(() => {
-            publish(next);
+            state.set(next);
           }),
         ),
         semaphore.withPermit,
       ),
     );
   return {
-    getSnapshot: () => state,
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    getSnapshot: state.getSnapshot,
+    subscribe: state.subscribe,
     load: () =>
       execute(
         Effect.gen(function* () {
