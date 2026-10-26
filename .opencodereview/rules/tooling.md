@@ -4,6 +4,12 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- `apps/mobile/plugins/categorization-spike.cjs` removing a scenario's resource
+  copy phase without deleting resources that phase left in the built app. Exercise
+  a spike-to-production or other-scenario transition through the real Expo mod
+  and generated cleanup script; otherwise incremental builds can ship the prior
+  research models even after their sources and copy phase are gone.
+
 - Evidence validators such as `scripts/verify-assistance-evidence.py` accepting
   case identities, result labels and totals without the per-kind payload the
   owning qualification guide requires for review. Trace the recorder through the

@@ -44,10 +44,15 @@ const substitutes = {
   ...(scenario === 'registration-draft-editor' && {
     '@private-email/draft-editor/page': buildPage(),
   }),
+  // Each client imports its page stub by its own path: the Mac window and the mobile root layout.
   ...(scenario === 'categorization-spike' && {
     './categorization-spike.ts': path.resolve(
       __dirname,
       '../apps/macos/src/categorization-spike-page.tsx',
+    ),
+    '../src/categorization-spike.ts': path.resolve(
+      __dirname,
+      '../apps/mobile/src/categorization-spike-page.tsx',
     ),
   }),
 };

@@ -18,14 +18,17 @@ public enum Measurement {
 
   // The kernel's energy estimate for this process in nanojoules. It does not attribute GPU or
   // Neural Engine energy, so accelerator runs understate their cost.
+  // Read through task_info, which iOS also exposes; it is the counter proc_pid_rusage reports.
   public static func energyNanojoules() -> UInt64 {
-    var info = rusage_info_v6()
+    var info = task_power_info_v2_data_t()
+    var count = mach_msg_type_number_t(
+      MemoryLayout<task_power_info_v2_data_t>.size / MemoryLayout<natural_t>.size)
     let result = withUnsafeMutablePointer(to: &info) {
-      $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
-        proc_pid_rusage(getpid(), RUSAGE_INFO_V6, $0)
+      $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+        task_info(mach_task_self_, task_flavor_t(TASK_POWER_INFO_V2), $0, &count)
       }
     }
-    return result == 0 ? info.ri_energy_nj : 0
+    return result == KERN_SUCCESS ? info.task_energy : 0
   }
 
   public static func thermal() -> String {

@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,35 @@ import * as Schema from 'effect/Schema';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const macFiles = ['package.json', 'react-native.config.cjs', 'macos/Podfile'];
+const xcodeFixture = `{
+        archiveVersion = 1;
+        objectVersion = 54;
+        objects = {
+          /* Begin PBXProject section */
+          ROOT = { isa = PBXProject; mainGroup = GROUP; targets = (TARGET /* Test */,); };
+          /* End PBXProject section */
+          /* Begin PBXGroup section */
+          GROUP = { isa = PBXGroup; children = (); sourceTree = "<group>"; };
+          /* End PBXGroup section */
+          /* Begin PBXNativeTarget section */
+          TARGET = { isa = PBXNativeTarget; buildPhases = (SOURCES /* Sources */, FRAMEWORKS /* Frameworks */,); };
+          /* End PBXNativeTarget section */
+          /* Begin PBXSourcesBuildPhase section */
+          SOURCES /* Sources */ = { isa = PBXSourcesBuildPhase; files = (); };
+          /* End PBXSourcesBuildPhase section */
+          /* Begin PBXFrameworksBuildPhase section */
+          FRAMEWORKS /* Frameworks */ = { isa = PBXFrameworksBuildPhase; files = (); };
+          /* End PBXFrameworksBuildPhase section */
+          /* Begin PBXFileReference section */
+          /* End PBXFileReference section */
+          /* Begin PBXBuildFile section */
+          /* End PBXBuildFile section */
+          /* Begin XCBuildConfiguration section */
+          CONFIG = { isa = XCBuildConfiguration; buildSettings = {}; };
+          /* End XCBuildConfiguration section */
+        };
+        rootObject = ROOT;
+      }\n`;
 
 test('Expo generation installs the notification delegate in fresh and existing apps once', async () => {
   const mobile = path.join(root, 'apps/mobile');
@@ -77,38 +107,7 @@ test('incremental Expo generation removes retired synthetic sources', async () =
   try {
     mkdirSync(projectDirectory, { recursive: true });
     mkdirSync(destination);
-    writeFileSync(
-      path.join(projectDirectory, 'project.pbxproj'),
-      `{
-        archiveVersion = 1;
-        objectVersion = 54;
-        objects = {
-          /* Begin PBXProject section */
-          ROOT = { isa = PBXProject; mainGroup = GROUP; targets = (TARGET /* Test */,); };
-          /* End PBXProject section */
-          /* Begin PBXGroup section */
-          GROUP = { isa = PBXGroup; children = (); sourceTree = "<group>"; };
-          /* End PBXGroup section */
-          /* Begin PBXNativeTarget section */
-          TARGET = { isa = PBXNativeTarget; buildPhases = (SOURCES /* Sources */, FRAMEWORKS /* Frameworks */,); };
-          /* End PBXNativeTarget section */
-          /* Begin PBXSourcesBuildPhase section */
-          SOURCES /* Sources */ = { isa = PBXSourcesBuildPhase; files = (); };
-          /* End PBXSourcesBuildPhase section */
-          /* Begin PBXFrameworksBuildPhase section */
-          FRAMEWORKS /* Frameworks */ = { isa = PBXFrameworksBuildPhase; files = (); };
-          /* End PBXFrameworksBuildPhase section */
-          /* Begin PBXFileReference section */
-          /* End PBXFileReference section */
-          /* Begin PBXBuildFile section */
-          /* End PBXBuildFile section */
-          /* Begin XCBuildConfiguration section */
-          CONFIG = { isa = XCBuildConfiguration; buildSettings = {}; };
-          /* End XCBuildConfiguration section */
-        };
-        rootObject = ROOT;
-      }\n`,
-    );
+    writeFileSync(path.join(projectDirectory, 'project.pbxproj'), xcodeFixture);
     const project = IOSConfig.XcodeUtils.getPbxproj(fixture);
     const retired = [
       'PrivateInbox/SyntheticCredential.swift',
@@ -282,5 +281,81 @@ test('Mac Podfile rejects a computed pod name with an allowed prefix', () => {
     });
     assert.notEqual(result.status, 0, declaration);
     assert.match(result.stderr, /Mac Podfile scope/u);
+  }
+});
+
+test('switching away from the categorization spike removes sources and incremental bundle resources', async () => {
+  const mobile = path.join(root, 'apps/mobile');
+  const requireMobile = createRequire(path.join(mobile, 'package.json'));
+  const { IOSConfig } = requireMobile('expo/config-plugins');
+  const fixture = mkdtempSync(path.join(tmpdir(), 'categorization-build-'));
+  const ios = path.join(fixture, 'ios');
+  const projectDirectory = path.join(ios, 'Test.xcodeproj');
+  const pluginPath = requireMobile.resolve(
+    './plugins/categorization-spike.cjs',
+  );
+  const buildPath = requireMobile.resolve('../../scripts/mock-mail-build.cjs');
+  const previous = process.env.UNWIRED_MOCK_SCENARIO;
+  try {
+    mkdirSync(projectDirectory, { recursive: true });
+    writeFileSync(path.join(projectDirectory, 'project.pbxproj'), xcodeFixture);
+    const project = IOSConfig.XcodeUtils.getPbxproj(fixture);
+    const resources = path.join(fixture, 'Test.app/CategorizationSpike');
+    const unrelated = path.join(fixture, 'Test.app/keep.txt');
+    mkdirSync(resources, { recursive: true });
+    writeFileSync(path.join(resources, 'prior-model'), 'previous spike build');
+    writeFileSync(unrelated, 'ordinary resource');
+    for (const scenario of [
+      'categorization-spike',
+      '',
+      '',
+      'categorization-spike',
+      'open-read-relaunch',
+    ]) {
+      process.env.UNWIRED_MOCK_SCENARIO = scenario;
+      Reflect.deleteProperty(requireMobile.cache, pluginPath);
+      Reflect.deleteProperty(requireMobile.cache, buildPath);
+      const plugin = requireMobile(pluginPath);
+      const config = plugin({ name: 'Test', slug: 'test' });
+      await config.mods.ios.xcodeproj({
+        ...config,
+        modResults: project,
+        modRequest: { projectRoot: mobile, platformProjectRoot: ios },
+      });
+      const spike = scenario === 'categorization-spike';
+      assert.equal(
+        Boolean(project.hasFile('CategorizationSpike/Candidate.swift')),
+        spike,
+      );
+      const phases = Object.values(
+        project.hash.project.objects.PBXShellScriptBuildPhase,
+      ).filter((phase) => phase?.isa === 'PBXShellScriptBuildPhase');
+      assert.equal(phases.length, 1);
+      const script = Schema.decodeUnknownSync(
+        Schema.fromJsonString(Schema.String),
+      )(phases[0].shellScript.replaceAll('\n', String.raw`\n`));
+      if (!spike) {
+        const result = spawnSync('/bin/sh', ['-c', script], {
+          env: {
+            ...process.env,
+            TARGET_BUILD_DIR: fixture,
+            UNLOCALIZED_RESOURCES_FOLDER_PATH: 'Test.app',
+          },
+          encoding: 'utf8',
+        });
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(existsSync(resources), false);
+        assert.equal(readFileSync(unrelated, 'utf8'), 'ordinary resource');
+      }
+    }
+  } finally {
+    if (previous === undefined) {
+      delete process.env.UNWIRED_MOCK_SCENARIO;
+    } else {
+      process.env.UNWIRED_MOCK_SCENARIO = previous;
+    }
+    Reflect.deleteProperty(requireMobile.cache, pluginPath);
+    Reflect.deleteProperty(requireMobile.cache, buildPath);
+    rmSync(fixture, { recursive: true, force: true });
   }
 });
