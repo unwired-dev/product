@@ -3,12 +3,7 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
-import type {
-  NativeSyntheticEvent,
-  StyleProp,
-  TextStyle,
-  ViewProps,
-} from 'react-native';
+import type { NativeSyntheticEvent, ViewProps } from 'react-native';
 
 import { spacing } from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef } from 'react';
@@ -46,37 +41,12 @@ const styles = StyleSheet.create({
 });
 
 type MarkName = `drafts.marks.${Mark}`;
-type BlockName = `drafts.blocks.${Exclude<BlockKind, 'paragraph'>}`;
-export const markControls: ReadonlyArray<
-  readonly [Mark, string, MarkName, StyleProp<TextStyle>]
-> = [
-  ['bold', 'B', 'drafts.marks.bold', { fontWeight: '700' }],
-  ['italic', 'I', 'drafts.marks.italic', { fontStyle: 'italic' }],
-  [
-    'underline',
-    'U',
-    'drafts.marks.underline',
-    { textDecorationLine: 'underline' },
-  ],
-  [
-    'strikethrough',
-    'S',
-    'drafts.marks.strikethrough',
-    { textDecorationLine: 'line-through' },
-  ],
-  ['code', '</>', 'drafts.marks.code', { fontFamily: 'Menlo' }],
-];
-
-export const blockControls: ReadonlyArray<
-  readonly [BlockKind, string, BlockName]
-> = [
-  ['heading1', 'H1', 'drafts.blocks.heading1'],
-  ['heading2', 'H2', 'drafts.blocks.heading2'],
-  ['heading3', 'H3', 'drafts.blocks.heading3'],
-  ['bulleted', '•', 'drafts.blocks.bulleted'],
-  ['numbered', '1.', 'drafts.blocks.numbered'],
-  ['quote', '❝', 'drafts.blocks.quote'],
-  ['code', '{ }', 'drafts.blocks.code'],
+const markControls: ReadonlyArray<readonly [Mark, MarkName]> = [
+  ['bold', 'drafts.marks.bold'],
+  ['italic', 'drafts.marks.italic'],
+  ['underline', 'drafts.marks.underline'],
+  ['strikethrough', 'drafts.marks.strikethrough'],
+  ['code', 'drafts.marks.code'],
 ];
 
 // The format bar's SF Symbols for each mark, and the block kinds its Text Style menu offers.
@@ -108,7 +78,8 @@ const textStyleKinds: readonly BlockKind[] = [
 
 // One item of a control's native menu; its key names the command, so a choice runs the latest
 // callback for that key while the control is mounted, and nothing once the item is gone. An item
-// without `run` is a heading, or opens the submenu of its `items`.
+// without `run` is a heading, or opens the submenu of its `items` or of its `sections`, groups of
+// items set apart by separators.
 export type PopUpItem = Readonly<{
   key: string;
   title: string;
@@ -120,23 +91,40 @@ export type PopUpItem = Readonly<{
   destructive?: boolean;
   run?: () => void;
   items?: readonly PopUpItem[];
+  sections?: ReadonlyArray<Readonly<{ items: readonly PopUpItem[] }>>;
 }>;
 
-type NativePopUpItem = Omit<PopUpItem, 'key' | 'run' | 'items'> & {
+type NativePopUpItem = Omit<PopUpItem, 'key' | 'run' | 'items' | 'sections'> & {
   readonly id: string;
   readonly items?: readonly NativePopUpItem[];
+  readonly sections?: ReadonlyArray<{ readonly items: NativePopUpItem[] }>;
 };
 
 const nativeItems = (items: readonly PopUpItem[]): NativePopUpItem[] =>
-  items.map(({ key, run: _run, items: submenu, ...item }) => ({
+  items.map(({ key, run: _run, items: submenu, sections, ...item }) => ({
     ...item,
     id: key,
     ...(submenu === undefined ? {} : { items: nativeItems(submenu) }),
+    ...(sections === undefined
+      ? {}
+      : {
+          sections: sections.map((section) => ({
+            items: nativeItems(section.items),
+          })),
+        }),
   }));
 
 const enabledItems = (items: readonly PopUpItem[]): PopUpItem[] =>
   items.flatMap((item) =>
-    item.disabled === true ? [] : [item, ...enabledItems(item.items ?? [])],
+    item.disabled === true
+      ? []
+      : [
+          item,
+          ...enabledItems([
+            ...(item.items ?? []),
+            ...(item.sections ?? []).flatMap((section) => section.items),
+          ]),
+        ],
   );
 
 const NativePopUpButton = requireNativeComponent<
@@ -287,7 +275,7 @@ export function FormatBar({
         }))}
       />
       <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-      {markControls.map(([mark, , name]) => (
+      {markControls.map(([mark, name]) => (
         <ToolbarButton
           key={mark}
           disabled={disabled}

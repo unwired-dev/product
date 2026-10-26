@@ -195,6 +195,18 @@ is not an indexed general mail database or the replacement body cache.
 The [Gmail companion](gmail-inbox.md) records transport ownership and suspension
 fences. Observable cache requirements remain in the operational storage guide.
 
+Gmail history segments live in `mailboxes/<connection>/history/<name>.enc`.
+Their encrypted mailbox envelopes bind address and provider subject, and their
+associated data binds the segment name. They reuse the mailbox reader, database
+key, file lock, protection and atomic synchronized ciphertext writer. A history
+commit writes new immutable segments before replacing `mailbox.enc`, then prunes
+unreferenced segments on a best-effort basis. Cleanup failure cannot reject a stored
+revision; later history commits retry the orphan files against their current keep
+list. An interrupted pre-publication write leaves the prior document and its segments
+readable. Mailbox commits and segment reads run file and CryptoKit work off the main
+actor while the bridge retains the registration operation gate. They recheck the
+owner, generation and protected-data availability before publishing a result.
+
 ## Local Draft storage
 
 Issue #611 adds TypeScript-owned semantic Drafts in `drafts.enc`, sealed with the

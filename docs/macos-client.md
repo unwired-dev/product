@@ -45,15 +45,15 @@ SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
 `UnwiredPushButton`, `UnwiredPopUpButton` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
 `UnwiredPopUpButton`. Settings rows, the IMAP security field and the composer's From
 and Text style show their current choice and open their menu over it, with the choice
-checked. The reader's Folders and the composer's actions and Writing tools are
+checked. The reader's Folders and More and the composer's actions and Writing tools are
 pull-down buttons that show their SF Symbol and drop their menu below. AppKit draws,
 focuses and opens each one, and owns keyboard navigation, Escape and click-outside
 dismissal. VoiceOver reads a pop-up button with its label and current choice, or a
 menu button with its label.
 Writing tools retain their localized selection/body descriptions for accessibility.
 React Native macOS 0.81.9 has no pop-up button; remove the adapter when it offers one
-with checked, disabled and destructive items. Other menus, such as the reader's More
-and the Profile Switcher, open from their own control through `UnwiredMenu` and drop
+with checked, disabled and destructive items. Other menus, such as the Profile
+Switcher's, open from their own control through `UnwiredMenu` and drop
 below it. React Native macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or
 destructive items. Remove the presenter when the host provides an anchored menu with
 those states. Follow
@@ -105,8 +105,8 @@ change. Expanding the sidebar in a narrower window widens the window. The
 account and registration pages show no sidebar. React Native macOS 0.81.9 has no
 split view; remove the adapter when it offers one.
 
-The Profile Switcher keeps its monogram trigger. It and the reader's More menu
-button use `accent/selection-subtle` while pressed or while their menu is open.
+The Profile Switcher keeps its monogram trigger. It uses `accent/selection-subtle`
+while pressed or while its menu is open.
 In Light, AppKit draws its system focus ring. In Dark, `MenuButton`
 (`apps/macos/src/design.tsx`) turns that ring off and draws an `accent/ink`
 outline instead. Native focus captures remain deferred

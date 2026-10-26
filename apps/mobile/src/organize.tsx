@@ -686,7 +686,7 @@ function GmailMessageActions({
             <ActionButton
               label={t('gmailActions.moveTo', { label: label.name })}
               onPress={() => {
-                act(gmailAction.move(label.id, view));
+                act(gmailAction.move(label.id, view, provider));
               }}
             />
           ) : null}
@@ -706,7 +706,7 @@ function GmailMessageActions({
               id: label.id,
               title: label.name,
               run: () => {
-                act(gmailAction.move(label.id, view));
+                act(gmailAction.move(label.id, view, provider));
               },
             })),
           })
@@ -792,7 +792,7 @@ function GmailMessageActions({
                         : undefined
                     }
                     onMove={(destination) => {
-                      act(gmailAction.move(destination, view));
+                      act(gmailAction.move(destination, view, provider));
                     }}
                     onClose={() => {
                       setPanel(undefined);

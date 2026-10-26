@@ -45,10 +45,10 @@ extension PrivateInboxTests {
     // Only the first mailbox suggests the Google sign-in; another one is chosen freely.
     #expect(google.hints == ["synthetic-product-subject", nil, nil])
 
-    _ = try store.commitMailbox(
+    _ = try await store.commitMailbox(
       connection: first, address: "same@example.invalid", expectedRevision: 0,
       document: "first", generation: store.generation("synthetic-product-subject"))
-    _ = try store.commitMailbox(
+    _ = try await store.commitMailbox(
       connection: second, address: "other@example.invalid", expectedRevision: 0,
       document: "second", generation: store.generation("synthetic-other-mailbox"))
     #expect(try store.openMailbox(first)["document"] as? String == "first")
@@ -129,7 +129,7 @@ extension PrivateInboxTests {
     _ = try await writer.authorizeGmail()
     let subject = "synthetic-product-subject"
     let id = MailboxConnection.id(subject: subject)
-    _ = try writer.commitMailbox(
+    _ = try await writer.commitMailbox(
       connection: id, address: "same@example.invalid", expectedRevision: 0,
       document: "saved with a pending change", generation: writer.generation(subject))
     _ = try await writer.commitMessageBody(
@@ -224,7 +224,7 @@ extension PrivateInboxTests {
     _ = try await writer.authorizeGmail()
     let subject = "synthetic-product-subject"
     let id = MailboxConnection.id(subject: subject)
-    _ = try writer.commitMailbox(
+    _ = try await writer.commitMailbox(
       connection: id, address: "same@example.invalid", expectedRevision: 0,
       document: "private cached mail", generation: writer.generation(subject))
     // A directory at the lock-file path makes opening it for read/write fail deterministically.

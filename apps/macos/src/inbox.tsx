@@ -11,6 +11,7 @@ import type { TextInput } from 'react-native';
 import { inboxCommands } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
+  allMail,
   leavesView,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
@@ -63,7 +64,7 @@ import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailboxFolder } from './mailbox-folders.tsx';
+import { useListedMailbox } from './mailbox-folders.tsx';
 import {
   MailboxScope,
   useDrafts,
@@ -502,16 +503,22 @@ function scopeOf(
   t: Translate,
   shown: readonly InboxMailbox[],
   {
+    unified,
     several,
     gmail,
     waiting,
   }: Readonly<{
+    // Whether the list is a Unified Mailbox, which spans every mailbox.
+    unified: boolean;
     several: boolean;
     gmail: boolean;
     // The chosen connection while it waits for authorization, which has no Inbox to show.
     waiting: Readonly<{ address: string }> | undefined;
   }>,
 ) {
+  if (unified) {
+    return t('mailboxes.allMailboxes');
+  }
   if (waiting !== undefined) {
     return waiting.address;
   }
@@ -755,15 +762,19 @@ export function Inbox({
   );
   const {
     folder,
-    selection,
-    title: folderTitle,
-    listed,
-    failure,
     limited,
-  } = useMailboxFolder(shown, inboxListed, {
-    view,
-    onView,
-  });
+    listed,
+    title: folderTitle,
+    failure,
+    missing,
+    folderOf,
+    showOlder,
+  } = useListedMailbox(shown, inboxListed, { view, onView });
+  // A message chosen outside the Inbox names its folder, which its actions can take it out of.
+  const selectionOf = (mailbox: string, id: string) => {
+    const listedIn = folderOf(mailbox, id);
+    return listedIn === inboxFolder ? {} : { folder: listedIn };
+  };
   // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
   const results = useMemo(
     () => (searched === '' ? undefined : searchMessages(listed, searched)),
@@ -800,6 +811,7 @@ export function Inbox({
       profile,
       scope,
       folder,
+      view.unified,
       searched,
       ...shown.map(({ inbox }) => inbox),
       ...shown.map(({ state }) => state.kind === 'ready'),
@@ -819,6 +831,7 @@ export function Inbox({
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const scopeName = scopeOf(t, shown, {
+    unified: view.unified !== undefined,
     several,
     gmail,
     waiting: chosenWaiting,
@@ -843,6 +856,7 @@ export function Inbox({
     message: Message | GmailMessage | ImapMessage,
   ): readonly RowAction[] => {
     const { state, inbox } = mailbox;
+    const listedIn = folderOf(mailbox.id, message.id);
     const leaving = (away: boolean) => {
       if (
         away &&
@@ -876,7 +890,7 @@ export function Inbox({
       return quickActions(t, message, {
         provider: mailbox.provider ?? 'gmail',
         unavailableActions: state.unavailableActions,
-        view: folder,
+        view: listedIn,
       }).map(({ name, label, action }) => ({
         name,
         label,
@@ -984,6 +998,22 @@ export function Inbox({
               messageRole="alert"
             />
           )}
+          {missing.map((mailbox) => (
+            <Notice
+              key={`missing\n${mailbox.id}`}
+              icon="exclamationmark.triangle.fill"
+              iconColor={colors.statusWarning}
+              message={t('mailboxes.notIncluded', {
+                mailbox: mailbox.address ?? mailbox.id,
+              })}
+              detail={t(
+                view.unified === allMail
+                  ? 'mailboxes.notIncludedAllMail'
+                  : 'mailboxes.notIncludedDetail',
+                { view: folderTitle },
+              )}
+            />
+          ))}
           {shown.map((mailbox) => (
             <MailboxScope
               key={mailbox.id}
@@ -1024,6 +1054,7 @@ export function Inbox({
             );
           }}
           contentContainerStyle={styles.list}
+          onEndReached={showOlder}
           sections={placed}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => {
@@ -1103,7 +1134,11 @@ export function Inbox({
                   motion.settle(rowKey(item));
                 }}>
                 <MessageRow
-                  mailbox={several ? item.mailbox.address : undefined}
+                  mailbox={
+                    several || view.unified !== undefined
+                      ? item.mailbox.address
+                      : undefined
+                  }
                   message={item.message}
                   actions={
                     section.key === 'gmail'
@@ -1123,7 +1158,9 @@ export function Inbox({
                     void select({
                       mailbox: item.mailbox.id,
                       id: item.message.id,
-                      ...(section.key === 'gmail' ? {} : selection),
+                      ...(section.key === 'gmail'
+                        ? {}
+                        : selectionOf(item.mailbox.id, item.message.id)),
                     });
                   }}
                   selected={

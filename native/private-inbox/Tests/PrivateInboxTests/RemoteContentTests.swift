@@ -256,7 +256,7 @@ extension PrivateInboxTests {
     let generation = store.generation(google.subject)
     let account = try #require((try store.load())?.product?.productAccountId)
     // Remote content follows an opened mailbox, whose first commit creates the store key.
-    _ = try store.commitMailbox(
+    _ = try await store.commitMailbox(
       connection: connection, address: google.address, expectedRevision: 0, document: "{}",
       generation: generation)
     let image = Data("remote image bytes".utf8)

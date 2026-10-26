@@ -10,8 +10,8 @@ import { GraphDeltaLink } from './microsoft-graph.ts';
 
 export type { GmailMessage } from './mailbox-message.ts';
 
-// ponytail: the newest Inbox messages kept on this device; older ones stay at the provider. Each commit
-// rewrites the whole document, so complete Historical Metadata Backfill needs an indexed store.
+// The newest messages each view keeps in this document; Gmail's older mail is kept in history
+// segments, which commits only write when they change.
 export const cacheLimit = 200;
 // The ordinary Gmail view budget; active windows protect their views, growing it when needed.
 export const cachedViews = 8;
@@ -36,6 +36,56 @@ const PendingActionSchema = Schema.Struct({
   message: GmailMessageSchema,
 });
 export type PendingAction = typeof PendingActionSchema.Type;
+
+// One Historical Metadata Backfill pass over All Mail: each listed page is its own encrypted
+// segment file, named here, newest page first.
+const HistoryPassSchema = Schema.Struct({
+  segments: Schema.Array(
+    Schema.Struct({
+      name: Schema.String.check(Schema.isPattern(/^[0-9a-z]{1,32}$/u)),
+      count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    }),
+  ),
+  pageToken: Schema.optionalKey(Schema.String),
+  complete: Schema.optionalKey(Schema.Literal(true)),
+});
+export type HistoryPass = typeof HistoryPassSchema.Type;
+
+const MailboxHistorySchema = Schema.Struct({
+  // Gmail's message count when the pass began, for progress.
+  total: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  current: HistoryPassSchema,
+  // The last pass, still shown while a pass after an expired history ID lists everything again.
+  previous: Schema.optionalKey(HistoryPassSchema),
+  // Changes before a reconciling pass began stay visible with the old pass, then retire together.
+  reconcilingThrough: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  // Messages Gmail changed since their segment was written, newest last; an absent message left
+  // All Mail. Reads apply them over the segments until a fold writes them in.
+  changes: Schema.Array(
+    Schema.Struct({
+      id: GmailId,
+      message: Schema.optionalKey(GmailMessageSchema),
+    }),
+  ),
+  // A fold in progress: changes before `through` are written into segments before `segment`;
+  // `found` names those already written, and `newest` is the pass's newest receipt.
+  folding: Schema.optionalKey(
+    Schema.Struct({
+      segment: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      through: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      found: Schema.Array(GmailId),
+      newest: Schema.optionalKey(Schema.String),
+    }),
+  ),
+});
+export type MailboxHistory = typeof MailboxHistorySchema.Type;
+
+// A history segment's messages, in listing order.
+const SegmentSchema = Schema.fromJsonString(Schema.Array(GmailMessageSchema));
+export const decodeSegment = Schema.decodeUnknownEffect(SegmentSchema);
+export const encodeSegment = Schema.encodeEffect(SegmentSchema);
 
 const GraphCheckpointSchema = Schema.Union([
   // A Microsoft folder, listed before its delta round: the round runs from the first page, or
@@ -88,6 +138,8 @@ const MailboxDocumentSchema = Schema.Struct({
       }),
     ),
   ),
+  // Gmail's Historical Metadata Backfill, absent until the Inbox is current.
+  history: Schema.optionalKey(MailboxHistorySchema),
   checkpoint: Schema.Union([
     // Listing the Inbox from the history ID read before the first page; `seen` survives an
     // interruption so a replacement listing can drop messages that left the Inbox.
@@ -104,6 +156,9 @@ const MailboxDocumentSchema = Schema.Struct({
 export type MailboxDocument = typeof MailboxDocumentSchema.Type;
 export const sameCheckpoint = Schema.toEquivalence(
   MailboxDocumentSchema.fields.checkpoint,
+);
+export const sameHistory = Schema.toEquivalence(
+  Schema.UndefinedOr(MailboxHistorySchema),
 );
 // Graph folders advance independently of the Inbox, including opening or retiring a saved view.
 export const sameGraphViews = Schema.toEquivalence(

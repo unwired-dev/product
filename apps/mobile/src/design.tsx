@@ -15,9 +15,14 @@ import type {
 } from 'react-native';
 
 import { menuState } from '@private-email/mail-core/context-menu';
-import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { GlassView } from 'expo-glass-effect';
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, use, useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -32,6 +37,8 @@ import {
 
 import { textStyles, usePalette } from './theme.ts';
 
+const ipad = Platform.OS === 'ios' && Platform.isPad;
+
 const NativeSymbol = requireNativeComponent<
   ViewProps & {
     readonly name: string;
@@ -39,6 +46,9 @@ const NativeSymbol = requireNativeComponent<
     readonly color: ColorValue;
   }
 >('UnwiredSymbol');
+
+// Controls inside interactive glass keep only the native glass press, with no added fill.
+const InteractiveGlass = createContext(false);
 
 export function Glass({
   cornerRadius,
@@ -51,11 +61,13 @@ export function Glass({
   readonly interactive?: boolean;
 }) {
   return (
-    <GlassView
-      {...props}
-      isInteractive={interactive}
-      style={[style, { borderRadius: cornerRadius }]}
-    />
+    <InteractiveGlass value={interactive}>
+      <GlassView
+        {...props}
+        isInteractive={interactive}
+        style={[style, { borderRadius: cornerRadius }]}
+      />
+    </InteractiveGlass>
   );
 }
 
@@ -220,11 +232,26 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
+  noticeBody: { flex: 1 },
+  noticeWithDetail: {
+    marginHorizontal: ipad ? 6 * ipadListScale - spacing.l : 0,
+    paddingLeft: ipad ? 22 * ipadListScale : 18,
+    paddingRight: ipad ? spacing.m * ipadListScale : 0,
+    paddingVertical: ipad ? 14 * ipadListScale : spacing.l,
+  },
+  noticeDetailMessage: { gap: ipad ? 10 * ipadListScale : spacing.m },
+  noticeDetailBody: { gap: 2 * (ipad ? ipadListScale : 1) },
+  noticeDetailTitle: {
+    ...(ipad ? typography.ipadList.body : textStyles.subheadline),
+    fontWeight: '600',
+  },
+  noticeDetail: {
+    ...(ipad ? typography.ipadList.subheadline : textStyles.footnote),
+  },
   noticeText: {
     ...(Platform.OS === 'ios' && Platform.isPad
       ? typography.ipadList.body
       : textStyles.body),
-    flex: 1,
   },
   noticeActions: {
     flexDirection: 'row',
@@ -451,6 +478,7 @@ export function ToolbarButton({
   readonly accessibilityHint?: string;
 }) {
   const colors = usePalette();
+  const inGlass = use(InteractiveGlass);
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
@@ -475,7 +503,7 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || expanded === true || selected === true
+            (pressed && !inGlass) || expanded === true || selected === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
@@ -539,6 +567,7 @@ export function Notice({
   icon,
   iconColor,
   message,
+  detail,
   messageRole,
   messageActions,
   announce,
@@ -547,6 +576,8 @@ export function Notice({
   readonly icon: string;
   readonly iconColor?: ColorValue;
   readonly message: string;
+  // A secondary line under the message.
+  readonly detail?: string;
   readonly messageRole?: 'alert';
   // Accessibility actions on the message, such as a screen header's Open Command Palette.
   readonly messageActions?:
@@ -558,19 +589,51 @@ export function Notice({
 }) {
   const colors = usePalette();
   return (
-    <View style={[styles.notice, { backgroundColor: colors.fillQuiet }]}>
-      <View style={styles.noticeMessage}>
+    <View
+      style={[
+        styles.notice,
+        detail === undefined
+          ? { backgroundColor: colors.fillQuiet }
+          : styles.noticeWithDetail,
+      ]}>
+      <View
+        style={[
+          styles.noticeMessage,
+          detail !== undefined && styles.noticeDetailMessage,
+        ]}>
         <SFSymbol
           name={icon}
           color={iconColor ?? colors.textSecondary}
+          size={detail === undefined || ipad ? 16 : 18}
         />
-        <Text
-          accessibilityLiveRegion={announce}
-          accessibilityRole={messageRole}
-          style={[styles.noticeText, { color: colors.textPrimary }]}
-          {...messageActions}>
-          {message}
-        </Text>
+        <View
+          style={[
+            styles.noticeBody,
+            detail !== undefined && styles.noticeDetailBody,
+          ]}>
+          <Text
+            accessibilityLiveRegion={announce}
+            accessibilityRole={messageRole}
+            style={[
+              styles.noticeText,
+              detail !== undefined && styles.noticeDetailTitle,
+              {
+                color:
+                  detail === undefined
+                    ? colors.textPrimary
+                    : colors.textSecondary,
+              },
+            ]}
+            {...messageActions}>
+            {message}
+          </Text>
+          {detail === undefined ? null : (
+            <Text
+              style={[styles.noticeDetail, { color: colors.textSecondary }]}>
+              {detail}
+            </Text>
+          )}
+        </View>
       </View>
       {children === undefined ? null : (
         <View style={styles.noticeActions}>{children}</View>

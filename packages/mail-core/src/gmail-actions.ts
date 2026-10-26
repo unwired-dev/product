@@ -54,6 +54,9 @@ const folderActions = {
   SPAM: 'spam',
   TRASH: 'trash',
 } as const;
+// Gmail has no Archive label: its Archive lists the received mail taken out of the Inbox, outside
+// Spam and Trash.
+export const gmailArchive = 'ARCHIVED';
 // The views a mailbox offers besides its Inbox and its own labels or folders.
 export const providerViews = (
   provider: MailProvider | undefined,
@@ -65,6 +68,16 @@ export const providerViews = (
           view === 'SENT' || !unavailableActions.includes(folderActions[view]),
       )
     : systemViews;
+// Microsoft's Drafts and Outbox, which only All Mail lists.
+export const microsoftAllMailViews = ['DRAFT', 'OUTBOX'] as const;
+// The views a mailbox can open: its sidebar's, and those only Unified Mailboxes list.
+export const offeredViews = (
+  provider: MailProvider | undefined,
+  unavailableActions?: ReadonlyArray<GmailAction['kind']>,
+): readonly string[] =>
+  provider === 'microsoft-graph'
+    ? [...providerViews(provider, unavailableActions), ...microsoftAllMailViews]
+    : [...systemViews, 'SENT', gmailArchive];
 
 export const gmailAction = {
   read: { kind: 'read', add: [], remove: ['UNREAD'] },
@@ -84,12 +97,24 @@ export const gmailAction = {
     add: [],
     remove: [label],
   }),
-  // Gmail's Move to: the label replaces the view's label, or the Inbox from All Mail, and every
-  // other label stays.
-  move: (label: string, view = 'INBOX'): GmailAction => ({
+  // Gmail's aggregate and immutable Sent views remove Inbox; Microsoft moves out of its folder.
+  move: (
+    label: string,
+    view = 'INBOX',
+    provider: MailProvider = 'gmail',
+  ): GmailAction => ({
     kind: 'move',
     add: [label],
-    remove: label === view ? [] : [view === allMail ? 'INBOX' : view],
+    remove:
+      label === view
+        ? []
+        : [
+            view === allMail ||
+            view === gmailArchive ||
+            (view === 'SENT' && provider === 'gmail')
+              ? 'INBOX'
+              : view,
+          ],
   }),
   // Takes a message out of Trash or Spam and back into the Inbox.
   restore: (view: string) => ({
@@ -103,14 +128,24 @@ export const gmailAction = {
 >;
 
 // Spam and Trash list only their own messages, and every other view leaves them out.
-export const inView = (view: string, labels: readonly string[]) =>
-  view === 'SPAM' || view === 'TRASH'
-    ? labels.includes(view)
-    : !labels.includes('SPAM') &&
-      !labels.includes('TRASH') &&
-      (view === allMail || labels.includes(view));
+export const inView = (view: string, labels: readonly string[]) => {
+  if (view === 'SPAM' || view === 'TRASH') {
+    return labels.includes(view);
+  }
+  if (labels.includes('SPAM') || labels.includes('TRASH')) {
+    return false;
+  }
+  if (view === gmailArchive) {
+    return ['INBOX', 'SENT', 'DRAFT'].every((label) => !labels.includes(label));
+  }
+  return view === allMail || labels.includes(view);
+};
 
 export const inInbox = (labels: readonly string[]) => inView('INBOX', labels);
+
+// Caches saved before labels were kept contain only Inbox membership and read state.
+export const labelsOf = (message: GmailMessage) =>
+  message.labels ?? (message.unread ? ['INBOX', 'UNREAD'] : ['INBOX']);
 
 // Microsoft's names for the well-known folders it lists after the Inbox.
 const microsoftTitles = {
@@ -137,6 +172,9 @@ export const gmailViewTitle = (
   if (view === allMail) {
     return t('mailboxes.allMail');
   }
+  if (view === 'SENT' || view === gmailArchive) {
+    return t(view === 'SENT' ? 'mailboxes.sent' : 'mailboxes.archive');
+  }
   if (view === 'SPAM' || view === 'TRASH') {
     return t(view === 'SPAM' ? 'mailboxes.spam' : 'mailboxes.trash');
   }
@@ -150,6 +188,7 @@ const viewSymbols: Readonly<Record<string, string>> = {
   TRASH: 'trash',
   SENT: 'paperplane',
   ARCHIVE: 'archivebox',
+  [gmailArchive]: 'archivebox',
 };
 // The SF Symbol of a view's sidebar row; a label is a folder.
 export const gmailViewSymbol = (view: string) => viewSymbols[view] ?? 'folder';

@@ -89,7 +89,10 @@ and Deleted Items appear once their folder roles are known and present, like the
 actions that move mail there. Choosing a folder lists its newest messages, using the
 same per-window choice, list heading, unread counts and bound as
 [Gmail's label views](gmail-inbox.md#gmail-mailboxes): the newest 200 messages per
-folder, the eight most recently opened folders, and every folder a window shows.
+folder, the eight most recently opened folders, and every folder a window shows. These
+folders also feed the [unified mailboxes](gmail-inbox.md#gmail-mailboxes) under
+Favorites, where All Mail adds Drafts and Outbox; a mailbox without a known Archive,
+Junk Email or Deleted Items folder shows as not included there.
 
 Each folder keeps its own Graph delta link beside the Inbox's, so each
 synchronization reads only that folder's changes, and the saved folders, their links
