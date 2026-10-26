@@ -189,11 +189,13 @@ leading edge of the floating bar on iPhone and iPad. Filtering starts off at eac
 launch. Turning it on keeps unread mail; the bar then shows **Filtered by** with the
 filter's one criterion, or how many apply. On iPhone the field gives way to a
 **Search** button beside New Message; a regular-width iPad window keeps its field.
-Pressing the summary opens **Filters**: a full-height sheet on iPhone and in a
-compact-width iPad window, and in a regular-width iPad window a 420pt popover that
-fades in above the Filter control and closes without an exit animation when tapped
-outside. Within regular width it stays anchored while the window changes size and
-retains the edited choices:
+Pressing the summary opens **Filters**: the system sheet (`BottomSheet` from
+`@expo/ui`) on iPhone and in a compact-width iPad window, and in a regular-width iPad
+window a 420pt system popover (`Popover` from `@expo/ui`) on the Filter control. iOS
+presents, places and dismisses both. Swipe down to dismiss the sheet or tap outside
+to dismiss the popover. The popover stays on the control while the window changes
+size; narrowing the window to compact width closes it without applying. Both keep
+the edited choices until they close:
 
 - **Include Mail From**, in **All inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.

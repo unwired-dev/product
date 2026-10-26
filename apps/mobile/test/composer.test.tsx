@@ -45,6 +45,7 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { targetChoice, translateInto } from './translation-menu.tsx';
 
 // Allow cold component rendering even when a focused run skips the first test.
 jest.setTimeout(10_000);
@@ -2487,9 +2488,7 @@ describe('composing Drafts', () => {
     };
     const translateSelection = async () => {
       await press('Translate the selected text');
-      await fireEvent.press(
-        await screen.findByRole('radio', { name: 'Translate into English' }),
-      );
+      await translateInto('English');
     };
     await select(6, 27);
     await translateSelection();
@@ -2546,7 +2545,7 @@ describe('composing Drafts', () => {
     const supersededReplace = queuedPress(
       'Replace the selected text with this translation',
     );
-    const chooseGerman = queuedPress('Translate into German');
+    const chooseGerman = await targetChoice('German');
     await act(() => {
       chooseGerman();
       supersededReplace();
@@ -3062,9 +3061,7 @@ describe('adding files and images to a Draft', () => {
       await select(start, end);
       await press('Translate the selected text');
       await screen.findByText(guidance);
-      expect(
-        screen.queryByRole('radio', { name: 'Translate into English' }),
-      ).toBeNull();
+      expect(screen.queryByLabelText('Translate into')).toBeNull();
       expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
         before.body,
       );
@@ -3078,9 +3075,7 @@ describe('adding files and images to a Draft', () => {
     ] as const) {
       await select(start, end);
       await press('Translate the selected text');
-      await fireEvent.press(
-        await screen.findByRole('radio', { name: 'Translate into English' }),
-      );
+      await translateInto('English');
       await screen.findByLabelText(
         'Replace the selected text with this translation',
       );

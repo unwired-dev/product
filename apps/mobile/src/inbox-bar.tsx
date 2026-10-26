@@ -1,4 +1,4 @@
-import type { ReactNode, Ref, RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 import { composeCommand } from '@private-email/mail-core/commands';
@@ -224,27 +224,22 @@ export function BarButton({
   );
 }
 
-// The filter switch, and while it is on, what the Inbox is filtered by, which opens the Filters sheet.
+// The filter switch, and while it is on, what the Inbox is filtered by, which opens Filters.
 export function FilterControl({
   label,
   onToggle,
   onOpen,
-  ref,
 }: {
   // The applied filter's summary; none while the Inbox is unfiltered.
   readonly label: string | undefined;
   readonly onToggle: () => void;
   readonly onOpen: () => void;
-  // Where iPad's Filters popover grows from.
-  readonly ref?: Ref<View>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const on = label !== undefined;
   return (
-    <GlassGroup
-      ref={ref}
-      style={on ? styles.filtered : styles.round}>
+    <GlassGroup style={on ? styles.filtered : styles.round}>
       <Pressable
         accessibilityLabel={t('filters.filter')}
         accessibilityRole="togglebutton"

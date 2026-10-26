@@ -1192,10 +1192,8 @@ final class InboxTests: XCTestCase {
       selectWord(app) { self.menuControl("Translate the selected text", from: "Writing tools", in: app).isEnabled }
       app.buttons["Translate the selected text"].tap()
       // On a loaded iPad the first tap on a language can be lost; choose it again until it applies.
-      let german = app.descendants(matching: .any)
-        .matching(NSPredicate(format: "label == %@", "Translate into German")).firstMatch
       for _ in 0..<3 where !app.staticTexts["Synthetic translation of local mail."].exists {
-        german.tap()
+        menuControl("German", from: "Translate into", in: app).tap()
         _ = app.staticTexts["Synthetic translation of local mail."].waitForExistence(timeout: 10)
       }
     }
@@ -1584,6 +1582,12 @@ final class InboxTests: XCTestCase {
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
       return "#1213"
+    // Undiagnosed: the same unlocated text while iPad's system Filters popover is open.
+    case .elementDetection
+    where screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad
+      && issue.element == nil
+      && issue.compactDescription == "Potentially inaccessible text":
+      return "#1403"
     default:
       return nil
     }
@@ -1615,10 +1619,10 @@ final class InboxTests: XCTestCase {
       }
       return
     }
-    inboxJourney(app)
+    try inboxJourney(app)
   }
 
-  private func inboxJourney(_ app: XCUIApplication) {
+  private func inboxJourney(_ app: XCUIApplication) throws {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
     verifyPullToRefresh(app)
@@ -1627,6 +1631,7 @@ final class InboxTests: XCTestCase {
     verifyCompactInboxSwipeBack(app)
     verifyCompactInboxBottom(app, scrollToEnd: true)
     verifyLanguagePreference(in: app)
+    try verifyFilters(app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
@@ -1712,6 +1717,10 @@ final class InboxTests: XCTestCase {
     committed.name = "Committed read state"
     committed.lifetime = .keepAlways
     add(committed)
+    verifyReadStateAfterRelaunch(app)
+  }
+
+  private func verifyReadStateAfterRelaunch(_ app: XCUIApplication) {
     app.terminate()
     // Larger text from here on: the preview message's few commands otherwise fit above the
     // keyboard, and the palette check below needs a list that reaches beneath it (#982).
@@ -2153,6 +2162,76 @@ final class InboxTests: XCTestCase {
       XCTWaiter.wait(
         for: [XCTNSPredicateExpectation(predicate: checked, object: system)], timeout: 10),
       .completed)
+  }
+
+  // #1119: Filters open in the system sheet on iPhone and, in iPad's regular-width window, in a
+  // system popover on the Filter control. Leaving without Apply discards the edits; the popover
+  // stays presented while the iPad rotates.
+  private func verifyFilters(_ app: XCUIApplication) throws {
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    let toggle = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter"))
+      .firstMatch
+    XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+    toggle.tap()
+    let unreadSummary = app.buttons["Filtered by Unread"]
+    XCTAssertTrue(unreadSummary.waitForExistence(timeout: 10))
+    let apply = app.buttons["Apply Filters"]
+    let unread = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Unread"))
+      .firstMatch
+    let today = app.switches["Only Mail from Today"]
+    func open() {
+      unreadSummary.tap()
+      XCTAssertTrue(apply.waitForExistence(timeout: 10))
+      XCTAssertTrue(unread.waitForExistence(timeout: 5))
+    }
+    func dismiss() {
+      if pad {
+        // Outside the popover, which sits on the bar at the bottom of the window.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+      } else {
+        let grab = app.staticTexts["Filters"].firstMatch
+          .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        grab.press(
+          forDuration: 0.1, thenDragTo: grab.withOffset(CGVector(dx: 0, dy: 400)),
+          withVelocity: .fast, thenHoldForDuration: 0)
+      }
+      XCTAssertTrue(apply.waitForNonExistence(timeout: 10))
+    }
+    open()
+    if pad {
+      XCTAssertGreaterThan(apply.frame.minX, 0)
+      XCTAssertLessThan(apply.frame.width, app.windows.firstMatch.frame.width / 2)
+    }
+    try audit(app, "Filters")
+    // Clearing Unread alone would turn filtering off once applied, so the summary proves the
+    // dismissal discarded it.
+    unread.tap()
+    dismiss()
+    XCTAssertTrue(unreadSummary.waitForExistence(timeout: 5))
+    open()
+    if pad {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+      XCTAssertTrue(apply.waitForExistence(timeout: 5))
+      let rotated = XCTAttachment(screenshot: app.screenshot())
+      rotated.name = "Filters popover after rotation"
+      rotated.lifetime = .keepAlways
+      add(rotated)
+      XCUIDevice.shared.orientation = .portrait
+      waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
+      XCTAssertTrue(apply.waitForExistence(timeout: 5))
+    }
+    unread.tap()
+    today.tap()
+    apply.tap()
+    XCTAssertTrue(apply.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Filtered by Today"].waitForExistence(timeout: 10))
+    // Reopening after Apply presents again; turning the filter off restores the whole Inbox.
+    app.buttons["Filtered by Today"].tap()
+    XCTAssertTrue(apply.waitForExistence(timeout: 10))
+    dismiss()
+    toggle.tap()
+    XCTAssertTrue(app.buttons["Filtered by Today"].waitForNonExistence(timeout: 10))
   }
 
 }
