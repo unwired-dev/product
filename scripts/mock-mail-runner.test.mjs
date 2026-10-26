@@ -290,7 +290,11 @@ if (command === 'xcodebuild') {
       }
       const result = run(
         directory,
-        ['zsh', path.join(scripts, 'test-native.zsh'), source],
+        [
+          'zsh',
+          path.relative(directory, path.join(scripts, 'test-native.zsh')),
+          source,
+        ],
         {
           RUBY: path.join(directory, 'bin/ruby'),
           UNWIRED_SIGNING_IDENTITY: 'Synthetic signer',

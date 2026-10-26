@@ -11,9 +11,13 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
 
 - Record each long-running process you start with
   `scripts/owned-process record <ledger> <pid>` and stop them with
-  `scripts/owned-process stop <ledger>`. It signals a process and its
-  descendants only while the recorded start time, command and working
-  directory still match. Never stop builds, Simulators or test runners by name
+  `scripts/owned-process stop <ledger>`. Give each task its own ledger with
+  one writer. Cleanup records live descendants before signaling them and
+  rechecks each process's start time, command and working directory before
+  every signal, including escalation to KILL. Failed verification or signaling
+  retains the ledger for recovery. Record a parent while it is still running;
+  descendants orphaned before cleanup discovers them cannot be identified
+  safely from the parent PID alone. Never stop builds, Simulators or test runners by name
   or relative path: the shared host runs other sessions' work too.
 - Both native runners record host load (`host-load.txt`: load averages,
   `xcodebuild` processes, booted Simulators) before and after each journey.

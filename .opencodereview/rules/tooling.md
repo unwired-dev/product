@@ -48,7 +48,7 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   and preservation of unrelated sources; otherwise moving the fixture out of
   production directories still leaves it compiled into regenerated apps.
 - `scripts/auto-merge.sh` using a ruleset bypass token while matching required checks only by name rather than their configured integration, or reading only one rules page. This permits merging without the ruleset's trusted checks.
-- `scripts/auto-merge.sh` ignoring an applicable rule's strict required-check policy, reversing the head-to-base comparison, or accepting an unavailable comparison. A bypass token can then merge a head that lacks commits from `main` despite the ruleset's up-to-date requirement; enforce strictness if any applicable rule requires it and recheck branch freshness before acting.
+- `scripts/auto-merge.sh` reversing the head-to-base comparison, accepting an unavailable comparison, or conditioning freshness on the ruleset's strict flag. Every head must contain the latest `main` regardless of that flag; recheck freshness before acting and after dismissal, or a bypass token can merge checks run without the latest base.
 - The merger deciding eligibility from incomplete label/check/thread pages, omitting CodeRabbit's configured exclusions or bot authors, or merging from the pre-dismissal snapshot without checking new feedback and the original head. A missing exclusion or changed feedback must not authorize the privileged merge.
 - `scripts/auto-merge.sh` treating a historical CodeRabbit approval as evidence that the current head was reviewed, or trusting a `CodeRabbit` status without authenticating its creator and distinguishing completed review from a successful paused or rate-limited status. This lets an unreviewed head pass the immediate-merge gate. Any quiet-period override must match the explicitly authorized review states; inactivity alone is not head-review evidence.
 - A check that exits zero despite missing inputs required to prove its stated outcome: no bundle source maps, no selected native tests, or a required tool that was missing. The bundle check's "export the bundle first" assertion guards this. A documented no-op, such as no changeset files to validate, is permitted.
@@ -58,6 +58,12 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 - A custom lint rule changed without its test in `scripts/*.test.mjs` covering both a rejected and an accepted case; `pnpm test:tooling` runs them for every configuration.
 
 #### Runners own what they touch
+
+- `scripts/owned-process` signaling a cached PID without rechecking its recorded
+  start time, command and cwd before each TERM or KILL, or deleting its ledger
+  after failed inspection or signaling. Record descendant identities before
+  cleanup and validate ledger rows before any signal; otherwise PID reuse can
+  stop unrelated work or failed cleanup can lose its recovery record.
 
 - `apps/macos/scripts/qualify-assistance.zsh` or another runner removing a
   container after its signed cleanup helper fails. Preserve the owned storage,

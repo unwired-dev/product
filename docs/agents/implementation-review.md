@@ -147,7 +147,7 @@ over generic skill examples for both roles.
 
 1. Before editing, record `git status --short` and classify staged, unstaged and
    untracked changes as task-owned or unrelated. Select the task's existing
-   same-repository PR branch against `main`, otherwise its existing task branch,
+   same-repository PR branch against its actual target base, otherwise its existing task branch,
    otherwise a new branch from the latest `main`. Work in this checkout or an
    isolated worktree without moving unrelated edits. Record the starting commit;
    for existing task commits without completed review, use the merge-base with

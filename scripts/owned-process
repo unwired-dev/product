@@ -1,57 +1,119 @@
 #!/usr/bin/env bash
-# Records the processes a task starts and stops only those, so cleanup never
-# signals another session's build by matching a name or a relative path.
-# Usage:
-#   scripts/owned-process record <ledger> <pid>  record a process you just started
-#   scripts/owned-process stop <ledger>          stop recorded processes and their descendants
-# A record holds the PID, its start time, working directory and command. Stop
-# signals a PID only while all three still match, then removes the ledger.
+# Usage: scripts/owned-process record <ledger> <pid> | stop <ledger>
+# One task owns each ledger. Descendants are recorded before cleanup, and every
+# signal rechecks start time, command and cwd. Failed cleanup retains the ledger.
 set -euo pipefail
 
-identity() {
-  local start command
-  start=$(ps -o lstart= -p "$1" 2>/dev/null) || return 1
-  command=$(ps -o command= -p "$1" 2>/dev/null) || return 1
-  printf '%s\t%s\n' "${start#"${start%%[![:space:]]*}"}" "$command"
+snapshot() {
+  local info weekday month day clock year state command cwd result
+  if info=$(LC_ALL=C ps -ww -o lstart= -o stat= -o command= -p "$1" 2>/dev/null); then
+    [[ $info != *$'\n'* ]] || return 2
+  else
+    result=$?
+    [[ $result == 1 ]] && return 1
+    return 2
+  fi
+  read -r weekday month day clock year state command <<<"$info"
+  [[ $state != Z* ]] || return 1
+  cwd=$(lsof -a -d cwd -Fn -p "$1" 2>/dev/null | sed -n 's/^n//p') || return 2
+  # TSV cannot represent empty fields or embedded record delimiters safely.
+  [[ -n $cwd && -n $command && $cwd != *$'\t'* && $cwd != *$'\n'* && $command != *$'\t'* && $command != *$'\n'* ]] || return 2
+  printf '%s\t%s\t%s %s %s %s %s\t%s\n' "$1" "$cwd" "$weekday" "$month" "$day" "$clock" "$year" "$command"
 }
 
-descendants() {
-  local child
-  for child in $(pgrep -P "$1" || true); do
-    descendants "$child"
-    printf '%s\n' "$child"
+matches() {
+  local current result
+  if current=$(snapshot "${1%%$'\t'*}"); then
+    [[ $current == "$1" ]] && return 0
+  else
+    result=$?
+    [[ $result == 1 ]] && return 1 # Already exited, including unreaped zombies.
+  fi
+  printf 'owned-process: PID %s is no longer the recorded process or cannot be verified; left running\n' "${1%%$'\t'*}" >&2
+  status=1
+  return 1
+}
+
+collect() {
+  local entry=$1 pid child row parent result children
+  pid=${entry%%$'\t'*}
+  matches "$entry" || return 0
+  if children=$(pgrep -P "$pid"); then :; else
+    result=$?
+    if ((result != 1)); then
+      printf 'owned-process: cannot enumerate descendants of %s; retained ledger\n' "$pid" >&2
+      discovery_failed=1
+      return 0
+    fi
+  fi
+  for child in $children; do
+    if row=$(snapshot "$child"); then :; else
+      result=$?
+      if ((result != 1)); then
+        printf 'owned-process: cannot verify descendant %s; retained ledger\n' "$child" >&2
+        discovery_failed=1
+      fi
+      continue
+    fi
+    parent=$(ps -o ppid= -p "$child" 2>/dev/null) || continue
+    [[ ${parent//[[:space:]]/} == "$pid" ]] || continue
+    matches "$entry" || return 0
+    printf '%s\n' "$row" >>"$ledger"
+    entries+=("$row")
+    collect "$row"
   done
 }
 
 case "${1-} ${#}" in
   'record 3')
-    [[ $3 =~ ^[1-9][0-9]*$ ]] || { printf 'owned-process: not a PID: %s\n' "$3" >&2; exit 2; }
-    id=$(identity "$3") || { printf 'owned-process: no running process %s\n' "$3" >&2; exit 1; }
-    cwd=$(lsof -a -d cwd -Fn -p "$3" 2>/dev/null | sed -n 's/^n//p')
-    printf '%s\t%s\t%s\n' "$3" "$cwd" "$id" >>"$2" ;;
+    [[ $3 =~ ^[1-9][0-9]*$ && $3 != 1 ]] || { printf 'owned-process: not a task PID: %s\n' "$3" >&2; exit 2; }
+    row=$(snapshot "$3") || { printf 'owned-process: cannot verify running process %s\n' "$3" >&2; exit 1; }
+    printf '%s\n' "$row" >>"$2" ;;
   'stop 2')
-    [[ -f $2 ]] || exit 0
+    ledger=$2
+    [[ -f $ledger ]] || exit 0
     status=0
-    pids=()
-    while IFS=$'\t' read -r pid cwd start command; do
-      current=$(identity "$pid") || continue
-      now_cwd=$(lsof -a -d cwd -Fn -p "$pid" 2>/dev/null | sed -n 's/^n//p')
-      if [[ $current != "$start"$'\t'"$command" || $now_cwd != "$cwd" ]]; then
-        printf 'owned-process: PID %s is no longer the recorded process; left running\n' "$pid" >&2
-        status=1
-        continue
-      fi
-      pids+=($(descendants "$pid") "$pid")
-    done <"$2"
-    ((${#pids[@]})) && kill -TERM "${pids[@]}" 2>/dev/null || true
+    entries=()
+    while IFS= read -r row || [[ -n $row ]]; do
+      IFS=$'\t' read -r pid cwd start command <<<"$row"
+      [[ $pid =~ ^[1-9][0-9]*$ && $pid != 1 && -n $cwd && -n $start && -n $command && $row == "$pid"$'\t'"$cwd"$'\t'"$start"$'\t'"$command" ]] || {
+        printf 'owned-process: malformed ledger; left running: %s\n' "$ledger" >&2; exit 2;
+      }
+      entries+=("$row")
+    done <"$ledger"
+    discovery_failed=0
+    for row in ${entries[@]+"${entries[@]}"}; do collect "$row"; done
+    ((discovery_failed == 0)) || exit 1
+    # Children first lets waiting parents reap them before they exit.
+    for ((i=${#entries[@]}-1; i>=0; i--)); do
+      row=${entries[i]}
+      if matches "$row"; then kill -TERM "${row%%$'\t'*}" 2>/dev/null || status=1; fi
+    done
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       alive=()
-      for pid in ${pids[@]+"${pids[@]}"}; do kill -0 "$pid" 2>/dev/null && alive+=("$pid"); done
+      for row in ${entries[@]+"${entries[@]}"}; do
+        if matches "$row"; then alive+=("$row"); fi
+      done
       ((${#alive[@]})) || break
       sleep 0.5
     done
-    ((${#alive[@]})) && kill -KILL "${alive[@]}" 2>/dev/null || true
-    ((status)) || rm -f "$2"
+    for row in ${alive[@]+"${alive[@]}"}; do
+      if matches "$row"; then kill -KILL "${row%%$'\t'*}" 2>/dev/null || status=1; fi
+    done
+    # A successful kill request is not yet evidence that a stuck process exited.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      remaining=()
+      for row in ${alive[@]+"${alive[@]}"}; do
+        if matches "$row"; then remaining+=("$row"); fi
+      done
+      ((${#remaining[@]})) || break
+      sleep 0.1
+    done
+    if ((${#remaining[@]})); then
+      printf 'owned-process: processes still running; retained ledger: %s\n' "$ledger" >&2
+      status=1
+    fi
+    ((status)) || rm -f "$ledger"
     exit "$status" ;;
   *)
     printf 'usage: scripts/owned-process record <ledger> <pid> | stop <ledger>\n' >&2
