@@ -266,22 +266,18 @@ test('implementer-conflicts names reviewer-only conflicts without their content'
   const conflicts = fileURLToPath(
     new URL('implementer-conflicts', import.meta.url),
   );
+  const config = [
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    '-c',
+    'core.hooksPath=/dev/null',
+  ];
   const git = (...args) =>
-    execFileSync(
-      'git',
-      [
-        '-c',
-        'user.name=Test',
-        '-c',
-        'user.email=test@example.invalid',
-        '-c',
-        'commit.gpgsign=false',
-        '-c',
-        'core.hooksPath=/dev/null',
-        ...args,
-      ],
-      { cwd, encoding: 'utf8' },
-    );
+    execFileSync('git', [...config, ...args], { cwd, encoding: 'utf8' });
   const files = [...reviewerOnly, ...readable];
   const commitAll = (branch, text) => {
     git('checkout', '-q', '-B', branch, 'fixture');
@@ -293,11 +289,11 @@ test('implementer-conflicts names reviewer-only conflicts without their content'
   git('branch', 'fixture');
   commitAll('theirs', 'reviewer-only theirs content');
   commitAll('ours', 'reviewer-only ours content');
-  assert.equal(
-    spawnSync('git', ['merge', '-q', 'theirs'], { cwd }).status,
-    1,
-    'the fixture merge must conflict',
-  );
+  const merge = spawnSync('git', [...config, 'merge', '-q', 'theirs'], {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.equal(merge.status, 1, merge.stderr);
   for (const from of ['.', 'docs']) {
     const result = spawnSync(conflicts, [], {
       cwd: path.join(cwd, from),
