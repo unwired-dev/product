@@ -5,7 +5,7 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { ContextMenu } from '../src/design.tsx';
-import { GmailMessageBody } from '../src/message-body.tsx';
+import { MessageBody } from '../src/message-body.tsx';
 
 type MenuNode = Parameters<typeof fireEvent.press>[0];
 const contextMenuOf = (element: MenuNode) => {
@@ -112,7 +112,7 @@ describe('context menu event ownership', () => {
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
     const app = await render(
-      <GmailMessageBody
+      <MessageBody
         inbox={inbox}
         id={id}
       />,

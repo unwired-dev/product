@@ -13,7 +13,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
-import { GmailMessageBody } from '../src/message-body.tsx';
+import { MessageBody } from '../src/message-body.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { MessageTranslation, TranslationContext } from '../src/translation.tsx';
 import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
@@ -79,7 +79,7 @@ async function openReader(translation: NativeTranslation) {
   await inbox.load();
   const reader = (id: string, owner = inbox) => (
     <TranslationContext value={translation}>
-      <GmailMessageBody
+      <MessageBody
         inbox={owner}
         id={id}
       />

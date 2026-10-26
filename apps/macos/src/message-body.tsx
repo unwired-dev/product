@@ -4,6 +4,7 @@ import type {
   GmailInbox,
   ReceivedAttachment,
 } from '@private-email/mail-core/gmail-inbox';
+import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type {
   BodyLink,
   MessagePresentation,
@@ -910,15 +911,16 @@ export function ReceivedAttachments({
   );
 }
 
-// The opened Gmail message's body, from this device or downloaded on demand. Links open only
-// after the person confirms the destination shown here.
-export function GmailMessageBody({
+// The opened Gmail or IMAP message's body, from this device or downloaded on demand. Remote
+// Message Content follows the connection's policy, attachments download on request, and links
+// open only after the person confirms the destination shown here.
+export function MessageBody({
   inbox,
   id,
   subject,
   connection,
 }: {
-  readonly inbox: GmailInbox;
+  readonly inbox: GmailInbox | ImapInbox;
   readonly id: string;
   // Read by an explicitly requested summary with the body.
   readonly subject?: string | undefined;
@@ -930,6 +932,8 @@ export function GmailMessageBody({
   const provider = useProviderName();
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('message reader'));
+  // An IMAP connection's copy names its mail server, not a provider.
+  const imap = 'openFolder' in inbox;
   const remoteImages = useRemoteImages({
     inbox,
     id,
@@ -944,7 +948,7 @@ export function GmailMessageBody({
   // The message this reader shows, cleared as soon as it changes or closes, so input queued for a
   // previous message is recognized before any passive cleanup runs.
   const showing = useRef<{
-    readonly inbox: GmailInbox;
+    readonly inbox: GmailInbox | ImapInbox;
     readonly id: string;
   }>(undefined);
   useLayoutEffect(() => {
@@ -985,7 +989,7 @@ export function GmailMessageBody({
           style={[styles.paragraph, { color: colors.textSecondary }]}>
           {t(`messageBody.${body.reason}`, { provider })}
         </Text>
-        {body.reason === 'missing' ? null : (
+        {body.reason === 'missing' || body.reason === 'imap-missing' ? null : (
           <Action
             label={t('common.retry')}
             onPress={() => {
@@ -1045,7 +1049,7 @@ export function GmailMessageBody({
         inbox={inbox}
         id={id}
         current={current}
-        provider={provider}
+        provider={imap ? undefined : provider}
       />
     </View>
   );
