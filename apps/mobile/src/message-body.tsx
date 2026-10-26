@@ -1150,9 +1150,13 @@ export function GmailMessageBody({
         }}
       />
       {collapsible ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded: quotedShown }}
+        <Action
+          expanded={quotedShown}
+          label={
+            quotedShown
+              ? t('messageBody.hideQuoted')
+              : t('messageBody.showQuoted')
+          }
           onPress={() => {
             if (current() && showing.current !== undefined) {
               confirm?.(withoutLinkFrom(inbox, id));
@@ -1160,13 +1164,8 @@ export function GmailMessageBody({
               showing.current = { ...showing.current, quotedRevision: next };
               setQuotedRevision(next);
             }
-          }}>
-          <Text style={[styles.secondary, { color: colors.accentInk }]}>
-            {quotedShown
-              ? t('messageBody.hideQuoted')
-              : t('messageBody.showQuoted')}
-          </Text>
-        </Pressable>
+          }}
+        />
       ) : null}
       <ReceivedAttachments
         inbox={inbox}

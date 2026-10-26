@@ -197,7 +197,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
   },
-  action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   notice: { ...textStyles.subheadline },
   review: { paddingHorizontal: fieldInset, paddingTop: spacing.m },
   body: {
@@ -274,6 +273,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.s,
     paddingVertical: 4,
+    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -655,6 +655,7 @@ export function Recipients({
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
+  const [focused, setFocused] = useState<string>();
   const name = t(`drafts.fields.${field}`);
   const add = (value: string, all: boolean, typing = false) => {
     if (!editable) {
@@ -689,6 +690,13 @@ export function Recipients({
               accessibilityRole="button"
               accessibilityState={{ disabled: !editable }}
               disabled={!editable}
+              focusable
+              onBlur={() => {
+                setFocused(undefined);
+              }}
+              onFocus={() => {
+                setFocused(recipient.address);
+              }}
               onPress={() => {
                 const current = getDraft();
                 onChange(
@@ -703,20 +711,32 @@ export function Recipients({
                 );
               }}
               style={styles.token}>
-              <View
-                style={[
-                  styles.tokenFill,
-                  { backgroundColor: colors.fillQuiet },
-                ]}>
-                <Text style={[styles.tokenText, { color: colors.textPrimary }]}>
-                  {recipient.name ?? recipient.address}
-                </Text>
-                <SFSymbol
-                  name="xmark"
-                  size={10}
-                  color={colors.textSecondary}
-                />
-              </View>
+              {({ pressed }) => (
+                <View
+                  style={[
+                    styles.tokenFill,
+                    {
+                      backgroundColor: pressed
+                        ? colors.accentSelectionSubtle
+                        : colors.fillQuiet,
+                      opacity: editable ? 1 : 0.4,
+                      outlineColor:
+                        focused === recipient.address && editable
+                          ? colors.accentInk
+                          : 'transparent',
+                    },
+                  ]}>
+                  <Text
+                    style={[styles.tokenText, { color: colors.textPrimary }]}>
+                    {recipient.name ?? recipient.address}
+                  </Text>
+                  <SFSymbol
+                    name="xmark"
+                    size={10}
+                    color={colors.textSecondary}
+                  />
+                </View>
+              )}
             </Pressable>
           ))}
           <TextInput
@@ -1111,19 +1131,17 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   const [shown, setShown] = useState(false);
   return (
     <View style={styles.quoted}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: shown }}
+      <Action
+        expanded={shown}
+        label={
+          shown
+            ? t('drafts.response.hideQuoted')
+            : t('drafts.response.showQuoted')
+        }
         onPress={() => {
           setShown((current) => !current);
         }}
-        style={styles.action}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {shown
-            ? t('drafts.response.hideQuoted')
-            : t('drafts.response.showQuoted')}
-        </Text>
-      </Pressable>
+      />
       {shown ? (
         <Text
           selectable

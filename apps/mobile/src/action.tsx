@@ -26,6 +26,7 @@ export function Action({
   onPress,
   disabled = false,
   destructive = false,
+  expanded,
   variant = 'reader',
 }: {
   readonly label: string;
@@ -33,6 +34,7 @@ export function Action({
   readonly onPress: () => void;
   readonly disabled?: boolean;
   readonly destructive?: boolean;
+  readonly expanded?: boolean;
   readonly variant?: 'reader' | 'composer';
 }) {
   const colors = usePalette();
@@ -45,7 +47,7 @@ export function Action({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, expanded }}
       disabled={disabled}
       focusable
       onBlur={() => {
