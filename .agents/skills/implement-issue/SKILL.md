@@ -1,6 +1,6 @@
 ---
 name: implement-issue
-description: Implement a GitHub issue in this repository when asked to implement, fix, or work on an issue by URL or number, or to implement the next unblocked issue ranked by GitHub priority then oldest first. Carry it through verification and a ready-for-review pull request, then invoke babysit-pr. Do not use for issue triage, explanation, or planning-only requests.
+description: Implement a GitHub issue in this repository when asked to implement, fix, or work on an issue by URL or number, or to implement the next unblocked issue ranked by native priority or priority label, then oldest first. Carry it through verification and a ready-for-review pull request, then invoke babysit-pr. Do not use for issue triage, explanation, or planning-only requests.
 ---
 
 # Implement issue
@@ -67,14 +67,19 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
    and `wontfix` issues, plus issues with an open implementation PR or other clear evidence
    of active implementation. Apply any narrower scope the user
    supplied. Do not infer readiness from age or priority alone.
-2. Read the organization's native **Priority issue field**, not a GitHub Projects
-   field or a guessed label. Discover its field and option IDs through
-   `GET /orgs/{org}/issue-fields`, and match each issue's `issue_field_values`
-   by `issue_field_id` and selected option ID. Use the field's configured option
-   `priority` order, ascending: currently Urgent, High, Medium, Low. Put issues
-   with a confirmed unset priority after all assigned priorities. Within each
-   priority, sort by `created_at` ascending (oldest first), then issue number
-   ascending for an exact tie. Do not use last-updated time or API response order.
+2. Rank by priority from every priority signal on the issue: the
+   organization's native **Priority issue field** and any priority label, such
+   as `priority: high`, `P1`, `urgent` or `critical`. Discover the native
+   field and its option IDs through `GET /orgs/{org}/issue-fields`, and match
+   each issue's `issue_field_values` by `issue_field_id` and selected option ID.
+   Use the field's configured option `priority` order, ascending: currently
+   Urgent, High, Medium, Low. Map each priority label onto that scale by its
+   meaning (`priority: high` is High, `P0` or `critical` is Urgent); list the
+   repository's labels with `gh label list --limit 1000` to find them. When
+   signals disagree, the most urgent one wins. Put issues confirmed to have no
+   priority from any signal after all prioritized issues. Within each priority, sort by
+   `created_at` ascending (oldest first), then issue number ascending for an
+   exact tie. Do not use last-updated time or API response order.
 3. In that order, check each candidate's native incoming dependencies through
    `GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by`,
    following every page. Read explicit “Blocked by” references in its body and
@@ -85,12 +90,13 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
 4. Select the first candidate whose blockers are satisfied and whose requirements
    are actionable. Recheck its live state, readiness, `in progress` label,
    dependencies and active PRs immediately before claiming it. State its URL,
-   priority (or unset), creation date, and why higher-ranked candidates were
-   skipped, then proceed with implementation.
+   priority and its source (native field, label, or unset), creation date, and
+   why higher-ranked candidates were skipped, then proceed with implementation.
 
 Treat failed or incomplete reads as unknown, not as an unset priority or an empty
-blocker list. If missing access or ambiguous priority ordering could change the
-winner, resolve it or report selection blocked; do not silently fall back to age.
+blocker list. If missing access, a priority label with no clear level, or
+ambiguous priority ordering could change the winner, resolve it or report
+selection blocked; do not silently fall back to age.
 If no eligible issue remains, report that outcome and the relevant blockers without
 starting unrelated work or changing priorities, labels, or dependencies to qualify it.
 
