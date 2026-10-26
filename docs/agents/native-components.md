@@ -99,6 +99,10 @@ session catalogue; discover and vet a missing skill only for a needed capability
 - React Native rendering, lists and native integration: `vercel-react-native-skills`.
 - Expo controls and presenters: the project-local [expo-ui skill](../../.agents/skills/expo-ui/SKILL.md).
 - Expo routes, native stacks, headers, search and sheets: the project-local [expo-router skill](../../.agents/skills/expo-router/SKILL.md).
+- Other Expo SDK, native module, development build and EAS work: the matching
+  project-local `expo-*` or `eas-*` skill in `.agents/skills`, such as
+  `expo-native-ui`, `expo-module`, `expo-dev-client` or `eas-workflows`.
+- Animation and motion: the [animation skills](#animation-skills) below.
 - Component APIs and refactors: apply `vercel-composition-patterns` only to the components the task needs.
 - TypeScript models and contracts: `typescript-best-practices`.
 - Behavior and regression coverage: `functionality-testing`, with real native evidence where the behavior depends on the host.
@@ -111,10 +115,31 @@ examples. Expo guidance applies to the mobile host; it does not authorize adding
 Expo to the Mac bundle. Load relevant references, rather than treating every
 skill as a reason to add dependencies, wrappers or a component framework.
 
-The two Expo bundles are vendored from the revision in `skills-lock.json`.
-Preserve the pin and reapply the documented [local corrections](expo-skill-patches.md)
-when updating them. The local `expo-ui` package manifest keeps its CommonJS
-discovery helper compatible with this ESM workspace.
+The project-local skills are vendored from the revisions in `skills-lock.json`.
+`expo-ui` and `expo-router` stay on their older pin: preserve it and reapply the
+documented [local corrections](expo-skill-patches.md) when updating them. The
+local `expo-ui` package manifest keeps its CommonJS discovery helper compatible
+with this ESM workspace.
+
+### Animation skills
+
+Any task that adds, changes or reviews animation, motion, transitions, gestures,
+press feedback or haptics must load the matching animation skill before planning
+or editing, in addition to the design skills in the root guide:
+
+- React Native and Expo motion, including Reanimated, Gesture Handler, screen
+  and sheet transitions, press feedback and expo-haptics: the project-local
+  [expo-animation skill](../../.agents/skills/expo-animation/SKILL.md).
+- SwiftUI motion in native Swift code: the project-local
+  [ios-animations skill](../../.agents/skills/ios-animations/SKILL.md). Apply its
+  spring, timing, gesture and Reduce Motion rules. Its architecture mandates,
+  such as `@Equatable` on every view, `Motion.*` and `Spacing.*` tokens and the
+  clinic MVVM-C module layout, come from another project and do not apply here.
+- Motion principles and review: `apple-design`.
+
+The native presenter still owns its own transitions under
+[native behavior and design](#native-behavior-and-design). Repository design
+tokens and Reduced Motion requirements take precedence over skill examples.
 
 ## Rewrite tracking
 

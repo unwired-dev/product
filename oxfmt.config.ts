@@ -2,9 +2,10 @@ import { extendOxfmtConfig } from '@rajzik/oxfmt-config';
 
 export default extendOxfmtConfig({
   ignorePatterns: [
-    // Preserve the pinned upstream Expo skill bundles.
-    '.agents/skills/expo-ui/**',
-    '.agents/skills/expo-router/**',
+    // Preserve the pinned upstream Expo and animation skill bundles.
+    '.agents/skills/expo-*/**',
+    '.agents/skills/eas-*/**',
+    '.agents/skills/ios-animations/**',
     '**/convex/_generated/**',
     // run.py and report.py generate the System Category benchmark results.
     'tools/system-category-benchmark/results/**',
