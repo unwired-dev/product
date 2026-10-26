@@ -261,10 +261,11 @@ describe('command palette hint preference', () => {
     expect(hint.getSnapshot()).toBe(true);
     await hint.dismiss();
     await hint.dismiss();
-    expect(seen).toStrictEqual([true, false]);
     expect(saved).toStrictEqual(['command-palette-hint']);
     await hint.load();
     expect(hint.getSnapshot()).toBe(false);
+    // Loading the same value again does not notify.
+    expect(seen).toStrictEqual([true, false]);
     const malformed = createPaletteHint({
       preference: () => Promise.resolve({ value: 7 }),
       setPreference: () => Promise.reject(new Error('unavailable')),
