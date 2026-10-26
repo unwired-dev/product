@@ -68,6 +68,10 @@ for (const [
       );
       writeFileSync(path.join(nativeTests, 'InboxTests.swift'), '');
       cpSync(
+        path.join(root, 'scripts/record-host-load.sh'),
+        path.join(directory, 'scripts/record-host-load.sh'),
+      );
+      cpSync(
         path.join(root, 'scripts/prepare-mock-app.py'),
         path.join(directory, 'scripts/prepare-mock-app.py'),
       );
@@ -148,6 +152,15 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
       const entries = readdirSync(artifacts);
       assert.equal(entries.length, 1);
       const evidence = path.join(artifacts, entries[0]);
+      const hostLoad = readFileSync(
+        path.join(evidence, 'host-load.txt'),
+        'utf8',
+      );
+      assert.match(hostLoad, /before .* attempt 1/u);
+      assert.equal(
+        /after .* attempt 1/u.test(hostLoad),
+        scenario !== 'terminated',
+      );
       const ownership = parseJson(
         readFileSync(path.join(evidence, 'ownership.json'), 'utf8'),
       );
@@ -267,3 +280,35 @@ if (command === 'node') {
     );
   });
 }
+
+test('host load reports unavailable inspection and never overrides a runner result', (t) => {
+  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+  const directory = mkdtempSync(path.join(root, 'scratchpad/host-load-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  for (const command of ['uptime', 'pgrep', 'xcrun']) {
+    writeFileSync(path.join(directory, command), '#!/bin/sh\nexit 2\n', {
+      mode: 0o755,
+    });
+  }
+  const file = path.join(directory, 'load.txt');
+  const invoke = (output) =>
+    spawnSync(
+      path.join(root, 'scripts/record-host-load.sh'),
+      [output, 'after failure'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
+      },
+    );
+  assert.equal(invoke(file).status, 0);
+  const evidence = readFileSync(file, 'utf8');
+  assert.match(evidence, /after failure/u);
+  for (const label of [
+    'load averages',
+    'xcodebuild processes',
+    'booted simulators',
+  ]) {
+    assert.ok(evidence.includes(`${label}: unavailable`), evidence);
+  }
+  assert.equal(invoke(directory).status, 0);
+});

@@ -102,7 +102,11 @@ versions and update them together. TypeScript 7 is intentionally
 excluded from `expo install --check` because Expo recommends TypeScript 6 while
 the selected Effect tooling patches TypeScript 7. Jest remains on 29 for
 `jest-expo`'s watch plugin. Testing Library's `test-renderer` is pinned to 1.2.0;
-1.3 requires a newer React renderer. Node and pnpm versions belong to
+1.3 requires a newer React renderer. When updating the Expo companion versions,
+replace the exact `minimumReleaseAgeExclude` entries in
+[`pnpm-workspace.yaml`](../pnpm-workspace.yaml) they needed, drop obsolete
+exceptions for the same packages, then verify a frozen install and
+`expo install --check`. Node and pnpm versions belong to
 [the root toolchain](../README.md#local-development).
 
 ## Install and run
@@ -136,7 +140,9 @@ applies the pinned `expo-glass-effect` patch; regenerate and rebuild after chang
 it, and verify reader toolbar padding dismisses an open menu while buttons still work.
 Keep native changes in
 config plugins. The design plugin compiles `native/design`, the SF Symbol and
-other native design views the Mac host shares; Liquid Glass uses `expo-glass-effect`. The bundle ID is `dev.unwired.mail`, the version comes from
+other native design views the Mac host shares: it copies their sources into the
+generated project, so regenerate after editing them and check the built binary
+contains the changed symbol. Liquid Glass uses `expo-glass-effect`. The bundle ID is `dev.unwired.mail`, the version comes from
 `apps/mobile/package.json`, and the icon is the Icon Composer document in
 `native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0 and
 [`enableSceneSupport: true`](https://docs.expo.dev/versions/latest/sdk/build-properties/#pluginconfigtypeios):

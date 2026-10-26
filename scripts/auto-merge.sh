@@ -8,7 +8,6 @@ repo=${GITHUB_REPOSITORY:?}
 # required status checks itself instead of relying on GitHub to refuse.
 rules=$(gh api "repos/$repo/rules/branches/main" --paginate --slurp | jq -c '[.[][] | select(.type == "required_status_checks")]')
 required=$(jq -c '[.[].parameters.required_status_checks[]]' <<<"$rules")
-strict=$(jq -c 'any(.[]; .parameters.strict_required_status_checks_policy == true)' <<<"$rules")
 numbers=${*:-$(gh pr list --repo "$repo" --state open --base main --limit 100 --json number | jq -r '.[].number')}
 
 query='query($owner: String!, $name: String!, $number: Int!) {
@@ -61,7 +60,8 @@ decide='
     elif $commit.statusCheckRollup.contexts.totalCount != ($checks | length) then "wait: incomplete check page"
     elif any($required[]; . as $requirement | [$checks[] | select(.name == $requirement.context and ($requirement.integration_id == null or .app == $requirement.integration_id))] | length == 0 or any(.ok | not))
       then "wait: required checks have not all passed"
-    elif $strict and (.headRef.compare.aheadBy // 1) > 0 then "wait: the ruleset requires an up-to-date branch and main has moved on"
+    # Checks must have run against the latest main, whatever the ruleset requires.
+    elif (.headRef.compare.aheadBy // 1) > 0 then "wait: main has moved on; merge it into the branch first"
     # ponytail: fail closed past one page of threads; paginate if PRs outgrow it.
     elif .reviewThreads.totalCount != (.reviewThreads.nodes | length) then "wait: too many review threads to verify"
     elif any(.reviewThreads.nodes[]; .isResolved | not) then "wait: unresolved review threads"
@@ -84,7 +84,7 @@ fetch_pr() {
 }
 
 evaluate() {
-  jq -r --argjson required "$required" --argjson strict "$strict" --argjson now "${AUTO_MERGE_NOW:-$(date -u +%s)}" --argjson dismissed "${1:-0}" "$decide" <<<"$pr"
+  jq -r --argjson required "$required" --argjson now "${AUTO_MERGE_NOW:-$(date -u +%s)}" --argjson dismissed "${1:-0}" "$decide" <<<"$pr"
 }
 
 failed=0

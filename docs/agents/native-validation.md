@@ -9,6 +9,19 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
 
 ## Own the resources used by the check
 
+- Give each task a single-writer ledger. Record long-running processes with
+  `scripts/owned-process record <ledger> <pid>` while the parent is running;
+  stop them with `scripts/owned-process stop <ledger>`. Cleanup records live
+  descendants before signaling and rechecks start time, command and working
+  directory before every signal, including KILL. Verification or signaling
+  failures retain the ledger for recovery. Descendants orphaned before discovery
+  cannot be safely identified from the parent PID alone. Never stop builds,
+  Simulators or test runners by name or relative path on this shared host.
+- Both native runners record host load (`host-load.txt`: load averages,
+  `xcodebuild` processes, booted Simulators) before and after each journey.
+  Before attributing a timing or idle-wait failure to the host, compare it with
+  a passing baseline and reproduce it without your own concurrent native work.
+
 - Before a full native validation matrix, require at least 6 GiB available on
   the data volume. Reclaim only artifacts owned by the current task; otherwise
   report the capacity blocker.
@@ -288,6 +301,12 @@ setup and relaunch, open Settings and return with the prior mail state retained,
 and rotate with a reader open. Keep keyboard and presentation checks when those
 interactions are affected. A preview Inbox run qualifies only the path it uses;
 record unavailable signed-in native checks as deferred.
+
+A navigation, size-class or shared-journey change runs on every affected device
+class and orientation. Where one is unavailable, check each journey action
+against that class and record the run as deferred. Before deferring a check for
+lack of an entry point, try a cold deep link and a scenario fixture, and record
+the capability that is still missing.
 
 ## Required release checks
 

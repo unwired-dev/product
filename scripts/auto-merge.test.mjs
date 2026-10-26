@@ -16,12 +16,9 @@ import * as Schema from 'effect/Schema';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const head = '0123456789abcdef0123456789abcdef01234567';
-const checkRule = (context, integration_id = 15_368, strict = false) => ({
+const checkRule = (context, integration_id = 15_368) => ({
   type: 'required_status_checks',
-  parameters: {
-    required_status_checks: [{ context, integration_id }],
-    strict_required_status_checks_policy: strict,
-  },
+  parameters: { required_status_checks: [{ context, integration_id }] },
 });
 const now = Date.parse('2026-10-07T12:00:00Z') / 1000;
 const hoursAgo = (hours) =>
@@ -410,30 +407,16 @@ test('merges a CodeRabbit approval of an older commit after two quiet hours', ()
   assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
 });
 
-test('honors strict rules on every page and rechecks branch freshness', () => {
+test('waits until the head contains the latest main and rechecks it', () => {
   const pr = cleared();
-  const strict = {
-    rulePages: [
-      [checkRule('TypeScript')],
-      [checkRule('Fallow', 15_368, true)],
-      [checkRule('TypeScript')],
-    ],
-  };
-  assert.deepEqual(run(pr, {}, strict), {
-    output: '#7: merge',
-    calls: [merge],
-  });
-  pr.headRef.compare.aheadBy = 1;
-  assert.deepEqual(run(pr, {}, strict), {
-    output:
-      '#7: wait: the ruleset requires an up-to-date branch and main has moved on',
-    calls: [],
-  });
   assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
-  assert.deepEqual(
-    run(cleared(), {}, { ...strict, snapshots: [pr] }).calls,
-    [],
-  );
+  pr.headRef.compare.aheadBy = 1;
+  const behind = {
+    output: '#7: wait: main has moved on; merge it into the branch first',
+    calls: [],
+  };
+  assert.deepEqual(run(pr), behind);
+  assert.deepEqual(run(cleared(), {}, { snapshots: [pr] }).calls, []);
 
   const stale = cleared();
   stale.reviews.nodes.pop();
@@ -442,14 +425,11 @@ test('honors strict rules on every page and rechecks branch freshness', () => {
   const { output, calls } = run(
     stale,
     {},
-    {
-      ...strict,
-      snapshots: [stale, behindAfterDismissal],
-    },
+    { snapshots: [stale, behindAfterDismissal] },
   );
   assert.match(
     output,
-    /eligibility changed after dismissal.*up-to-date branch/u,
+    /eligibility changed after dismissal.*main has moved on/u,
   );
   assert.equal(calls.length, 1);
   assert.equal(calls[0][2], 'PUT');
@@ -460,9 +440,7 @@ test('honors strict rules on every page and rechecks branch freshness', () => {
     { compare: { aheadBy: null } },
   ]) {
     pr.headRef = headRef;
-    const unavailable = run(pr, {}, strict);
-    assert.match(unavailable.output, /up-to-date branch/u);
-    assert.deepEqual(unavailable.calls, []);
+    assert.deepEqual(run(pr), behind);
   }
 });
 

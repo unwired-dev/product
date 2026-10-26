@@ -245,6 +245,10 @@ for (const [
         path.join(sharedScripts, 'prepare-mock-app.py'),
       );
       cpSync(
+        path.join(root, 'scripts/record-host-load.sh'),
+        path.join(sharedScripts, 'record-host-load.sh'),
+      );
+      cpSync(
         path.join(root, 'scripts/mock-mail-scenarios.json'),
         path.join(sharedScripts, 'mock-mail-scenarios.json'),
       );
@@ -286,7 +290,11 @@ if (command === 'xcodebuild') {
       }
       const result = run(
         directory,
-        ['zsh', path.join(scripts, 'test-native.zsh'), source],
+        [
+          'zsh',
+          path.relative(directory, path.join(scripts, 'test-native.zsh')),
+          source,
+        ],
         {
           RUBY: path.join(directory, 'bin/ruby'),
           UNWIRED_SIGNING_IDENTITY: 'Synthetic signer',
@@ -340,6 +348,20 @@ if (command === 'xcodebuild') {
         result.status,
       );
       assert.ok(existsSync(path.join(evidence, 'xcodebuild.log')));
+      const hostLoad = readFileSync(
+        path.join(evidence, 'host-load.txt'),
+        'utf8',
+      );
+      assert.match(
+        hostLoad,
+        /before testIndependentWindowsCloseReopenAndQuit/u,
+      );
+      if (!terminate) {
+        assert.match(
+          hostLoad,
+          /after testIndependentWindowsCloseReopenAndQuit/u,
+        );
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
