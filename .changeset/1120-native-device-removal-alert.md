@@ -1,5 +1,6 @@
 ---
 '@private-email/mobile': patch
+'@private-email/mail-core': patch
 ---
 
-Removing a Trusted Device on iPhone and iPad now asks in the system alert: iOS presents it, moves VoiceOver focus to it and returns focus afterwards, and its message scrolls at large text sizes (#1120).
+Removing a Trusted Device on iPhone and iPad now asks in the system alert: iOS presents it, moves VoiceOver focus to it and returns focus afterwards, and its message scrolls at large text sizes (#1120). The theme drops `scrimMac`, which only that removed custom confirmation used.

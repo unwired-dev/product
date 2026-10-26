@@ -55,7 +55,6 @@ export const palette = {
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.08)',
     menuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
-    scrimMac: 'rgba(0, 0, 0, 0.18)',
     scrimTouch: 'rgba(0, 0, 0, 0.22)',
     // Menus, popovers and sheets, which float above the content.
     menuShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
@@ -89,7 +88,6 @@ export const palette = {
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.3)',
     menuGlassShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
-    scrimMac: 'rgba(0, 0, 0, 0.18)',
     scrimTouch: 'rgba(0, 0, 0, 0.45)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
     toastShadow: '0px 6px 9px rgba(0, 0, 0, 0.18)',
