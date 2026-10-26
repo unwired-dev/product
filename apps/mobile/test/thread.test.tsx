@@ -262,10 +262,9 @@ describe('thread view', () => {
     });
     expect(screen.getByText(/On Monday, Alex Rivera wrote:/u)).toBeVisible();
     expect(screen.getByText(/Earlier reply/u)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Hide quoted text' })).toHaveProp(
-      'accessibilityState',
-      { expanded: true },
-    );
+    expect(
+      screen.getByRole('button', { name: 'Hide quoted text' }),
+    ).toBeExpanded();
 
     await act(async () => {
       await fireEvent.press(
