@@ -61,12 +61,14 @@ for device_type in "${device_types[@]}"; do
     # A library photo for journeys that insert an image through the system Photos picker.
     xcrun simctl addmedia "$device_id" "$mobile_root/native-tests/photo.png"
     xcrun simctl install "$device_id" "$app_bundle"
+    "$repo_root/scripts/record-host-load.sh" "$run_dir/host-load.txt" "before $device_type attempt $attempt"
     test_exit=0
     xcodebuild test-without-building -project InboxProbe.xcodeproj -scheme InboxProbe \
       -destination "platform=iOS Simulator,id=$device_id" \
       -derivedDataPath "$run_dir/DerivedData" -resultBundlePath "$run_dir/$device_id.xcresult" \
       -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
       > "$run_dir/$device_id.log" 2>&1 || test_exit=$?
+    "$repo_root/scripts/record-host-load.sh" "$run_dir/host-load.txt" "after $device_type attempt $attempt"
     if (( test_exit == 0 )) && grep -Eq 'Executed [1-9][0-9]* tests?, with 0 failures' "$run_dir/$device_id.log"; then
       print "Native Inbox journey passed: $device_type"
       xcrun simctl shutdown "$device_id"
@@ -86,7 +88,7 @@ for device_type in "${device_types[@]}"; do
       continue
     fi
     tail -60 "$run_dir/$device_id.log" >&2
-    print -u2 "Native Inbox journey failed: $device_type (attempt $attempt)"
+    print -u2 "Native Inbox journey failed: $device_type (attempt $attempt); host load: $run_dir/host-load.txt"
     exit 1
   done
 done

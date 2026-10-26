@@ -68,6 +68,10 @@ for (const [
       );
       writeFileSync(path.join(nativeTests, 'InboxTests.swift'), '');
       cpSync(
+        path.join(root, 'scripts/record-host-load.sh'),
+        path.join(directory, 'scripts/record-host-load.sh'),
+      );
+      cpSync(
         path.join(root, 'scripts/prepare-mock-app.py'),
         path.join(directory, 'scripts/prepare-mock-app.py'),
       );

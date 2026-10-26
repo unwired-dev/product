@@ -245,6 +245,10 @@ for (const [
         path.join(sharedScripts, 'prepare-mock-app.py'),
       );
       cpSync(
+        path.join(root, 'scripts/record-host-load.sh'),
+        path.join(sharedScripts, 'record-host-load.sh'),
+      );
+      cpSync(
         path.join(root, 'scripts/mock-mail-scenarios.json'),
         path.join(sharedScripts, 'mock-mail-scenarios.json'),
       );

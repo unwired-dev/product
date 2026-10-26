@@ -48,7 +48,9 @@ branches; report unavailable prerequisites without claiming a completed handoff.
 4. Set up the task branch as in the workflow's
    [implementer handoff](../../../docs/agents/implementation-review.md#implementer-handoff)
    step 1: record and classify the working-tree state, select the branch, then
-   record the starting commit. List open PRs whose changed files overlap the
+   record the starting commit. Stacked branches are supported; when the stack
+   base's agent instructions (`AGENTS.md`, `docs/agents/`, skills) differ from
+   current `main`, the newest revision governs; record which one. List open PRs whose changed files overlap the
    modules this issue will change (`gh pr diff <number> --name-only`), place
    changes to minimize conflicts with them, and settle any dependency on their
    unmerged code through
@@ -64,6 +66,9 @@ branches; report unavailable prerequisites without claiming a completed handoff.
    claim comment and open PRs before each long phase: a decision panel, each
    reviewer handoff and each push. A failed label read or claim blocks implementation. Skip the claim
    only when an explicit user limit excludes GitHub writes, and say so in the report.
+   When the user asks for a parallel implementation of an issue someone else
+   already claims, keep the existing claim and PR; record yours in a separate
+   claim comment naming your branch, and never take over theirs.
    Identify the acceptance criteria and the checks that will demonstrate them.
    Record material assumptions. Resolve missing requirements through the
    workflow's decision policy while continuing independent work.
@@ -114,7 +119,11 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
    names, started after the comment, whose jobs cover the step:
    `gh run list --workflow <file> --branch <branch>`); and, for an issue citing a
    commit and files, `git log --oneline <commit>..origin/main -- <files>`.
-   Skip and report a candidate resolved this way; do not close it.
+   Reconcile each acceptance criterion with the feature guide, later changes,
+   merged sibling PRs and dependency behavior, and classify it as satisfied,
+   provable by an agent, or human-only (physical device, owner account); state
+   the remaining scope. Skip and report a candidate resolved this way, or one
+   whose only remainder is human-only; do not close it.
 4. Select the first candidate whose blockers are satisfied and whose requirements
    are actionable. Recheck its live state, readiness, `in progress` label,
    dependencies and active PRs immediately before claiming it. Actionable
@@ -122,12 +131,30 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
    prerequisite the acceptance criteria name (signing identities, provisioning
    profiles, OS and toolchain versions, physical devices, test accounts,
    credentials, deployments) and read the comments for an earlier skip note.
+   Credential probes report only each name as set or missing; never print an
+   env file, even through a redaction filter, since values can span lines.
+   Verify the behavior and platform API the issue presupposes against the code
+   and installed interfaces; an open issue that owns missing behavior is a
+   blocker even without a native dependency, and a contradiction with approved
+   copy goes to the decision policy. Skip a candidate whose deliverable needs
+   writes or publication outside this repository (an upstream PR, a public
+   fork, a third-party service), noting the needed action in the skip comment.
    Skip a candidate this host cannot satisfy instead of claiming it. When you
    skip a candidate as host-blocked or already resolved, leave one short issue
    comment naming the reason and its evidence so later selections can recheck
    it cheaply; change no labels. State its URL,
    priority and its source (native field, label, or unset), creation date, and
    why higher-ranked candidates were skipped, then proceed with implementation.
+5. A substantial issue (several independent deliverables or more than one
+   reviewable PR) is implemented through sub-issues. Inventory its remaining
+   criteria, open sub-issues and related issues; select an eligible open
+   sub-issue, or file the smallest reviewable slice as a native sub-issue with
+   its dependencies and claim that. Leave the parent open. When no slice is
+   actionable, leave one comment naming the remaining work and move to the next
+   candidate.
+6. A replacement selection, such as after a skip or a lost claim, restarts
+   [Establish the issue and scope](#establish-the-issue-and-scope) for that issue:
+   verify the branch, worktree, baseline and claim comment name it before the first edit.
 
 Treat failed or incomplete reads as unknown, not as an unset priority or an empty
 blocker list. If missing access, a priority label with no clear level, or
@@ -141,6 +168,16 @@ starting unrelated work or changing priorities, labels, or dependencies to quali
 Before implementation, load and apply the workflow's
 [simplicity skills](../../../docs/agents/implementation-review.md#simplicity-skills).
 Follow the root guide's coding principles, skill selection and navigation rules.
+Before editing, run the smallest relevant typecheck and test suite on the
+starting revision and record failures already present there. Before substantial
+work and before the first handoff, fetch the target base and integrate upstream
+changes as the branch's delivery allows; when widening a shared type, inspect
+consumers added upstream since the baseline. Copy, localized strings, sender
+availability and accessibility labels are user-visible changes: record the
+platform, screen, state and Figma frame IDs before the first edit and reuse them
+in the design-review handoff. For experiments and benchmarks, validate isolation
+across every stratum and run a cheap end-to-end baseline before long compute;
+record the corpus and configuration identity.
 Complete the issue's requested behavior, update affected
 documentation, and add a changeset when required by repository policy.
 Before naming an external interface (URL or deep-link parameter, initial prop,
@@ -166,7 +203,12 @@ CI runs only the `open-read-relaunch` native journey, so a change to the
 registration flow, the native bridge or journey files builds and runs the
 affected `registration-*` scenarios locally under the
 [native validation guide](../../../docs/agents/native-validation.md), or records
-them as unavailable. Resolve failures within the issue's scope, and identify
+them as unavailable. Before handoff, verify the native capture session actually
+reaches each changed screen and state with representative content; extend the
+fixture when it does not. When native generation copies sources (for example
+`apps/mobile/plugins/design.cjs` copies `native/design`), regenerate, then probe
+the built binary for the changed symbol; this proves the build input, not the
+interaction. Resolve failures within the issue's scope, and identify
 any blocker that prevents delivery.
 
 Select the applicable [review depth](../../../docs/agents/implementation-review.md#review-depth)
@@ -179,6 +221,12 @@ The workflow also governs checkout ownership, follow-up coverage and unavailable
 Follow [PR delivery and babysitting](../../../docs/agents/pull-request-babysitting.md#implementer-pr-delivery)
 for commit, push, PR creation, explicit user limits and monitoring. Use a closing
 issue reference only when the PR fully resolves it.
+
+When an investigation ends without a diff, publish its cases, evidence,
+remaining checks and recommendation as an issue comment and report that no PR
+was opened. Close the issue as completed when the work is done, as not planned
+only on an authorized decision, and otherwise leave it open with its readiness
+label; release the claim.
 
 Before handing off, recheck the issue's acceptance criteria against the final
 diff and evidence, verify the remote PR head contains the reviewed changes, and

@@ -36,7 +36,10 @@ work and the stages left undone. After all required
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
 threads. A base merge that conflicts in reviewer-only paths follows the
-[merge conflict rule](implementation-review.md#reading-responsibilities). Each pass reads the full feedback state from GitHub (review comments,
+[merge conflict rule](implementation-review.md#reading-responsibilities). After
+a base sync, inspect what changed in agent guides, workflow docs and skills
+since the previous base, and meet any new delivery requirement, such as a design
+approval, before pushing. Each pass reads the full feedback state from GitHub (review comments,
 reviews, top-level comments and unresolved review threads), not only what the
 wakeup names: the T3 Code watcher skips comments posted from the agent's own
 GitHub account, which is often the user's. Implementation edits made while babysitting follow
@@ -156,8 +159,9 @@ can delay or skip. It squash-merges each open pull request to `main` that meets 
 
 - It is ready for review, from a same-repository branch, and has no merge conflict.
 - Every status check the `main` ruleset requires concluded success or skipped,
-  from its required GitHub App when one is specified. When the ruleset requires
-  branches to be up to date, the head must also contain the latest `main`.
+  from its required GitHub App when one is specified.
+- The head contains the latest `main`, so those checks ran against it. The
+  babysitting pass merges a moved `main` into the branch.
 - Every review thread is resolved.
 - Codex reacted with 👍, left no review on the head commit, and either its
   latest "Didn't find any major issues" comment or its Codex Review Summary
