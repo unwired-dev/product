@@ -82,11 +82,11 @@ const styles = StyleSheet.create({
   back: {
     width: 44,
     height: 44,
-    marginLeft: spacing.l,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 22,
   },
+  backInset: { marginLeft: spacing.l },
   title: { ...textStyles.largeTitle },
   regularTitle: { fontSize: 25.3, lineHeight: 29.9 },
   description: { ...textStyles.body },
@@ -422,24 +422,27 @@ export function SignIn({
           paddingBottom: insets.bottom,
         },
       ]}>
+      {/* Back: a glass circle with the native glass press. */}
       {onBack === undefined ? null : (
-        <Pressable
-          accessibilityLabel={t('onboarding.back')}
-          accessibilityRole="button"
-          onPress={onBack}
+        <Glass
+          cornerRadius={22}
+          interactive
           style={[
             styles.back,
-            {
-              backgroundColor: colors.surfaceContent,
-              boxShadow: colors.smallGlassShadow,
-            },
+            styles.backInset,
+            { boxShadow: colors.smallGlassShadow },
           ]}>
-          <Glass cornerRadius={22} />
-          <SFSymbol
-            name="chevron.left"
-            color={colors.textPrimary}
-          />
-        </Pressable>
+          <Pressable
+            accessibilityLabel={t('onboarding.back')}
+            accessibilityRole="button"
+            onPress={onBack}
+            style={styles.back}>
+            <SFSymbol
+              name="chevron.left"
+              color={colors.textPrimary}
+            />
+          </Pressable>
+        </Glass>
       )}
       <ScrollView contentContainerStyle={styles.compactForm}>
         {heading}
@@ -479,6 +482,9 @@ export function OnboardingAction({
     quiet: [colors.fillQuiet, colors.textPrimary],
   } as const;
   const [background, ink] = fills[fill];
+  // Pressed, the Brand and Apple fills show at 80% (CC) and the quiet fill takes the selection tint.
+  const pressedFill =
+    fill === 'quiet' ? colors.accentSelectionSubtle : `${background}CC`;
   return (
     <Pressable
       accessibilityLabel={label}
@@ -487,11 +493,14 @@ export function OnboardingAction({
       disabled={disabled}
       focusable={!disabled}
       onPress={onPress}
-      style={[
+      style={({ pressed }) => [
         styles.action,
         ipad && styles.regularAction,
         ipad && fill !== 'brand' && styles.regularSignInAction,
-        { backgroundColor: background, opacity: disabled ? 0.4 : 1 },
+        {
+          backgroundColor: pressed ? pressedFill : background,
+          opacity: disabled ? 0.4 : 1,
+        },
       ]}>
       {fill === 'apple' ? (
         <SFSymbol
