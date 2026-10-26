@@ -5,12 +5,13 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ReactNode, RefObject } from 'react';
+import type { ComponentProps, ReactNode, RefObject } from 'react';
 import type { TextInput } from 'react-native';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
+  allMail,
   leavesView,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
@@ -37,18 +38,13 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  ActivityIndicator,
-  SectionList,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, SectionList, Text, View } from 'react-native';
 
 import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
+import { Action } from './action.tsx';
 import { RegisterCommands } from './command-palette.tsx';
 import {
   DraftHeading,
@@ -59,11 +55,16 @@ import {
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
-import { DateDivider, MessageRow, SkeletonRows } from './inbox-rows.tsx';
+import {
+  DateDivider,
+  DownloadingOlder,
+  MessageRow,
+  SkeletonRows,
+} from './inbox-rows.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailboxFolder } from './mailbox-folders.tsx';
+import { useListedMailbox } from './mailbox-folders.tsx';
 import {
   MailboxScope,
   useDrafts,
@@ -402,16 +403,14 @@ function OnlineResults({
   }
   if (found === undefined && !searching) {
     return (
-      <Pressable
-        accessibilityLabel={t('search.online', { query })}
-        accessibilityRole="button"
-        onPress={() => {
-          void search.search();
-        }}>
-        <Text style={[styles.notice, { color: colors.accentInk }]}>
-          {t('search.online', { query })}
-        </Text>
-      </Pressable>
+      <View style={styles.noticeAction}>
+        <Action
+          label={t('search.online', { query })}
+          onPress={() => {
+            void search.search();
+          }}
+        />
+      </View>
     );
   }
   return (
@@ -425,28 +424,24 @@ function OnlineResults({
         <ActivityIndicator accessibilityLabel={t('search.searching')} />
       ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
-        <Pressable
-          accessibilityLabel={t('search.more')}
-          accessibilityRole="button"
-          onPress={() => {
-            void search.more();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.more')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            label={t('search.more')}
+            onPress={() => {
+              void search.more();
+            }}
+          />
+        </View>
       ) : null}
       {!searching && found !== undefined && found.failures.length > 0 ? (
-        <Pressable
-          accessibilityLabel={t('search.retry')}
-          accessibilityRole="button"
-          onPress={() => {
-            void search.search();
-          }}>
-          <Text style={[styles.notice, { color: colors.accentInk }]}>
-            {t('search.retry')}
-          </Text>
-        </Pressable>
+        <View style={styles.noticeAction}>
+          <Action
+            label={t('search.retry')}
+            onPress={() => {
+              void search.search();
+            }}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -502,16 +497,22 @@ function scopeOf(
   t: Translate,
   shown: readonly InboxMailbox[],
   {
+    unified,
     several,
     gmail,
     waiting,
   }: Readonly<{
+    // Whether the list is a Unified Mailbox, which spans every mailbox.
+    unified: boolean;
     several: boolean;
     gmail: boolean;
     // The chosen connection while it waits for authorization, which has no Inbox to show.
     waiting: Readonly<{ address: string }> | undefined;
   }>,
 ) {
+  if (unified) {
+    return t('mailboxes.allMailboxes');
+  }
   if (waiting !== undefined) {
     return waiting.address;
   }
@@ -531,7 +532,37 @@ const offline = (state: InboxMailbox['state']) =>
   (('sync' in state && state.sync === 'retry') ||
     ('status' in state && state.status === 'retry'));
 
-// The subtitle's status: checking the server, cut off from it, or how much is unread.
+// Below a view's listed mail: its older mail still downloading, or that only its newest mail is
+// saved on this device.
+function FolderFooter({
+  limited,
+  downloading,
+  oldest,
+  now,
+}: Readonly<{
+  limited: string | undefined;
+  downloading: string | undefined;
+  oldest: ComponentProps<typeof DownloadingOlder>['oldest'];
+  now: number;
+}>) {
+  const colors = usePalette();
+  if (downloading !== undefined) {
+    return (
+      <DownloadingOlder
+        oldest={oldest}
+        now={now}
+      />
+    );
+  }
+  return limited === undefined ? null : (
+    <Text style={[styles.footer, { color: colors.textSecondary }]}>
+      {limited}
+    </Text>
+  );
+}
+
+// The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
+// downloaded, or how much is unread.
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
@@ -539,12 +570,14 @@ function statusOf(
     unread,
     searchOffline,
     waiting,
+    downloading,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
     searchOffline: boolean;
     // The chosen connection while it waits for authorization, whose unread mail is unknown.
     waiting: Readonly<{ provider: MailProvider }> | undefined;
+    downloading: string | undefined;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -559,6 +592,9 @@ function statusOf(
   }
   if (searchOffline || shown.some(({ state }) => offline(state))) {
     return t('inbox.offline');
+  }
+  if (downloading !== undefined) {
+    return downloading;
   }
   return unread === 0
     ? t('inbox.noUnread')
@@ -755,16 +791,20 @@ export function Inbox({
   );
   const {
     folder,
-    selection,
-    title: folderTitle,
-    listed,
-    failure,
     limited,
+    downloading,
+    listed,
+    title: folderTitle,
+    failure,
+    missing,
+    folderOf,
     showOlder,
-  } = useMailboxFolder(shown, inboxListed, {
-    view,
-    onView,
-  });
+  } = useListedMailbox(shown, inboxListed, { view, onView });
+  // A message chosen outside the Inbox names its folder, which its actions can take it out of.
+  const selectionOf = (mailbox: string, id: string) => {
+    const listedIn = folderOf(mailbox, id);
+    return listedIn === inboxFolder ? {} : { folder: listedIn };
+  };
   // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
   const results = useMemo(
     () => (searched === '' ? undefined : searchMessages(listed, searched)),
@@ -801,6 +841,7 @@ export function Inbox({
       profile,
       scope,
       folder,
+      view.unified,
       searched,
       ...shown.map(({ inbox }) => inbox),
       ...shown.map(({ state }) => state.kind === 'ready'),
@@ -820,6 +861,7 @@ export function Inbox({
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
   const scopeName = scopeOf(t, shown, {
+    unified: view.unified !== undefined,
     several,
     gmail,
     waiting: chosenWaiting,
@@ -828,6 +870,7 @@ export function Inbox({
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
+    downloading,
   });
   const { title, subtitle, emptyScope } = headingOf(t, {
     scope,
@@ -844,6 +887,7 @@ export function Inbox({
     message: Message | GmailMessage | ImapMessage,
   ): readonly RowAction[] => {
     const { state, inbox } = mailbox;
+    const listedIn = folderOf(mailbox.id, message.id);
     const leaving = (away: boolean) => {
       if (
         away &&
@@ -877,7 +921,7 @@ export function Inbox({
       return quickActions(t, message, {
         provider: mailbox.provider ?? 'gmail',
         unavailableActions: state.unavailableActions,
-        view: folder,
+        view: listedIn,
       }).map(({ name, label, action }) => ({
         name,
         label,
@@ -985,6 +1029,22 @@ export function Inbox({
               messageRole="alert"
             />
           )}
+          {missing.map((mailbox) => (
+            <Notice
+              key={`missing\n${mailbox.id}`}
+              icon="exclamationmark.triangle.fill"
+              iconColor={colors.statusWarning}
+              message={t('mailboxes.notIncluded', {
+                mailbox: mailbox.address ?? mailbox.id,
+              })}
+              detail={t(
+                view.unified === allMail
+                  ? 'mailboxes.notIncludedAllMail'
+                  : 'mailboxes.notIncludedDetail',
+                { view: folderTitle },
+              )}
+            />
+          ))}
           {shown.map((mailbox) => (
             <MailboxScope
               key={mailbox.id}
@@ -1067,10 +1127,13 @@ export function Inbox({
                 query={searched}
                 search={online}
               />
-              {limited !== undefined && results === undefined ? (
-                <Text style={[styles.footer, { color: colors.textSecondary }]}>
-                  {limited}
-                </Text>
+              {results === undefined ? (
+                <FolderFooter
+                  limited={limited}
+                  downloading={downloading}
+                  oldest={listed.at(-1)}
+                  now={now}
+                />
               ) : null}
               <Text style={[styles.footer, { color: colors.textSecondary }]}>
                 {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
@@ -1105,7 +1168,11 @@ export function Inbox({
                   motion.settle(rowKey(item));
                 }}>
                 <MessageRow
-                  mailbox={several ? item.mailbox.address : undefined}
+                  mailbox={
+                    several || view.unified !== undefined
+                      ? item.mailbox.address
+                      : undefined
+                  }
                   message={item.message}
                   actions={
                     section.key === 'gmail'
@@ -1125,7 +1192,9 @@ export function Inbox({
                     void select({
                       mailbox: item.mailbox.id,
                       id: item.message.id,
-                      ...(section.key === 'gmail' ? {} : selection),
+                      ...(section.key === 'gmail'
+                        ? {}
+                        : selectionOf(item.mailbox.id, item.message.id)),
                     });
                   }}
                   selected={

@@ -5,6 +5,7 @@ import type { AppStateStatus, TurboModule } from 'react-native';
 
 import { createDrafts } from '@private-email/mail-core/drafts';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import {
   createMailboxes,
   singleMailbox,
@@ -20,6 +21,7 @@ import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import {
@@ -954,7 +956,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
         first.findByText('Your seat is booked.'),
       ).resolves.toBeVisible();
       await fireEvent.press(
-        await second.findByRole('button', { name: /^Trash\. In/u }),
+        await second.findByRole('button', {
+          name: /^Trash\. In (?!All mailboxes)/u,
+        }),
       );
       await fireEvent.press(
         await second.findByRole('button', { name: /Old receipt/u }),
@@ -969,6 +973,178 @@ describe('mac windows over a connected Gmail mailbox', () => {
       });
       expect(second.queryByRole('button', { name: /Old receipt/u })).toBeNull();
       expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('reads an IMAP Archive again in the unified Archive each time its Inbox synchronizes', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.deliver('Archive', { subject: 'Filed invoice' });
+    const inbox = createImapInbox(imap.native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await first.findByRole('button', {
+          name: 'Archive. In All mailboxes',
+        }),
+      );
+      await expect(
+        first.findByRole('button', { name: /Filed invoice/u }),
+      ).resolves.toBeVisible();
+      imap.deliver('Archive', { subject: 'Filed elsewhere' });
+      await act(() => inbox.load());
+      await expect(
+        first.findByRole('button', { name: /Filed elsewhere/u }),
+      ).resolves.toBeVisible();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it.each([
+    {
+      title: 'All Mail',
+      folder: 'Everything',
+      roles: ['all'],
+      detail:
+        'Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in the sidebar.',
+    },
+    {
+      title: 'Archive',
+      folder: 'Archive',
+      roles: ['archive', 'all'],
+      detail:
+        'Its server doesn’t identify a folder that can be used for Archive. Its folders are still listed under it in the sidebar.',
+    },
+  ])(
+    'explains an IMAP connection excluded from $title and keeps its own folder readable',
+    async ({ title, folder, roles, detail }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      imap.addFolder(folder, roles);
+      imap.deliver(folder, { subject: 'Only in the excluded folder' });
+      const inbox = createImapInbox(imap.native);
+      showMailboxes(singleMailbox(inbox, alex));
+      const app = await render(
+        <Windows
+          first
+          second={false}
+        />,
+      );
+      try {
+        const first = within(app.getByTestId('inbox-window-first'));
+        await fireEvent.press(
+          await first.findByRole('button', {
+            name: `${title}. In All mailboxes`,
+          }),
+        );
+        await expect(
+          first.findByText(/isn’t included/u),
+        ).resolves.toBeVisible();
+        expect(first.getByText(detail)).toBeVisible();
+        expect(
+          first.queryByRole('button', { name: /Only in the excluded folder/u }),
+        ).toBeNull();
+        await fireEvent.press(
+          first.getByRole('button', {
+            name: new RegExp(`^${folder}\\. In (?!All mailboxes)`, 'u'),
+          }),
+        );
+        await expect(
+          first.findByRole('button', { name: /Only in the excluded folder/u }),
+        ).resolves.toBeVisible();
+      } finally {
+        await app.unmount();
+      }
+    },
+  );
+
+  // A Gmail mailbox with archived mail and Trash, listed in one window from the given Favorites row.
+  const showUnified = async (favorite: string) => {
+    const { registration } = await connectedRegistration();
+    const gmail = createSyntheticGmail();
+    const kept = gmail.deliver({
+      subject: 'Kept receipt',
+      content: { text: 'Paid in full.' },
+    });
+    gmail.archive(kept);
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    const old = gmail.deliver({ subject: 'Old newsletter' });
+    gmail.setLabel(old, 'TRASH', true);
+    gmail.setLabel(old, 'INBOX', false);
+    const list = createMailboxes(
+      syntheticConnections({ [alex]: { native: gmail.native } }),
+      registration,
+    );
+    showMailboxes(list);
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    const first = within(app.getByTestId('inbox-window-first'));
+    await fireEvent.press(
+      await first.findByRole('button', {
+        name: `${favorite}. In All mailboxes`,
+      }),
+    );
+    return { gmail, old, list, app, first };
+  };
+
+  it('lists archived Gmail mail in the unified Archive and keeps its open message as newer mail arrives', async () => {
+    expect.hasAssertions();
+    const { gmail, list, app, first } = await showUnified('Archive');
+    try {
+      expect(first.getByRole('header', { name: 'Archive' })).toBeVisible();
+      // The row names its connection even when the Profile has only one.
+      const receipt = await first.findByRole('button', {
+        name: /Kept receipt\. In alex@example\.invalid/u,
+      });
+      expect(
+        within(receipt).getByText('In alex@example.invalid'),
+      ).toBeVisible();
+      await fireEvent.press(receipt);
+      await first.findByText('Paid in full.');
+      expect(
+        first.getByRole('button', { name: 'Move to Trash' }),
+      ).toBeVisible();
+      gmail.archive(gmail.deliver({ subject: 'Newer receipt' }));
+      await act(() => list.load());
+      await expect(
+        first.findByRole('button', { name: /Newer receipt/u }),
+      ).resolves.toBeVisible();
+      expect(first.getByText('Paid in full.')).toBeVisible();
+    } finally {
+      await app.unmount();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('restores mail from the unified Trash to its Inbox', async () => {
+    expect.hasAssertions();
+    const { gmail, old, app, first } = await showUnified('Trash');
+    try {
+      await fireEvent.press(
+        await first.findByRole('button', { name: /Old newsletter/u }),
+      );
+      await fireEvent.press(
+        first.getByRole('button', { name: 'Move to Inbox' }),
+      );
+      await waitFor(() => {
+        expect(gmail.labelsOf(old)).toContain('INBOX');
+      });
     } finally {
       await app.unmount();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
@@ -1106,7 +1282,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       await first.findByRole('button', { name: /Archived flight/u });
       await fireEvent.press(
-        await second.findByRole('button', { name: /^Trash\. In/u }),
+        await second.findByRole('button', {
+          name: /^Trash\. In (?!All mailboxes)/u,
+        }),
       );
       // Online results come from the mailbox, independently of this window's Trash view.
       const field = second.getByLabelText('Search senders and subjects');

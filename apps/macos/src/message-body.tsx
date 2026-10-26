@@ -249,6 +249,7 @@ function MessageLinks({
           link: link.text === '' ? link.href : link.text,
         })}
         accessibilityHint={link.href}
+        enableFocusRing={false}
         focusable
         onFocus={() => {
           setFocused(index);
@@ -259,9 +260,12 @@ function MessageLinks({
         onPress={() => {
           onChoose(link);
         }}
-        style={[
+        style={({ pressed }) => [
           styles.linkControl,
           {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : 'transparent',
             borderColor:
               focused === index ? colors.accentInk : colors.surfaceContent,
           },

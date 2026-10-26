@@ -617,7 +617,7 @@ function GmailMessageActions({
   };
   const applied = new Set(message.labels);
   const move = (folder: string) => {
-    act(gmailAction.move(folder, view));
+    act(gmailAction.move(folder, view, provider));
   };
   const actions = quickActions(t, message, {
     provider,

@@ -5,7 +5,7 @@ import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import { messageDay } from '@private-email/localization';
 import { rowContextMenu } from '@private-email/mail-core/context-menu';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
@@ -271,6 +271,53 @@ export function SkeletonRows() {
           ))}
         </View>
       ))}
+    </View>
+  );
+}
+
+// The end of All Mail while its older mail downloads, naming the month the list has reached.
+export function DownloadingOlder({
+  oldest,
+  now,
+}: {
+  // The oldest listed message, if any is listed.
+  readonly oldest:
+    | Readonly<{ message: Readonly<{ receivedAt: string }> }>
+    | undefined;
+  readonly now: number;
+}) {
+  const { t } = useLocalization();
+  const formats = useMessageListDateFormats();
+  const colors = usePalette();
+  const title = t('inbox.downloadingOlder');
+  const detail =
+    oldest === undefined
+      ? undefined
+      : t('inbox.downloadingOlderDetail', {
+          month: formats.month(new Date(oldest.message.receivedAt), now),
+        });
+  return (
+    <View
+      accessible
+      accessibilityLabel={detail === undefined ? title : `${title} ${detail}`}
+      accessibilityRole="progressbar"
+      style={styles.downloading}>
+      <ActivityIndicator
+        size="small"
+        color={colors.textSecondary}
+      />
+      <View style={styles.downloadingText}>
+        <Text
+          style={[styles.downloadingTitle, { color: colors.textSecondary }]}>
+          {title}
+        </Text>
+        {detail === undefined ? null : (
+          <Text
+            style={[styles.downloadingDetail, { color: colors.textSecondary }]}>
+            {detail}
+          </Text>
+        )}
+      </View>
     </View>
   );
 }

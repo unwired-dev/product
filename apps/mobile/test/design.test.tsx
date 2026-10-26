@@ -27,6 +27,19 @@ const renderedRoot = () => {
   return root;
 };
 
+// A touch that starts a press, leaving the control pressed until it ends.
+const touch = {
+  persist: () => undefined,
+  currentTarget: 1,
+  nativeEvent: {
+    pageX: 0,
+    pageY: 0,
+    locationX: 0,
+    locationY: 0,
+    timestamp: 0,
+  },
+};
+
 describe('design components', () => {
   it.each(['light', 'dark'] as const)(
     'shows the primary fill at 80% with legible text while pressed in %s appearance',
@@ -52,17 +65,6 @@ describe('design components', () => {
         const button = screen.getByRole('button', {
           name: 'Allow Gmail access',
         });
-        const touch = {
-          persist: () => undefined,
-          currentTarget: 1,
-          nativeEvent: {
-            pageX: 0,
-            pageY: 0,
-            locationX: 0,
-            locationY: 0,
-            timestamp: 0,
-          },
-        };
         await fireEvent(button, 'responderGrant', touch);
         expect(button).toHaveStyle({
           backgroundColor: `${colors.accentFill}CC`,
@@ -151,6 +153,32 @@ describe('design components', () => {
     );
     // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
     expect(archive).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps only the native glass press for toolbar buttons inside interactive glass', async () => {
+    expect.hasAssertions();
+    await render(
+      <>
+        <ToolbarButton
+          icon="arrow.uturn.backward"
+          label="Undo"
+          onPress={() => undefined}
+        />
+        <GlassGroup>
+          <ToolbarButton
+            icon="archivebox"
+            label="Archive"
+            onPress={() => undefined}
+          />
+        </GlassGroup>
+      </>,
+    );
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    const archive = screen.getByRole('button', { name: 'Archive' });
+    await fireEvent(undo, 'responderGrant', touch);
+    await fireEvent(archive, 'responderGrant', touch);
+    expect(undo).not.toHaveStyle({ backgroundColor: 'transparent' });
+    expect(archive).toHaveStyle({ backgroundColor: 'transparent' });
   });
 
   it('keeps structural glass passive', async () => {

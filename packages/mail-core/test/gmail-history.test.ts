@@ -2,7 +2,11 @@ import { setImmediate } from 'node:timers/promises';
 
 import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
 
-import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
+import {
+  allMail,
+  gmailAction,
+  gmailArchive,
+} from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 
@@ -685,6 +689,24 @@ describe('gmail history backfill', () => {
         restored,
       ]);
     });
+    inbox.forget();
+  });
+
+  it('reveals archived history in the Archive view the unified Archive lists', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 600, 300);
+    const inbox = createInbox(gmail.native);
+    await inbox.load();
+    await backfilled(inbox);
+    inbox.openView(gmailArchive);
+    await vi.waitFor(() => {
+      expect(shown(inbox, gmailArchive)).toHaveLength(200);
+    });
+    await scrolled(inbox, gmailArchive, 300);
+    expect(ids(shown(inbox, gmailArchive))).toStrictEqual(
+      everything.slice(300),
+    );
     inbox.forget();
   });
 
