@@ -39,7 +39,7 @@ const noSubscription = () => () => undefined;
 
 // The policy for a mailbox's messages: without a settings store every presentation asks, and
 // while saved settings are read remote content stays hidden.
-export function useRemoteContentPolicy(
+function useRemoteContentPolicy(
   connection: string | undefined,
 ): RemoteContentPolicy {
   const store = use(RemoteContentContext);

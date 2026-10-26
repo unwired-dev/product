@@ -98,15 +98,6 @@ const styles = StyleSheet.create({
     borderRadius: groupRadius - spacing.xs,
     borderCurve: 'continuous',
   },
-  monogram: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  monogramText: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   markerText: { ...textStyles.subheadline, flex: 1 },
   notice: {
@@ -559,33 +550,6 @@ export function ToolbarButton({
         color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>
-  );
-}
-
-// Neutral initials for a sender without a contact photo; never a generated color.
-export function Monogram({ name }: { readonly name: string }) {
-  const colors = usePalette();
-  const initials = name
-    .split(/\s+/u)
-    .filter((word) => word !== '')
-    .slice(0, 2)
-    .map((word) => [...word][0]?.toLocaleUpperCase() ?? '')
-    .join('');
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[
-        styles.monogram,
-        {
-          backgroundColor: colors.surfaceBubble,
-          borderColor: colors.separator,
-        },
-      ]}>
-      <Text style={[styles.monogramText, { color: colors.textSecondary }]}>
-        {initials}
-      </Text>
-    </View>
   );
 }
 
