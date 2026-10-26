@@ -211,11 +211,7 @@ extension RegistrationStore {
       while start < bytes.count {
         try Task.checkCancellation()
         let product = try mailboxAccount(connection)
-        guard let deviceRevoked else { throw RegistrationError.unavailable }
-        if try await deviceRevoked(product) {
-          try await purge()
-          throw RegistrationError.revoked
-        }
+        try await requireTrustedDevice(product)
         let current = try mailboxAccount(connection)
         guard current.productAccountId == owner, verifiedMailboxes.contains(connection),
           mailboxGeneration(connection).uuidString == generation else {
@@ -290,11 +286,7 @@ extension RegistrationStore {
     // A write requires current device trust; the offline cache preflight cannot authorize it.
     if body != nil {
       let product = try mailboxAccount(id)
-      guard let deviceRevoked else { throw RegistrationError.unavailable }
-      if try await deviceRevoked(product) {
-        try await purge()
-        throw RegistrationError.revoked
-      }
+      try await requireTrustedDevice(product)
       guard current() else { throw PrivateInboxError.mailboxInvalidated }
     }
     let microsoft = try microsoftProvider()
@@ -321,11 +313,7 @@ extension RegistrationStore {
     let data: Data
     if sending {
       let product = try mailboxAccount(id)
-      guard let deviceRevoked else { throw RegistrationError.unavailable }
-      if try await deviceRevoked(product) {
-        try await purge()
-        throw RegistrationError.revoked
-      }
+      try await requireTrustedDevice(product)
       _ = try mailboxAccount(id)
       guard current() else { throw PrivateInboxError.mailboxInvalidated }
       guard deliveryAllowed() else { throw RegistrationError.unavailable }

@@ -237,11 +237,7 @@ extension RegistrationStore {
     // permissive preflight, but a failed proof must never authorize a provider write.
     if body != nil {
       let product = try mailboxAccount(id)
-      guard let deviceRevoked else { throw RegistrationError.unavailable }
-      if try await deviceRevoked(product) {
-        try await purge()
-        throw RegistrationError.revoked
-      }
+      try await requireTrustedDevice(product)
       guard current() else { throw PrivateInboxError.mailboxInvalidated }
     }
     let identity: GoogleRegistrationIdentity
@@ -270,11 +266,7 @@ extension RegistrationStore {
     let data: Data
     if sending {
       let product = try mailboxAccount(id)
-      guard let deviceRevoked else { throw RegistrationError.unavailable }
-      if try await deviceRevoked(product) {
-        try await purge()
-        throw RegistrationError.revoked
-      }
+      try await requireTrustedDevice(product)
       _ = try mailboxAccount(id)
       guard current() else { throw PrivateInboxError.mailboxInvalidated }
       guard deliveryAllowed() else { throw RegistrationError.unavailable }
