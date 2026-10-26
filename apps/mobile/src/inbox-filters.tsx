@@ -1,31 +1,21 @@
 import type { Translate } from '@private-email/localization';
 import type { InboxFilter } from '@private-email/mail-core/mailboxes';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
+import { BottomSheet, Host, Popover, RNHostView } from '@expo/ui/swift-ui';
 import { filterMessages } from '@private-email/mail-core/mailboxes';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import { Fragment, use, useMemo, useState } from 'react';
 import {
-  Fragment,
-  use,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import {
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
-import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Glass, SFSymbol } from './design.tsx';
+import { SFSymbol } from './design.tsx';
 import { FilterControl, WindowBarContext } from './inbox-bar.tsx';
 import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
@@ -84,14 +74,7 @@ const filterLabel = (
     : t('filters.several', { count: applied.length });
 };
 
-// The Filter control's top leading corner in the window, which iPad's popover grows from.
-type Anchor = Readonly<{ x: number; y: number }>;
-
-const popoverWidth = 420;
-const popoverEntry = FadeIn.reduceMotion(ReduceMotion.System);
-
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end' },
   // shortcut: a fixed home-indicator inset, as Move to… uses; read the safe area if a sheet ever opens without one.
   sheet: {
     flex: 1,
@@ -99,19 +82,13 @@ const styles = StyleSheet.create({
     paddingTop: ipad ? spacing.m : 14,
     paddingHorizontal: ipad ? spacing.m * 2 : spacing.l,
     paddingBottom: 34,
-    borderTopLeftRadius: radius.sheet,
-    borderTopRightRadius: radius.sheet,
-    borderCurve: 'continuous',
   },
   popover: {
-    position: 'absolute',
-    width: popoverWidth,
+    width: 420,
     gap: spacing.s,
     paddingTop: spacing.m,
     paddingHorizontal: spacing.l,
     paddingBottom: spacing.l,
-    borderRadius: radius.popover,
-    borderCurve: 'continuous',
   },
   header: {
     minHeight: 44,
@@ -289,30 +266,25 @@ function Section({
   );
 }
 
-// Filters edits a copy of the filter; the checkmark applies it, and leaving discards it. It opens as
-// a full-height sheet, or on a regular-width iPad window as a popover above the Filter control.
+// Filters edits a copy of the filter, which the checkmark applies.
 function Filters({
   filter,
   connections,
-  anchor,
+  popover,
+  onChange,
   onConfirm,
-  onClose,
 }: {
   readonly filter: InboxFilter;
   // The unified Inbox's connections, which it offers to leave out; none in any other view.
   readonly connections: Connections;
-  // Where the popover grows from; a sheet has none.
-  readonly anchor: Anchor | undefined;
-  readonly onConfirm: (filter: InboxFilter) => void;
-  readonly onClose: () => void;
+  readonly popover: boolean;
+  readonly onChange: Dispatch<SetStateAction<InboxFilter>>;
+  readonly onConfirm: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const dimensions = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const [edited, setEdited] = useState(filter);
   const include = (id: string, included: boolean) => {
-    setEdited((current) => {
+    onChange((current) => {
       const excluded = new Set(current.excluded);
       if (included) {
         excluded.delete(id);
@@ -323,120 +295,69 @@ function Filters({
     });
   };
   return (
-    <Modal
-      visible
-      transparent
-      animationType={anchor === undefined ? 'fade' : 'none'}
-      onRequestClose={onClose}
-      supportedOrientations={[
-        'portrait',
-        'portrait-upside-down',
-        'landscape-left',
-        'landscape-right',
-      ]}>
-      <View
-        style={[
-          styles.backdrop,
-          anchor === undefined && { backgroundColor: colors.scrimTouch },
-        ]}>
+    <View
+      testID="filters"
+      style={popover ? styles.popover : styles.sheet}>
+      <View style={styles.header}>
+        <Text
+          accessibilityRole="header"
+          style={[styles.title, { color: colors.textPrimary }]}>
+          {t('filters.title')}
+        </Text>
         <Pressable
-          accessible={false}
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-        <Animated.View
-          {...(anchor === undefined ? {} : { entering: popoverEntry })}
-          accessibilityViewIsModal
-          onAccessibilityEscape={onClose}
-          testID={anchor === undefined ? 'filters-sheet' : 'filters-popover'}
-          style={[
-            anchor === undefined
-              ? [
-                  styles.sheet,
-                  // The sheet rises to just beneath the status bar, as the iPhone frames show.
-                  { marginTop: Math.max(0, insets.top - spacing.s) },
-                ]
-              : [
-                  styles.popover,
-                  {
-                    left: Math.min(
-                      anchor.x,
-                      dimensions.width - popoverWidth - spacing.l,
-                    ),
-                    bottom: dimensions.height - anchor.y + spacing.s,
-                    maxHeight: anchor.y - spacing.s - insets.top - spacing.l,
-                  },
-                ],
-            { boxShadow: colors.menuGlassShadow },
-          ]}>
-          <Glass
-            cornerRadius={anchor === undefined ? radius.sheet : radius.popover}
-            style={StyleSheet.absoluteFill}
+          accessibilityLabel={t('filters.apply')}
+          accessibilityRole="button"
+          onPress={onConfirm}
+          style={[styles.confirm, { backgroundColor: colors.accentFill }]}>
+          <SFSymbol
+            name="checkmark"
+            size={18}
+            color={colors.accentOnFill}
           />
-          <View style={styles.header}>
-            <Text
-              accessibilityRole="header"
-              style={[styles.title, { color: colors.textPrimary }]}>
-              {t('filters.title')}
-            </Text>
-            <Pressable
-              accessibilityLabel={t('filters.apply')}
-              accessibilityRole="button"
-              onPress={() => {
-                onConfirm(edited);
-              }}
-              style={[styles.confirm, { backgroundColor: colors.accentFill }]}>
-              <SFSymbol
-                name="checkmark"
-                size={18}
-                color={colors.accentOnFill}
-              />
-            </Pressable>
-          </View>
-          <ScrollView style={styles.list}>
-            <View style={styles.sections}>
-              {connections.length > 1 ? (
-                <Section title={t('filters.includeFrom')}>
-                  {connections.map(({ id, address }, index) => (
-                    <Fragment key={id}>
-                      {index === 0 ? null : <Separator />}
-                      <CheckRow
-                        icon="tray"
-                        label={address}
-                        checked={!edited.excluded.has(id)}
-                        onChange={(included) => {
-                          include(id, included);
-                        }}
-                      />
-                    </Fragment>
-                  ))}
-                </Section>
-              ) : null}
-              <Section title={t('filters.include')}>
-                <CheckRow
-                  icon="envelope.badge"
-                  label={t('filters.unread')}
-                  checked={edited.unread}
-                  onChange={(unread) => {
-                    setEdited((current) => ({ ...current, unread }));
-                  }}
-                />
-              </Section>
-              <Section>
-                <SwitchRow
-                  icon="calendar"
-                  label={t('filters.onlyToday')}
-                  value={edited.today}
-                  onChange={(today) => {
-                    setEdited((current) => ({ ...current, today }));
-                  }}
-                />
-              </Section>
-            </View>
-          </ScrollView>
-        </Animated.View>
+        </Pressable>
       </View>
-    </Modal>
+      <ScrollView style={styles.list}>
+        <View style={styles.sections}>
+          {connections.length > 1 ? (
+            <Section title={t('filters.includeFrom')}>
+              {connections.map(({ id, address }, index) => (
+                <Fragment key={id}>
+                  {index === 0 ? null : <Separator />}
+                  <CheckRow
+                    icon="tray"
+                    label={address}
+                    checked={!filter.excluded.has(id)}
+                    onChange={(included) => {
+                      include(id, included);
+                    }}
+                  />
+                </Fragment>
+              ))}
+            </Section>
+          ) : null}
+          <Section title={t('filters.include')}>
+            <CheckRow
+              icon="envelope.badge"
+              label={t('filters.unread')}
+              checked={filter.unread}
+              onChange={(unread) => {
+                onChange((current) => ({ ...current, unread }));
+              }}
+            />
+          </Section>
+          <Section>
+            <SwitchRow
+              icon="calendar"
+              label={t('filters.onlyToday')}
+              value={filter.today}
+              onChange={(today) => {
+                onChange((current) => ({ ...current, today }));
+              }}
+            />
+          </Section>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -481,8 +402,9 @@ export function useInboxFilter<M extends Filtered>({
   };
 }
 
-// The bar's filter switch and summary, and the Filters the summary opens: a popover when the bar
-// spans a regular-width window, otherwise a sheet.
+// The bar's filter switch and summary, and the Filters the summary opens: a popover on the
+// control when the bar spans a regular-width window, otherwise a sheet. Dismissing either
+// discards the edits.
 export function InboxFilterButton({
   state: { filter, setFilter, on, setOn, connections },
 }: {
@@ -493,66 +415,61 @@ export function InboxFilterButton({
 }) {
   const { t } = useLocalization();
   const popover = use(WindowBarContext) !== undefined;
-  const control = useRef<View>(null);
-  const { width, height } = useWindowDimensions();
-  const [open, setOpen] = useState<
-    Readonly<{ anchor: Anchor | undefined }> | undefined
-  >();
-  useLayoutEffect(() => {
-    if (!popover) {
-      return;
-    }
-    let current = true;
-    control.current?.measureInWindow((x, y) => {
-      if (current) {
-        setOpen((opened) =>
-          opened === undefined ? opened : { anchor: { x, y } },
-        );
-      }
-    });
-    return () => {
-      current = false;
-    };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A window resize invalidates the native anchor measurement.
-  }, [popover, width, height]);
-  return (
+  const [open, setOpen] = useState(false);
+  const [edited, setEdited] = useState(filter);
+  const control = (
+    <FilterControl
+      label={on ? filterLabel(t, filter, connections) : undefined}
+      onOpen={() => {
+        setEdited(filter);
+        setOpen(true);
+      }}
+      onToggle={() => {
+        // A filter left with nothing to narrow starts again from Unread.
+        if (!on && !narrows(filter, connections)) {
+          setFilter(defaultFilter);
+        }
+        setOn(!on);
+      }}
+    />
+  );
+  const filters = (
+    <Filters
+      connections={connections}
+      filter={edited}
+      popover={popover}
+      onChange={setEdited}
+      onConfirm={() => {
+        setFilter(edited);
+        setOpen(false);
+        // Applying nothing to narrow by turns the filter off.
+        setOn(narrows(edited, connections));
+      }}
+    />
+  );
+  return popover ? (
+    <Host matchContents>
+      <Popover
+        isPresented={open}
+        onIsPresentedChange={setOpen}>
+        <Popover.Trigger>
+          <RNHostView matchContents>{control}</RNHostView>
+        </Popover.Trigger>
+        <Popover.Content>
+          <RNHostView matchContents>{filters}</RNHostView>
+        </Popover.Content>
+      </Popover>
+    </Host>
+  ) : (
     <>
-      <FilterControl
-        label={on ? filterLabel(t, filter, connections) : undefined}
-        onOpen={() => {
-          if (!popover) {
-            setOpen({ anchor: undefined });
-            return;
-          }
-          control.current?.measureInWindow((x, y) => {
-            setOpen({ anchor: { x, y } });
-          });
-        }}
-        ref={control}
-        onToggle={() => {
-          // A filter left with nothing to narrow starts again from Unread.
-          if (!on && !narrows(filter, connections)) {
-            setFilter(defaultFilter);
-          }
-          setOn(!on);
-        }}
-      />
-      {open === undefined ? null : (
-        <Filters
-          anchor={open.anchor}
-          connections={connections}
-          filter={filter}
-          onClose={() => {
-            setOpen(undefined);
-          }}
-          onConfirm={(next) => {
-            setFilter(next);
-            setOpen(undefined);
-            // Applying nothing to narrow by turns the filter off.
-            setOn(narrows(next, connections));
-          }}
-        />
-      )}
+      {control}
+      <Host matchContents>
+        <BottomSheet
+          isPresented={open}
+          onIsPresentedChange={setOpen}>
+          <RNHostView>{filters}</RNHostView>
+        </BottomSheet>
+      </Host>
     </>
   );
 }

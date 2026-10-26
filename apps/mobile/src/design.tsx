@@ -2,7 +2,7 @@ import type {
   MenuSection,
   NativeMenuItem,
 } from '@private-email/mail-core/context-menu';
-import type { ReactNode, Ref } from 'react';
+import type { ReactNode } from 'react';
 import type {
   ColorValue,
   GestureResponderEvent,
@@ -197,7 +197,6 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
-  anchor: { alignSelf: 'flex-start', flexShrink: 1 },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
   toolbarButton: {
     minWidth: 44,
@@ -377,18 +376,15 @@ export function MenuButton({
 export function GlassGroup({
   children,
   style,
-  ref,
   pointerEvents,
 }: {
   readonly children: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
   readonly pointerEvents?: ViewProps['pointerEvents'];
-  // Where a popover anchors to the group.
-  readonly ref?: Ref<View> | undefined;
 }) {
   const colors = usePalette();
   const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
-  const group = (
+  return (
     <Glass
       interactive
       pointerEvents={pointerEvents}
@@ -398,16 +394,6 @@ export function GlassGroup({
       style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
       {children}
     </Glass>
-  );
-  // shortcut: Expo resolves another React Ref type; drop this host anchor when its types align.
-  return ref === undefined ? (
-    group
-  ) : (
-    <View
-      ref={ref}
-      style={styles.anchor}>
-      {group}
-    </View>
   );
 }
 
