@@ -87,6 +87,18 @@ export const styles = StyleSheet.create({
   emptyText: { ...textStyles.body, textAlign: 'center' },
   notices: { gap: spacing.s, paddingHorizontal: 14 },
   footer: { ...textStyles.subheadline, padding: spacing.xl },
+  // Within the rows' 22pt leading inset, the spinner and its text 10pt apart.
+  downloading: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 14,
+    paddingLeft: 22,
+    paddingRight: spacing.m,
+  },
+  downloadingText: { flex: 1, gap: 2 },
+  downloadingTitle: { ...textStyles.bodyEmphasized },
+  downloadingDetail: { ...textStyles.subheadline },
   notice: { ...textStyles.body, padding: spacing.xl },
   mailbox: { ...textStyles.subheadline },
 });
