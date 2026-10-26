@@ -31,9 +31,14 @@ export type ThreadAction = Readonly<{
   run: (origin: number) => void;
 }>;
 
-// The reader toolbar offers its organizing actions to the iPhone Reply sheet, beside its More menu.
+// The reader toolbar offers its organizing actions to the iPhone Reply sheet, and leaves out More
+// while the sheet is offered.
 export const ThreadActionsContext = createContext<
-  Readonly<{ actions: readonly ThreadAction[] }> | undefined
+  | Readonly<{
+      actions: readonly ThreadAction[];
+      offered: (offered: boolean) => void;
+    }>
+  | undefined
 >(undefined);
 const responseIcons = {
   reply: 'arrowshape.turn.up.left.fill',
@@ -123,7 +128,18 @@ export function ReplySheet({
       pending.current = undefined;
     };
   }, [message]);
-  const actions = use(ThreadActionsContext)?.actions ?? [];
+  const thread = use(ThreadActionsContext);
+  const actions = thread?.actions ?? [];
+  const offered = thread?.offered;
+  useLayoutEffect(() => {
+    if (offered === undefined) {
+      return undefined;
+    }
+    offered(true);
+    return () => {
+      offered(false);
+    };
+  }, [offered]);
   const tiles = [
     ...(['reply', 'replyAll', 'forward'] as const).map((kind) => ({
       name: kind,

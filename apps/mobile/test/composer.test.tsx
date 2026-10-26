@@ -3769,7 +3769,7 @@ describe('replying to and forwarding from the reader', () => {
     },
   );
 
-  it('offers the Thread actions in the iPhone Reply sheet beside More', async () => {
+  it('offers the Thread actions and Gmail labels in the iPhone Reply sheet instead of More', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -3789,14 +3789,9 @@ describe('replying to and forwarding from the reader', () => {
       />,
     );
     await screen.findByRole('button', { name: 'Reply' });
-    // The owner kept More beside Reply; the sheet repeats its actions.
-    expect(screen.getByRole('button', { name: 'More' })).toBeVisible();
-    // Reply closes an open More rather than opening over it.
-    await press('More');
+    // The Reply sheet offers More's actions, so the toolbar has no More.
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
     await press('Reply');
-    expect(
-      screen.getByRole('button', { name: 'More', expanded: false }),
-    ).toBeVisible();
     expect(screen.getAllByRole('button', { name: 'Report spam' })).toHaveLength(
       1,
     );
@@ -3808,15 +3803,19 @@ describe('replying to and forwarding from the reader', () => {
         'Mark as read',
         'Star',
         'Folders',
+        'Labels',
         'Move to Trash',
         'Report spam',
       ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
-    ).toHaveLength(8);
+    ).toHaveLength(9);
     expect(
       screen
-        .getAllByRole('button', { name: /^(?:Report spam|Move to Trash)$/u })
+        .getAllByRole('button', {
+          name: /^(?:Folders|Labels|Report spam|Move to Trash)$/u,
+        })
+        .slice(-4)
         .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Report spam', 'Move to Trash']);
+    ).toStrictEqual(['Folders', 'Labels', 'Report spam', 'Move to Trash']);
     expect(
       screen
         .getAllByRole('button', { name: /^(?:Star|Mark as read)$/u })
@@ -3836,12 +3835,27 @@ describe('replying to and forwarding from the reader', () => {
     ).toStrictEqual(['Remove star', 'Mark as read']);
     await press('Close');
     expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
-    // Reply closes shown More too, and the sheet's Folders opens the Move picker in its place.
-    await press('More');
+    // Labels opens the label checkboxes alone, without the actions the sheet already offers.
     await press('Reply');
-    expect(
-      screen.getByRole('button', { name: 'More', expanded: false }),
-    ).toBeVisible();
+    await press('Labels');
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    const labels = screen.getByText(
+      'This Gmail mailbox has no labels of its own yet.',
+    );
+    expect(labels).toBeVisible();
+    expect(screen.getByRole('header', { name: 'Labels' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    // VoiceOver's escape gesture closes them, with no More button to press.
+    await act(async () => {
+      await fireEvent(labels.parent!, 'accessibilityEscape');
+    });
+    expect(screen.queryByRole('header', { name: 'Labels' })).toBeNull();
+    // Reply closes open labels rather than opening over them, and the sheet's Folders opens the
+    // Move picker in their place.
+    await press('Reply');
+    await press('Labels');
+    await press('Reply');
+    expect(screen.queryByRole('header', { name: 'Labels' })).toBeNull();
     await pressLast('Folders');
     expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Hide folders' })).toBeVisible();
@@ -3880,12 +3894,12 @@ describe('replying to and forwarding from the reader', () => {
       await screen.findByRole('button', { name: 'Reply' });
       expect(screen.queryByRole('button', { name: 'Reply All' })).toBeNull();
       // Organizer panels must open above this bottom toolbar in landscape too.
-      await press('More');
+      await press('Reply');
+      await press('Labels');
       const panel = screen.getByText(
         'This Gmail mailbox has no labels of its own yet.',
       ).parent?.parent?.parent?.parent?.parent;
       expect(panel).not.toHaveStyle({ position: 'absolute' });
-      await press('More');
       await press('Reply');
       expect(screen.getAllByRole('button', { name: 'Reply' })[0]).toHaveProp(
         'accessibilityState',

@@ -36,6 +36,7 @@ import {
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { Destination } from './move-sheet.tsx';
+import type { ThreadAction } from './reply-sheet.tsx';
 
 import { RegisterCommands } from './command-palette.tsx';
 import { GlassGroup, GlassPanel, Notice, ToolbarButton } from './design.tsx';
@@ -54,6 +55,8 @@ import { textStyles, usePalette } from './theme.ts';
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
 // The toolbar panel a reader shows: the folders or labels to move to, or More's remaining actions.
+// Beside the iPhone Reply sheet, which offers those actions, it shows only the labels to add or
+// remove.
 export type ReaderPanel = 'folders' | 'more';
 
 // At most one panel is open. The reader holds which, so a tap outside the panel can close it.
@@ -122,7 +125,8 @@ const inboxUnread = (messages: ReadonlyArray<Readonly<{ unread: boolean }>>) =>
   messages.filter(({ unread }) => unread).length || undefined;
 
 // The reader's actions for the message's provider: one glass toolbar of Archive, Move, the
-// response actions passed as children, and More, whose panel lists the remaining actions.
+// response actions passed as children, and More, whose panel lists the remaining actions. iPhone
+// leaves out More while its Reply sheet offers them.
 export function MessageActions({
   id,
   folder,
@@ -191,6 +195,113 @@ export function MessageActionsNotice({ id }: { readonly id: string }) {
   ) : null;
 }
 
+// More's panel. Beside the iPhone Reply sheet, which offers its actions, it lists only the labels,
+// and VoiceOver's escape gesture closes it, as there is no More button to.
+function MorePanel({
+  actions,
+  labels,
+  replySheet,
+  onPanel,
+}: {
+  readonly actions: readonly Named[];
+  readonly labels: ReactNode;
+  readonly replySheet: boolean;
+  readonly onPanel: PanelState['onPanel'];
+}) {
+  return (
+    <ScrollView style={styles.panels}>
+      <View
+        style={styles.panel}
+        onAccessibilityEscape={
+          replySheet
+            ? () => {
+                onPanel(undefined);
+              }
+            : undefined
+        }>
+        {replySheet
+          ? null
+          : actions.map(({ name, label, run }) => (
+              <ActionButton
+                key={name}
+                label={label}
+                onPress={run}
+              />
+            ))}
+        {labels}
+      </View>
+    </ScrollView>
+  );
+}
+
+// The organizing actions the iPhone Reply sheet offers, in the design's order.
+const threadActions = (
+  t: ReturnType<typeof useLocalization>['t'],
+  {
+    archive,
+    folders,
+    more,
+    onPanel,
+  }: Pick<
+    Parameters<typeof Toolbar>[0],
+    'archive' | 'folders' | 'more' | 'onPanel'
+  >,
+): ThreadAction[] => [
+  ...(archive === undefined
+    ? []
+    : [
+        {
+          name: 'archive',
+          label: t('gmailActions.label.archive'),
+          icon: 'archivebox.fill',
+          group: 'tile' as const,
+          run: archive,
+        },
+      ]),
+  ...['star', 'unstar', 'read', 'unread']
+    .flatMap((name) => more.actions.filter((action) => action.name === name))
+    .map(({ name, label, run }) => ({
+      name,
+      label,
+      icon: actionIcons[name] ?? 'ellipsis',
+      group: 'state' as const,
+      run,
+    })),
+  ...(folders === undefined
+    ? []
+    : [
+        {
+          name: 'move',
+          label: folders.show.label,
+          icon: 'folder',
+          group: 'place' as const,
+          run: folders.show.run,
+        },
+      ]),
+  ...(more.labels === undefined
+    ? []
+    : [
+        {
+          name: 'labels',
+          label: t('gmailActions.labels'),
+          icon: 'tag',
+          group: 'place' as const,
+          run: () => {
+            onPanel('more');
+          },
+        },
+      ]),
+  ...['restore', 'spam', 'trash']
+    .flatMap((name) => more.actions.filter((action) => action.name === name))
+    .map(({ name, label, run }) => ({
+      name,
+      label,
+      icon: actionIcons[name] ?? 'ellipsis',
+      group: 'place' as const,
+      run,
+    })),
+];
+
 // The toolbar and the panel or sheet one of its buttons opened.
 function Toolbar({
   archive,
@@ -216,9 +327,10 @@ function Toolbar({
   readonly more: Readonly<{
     open: boolean;
     toggle: () => void;
-    // The actions More lists, which the iPhone Reply sheet also offers.
+    // The actions More lists, which the iPhone Reply sheet offers instead.
     actions: readonly Named[];
-    // Gmail's labels to add or remove, which More lists on iPhone, where Move is a picker.
+    // Gmail's labels to add or remove, which More lists on iPhone, where Move is a picker. The
+    // Reply sheet opens them in More's panel.
     labels?: ReactNode;
   }>;
   readonly children: ReactNode;
@@ -236,53 +348,11 @@ function Toolbar({
     };
   }, [shown, onPanel]);
   const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
+  // Mail that cannot be answered, such as IMAP mail, has no Reply sheet and keeps More.
+  const [replySheet, setReplySheet] = useState(false);
   const thread = {
-    actions: [
-      ...(archive === undefined
-        ? []
-        : [
-            {
-              name: 'archive',
-              label: t('gmailActions.label.archive'),
-              icon: 'archivebox.fill',
-              group: 'tile' as const,
-              run: archive,
-            },
-          ]),
-      ...['star', 'unstar', 'read', 'unread']
-        .flatMap((name) =>
-          more.actions.filter((action) => action.name === name),
-        )
-        .map(({ name, label, run }) => ({
-          name,
-          label,
-          icon: actionIcons[name] ?? 'ellipsis',
-          group: 'state' as const,
-          run,
-        })),
-      ...(folders === undefined
-        ? []
-        : [
-            {
-              name: 'move',
-              label: folders.show.label,
-              icon: 'folder',
-              group: 'place' as const,
-              run: folders.show.run,
-            },
-          ]),
-      ...['restore', 'spam', 'trash']
-        .flatMap((name) =>
-          more.actions.filter((action) => action.name === name),
-        )
-        .map(({ name, label, run }) => ({
-          name,
-          label,
-          icon: actionIcons[name] ?? 'ellipsis',
-          group: 'place' as const,
-          run,
-        })),
-    ],
+    offered: setReplySheet,
+    actions: threadActions(t, { archive, folders, more, onPanel }),
   };
   const foldersOpen =
     folders !== undefined && 'panel' in folders && folders.open;
@@ -315,14 +385,16 @@ function Toolbar({
             />
           )}
           <ThreadActionsContext value={thread}>{children}</ThreadActionsContext>
-          <ToolbarButton
-            icon="ellipsis"
-            label={t('message.more')}
-            expanded={more.open}
-            onPress={() => {
-              more.toggle();
-            }}
-          />
+          {replySheet ? null : (
+            <ToolbarButton
+              icon="ellipsis"
+              label={t('message.more')}
+              expanded={more.open}
+              onPress={() => {
+                more.toggle();
+              }}
+            />
+          )}
         </GlassGroup>
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
@@ -336,18 +408,12 @@ function Toolbar({
           'panel' in folders ? (
             folders.panel
           ) : (
-            <ScrollView style={styles.panels}>
-              <View style={styles.panel}>
-                {more.actions.map(({ name, label, run }) => (
-                  <ActionButton
-                    key={name}
-                    label={label}
-                    onPress={run}
-                  />
-                ))}
-                {more.labels}
-              </View>
-            </ScrollView>
+            <MorePanel
+              actions={more.actions}
+              labels={more.labels}
+              replySheet={replySheet}
+              onPanel={onPanel}
+            />
           )}
         </GlassPanel>
       </View>

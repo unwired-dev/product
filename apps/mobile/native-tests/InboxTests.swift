@@ -70,30 +70,46 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(
       app.staticTexts["Open this link in your browser?"].waitForNonExistence(timeout: 10))
     verifyRichBodyCanvas(app)
-    // #966: a tap on the body closes the open More panel without following the link; More reopens
-    // with its actions.
-    app.buttons["More"].tap()
-    XCTAssertTrue(app.buttons["Star"].waitForExistence(timeout: 5))
+    // #966: a tap on the body closes an open panel without following the link. iPhone has no
+    // More (#1404): its Reply sheet offers the actions and opens Gmail's labels in that panel.
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let labels = app.staticTexts["Labels"]
+    let panelItem = phone ? labels : app.buttons["Star"]
+    if phone {
+      XCTAssertFalse(app.buttons["More"].exists)
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
+      app.buttons["Labels"].tap()
+    } else {
+      app.buttons["More"].tap()
+    }
+    XCTAssertTrue(panelItem.waitForExistence(timeout: 5))
     bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-    XCTAssertTrue(app.buttons["Star"].waitForNonExistence(timeout: 5))
+    XCTAssertTrue(panelItem.waitForNonExistence(timeout: 5))
     XCTAssertFalse(
       app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 5))
-    // Organizing goes through the packaged native Gmail modify: a star from the More panel, then
-    // an archive and Undo.
-    app.buttons["More"].tap()
+    // Organizing goes through the packaged native Gmail modify: a star from the Reply sheet on
+    // iPhone or the More panel on iPad, then an archive and Undo.
+    app.buttons[phone ? "Reply" : "More"].tap()
     app.buttons["Star"].tap()
+    if phone {
+      // Choosing closes the sheet; it reopens with the new star state.
+      XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
+      app.buttons["Reply"].tap()
+    }
     XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
     XCTAssertTrue(app.buttons["Remove star"].exists)
     // The starred row names its flag.
     let starred = app.buttons["Unread. Rowan Hale. Garden plans for spring. Flagged"]
-    if UIDevice.current.userInterfaceIdiom == .phone {
-      // #972: iPhone's Reply sheet replaces the More panel still open after Star, so closing it
-      // reveals no stale menu.
+    if phone {
+      // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
       let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report spam"))
-      XCTAssertTrue(spam.firstMatch.exists)
+      app.buttons["Labels"].tap()
+      XCTAssertTrue(labels.waitForExistence(timeout: 5))
       app.buttons["Reply"].tap()
       XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
+      XCTAssertFalse(labels.exists)
       XCTAssertEqual(spam.count, 1)
       let sheet = XCTAttachment(screenshot: app.screenshot())
       sheet.name = "Reply sheet without More"
