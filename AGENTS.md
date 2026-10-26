@@ -33,6 +33,10 @@ for every implementation, including later implementation fixes.
   [simplicity skills](docs/agents/implementation-review.md#simplicity-skills).
   For React, React Native or Expo work, use
   [native component and skill selection](docs/agents/native-components.md).
+- Anything connected to animation, motion, transitions, gestures, press feedback
+  or haptics must load the matching
+  [animation skills](docs/agents/native-components.md#animation-skills) before
+  planning, implementation or review.
 - The workflow owns [review depth](docs/agents/implementation-review.md#review-depth),
   handoffs, [review limits](docs/agents/implementation-review.md#four-round-safeguard)
   and [decision authority](docs/agents/implementation-review.md#decision-panel).

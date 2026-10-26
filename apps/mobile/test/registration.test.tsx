@@ -1949,7 +1949,7 @@ describe('product registration', () => {
     await press('Close Search');
     await toggleFilter();
     await press('Filtered by Unread');
-    const filters = within(screen.getByTestId('filters-sheet'));
+    const filters = within(screen.getByTestId('bottom-sheet'));
     expect(filters.getByText('Include Mail From')).toBeVisible();
     await act(async () => {
       await fireEvent.press(

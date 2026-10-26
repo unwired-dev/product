@@ -36,6 +36,7 @@ import {
   press,
   simulatedPage,
 } from './evaluation-page.ts';
+import { translateInto } from './translation-menu.tsx';
 import { injectedScripts } from './webview.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -439,9 +440,7 @@ describe('the Tiptap evaluation composer', () => {
     await report({ selection: { start: 9, end: 13 } });
     await press('Writing tools');
     await press('Translate the selected text');
-    await fireEvent.press(
-      await screen.findByRole('radio', { name: 'Translate into German' }),
-    );
+    await translateInto('German');
     await screen.findByText(syntheticTranslation);
     await typed('Plan B');
     expect(screen.queryByText(syntheticTranslation)).toBeNull();
@@ -453,9 +452,7 @@ describe('the Tiptap evaluation composer', () => {
     await report({ document: latest, selection: { start: 5, end: 11 } });
     await press('Writing tools');
     await press('Translate the selected text');
-    await fireEvent.press(
-      await screen.findByRole('radio', { name: 'Translate into German' }),
-    );
+    await translateInto('German');
     await screen.findByText(syntheticTranslation);
     await press('Replace the selected text with this translation');
     const replaced = `Hola ${syntheticTranslation}`;
