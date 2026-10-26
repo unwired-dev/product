@@ -75,7 +75,7 @@ jest.mock('react-native-screens', () => {
 // accessibility escape dismisses it; a sheet finishes dismissing at once.
 jest.mock('@expo/ui/swift-ui', () => {
   const React = require('react');
-  const { View } = require('react-native');
+  const { Pressable, Text, View } = require('react-native');
   function Passthrough({ children }) {
     return React.createElement(React.Fragment, null, children);
   }
@@ -123,7 +123,6 @@ jest.mock('@expo/ui/swift-ui', () => {
     modifiers,
     children,
   }) {
-    const { Pressable, Text, View } = require('react-native');
     const disabled = modifiers?.some(
       (modifier) => modifier.$type === 'disabled' && modifier.disabled,
     );
