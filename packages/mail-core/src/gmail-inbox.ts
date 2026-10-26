@@ -51,13 +51,14 @@ import {
 } from './diagnostics.ts';
 import {
   allMail,
+  gmailArchive,
   canOrganize,
   gmailAction,
   GmailLabelSchema,
   inInbox,
   inView,
   labelsOf,
-  providerViews,
+  offeredViews,
   relabel,
 } from './gmail-actions.ts';
 import { createHistoryReveals } from './gmail-history-reveals.ts';
@@ -1306,7 +1307,7 @@ export function createGmailInbox(
   const graph =
     provider === 'microsoft-graph' ? createGraphReader(native) : undefined;
   // The views besides the Inbox and own labels or folders, once Graph knows the folder roles.
-  const ownViews = () => providerViews(provider, graph?.unavailableActions());
+  const ownViews = () => offeredViews(provider, graph?.unavailableActions());
   // One Gmail read; Gmail refusing a listing's page token is GmailInvalidPage.
   const gmail =
     (scope: MailboxScope) =>
@@ -1431,7 +1432,12 @@ export function createGmailInbox(
     const page = yield* gmail(scope)(
       'messages',
       [
-        ...(view === allMail ? [] : [['labelIds', view] as const]),
+        ...(view === allMail || view === gmailArchive
+          ? []
+          : [['labelIds', view] as const]),
+        ...(view === gmailArchive
+          ? [['q', '-in:inbox -in:sent -in:drafts'] as const]
+          : []),
         // Gmail leaves Spam and Trash out of a listing unless it is asked to include them.
         ...(view === 'SPAM' || view === 'TRASH'
           ? [['includeSpamTrash', 'true'] as const]

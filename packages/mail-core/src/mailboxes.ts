@@ -1,7 +1,5 @@
 import { messageDay } from '@private-email/localization';
-import * as Arr from 'effect/Array';
 import * as Option from 'effect/Option';
-import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
 import type {
@@ -31,6 +29,7 @@ import type { Registration } from './registration.ts';
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
+import { newestFirst } from './mailbox-views.ts';
 import {
   defaultProfile,
   mailboxesOf,
@@ -59,7 +58,13 @@ export {
   inboxChoice,
   mailboxSidebar,
   profileMailboxes,
+  createUnifiedMailboxRetention,
+  unifiedFolders,
+  unifiedMailbox,
+  unifiedRow,
+  unifiedRoles,
 } from './mailbox-views.ts';
+export type { UnifiedRole } from './mailbox-views.ts';
 
 type Scope = Readonly<{
   connection: string;
@@ -763,39 +768,11 @@ type MessageOf<L extends Listing> = L['state'] extends infer S
     ? M
     : never
   : never;
-type Listed = Readonly<{ id: string; receivedAt: string }>;
 
 export type MailboxMessage<L extends Listing = Mailbox> = Readonly<{
   mailbox: L;
   message: MessageOf<L>;
 }>;
-
-// Newest first. Equal times keep the connections' order, then the message ID, so a list never
-// reorders between renders.
-const newestFirst = <
-  E extends Readonly<{ mailbox: Readonly<{ id: string }>; message: Listed }>,
->(
-  mailboxes: ReadonlyArray<Readonly<{ id: string }>>,
-  entries: readonly E[],
-) => {
-  const rank = new Map(mailboxes.map(({ id }, index) => [id, index]));
-  const message = (entry: E): Listed => entry.message;
-  return Arr.sort(
-    entries,
-    Order.combine(
-      Order.flip(
-        Order.mapInput(Order.String, (entry: E) => message(entry).receivedAt),
-      ),
-      Order.combine(
-        Order.mapInput(
-          Order.Number,
-          ({ mailbox }: E) => rank.get(mailbox.id) ?? 0,
-        ),
-        Order.mapInput(Order.String, (entry: E) => message(entry).id),
-      ),
-    ),
-  );
-};
 
 // A Profile's unified Inbox, or one of its connections', newest first.
 export function inboxMessages<L extends Listing>(

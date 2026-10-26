@@ -98,15 +98,6 @@ const styles = StyleSheet.create({
     borderRadius: groupRadius - spacing.xs,
     borderCurve: 'continuous',
   },
-  monogram: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  monogramText: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   markerText: { ...textStyles.subheadline, flex: 1 },
   notice: {
@@ -118,6 +109,13 @@ const styles = StyleSheet.create({
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
   noticeMessageText: { flex: 1 },
+  noticeWithDetail: {
+    marginHorizontal: -spacing.s,
+    paddingLeft: 22,
+    paddingVertical: 14,
+  },
+  noticeDetailMessage: { gap: 10 },
+  noticeDetailBody: { gap: 2 },
   noticeActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -555,39 +553,13 @@ export function ToolbarButton({
   );
 }
 
-// Neutral initials for a sender without a contact photo; never a generated color.
-export function Monogram({ name }: { readonly name: string }) {
-  const colors = usePalette();
-  const initials = name
-    .split(/\s+/u)
-    .filter((word) => word !== '')
-    .slice(0, 2)
-    .map((word) => [...word][0]?.toLocaleUpperCase() ?? '')
-    .join('');
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[
-        styles.monogram,
-        {
-          backgroundColor: colors.surfaceBubble,
-          borderColor: colors.separator,
-        },
-      ]}>
-      <Text style={[styles.monogramText, { color: colors.textSecondary }]}>
-        {initials}
-      </Text>
-    </View>
-  );
-}
-
-// A banner beside the content it explains, with its actions stacked under the message.
-// A warning tints its icon; the message is an alert when it reports a failure.
+// A banner beside the content it explains, with an optional detail under its message and its
+// actions stacked below. A warning tints its icon; the message is an alert when it reports a failure.
 export function Notice({
   icon,
   iconColor,
   message,
+  detail,
   messageRole = 'text',
   announce,
   children,
@@ -595,6 +567,7 @@ export function Notice({
   readonly icon: string;
   readonly iconColor?: ColorValue;
   readonly message: string;
+  readonly detail?: string;
   readonly messageRole?: 'alert' | 'text';
   // Preserves live-region semantics; native announcement support is platform-specific.
   readonly announce?: 'polite';
@@ -602,19 +575,50 @@ export function Notice({
 }) {
   const colors = usePalette();
   return (
-    <View style={[styles.notice, { backgroundColor: colors.fillQuiet }]}>
-      <View style={styles.noticeMessage}>
+    <View
+      style={[
+        styles.notice,
+        detail === undefined
+          ? { backgroundColor: colors.fillQuiet }
+          : styles.noticeWithDetail,
+      ]}>
+      <View
+        style={[
+          styles.noticeMessage,
+          detail !== undefined && styles.noticeDetailMessage,
+        ]}>
         <SFSymbol
           name={icon}
           color={iconColor ?? colors.textSecondary}
+          size={detail === undefined ? 16 : 14}
         />
-        <View style={styles.noticeMessageText}>
+        <View
+          style={[
+            styles.noticeMessageText,
+            detail !== undefined && styles.noticeDetailBody,
+          ]}>
           <Label
             accessibilityLiveRegion={announce}
             accessibilityRole={messageRole}
-            style={[textStyles.body, { color: colors.textPrimary }]}>
+            style={[
+              detail === undefined
+                ? textStyles.body
+                : textStyles.bodyEmphasized,
+              {
+                color:
+                  detail === undefined
+                    ? colors.textPrimary
+                    : colors.textSecondary,
+              },
+            ]}>
             {message}
           </Label>
+          {detail === undefined ? null : (
+            <Label
+              style={[textStyles.subheadline, { color: colors.textSecondary }]}>
+              {detail}
+            </Label>
+          )}
         </View>
       </View>
       {children === undefined ? null : (

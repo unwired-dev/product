@@ -126,6 +126,12 @@ product behavior or production adoption. See `docs/architecture/macos-client.md`
 
 #### React correctness
 
+- `mailbox-folders.tsx.useUnifiedMailbox` retaining folders or views only by
+  connection ID and folder name. Reconcile the owning Inbox store as well, and
+  release the old subscription or lease before opening the replacement store's
+  view. Exercise a ready store replacement with unchanged connection and folder
+  names; otherwise its unified list remains empty or follows a retired owner.
+
 - `outbox.tsx.useOutboxActions` hiding a refused Undo/Edit toast only while the
   message is ineligible to return. Retire the refusal when its owning entry leaves
   or changes delivery state; later eligibility must not reopen an earlier retry.
