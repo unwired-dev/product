@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
 });
 
 type MarkName = `drafts.marks.${Mark}`;
-export const markControls: ReadonlyArray<readonly [Mark, MarkName]> = [
+const markControls: ReadonlyArray<readonly [Mark, MarkName]> = [
   ['bold', 'drafts.marks.bold'],
   ['italic', 'drafts.marks.italic'],
   ['underline', 'drafts.marks.underline'],
