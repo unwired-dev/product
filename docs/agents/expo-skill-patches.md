@@ -1,6 +1,6 @@
 # Local Expo skill corrections
 
-Both Expo skills originate from
+The patched `expo-ui` and `expo-router` skills originate from
 [`expo/skills` at `7ddc1f5`](https://github.com/expo/skills/tree/7ddc1f5796996e5c7efe2fc3fa9168eb24e8dac1/plugins/expo/skills).
 `skills-lock.json` records that upstream source, not the locally patched content.
 Keep the MIT licenses. On an upstream update, compare these corrections with the
