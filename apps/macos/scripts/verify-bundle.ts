@@ -105,15 +105,15 @@ assert.equal(
   scenario === 'assistance-qualification',
   'The assistance qualification corpus must appear only in assistance-qualification bundles.',
 );
-// Only `categorization-spike` bundles carry spike #831's research page and adapter.
+// Only `categorization-spike` bundles carry spike #831's research page and session.
 for (const file of [
-  'categorization-spike-page.tsx',
-  'categorization-spike-client.ts',
+  '/src/categorization-spike-page.tsx',
+  '/mail-core/src/testing/categorization-spike.ts',
 ]) {
   assert.equal(
-    sources.some((source) => source.endsWith(`/src/${file}`)),
+    sources.some((source) => source.endsWith(file)),
     scenario === 'categorization-spike',
-    'The categorization spike page and adapter must appear only in categorization-spike bundles.',
+    'The categorization spike page and session must appear only in categorization-spike bundles.',
   );
 }
 process.stdout.write(

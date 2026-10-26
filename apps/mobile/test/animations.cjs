@@ -90,14 +90,67 @@ jest.mock('@expo/ui/swift-ui', () => {
     }, [shown, isPresented, onDismiss]);
     return shown ? children : null;
   }
+  // Form controls render their text, and a button its pressable label, for component journeys.
+  const { Pressable, Text } = require('react-native');
+  function Section({ title, footer, children }) {
+    return React.createElement(
+      React.Fragment,
+      null,
+      title === undefined ? null : React.createElement(Text, null, title),
+      children,
+      footer,
+    );
+  }
+  function Labeled({ label, title, children }) {
+    return React.createElement(
+      React.Fragment,
+      null,
+      typeof (label ?? title) === 'string'
+        ? React.createElement(Text, null, label ?? title)
+        : label,
+      children,
+    );
+  }
+  function Button({ label, onPress, modifiers }) {
+    return React.createElement(
+      Pressable,
+      {
+        accessibilityRole: 'button',
+        onPress,
+        disabled: modifiers?.some(
+          (each) => each.$type === 'disabled' && each.disabled,
+        ),
+      },
+      React.createElement(Text, null, label),
+    );
+  }
   return {
     BottomSheet,
+    Button,
+    Form: Passthrough,
     Group: Passthrough,
     Host: Passthrough,
+    Label: Labeled,
+    LabeledContent: Labeled,
+    Picker: Labeled,
+    ProgressView: () => null,
     RNHostView: Passthrough,
+    Section,
+    Text,
+    VStack: Passthrough,
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  disabled: (disabled) => ({ $type: 'disabled', disabled }),
+  foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
+  listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
+  monospacedDigit: () => ({ $type: 'monospacedDigit' }),
+  scrollContentBackground: (visible) => ({
+    $type: 'scrollContentBackground',
+    visible,
+  }),
+  tag: (tag) => ({ $type: 'tag', tag }),
+  tint: (tint) => ({ $type: 'tint', tint }),
   presentationBackground: (style) => ({
     $type: 'presentationBackground',
     style,

@@ -27,7 +27,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [On-device assistance qualification on physical hardware](assistance-qualification.md)
 - [Drafts, the composer and provider-hosted launch work](drafts.md)
 - [Tiptap Draft editor evaluation on iPhone, iPad and Mac](draft-editor-evaluation.md)
-- [DeBERTa categorization spike in the native Mac host](categorization-spike.md)
+- [DeBERTa categorization spike on Mac, iPhone and iPad](categorization-spike.md)
 - [System Category model benchmark for English and Czech (spike #828)](../tools/system-category-benchmark/README.md)
 - [Custom Category model benchmark for English and Czech (spike #829)](../tools/system-category-benchmark/CUSTOM.md)
 - [Sending Drafts through the Outbox](outbox.md)

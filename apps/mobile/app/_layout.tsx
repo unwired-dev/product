@@ -34,6 +34,7 @@ import { Split } from 'react-native-screens/experimental';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { CategorizationSpike } from '../src/categorization-spike.ts';
 import {
   CommandPaletteProvider,
   useCommandRegistry,
@@ -58,7 +59,7 @@ import {
   WindowProfileScope,
 } from '../src/mailbox.tsx';
 import { createWindowProfileChoices } from '../src/profile-choices.ts';
-import { ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
+import { ReaderPane, ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { native, registration, start } from '../src/registration.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
@@ -149,6 +150,26 @@ function showsReader(
   return reader !== undefined || (draft !== undefined && !collapsed);
 }
 
+// Only the categorization-spike build has a page; it fills the reading column until a message
+// replaces it.
+function ReadingColumn({
+  spike,
+  reader,
+  compact,
+}: {
+  readonly spike: boolean;
+  readonly reader: string | undefined;
+  readonly compact: boolean;
+}) {
+  return spike && reader === undefined && CategorizationSpike !== undefined ? (
+    <ReaderPane>
+      <CategorizationSpike compact={compact} />
+    </ReaderPane>
+  ) : (
+    <Slot />
+  );
+}
+
 // Presentation choices live below WindowProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
@@ -231,7 +252,9 @@ function MailShell() {
   useLayoutEffect(() => {
     composing.current = draft;
   }, [draft]);
-  const reading = showsReader(id, draft, collapsed);
+  // On iPhone, Back from the categorization spike page leaves it for the session.
+  const [spike, setSpike] = useState(CategorizationSpike !== undefined);
+  const reading = spike || showsReader(id, draft, collapsed);
   const [inboxVisible, setInboxVisible] = useState(false);
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
@@ -302,6 +325,9 @@ function MailShell() {
   // A collapsed split view pops the reader by its system Back or edge swipe, and the column beneath
   // appears; a cancelled swipe never does. The route then leaves the reader too.
   function followBack() {
+    if (collapsed) {
+      setSpike(false);
+    }
     if (
       collapsed &&
       reader.current.id !== undefined &&
@@ -405,7 +431,11 @@ function MailShell() {
                 </SafeAreaProvider>
               </Split.Column>
               <Split.Column>
-                <Slot />
+                <ReadingColumn
+                  spike={spike}
+                  reader={id}
+                  compact={collapsed}
+                />
               </Split.Column>
             </Split.Host>
           </ReaderPaneWidthContext>

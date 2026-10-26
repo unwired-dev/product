@@ -116,6 +116,7 @@ const config: ExpoConfig = {
     './plugins/private-inbox.cjs',
     './plugins/localization.cjs',
     './plugins/design.cjs',
+    './plugins/categorization-spike.cjs',
     'expo-background-task',
     [
       'expo-build-properties',

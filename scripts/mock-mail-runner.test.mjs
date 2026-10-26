@@ -408,6 +408,11 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['open-read-relaunch', 'normal'],
     ['categorization-spike', 'sourceFile'],
   ]);
+  expectResolutions('../src/categorization-spike.ts', 'ios', [
+    ['', 'normal'],
+    ['open-read-relaunch', 'normal'],
+    ['categorization-spike', 'sourceFile'],
+  ]);
   // Registration scenarios answer the native vault from the synthetic layers.
   expectResolutions('@private-email/mail-core/synthetic-registration', 'ios', [
     ['', 'normal'],
