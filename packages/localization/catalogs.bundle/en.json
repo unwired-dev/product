@@ -550,7 +550,7 @@
     "device-ineligible": "Writing help needs a device that supports Apple Intelligence.",
     "assistance-disabled": "Turn on Apple Intelligence to get writing help.",
     "model-not-ready": "Apple Intelligence is still getting ready. Try again later.",
-    "unsupported-language": "Writing help is not available in this language yet.",
+    "unsupported-language": "Writing help is not available in this language yet. Your text is unchanged.",
     "unsupported-locale": "Writing help is not available in this device’s language yet.",
     "refused": "This request cannot be answered. Your text is unchanged.",
     "failed": "The suggestion could not be created. Your text is unchanged.",
