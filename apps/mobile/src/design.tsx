@@ -22,7 +22,7 @@ import {
   typography,
 } from '@private-email/mail-core/theme';
 import { GlassView } from 'expo-glass-effect';
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, use, useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -47,6 +47,9 @@ const NativeSymbol = requireNativeComponent<
   }
 >('UnwiredSymbol');
 
+// Controls inside interactive glass keep only the native glass press, with no added fill.
+const InteractiveGlass = createContext(false);
+
 export function Glass({
   cornerRadius,
   interactive = false,
@@ -58,11 +61,13 @@ export function Glass({
   readonly interactive?: boolean;
 }) {
   return (
-    <GlassView
-      {...props}
-      isInteractive={interactive}
-      style={[style, { borderRadius: cornerRadius }]}
-    />
+    <InteractiveGlass value={interactive}>
+      <GlassView
+        {...props}
+        isInteractive={interactive}
+        style={[style, { borderRadius: cornerRadius }]}
+      />
+    </InteractiveGlass>
   );
 }
 
@@ -473,6 +478,7 @@ export function ToolbarButton({
   readonly accessibilityHint?: string;
 }) {
   const colors = usePalette();
+  const inGlass = use(InteractiveGlass);
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
@@ -497,7 +503,7 @@ export function ToolbarButton({
         styles.toolbarButton,
         {
           backgroundColor:
-            pressed || expanded === true || selected === true
+            (pressed && !inGlass) || expanded === true || selected === true
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
