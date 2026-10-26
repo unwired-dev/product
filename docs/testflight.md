@@ -29,6 +29,8 @@ gh run watch
 
 `platform` is `ios`, `macos` or `both`. `--ref` selects the workflow revision;
 the optional `ref` input builds another branch, tag or commit with that revision.
+Without it, both hosts build the commit the run was triggered for, even if the
+branch moves while the run waits in the queue.
 Each host uploads from its own job, so one can be rerun without the other. A
 single-host retry reuses the prepared certificate. If it has expired, rerun all
 jobs to renew it before uploading. Build status evidence is attached to the run for seven days. Raw build and upload
@@ -267,12 +269,29 @@ reused the same certificate on both hosts and isolated the failure to PKCS#12
 import. The wrapper now imports the key and certificate directly. A native CI
 preflight uses a synthetic self-signed identity to verify import and cleanup
 before production credentials are supplied; it expects Apple's trust check to
-reject that fixture. Protected validation of the direct import and consecutive CI
-archives using the same certificate remain deferred for the reusable identity
-implementation.
-Uploaded-artifact inspection, inspection of processed builds and their TestFlight notes, and installation from
-TestFlight on an iPhone and a Mac also remain deferred. They are required before
-claiming #724's release evidence or the qualified beta in #628.
+reject that fixture.
+
+Protected runs have since used the direct import. Checked on 2026-10-26, all five
+successful runs from
+[39909124832](https://github.com/unwired-dev/product/actions/runs/39909124832)
+through [40278619432](https://github.com/unwired-dev/product/actions/runs/40278619432)
+(one cancelled dispatch between them) logged the same `Prepared TestFlight identity` on both hosts,
+`DE349E7E4B72423A15ACBFF06CBE7A7B4195BD3C`. That is Apple development certificate
+`92FCKGDJ45`, which expires on 2027-10-14. Apple Developer lists no development
+certificate created through the API after it. App Store Connect had processed the iOS and macOS
+builds `202610260616` from run 40278619432. Both were valid, required OS 27.0,
+were in internal beta testing and carried the source commit in their
+**What to Test** notes. That run's status artifacts each held only
+`status.txt`, which reported a production-bundle, backend and native
+test-boundary inspection, an upload, a notes update and exit status 0.
+
+Scheduled [run 40068072948](https://github.com/unwired-dev/product/actions/runs/40068072948)
+deployed the backend from `5ab122843` but built `98b299120`, because `main` moved
+while the run was queued. Builds now check out the triggering commit.
+
+Archive certificate inspection, renewal, keychain cleanup after an interrupted
+upload, and installation from TestFlight on an iPhone and a Mac remain deferred.
+They are required before claiming the qualified beta in #628.
 
 ### Protected signing validation
 
