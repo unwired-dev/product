@@ -13,21 +13,19 @@ final class UnwiredErrorReporting: NSObject {
 
   @MainActor private func perform(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock,
-    operation: @escaping @MainActor () async throws -> Any
-  ) {
-    Task { @MainActor in
-      do { resolve(try await operation()) } catch {
-        let code: String
-        switch error {
-        case ReportingError.stale: code = "error-reporting-stale"
-        case ReportingError.disabled: code = "error-reporting-disabled"
-        case ReportingError.invalid: code = "error-reporting-invalid"
-        case ReportingError.retry: code = "error-reporting-retry"
-        case ReportingError.offline: code = "offline"
-        default: code = "error-reporting-unavailable"
-        }
-        reject(code, "Error reporting is unavailable.", nil)
+    operation: @MainActor () async throws -> Any
+  ) async {
+    do { resolve(try await operation()) } catch {
+      let code: String
+      switch error {
+      case ReportingError.stale: code = "error-reporting-stale"
+      case ReportingError.disabled: code = "error-reporting-disabled"
+      case ReportingError.invalid: code = "error-reporting-invalid"
+      case ReportingError.retry: code = "error-reporting-retry"
+      case ReportingError.offline: code = "offline"
+      default: code = "error-reporting-unavailable"
       }
+      reject(code, "Error reporting is unavailable.", nil)
     }
   }
 
@@ -44,7 +42,7 @@ final class UnwiredErrorReporting: NSObject {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     Task { @MainActor in
-      perform(resolve, reject: reject) {
+      await perform(resolve, reject: reject) {
         guard let generation = Self.generation(generation) else { throw ReportingError.invalid }
         return try ErrorReportingRuntime.shared.consent(
           enabled: enabled, renewIdentity: renewIdentity, expectedGeneration: generation)
@@ -58,7 +56,7 @@ final class UnwiredErrorReporting: NSObject {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     Task { @MainActor in
-      perform(resolve, reject: reject) {
+      await perform(resolve, reject: reject) {
         guard let generation = Self.generation(generation) else { throw ReportingError.invalid }
         return [
           "saved": try ErrorReportingRuntime.shared.save(generation: generation, document: document)
@@ -73,7 +71,7 @@ final class UnwiredErrorReporting: NSObject {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     Task { @MainActor in
-      perform(resolve, reject: reject) {
+      await perform(resolve, reject: reject) {
         guard let generation = Self.generation(generation) else { throw ReportingError.invalid }
         return try await ErrorReportingRuntime.shared.request(
           operation: operation, body: body, generation: generation)
@@ -86,7 +84,7 @@ final class UnwiredErrorReporting: NSObject {
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     Task { @MainActor in
-      perform(resolve, reject: reject) { try ErrorReportingRuntime.shared.takeNative() }
+      await perform(resolve, reject: reject) { try ErrorReportingRuntime.shared.takeNative() }
     }
   }
 
