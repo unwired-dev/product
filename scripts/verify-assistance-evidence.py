@@ -41,7 +41,19 @@ def described(row):
     return (all(isinstance(row.get(key), kind) for key, kind in required.items())
             and (row.get('state') != 'ready' or nonblank(row.get('text')))
             and (row.get('result') != 'limited' or 'state' not in required
-                 or nonblank(row.get('reason'))))
+                 or nonblank(row.get('reason')))
+            and checked(row))
+
+
+# A ready answer records its language check, and a ready rewrite its added-content check;
+# neither may pass when its check failed.
+def checked(row):
+    if row.get('state') != 'ready' or row.get('kind') not in ('summary', 'rewrite', 'reply'):
+        return True
+    keys = ['languageKept'] + (['added'] if row['kind'] == 'rewrite' else [])
+    return (all(isinstance(row.get(key), bool) for key in keys)
+            and (row.get('result') != 'pass'
+                 or (row['languageKept'] and not row.get('added', False))))
 
 
 identities = {(kind, identifier) for kind, identifiers in expected.items()

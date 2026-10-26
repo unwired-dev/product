@@ -63,9 +63,10 @@ with an allow-listed diagnostic when the run could not continue.
 | `limited` | The device or model lacked the capability (an unavailable reason, a refusal or a missing language); mail is unaffected |
 | `fail`    | Anything else, such as a malformed or empty result, a cut input not disclosed or a cancellation not honored            |
 
-A ready summary, rewrite or reply records `languageKept`: whether its text
-contains a common word of the case's language. One that does not fails. This is
-a heuristic: a shared word or mixed-language answer can pass. A model that cannot
+A ready summary, rewrite or reply records `languageKept`. It is `false`, and the
+case fails, when the text contains common words of another corpus language and
+none of the case's language. This is a heuristic: a short answer with no listed
+words, a shared word or a mixed-language answer can pass. A model that cannot
 write a case's language reports `unsupported-language`, which is `limited`. A ready
 rewrite also records `added` and fails on recognized subject-line labels,
 `Dear`, `regards` or `[your name]`. These patterns do not detect every added

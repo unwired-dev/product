@@ -74,7 +74,12 @@ test('preparation refuses production builds before copying or signing', () => {
 test('assistance evidence admits complete pass/limited runs and rejects failed or incomplete matrices', () => {
   const directory = workspace();
   try {
-    const answer = { state: 'ready', ms: 900, text: 'Synthetic answer.' };
+    const answer = {
+      state: 'ready',
+      ms: 900,
+      text: 'Synthetic answer.',
+      languageKept: true,
+    };
     const cases = [
       ...[
         'lease-deadline',
@@ -90,7 +95,13 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
         'german-note',
         'instruction-like-note',
         'short-czech-note',
-      ].map((id) => ({ kind: 'rewrite', id, ...answer, facts: [] })),
+      ].map((id) => ({
+        kind: 'rewrite',
+        id,
+        ...answer,
+        added: false,
+        facts: [],
+      })),
       ...['confirm-meeting', 'long-quoted-message', 'answer-in-german'].map(
         (id) => ({ kind: 'reply', id, ...answer, facts: [] }),
       ),
@@ -184,6 +195,29 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
         malformed,
       ],
       [[{ ...device, hardware: undefined }, ...cases, complete], 1, malformed],
+      // A ready answer must carry its language and added-content checks, and cannot pass a
+      // check it failed.
+      [
+        [
+          device,
+          { ...cases[0], languageKept: undefined },
+          ...cases.slice(1),
+          complete,
+        ],
+        1,
+        malformed,
+      ],
+      [
+        [
+          device,
+          ...cases.slice(0, 5),
+          { ...cases[5], added: true },
+          ...cases.slice(6),
+          complete,
+        ],
+        1,
+        malformed,
+      ],
     ]) {
       const evidence = path.join(directory, 'evidence.jsonl');
       writeFileSync(

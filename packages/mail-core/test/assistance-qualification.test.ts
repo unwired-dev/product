@@ -214,6 +214,23 @@ describe('assistance qualification corpus run', () => {
     );
   });
 
+  it('a short answer without listed words is not scored as a language switch', async () => {
+    expect.hasAssertions();
+
+    const native = binding();
+    native.assistance.suggestReply = () =>
+      Promise.resolve('Ich nehme am Workshop teil.');
+    const { byKind } = await run(native);
+
+    expect(byKind('reply')).toContainEqual(
+      expect.objectContaining({
+        id: 'answer-in-german',
+        languageKept: true,
+        result: 'pass',
+      }),
+    );
+  });
+
   it('a rewrite that adds a subject line or greeting fails its case', async () => {
     expect.hasAssertions();
 

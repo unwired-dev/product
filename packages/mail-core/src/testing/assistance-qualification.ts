@@ -117,8 +117,9 @@ const rewrites = [
   },
 ] as const;
 
-// Common words of each corpus language that the others lack. A ready result containing none of
-// its source language's words was written in another language.
+// Common words of each corpus language that the others lack. A ready result switched language when
+// it contains another language's words and none of its own; a short answer with neither stays for
+// human review.
 const commonWords: Readonly<Record<string, readonly string[]>> = {
   en: [
     'the',
@@ -142,7 +143,12 @@ const commonWords: Readonly<Record<string, readonly string[]>> = {
 
 const keepsLanguage = (text: string, language: string) => {
   const words = new Set(text.toLowerCase().match(/\p{L}+/gu));
-  return commonWords[language]?.some((word) => words.has(word)) ?? false;
+  const uses = (candidate: string) =>
+    commonWords[candidate]?.some((word) => words.has(word)) ?? false;
+  return (
+    uses(language) ||
+    !Object.keys(commonWords).some((other) => other !== language && uses(other))
+  );
 };
 
 // What a rewrite adds rather than rewrites: a subject line, salutation, sign-off or placeholder.
