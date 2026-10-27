@@ -52,15 +52,26 @@ returning retries due work and does not restart an Undo Send Window. A locked
 device whose protected Draft storage is unavailable keeps the message waiting the
 same way. Force-quitting leaves unsubmitted messages queued until the person
 reopens the app, and recovery runs from the application entry, not an Inbox
-screen. Background Inbox refreshes and push wakes do not grant permission to
-send, and delivery does not promise background time iOS does not grant.
+screen.
+
+A queued message can also leave during a background delivery task iOS grants
+while the app is closed but not force-quit, the person allows Background App
+Refresh and a network is available. The task verifies registration, reopens
+protected Draft storage and holds the same bounded background time, so due
+work is tried once more, including after a missing network, expired time or
+ordinary termination. iOS chooses when, or whether, the task runs: delivery
+promises no wake, retry time or maximum delay. Locked storage, unverified
+registration, denied or expired time and an app that is already active start
+no handoff from the task; overlapping opportunities share one Outbox pass, so
+the message keeps its original Undo Send deadline and claim and is submitted
+once. Background Inbox refreshes and push wakes do not grant permission to send.
 TypeScript (`apps/mobile/src/delivery.ts`) decides when to request and release
 background time and pauses the Outbox when it ends; Swift (`DeliveryExecution`
 and `RegistrationStore.deliveryAllowed`) owns the iOS background task, withdraws
 permission on expiry and refuses provider handoff, so the native check is the
-final gate and the TypeScript pause follows it.
-Resuming a queued Outbox during background opportunities is planned in
-[#1261](https://github.com/unwired-dev/product/issues/1261).
+final gate and the TypeScript pause follows it. The delivery task shares the
+Gmail freshness task's iOS background-processing request, so it is not
+available on simulators.
 
 [Mock Mail Session](mock-mail-sessions.md) builds use the same lifecycle and Undo
 Send Window with their synthetic providers.
@@ -288,7 +299,11 @@ stores and synthetic native storage, Gmail and claims, without mounting an Inbox
 They prove mobile foreground gating and Mac processing with no mounted windows.
 Mobile journeys also finish a Send admitted before switching apps within
 synthetic background time, keep a Send queued after background time expires
-before its deadline or is denied, and then send it once on activation.
+before its deadline or is denied, and then send it once on activation. They run
+the entry's background delivery task after a headless launch: it sends a due
+message once and releases its time, waits while storage is locked, keeps the
+original deadline when its time expires, retries a message left queued offline
+in a later task, and submits once when tasks overlap each other and activation.
 Cold shared-store journeys reopen Draft storage with fresh, unloaded mailbox
 stores and recover queued handoffs, unknown outcomes and accepted SMTP Sent
 copies without another submission.
@@ -340,9 +355,11 @@ the synthetic provider's acceptance removes it from the Outbox, on iPhone and
 iPad. CI does not run
 this scenario; it is local native evidence.
 
-Switching apps, locking the device, denied or expired background time and
-interruption during a provider request on a real iPhone or iPad, with a single
-resulting provider submission, remain release checks. The checks above use
+Switching apps, locking the device, denied or expired background time,
+interruption during a provider request, a system background delivery task after
+ordinary termination with and without a network, and force-quit leaving a
+message queued until reopening, on a real iPhone or iPad with a single resulting
+Gmail, Microsoft and SMTP submission, remain release checks. The checks above use
 synthetic background time and providers.
 
 Deferred before release:

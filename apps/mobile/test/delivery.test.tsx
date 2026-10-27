@@ -1,5 +1,6 @@
 import type { createHost } from '@private-email/mail-core/host';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type { defineTask as DefineTask } from 'expo-task-manager';
 import type {
   AppState as AppStateModule,
   TurboModuleRegistry as TurboModules,
@@ -25,6 +26,16 @@ import {
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name.
 jest.mock('@private-email/mail-core/registration-mode', () => ({
   previewInbox: true,
+}));
+// The system scheduler: each journey runs the delivery task the entry defines.
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name.
+jest.mock('expo-task-manager', () => ({ defineTask: jest.fn() }));
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name.
+jest.mock('expo-background-task', () => ({
+  BackgroundTaskResult: { Success: 1, Failed: 2 },
+  BackgroundTaskStatus: { Available: 2, Restricted: 1 },
+  getStatusAsync: jest.fn(async () => 2),
+  registerTaskAsync: jest.fn(),
 }));
 
 // Each journey loads the mobile entry afresh.
@@ -53,6 +64,8 @@ const journey = async (
     holds: jest.Mock;
     releases: jest.Mock;
     end: (released: unknown) => void;
+    deliver: () => Promise<unknown>;
+    lock: (locked: boolean) => void;
   }) => Promise<void>,
   grant?: (end: (released: unknown) => void) => void,
 ) => {
@@ -112,6 +125,23 @@ const journey = async (
       const firstListener = jest.mocked(AppState.addEventListener).mock.calls
         .length;
       jest.requireActual('../src/delivery.ts');
+      const { defineTask } = jest.requireMock<{
+        defineTask: typeof DefineTask;
+      }>('expo-task-manager');
+      const [, execute] = present(
+        jest
+          .mocked(defineTask)
+          .mock.calls.find(([name]) => name === 'dev.unwired.mail.outbox'),
+      );
+      const deliver = async () =>
+        execute({
+          data: undefined,
+          error: null,
+          executionInfo: {
+            taskName: 'dev.unwired.mail.outbox',
+            eventId: 'synthetic-event',
+          },
+        });
       const change = (state: Lifecycle) => {
         AppState.currentState = state;
         for (const [, listener] of jest
@@ -138,7 +168,17 @@ const journey = async (
         await expect(host.outbox.send(() => current)).resolves.toBeUndefined();
         return id;
       };
-      await run({ host, gmail, change, send, holds, releases, end });
+      await run({
+        host,
+        gmail,
+        change,
+        send,
+        holds,
+        releases,
+        end,
+        deliver,
+        lock: storage.setLocked,
+      });
     } finally {
       host.outbox.dispose();
     }
@@ -265,4 +305,109 @@ describe('application-owned Outbox execution', () => {
       );
     },
   );
+
+  it('sends a queued message once in a system delivery task after a headless launch, then releases its time', async () => {
+    expect.hasAssertions();
+    await journey(
+      'background',
+      async ({
+        host,
+        gmail,
+        change,
+        send,
+        holds,
+        releases,
+        end,
+        deliver,
+        lock,
+      }) => {
+        const { registerTaskAsync } = jest.requireMock<{
+          registerTaskAsync: jest.Mock;
+        }>('expo-background-task');
+        expect(registerTaskAsync).toHaveBeenCalledWith(
+          'dev.unwired.mail.outbox',
+          { minimumInterval: 15 },
+        );
+        await send();
+        await jest.advanceTimersByTimeAsync(undoSendWindow + 1000);
+        expect(gmail.sends).toHaveLength(0);
+        // A locked device keeps protected Draft storage, and so the Send, waiting.
+        lock(true);
+        const locked = deliver();
+        await jest.advanceTimersByTimeAsync(0);
+        end(false);
+        await expect(locked).resolves.toBe(1);
+        expect(gmail.sends).toHaveLength(0);
+        lock(false);
+        await expect(deliver()).resolves.toBe(1);
+        expect(gmail.sends).toHaveLength(1);
+        expect(host.drafts.getOutbox()).toStrictEqual([]);
+        expect(releases).toHaveBeenCalledWith();
+        // An opportunity with nothing queued asks for no time, and activation sends nothing again.
+        await expect(deliver()).resolves.toBe(1);
+        change('active');
+        await host.outbox.process();
+        expect(gmail.sends).toHaveLength(1);
+        expect(holds).toHaveBeenCalledTimes(2);
+      },
+    );
+  });
+
+  it('keeps the original deadline when a delivery task expires, and retries an offline Send in a later one', async () => {
+    expect.hasAssertions();
+    await journey(
+      'background',
+      async ({ host, gmail, send, holds, end, deliver }) => {
+        const id = await send();
+        const expiring = deliver();
+        await jest.advanceTimersByTimeAsync(undoSendWindow / 2);
+        end(false);
+        await expect(expiring).resolves.toBe(1);
+        await jest.advanceTimersByTimeAsync(undoSendWindow);
+        await host.outbox.process();
+        expect(gmail.sends).toHaveLength(0);
+        expect(host.drafts.getOutbox()).toMatchObject([
+          { id, state: 'waiting' },
+        ]);
+        // No connection: nothing reached Gmail, so the Send stays queued until the time expires.
+        gmail.failSend({ code: 'offline' });
+        const offline = deliver();
+        await jest.advanceTimersByTimeAsync(0);
+        expect(host.drafts.getOutbox()).toMatchObject([
+          { id, state: 'queued' },
+        ]);
+        end(false);
+        await expect(offline).resolves.toBe(1);
+        await jest.advanceTimersByTimeAsync(60_000);
+        expect(gmail.sends).toHaveLength(0);
+        await expect(deliver()).resolves.toBe(1);
+        expect(gmail.sends).toHaveLength(1);
+        expect(holds).toHaveBeenCalledTimes(3);
+      },
+    );
+  });
+
+  it('submits once when a delivery task overlaps another and activation', async () => {
+    expect.hasAssertions();
+    await journey(
+      'background',
+      async ({ host, gmail, change, send, holds, deliver }) => {
+        await send();
+        await jest.advanceTimersByTimeAsync(undoSendWindow + 1000);
+        gmail.failSend({ code: 'offline' });
+        const first = deliver();
+        await jest.advanceTimersByTimeAsync(0);
+        await expect(deliver()).resolves.toBe(1);
+        change('active');
+        await jest.advanceTimersByTimeAsync(0);
+        await expect(deliver()).resolves.toBe(1);
+        await host.outbox.process();
+        await expect(first).resolves.toBe(1);
+        expect(gmail.sends).toHaveLength(1);
+        expect(host.drafts.getOutbox()).toStrictEqual([]);
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+        expect(holds).toHaveBeenCalledTimes(1);
+      },
+    );
+  });
 });
