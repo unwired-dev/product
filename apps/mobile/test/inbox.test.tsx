@@ -36,6 +36,7 @@ import {
   AccessibilityInfo,
   Animated,
   AppState,
+  DeviceEventEmitter,
   Dimensions,
   Linking,
   StyleSheet,
@@ -596,12 +597,56 @@ describe('preview Inbox', () => {
       expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
       // Sync status over the list rises with the bar, 12 pt above it.
       expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 356 });
+      // The list must not add keyboard padding beneath the already lifted capsule.
+      const list = screen.getByTestId('inbox-surface');
+      await fireEvent(list, 'layout', {
+        persist: () => undefined,
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 768 } },
+      });
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          endCoordinates: {
+            screenX: 0,
+            screenY: 488,
+            width: 1024,
+            height: 280,
+          },
+        });
+      });
+      expect(list).toHaveStyle({ paddingBottom: 0 });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'automaticallyAdjustKeyboardInsets',
+        true,
+      );
       const edge = screen
         .getAllByTestId('scroll-edge')
         .find((view) => StyleSheet.flatten(view.props.style)?.width === 500);
       expect(edge).toHaveStyle({ bottom: 280 });
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillHide');
+      });
+      await app.rerender(<WindowJourney />);
+      expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 76 });
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 500, height: 768 } });
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          endCoordinates: { screenX: 0, screenY: 488, width: 500, height: 280 },
+        });
+      });
+      expect(list).toHaveStyle({ paddingBottom: 280 });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'automaticallyAdjustKeyboardInsets',
+        false,
+      );
     } finally {
-      Dimensions.set({ window });
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillHide');
+        Dimensions.set({ window });
+      });
     }
   });
 

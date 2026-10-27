@@ -51,6 +51,7 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import {
@@ -625,6 +626,7 @@ export function Inbox({
   const profile = useProfile();
   const search = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
+  const inWindow = use(WindowBarContext) !== undefined;
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -892,7 +894,10 @@ export function Inbox({
     // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it. The surface
     // fills those margins too, behind the status bar and home indicator.
     <KeyboardAvoidingView
+      testID="inbox-surface"
       behavior="padding"
+      // The window bar already lifts the regular layout's capsule. Only the rows need insets there.
+      enabled={!inWindow}
       keyboardVerticalOffset={-insets.bottom}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <SafeAreaView
@@ -976,6 +981,7 @@ export function Inbox({
           </View>
           <SectionList
             accessibilityLabel={t('inbox.messages')}
+            automaticallyAdjustKeyboardInsets={inWindow}
             maintainVisibleContentPosition={keepPosition}
             onScrollBeginDrag={() => {
               motion.interrupt();
