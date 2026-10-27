@@ -71,7 +71,7 @@ ASC_KEY_PATH='/absolute/path/outside/this/repository/AuthKey_<key ID>.p8'
 APPLE_DEVELOPMENT_TEAM='<team ID>'
 UNWIRED_GOOGLE_CLIENT_ID='<native client ID for dev.unwired.mail>'
 UNWIRED_CONVEX_URL='https://<deployment>.convex.cloud'
-# Optional: the Cloud Pub/Sub topic for Gmail push wakes.
+# Required: the Cloud Pub/Sub topic for Gmail push wakes.
 UNWIRED_GMAIL_PUBSUB_TOPIC='projects/<project>/topics/<topic>'
 # Optional: the Microsoft Entra application for Microsoft mail.
 UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>'
@@ -79,7 +79,9 @@ UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>'
 
 The loader reads these release fields and any selected `UNWIRED_MOCK_SCENARIO`
 as dotenv data. Exported environment variables override the file; unrelated
-fields in the file do not enter builds. A selected mock scenario is rejected.
+fields in the file do not enter builds. A selected mock scenario is rejected,
+and so is a missing topic or one that is not `projects/<project>/topics/<topic>`:
+an uploaded build without it registers no Gmail push routes.
 
 The script needs Xcode 27, CocoaPods and the `xcodeproj` gem, as for the
 [Mac host](macos-client.md). It regenerates both ignored native projects from
@@ -96,10 +98,11 @@ the retained raw logs as private; do not attach them to a public issue or run.
 
 ```text
 scripts/testflight.zsh ios|macos|both
-  refuse a selected Mock Mail Session scenario
+  refuse a selected Mock Mail Session scenario or a missing Gmail push topic
   generate the native project and install Pods
   xcodebuild archive        # Release, automatic signing through the API key
-  inspect the archived bundle, source map, native test markers and Info.plist
+  inspect the archived bundle, source map, native test markers and Info.plist,
+    including the configured Gmail push topic
   xcodebuild -exportArchive # cloud-managed distribution signing, direct upload
   wait for processing and record the commit in TestFlight What to Test notes
 ```
@@ -249,7 +252,7 @@ gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
 
    The workflow also reads the repository secrets `CONVEX_URL` and
    `GMAIL_OAUTH_CLIENT_ID` as the hosts' public backend configuration, and the
-   optional `GMAIL_PUBSUB_TOPIC` for [push wakes](gmail-inbox.md#push-wake-routes).
+   required `GMAIL_PUBSUB_TOPIC` for [push wakes](gmail-inbox.md#push-wake-routes).
 
 4. The Convex deployment accepts the hosts: `APPLE_BUNDLE_ID` is
    `dev.unwired.mail` and `GOOGLE_PRODUCT_CLIENT_IDS` includes the native
