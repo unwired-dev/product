@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 
 // Load only release configuration; unrelated backend secrets stay out of builds.
-const file = path.join(import.meta.dirname, '..', '.env.local');
+const file = path.join(
+  inheritedEnv.TESTFLIGHT_SOURCE_ROOT ?? path.join(import.meta.dirname, '..'),
+  '.env.local',
+);
 const local = existsSync(file) ? parseEnv(readFileSync(file, 'utf8')) : {};
 const env = { ...inheritedEnv, UNWIRED_TESTFLIGHT_ENV_LOADED: '1' };
 for (const name of [

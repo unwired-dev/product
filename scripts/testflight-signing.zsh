@@ -68,4 +68,6 @@ fi
 rm -f "$directory/key.pem" "$directory/password"
 unset password
 print -r -- "Prepared TestFlight identity: $fingerprint"
+# The upload refuses archives signed by any other certificate.
+export TESTFLIGHT_IDENTITY_SHA1=$fingerprint
 "$@"
