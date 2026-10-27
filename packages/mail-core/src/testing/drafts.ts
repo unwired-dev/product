@@ -1,3 +1,4 @@
+import * as Hash from 'effect/Hash';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
@@ -14,21 +15,9 @@ import { assetLimit } from '../drafts.ts';
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error(`Draft storage: ${code}`), { code }));
 
-// A stand-in for SHA-256: 64 hexadecimal digits that change with the bytes, in one pass of 32-bit
-// arithmetic, since sent files reach several megabytes.
-const digestOf = (bytes: string) => {
-  const hashes = [1, 2, 3, 4, 5, 6, 7, 8];
-  for (let index = 0; index < bytes.length; index += 1) {
-    const code = bytes.codePointAt(index) ?? 0;
-    for (let seed = 1; seed <= hashes.length; seed += 1) {
-      hashes[seed - 1] =
-        Math.imul(hashes[seed - 1] ?? seed, 31) + code + index * seed;
-    }
-  }
-  return hashes
-    .map((hash) => (Math.imul(hash, 1) + 2 ** 32).toString(16).slice(-8))
-    .join('');
-};
+// A non-cryptographic stand-in in native storage's 64-hex-digit format.
+const digestOf = (bytes: string) =>
+  (Hash.string(bytes) + 2 ** 31).toString(16).padStart(64, '0');
 
 // A Draft record's sealed content: the Draft's identifier, the record's write count and its JSON.
 const RecordSchema = Schema.fromJsonString(
