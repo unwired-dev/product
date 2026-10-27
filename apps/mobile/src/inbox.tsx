@@ -26,6 +26,7 @@ import {
   profileMailboxes,
   resultKey,
 } from '@private-email/mail-core/mailboxes';
+import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
   useEffect,
@@ -51,6 +52,7 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import {
@@ -584,6 +586,42 @@ function InboxFooter({
   );
 }
 
+// The sync capsule follows the list column; the Outbox toast follows the search bar.
+function InboxStatusBar({
+  capsule,
+  ...bar
+}: ComponentProps<typeof InboxBar> & { readonly capsule: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  const inWindow = use(WindowBarContext) !== undefined;
+  return (
+    <>
+      <InboxBar
+        {...bar}
+        notice={
+          <>
+            {inWindow ? null : capsule}
+            {bar.notice}
+          </>
+        }
+      />
+      {inWindow ? (
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.syncStatus,
+            {
+              // This column already excludes its safe area; the window bar includes it.
+              bottom: 48 + spacing.m + Math.max(spacing.l - insets.bottom, 0),
+              display: bar.hidden ? 'none' : 'flex',
+            },
+          ]}>
+          {capsule}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
 export function Inbox({
   visible,
   selected,
@@ -796,6 +834,15 @@ export function Inbox({
     }
     setRetrying(false);
   };
+  const syncCapsule = (
+    <SyncStatusCapsule
+      status={syncStatusOf(shown)}
+      started={refreshing || retrying}
+      onTryAgain={() => {
+        void tryAgain();
+      }}
+    />
+  );
 
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
@@ -1129,22 +1176,12 @@ export function Inbox({
               );
             }}
           />
-          <InboxBar
+          <InboxStatusBar
+            capsule={syncCapsule}
             field={search}
             filter={filtering}
             hidden={composing !== undefined}
-            notice={
-              <>
-                <SyncStatusCapsule
-                  status={syncStatusOf(shown)}
-                  started={refreshing || retrying}
-                  onTryAgain={() => {
-                    void tryAgain();
-                  }}
-                />
-                {outboxActions.toast}
-              </>
-            }
+            notice={outboxActions.toast}
             onCompose={onCompose}
             ready={ready}
             scope={scope}

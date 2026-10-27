@@ -81,10 +81,14 @@ const backfill = (state: InboxMailbox['state']) =>
     ? state.history
     : undefined;
 
-// A mailbox that needs Try Again: its server could not be reached, or a failed read paused its
-// backfill until the next synchronization.
+// A mailbox that needs attention: authorization was refused, its server could not be reached,
+// or a failed read paused its backfill until the next synchronization.
 export const failed = (state: InboxMailbox['state']) =>
-  offline(state) || backfill(state)?.paused === true;
+  offline(state) ||
+  backfill(state)?.paused === true ||
+  (state.kind === 'ready' &&
+    (('sync' in state && state.sync === 'authentication') ||
+      ('status' in state && state.status === 'authentication')));
 
 type SyncStatus =
   | Readonly<{ kind: 'attention'; count: number }>

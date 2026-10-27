@@ -40,6 +40,7 @@ import {
   Linking,
   StyleSheet,
   useWindowDimensions,
+  View,
 } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -871,6 +872,7 @@ function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
 async function renderConnected(
   native: NativeGmailMailbox,
   provider: 'gmail' | 'microsoft-graph' = 'gmail',
+  windowBar?: ReturnType<typeof createWindowBar>,
 ) {
   const synthetic = await createRegistrationScenario('registration-success');
   // The mailbox connections the person authorizes, by connection.
@@ -942,7 +944,21 @@ async function renderConnected(
       </RegistrationGate>
     );
   }
-  await render(<Connected />);
+  await render(
+    <WindowBarContext value={windowBar}>
+      <View testID="list-column">
+        <Connected />
+      </View>
+      {windowBar === undefined ? null : (
+        <WindowBarHost
+          windowBar={windowBar}
+          readerWidth={500}
+          bottom={20}
+          keyboardLift={0}
+        />
+      )}
+    </WindowBarContext>,
+  );
   return {
     synthetic,
     authorized,
@@ -1060,6 +1076,32 @@ const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
 };
 
 describe('connected Gmail Inbox', () => {
+  it('keeps synchronization attention over the list column beside a window-wide bar', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saved mail remains available' });
+    const connected = await renderConnected(
+      gmail.native,
+      'gmail',
+      createWindowBar(),
+    );
+    await screen.findByText('Saved mail remains available');
+    gmail.fail({ code: 'unavailable' });
+    await act(connected.store().load);
+    const list = within(screen.getByTestId('list-column'));
+    expect(list.getByText('1 account needs attention')).toBeVisible();
+    expect(list.getByRole('button', { name: 'Try Again' })).toBeVisible();
+    expect(
+      within(screen.getByTestId('window-bar')).getByLabelText(
+        'Search senders and subjects',
+      ),
+    ).toBeVisible();
+    await fireEvent.press(list.getByRole('button', { name: 'Try Again' }));
+    await waitFor(() => {
+      expect(list.queryByText('1 account needs attention')).toBeNull();
+    });
+  });
+
   it.each([false, true])(
     'shows one Top Results header for provider-only matches (isPad=%s)',
     async (isPad) => {
@@ -1711,6 +1753,31 @@ describe('connected Gmail Inbox', () => {
       { timeout: 3000 },
     );
     expect(screen.queryByText('1 account needs attention')).toBeNull();
+  });
+
+  it('keeps a paused history download in Attention when metadata refresh loses authorization', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    for (const index of Array.from({ length: 250 }, (_, at) => at)) {
+      gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
+    }
+    gmail.deliver({ subject: 'Cached Inbox message' });
+    gmail.failPage('200', { code: 'unavailable' });
+    const connected = await renderConnected(gmail.native);
+    await screen.findByText('1 account needs attention');
+    gmail.fail({ status: 401 });
+    await act(connected.store().load);
+    expect(screen.getByText('1 account needs attention')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Allow Gmail access' }),
+    ).toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Allow Gmail access' }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('1 account needs attention')).toBeNull();
+    });
+    expect(screen.getByText('Cached Inbox message')).toBeVisible();
   });
 
   it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {

@@ -334,11 +334,11 @@ under it and never moves.
   a pull-down refresh shows it at once.
 - **Attention.** A failure replaces the progress with a warning,
   **1 account needs attention** and **Try Again**, which synchronizes only the
-  mailboxes that could not be reached or whose history pass paused, once
+  mailboxes needing authorization, that could not be reached, or whose history pass paused, once
   registration verifies; that synchronization resumes the pass. VoiceOver hears
   the attention summary when it appears.
-- **Idle.** The capsule fades out. A refused grant or password keeps its own
-  notice above the list, and the sidebar keeps each connection's problem.
+- **Idle.** The capsule fades out. A refused grant or password also keeps its own
+  authorization notice above the list, and the sidebar keeps each connection's problem.
 
 Per-account details, the Mac capsule and the last successful synchronization follow
 in [#1442](https://github.com/unwired-dev/product/issues/1442),
