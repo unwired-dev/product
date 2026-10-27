@@ -591,6 +591,16 @@ extension PrivateInboxTests {
     }
     google.refreshFailure = nil
     #expect(try await store.restore()["kind"] == "connected")
+    // While a restore verifies a valid connection again its access is pending, never refused.
+    let pending = store.generation(currentSubject)
+    store.forgetMailboxAccess()
+    #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try store.openMailbox(current) }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openMessageBody(
+        connection: current, address: google.address, generation: pending, id: "a")
+    }
+    #expect(try await store.restore()["kind"] == "connected")
+    #expect(try store.openMailbox(current)["document"] as? String == document)
     google.verificationFailure = URLError(.timedOut)
     #expect(try await store.restore()["kind"] == "cached")
     google.verificationFailure = RegistrationError.gmailUnavailable

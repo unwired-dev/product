@@ -288,10 +288,11 @@ extension RegistrationStore {
 
   func openMailbox(_ id: String) throws -> [String: Any] {
     guard let mailCache else { throw RegistrationError.unavailable }
-    guard verifiedMailboxes.contains(id) || cacheOnlyMailboxes.contains(id) else {
-      throw RegistrationError.gmailUnavailable
-    }
     let mailbox = try connectedMailbox(id).1
+    // A restore forgets access until it verifies the connection again; that is pending, not refused.
+    guard verifiedMailboxes.contains(id) || cacheOnlyMailboxes.contains(id) else {
+      throw PrivateInboxError.mailboxInvalidated
+    }
     var result = try mailCache.openMailbox(
       connection: id, address: mailbox.address, subject: mailbox.subject)
     result["generation"] = mailboxGeneration(id).uuidString
@@ -359,10 +360,10 @@ extension RegistrationStore {
     throws -> String
   {
     guard mailCache != nil else { throw RegistrationError.unavailable }
-    let open = verifiedMailboxes.contains(id)
-    guard open || cacheOnlyMailboxes.contains(id) else { throw RegistrationError.gmailUnavailable }
-    guard open || !verified else { throw RegistrationError.unavailable }
     let mailbox = try connectedMailbox(id).1
+    let open = verifiedMailboxes.contains(id)
+    guard open || cacheOnlyMailboxes.contains(id) else { throw PrivateInboxError.mailboxInvalidated }
+    guard open || !verified else { throw RegistrationError.unavailable }
     guard mailbox.address == address, mailboxGeneration(id).uuidString == generation else {
       throw PrivateInboxError.mailboxInvalidated
     }

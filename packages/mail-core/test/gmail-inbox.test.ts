@@ -372,14 +372,15 @@ describe('synchronizing a Gmail Inbox', () => {
     await inbox.load();
     expect(ready(inbox.getSnapshot()).messages).toStrictEqual(cached);
 
-    // A synchronization restarts after an invalidation, but not indefinitely.
+    // A synchronization restarts after an invalidation, but not indefinitely; the saved mail
+    // stays shown for the next one.
     gmail.fail(
       { code: 'mailbox-invalidated' },
       { code: 'mailbox-invalidated' },
       { code: 'mailbox-invalidated' },
     );
     await inbox.load();
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    expect(ready(inbox.getSnapshot()).messages).toStrictEqual(cached);
     await inbox.load();
     gmail.deliver({ subject: 'Competing commit' });
     // Each commit rebases twice over a newer revision and the synchronization restarts twice, so
@@ -470,7 +471,11 @@ describe('synchronizing a Gmail Inbox', () => {
       },
     });
     await inbox.load();
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    // The Inbox keeps synchronizing its first mail for the next load.
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      messages: [],
+      sync: 'syncing',
+    });
     expect(gmail.commits).toHaveLength(0);
     await expect(gmail.native.openMailbox()).resolves.toMatchObject({
       revision: 0,
