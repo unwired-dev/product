@@ -1,7 +1,7 @@
 # Private Email
 
-This product helps people manage email with built-in AI processing on trusted
-devices. Users may separately authorize External Agents to access their mail.
+This product helps people manage email with built-in AI assistance. Users may
+separately authorize External Agents to access their mail.
 Its vocabulary belongs to one domain, organized by reading topic below.
 
 Read the topic relevant to your task and its observable requirements. Only the

@@ -4,6 +4,14 @@ status: accepted
 
 # Separate External Agent access from On-Device Mail Assistance
 
+## Private Cloud Mail Assistance amendment — 2026-10-28
+
+[ADR 0075](0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
+qualifies the built-in assistance privacy boundary below with separately opted-in
+PCC. The existing on-device mode retains its contract. External Agent consent,
+permissions and milestone remain separate and unchanged; neither opt-in
+authorizes the other.
+
 ## Context
 
 On 2026-10-19 the product owner confirmed the privacy and access boundaries

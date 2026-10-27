@@ -57,6 +57,8 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 
 - [Power-user Apple launch supersession](../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
 - [Provider-hosted Draft authority and cross-client editing](../adr/0074-use-provider-hosted-drafts-for-cross-client-editing.md)
+- [Separately authorized Private Cloud Mail Assistance](../adr/0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md),
+  an optional enhancement with its own release prerequisites.
 - [Original replacement product and platform scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Mock testing and real integration evidence](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md)
 - [Product identity and mailbox consent](../adr/0061-separate-product-identity-from-registration-mailbox-authorization.md)
@@ -75,7 +77,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 
 The resolved OCR checklist requires the review agent to check applicable privacy,
 encryption, identity-isolation, transport and delivery guarantees in the earlier
-[ADRs](../adr/). ADR 0059 through 0074 take
+[ADRs](../adr/). ADR 0059 through 0075 take
 precedence where they explicitly replace prototype architecture or release scope.
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.

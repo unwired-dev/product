@@ -16,6 +16,10 @@ automatic-scan and persistent-queue exception under ADR 0072. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope
 come from the accepted replacement decisions.
 
+[Private Cloud Mail Assistance](../../product/private-cloud-mail-assistance.md)
+adds a separately authorized planned mode under ADR 0075. Its scoped exceptions
+leave the existing local mode, enablement gate and background requirements intact.
+
 ## Decisions and scope
 
 - [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
@@ -24,6 +28,7 @@ come from the accepted replacement decisions.
 - [Keep Mail Assistance enablement device-local](../../adr/0053-keep-mail-assistance-enablement-device-local.md)
 - [Allow device-local Background Message Summaries](../../adr/0068-allow-device-local-background-message-summaries.md)
 - [Allow reviewed post-launch Mail Commitments](../../adr/0072-allow-reviewed-post-launch-mail-commitments.md)
+- [Prefer Private Cloud Compute for separately authorized mail assistance](../../adr/0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
 
 [The documentation index](../../README.md) explains ADR precedence and separates
 current replacement work from prototype maintenance and historical plans.
