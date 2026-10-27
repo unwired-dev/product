@@ -16,6 +16,8 @@ typedef NS_ENUM(NSInteger, Typing) {
 };
 
 static __weak NSTextView *body;
+// Bodies that had focus before: each composer's JavaScript keeps its own typing marks.
+static NSHashTable<NSTextView *> *seen;
 static Typing typing;
 static NSDictionary<NSAttributedStringKey, id> *toggled;
 // The characters the body's latest edit inserted, and whether an edit moved its selection.
@@ -29,8 +31,12 @@ static NSTextView *composerBody(id responder)
     if ([view.accessibilityIdentifier isEqualToString:@"composer-body"]) {
       if (body != responder) {
         body = responder;
-        typing = TypingNeighbour;
+        // A new composer has no marks toggled for typing; one focused before may have kept some.
+        // shortcut: React Native may recycle a closed composer's view for a new one, which then
+        // waits for the caret to move; remember composers by draft if that delay matters.
+        typing = [seen containsObject:body] ? TypingUnknown : TypingNeighbour;
         toggled = nil;
+        [seen addObject:body];
       }
       return responder;
     }
@@ -222,6 +228,7 @@ void UnwiredForgetComposerTyping(void)
 
 void UnwiredInstallComposerFormatting(void)
 {
+  seen = [NSHashTable weakObjectsHashTable];
   // Each JavaScript span carries its own event emitter, so a render after marks shown here
   // replaces the whole text with the same characters, and on Mac React Native then keeps only a
   // collapsed caret. Keep a selected range across that so the next shortcut formats it.
@@ -257,8 +264,13 @@ void UnwiredInstallComposerFormatting(void)
   }];
   [NSNotificationCenter.defaultCenter addObserverForName:NSTextViewDidChangeSelectionNotification
       object:nil queue:nil usingBlock:^(NSNotification *notification) {
-    // Moving the caret anywhere but past typed text ends marks toggled for typing.
-    if (composerBody(notification.object) != nil && !edited) forget(TypingNeighbour);
+    // Moving the caret anywhere but past typed text ends marks toggled for typing; regaining focus
+    // reports the selection without moving it.
+    NSTextView *view = composerBody(notification.object);
+    NSValue *old = notification.userInfo[@"NSOldSelectedCharacterRange"];
+    if (view != nil && !edited && !(old != nil && NSEqualRanges(old.rangeValue, view.selectedRange))) {
+      forget(TypingNeighbour);
+    }
   }];
   // Posted for the user's edits only, not for the text React Native renders.
   [NSNotificationCenter.defaultCenter addObserverForName:NSTextDidChangeNotification
