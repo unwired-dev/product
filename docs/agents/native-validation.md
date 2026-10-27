@@ -268,16 +268,19 @@ These gaps belong to [#849](https://github.com/unwired-dev/product/issues/849).
 It runs XCTest's accessibility audit on the Inbox, Mailboxes, Command Palette,
 Settings, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON
 line in the test log, with a screenshot of each audited screen.
-`knownAccessibilityGap` explains each issue the audits still report:
+The audit handler permits these known findings:
 
 - the software keyboard's suggestion cells;
 - an email address used as a label: a sender's, or the Apple relay address
   that names the signed-in account;
-- text over the reader, also behind iPad's floating composer, that the audit
-  locates no element for ([#1213](https://github.com/unwired-dev/product/issues/1213)).
+- the reader's sender monogram, whose initials repeat the sender name beside it
+  and for which the handler permits at most one unlocated-text finding.
 
-Any other issue fails the journey. CI does not run this scenario; it is local
-native evidence. It does not replace VoiceOver, Full Keyboard Access or the
+Other findings fail the journey. On iPad the composer is audited expanded:
+floating, it leaves the message visible behind it as a backdrop hidden from
+accessibility and touch, which the audit reports as text it cannot locate.
+CI does not run this scenario; it is local native evidence.
+It does not replace VoiceOver, Full Keyboard Access or the
 owner's physical-device runs. On iPad, XCUITest sometimes waits 60 seconds per
 step for the app to settle while the software keyboard is shown, so a run can
 take an hour; the iPhone run takes about two minutes.
