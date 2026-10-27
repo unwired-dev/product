@@ -313,7 +313,6 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(first.buttons["Discard Draft"].waitForExistence(timeout: 5))
     first.buttons["Keep Editing"].click()
     XCTAssertTrue(second.popUpButtons["Text style"].exists)
-    // Closing a composer crashes the host (#1174), so the journey ends with both still open.
     app.terminate()
   }
 
@@ -1058,19 +1057,17 @@ final class WindowTests: XCTestCase {
         return (start, until(body("\(message) body.", in: window), from: start))
       }
     }
-    // Closing a composer crashes this host (#1174), so each composer sample ends with a relaunch:
-    // every sample is the first composer of its process.
+    // Each composer sample ends with Close; closing a composer used to abort this host (#1174).
     let subject = window.textFields["Subject"]
-    func relaunch() {
-      app.terminate()
-      app.launch()
-      XCTAssertTrue(row("Jordan Lee").waitForExistence(timeout: 30))
+    func close() {
+      window.buttons["Close"].click()
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
     }
     measure("empty-composer", budget: 300, count: 10) { _ in
       let start = uptime()
       window.buttons["New Message"].click()
       let end = until(subject, from: start)
-      relaunch()
+      close()
       return (start, end)
     }
     window.buttons["New Message"].click()
@@ -1079,14 +1076,14 @@ final class WindowTests: XCTestCase {
     subject.typeText("Warm composer")
     // The Inbox lists the Draft once its edit is saved.
     XCTAssertTrue(row("Draft. Warm composer").waitForExistence(timeout: 10))
-    relaunch()
+    close()
     measure("warm-composer", budget: 200, count: 10) { _ in
       let start = uptime()
       row("Warm composer").click()
       let end = until(
         window.textFields.matching(NSPredicate(format: "value == %@", "Warm composer")).firstMatch,
         from: start)
-      relaunch()
+      close()
       return (start, end)
     }
     // Typing and formatting feedback: each sample runs from the key press or format bar button
@@ -1145,7 +1142,7 @@ final class WindowTests: XCTestCase {
   // #626: the core mail loop by keyboard where the Mac app offers a keyboard path, over the
   // registration-performance build's Gmail and Microsoft mailboxes, with XCTest's accessibility
   // audit of each screen. Opening a row, placing the caret in a new reply, sending and moving
-  // between controls with Tab still need the pointer (#849); Send also crashes this host (#1174).
+  // between controls with Tab still need the pointer (#849).
   // Every audit issue is printed, and one outside knownAccessibilityGap fails the journey.
   // swiftlint:disable:next function_body_length
   func testKeyboardAndAccessibility() throws {
