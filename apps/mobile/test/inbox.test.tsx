@@ -957,6 +957,34 @@ async function renderConnected(
   };
 }
 
+// Holds one listing page until the journey releases it.
+function holdingPage(
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+  pageToken: string,
+) {
+  let release: () => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Explicit provider suspension, released by the journey.
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    native: {
+      ...native,
+      gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
+        if (
+          args[1].some(
+            ([name, value]) => name === 'pageToken' && value === pageToken,
+          )
+        ) {
+          await held;
+        }
+        return native.gmailRequest(...args);
+      },
+    },
+  };
+}
+
 function holdingListing(
   native: ReturnType<typeof createSyntheticGmail>['native'],
 ) {
@@ -1626,21 +1654,8 @@ describe('connected Gmail Inbox', () => {
     gmail.deliver({ subject: 'Lunch on Friday' });
     // Gmail holds, then refuses, the third history page.
     gmail.failPage('200', { code: 'unavailable' });
-    const request = gmail.native.gmailRequest;
-    let release: () => void = () => undefined;
-    // oxlint-disable-next-line promise/avoid-new -- Hold the history page until progress is checked.
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    gmail.native.gmailRequest = async (...args) => {
-      if (
-        args[1].some(([name, value]) => name === 'pageToken' && value === '200')
-      ) {
-        await held;
-      }
-      return request(...args);
-    };
-    await renderConnected(gmail.native);
+    const { native, release } = holdingPage(gmail.native, '200');
+    await renderConnected(native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
     await act(async () => {
       await fireEvent.press(
