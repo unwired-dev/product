@@ -15,6 +15,10 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   owning qualification guide requires for review. Trace the recorder through the
   validator and its subprocess tests; require device metadata, outcome details,
   nonblank reasons for limited answer rows and non-empty text for ready answers.
+  When a corpus adds scored checks such as `languageKept` or `added`, require
+  their boolean payloads on applicable ready rows and reject a `pass` label that
+  contradicts them. Exercise missing fields and contradictory successful rows;
+  version and count checks alone cannot establish that the new checks passed.
   Refusals name `refused`; cancellation/staleness rows carry their behavior states
   instead. Otherwise a complete-looking matrix can
   qualify a run whose outputs and limitations cannot be inspected.
