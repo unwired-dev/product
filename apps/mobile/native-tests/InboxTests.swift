@@ -1062,6 +1062,9 @@ final class InboxTests: XCTestCase {
     body.typeText("Evaluation paragraph")
     let typed = app.webViews.staticTexts["Evaluation paragraph"]
     XCTAssertTrue(typed.waitForExistence(timeout: 20))
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      controlsOnKeyboard(app)
+    }
     // Open Settings through the composer's palette without finishing this Draft.
     if UIDevice.current.userInterfaceIdiom == .pad {
       // The Inbox beneath the composer keeps its own Open Command Palette button.
@@ -1142,6 +1145,20 @@ final class InboxTests: XCTestCase {
 
   private func webText(_ value: String, in app: XCUIApplication) -> XCUIElement {
     app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
+  }
+
+  // #1166: iPhone's floating controls stay above the software keyboard. Its suggestion strip lies
+  // outside the keyboard element's frame, so only a hittable control proves it clears the strip.
+  private func controlsOnKeyboard(_ app: XCUIApplication) {
+    let keyboard = app.keyboards.firstMatch
+    for name in ["Format", "Add files", "Writing tools"] {
+      let control = app.buttons[name]
+      waitUntil { keyboard.exists && control.isHittable && control.frame.maxY <= keyboard.frame.minY }
+    }
+    let raised = XCTAttachment(screenshot: app.screenshot())
+    raised.name = "Evaluation controls above the keyboard"
+    raised.lifetime = .keepAlways
+    add(raised)
   }
 
   // iPhone shows its Format and writing tools controls, and iPad its format bar, once the page is ready.
@@ -1326,6 +1343,10 @@ final class InboxTests: XCTestCase {
         menuControl("German", from: "Translate into", in: app).tap()
         _ = app.staticTexts["Synthetic translation of local mail."].waitForExistence(timeout: 10)
       }
+      let translated = XCTAttachment(screenshot: app.screenshot())
+      translated.name = "Evaluation translation ready"
+      translated.lifetime = .keepAlways
+      add(translated)
     }
     let accepted = XCTAttachment(screenshot: app.screenshot())
     accepted.name = "Evaluation editor after rewrite and translation"
