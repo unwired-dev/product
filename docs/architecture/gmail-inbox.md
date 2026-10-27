@@ -159,8 +159,9 @@ rejects mailbox-invalidated.
 An invalidated synchronization retries a native reopen at most twice to obtain
 the mailbox's renewed generation. A reopen while foreground verification is
 pending reports mailbox-invalidated rather than grant rejection. Exhausting these
-retries keeps saved mail visible; an Inbox without a saved document becomes
-unavailable until another load. Ownership changes and purge still clear and fence the in-memory Inbox
+retries keeps the shown Inbox, including one still synchronizing its first mail;
+an Inbox with nothing shown becomes unavailable until another load. Ownership
+changes and purge still clear and fence the in-memory Inbox
 immediately; retrying the native open cannot restore access to the former
 mailbox. Both hosts filter ready state against the selected mailbox
 address before rendering, including the first frame while its cache opens.

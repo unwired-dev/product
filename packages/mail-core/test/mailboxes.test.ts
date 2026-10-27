@@ -792,95 +792,107 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(next?.inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
   });
 
-  it('never asks for Gmail again while a foreground restore verifies a valid connection, but still does for a refused grant', async () => {
-    expect.hasAssertions();
-    const gmail = createSyntheticGmail({ messages: 2 });
-    const synthetic = await createRegistrationScenario('registration-success');
-    // Native code forgets mailbox access when a restore starts and grants it again once the
-    // connection verifies; until then its mailbox reads as invalidated.
-    let verifying = false;
-    const forgotten = Promise.withResolvers<undefined>();
-    const verified = Promise.withResolvers<undefined>();
-    let holdVerification = false;
-    const registration = createRegistration({
-      ...synthetic.vault,
-      forgetMailboxAccess: async () => {
-        await synthetic.vault.forgetMailboxAccess();
-        verifying = true;
-        forgotten.resolve(undefined);
-        return null;
-      },
-      confirmMailbox: async (connection) => {
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the foreground restore waits.
-        if (holdVerification) {
-          await verified.promise;
-        }
-        await synthetic.vault.confirmMailbox(connection);
-        verifying = false;
-        return null;
-      },
-    });
-    await registration.register('google');
-    await registration.addMailbox();
-    const reading = Promise.withResolvers<undefined>();
-    const released = Promise.withResolvers<undefined>();
-    let paused = false;
-    const base = pendingWhile(
-      () => verifying,
-      syntheticConnections({ [alex]: gmail }),
-    );
-    const mailboxes = createMailboxes(
-      {
-        ...base,
-        gmailRequest: async (path, query, scope) => {
-          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the paused history read is held.
-          if (paused && path === 'history') {
-            reading.resolve(undefined);
-            await released.promise;
-          }
-          return base.gmailRequest(path, query, scope);
+  it.each([
+    { saved: true, heldPath: 'history', messages: 2 },
+    { saved: false, heldPath: 'profile', messages: 0 },
+  ])(
+    'never asks for Gmail again while a foreground restore verifies a valid connection, but still does for a refused grant (saved mail: $saved)',
+    async ({ saved, heldPath, messages }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail({ messages: 2 });
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      // Native code forgets mailbox access when a restore starts and grants it again once the
+      // connection verifies; until then its mailbox reads as invalidated.
+      let verifying = false;
+      const forgotten = Promise.withResolvers<undefined>();
+      const verified = Promise.withResolvers<undefined>();
+      let holdVerification = false;
+      const registration = createRegistration({
+        ...synthetic.vault,
+        forgetMailboxAccess: async () => {
+          await synthetic.vault.forgetMailboxAccess();
+          verifying = true;
+          forgotten.resolve(undefined);
+          return null;
         },
-      },
-      registration,
-    );
-    await mailboxes.load();
-    const { inbox } = mailbox(mailboxes.getSnapshot(), alex);
-    expect(ready(inbox.getSnapshot()).sync).toBe('current');
-    const published: GmailInboxState[] = [];
-    inbox.subscribe(() => {
-      published.push(inbox.getSnapshot());
-    });
+        confirmMailbox: async (connection) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the foreground restore waits.
+          if (holdVerification) {
+            await verified.promise;
+          }
+          await synthetic.vault.confirmMailbox(connection);
+          verifying = false;
+          return null;
+        },
+      });
+      await registration.register('google');
+      await registration.addMailbox();
+      const reading = Promise.withResolvers<undefined>();
+      const released = Promise.withResolvers<undefined>();
+      let paused = false;
+      const base = pendingWhile(
+        () => verifying,
+        syntheticConnections({ [alex]: gmail }),
+      );
+      const mailboxes = createMailboxes(
+        {
+          ...base,
+          gmailRequest: async (path, query, scope) => {
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the selected synchronization read is held.
+            if (paused && path === heldPath) {
+              reading.resolve(undefined);
+              await released.promise;
+            }
+            return base.gmailRequest(path, query, scope);
+          },
+        },
+        registration,
+      );
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Exercise both a saved Inbox and its first synchronization.
+      if (saved) {
+        await mailboxes.load();
+      }
+      const { inbox } = mailbox(mailboxes.getSnapshot(), alex);
+      const published: GmailInboxState[] = [];
+      inbox.subscribe(() => {
+        published.push(inbox.getSnapshot());
+      });
 
-    // The app returns to the foreground while a synchronization is reading Gmail.
-    paused = true;
-    holdVerification = true;
-    const running = mailboxes.load();
-    await reading.promise;
-    paused = false;
-    const foreground = registration.refreshInbox(mailboxes.load);
-    await forgotten.promise;
-    released.resolve(undefined);
-    await running;
-    // The saved mail stays shown, without a warning, while the restore verifies Gmail again.
-    expect(ready(inbox.getSnapshot()).messages).toHaveLength(2);
-    verified.resolve(undefined);
-    await foreground;
-    expect(ready(inbox.getSnapshot()).sync).toBe('current');
-    expect(published.length).toBeGreaterThan(0);
-    expect(published.map((state) => ready(state).sync)).not.toContain(
-      'authentication',
-    );
+      // The app returns to the foreground while a synchronization is reading Gmail.
+      paused = true;
+      holdVerification = true;
+      const running = mailboxes.load();
+      await reading.promise;
+      paused = false;
+      const foreground = registration.refreshInbox(mailboxes.load);
+      await forgotten.promise;
+      released.resolve(undefined);
+      await running;
+      // The saved or first-sync Inbox stays shown while the restore verifies Gmail again.
+      expect(ready(inbox.getSnapshot()).sync).toBe('syncing');
+      expect(ready(inbox.getSnapshot()).messages).toHaveLength(messages);
+      verified.resolve(undefined);
+      await foreground;
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+      expect(ready(inbox.getSnapshot()).messages).toHaveLength(2);
+      expect(published.length).toBeGreaterThan(0);
+      expect(published.map((state) => ready(state).sync)).not.toContain(
+        'authentication',
+      );
 
-    // A grant Gmail refuses still asks for Gmail, and allowing access again synchronizes.
-    gmail.fail({ status: 401 });
-    await mailboxes.load();
-    expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
-    await registration.authorizeMailbox(alex);
-    await mailboxes.load();
-    expect(ready(mailbox(mailboxes.getSnapshot(), alex).state).sync).toBe(
-      'current',
-    );
-  });
+      // A grant Gmail refuses still asks for Gmail, and allowing access again synchronizes.
+      gmail.fail({ status: 401 });
+      await mailboxes.load();
+      expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
+      await registration.authorizeMailbox(alex);
+      await mailboxes.load();
+      expect(ready(mailbox(mailboxes.getSnapshot(), alex).state).sync).toBe(
+        'current',
+      );
+    },
+  );
 
   it('shares the image budget across connections and returns only a closed connection’s reservations', async () => {
     expect.hasAssertions();
