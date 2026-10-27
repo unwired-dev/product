@@ -22,14 +22,6 @@ export const barInset = spacing.l + 44 + spacing.m;
 // iPad keeps the scaled Mac list recipe in both orientations; iPhone uses its touch layout.
 export const styles = StyleSheet.create({
   fill: { flex: 1 },
-  // Synchronization stays centered over the list, including beside the window-wide search bar.
-  syncStatus: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    paddingHorizontal: spacing.l,
-  },
   searchField: { flex: 1, flexDirection: 'row' },
   heading: {
     flexDirection: 'row',
