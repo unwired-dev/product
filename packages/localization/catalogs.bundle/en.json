@@ -400,6 +400,14 @@
     "authentication": "{{provider}} needs your permission again to show new mail.",
     "retry": "{{provider}} could not be reached. Showing mail saved on this device."
   },
+  "syncStatus": {
+    "updating_one": "Updating {{count}} account",
+    "updating_other": "Updating {{count}} accounts",
+    "progress": "{{status}} · {{percent, number}}%",
+    "attention_one": "{{count}} account needs attention",
+    "attention_other": "{{count}} accounts need attention",
+    "tryAgain": "Try Again"
+  },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",
     "authentication": "{{provider}} needs your permission again to download this message.",

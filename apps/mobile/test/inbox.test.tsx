@@ -1178,20 +1178,48 @@ describe('connected Gmail Inbox', () => {
       screen.findByText('Arrives after permission returns'),
     ).resolves.toBeVisible();
 
+    // Automatic synchronization shows its progress only after a second.
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail until the capsule has been checked.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.gmailRequest = async (...args) => {
+      await held;
+      return request(...args);
+    };
+    let synchronized = Promise.resolve();
+    await act(async () => {
+      synchronized = store.load();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('progressbar', { name: /^Updating/u })).toBeNull();
+    await expect(
+      screen.findByRole(
+        'progressbar',
+        { name: 'Updating 1 account' },
+        { timeout: 3000 },
+      ),
+    ).resolves.toBeVisible();
+    gmail.native.gmailRequest = request;
+    await act(async () => {
+      release();
+      await synchronized;
+    });
+
+    // A failure replaces the progress with Try Again, above the saved mail.
     gmail.fail({ code: 'unavailable' });
     await act(store.load);
-    expect(
-      screen.getByText(
-        'Gmail could not be reached. Showing mail saved on this device.',
-      ),
-    ).toBeVisible();
+    expect(screen.getByText('1 account needs attention')).toBeVisible();
+    expect(screen.queryByRole('progressbar', { name: /^Updating/u })).toBeNull();
     expect(
       screen.getByRole('header', { name: 'Saturday, by the river?' }),
     ).toBeVisible();
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
     });
-    expect(screen.queryByText(/could not be reached/u)).toBeNull();
+    expect(screen.queryByText('1 account needs attention')).toBeNull();
   });
 
   it('refreshes the shown Inbox when the list is pulled down and settles the indicator after a failure', async () => {
@@ -1219,6 +1247,10 @@ describe('connected Gmail Inbox', () => {
     const indicator = () => screen.getByLabelText('Inbox messages').props;
     await pull();
     expect(indicator()).toMatchObject({ refreshing: true });
+    // A refresh the person started shows its progress at once.
+    expect(
+      screen.getByRole('progressbar', { name: 'Updating 1 account' }),
+    ).toBeVisible();
     expect(screen.queryByText('Arrives with the pull')).toBeNull();
     await act(async () => {
       release();
@@ -1234,12 +1266,10 @@ describe('connected Gmail Inbox', () => {
     gmail.fail({ code: 'unavailable' });
     await pull();
     await expect(
-      screen.findByText(
-        'Gmail could not be reached. Showing mail saved on this device.',
-      ),
+      screen.findByText('1 account needs attention'),
     ).resolves.toBeVisible();
     expect(screen.getByText('Arrives with the pull')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try Again' })).toBeVisible();
     await waitFor(() => {
       expect(indicator()).toMatchObject({ refreshing: false });
     });
@@ -1604,6 +1634,14 @@ describe('connected Gmail Inbox', () => {
     await expect(
       screen.findByText('alex@example.invalid · 200 of 251 downloaded'),
     ).resolves.toBeVisible();
+    // The capsule measures the same download.
+    await expect(
+      screen.findByRole(
+        'progressbar',
+        { name: 'Updating 1 account · 79%' },
+        { timeout: 3000 },
+      ),
+    ).resolves.toHaveProp('accessibilityValue', { min: 0, max: 100, now: 79 });
     expect(
       screen.getByRole('progressbar', {
         name: /^Downloading older mail… Mail from before \S.* appears here as it arrives\./u,

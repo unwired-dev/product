@@ -111,7 +111,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
-  several. **Allow Gmail access** authorizes only that mailbox, with the same Google
+  several. On iPhone and iPad the [Sync Status Capsule](#sync-status-capsule)
+  reports unreachable mailboxes together instead of a notice for each. **Allow Gmail access** authorizes only that mailbox, with the same Google
   account. When a verification finds one mailbox's grant refused, that mailbox shows
   **Gmail needs your permission again** and **Allow Gmail access for** its address,
   and its saved mail stays closed, while every other mailbox stays open and usable.
@@ -297,9 +298,10 @@ is complete. While the pass runs, All Mail's subtitle shows the progress, such a
 "41,210 of 86,400 downloaded", and All Mail ends with a "Downloading older mail…"
 row naming the month the list has reached, in place of the note that older mail
 stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
-The Sync Status Overlay's per-connection history status and Try Again remain in
-[#1369](https://github.com/unwired-dev/product/issues/1369) and depend on
-[#1155](https://github.com/unwired-dev/product/issues/1155). Scrolling to the end
+The [Sync Status Capsule](#sync-status-capsule) includes the pass in its progress;
+its per-connection history status remains in
+[#1369](https://github.com/unwired-dev/product/issues/1369) and
+[#1442](https://github.com/unwired-dev/product/issues/1442). Scrolling to the end
 of the Inbox, a Gmail view or a unified mailbox reveals older downloaded messages in batches from
 the segments, without asking Gmail, so they stay available offline. Messages outside
 the saved cached views are read on demand without saving their bodies.
@@ -313,9 +315,33 @@ and messages that left the Inbox are removed when the new listing completes.
 Synchronization runs when the Inbox opens and whenever the app becomes active;
 see [Freshness across app lifecycles](#freshness-across-app-lifecycles) for
 background work. On iPhone and iPad, pulling down the list refreshes every shown
-mailbox and its listed view once registration verifies, as **Try again** does. The
+mailbox and its listed view once registration verifies, as **Try Again** does. The
 system refresh indicator stays until that synchronization settles, and further pulls
 start nothing meanwhile. A failure keeps the saved list and shows the status below.
+
+### Sync Status Capsule
+
+On iPhone and iPad a Liquid Glass capsule floats 12pt above the Inbox bar, centred
+over the list, while the shown mailboxes synchronize or need attention
+([#1441](https://github.com/unwired-dev/product/issues/1441)). The list scrolls
+under it and never moves.
+
+- **Progress.** An activity indicator and **Updating 2 accounts** count the shown
+  mailboxes still checking their server or downloading All Mail's history. While
+  a history pass knows Gmail's total, the message adds the combined percentage and
+  a progress bar shows it. Automatic synchronization appears only after a second;
+  a pull-down refresh shows it at once.
+- **Attention.** A failure replaces the progress with a warning,
+  **1 account needs attention** and **Try Again**, which synchronizes only the
+  mailboxes that could not be reached once registration verifies. VoiceOver hears
+  the attention summary when it appears.
+- **Idle.** The capsule fades out. A refused grant or password keeps its own
+  notice above the list, and the sidebar keeps each connection's problem.
+
+Per-account details, the Mac capsule and the last successful synchronization follow
+in [#1442](https://github.com/unwired-dev/product/issues/1442),
+[#1443](https://github.com/unwired-dev/product/issues/1443) and
+[#1444](https://github.com/unwired-dev/product/issues/1444).
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache
