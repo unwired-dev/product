@@ -1133,6 +1133,14 @@ final class WindowTests: XCTestCase {
     let buttons = ["b": "Bold", "i": "Italic", "u": "Underline"]
     let click = { (key: String) in window.buttons[buttons[key, default: ""]].firstMatch.click() }
     press("format-bar", toggles, click, toggle)
+    // Right collapses the selection at the word's end, so Command-B right after it turns bold off
+    // for what is typed next and leaves the word bold (#1229).
+    app.typeKey(.rightArrow, modifierFlags: [])
+    app.typeKey("b", modifierFlags: .command)
+    press("collapsed-typing", " end".map(String.init), type) { key in
+      text += key
+      marks.append(0)
+    }
     let overhead = queryOverhead(window.buttons["New Message"])
     // The running app keeps appending probe records; read them only after it quits.
     app.terminate()

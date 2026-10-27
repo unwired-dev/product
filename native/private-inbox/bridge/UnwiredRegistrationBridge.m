@@ -58,6 +58,8 @@ RCT_EXTERN_METHOD(stopMailboxWatches:(RCTPromiseResolveBlock)resolve rejecter:(R
 RCT_EXTERN_METHOD(mailboxRoutes:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(nextWake:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(completeWake:(NSString *)id result:(NSString *)result)
+RCT_EXTERN_METHOD(holdDelivery:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(releaseDelivery)
 RCT_EXTERN_METHOD(confirmRecoveryKey:(NSString *)entry resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(readsAsRecoveryKey:(NSString *)entry resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(gmailRequest:(NSString *)path query:(NSArray *)query mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
