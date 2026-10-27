@@ -299,6 +299,10 @@ requires administrator authentication, the host owner must complete that setup
 before rerunning the journey; record the blocked run as deferred native evidence.
 The runner uses its own probe project and result directory
 and rejects zero-test success. XCTest terminates its launched app on failure.
+The XCTest driver explicitly signs without App Sandbox so its app launch arguments
+and environment reach the isolated session on macOS 27.2. The app under test
+keeps its sandbox and isolated Keychain group. The generated signing contract runs
+in CI and locally with `mise exec -- ruby apps/macos/native-tests/create-project.test.rb`.
 
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
 probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the test supplies `UNWIRED_LIFECYCLE_PATH`;

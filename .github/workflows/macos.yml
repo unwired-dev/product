@@ -39,6 +39,7 @@ jobs:
         run: |
           gem install cocoapods --version 1.17.0 --no-document
           ruby apps/macos/scripts/cocoapods-paths.test.rb
+          ruby apps/macos/native-tests/create-project.test.rb
       - run: pnpm --filter @private-email/macos fallow
       - run: pnpm --filter @private-email/macos build
       - run: pnpm --filter @private-email/macos verify:bundle

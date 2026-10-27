@@ -1,5 +1,7 @@
 require 'xcodeproj'
 
+# Xcode's UI-test runner defaults to sandboxed, which can drop the app's launch environment.
+Xcodeproj::Plist.write_to_path({ 'com.apple.security.app-sandbox' => false }, 'Runner.entitlements')
 project = Xcodeproj::Project.new('WindowProbe.xcodeproj')
 target = project.new_target(:ui_test_bundle, 'WindowProbe', :osx, '27.0')
 target.add_file_references([project.main_group.new_file('WindowTests.swift')])
@@ -9,6 +11,7 @@ target.build_configurations.each do |configuration|
     'SWIFT_VERSION' => '5.0',
     'GENERATE_INFOPLIST_FILE' => 'YES',
     'CODE_SIGN_IDENTITY' => '-',
+    'CODE_SIGN_ENTITLEMENTS' => 'Runner.entitlements',
     'ENABLE_APP_SANDBOX' => 'NO',
     'MACOSX_DEPLOYMENT_TARGET' => '27.0'
   })
