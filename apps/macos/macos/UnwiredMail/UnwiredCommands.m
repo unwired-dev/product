@@ -165,12 +165,12 @@ RCT_EXPORT_METHOD(openSettings:(nonnull NSNumber *)requestSerial)
   [NSApp sendAction:NSSelectorFromString(@"showSettings:") to:NSApp.delegate from:requestSerial];
 }
 
-void UnwiredForgetComposerTyping(void);
+void UnwiredForgetComposerTyping(NSString *identifier);
 
 // The composer's controls end marks the body shows for typing ahead of JavaScript.
-RCT_EXPORT_METHOD(forgetComposerTyping)
+RCT_EXPORT_METHOD(forgetComposerTyping:(NSString *)identifier)
 {
-  UnwiredForgetComposerTyping();
+  UnwiredForgetComposerTyping(identifier);
 }
 
 // The Settings window closes itself once no Inbox can open, as after signing out.

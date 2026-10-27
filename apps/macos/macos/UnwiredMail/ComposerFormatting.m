@@ -15,37 +15,42 @@ typedef NS_ENUM(NSInteger, Typing) {
   TypingUnknown,
 };
 
+// The focused body, and its composer's identifier "composer-body<composer>".
 static __weak NSTextView *body;
-// Bodies that had focus before: each composer's JavaScript keeps its own typing marks.
-static NSHashTable<NSTextView *> *seen;
+static NSString *composer;
+// Composers that had focus or a control before: each composer's JavaScript keeps its own typing marks.
+static NSMutableSet<NSString *> *seen;
 static Typing typing;
 static NSDictionary<NSAttributedStringKey, id> *toggled;
-// A body whose JavaScript is changing it, as for Undo, still shows the text from before: native
-// marks wait until JavaScript has handled the change and its render arrives.
-static __weak NSTextView *awaited;
-static BOOL handled;
+// Composers whose JavaScript is changing the body, as for Undo, while it still shows the text from
+// before: native marks wait until JavaScript has handled the change (YES) and its render arrives.
+static NSMutableDictionary<NSString *, NSNumber *> *awaiting;
 // The characters the body's latest edit inserted, and whether an edit moved its selection.
 static NSRange inserted = {NSNotFound, 0};
 static BOOL edited;
 
+static NSString *composerOf(NSView *text)
+{
+  for (NSView *view = text; view != nil; view = view.superview) {
+    if ([view.accessibilityIdentifier hasPrefix:@"composer-body"]) return view.accessibilityIdentifier;
+  }
+  return nil;
+}
+
 static NSTextView *composerBody(id responder)
 {
   if (![responder isKindOfClass:NSTextView.class] || [responder isFieldEditor]) return nil;
-  for (NSView *view = responder; view != nil; view = view.superview) {
-    if ([view.accessibilityIdentifier isEqualToString:@"composer-body"]) {
-      if (body != responder) {
-        body = responder;
-        // A new composer has no marks toggled for typing; one focused before may have kept some.
-        // shortcut: React Native may recycle a closed composer's view for a new one, which then
-        // waits for the caret to move; remember composers by draft if that delay matters.
-        typing = [seen containsObject:body] ? TypingUnknown : TypingNeighbour;
-        toggled = nil;
-        [seen addObject:body];
-      }
-      return responder;
-    }
+  NSString *identifier = composerOf(responder);
+  if (identifier == nil) return nil;
+  if (body != responder || ![composer isEqualToString:identifier]) {
+    body = responder;
+    composer = identifier;
+    // A new composer has no marks toggled for typing; one focused before may have kept some.
+    typing = [seen containsObject:composer] ? TypingUnknown : TypingNeighbour;
+    toggled = nil;
+    [seen addObject:composer];
   }
-  return nil;
+  return responder;
 }
 
 // React Native's attributes for the body's own text, which RCTUITextView also types in.
@@ -201,13 +206,12 @@ static NSEvent *keyDown(NSEvent *event)
   // Undo and Redo end marks toggled for typing, and their render may undo marks shown here.
   if ([key.lowercaseString isEqualToString:@"z"]) {
     forget(TypingUnknown);
-    awaited = view;
-    handled = NO;
+    awaiting[composer] = @NO;
     return event;
   }
   unichar mark = [key characterAtIndex:0];
   if (flags != NSEventModifierFlagCommand || (mark != 'b' && mark != 'i' && mark != 'u')
-      || view.selectedRanges.count != 1 || awaited == view) {
+      || view.selectedRanges.count != 1 || awaiting[composer] != nil) {
     return event;
   }
   NSRange selection = view.selectedRange;
@@ -226,18 +230,19 @@ static NSEvent *keyDown(NSEvent *event)
   return event;
 }
 
-// JavaScript is handling a composer control or Undo that changes the body or the marks typed text
-// takes; only it knows how.
-void UnwiredForgetComposerTyping(void)
+// The composer's JavaScript is handling a control or Undo that changes the body or the marks typed
+// text takes; only it knows how.
+void UnwiredForgetComposerTyping(NSString *identifier)
 {
-  forget(TypingUnknown);
-  awaited = body;
-  handled = YES;
+  if ([identifier isEqualToString:composer]) forget(TypingUnknown);
+  [seen addObject:identifier];
+  awaiting[identifier] = @YES;
 }
 
 void UnwiredInstallComposerFormatting(void)
 {
-  seen = [NSHashTable weakObjectsHashTable];
+  seen = [NSMutableSet set];
+  awaiting = [NSMutableDictionary dictionary];
   // Each JavaScript span carries its own event emitter, so a render after marks shown here
   // replaces the whole text with the same characters, and on Mac React Native then keeps only a
   // collapsed caret. Keep a selected range across that so the next shortcut formats it.
@@ -247,7 +252,8 @@ void UnwiredInstallComposerFormatting(void)
     NSRange selection = view.selectedRange;
     BOOL same = selection.length > 0 && [view.string isEqualToString:text.string];
     setAttributedText(view, @selector(setAttributedText:), text);
-    if (view == awaited && handled) awaited = nil;
+    NSString *identifier = composerOf(view);
+    if (identifier != nil && awaiting[identifier].boolValue) [awaiting removeObjectForKey:identifier];
     if (same) view.selectedRange = selection;
   }));
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
@@ -278,7 +284,7 @@ void UnwiredInstallComposerFormatting(void)
     // reports the selection without moving it.
     NSTextView *view = composerBody(notification.object);
     NSValue *old = notification.userInfo[@"NSOldSelectedCharacterRange"];
-    if (view != nil && !edited && view != awaited
+    if (view != nil && !edited && awaiting[composer] == nil
         && !(old != nil && NSEqualRanges(old.rangeValue, view.selectedRange))) {
       forget(TypingNeighbour);
     }

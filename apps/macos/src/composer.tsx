@@ -89,6 +89,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1377,13 +1378,6 @@ export function ComposerNotices({
   );
 }
 
-// The body shows marks for typing before JavaScript renders them (ComposerFormatting.m); a
-// control or Undo that edits the body or toggles those marks ends that until its render shows,
-// whatever activated it.
-const fromControl = () => {
-  windowHost()?.forgetComposerTyping();
-};
-
 function Editor({
   initial,
   onClose,
@@ -1404,6 +1398,13 @@ function Editor({
   const colors = usePalette();
   const { t } = useLocalization();
   const [history, setHistory] = useState(() => historyOf(initial));
+  const bodyID = `composer-body${useId()}`;
+  // The body shows marks for typing before JavaScript renders them (ComposerFormatting.m); a
+  // control or Undo that edits the body or toggles those marks ends that until its render shows,
+  // whatever activated it.
+  const fromControl = () => {
+    windowHost()?.forgetComposerTyping(bodyID);
+  };
   // The latest history, ahead of rendering, so consecutive events each build on the last one.
   const historyNow = useRef(history);
   const commitHistory = useCallback(
@@ -2236,7 +2237,7 @@ function Editor({
           selection={placed}
           style={[styles.body, { color: colors.textPrimary }]}
           // ComposerFormatting.m shows formatting shortcuts and marked typing before this renders.
-          testID="composer-body"
+          testID={bodyID}
           textAlignVertical="top">
           {display.lines.map((line, index) => (
             <Text
