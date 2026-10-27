@@ -1062,21 +1062,22 @@ describe('connected Gmail Inbox', () => {
     },
   );
 
-  it('leaves the last update out of an iPad label heading, which the Inbox synchronization did not refresh', async () => {
+  it('leaves the last update out of iPad label and unified headings, which the Inbox synchronization did not refresh', async () => {
     expect.hasAssertions();
     const platform = jest.replaceProperty(
       jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
       'ipad',
       true,
     );
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-10-27T09:41:00Z'));
     try {
       const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
       const travel = gmail.createLabel('Travel');
-      gmail.setLabel(
-        gmail.deliver({ subject: 'Flight to Zagreb' }),
-        travel,
-        true,
-      );
+      const message = gmail.deliver({ subject: 'Flight to Zagreb' });
+      gmail.setLabel(message, travel, true);
+      gmail.setLabel(message, 'SENT', true);
       await renderConnected(gmail.native);
       await expect(
         screen.findByText(/ · Updated just now$/u),
@@ -1094,7 +1095,25 @@ describe('connected Gmail Inbox', () => {
       expect(
         screen.getByText(/^alex@example\.invalid · 1 unread$/u),
       ).toBeVisible();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Sent. In All mailboxes' }),
+        );
+      });
+      await screen.findByRole('button', { name: /Flight to Zagreb/u });
+      expect(screen.getByText(/^All mailboxes · 1 unread$/u)).toBeVisible();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'All inboxes' }),
+        );
+      });
+      await expect(
+        screen.findByText(
+          /^alex@example\.invalid · 1 unread · Updated just now$/u,
+        ),
+      ).resolves.toBeVisible();
     } finally {
+      clock.mockRestore();
       platform.restore();
     }
   });

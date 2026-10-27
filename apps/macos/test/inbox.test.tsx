@@ -16,11 +16,69 @@ import {
 } from '@testing-library/react-native';
 
 import type { Selection } from '../src/inbox.tsx';
+import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 
 describe('message list', () => {
+  it('shows the last update only for Inboxes, leaving it out of a label and unified Sent', async () => {
+    expect.hasAssertions();
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-10-27T09:41:00Z'));
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    const message = gmail.deliver({ subject: 'Flight to Zagreb' });
+    gmail.setLabel(message, travel, true);
+    gmail.setLabel(message, 'SENT', true);
+    const inbox = createGmailInbox(gmail.native);
+    const mailboxes = singleMailbox(inbox, 'work-mailbox');
+    const show = (view: MailboxView) => (
+      <InboxProvider mailboxes={mailboxes}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={view}
+        />
+      </InboxProvider>
+    );
+    try {
+      const app = await render(show({}));
+      await expect(
+        screen.findByRole('header', {
+          name: 'All Inboxes. Preview mailbox · 1 unread · Updated just now',
+        }),
+      ).resolves.toBeVisible();
+      await app.rerender(show({ mailbox: 'work-mailbox', folder: travel }));
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByRole('header', {
+          name: 'Travel. Preview mailbox · 1 unread',
+        }),
+      ).toBeVisible();
+      await app.rerender(show({ unified: 'SENT' }));
+      await screen.findByRole('button', { name: /Flight to Zagreb/u });
+      expect(
+        screen.getByRole('header', {
+          name: 'Sent. All mailboxes · 1 unread',
+        }),
+      ).toBeVisible();
+      await app.rerender(show({}));
+      await expect(
+        screen.findByRole('header', {
+          name: 'All Inboxes. Preview mailbox · 1 unread · Updated just now',
+        }),
+      ).resolves.toBeVisible();
+    } finally {
+      await cleanup();
+      inbox.forget();
+      clock.mockRestore();
+    }
+  });
+
   it('finishes a leaving row when its owner selects another message directly', async () => {
     expect.hasAssertions();
     const frames = jest

@@ -812,7 +812,7 @@ export function Inbox({
     waiting: chosenWaiting,
     downloading,
     now,
-    inbox: folder === inboxFolder,
+    inbox: view.unified === undefined && folder === inboxFolder,
   });
   const title =
     folderName ??
