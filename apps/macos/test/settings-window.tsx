@@ -63,6 +63,7 @@ const host = {
   toggleSidebar: (window: string) => {
     sidebarToggles.push(window);
   },
+  forgetComposerTyping: () => undefined,
 };
 
 const { get } = TurboModuleRegistry;

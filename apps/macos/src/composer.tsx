@@ -89,6 +89,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -134,6 +135,7 @@ import {
 import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import { windowHost } from './settings-window-client.ts';
 import { textStyles, usePalette } from './theme.ts';
 import {
   DraftTranslation,
@@ -1396,6 +1398,13 @@ function Editor({
   const colors = usePalette();
   const { t } = useLocalization();
   const [history, setHistory] = useState(() => historyOf(initial));
+  const bodyID = `composer-body${useId()}`;
+  // The body shows marks for typing before JavaScript renders them (ComposerFormatting.m); a
+  // control or Undo that edits the body or toggles those marks ends that until its render shows,
+  // whatever activated it.
+  const fromControl = () => {
+    windowHost()?.forgetComposerTyping(bodyID);
+  };
   // The latest history, ahead of rendering, so consecutive events each build on the last one.
   const historyNow = useRef(history);
   const commitHistory = useCallback(
@@ -1653,6 +1662,7 @@ function Editor({
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
+    fromControl();
     if (sendingNow.current) {
       return;
     }
@@ -1667,6 +1677,10 @@ function Editor({
     const at = selectionNow.current;
     const latest = authored.current;
     const textBefore = displayOf(latest.body).text;
+    // Native selection formatting reports its unchanged text to advance RN's event count.
+    if (text === textBefore) {
+      return;
+    }
     const result = applyText(latest.body, text, {
       marks: typingNow.current,
       selection: at,
@@ -2059,8 +2073,14 @@ function Editor({
         active={active}
         kind={kind}
         disabled={sending}
-        onBlock={block}
-        onMark={format}>
+        onBlock={(next) => {
+          fromControl();
+          block(next);
+        }}
+        onMark={(mark) => {
+          fromControl();
+          format(mark);
+        }}>
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />
         <ToolbarButton
           disabled={lockedUnless(history.past.length > 0)}
@@ -2169,7 +2189,10 @@ function Editor({
               captured={captured}
               assistance={assistance}
               translation={translation}
-              onApply={applyCaptured}
+              onApply={(replacement) => {
+                fromControl();
+                applyCaptured(replacement);
+              }}
               onClose={closeCaptured}
             />
           </View>
@@ -2213,6 +2236,8 @@ function Editor({
           scrollEnabled={false}
           selection={placed}
           style={[styles.body, { color: colors.textPrimary }]}
+          // ComposerFormatting.m shows formatting shortcuts and marked typing before this renders.
+          testID={bodyID}
           textAlignVertical="top">
           {display.lines.map((line, index) => (
             <Text
