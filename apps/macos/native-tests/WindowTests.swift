@@ -208,9 +208,13 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(
       text("Images in this message are not loaded.", in: resumed).waitForExistence(timeout: 15))
     // The sanitized HTML renders inside the isolated WebKit view.
-    XCTAssertTrue(
-      resumed.webViews.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "seed order"))
-        .firstMatch.waitForExistence(timeout: 15))
+    let seedOrder = webText("seed order", in: resumed)
+    XCTAssertTrue(seedOrder.waitForExistence(timeout: 15))
+    // #1217: a letter the read-only page leaves unhandled must not abort the app.
+    seedOrder.click()
+    resumed.typeKey("j", modifierFlags: [])
+    XCTAssertTrue(seedOrder.waitForExistence(timeout: 5))
+    XCTAssertEqual(app.state, .runningForeground)
     // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
     resumed.buttons["Star"].click()
     XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
