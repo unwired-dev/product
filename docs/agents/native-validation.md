@@ -273,8 +273,10 @@ line in the test log, with a screenshot of each audited screen.
 - the software keyboard's suggestion cells;
 - an email address used as a label: a sender's, or the Apple relay address
   that names the signed-in account;
-- text over the reader, also behind iPad's floating composer, that the audit
-  locates no element for ([#1213](https://github.com/unwired-dev/product/issues/1213)).
+- the reader's sender monogram, whose initials repeat the sender name beside it
+  and which the audit reports once as text it locates no element for;
+- on iPad, the reader the floating composer leaves in view as a backdrop hidden
+  from accessibility and touch, which the audit reports the same way.
 
 Any other issue fails the journey. CI does not run this scenario; it is local
 native evidence. It does not replace VoiceOver, Full Keyboard Access or the

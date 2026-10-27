@@ -1507,7 +1507,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
     outlook.tap()
     XCTAssertTrue(text("Outlook update 003 body.", in: app).waitForExistence(timeout: 15))
-    try audit(app, "Reader")
+    try audit(app, "Reader", monograms: 1)
 
     // Reply from the palette opens a Draft with nothing focused. Typing extends its subject, Tab
     // moves on to the recipients, and the body takes typing once touched.
@@ -1571,14 +1571,22 @@ final class InboxTests: XCTestCase {
 
   // Runs every XCTest accessibility audit on the app as shown, prints each issue as an
   // ACCESSIBILITY line and fails on one that no known gap explains. The screenshot locates issues
-  // the audit reports without an element.
-  private func audit(_ app: XCUIApplication, _ screen: String) throws {
+  // the audit reports without an element. Each of the `monograms` in view hides initials that repeat
+  // the sender name beside it, which the audit reports once as text it locates no element for.
+  private func audit(_ app: XCUIApplication, _ screen: String, monograms: Int = 0) throws {
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Audited \(screen)"
     shot.lifetime = .keepAlways
     add(shot)
+    var unlocatedText = 0
     try app.performAccessibilityAudit { issue in
-      let gap = self.knownAccessibilityGap(issue, on: screen)
+      var gap = self.knownAccessibilityGap(issue, on: screen)
+      if gap == nil && issue.auditType == .elementDetection && issue.element == nil
+        && issue.compactDescription == "Potentially inaccessible text"
+      {
+        unlocatedText += 1
+        if unlocatedText <= monograms { gap = "sender monogram" }
+      }
       let line: [String: Any] = [
         "screen": screen, "audit": issue.compactDescription,
         "auditType": issue.auditType.rawValue,
@@ -1606,13 +1614,13 @@ final class InboxTests: XCTestCase {
     where issue.element?.elementType == .staticText
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
-    // Text the audit locates no element for, over the reader; iPad's composer leaves it in view.
+    // iPad's floating composer leaves the compose route's reader in view as a backdrop it hides
+    // from accessibility and touch; the audit cannot locate that text.
     case .elementDetection
-    where (screen == "Reader"
-      || (screen == "Composer" && UIDevice.current.userInterfaceIdiom == .pad))
+    where screen == "Composer" && UIDevice.current.userInterfaceIdiom == .pad
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
-      return "#1213"
+      return "composer backdrop"
     // Undiagnosed: the same unlocated text while iPad's system Filters popover is open.
     case .elementDetection
     where screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad
