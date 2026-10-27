@@ -477,7 +477,8 @@ const offline = (state: InboxMailbox['state']) =>
     ('status' in state && state.status === 'retry'));
 
 // The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
-// downloaded, or how much is unread and when the shown Inboxes were last brought up to date.
+// downloaded, or how much is unread and, on iPad, when the shown Inboxes were last brought up to
+// date. iPhone's one-line heading has no room for it; its Sync Status details show it instead.
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
@@ -515,6 +516,9 @@ function statusOf(
   }
   const status =
     unread === 0 ? t('inbox.noUnread') : t('inbox.unread', { count: unread });
+  if (!ipad) {
+    return status;
+  }
   const updated = lastUpdated(
     t,
     shown.flatMap(({ state }) =>

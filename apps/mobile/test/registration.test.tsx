@@ -2464,12 +2464,10 @@ describe('product registration', () => {
         name: 'Unread. Maya Chen. Synthetic message 0',
       }),
     ).resolves.toBeVisible();
-    // The heading's subtitle names the connected mailbox beside its unread count and
-    // when it was last brought up to date.
+    // iPhone's one-line subtitle names the connected mailbox beside its unread count, without
+    // the last update iPad and Mac add.
     expect(
-      screen.getByText(
-        /^alex@example\.invalid · \d+ unread · Updated just now$/u,
-      ),
+      screen.getByText(/^alex@example\.invalid · \d+ unread$/u),
     ).toBeVisible();
     await openAccount();
     await openSettings('Account & Devices');
