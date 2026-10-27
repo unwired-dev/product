@@ -41,6 +41,7 @@ const nativeCodes = new Set([
   'too-large',
   'unavailable',
   'unidentified-language',
+  'unsupported-language',
   'unsupported-locale',
   'unsupported-pair',
 ]);

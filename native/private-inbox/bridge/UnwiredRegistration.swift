@@ -1498,6 +1498,19 @@ extension UnwiredRegistration {
     }
   }
 
+  // Resolves once background time for admitted Sends ends: true after a release, false when it was
+  // denied or expired.
+  @objc(holdDelivery:rejecter:)
+  func holdDelivery(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in DeliveryExecution.shared.hold { resolve($0) } }
+  }
+
+  @objc func releaseDelivery() {
+    Task { @MainActor in DeliveryExecution.shared.release() }
+  }
+
   // `history`, when not null, carries `segments` (name to document) and the names to `keep`.
   @objc(commitMailbox:expectedRevision:document:history:resolver:rejecter:)
   func commitMailbox(

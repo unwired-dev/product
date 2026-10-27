@@ -56,6 +56,7 @@ catalog:
 
 patchedDependencies:
   expo-glass-effect@57.0.4: patches/expo-glass-effect@57.0.4.patch
+  react-native-macos@0.81.9: patches/react-native-macos@0.81.9.patch
   react-native-webview@13.16.1: patches/react-native-webview@13.16.1.patch
 
 allowBuilds:

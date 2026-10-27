@@ -36,7 +36,13 @@ const Unavailable = Schema.Literals([
   'model-not-ready',
   'unsupported-locale',
 ]);
-export type AssistanceUnavailable = typeof Unavailable.Type;
+// Why it cannot answer one request: the model cannot write the language of its text, so it
+// reports that rather than answering in another language.
+const RequestUnavailable = Schema.Union([
+  Unavailable,
+  Schema.Literal('unsupported-language'),
+]);
+export type AssistanceUnavailable = typeof RequestUnavailable.Type;
 
 const decodeAvailability = Schema.decodeUnknownEffect(
   Schema.Union([Schema.Literal('available'), Unavailable]),
@@ -62,7 +68,7 @@ const decodeDraftText = Schema.decodeUnknownEffect(
 const decodeOutcome = Schema.decodeUnknownOption(
   Schema.Struct({
     code: Schema.Union([
-      Unavailable,
+      RequestUnavailable,
       Schema.Literals(['refused', 'cancelled']),
     ]),
   }),
@@ -186,7 +192,7 @@ class AssistanceFailure extends Schema.TaggedError<AssistanceFailure>()(
   'AssistanceFailure',
   {
     outcome: Schema.Union([
-      Unavailable,
+      RequestUnavailable,
       Schema.Literals(['refused', 'cancelled', 'failed']),
     ]),
     cause: Schema.Defect(),
@@ -228,7 +234,7 @@ const call = (operation: () => Promise<unknown>) =>
 const malformed = (error: Schema.SchemaError) =>
   new AssistanceFailure(malformedFields(error));
 
-const isUnavailable = Schema.is(Unavailable);
+const isUnavailable = Schema.is(RequestUnavailable);
 
 const failedState = (outcome: AssistanceFailure['outcome']) =>
   isUnavailable(outcome)
@@ -441,10 +447,15 @@ export function createAssistanceAvailability(native: NativeAssistance) {
   });
 }
 
-// Retrying cannot help an ineligible device or refused input.
+// Retrying cannot help an ineligible device, refused input or text in a language the model
+// cannot write.
 export const canRetryAssistance = (state: AssistanceState<string>) =>
   state.kind !== 'refused' &&
-  !('reason' in state && state.reason === 'device-ineligible');
+  !(
+    'reason' in state &&
+    (state.reason === 'device-ineligible' ||
+      state.reason === 'unsupported-language')
+  );
 
 // Draft text --------------------------------------------------------------------------------------
 

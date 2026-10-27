@@ -14,7 +14,11 @@ interface RegistrationModule
     TurboModule,
     NativeHostModule,
     NativeMailAssistance,
-    NativePreferences {}
+    NativePreferences {
+  // Background time for admitted Sends; resolves true after a release, false when denied or expired.
+  readonly holdDelivery: () => Promise<unknown>;
+  readonly releaseDelivery: () => void;
+}
 
 interface ReportingModule extends TurboModule, NativeErrorReporting {
   readonly getConstants: () => Readonly<{ initialState?: unknown }>;
