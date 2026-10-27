@@ -9,7 +9,11 @@ import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { inspectImage } from '../src/inline-images.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
-import { imageTally, singleReadablePart } from '../src/message-body.ts';
+import {
+  imageTally,
+  labelImagePlaceholders,
+  singleReadablePart,
+} from '../src/message-body.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const parseJson = Schema.decodeSync(
@@ -343,6 +347,12 @@ describe('the isolated rich reader', () => {
       '<span class="blocked-image" data-remote="0" role="img" aria-label="Team photo">Team photo</span>',
     );
     expect(document.match(/class="blocked-image"/gu)).toHaveLength(3);
+    // Undescribed placeholders stay empty for the app's localized text, shown and spoken alike.
+    expect(document).toContain('<span class="blocked-image"></span>');
+    const labelled = labelImagePlaceholders(document, 'Не "загружено"</style>');
+    expect(labelled.slice(0, labelled.indexOf('<body>'))).toContain(
+      String.raw`<style>.blocked-image:empty::before{content:"Не \22 загружено\22 \3c \2f style\3e "}</style></head>`,
+    );
     expect(links).toStrictEqual([{ href: 'tel:+15551234', text: 'call us' }]);
     expect(readable(opened)).toMatchObject({ hidesImages: true });
     // The canvas follows the app's appearance (#977) with its content, text and link tokens.

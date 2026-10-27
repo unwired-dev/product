@@ -701,7 +701,8 @@ final class WindowTests: XCTestCase {
         .firstMatch.exists
     }
     func ask(_ link: String, title: String, destination: String, buttons: [String]) {
-      window.links["Open link: \(link)"].click()
+      // The message's own link and its keyboard control share the name and open the same sheet.
+      window.links[link].firstMatch.click()
       XCTAssertTrue(sheet.waitForExistence(timeout: 10))
       XCTAssertTrue(shows(title))
       XCTAssertTrue(shows(destination))
@@ -1500,14 +1501,6 @@ final class WindowTests: XCTestCase {
     case .sufficientElementDescription
     where type == .link && issue.element?.title.hasPrefix("https://") == true:
       return "web address"
-    case .sufficientElementDescription
-    where issue.compactDescription == "Label duplicates role description"
-      && ((type == .image && label == "Image not loaded")
-        || (type == .link && label.hasPrefix("Open link: "))):
-      return "#1220"
-    // The same placeholder shows "Image" under that label.
-    case .elementDetection where type == .image && label == "Image not loaded":
-      return "#1220"
     default:
       return nil
     }

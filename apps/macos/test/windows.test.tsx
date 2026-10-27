@@ -1349,9 +1349,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     );
     const gardenView = await first.findByTestId('message-webview');
     const queuedChoice = gardenView.props.onShouldStartLoadWithRequest;
-    await fireEvent.press(
-      await first.findByRole('link', { name: 'Open link: the plan' }),
-    );
+    await fireEvent.press(await first.findByRole('link', { name: 'the plan' }));
     expect(sheetsShown().map(({ passage }) => passage)).toStrictEqual([
       'https://example.invalid/plan',
     ]);
@@ -1359,14 +1357,12 @@ describe('mac windows over a connected Gmail mailbox', () => {
       chooseSheetButton('Cancel');
     });
     expect(sheetsShown()).toStrictEqual([]);
-    await fireEvent.press(
-      first.getByRole('link', { name: 'Open link: the plan' }),
-    );
+    await fireEvent.press(first.getByRole('link', { name: 'the plan' }));
     await fireEvent.press(
       await second.findByRole('button', { name: /Other window/u }),
     );
     await fireEvent.press(
-      await second.findByRole('link', { name: 'Open link: other plan' }),
+      await second.findByRole('link', { name: 'other plan' }),
     );
     await fireEvent.press(
       first.getByRole('button', {

@@ -294,7 +294,7 @@ describe('thread view', () => {
     await act(async () => {
       await fireEvent.press(
         within(messageBy('Alex Rivera')).getByRole('link', {
-          name: 'Open link: Agenda',
+          name: 'Agenda',
         }),
       );
     });

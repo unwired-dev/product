@@ -62,7 +62,7 @@ final class InboxTests: XCTestCase {
       app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seed order"))
         .firstMatch.waitForExistence(timeout: 15))
     let bodyLink = app.descendants(matching: .any)
-      .matching(identifier: "Open link: garden plan").firstMatch
+      .matching(identifier: "garden plan").firstMatch
     XCTAssertTrue(bodyLink.waitForExistence(timeout: 10))
     bodyLink.tap()
     XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))

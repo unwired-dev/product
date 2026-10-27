@@ -23,6 +23,7 @@ import {
 import {
   decodeMessageContentSize,
   decodeRemoteImagePositions,
+  labelImagePlaceholders,
 } from '@private-email/mail-core/message-body';
 import { setStringAsync } from 'expo-clipboard';
 import {
@@ -326,9 +327,7 @@ function MessageLinks({
       ]}>
       <Pressable
         accessibilityRole="link"
-        accessibilityLabel={t('messageBody.linkLabel', {
-          link: link.text === '' ? link.href : link.text,
-        })}
+        accessibilityLabel={link.text === '' ? link.href : link.text}
         accessibilityHint={link.href}
         focusable
         onFocus={() => {
@@ -351,9 +350,7 @@ function MessageLinks({
           },
         ]}>
         <Text style={[styles.secondary, { color: colors.accentInk }]}>
-          {t('messageBody.linkLabel', {
-            link: link.text === '' ? link.href : link.text,
-          })}
+          {link.text === '' ? link.href : link.text}
         </Text>
       </Pressable>
     </ContextMenu>
@@ -522,7 +519,12 @@ function RichDocument({
   // The laid-out width; a later different width lays the document out and measures it again.
   const [width, setWidth] = useState<number>();
   // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
-  const [source] = useState(() => ({ html: rich.initialDocument }));
+  const [source] = useState(() => ({
+    html: labelImagePlaceholders(
+      rich.initialDocument,
+      t('messageBody.imageNotLoaded'),
+    ),
+  }));
   const container = useRef<View>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
