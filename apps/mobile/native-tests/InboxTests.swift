@@ -1517,7 +1517,18 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     let subject = app.textFields["Subject"]
     XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    // iPad's floating composer leaves the message in view behind it as a backdrop hidden from
+    // accessibility and touch, so the audit runs with the composer expanded over it.
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    if pad {
+      app.buttons["Expand"].tap()
+      XCTAssertTrue(app.buttons["Collapse"].waitForExistence(timeout: 10))
+    }
     try audit(app, "Composer")
+    if pad {
+      app.buttons["Collapse"].tap()
+      XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
+    }
     subject.tap()
     waitForFocus(subject)
     app.typeKey(.rightArrow, modifierFlags: .command)
@@ -1614,13 +1625,6 @@ final class InboxTests: XCTestCase {
     where issue.element?.elementType == .staticText
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
-    // iPad's floating composer leaves the compose route's reader in view as a backdrop it hides
-    // from accessibility and touch; the audit cannot locate that text.
-    case .elementDetection
-    where screen == "Composer" && UIDevice.current.userInterfaceIdiom == .pad
-      && issue.element == nil
-      && issue.compactDescription == "Potentially inaccessible text":
-      return "composer backdrop"
     // Undiagnosed: the same unlocated text while iPad's system Filters popover is open.
     case .elementDetection
     where screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad

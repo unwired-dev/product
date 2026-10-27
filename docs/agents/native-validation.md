@@ -274,15 +274,12 @@ The audit handler permits these known findings:
 - an email address used as a label: a sender's, or the Apple relay address
   that names the signed-in account;
 - the reader's sender monogram, whose initials repeat the sender name beside it
-  and for which the handler permits at most one unlocated-text finding;
-- on iPad, unlocated "Potentially inaccessible text" findings in the composer.
-  Its visible reader backdrop is hidden from accessibility and touch, but a
-  probe removing that backdrop is still needed to confirm the source
-  ([#1213](https://github.com/unwired-dev/product/issues/1213)).
+  and for which the handler permits at most one unlocated-text finding.
 
-The composer allowance still accepts any number of matching findings, so a new
-unlocated-text finding there does not fail the journey. Other findings fail the
-journey. CI does not run this scenario; it is local native evidence.
+Other findings fail the journey. On iPad the composer is audited expanded:
+floating, it leaves the message visible behind it as a backdrop hidden from
+accessibility and touch, which the audit reports as text it cannot locate.
+CI does not run this scenario; it is local native evidence.
 It does not replace VoiceOver, Full Keyboard Access or the
 owner's physical-device runs. On iPad, XCUITest sometimes waits 60 seconds per
 step for the app to settle while the software keyboard is shown, so a run can
