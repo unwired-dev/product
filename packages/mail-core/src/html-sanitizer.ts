@@ -1599,7 +1599,10 @@ const readerStyle =
   'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
   '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed;border-radius:4px;' +
-  'padding:2px 6px;font-size:max(4px,.85em)}';
+  'padding:2px 6px;font-size:max(4px,.85em)}' +
+  // The app's label stays on one line inside a sender-sized placeholder, such as a social icon.
+  '.blocked-image:empty::before{display:inline-block;max-width:100%;max-height:100%;overflow:hidden;' +
+  'text-overflow:ellipsis;white-space:nowrap;vertical-align:top;text-decoration:inherit}';
 
 // Fills empty blocked-image placeholders with the app's localized text, so what VoiceOver reads
 // matches what is shown. Remote updates reuse empty placeholders, so this one rule covers them.

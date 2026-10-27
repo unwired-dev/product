@@ -963,7 +963,7 @@ document above it stays fully reachable by scrolling inside the view.
 Rich and plain text remain selectable. VoiceOver can read content in order,
 identify links and image descriptions, and reach confirmation and retry actions.
 A blocked image without a description shows and reads **Image not loaded** in the app's
-language. Text respects supported accessibility sizing. Links have an accessible
+language, kept to one line within the sender's image size. Text respects supported accessibility sizing. Links have an accessible
 name and a keyboard activation path; a separate control after the message,
 named by the link's text or else its destination, provides it. **Try again**, **Open link**, **Cancel**, and any flagged-link actions
 are focusable. iPad Full Keyboard Access and Mac keyboard navigation can enter,
