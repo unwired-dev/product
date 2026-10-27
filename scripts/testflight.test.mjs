@@ -85,6 +85,7 @@ function fixture(scenario, { dotenv = false } = {}) {
     APPLE_DEVELOPMENT_TEAM: 'SYNTHETIC1',
     UNWIRED_GOOGLE_CLIENT_ID: '123-test.apps.googleusercontent.com',
     UNWIRED_CONVEX_URL: 'https://synthetic.convex.cloud',
+    UNWIRED_GMAIL_PUBSUB_TOPIC: 'projects/synthetic/topics/gmail-push',
     UNWIRED_BUILD_NUMBER: number,
   };
   if (dotenv) {
@@ -164,9 +165,10 @@ if (command === 'xcodebuild') {
   const app = path.join(value('-archivePath'), 'Products/Applications/UnwiredMail.app');
   const info = path.join(app, host === 'ios' ? 'Info.plist' : 'Contents/Info.plist');
   fs.mkdirSync(path.dirname(info), { recursive: true });
-  const fields = { CFBundleVersion: process.env.UNWIRED_BUILD_NUMBER, CFBundleShortVersionString: '0.1.0', CFBundleIdentifier: 'dev.unwired.mail', UnwiredCommit: process.env.UNWIRED_COMMIT, UnwiredConvexURL: process.env.UNWIRED_CONVEX_URL, GIDClientID: process.env.UNWIRED_GOOGLE_CLIENT_ID };
+  const fields = { CFBundleVersion: process.env.UNWIRED_BUILD_NUMBER, CFBundleShortVersionString: '0.1.0', CFBundleIdentifier: 'dev.unwired.mail', UnwiredCommit: process.env.UNWIRED_COMMIT, UnwiredConvexURL: process.env.UNWIRED_CONVEX_URL, GIDClientID: process.env.UNWIRED_GOOGLE_CLIENT_ID, UnwiredGmailTopic: process.env.UNWIRED_GMAIL_PUBSUB_TOPIC };
   if (scenario === 'mock-plist') fields.UnwiredMockScenario = 'open-read-relaunch';
   if (scenario === 'wrong-backend') fields.UnwiredConvexURL = 'https://wrong.convex.cloud';
+  if (scenario === 'missing-topic') delete fields.UnwiredGmailTopic;
   if (scenario === 'wrong-sha') fields.UnwiredCommit = 'b'.repeat(40);
   if (scenario === 'wrong-number') fields.CFBundleVersion = '1';
   fs.writeFileSync(info, '<?xml version="1.0"?><plist version="1.0"><dict>' + Object.entries(fields).map(([key, val]) => '<key>' + key + '</key><string>' + val + '</string>').join('') + '</dict></plist>');
@@ -209,6 +211,8 @@ for (const [scenario, platform, expected] of [
   ['mock-bundle', 'ios', 1],
   ['native-test-path', 'macos', 1],
   ['wrong-backend', 'ios', 1],
+  ['missing-topic', 'ios', 1],
+  ['missing-topic', 'macos', 1],
   ['wrong-sha', 'ios', 1],
   ['wrong-number', 'ios', 1],
   ['missing-map', 'ios', 1],
@@ -297,6 +301,9 @@ test(
         { UNWIRED_BUILD_NUMBER: '../escape' },
         { UNWIRED_MOCK_SCENARIO: 'open-read-relaunch' },
         { APPLE_DEVELOPMENT_TEAM: '<invalid>' },
+        { UNWIRED_GMAIL_PUBSUB_TOPIC: '' },
+        { UNWIRED_GMAIL_PUBSUB_TOPIC: 'gmail-push' },
+        { UNWIRED_GMAIL_PUBSUB_TOPIC: 'projects/synthetic/topics/' },
         { STUB_DIRTY_WORKTREE: '1' },
         { STUB_GIT_FAILURE: '1' },
       ]) {

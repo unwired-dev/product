@@ -147,8 +147,9 @@ with the deployment's `GMAIL_PUSH_VERIFICATION_TOKEN`. The deployment's
 `GMAIL_OAUTH_CLIENT_ID` must be the native client ID, because the relay verifies
 each mailbox's identity token for that audience. The deployment also needs its
 `GMAIL_ROUTING_*` keys and `APNS_*` credentials, with `APNS_TOPIC` set to
-`dev.unwired.mail`. Without a topic, a host registers no route and synchronizes on
-its schedule alone.
+`dev.unwired.mail`. Without a topic, a development host registers no route and
+synchronizes on its schedule alone; [TestFlight uploads](testflight.md) refuse to
+run without one.
 Do not commit configured deployment values or credentials. App Check enforcement,
 App Store disclosures and distribution entitlements remain protected release
 qualifications; Google's audience and verification follow

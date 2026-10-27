@@ -18,12 +18,17 @@ if [[ -n "${UNWIRED_MOCK_SCENARIO:-}" ]]; then
   exit 2
 fi
 team=${APPLE_DEVELOPMENT_TEAM:-${UNWIRED_DEVELOPMENT_TEAM:-}}
-for name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH UNWIRED_GOOGLE_CLIENT_ID UNWIRED_CONVEX_URL; do
+for name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH UNWIRED_GOOGLE_CLIENT_ID UNWIRED_CONVEX_URL UNWIRED_GMAIL_PUBSUB_TOPIC; do
   if [[ -z "${(P)name:-}" ]]; then
     print -u2 "Missing $name"
     exit 2
   fi
 done
+# Without the topic, uploaded builds register no Gmail push routes (#1367).
+if [[ ! "$UNWIRED_GMAIL_PUBSUB_TOPIC" =~ '^projects/[^/[:space:]]+/topics/[^/[:space:]]+$' ]]; then
+  print -u2 'Invalid UNWIRED_GMAIL_PUBSUB_TOPIC (expected projects/<project>/topics/<topic>)'
+  exit 2
+fi
 if [[ ! "$team" =~ '^[0-9A-Za-z]{10}$' || ! -r "$ASC_KEY_PATH" || "${ASC_KEY_PATH:A}" == "$root"/* ]]; then
   print -u2 'Missing APPLE_DEVELOPMENT_TEAM or the App Store Connect key file'
   exit 2
@@ -113,7 +118,8 @@ upload() {
        "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app[1]/$info" 2>/dev/null)" != "$version" ||
        "$(/usr/libexec/PlistBuddy -c 'Print :UnwiredCommit' "$app[1]/$info" 2>/dev/null)" != "$UNWIRED_COMMIT" ||
        "$(/usr/libexec/PlistBuddy -c 'Print :UnwiredConvexURL' "$app[1]/$info" 2>/dev/null)" != "$UNWIRED_CONVEX_URL" ||
-       "$(/usr/libexec/PlistBuddy -c 'Print :GIDClientID' "$app[1]/$info" 2>/dev/null)" != "$UNWIRED_GOOGLE_CLIENT_ID" ]]; then
+       "$(/usr/libexec/PlistBuddy -c 'Print :GIDClientID' "$app[1]/$info" 2>/dev/null)" != "$UNWIRED_GOOGLE_CLIENT_ID" ||
+       "$(/usr/libexec/PlistBuddy -c 'Print :UnwiredGmailTopic' "$app[1]/$info" 2>/dev/null)" != "$UNWIRED_GMAIL_PUBSUB_TOPIC" ]]; then
     print -u2 "Refusing to upload $host: unexpected archive configuration"
     exit 1
   fi
