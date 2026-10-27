@@ -164,20 +164,8 @@ const describe = (t: Translate, status: SyncStatus): Shown => {
   };
 };
 
-export function SyncStatusCapsule({
-  status,
-  started,
-  onTryAgain,
-}: {
-  readonly status: SyncStatus | undefined;
-  // While a refresh or Try Again the person started runs.
-  readonly started: boolean;
-  readonly onTryAgain: () => void;
-}) {
-  const { t } = useLocalization();
-  const colors = usePalette();
-  const width = useCapsuleWidth();
-  const progressing = status?.kind === 'progress';
+// Whether progress has lasted long enough to show automatic work.
+const useWaited = (progressing: boolean) => {
   const [waited, setWaited] = useState(false);
   if (!progressing && waited) {
     setWaited(false);
@@ -193,10 +181,33 @@ export function SyncStatusCapsule({
       clearTimeout(timer);
     };
   }, [progressing]);
+  return waited;
+};
+
+export function SyncStatusCapsule({
+  status,
+  refreshing,
+  onTryAgain,
+}: {
+  readonly status: SyncStatus | undefined;
+  // While a refresh the person started runs.
+  readonly refreshing: boolean;
+  readonly onTryAgain: () => Promise<void>;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const width = useCapsuleWidth();
+  const waited = useWaited(status?.kind === 'progress');
+  const [retrying, setRetrying] = useState(false);
+  const tryAgain = async () => {
+    setRetrying(true);
+    await onTryAgain();
+    setRetrying(false);
+  };
   const current = status === undefined ? undefined : describe(t, status);
   const open =
     current !== undefined &&
-    (current.kind === 'attention' || started || waited);
+    (current.kind === 'attention' || refreshing || retrying || waited);
   // The closing capsule keeps what it last said while it fades.
   const [last, setLast] = useState(current);
   if (
@@ -236,7 +247,9 @@ export function SyncStatusCapsule({
       {said.kind === 'attention' ? (
         <Attention
           label={said.label}
-          onTryAgain={onTryAgain}
+          onTryAgain={() => {
+            void tryAgain();
+          }}
         />
       ) : (
         <Progress

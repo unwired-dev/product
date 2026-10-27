@@ -810,9 +810,7 @@ export function Inbox({
   };
   // Try Again synchronizes only the mailboxes whose server could not be reached, and like a pull
   // shows its progress at once.
-  const [retrying, setRetrying] = useState(false);
   const tryAgain = async () => {
-    setRetrying(true);
     const loadFailed = load(shown.filter(({ state }) => failed(state)));
     try {
       await (account === undefined
@@ -821,15 +819,12 @@ export function Inbox({
     } catch {
       // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
     }
-    setRetrying(false);
   };
   const syncCapsule = (
     <SyncStatusCapsule
       status={syncStatusOf(shown)}
-      started={refreshing || retrying}
-      onTryAgain={() => {
-        void tryAgain();
-      }}
+      refreshing={refreshing}
+      onTryAgain={tryAgain}
     />
   );
 
