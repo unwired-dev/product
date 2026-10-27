@@ -379,7 +379,7 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
   // Rechecked after asynchronous credentials/trust work, immediately before provider handoff.
   var deliveryAllowed: @MainActor () -> Bool = {
     #if os(iOS)
-      UIApplication.shared.applicationState == .active
+      UIApplication.shared.applicationState == .active || DeliveryExecution.shared.held
     #else
       true
     #endif

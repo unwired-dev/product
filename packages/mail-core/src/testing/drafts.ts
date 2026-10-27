@@ -1,3 +1,4 @@
+import * as Hash from 'effect/Hash';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
@@ -14,22 +15,9 @@ import { assetLimit } from '../drafts.ts';
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error(`Draft storage: ${code}`), { code }));
 
-// A stand-in for SHA-256: 64 hexadecimal digits that change with the bytes.
+// A non-cryptographic stand-in in native storage's 64-hex-digit format.
 const digestOf = (bytes: string) =>
-  [1, 2, 3, 4]
-    .map((seed) =>
-      [...bytes]
-        .reduce(
-          (hash, ch, index) =>
-            (hash * 31 + (ch.codePointAt(0) ?? 0) + index * seed) %
-            Number.MAX_SAFE_INTEGER,
-          seed,
-        )
-        .toString(16)
-        .padStart(16, '0')
-        .slice(-16),
-    )
-    .join('');
+  (Hash.string(bytes) + 2 ** 31).toString(16).padStart(64, '0');
 
 // A Draft record's sealed content: the Draft's identifier, the record's write count and its JSON.
 const RecordSchema = Schema.fromJsonString(
@@ -56,6 +44,11 @@ const key = (account: string, identifier: string) =>
   `${account}\n${identifier}`;
 const chunkId = (id: string, digest: string, index: number) =>
   `draft-asset.${id}:${digest}.${index}`;
+
+// Few characters per chunk, so every asset spans several, as large files do natively. A large
+// file still spans at most 16, so a multi-megabyte send stays a handful of records.
+const chunkOf = (size: number) => Math.max(4, Math.ceil(size / 16));
+const chunks = (size: number) => Math.max(1, Math.ceil(size / chunkOf(size)));
 
 const SealedSchema = Schema.fromJsonString(
   Schema.Struct({
@@ -361,9 +354,6 @@ export function createSyntheticDrafts(
       return Promise.resolve({});
     },
   };
-  // Few characters per chunk, so every asset spans several, as large files do natively.
-  const chunk = 4;
-  const chunks = (size: number) => Math.max(1, Math.ceil(size / chunk));
   const signedIn = (owner: string) => {
     const refused = server?.reach();
     if (refused !== undefined) {
@@ -441,7 +431,10 @@ export function createSyntheticDrafts(
                   sealed: server.seal(
                     owner,
                     identifier,
-                    asset.bytes.slice(index * chunk, (index + 1) * chunk),
+                    asset.bytes.slice(
+                      index * chunkOf(size),
+                      (index + 1) * chunkOf(size),
+                    ),
                   ),
                 });
               }

@@ -153,7 +153,14 @@ The View menu's Commands… item (Command-P) opens the key window's
 [Command Palette](command-palette.md). Native menus use AppKit accessibility. Message buttons expose labels and selected
 state, support keyboard focus, and show a focus border. React Native macOS 0.81.9 does
 not expose plain nonselectable `Text` to accessibility: wrap it in an accessible view carrying
-its label, or make it selectable so it becomes a native text view. Full VoiceOver and
+its label, or make it selectable so it becomes a native text view.
+`patches/react-native-macos@0.81.9.patch` gives every `Pressable` AppKit's press
+action (VoiceOver's VO-Space), which sends the accessibility click that runs its
+`onPress`, and maps `accessibilityState` `disabled` and `selected` onto the
+accessibility element. React Native macOS 0.83 still lacks both on Fabric views;
+delete the patch once an upgrade provides them. A multiline `TextInput` is an AppKit
+text view, which has no enabled attribute, so XCTest reports the composer body as
+not enabled, as it does for any AppKit text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
 
 The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
@@ -292,6 +299,10 @@ requires administrator authentication, the host owner must complete that setup
 before rerunning the journey; record the blocked run as deferred native evidence.
 The runner uses its own probe project and result directory
 and rejects zero-test success. XCTest terminates its launched app on failure.
+The XCTest driver explicitly signs without App Sandbox so its app launch arguments
+and environment reach the isolated session on macOS 27.2. The app under test
+keeps its sandbox and isolated Keychain group. The generated signing contract runs
+in CI and locally with `mise exec -- ruby apps/macos/native-tests/create-project.test.rb`.
 
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
 probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the test supplies `UNWIRED_LIFECYCLE_PATH`;

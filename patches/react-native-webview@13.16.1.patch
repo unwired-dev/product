@@ -53,7 +53,15 @@ diff --git a/apple/RNCWebViewImpl.h b/apple/RNCWebViewImpl.h
 diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
 --- a/apple/RNCWebViewImpl.m
 +++ b/apple/RNCWebViewImpl.m
-@@ -102,6 +102,21 @@
+@@ -13,6 +13,7 @@
+ #import <UIKit/UIKit.h>
+ #else
+ #import <React/RCTUIKit.h>
++#import <React/UIView+React.h>
+ #endif // !TARGET_OS_OSX
+ 
+ #import "objc/runtime.h"
+@@ -102,6 +103,21 @@
      [super buildMenuWithBuilder:builder];
  }
  #else // TARGET_OS_OSX
@@ -75,7 +83,7 @@ diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
  - (void)scrollWheel:(NSEvent *)theEvent {
    RNCWebViewImpl *rncWebView = (RNCWebViewImpl *)[self superview];
    RCTAssert([rncWebView isKindOfClass:[rncWebView class]], @"superview must be an RNCWebViewImpl");
-@@ -109,6 +124,13 @@
+@@ -109,6 +125,13 @@
      [[self nextResponder] scrollWheel:theEvent];
      return;
    }
@@ -89,7 +97,7 @@ diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
    [super scrollWheel:theEvent];
  }
  #endif // TARGET_OS_OSX
-@@ -137,6 +159,9 @@
+@@ -137,6 +160,9 @@
  #endif // !TARGET_OS_OSX
    BOOL _savedHideKeyboardAccessoryView;
    BOOL _savedKeyboardDisplayRequiresUserAction;
@@ -99,7 +107,21 @@ diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
  
    // Workaround for StatusBar appearance bug for iOS 12
    // https://github.com/react-native-webview/react-native-webview/issues/62
-@@ -425,10 +450,6 @@
+@@ -418,6 +444,13 @@
+       completionHandler(nil);
+   }];
+ }
++
++// Product patch: the Fabric RNCWebView hosts this view without a React tag, and a React keyboard
++// event without one aborts the app. A key the page leaves unhandled continues to the host instead.
++- (BOOL)handleKeyboardEvent:(NSEvent *)event
++{
++  return self.reactTag != nil && [super handleKeyboardEvent:event];
++}
+ #endif //Target_OS_OSX
+ 
+ - (WKWebViewConfiguration *)setUpWkWebViewConfig
+@@ -425,10 +458,6 @@
    WKWebViewConfiguration *wkWebViewConfig = [WKWebViewConfiguration new];
    WKPreferences *prefs = [[WKPreferences alloc]init];
    BOOL _prefsUsed = NO;
@@ -110,7 +132,7 @@ diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
  #if defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 130000 /* iOS 13 */
    if (@available(iOS 13.0, *)) {
      if (!_fraudulentWebsiteWarningEnabled) {
-@@ -476,6 +497,10 @@
+@@ -476,6 +505,10 @@
      wkWebViewConfig.defaultWebpagePreferences = pagePrefs;
    }
  #endif
@@ -121,7 +143,7 @@ diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
  
  #if defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 140000 /* iOS 14 */
    if (@available(iOS 14.0, *)) {
-@@ -795,10 +820,21 @@
+@@ -795,10 +828,21 @@
  {
    if (![_source isEqualToDictionary:source]) {
      _source = [source copy];
@@ -143,7 +165,7 @@ diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
    }
  }
  
-@@ -1561,6 +1597,13 @@
+@@ -1561,6 +1605,13 @@
    }
  }
  
@@ -157,7 +179,7 @@ diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
  /**
   * Called when the navigation is complete.
   * @see https://fburl.com/rtys6jlb
-@@ -1575,6 +1618,75 @@
+@@ -1575,6 +1626,75 @@
    if (_onLoadingFinish) {
      _onLoadingFinish([self baseEvent]);
    }
