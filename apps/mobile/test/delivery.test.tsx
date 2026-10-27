@@ -7,8 +7,9 @@ import type {
 } from 'react-native';
 
 /* oxlint-disable vitest/max-expects -- Each application journey verifies one delivery opportunity end to end. */
-import { draftOf } from '@private-email/mail-core/drafts';
-import { undoSendWindow } from '@private-email/mail-core/outbox';
+import { createDrafts, draftOf } from '@private-email/mail-core/drafts';
+import { createMailboxes } from '@private-email/mail-core/mailboxes';
+import { createOutbox, undoSendWindow } from '@private-email/mail-core/outbox';
 import { createRegistration } from '@private-email/mail-core/registration';
 import {
   createSyntheticDrafts,
@@ -30,6 +31,9 @@ jest.mock('@private-email/mail-core/registration-mode', () => ({
 // The system scheduler: each journey runs the delivery task the entry defines.
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name.
 jest.mock('expo-task-manager', () => ({ defineTask: jest.fn() }));
+// No views mount during the cold background launch.
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name.
+jest.mock('expo-router/entry', () => ({}));
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name.
 jest.mock('expo-background-task', () => ({
   BackgroundTaskResult: { Success: 1, Failed: 2 },
@@ -190,6 +194,133 @@ const journey = async (
 };
 
 describe('application-owned Outbox execution', () => {
+  it.each([
+    { evidence: 'confirmed', inSent: true, states: [] },
+    { evidence: 'inconclusive', inSent: false, states: ['unknown'] },
+  ])(
+    'reopens an interrupted handoff through the headless entry with $evidence Sent evidence without resubmitting',
+    async ({ inSent, states }) => {
+      expect.hasAssertions();
+      const { vault } = createSyntheticVault();
+      const registered = createRegistration(vault);
+      await registered.register('google');
+      await registered.addMailbox();
+      const { snapshot } = registered.getSnapshot();
+      const storage = createSyntheticDrafts(() => ownerOf(snapshot), {
+        server: createSyntheticProductSync(),
+      });
+      const gmail = createSyntheticGmail();
+      const connection = syntheticMailboxes['alex@example.invalid'];
+      const connections = syntheticConnections({ [connection]: gmail });
+      const drafts = createDrafts(storage.native, registered);
+      const previous = createOutbox({
+        drafts,
+        mailboxes: createMailboxes(connections, registered),
+        registration: registered,
+        claims: storage.delivery,
+      });
+      previous.pause();
+      const submit = gmail.native.gmailSend;
+      gmail.native.gmailSend = async (...args) => {
+        await submit(...args);
+        // oxlint-disable-next-line promise/avoid-new -- The old process never receives the accepted handoff's reply.
+        return new Promise<never>(() => {
+          // The old process stopped before receiving the reply.
+        });
+      };
+      jest.useFakeTimers();
+      try {
+        await drafts.load();
+        const id = present(
+          await drafts.create({
+            id: connection,
+            address: 'alex@example.invalid',
+          }),
+        );
+        const draft = present(draftOf(drafts.getSnapshot(), id));
+        await drafts.update(
+          { ...draft, to: [{ address: 'sam@example.invalid' }] },
+          draft,
+        );
+        await previous.send(() => present(draftOf(drafts.getSnapshot(), id)));
+        await jest.advanceTimersByTimeAsync(undoSendWindow + 1000);
+        void previous.resume();
+        await jest.advanceTimersByTimeAsync(0);
+        expect(gmail.sends).toHaveLength(1);
+        expect(drafts.getOutbox()).toMatchObject([{ id, state: 'sending' }]);
+        previous.dispose();
+        storage.relaunch();
+        gmail.native.gmailSend = submit;
+        gmail.setLabel(present(gmail.sends[0]).id, 'SENT', inSent);
+
+        jest.resetModules();
+        const { AppState, TurboModuleRegistry } = jest.requireActual<{
+          AppState: typeof AppStateModule;
+          TurboModuleRegistry: typeof TurboModules;
+        }>('react-native');
+        const state = AppState.currentState;
+        AppState.currentState = 'background';
+        const ended = Promise.withResolvers<unknown>();
+        const release = jest.fn(() => ended.resolve(true));
+        const background = {
+          holdDelivery: () => ended.promise,
+          releaseDelivery: release,
+        };
+        const bridge = jest
+          .spyOn(TurboModuleRegistry, 'getEnforcing')
+          .mockReturnValue({
+            getConstants: () => ({}),
+            ...vault,
+            ...storage.native,
+            ...storage.sync,
+            ...storage.delivery,
+            ...connections,
+            ...background,
+          });
+        let host: ReturnType<typeof createHost> | undefined = undefined;
+        try {
+          // Neither registration nor Draft storage is restored by the test before the entry/task.
+          jest.requireActual('../index.js');
+          host = jest.requireActual<ReturnType<typeof createHost>>(
+            '../src/registration.ts',
+          );
+          const { defineTask } = jest.requireMock<{
+            defineTask: typeof DefineTask;
+          }>('expo-task-manager');
+          const [, execute] = present(
+            jest
+              .mocked(defineTask)
+              .mock.calls.find(([name]) => name === 'dev.unwired.mail.outbox'),
+          );
+          await expect(
+            execute({
+              data: undefined,
+              error: null,
+              executionInfo: {
+                taskName: 'dev.unwired.mail.outbox',
+                eventId: 'cold-recovery',
+              },
+            }),
+          ).resolves.toBe(1);
+          expect(
+            host.drafts.getOutbox().map((entry) => entry.state),
+          ).toStrictEqual(states);
+          expect(release).toHaveBeenCalledWith();
+          expect(gmail.sends).toHaveLength(1);
+        } finally {
+          host?.outbox.dispose();
+          ended.resolve(false);
+          AppState.currentState = state;
+          bridge.mockRestore();
+        }
+      } finally {
+        previous.dispose();
+        gmail.native.gmailSend = submit;
+        jest.useRealTimers();
+      }
+    },
+  );
+
   it('pauses preview delivery through inactive and background opportunities, then sends on activation without a mounted Inbox', async () => {
     expect.hasAssertions();
     await journey(
@@ -385,6 +516,36 @@ describe('application-owned Outbox execution', () => {
         expect(holds).toHaveBeenCalledTimes(3);
       },
     );
+  });
+
+  it('ends an expired delivery task while an already submitted request is still unsettled', async () => {
+    expect.hasAssertions();
+    await journey('background', async ({ host, gmail, send, end, deliver }) => {
+      await send();
+      await jest.advanceTimersByTimeAsync(undoSendWindow + 1000);
+      const submit = gmail.native.gmailSend;
+      const reply = Promise.withResolvers<boolean>();
+      gmail.native.gmailSend = async (...args) => {
+        const accepted = await submit(...args);
+        await reply.promise;
+        return accepted;
+      };
+      try {
+        const pending = deliver();
+        await jest.advanceTimersByTimeAsync(0);
+        expect(gmail.sends).toHaveLength(1);
+        end(false);
+        await expect(pending).resolves.toBe(1);
+        expect(host.drafts.getOutbox()).toMatchObject([{ state: 'sending' }]);
+        reply.resolve(true);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(host.drafts.getOutbox()).toStrictEqual([]);
+        expect(gmail.sends).toHaveLength(1);
+      } finally {
+        reply.resolve(true);
+        gmail.native.gmailSend = submit;
+      }
+    });
   });
 
   it('submits once when a delivery task overlaps another and activation', async () => {

@@ -60,7 +60,9 @@ while the app is closed but not force-quit, the person allows Background App
 Refresh and a network is available. The task verifies registration, reopens
 protected Draft storage and holds the same bounded background time, so due
 work is tried once more, including after a missing network, expired time or
-ordinary termination. iOS chooses when, or whether, the task runs: delivery
+ordinary termination. A task also checks uncertain outcomes against Sent without
+resubmitting; an inconclusive check releases its time and leaves delivery unknown.
+iOS chooses when, or whether, the task runs: delivery
 promises no wake, retry time or maximum delay. Locked storage, unverified
 registration, denied or expired time and an app that is already active start
 no handoff from the task; overlapping opportunities share one Outbox pass, so
@@ -305,6 +307,12 @@ the entry's background delivery task after a headless launch: it sends a due
 message once and releases its time, waits while storage is locked, keeps the
 original deadline when its time expires, retries a message left queued offline
 in a later task, and submits once when tasks overlap each other and activation.
+A cold-entry journey starts with a persisted handoff whose provider accepted the
+message before the process lost its reply. It imports `apps/mobile/index.js`
+without restoring registration or Draft storage first, then runs the delivery
+task and confirms Sent without submitting again, or leaves an inconclusive
+outcome unknown and releases its time. Expiry also ends a task whose already
+submitted provider request has not answered; that request settles without a repeat.
 Cold shared-store journeys reopen Draft storage with fresh, unloaded mailbox
 stores and recover queued handoffs, unknown outcomes and accepted SMTP Sent
 copies without another submission.

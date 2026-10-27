@@ -12,6 +12,7 @@ import { native } from './host.ts';
 import { drafts, outbox, registration } from './registration.ts';
 
 const task = 'dev.unwired.mail.outbox';
+const active = () => AppState.currentState === 'active';
 
 // Headless refreshes and push wakes may read mail but do not grant a delivery opportunity.
 // In-flight native submissions settle normally; a terminated request reopens as unknown, never as
@@ -19,9 +20,12 @@ const task = 'dev.unwired.mail.outbox';
 // switching apps or locking the device can finish its Undo Send Window and handoff; denial or
 // expiry ends that opportunity. A delivery task the system grants holds the same time.
 let held = false;
+// Keep time only for the running Sent reconciliation, even if its answer stays unknown.
+let recovering = false;
 // Denied or expired time waits for the next activation or delivery task instead of asking again.
 let spent = false;
 const unsettled = () =>
+  recovering ||
   drafts
     .getOutbox()
     .some(
@@ -31,9 +35,7 @@ const unsettled = () =>
         state === 'sending' ||
         state === 'filing',
     );
-const hold = async (
-  granted = AppState.currentState === 'active',
-): Promise<void> => {
+const hold = async (granted = active()): Promise<void> => {
   if (held) {
     if (!unsettled()) {
       native().releaseDelivery();
@@ -50,7 +52,7 @@ const hold = async (
     .then(deliveryTimeReleased, () => false);
   held = false;
   spent = !released;
-  if (AppState.currentState !== 'active') {
+  if (!active()) {
     outbox.pause();
   }
   await hold();
@@ -75,7 +77,7 @@ drafts.subscribe(() => {
 // Registration verification and protected Draft storage gate it as on activation; the Outbox
 // keeps every Undo Send deadline and claim, and runs one pass at a time across opportunities.
 defineTask(task, async () => {
-  if (AppState.currentState === 'active' || held) {
+  if (active() || held) {
     return BackgroundTaskResult.Success;
   }
   try {
@@ -86,11 +88,21 @@ defineTask(task, async () => {
     console.error('Outbox background delivery failed');
     return BackgroundTaskResult.Failed;
   }
+  // Another opportunity may have started while registration or storage was opening.
+  if (active() || held) {
+    return BackgroundTaskResult.Success;
+  }
   spent = false;
+  recovering = drafts.getOutbox().some(({ state }) => state === 'unknown');
   const delivering = hold(true);
   // Without background time native code refuses handoff, so the Outbox stays paused.
-  if (held) {
-    void outbox.resume();
+  try {
+    if (held) {
+      await Promise.race([outbox.resume(), delivering]);
+    }
+  } finally {
+    recovering = false;
+    void hold();
   }
   await delivering;
   return BackgroundTaskResult.Success;
