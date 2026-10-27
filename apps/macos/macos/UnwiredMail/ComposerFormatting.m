@@ -55,10 +55,11 @@ static void forget(Typing next)
   toggled = nil;
 }
 
-// A list item's marker, which belongs to no span and takes no marks.
-// shortcut: a paragraph that only starts like a marker keeps that start unmarked until JavaScript
-// renders; pass the document's markers to native code if that flash matters.
-static NSUInteger markerLength(NSString *text, NSUInteger start, NSUInteger contentsEnd)
+// Whether a line starts like a list item's marker, which takes no marks. A paragraph can start
+// with the same text, so only JavaScript can tell which marks such a line's text takes.
+// shortcut: lists show shortcuts and typed marks when JavaScript renders; pass the document's
+// markers to native code if lists need them in the next frame.
+static BOOL listLike(NSString *text, NSUInteger start, NSUInteger contentsEnd)
 {
   static NSRegularExpression *markers;
   static dispatch_once_t once;
@@ -67,18 +68,19 @@ static NSUInteger markerLength(NSString *text, NSUInteger start, NSUInteger cont
   });
   NSRange found = [markers rangeOfFirstMatchInString:text options:NSMatchingAnchored
                                                range:NSMakeRange(start, contentsEnd - start)];
-  return found.location == NSNotFound ? 0 : found.length;
+  return found.location != NSNotFound;
 }
 
 // The attributes of the text `range` replaced: the character before it, or at a line's start the
-// one after it, as the document chooses the marks typed text takes.
+// one after it, as the document chooses the marks typed text takes. Nil in a line that starts like
+// a list item.
 static NSDictionary<NSAttributedStringKey, id> *neighbour(NSTextView *view, NSRange range)
 {
   NSString *text = view.string;
   NSUInteger start, contentsEnd;
   [text getLineStart:&start end:NULL contentsEnd:&contentsEnd forRange:NSMakeRange(range.location, 0)];
-  NSUInteger first = start + markerLength(text, start, contentsEnd);
-  NSUInteger from = range.location > first ? range.location - 1
+  if (listLike(text, start, contentsEnd)) return nil;
+  NSUInteger from = range.location > start ? range.location - 1
       : NSMaxRange(range) < contentsEnd ? NSMaxRange(range) : NSNotFound;
   if (from == NSNotFound || [text characterAtIndex:from] == NSAttachmentCharacter) return base(view);
   return [view.textStorage attributesAtIndex:from effectiveRange:NULL];
@@ -136,7 +138,7 @@ static NSDictionary<NSAttributedStringKey, id> *marked(
 }
 
 // Toggles the mark on the selected text, as the document does: added unless all of it has it.
-// List markers and line breaks are not text a mark covers.
+// Line breaks are not text a mark covers.
 static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
 {
   NSTextStorage *storage = view.textStorage;
@@ -145,7 +147,8 @@ static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
   for (NSUInteger at = selection.location; at < NSMaxRange(selection);) {
     NSUInteger start, end, contentsEnd;
     [text getLineStart:&start end:&end contentsEnd:&contentsEnd forRange:NSMakeRange(at, 0)];
-    NSUInteger from = MAX(at, start + markerLength(text, start, contentsEnd));
+    if (listLike(text, start, contentsEnd)) return;
+    NSUInteger from = MAX(at, start);
     NSUInteger to = MIN(NSMaxRange(selection), contentsEnd);
     if (to > from) [covered addObject:[NSValue valueWithRange:NSMakeRange(from, to - from)]];
     at = end;
@@ -202,7 +205,7 @@ static NSEvent *keyDown(NSEvent *event)
   }
   if (typing == TypingUnknown) return event;
   NSDictionary<NSAttributedStringKey, id> *current = typing == TypingToggled ? toggled : neighbour(view, selection);
-  if (!plain(current, view)) {
+  if (current == nil || !plain(current, view)) {
     forget(TypingUnknown);
     return event;
   }
@@ -268,6 +271,7 @@ void UnwiredInstallComposerFormatting(void)
       return;
     }
     NSDictionary<NSAttributedStringKey, id> *attributes = typing == TypingToggled ? toggled : neighbour(view, range);
+    if (attributes == nil) return;
     NSRange same;
     if ([[view.textStorage attributesAtIndex:range.location longestEffectiveRange:&same inRange:range]
             isEqualToDictionary:attributes] && NSEqualRanges(same, range)) {
