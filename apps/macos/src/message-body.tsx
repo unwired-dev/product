@@ -271,7 +271,11 @@ function MessageLinks({
               focused === index ? colors.accentInk : colors.surfaceContent,
           },
         ]}>
-        <Text style={[styles.secondary, { color: colors.accentInk }]}>
+        <Text
+          style={[
+            styles.secondary,
+            { color: colors.accentInk, textDecorationLine: 'underline' },
+          ]}>
           {link.text === '' ? link.href : link.text}
         </Text>
       </Pressable>
