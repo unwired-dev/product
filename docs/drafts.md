@@ -148,9 +148,10 @@ transport and known native exit gaps.
   Command-U format the selection. In body paragraphs, the selection and the text
   typed after them show the marks in the next frame; lists, lines that start like a
   list marker, headings, quotes, code and the format bar show them when the composer
-  redraws. After Undo, Redo or a format bar control, typed text and formatted
-  selections also wait for the redraw until a character typed since has been
-  redrawn; on focusing a composer, so does typed text until the caret moves.
+  redraws. On focusing a composer, and after Undo, Redo, a format bar control,
+  another shortcut, or a deletion or line break with no mark toggled at the caret,
+  typed text and formatted selections also wait for the redraw until a character
+  typed since has been redrawn.
 - **Undo** and **Redo** step through the composer's edits, a word of typing at a
   time; on Mac, Command-Z and Shift-Command-Z do the same in the body.
   Each activation moves one step, including repeated commands before the

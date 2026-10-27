@@ -11,11 +11,9 @@ typedef NS_ENUM(NSInteger, Typing) {
   TypingNeighbour,
   // Marks toggled at the caret apply to the text typed there next.
   TypingToggled,
-  // Only JavaScript knows the marks typed text takes, as on focusing a composer or in a heading, but
-  // the shown text is current. Typed text shows unmarked until JavaScript has it.
-  TypingUnknown,
-  // JavaScript may be changing the body or its typing marks, as for a control or Undo, and the shown
-  // text may predate it. Typed text shows unmarked until JavaScript has it.
+  // Only JavaScript knows the marks typed text takes: on focusing a composer, after a key or control
+  // this does not show, or after an edit that changes the text before the caret. The shown text may
+  // also predate it. Typed text shows unmarked until JavaScript has it.
   TypingAwaitingText,
   // JavaScript has the text typed since; the render that follows shows the marks it typed with.
   TypingAwaitingRender,
@@ -46,7 +44,7 @@ static NSTextView *composerBody(id responder)
   if (body != responder || ![composer isEqualToString:identifier]) {
     body = responder;
     composer = identifier;
-    typing = TypingUnknown;
+    typing = TypingAwaitingText;
     toggled = nil;
   }
   return responder;
@@ -152,8 +150,8 @@ static NSDictionary<NSAttributedStringKey, id> *marked(
 }
 
 // Toggles the mark on the selected text, as the document does: added unless all of it has it.
-// Line breaks are not text a mark covers.
-static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
+// Line breaks are not text a mark covers. Returns whether the mark shows.
+static BOOL formatSelection(NSTextView *view, NSRange selection, unichar mark)
 {
   NSTextStorage *storage = view.textStorage;
   NSString *text = storage.string;
@@ -161,7 +159,7 @@ static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
   for (NSUInteger at = selection.location; at < NSMaxRange(selection);) {
     NSUInteger start, end, contentsEnd;
     [text getLineStart:&start end:&end contentsEnd:&contentsEnd forRange:NSMakeRange(at, 0)];
-    if (listLike(text, start, contentsEnd)) return;
+    if (listLike(text, start, contentsEnd)) return NO;
     NSUInteger from = MAX(at, start);
     NSUInteger to = MIN(NSMaxRange(selection), contentsEnd);
     if (to > from) [covered addObject:[NSValue valueWithRange:NSMakeRange(from, to - from)]];
@@ -169,14 +167,14 @@ static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
   }
   __block BOOL known = covered.count > 0, all = YES;
   for (NSValue *range in covered) {
-    if ([text rangeOfString:@"\uFFFC" options:0 range:range.rangeValue].location != NSNotFound) return;
+    if ([text rangeOfString:@"\uFFFC" options:0 range:range.rangeValue].location != NSNotFound) return NO;
     [storage enumerateAttributesInRange:range.rangeValue options:0
         usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attributes, NSRange run, BOOL *stop) {
       known = known && plain(attributes, view);
       all = all && has(attributes, mark);
     }];
   }
-  if (!known) return;
+  if (!known) return NO;
   [storage beginEditing];
   for (NSValue *range in covered) {
     [storage enumerateAttributesInRange:range.rangeValue options:0
@@ -190,43 +188,37 @@ static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
   // Reported like typing, so React Native drops JavaScript renders from before it.
   inserted = NSMakeRange(NSNotFound, 0);
   [view didChangeText];
+  return YES;
+}
+
+// Shows Command-B, -I or -U the way the document will, if this can know how.
+static BOOL showMark(NSTextView *view, NSEventModifierFlags flags, NSString *key)
+{
+  unichar mark = key.length == 1 ? [key characterAtIndex:0] : 0;
+  if (flags != NSEventModifierFlagCommand || (mark != 'b' && mark != 'i' && mark != 'u') || !view.isEditable
+      || view.hasMarkedText || view.selectedRanges.count != 1 || typing >= TypingAwaitingText) {
+    return NO;
+  }
+  NSRange selection = view.selectedRange;
+  if (selection.length > 0) return formatSelection(view, selection, mark);
+  NSDictionary<NSAttributedStringKey, id> *current = typing == TypingToggled ? toggled : neighbour(view, selection);
+  if (current == nil || !plain(current, view)) return NO;
+  toggled = marked(current, mark, !has(current, mark));
+  typing = TypingToggled;
+  return YES;
 }
 
 static NSEvent *keyDown(NSEvent *event)
 {
   NSEventModifierFlags flags = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask
       & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
-  NSString *key = event.charactersIgnoringModifiers;
   NSTextView *view = composerBody(event.window.firstResponder);
-  // A key outside the body, as on a focused format bar control, may change it.
-  if (view == nil && body != nil) forget(TypingAwaitingText);
-  if (view == nil || !(flags & NSEventModifierFlagCommand) || key.length != 1 || !view.isEditable
-      || view.hasMarkedText) {
-    return event;
-  }
-  // Undo and Redo end marks toggled for typing, and their render may undo marks shown here.
-  if ([key.lowercaseString isEqualToString:@"z"]) {
+  // A key outside the body, as on a focused format bar control, or a Command key not shown here,
+  // as Undo or Paste, may change the body or its typing marks.
+  if (view == nil ? body != nil
+                  : (flags & NSEventModifierFlagCommand) && !showMark(view, flags, event.charactersIgnoringModifiers)) {
     forget(TypingAwaitingText);
-    return event;
   }
-  unichar mark = [key characterAtIndex:0];
-  if (flags != NSEventModifierFlagCommand || (mark != 'b' && mark != 'i' && mark != 'u')
-      || view.selectedRanges.count != 1 || typing >= TypingAwaitingText) {
-    return event;
-  }
-  NSRange selection = view.selectedRange;
-  if (selection.length > 0) {
-    formatSelection(view, selection, mark);
-    return event;
-  }
-  if (typing == TypingUnknown) return event;
-  NSDictionary<NSAttributedStringKey, id> *current = typing == TypingToggled ? toggled : neighbour(view, selection);
-  if (current == nil || !plain(current, view)) {
-    forget(TypingUnknown);
-    return event;
-  }
-  toggled = marked(current, mark, !has(current, mark));
-  typing = TypingToggled;
   return event;
 }
 
@@ -291,19 +283,22 @@ void UnwiredInstallComposerFormatting(void)
     NSTextView *view = notification.object;
     NSRange range = inserted;
     inserted = NSMakeRange(NSNotFound, 0);
-    if (view != body || range.location == NSNotFound || range.length == 0 || view.hasMarkedText
-        || typing == TypingAwaitingRender || NSMaxRange(range) > view.textStorage.length) {
+    // formatSelection reports its own edit.
+    if (view != body || range.location == NSNotFound) return;
+    BOOL typed = range.length > 0 && !view.hasMarkedText && NSMaxRange(range) <= view.textStorage.length
+        && [[view.string substringWithRange:range]
+               rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"\n\uFFFC"]].location
+            == NSNotFound;
+    // Deletions, line breaks, images and input method text change the text before the caret, but
+    // JavaScript keeps the marks toggled for typing.
+    if (!typed) {
+      if (typing != TypingToggled) forget(TypingAwaitingText);
       return;
     }
-    NSString *text = [view.string substringWithRange:range];
-    // A line break or an image changes blocks; JavaScript renders those.
-    if ([text rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"\n\uFFFC"]].location
-        != NSNotFound) {
-      return;
-    }
+    if (typing == TypingAwaitingRender) return;
     // JavaScript types this with its own marks; once its render shows them, text typed after can
     // take them here.
-    if (typing == TypingUnknown || typing == TypingAwaitingText) {
+    if (typing == TypingAwaitingText) {
       typing = TypingAwaitingRender;
       return;
     }
