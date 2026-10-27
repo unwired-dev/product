@@ -899,16 +899,6 @@ export const reportArrivals = Effect.fnUntraced(function* <M>(
   }
 });
 
-// Metadata work keeps another store's synchronization time unless it deliberately changes it.
-const synchronizationOver = (
-  base: MailboxDocument | undefined,
-  saved: MailboxDocument,
-  next: MailboxDocument,
-) =>
-  next.synchronizedAt === base?.synchronizedAt
-    ? Struct.pick(saved, ['synchronizedAt'])
-    : {};
-
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -925,7 +915,8 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
-      ...synchronizationOver(base, saved, next),
+      // Metadata work preserves the latest completed synchronization.
+      ...Struct.pick(saved, ['synchronizedAt']),
       // Intake may have saved a newly created label while synchronization was reading.
       labels: includingLabels(
         next.labels ?? [],
@@ -3387,16 +3378,21 @@ export function createGmailInbox(
   // Intake saves intent under its own permit, so a commit can meet a newer revision. Rebase only
   // unchanged provider progress; otherwise synchronization restarts from the durable checkpoint.
   // Keep commit, pruning and publication together against body admission.
-  // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+  // oxlint-disable-next-line eslint/max-params -- History and explicit synchronization metadata ride on the native commit.
   const commitOver = Effect.fnUntraced(function* (
     cache: Cache,
     base: MailboxDocument | undefined,
     next: MailboxDocument,
-    history?: HistoryWrite,
+    options: Readonly<{ history?: HistoryWrite; synchronizedAt?: string }> = {},
   ) {
     let target = { cache, base, document: next };
     for (let attempt = 1; ; attempt += 1) {
-      const saved = yield* commit(target.cache, target.document, history).pipe(
+      // An explicit success owns its time even when it equals the prior base after clock rollback.
+      const document = {
+        ...target.document,
+        ...Struct.pick(options, ['synchronizedAt']),
+      };
+      const saved = yield* commit(target.cache, document, options.history).pipe(
         Effect.asSome,
         Effect.catchIf(
           (error) =>
@@ -3407,8 +3403,8 @@ export function createGmailInbox(
         ),
       );
       if (Option.isSome(saved)) {
-        yield* ready(saved.value, target.document, sync);
-        return { cache: saved.value, document: target.document };
+        yield* ready(saved.value, document, sync);
+        return { cache: saved.value, document };
       }
       target = yield* rebased(target);
     }
@@ -3461,7 +3457,7 @@ export function createGmailInbox(
       cache,
       document,
       { ...document, history: step.history },
-      { segments, keep: segmentNames(step.history) },
+      { history: { segments, keep: segmentNames(step.history) } },
     );
     return true;
   });
@@ -4034,8 +4030,7 @@ export function createGmailInbox(
     }
     if (document !== undefined) {
       ({ cache, document } = yield* refreshLabels(cache, document));
-      ({ cache, document } = yield* commitOver(cache, document, {
-        ...document,
+      ({ cache, document } = yield* commitOver(cache, document, document, {
         synchronizedAt: DateTime.formatIso(started),
       }));
     }

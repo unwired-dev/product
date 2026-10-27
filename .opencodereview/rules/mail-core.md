@@ -583,7 +583,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `gmail-inbox.ts.rebasedOnto` copying an unchanged `synchronizedAt` from its
   stale proposal over another store's completed synchronization. Preserve the
   saved value when the proposal did not change it relative to its base, while
-  retaining an explicit synchronization update even after clock rollback.
+  retaining an explicit synchronization update even after clock rollback makes
+  its time equal to the original base. Distinguish explicit success from
+  unchanged metadata rather than inferring intent solely from value equality.
   Exercise a held history page, another store's successful refresh and cache-only
   relaunch; otherwise background metadata work loses the last successful time.
 - `createGmailInbox.dispatch` identifying ownership only by pending/message ID,
