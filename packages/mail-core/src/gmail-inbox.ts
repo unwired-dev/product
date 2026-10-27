@@ -899,6 +899,16 @@ export const reportArrivals = Effect.fnUntraced(function* <M>(
   }
 });
 
+// Metadata work keeps another store's synchronization time unless it deliberately changes it.
+const synchronizationOver = (
+  base: MailboxDocument | undefined,
+  saved: MailboxDocument,
+  next: MailboxDocument,
+) =>
+  next.synchronizedAt === base?.synchronizedAt
+    ? Struct.pick(saved, ['synchronizedAt'])
+    : {};
+
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -915,11 +925,7 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
-      // Unchanged freshness belongs to the latest commit, including another store's sync.
-      ...(next.synchronizedAt === base?.synchronizedAt &&
-      saved.synchronizedAt !== undefined
-        ? { synchronizedAt: saved.synchronizedAt }
-        : {}),
+      ...synchronizationOver(base, saved, next),
       // Intake may have saved a newly created label while synchronization was reading.
       labels: includingLabels(
         next.labels ?? [],
