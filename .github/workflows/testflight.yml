@@ -140,14 +140,14 @@ jobs:
           echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
-      - name: Check release runner contracts without credentials
-        run: node --test scripts/testflight.test.mjs
       - name: Check out signing tools from the workflow revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           path: artifacts/testflight/signing-tools
           persist-credentials: false
+      - name: Check release runner contracts without credentials
+        run: node --test artifacts/testflight/signing-tools/scripts/testflight.test.mjs
       - name: Check native signing import without credentials
         run: ruby artifacts/testflight/signing-tools/scripts/testflight-signing.test.rb --native
       - name: Archive and upload
