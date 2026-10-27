@@ -140,6 +140,9 @@ const MailboxDocumentSchema = Schema.Struct({
   ),
   // Gmail's Historical Metadata Backfill, absent until the Inbox is current.
   history: Schema.optionalKey(MailboxHistorySchema),
+  // When this device began the last synchronization that completed, as an ISO instant; absent
+  // until one completes.
+  synchronizedAt: Schema.optionalKey(Schema.String),
   checkpoint: Schema.Union([
     // Listing the Inbox from the history ID read before the first page; `seen` survives an
     // interruption so a replacement listing can drop messages that left the Inbox.

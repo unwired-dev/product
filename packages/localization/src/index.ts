@@ -13,6 +13,7 @@ export {
   messageDay,
 } from './message-date-format.ts';
 export type { MessageDay } from './message-date-format.ts';
+export { lastUpdated } from './last-updated.ts';
 
 export { default as languages } from '../catalogs.bundle/languages.json' with { type: 'json' };
 

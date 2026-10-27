@@ -8,6 +8,7 @@ import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ComponentProps, ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
+import { lastUpdated } from '@private-email/localization';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   allMail,
@@ -476,7 +477,7 @@ const offline = (state: InboxMailbox['state']) =>
     ('status' in state && state.status === 'retry'));
 
 // The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
-// downloaded, or how much is unread.
+// downloaded, or how much is unread and when the shown Inboxes were last brought up to date.
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
@@ -485,6 +486,7 @@ function statusOf(
     searchOffline,
     waiting,
     downloading,
+    now,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
@@ -492,6 +494,7 @@ function statusOf(
     // The chosen connection while it waits for authorization, whose unread mail is unknown.
     waiting: Readonly<{ provider: MailProvider }> | undefined;
     downloading: string | undefined;
+    now: number;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -510,9 +513,22 @@ function statusOf(
   if (downloading !== undefined) {
     return downloading;
   }
-  return unread === 0
-    ? t('inbox.noUnread')
-    : t('inbox.unread', { count: unread });
+  const status =
+    unread === 0 ? t('inbox.noUnread') : t('inbox.unread', { count: unread });
+  const updated = lastUpdated(
+    t,
+    shown.flatMap(({ state }) =>
+      state.kind === 'ready' &&
+      'synchronizedAt' in state &&
+      state.synchronizedAt !== undefined
+        ? [state.synchronizedAt]
+        : [],
+    ),
+    now,
+  );
+  return updated === undefined
+    ? status
+    : t('inbox.statusUpdated', { status, updated });
 }
 
 // Section data lets the native list virtualize online pages together with saved rows.
@@ -788,6 +804,7 @@ export function Inbox({
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
     downloading,
+    now,
   });
   const title =
     folderName ??

@@ -354,6 +354,8 @@ export type GmailInboxState =
       readonly views?: readonly GmailView[];
       // Absent until this mailbox starts its Historical Metadata Backfill.
       readonly history?: HistoryProgress;
+      // When the last completed synchronization began, as an ISO instant; absent before one.
+      readonly synchronizedAt?: string;
       // Folder-role actions this mailbox cannot perform, including while roles are unknown.
       readonly unavailableActions?: ReadonlyArray<GmailAction['kind']>;
       // Changes saved on this device that Gmail has not confirmed yet.
@@ -2033,6 +2035,9 @@ export function createGmailInbox(
       ...(document?.history === undefined
         ? {}
         : { history: progress(document.history) }),
+      ...(document?.synchronizedAt === undefined
+        ? {}
+        : { synchronizedAt: document.synchronizedAt }),
       sync: shownSyncState(),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
@@ -3929,6 +3934,23 @@ export function createGmailInbox(
     return saved;
   });
 
+  // Saves when the completed synchronization began. The Inbox counts whole minutes since, so
+  // another completion within a minute saves nothing.
+  const saveSynchronized = (
+    cache: Cache,
+    document: MailboxDocument,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Effect's immutable DateTime.
+    started: DateTime.Utc,
+  ) =>
+    document.synchronizedAt !== undefined &&
+    DateTime.toEpochMillis(started) - Date.parse(document.synchronizedAt) <
+      60_000
+      ? Effect.succeed({ cache, document })
+      : commitOver(cache, document, {
+          ...document,
+          synchronizedAt: DateTime.formatIso(started),
+        });
+
   // Bodies Gmail could not provide before are read again now that it answers.
   const rereadBodies = Effect.sync(() => {
     if (authenticationRejected) {
@@ -3985,7 +4007,8 @@ export function createGmailInbox(
   const synchronize = Effect.gen(function* () {
     let cache = yield* storage(native.openMailbox);
     const { address, generation } = cache;
-    selectionReference = yield* DateTime.now;
+    const started = yield* DateTime.now;
+    selectionReference = started;
     if (!forgotten) {
       opened = { address, generation };
     }
@@ -4017,6 +4040,7 @@ export function createGmailInbox(
     }
     if (document !== undefined) {
       ({ cache, document } = yield* refreshLabels(cache, document));
+      ({ cache, document } = yield* saveSynchronized(cache, document, started));
     }
     yield* finishSynchronization(cache, document);
   }).pipe(

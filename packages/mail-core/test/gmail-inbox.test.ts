@@ -298,6 +298,9 @@ describe('synchronizing a Gmail Inbox', () => {
     await inbox.load();
     const cached = ready(inbox.getSnapshot()).messages;
     expect(cached).toHaveLength(1);
+    // Failures keep the last successful synchronization.
+    const { synchronizedAt } = ready(inbox.getSnapshot());
+    expect(synchronizedAt).toStrictEqual(expect.any(String));
 
     for (const [failure, sync] of [
       [{ status: 401 }, 'authentication'],
@@ -339,6 +342,7 @@ describe('synchronizing a Gmail Inbox', () => {
         address: 'alex@example.invalid',
         messages: cached,
         sync,
+        synchronizedAt,
         labels: [],
         pending: 0,
         saving: 0,
@@ -488,12 +492,39 @@ describe('synchronizing a Gmail Inbox', () => {
     ).toStrictEqual(['Replacement mailbox']);
   });
 
+  it('saves when the Inbox last synchronized, at most once a minute', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const start = Date.parse('2026-10-27T09:41:00Z');
+    vi.setSystemTime(start);
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).synchronizedAt).toBe(
+      '2026-10-27T09:41:00.000Z',
+    );
+    const commits = gmail.commits.length;
+    vi.setSystemTime(start + 59_000);
+    await inbox.load();
+    expect(gmail.commits).toHaveLength(commits);
+    vi.setSystemTime(start + 60_000);
+    await inbox.load();
+    const relaunched = createGmailInbox(gmail.native);
+    await relaunched.load();
+    expect(ready(relaunched.getSnapshot()).synchronizedAt).toBe(
+      '2026-10-27T09:42:00.000Z',
+    );
+  });
+
   it('opens a cache-only mailbox without using unverified provider access', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
     const live = createGmailInbox(gmail.native);
     await live.load();
-    const cached = ready(live.getSnapshot()).messages;
+    const { messages: cached, synchronizedAt } = ready(live.getSnapshot());
     gmail.requests.length = 0;
     const commits = [...gmail.commits];
     const snapshot = await gmail.native.openMailbox();
@@ -508,6 +539,8 @@ describe('synchronizing a Gmail Inbox', () => {
       address: 'alex@example.invalid',
       messages: cached,
       sync: 'retry',
+      // The last successful synchronization survives relaunch.
+      synchronizedAt,
       labels: [],
       pending: 0,
       saving: 0,
