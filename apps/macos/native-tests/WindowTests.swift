@@ -1418,6 +1418,11 @@ final class WindowTests: XCTestCase {
   // Runs every XCTest accessibility audit on the app as shown, prints each issue as an
   // ACCESSIBILITY line and fails on one that no known gap explains.
   private func audit(_ app: XCUIApplication, _ screen: String) throws {
+    // AppKit shows its text Touch Bar only while a text input has keyboard focus.
+    let focused = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
+    let textFocused =
+      focused.exists && [.textField, .searchField, .textView].contains(focused.elementType)
     try app.performAccessibilityAudit { issue in
       if issue.auditType == .parentChild && issue.element == nil {
         let capture = XCTAttachment(screenshot: app.screenshot())
@@ -1425,9 +1430,9 @@ final class WindowTests: XCTestCase {
         capture.lifetime = .keepAlways
         self.add(capture)
       }
-      let gap = self.knownAccessibilityGap(issue, screen: screen)
+      let gap = self.knownAccessibilityGap(issue, screen: screen, textFocused: textFocused)
       print("ACCESSIBILITY " + self.json([
-        "screen": screen, "audit": issue.compactDescription,
+        "screen": screen, "audit": issue.compactDescription, "textFocused": textFocused,
         "elementType": issue.element?.elementType.rawValue ?? -1,
         "label": issue.element?.label ?? "", "knownGap": gap ?? "",
       ]))
@@ -1456,7 +1461,9 @@ final class WindowTests: XCTestCase {
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
-  private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue, screen: String) -> String? {
+  private func knownAccessibilityGap(
+    _ issue: XCUIAccessibilityAuditIssue, screen: String, textFocused: Bool
+  ) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
     // AppKit's Touch Bar for a focused text view.
@@ -1468,10 +1475,11 @@ final class WindowTests: XCTestCase {
     case .action where touchBar, .sufficientElementDescription where touchBar:
       return "AppKit Touch Bar"
     // The candidate bar's suggestion buttons report a parent that does not list them on these
-    // audited screens. Keep other unlocated issues failing; retained xcresults hold the captures.
+    // audited screens. XCTest gives these issues no element or specific detail, so the focused
+    // text input is the narrowest check. Other unlocated issues fail; xcresults hold captures.
     case .parentChild
     where issue.element == nil && issue.compactDescription == "Parent/Child mismatch"
-      && ["Command Palette", "Reader", "Composer"].contains(screen):
+      && textFocused && ["Command Palette", "Reader", "Composer"].contains(screen):
       return "AppKit Touch Bar"
     // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription

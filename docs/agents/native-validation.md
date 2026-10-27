@@ -227,7 +227,7 @@ and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
-composer audits observed on the Mac host. Retain each run's xcresult captures
+composer audits observed on the Mac host, while a text input has keyboard focus. Retain each run's xcresult captures
 with its log when investigating that exception. The audits run in the host's
 current appearance only. They do not replace VoiceOver,
 Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
