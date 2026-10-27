@@ -136,8 +136,7 @@ async function large(sending: Awaited<ReturnType<typeof microsoftSender>>) {
   ).resolves.toBeUndefined();
   return { id, chart: `${chart.id}@unwired.invalid` };
 }
-// Each journey runs a whole Outbox send over the fake Graph; on a busy CI runner that exceeds the default 5 s.
-describe('sending Microsoft mail through Graph', { timeout: 20_000 }, () => {
+describe('sending Microsoft mail through Graph', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
