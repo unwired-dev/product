@@ -234,6 +234,12 @@ for (const [scenario, platform, expected] of [
           { cwd: checkout, env, encoding: 'utf8' },
         );
         assert.equal(result.status, expected, result.stdout + result.stderr);
+        if (scenario === 'missing-topic') {
+          assert.equal(
+            result.stderr.trim(),
+            `Refusing to upload ${platform}: unexpected archive configuration`,
+          );
+        }
         const evidence = path.join(checkout, 'artifacts/testflight');
         const runs = readdirSync(evidence);
         assert.equal(runs.length, 1);
@@ -317,6 +323,14 @@ test(
           },
         );
         assert.equal(result.status, 2, result.stderr);
+        if ('UNWIRED_GMAIL_PUBSUB_TOPIC' in invalid) {
+          assert.match(
+            result.stderr,
+            invalid.UNWIRED_GMAIL_PUBSUB_TOPIC
+              ? /Invalid UNWIRED_GMAIL_PUBSUB_TOPIC/u
+              : /Missing UNWIRED_GMAIL_PUBSUB_TOPIC/u,
+          );
+        }
         assert.ok(!existsSync(path.join(directory, 'commands')));
       }
       const result = spawnSync(
