@@ -11,20 +11,21 @@ typedef NS_ENUM(NSInteger, Typing) {
   TypingNeighbour,
   // Marks toggled at the caret apply to the text typed there next.
   TypingToggled,
-  // JavaScript may have toggled marks this view does not know, as from the format bar.
+  // Only JavaScript knows the marks typed text takes, as on focusing a composer or in a heading, but
+  // the shown text is current. Typed text shows unmarked until JavaScript has it.
   TypingUnknown,
+  // JavaScript may be changing the body or its typing marks, as for a control or Undo, and the shown
+  // text may predate it. Typed text shows unmarked until JavaScript has it.
+  TypingAwaitingText,
+  // JavaScript has the text typed since; the render that follows shows the marks it typed with.
+  TypingAwaitingRender,
 };
 
 // The focused body, and its composer's identifier "composer-body<composer>".
 static __weak NSTextView *body;
 static NSString *composer;
-// Composers that had focus or a control before: each composer's JavaScript keeps its own typing marks.
-static NSMutableSet<NSString *> *seen;
 static Typing typing;
 static NSDictionary<NSAttributedStringKey, id> *toggled;
-// Composers whose JavaScript is changing the body, as for Undo, while it still shows the text from
-// before: native marks wait until JavaScript has handled the change (YES) and its render arrives.
-static NSMutableDictionary<NSString *, NSNumber *> *awaiting;
 // The characters the body's latest edit inserted, and whether an edit moved its selection.
 static NSRange inserted = {NSNotFound, 0};
 static BOOL edited;
@@ -45,10 +46,8 @@ static NSTextView *composerBody(id responder)
   if (body != responder || ![composer isEqualToString:identifier]) {
     body = responder;
     composer = identifier;
-    // A new composer has no marks toggled for typing; one focused before may have kept some.
-    typing = [seen containsObject:composer] ? TypingUnknown : TypingNeighbour;
+    typing = TypingUnknown;
     toggled = nil;
-    [seen addObject:composer];
   }
   return responder;
 }
@@ -199,19 +198,20 @@ static NSEvent *keyDown(NSEvent *event)
       & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
   NSString *key = event.charactersIgnoringModifiers;
   NSTextView *view = composerBody(event.window.firstResponder);
+  // A key outside the body, as on a focused format bar control, may change it.
+  if (view == nil && body != nil) forget(TypingAwaitingText);
   if (view == nil || !(flags & NSEventModifierFlagCommand) || key.length != 1 || !view.isEditable
       || view.hasMarkedText) {
     return event;
   }
   // Undo and Redo end marks toggled for typing, and their render may undo marks shown here.
   if ([key.lowercaseString isEqualToString:@"z"]) {
-    forget(TypingUnknown);
-    awaiting[composer] = @NO;
+    forget(TypingAwaitingText);
     return event;
   }
   unichar mark = [key characterAtIndex:0];
   if (flags != NSEventModifierFlagCommand || (mark != 'b' && mark != 'i' && mark != 'u')
-      || view.selectedRanges.count != 1 || awaiting[composer] != nil) {
+      || view.selectedRanges.count != 1 || typing >= TypingAwaitingText) {
     return event;
   }
   NSRange selection = view.selectedRange;
@@ -234,15 +234,11 @@ static NSEvent *keyDown(NSEvent *event)
 // text takes; only it knows how.
 void UnwiredForgetComposerTyping(NSString *identifier)
 {
-  if ([identifier isEqualToString:composer]) forget(TypingUnknown);
-  [seen addObject:identifier];
-  awaiting[identifier] = @YES;
+  if ([identifier isEqualToString:composer]) forget(TypingAwaitingText);
 }
 
 void UnwiredInstallComposerFormatting(void)
 {
-  seen = [NSMutableSet set];
-  awaiting = [NSMutableDictionary dictionary];
   // Each JavaScript span carries its own event emitter, so a render after marks shown here
   // replaces the whole text with the same characters, and on Mac React Native then keeps only a
   // collapsed caret. Keep a selected range across that so the next shortcut formats it.
@@ -252,8 +248,8 @@ void UnwiredInstallComposerFormatting(void)
     NSRange selection = view.selectedRange;
     BOOL same = selection.length > 0 && [view.string isEqualToString:text.string];
     setAttributedText(view, @selector(setAttributedText:), text);
-    NSString *identifier = composerOf(view);
-    if (identifier != nil && awaiting[identifier].boolValue) [awaiting removeObjectForKey:identifier];
+    // React Native applies only a render made after JavaScript had every edit reported to it.
+    if (view == body && typing == TypingAwaitingRender) typing = TypingNeighbour;
     if (same) view.selectedRange = selection;
   }));
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
@@ -263,7 +259,7 @@ void UnwiredInstallComposerFormatting(void)
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent *(NSEvent *event) {
     NSScrollView *scroll = body.enclosingScrollView;
     if (body != nil && !NSPointInRect([scroll convertPoint:event.locationInWindow fromView:nil], scroll.bounds)) {
-      forget(TypingUnknown);
+      forget(TypingAwaitingText);
     }
     return event;
   }];
@@ -284,7 +280,7 @@ void UnwiredInstallComposerFormatting(void)
     // reports the selection without moving it.
     NSTextView *view = composerBody(notification.object);
     NSValue *old = notification.userInfo[@"NSOldSelectedCharacterRange"];
-    if (view != nil && !edited && awaiting[composer] == nil
+    if (view != nil && !edited && typing < TypingAwaitingText
         && !(old != nil && NSEqualRanges(old.rangeValue, view.selectedRange))) {
       forget(TypingNeighbour);
     }
@@ -296,13 +292,19 @@ void UnwiredInstallComposerFormatting(void)
     NSRange range = inserted;
     inserted = NSMakeRange(NSNotFound, 0);
     if (view != body || range.location == NSNotFound || range.length == 0 || view.hasMarkedText
-        || typing == TypingUnknown || NSMaxRange(range) > view.textStorage.length) {
+        || typing == TypingAwaitingRender || NSMaxRange(range) > view.textStorage.length) {
       return;
     }
     NSString *text = [view.string substringWithRange:range];
     // A line break or an image changes blocks; JavaScript renders those.
     if ([text rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"\n\uFFFC"]].location
         != NSNotFound) {
+      return;
+    }
+    // JavaScript types this with its own marks; once its render shows them, text typed after can
+    // take them here.
+    if (typing == TypingUnknown || typing == TypingAwaitingText) {
+      typing = TypingAwaitingRender;
       return;
     }
     NSDictionary<NSAttributedStringKey, id> *attributes = typing == TypingToggled ? toggled : neighbour(view, range);
