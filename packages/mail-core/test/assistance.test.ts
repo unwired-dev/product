@@ -191,6 +191,10 @@ describe('on-device message summaries', () => {
       'unsupported-locale',
       { kind: 'unavailable', reason: 'unsupported-locale' },
     ],
+    [
+      'unsupported-language',
+      { kind: 'unavailable', reason: 'unsupported-language' },
+    ],
     ['model-not-ready', { kind: 'unavailable', reason: 'model-not-ready' }],
     ['refused', { kind: 'refused' }],
     ['cancelled', { kind: 'cancelled' }],
@@ -898,6 +902,12 @@ describe('on-device Draft rewrites and reply suggestions', () => {
       rejection: { code: 'model-not-ready' },
       expected: { kind: 'unavailable', reason: 'model-not-ready' },
       retry: true,
+    },
+    {
+      outcome: 'unavailable for its language',
+      rejection: { code: 'unsupported-language' },
+      expected: { kind: 'unavailable', reason: 'unsupported-language' },
+      retry: false,
     },
     {
       outcome: 'failed',

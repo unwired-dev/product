@@ -28,13 +28,15 @@ contacts no provider. Only this build contains the corpus run and its evidence
 recorder; `verify:bundle` rejects the run in any other bundle, and TestFlight
 uploads refuse mock builds.
 
-Each interactive launch runs version 3 of the synthetic corpus once, through the
+Each interactive launch runs version 4 of the synthetic corpus once, through the
 same shared stores the reader and composer use and the real native module:
 
 - summaries of English, Czech and German messages, a message that tells the model
   to answer with JSON, and a message beyond the 6,000-character input limit;
-- rewrites of English and Czech notes, and of authored text just inside the input
-  limit, to show whether the model's context window holds it;
+- rewrites of English, Czech and German notes, of a short word followed by a
+  Czech line, of a short note that reads like a request to expand it, and of
+  authored text just inside the input limit, to show whether the model's context
+  window holds it;
 - reply suggestions with authored text, without authored text for a German
   message, and with a quoted message cut at the limit;
 - translations between installed or missing language pairs, and the same-language
@@ -61,9 +63,19 @@ with an allow-listed diagnostic when the run could not continue.
 | `limited` | The device or model lacked the capability (an unavailable reason, a refusal or a missing language); mail is unaffected |
 | `fail`    | Anything else, such as a malformed or empty result, a cut input not disclosed or a cancellation not honored            |
 
+A ready summary, rewrite or reply records `languageKept`. It is `false`, and the
+case fails, when the text contains common words of another corpus language and
+none of the case's language. This is a heuristic: a short answer with no listed
+words, a shared word or a mixed-language answer can pass. A model that cannot
+write a case's language reports `unsupported-language`, which is `limited`. A ready
+rewrite also records `added` and fails on recognized subject-line labels,
+`Dear`, `regards` or `[your name]`. These patterns do not detect every added
+greeting, sign-off or other content.
+
 Facts are recorded, never scored: live model output is not deterministic, and a
-run makes no claim about another run's text. Review the recorded text for material
-output limitations, such as invented details or an answer in the wrong language.
+run makes no claim about another run's text. Review every recorded answer for
+its language, added content and changes of meaning, including answers marked
+`pass`.
 
 ## Run on the Mac
 

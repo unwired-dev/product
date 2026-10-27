@@ -280,6 +280,16 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   format. Otherwise the Summary card can expose protocol fields despite accepting
   a valid string at the native boundary.
 
+- `UnwiredAssistance` summary or rewrite prompts accepting a language switch or
+  an invented subject, greeting or signature as successful assistance. Identify
+  language from the admitted source fields, preserve the request's language or
+  report its unavailability, and keep rewrites limited to authored content.
+  Check the shared rejection/copy contract and real model corpus answers, not
+  only fixed mock text. Word and letter-frame heuristics do not prove language
+  or meaning preservation; qualification claims must retain human review and
+  identify untested hosts. Otherwise a successful preview can silently translate
+  mail or insert invented content into an accepted Draft, as reported in #1164.
+
 - `RegistrationStore.readDraftAsset` returning full decrypted image bytes as a
   base64 URI merely to show a composer thumbnail, or decoding previews on the
   main actor. Keep verification and thumbnail work off-main, return bounded

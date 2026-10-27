@@ -230,6 +230,37 @@ describe('on-device message summaries in the reader', () => {
     }
   });
 
+  it('reports a message in a language the model cannot write instead of summarizing it in another', async () => {
+    expect.hasAssertions();
+    const { native } = scriptedAssistance();
+    const { app } = await openReader({
+      ...native,
+      summarize: () =>
+        Promise.reject(
+          Object.assign(new Error('unsupported language'), {
+            code: 'unsupported-language',
+          }),
+        ),
+    });
+    try {
+      await fireEvent.press(screen.getByLabelText('Summarize this message'));
+      await expect(
+        screen.findByText(
+          'Summaries are not available in this message’s language yet.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByText('Please confirm the venue by Friday.'),
+      ).toBeOnTheScreen();
+      // Asking again cannot change the message's language.
+      expect(
+        screen.queryByLabelText('Summarize this message again'),
+      ).toBeNull();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('keeps the message readable when the Mock Mail Session has no assistance', async () => {
     expect.hasAssertions();
     const { app } = await openReader(
