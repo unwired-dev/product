@@ -508,6 +508,18 @@ final class InboxTests: XCTestCase {
     queued.lifetime = .keepAlways
     add(queued)
     let outbox = app.staticTexts["Outbox"].firstMatch
+    // #1260: switching apps during the Undo Send Window leaves background time to finish the
+    // delivery, so the message has already left the Outbox when the app returns.
+    XCUIDevice.shared.press(.home)
+    XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Undo Send Window")], timeout: 20)
+    app.activate()
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+    let returned = XCTAttachment(screenshot: app.screenshot())
+    returned.name = "Outbox on returning after background delivery"
+    returned.lifetime = .keepAlways
+    add(returned)
+    XCTAssertFalse(outbox.exists, "The message waited for the app to return before sending")
     if !outbox.waitForNonExistence(timeout: 40) {
       let stuck = XCTAttachment(screenshot: app.screenshot())
       stuck.name = "Outbox after the Undo Send Window"

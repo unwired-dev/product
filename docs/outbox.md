@@ -39,11 +39,23 @@ window. On Mac, closing the last window leaves queued work running. Explicit
 Quit stops execution with the process; reopening recovers this device's durable
 Outbox, including its original Undo Send deadlines and confirmed claims.
 
-On iPhone and iPad, new delivery starts only while the application is active.
-Leaving the foreground pauses timers and fences work awaiting a claim, a storage
-write or refreshed native credentials. Returning retries due work; it does not
-restart an Undo Send Window. Background Inbox refreshes and push wakes do not
-grant permission to send. Delivery does not promise mobile background execution.
+On iPhone and iPad, new delivery starts only while the application is active or
+holds background time for a Send admitted in the foreground. While a message is
+waiting, queued, sending or filing, the app asks iOS for bounded background time,
+so switching apps or locking the device can let the remaining Undo Send Window
+end and the message reach its provider. The time ends once no such message
+remains. When iOS denies the time or it expires, native permission is withdrawn
+before the time ends: timers pause and work awaiting a claim, a storage write or
+refreshed native credentials is fenced, so no new provider submission starts. The
+message stays queued with its original deadline until the app is active again;
+returning retries due work and does not restart an Undo Send Window. A locked
+device whose protected Draft storage is unavailable keeps the message waiting the
+same way. Force-quitting leaves unsubmitted messages queued until the person
+reopens the app, and recovery runs from the application entry, not an Inbox
+screen. Background Inbox refreshes and push wakes do not grant permission to
+send, and delivery does not promise background time iOS does not grant.
+Resuming a queued Outbox during background opportunities is planned in
+[#1261](https://github.com/unwired-dev/product/issues/1261).
 
 [Mock Mail Session](mock-mail-sessions.md) builds use the same lifecycle and Undo
 Send Window with their synthetic providers.
@@ -269,6 +281,9 @@ sign-out, connection removal and device revocation before and after submission.
 The host `delivery.test.tsx` journeys run application entry wiring with real shared
 stores and synthetic native storage, Gmail and claims, without mounting an Inbox.
 They prove mobile foreground gating and Mac processing with no mounted windows.
+Mobile journeys also finish a Send admitted before switching apps within
+synthetic background time, keep a Send queued after background time expires
+before its deadline or is denied, and then send it once on activation.
 Cold shared-store journeys reopen Draft storage with fresh, unloaded mailbox
 stores and recover queued handoffs, unknown outcomes and accepted SMTP Sent
 copies without another submission.
@@ -307,6 +322,8 @@ The hosted iOS 27 suite adds `OutboxTests`:
 - a returned Gmail refusal, and an unknown outcome once a request started;
 - losing native execution permission or device trust during credential refresh,
   before any handoff;
+- background time withdrawing handoff permission before it ends, on expiry or
+  denial, and ending once released (`DeliveryExecutionTests`);
 - already-revoked Gmail and Graph sends purging local registration without
   refreshing credentials;
 - opaque claim identifiers held by one device, also claimed without a Product
@@ -317,6 +334,11 @@ ends by sending a new message after a relaunch: the row says **Sending soon**, a
 the synthetic provider's acceptance removes it from the Outbox, on iPhone and
 iPad. CI does not run
 this scenario; it is local native evidence.
+
+Switching apps, locking the device, denied or expired background time and
+interruption during a provider request on a real iPhone or iPad, with a single
+resulting provider submission, remain release checks. The checks above use
+synthetic background time and providers.
 
 Deferred before release:
 
