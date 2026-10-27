@@ -40,15 +40,16 @@ Quit stops execution with the process; reopening recovers this device's durable
 Outbox, including its original Undo Send deadlines and confirmed claims.
 
 On iPhone and iPad, new delivery starts only while the application is active or
-holds background time for a Send admitted in the foreground. While a message is
-waiting, queued, sending or filing, the app asks iOS for bounded background time,
-so switching apps or locking the device can let the remaining Undo Send Window
-end and the message reach its provider. The time ends once no such message
+holds background time for a Send admitted in the foreground or a system-granted
+delivery task. While a message is waiting, queued, sending or filing, the app asks
+iOS for bounded background time, so switching apps or locking the device can let
+the remaining Undo Send Window end and the message reach its provider. The time
+ends once no such message
 remains. When iOS denies the time or it expires, native permission is withdrawn
 before the time ends: timers pause and work awaiting a claim, a storage write or
 refreshed native credentials is fenced, so no new provider submission starts. The
-message stays queued with its original deadline until the app is active again;
-returning retries due work and does not restart an Undo Send Window. A locked
+message stays queued with its original deadline; the next permitted execution
+opportunity retries due work and does not restart an Undo Send Window. A locked
 device whose protected Draft storage is unavailable keeps the message waiting the
 same way. Force-quitting leaves unsubmitted messages queued until the person
 reopens the app, and recovery runs from the application entry, not an Inbox
