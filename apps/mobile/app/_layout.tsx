@@ -186,6 +186,8 @@ function MailShell() {
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
   const [expanded, setExpanded] = useState(false);
+  // On iPad the composer floats over the reader until it is expanded to the full window.
+  const floating = regular && !expanded;
   const [height, setHeight] = useState(0);
   // UIKit changes the reading column's width when either leading column moves or hides; every
   // reading-column route reports it.
@@ -460,9 +462,9 @@ function MailShell() {
         {draft === undefined ? null : (
           <View
             testID="composer-overlay"
-            accessibilityViewIsModal={!regular || expanded}
+            accessibilityViewIsModal={!floating}
             style={
-              regular && !expanded
+              floating
                 ? [
                     styles.overlay,
                     {
