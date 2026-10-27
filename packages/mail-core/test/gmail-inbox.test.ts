@@ -492,7 +492,7 @@ describe('synchronizing a Gmail Inbox', () => {
     ).toStrictEqual(['Replacement mailbox']);
   });
 
-  it('saves when the Inbox last synchronized, at most once a minute', async () => {
+  it('saves every successful synchronization across relaunch and clock changes', async () => {
     expect.hasAssertions();
     vi.useFakeTimers({ toFake: ['Date'] });
     onTestFinished(() => {
@@ -506,16 +506,26 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(ready(inbox.getSnapshot()).synchronizedAt).toBe(
       '2026-10-27T09:41:00.000Z',
     );
-    const commits = gmail.commits.length;
     vi.setSystemTime(start + 59_000);
     await inbox.load();
-    expect(gmail.commits).toHaveLength(commits);
-    vi.setSystemTime(start + 60_000);
-    await inbox.load();
-    const relaunched = createGmailInbox(gmail.native);
+    expect(ready(inbox.getSnapshot()).synchronizedAt).toBe(
+      '2026-10-27T09:41:59.000Z',
+    );
+    const cached = await gmail.native.openMailbox();
+    const relaunched = createGmailInbox({
+      ...gmail.native,
+      openMailbox: () => Promise.resolve({ ...cached, availability: 'retry' }),
+    });
     await relaunched.load();
     expect(ready(relaunched.getSnapshot()).synchronizedAt).toBe(
-      '2026-10-27T09:42:00.000Z',
+      '2026-10-27T09:41:59.000Z',
+    );
+
+    // A corrected device clock cannot suppress the next successful update.
+    vi.setSystemTime(start - 3_600_000);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).synchronizedAt).toBe(
+      '2026-10-27T08:41:00.000Z',
     );
   });
 

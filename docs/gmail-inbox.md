@@ -262,7 +262,8 @@ Offline while the server is being checked or cannot be reached. Otherwise it als
 how long ago the shown mailboxes were last brought up to date, such as **Updated just
 now** or **Updated 5 minutes ago**, counted from the start of each mailbox's latest
 completed synchronization and taking the oldest of them. Each mailbox saves that time
-with its cache, so it survives relaunch and failed attempts. On iPhone and iPad, while
+with its cache after every successful synchronization, even when no mail changed,
+so it survives relaunch and failed attempts. On iPhone and iPad, while
 [search](#searching-saved-mail) is open the heading gives way to its scope choice,
 and **Top Results** reports the result count; each mailbox an online search could
 not reach says so under **From mail servers**. On Mac, search changes the title to

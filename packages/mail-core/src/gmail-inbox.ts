@@ -3934,23 +3934,6 @@ export function createGmailInbox(
     return saved;
   });
 
-  // Saves when the completed synchronization began. The Inbox counts whole minutes since, so
-  // another completion within a minute saves nothing.
-  const saveSynchronized = (
-    cache: Cache,
-    document: MailboxDocument,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Effect's immutable DateTime.
-    started: DateTime.Utc,
-  ) =>
-    document.synchronizedAt !== undefined &&
-    DateTime.toEpochMillis(started) - Date.parse(document.synchronizedAt) <
-      60_000
-      ? Effect.succeed({ cache, document })
-      : commitOver(cache, document, {
-          ...document,
-          synchronizedAt: DateTime.formatIso(started),
-        });
-
   // Bodies Gmail could not provide before are read again now that it answers.
   const rereadBodies = Effect.sync(() => {
     if (authenticationRejected) {
@@ -4040,7 +4023,10 @@ export function createGmailInbox(
     }
     if (document !== undefined) {
       ({ cache, document } = yield* refreshLabels(cache, document));
-      ({ cache, document } = yield* saveSynchronized(cache, document, started));
+      ({ cache, document } = yield* commitOver(cache, document, {
+        ...document,
+        synchronizedAt: DateTime.formatIso(started),
+      }));
     }
     yield* finishSynchronization(cache, document);
   }).pipe(
