@@ -1236,7 +1236,8 @@ still applies. See `docs/architecture/macos-client.md`.
   behind the current request and mounted-owner checks, and type into the body
   after Cancel, Escape and a refused finish in the native journey. A dismissed sheet and an
   editable command alone do not prove focus returned; an unfocused page can
-  pass typing into the React Native macOS responder chain and abort the app.
+  pass typing to its host instead of editing the body even when unhandled keys
+  no longer abort the app.
 - `design.tsx.ToolbarButton` reporting a panel toggle as selected instead of
   expanded. Trace its `organize.tsx` callers through opening and closing the
   panel, preserving the visual open state and omitting disclosure state for
