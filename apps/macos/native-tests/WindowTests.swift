@@ -1205,6 +1205,11 @@ final class WindowTests: XCTestCase {
     for key in [XCUIKeyboardKey.downArrow, .downArrow, .downArrow, .upArrow, .upArrow] {
       app.typeKey(key, modifierFlags: [])
     }
+    // #1194: the highlighted command is the selected element assistive technology reads.
+    let highlighted = window.buttons.matching(
+      NSPredicate(format: "selected == true AND label BEGINSWITH %@", "Search Mail")
+    ).firstMatch
+    XCTAssertTrue(highlighted.waitForExistence(timeout: 5))
     app.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(command.waitForNonExistence(timeout: 10))
     waitForFocus(search)
@@ -1281,6 +1286,7 @@ final class WindowTests: XCTestCase {
     // Reply from the palette starts a Draft beside the reader; it keeps typed text across relaunch.
     row("Outlook update 003").click()
     XCTAssertTrue(body("Outlook update 003 body.", in: window).waitForExistence(timeout: 15))
+    waitUntil { row("Outlook update 003").isSelected }
     try audit(app, "Reader")
     runCommand("Reply", in: app)
     // The empty body is labelled with its placeholder; once typed into, it is found by its text.
@@ -1427,21 +1433,23 @@ final class WindowTests: XCTestCase {
   // open window, so this lists labels rather than screens.
   private let contrastGaps: Set<String> = [
     "", "30 September 2025 at 08:00 UTC", "Account & Devices", "Accounts",
-    "All Inboxes. All inboxes · 2 unread", "App", "Application", "Automation",
-    "Colleague 003, colleague003@example.invalid",
-    "Encrypted mailbox list: casey@example.invalid, other@example.invalid.", "Favorites",
-    "Gmail · other@example.invalid", "Go To", "Mailboxes", "Microsoft · casey@example.invalid",
-    "October 2025", "Private sync is on", "Rowan Hale, rowan@example.invalid",
-    "Search. 1 message · All inboxes", "Select a message to start reading.", "Selected Message",
-    "September 2025", "Sign-in methods", "Signed in with Apple.",
+    "All Inboxes. All inboxes · 2 unread",
+    "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
+    "App", "Application", "Automation", "Colleague 003, colleague003@example.invalid",
+    "Encrypted mailbox list: casey@example.invalid, other@example.invalid.", "Error Reporting",
+    "Favorites", "Gmail · other@example.invalid", "Go To", "Known Tracking Pixels",
+    "Known Tracking Pixels stay blocked for every remote-content policy.", "Language", "Mailboxes",
+    "Microsoft · casey@example.invalid", "Moved: “Quarterly planning”.", "October 2025",
+    "Privacy & Data", "Private sync is on", "Remote Content", "Remote Message Content",
+    "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
+    "Select a message to start reading.", "Selected Message", "September 2025", "Sign-in methods",
+    "Signed in with Apple.",
     "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
-    "casey@example.invalid, other@example.invalid are connected on this device.",
-    "relay@privaterelay.example.invalid",
+    "casey@example.invalid", "casey@example.invalid, other@example.invalid are connected on this device.",
+    "other@example.invalid", "relay@privaterelay.example.invalid",
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
-  // Every React Native button and message link control lacks a press action until #1194, so that gap
-  // is not listed per control.
   private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
@@ -1451,11 +1459,11 @@ final class WindowTests: XCTestCase {
     switch issue.auditType {
     case .contrast where type == .staticText && contrastGaps.contains(label):
       return "#1195"
-    case .action where type == .button || (type == .link && label.hasPrefix("Open link: ")):
-      return "#1194"
-    case .parentChild where issue.element == nil:
-      return "#1194"
     case .action where touchBar, .sufficientElementDescription where touchBar:
+      return "AppKit Touch Bar"
+    // The candidate bar's suggestion buttons report a parent that does not list them; the audit
+    // reports that mismatch without an element.
+    case .parentChild where issue.element == nil:
       return "AppKit Touch Bar"
     // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription
