@@ -502,6 +502,10 @@ final class InboxTests: XCTestCase {
         _ = keyboard.waitForNonExistence(timeout: 3)
       }
       XCTAssertFalse(keyboard.exists)
+      let hidden = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      hidden.name = "Composer format bar with the keyboard hidden"
+      hidden.lifetime = .keepAlways
+      add(hidden)
       body.tap()
       XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
       formatBarOnKeyboard(app)
