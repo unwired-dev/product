@@ -54,6 +54,11 @@ same way. Force-quitting leaves unsubmitted messages queued until the person
 reopens the app, and recovery runs from the application entry, not an Inbox
 screen. Background Inbox refreshes and push wakes do not grant permission to
 send, and delivery does not promise background time iOS does not grant.
+TypeScript (`apps/mobile/src/delivery.ts`) decides when to request and release
+background time and pauses the Outbox when it ends; Swift (`DeliveryExecution`
+and `RegistrationStore.deliveryAllowed`) owns the iOS background task, withdraws
+permission on expiry and refuses provider handoff, so the native check is the
+final gate and the TypeScript pause follows it.
 Resuming a queued Outbox during background opportunities is planned in
 [#1261](https://github.com/unwired-dev/product/issues/1261).
 

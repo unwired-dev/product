@@ -32,7 +32,10 @@ const hold = async (): Promise<void> => {
     return;
   }
   held = true;
-  const released = deliveryTimeReleased(await native().holdDelivery());
+  // A failed request counts as spent time, so the Outbox still pauses outside the foreground.
+  const released = await Promise.resolve()
+    .then(() => native().holdDelivery())
+    .then(deliveryTimeReleased, () => false);
   held = false;
   spent = !released;
   if (AppState.currentState !== 'active') {
