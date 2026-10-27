@@ -1419,7 +1419,13 @@ final class WindowTests: XCTestCase {
   // ACCESSIBILITY line and fails on one that no known gap explains.
   private func audit(_ app: XCUIApplication, _ screen: String) throws {
     try app.performAccessibilityAudit { issue in
-      let gap = self.knownAccessibilityGap(issue)
+      if issue.auditType == .parentChild && issue.element == nil {
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.name = "Accessibility \(screen): \(issue.compactDescription)"
+        capture.lifetime = .keepAlways
+        self.add(capture)
+      }
+      let gap = self.knownAccessibilityGap(issue, screen: screen)
       print("ACCESSIBILITY " + self.json([
         "screen": screen, "audit": issue.compactDescription,
         "elementType": issue.element?.elementType.rawValue ?? -1,
@@ -1450,7 +1456,7 @@ final class WindowTests: XCTestCase {
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
-  private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
+  private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue, screen: String) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
     // AppKit's Touch Bar for a focused text view.
@@ -1461,9 +1467,11 @@ final class WindowTests: XCTestCase {
       return "#1195"
     case .action where touchBar, .sufficientElementDescription where touchBar:
       return "AppKit Touch Bar"
-    // The candidate bar's suggestion buttons report a parent that does not list them; the audit
-    // reports that mismatch without an element.
-    case .parentChild where issue.element == nil:
+    // The candidate bar's suggestion buttons report a parent that does not list them on these
+    // audited screens. Keep other unlocated issues failing; retained xcresults hold the captures.
+    case .parentChild
+    where issue.element == nil && issue.compactDescription == "Parent/Child mismatch"
+      && ["Command Palette", "Reader", "Composer"].contains(screen):
       return "AppKit Touch Bar"
     // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription
