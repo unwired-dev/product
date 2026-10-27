@@ -56,7 +56,14 @@ system language model. There is no cloud or product-backend model fallback.
 - When the model cannot run, the Draft is unchanged and the panel says why, with
   the same reasons as [message summaries](message-summaries.md#behavior). A
   refusal, cancellation and other failures have their own messages. **Try again**
-  is offered except on an ineligible device or after a refusal.
+  is offered except on an ineligible device, after a refusal, or for text in a
+  language the model cannot write.
+- A rewrite keeps the language of the authored text and adds nothing it does not
+  contain: no subject line, greeting, sign-off or signature. When the model cannot
+  write that language, the panel says writing help is not available in this
+  language and the Draft is unchanged. A reply suggestion is written in the
+  language of the message answered
+  ([#1164](https://github.com/unwired-dev/product/issues/1164)).
 
 Not in this slice: the three concise reply directions and the question check that
 [Response Assistance](domain/assistance.md) describes, subject suggestions,
@@ -71,11 +78,11 @@ The methods are on the `UnwiredAssistance` module in
 no setup step is needed. Each checks availability like `summarize` and rejects with
 the same codes.
 
-| Method                         | Result                                                  |
-| ------------------------------ | ------------------------------------------------------- |
-| `rewrite(request, input)`      | The rewritten text                                      |
-| `suggestReply(request, input)` | The reply body, without a subject, signature or quoting |
-| `cancel(request)`              | Cancels that request's generation                       |
+| Method                         | Result                                                   |
+| ------------------------------ | -------------------------------------------------------- |
+| `rewrite(request, input)`      | The rewritten text, in the language of the authored text |
+| `suggestReply(request, input)` | The reply body, without a subject, signature or quoting  |
+| `cancel(request)`              | Cancels that request's generation                        |
 
 The shared core supplies `input` as a typed JSON request with an explicit
 `operation`: `rewrite` carries `authoredText`; `reply` carries separate
@@ -85,7 +92,14 @@ limit counts the complete encoded request. Authored text is preserved in full or
 the request is refused; only quoted context can be shortened.
 
 Each prompt treats its input as untrusted content, never as instructions, and forbids
-inventing facts. Generation uses temperature 0 and at most 1,500 response tokens.
+inventing facts. The rewrite prompt holds even for short text that reads like a
+request: before #1164, `test` with one Czech line came back as a new message with
+`Subject: Test - Please Expand This Message`. A rewrite names its language like a
+[summary](message-summaries.md#native-binding): the binding identifies the
+language of `authoredText`, rejects one the model does not support, or a result in
+another language, as `unsupported-language`, and otherwise tells the model to
+respond in it. Reply suggestions keep their own rule to answer in the language of
+the quoted message. Generation uses temperature 0 and at most 1,500 response tokens.
 `@private-email/mail-core/assistance` decodes every result with Schema (up to
 12,000 characters) and fails closed on anything else. Results containing image
 placeholder characters are rejected, keeping the Draft unchanged rather than
@@ -124,8 +138,12 @@ writes.
 [Assistance qualification](assistance-qualification.md) has exercised the real
 binding, including long input, on the nominated Mac mini M4, iPhone 17 Pro Max
 and iPad Pro M4 with a versioned synthetic corpus. Generated text still needs
-human review; language and invented-content limitations are tracked in
-[#1164](https://github.com/unwired-dev/product/issues/1164).
+human review. Corpus version 4 adds
+[heuristic checks](assistance-qualification.md#the-qualification-build) for
+language switches and added letter framing
+([#1164](https://github.com/unwired-dev/product/issues/1164)); physical iPhone and
+iPad runs of it remain the owner session in
+[#625](https://github.com/unwired-dev/product/issues/625).
 The [owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
 accept Rewrite/Suggest reply with acceptance and Undo on both physical mobile
 devices and waive the Mac manual checks. Each unobserved unavailable reason
