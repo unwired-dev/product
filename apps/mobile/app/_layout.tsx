@@ -476,10 +476,18 @@ function MailShell() {
                       boxShadow: colors.menuShadow,
                     },
                   ]
-                : // The composer keeps clear of the system bars itself (#1165).
-                  [
+                : [
                     StyleSheet.absoluteFill,
                     { backgroundColor: colors.surfaceContent },
+                    // On iPhone the composer's own safe area clears the system bars; padding here
+                    // too would apply the insets twice and hide the format bar behind the keyboard
+                    // (#1165). The split view gives that safe area no insets, so iPad pads here.
+                    regular && {
+                      paddingTop: insets.top,
+                      paddingBottom: insets.bottom,
+                      paddingLeft: insets.left,
+                      paddingRight: insets.right,
+                    },
                   ]
             }>
             <ComposerLayoutContext value={composerLayout}>
