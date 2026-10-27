@@ -354,6 +354,8 @@ export type GmailInboxState =
       readonly views?: readonly GmailView[];
       // Absent until this mailbox starts its Historical Metadata Backfill.
       readonly history?: HistoryProgress;
+      // When the last completed synchronization began, as an ISO instant; absent before one.
+      readonly synchronizedAt?: string;
       // Folder-role actions this mailbox cannot perform, including while roles are unknown.
       readonly unavailableActions?: ReadonlyArray<GmailAction['kind']>;
       // Changes saved on this device that Gmail has not confirmed yet.
@@ -913,6 +915,8 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
+      // Metadata work preserves the latest completed synchronization.
+      ...Struct.pick(saved, ['synchronizedAt']),
       // Intake may have saved a newly created label while synchronization was reading.
       labels: includingLabels(
         next.labels ?? [],
@@ -2033,6 +2037,9 @@ export function createGmailInbox(
       ...(document?.history === undefined
         ? {}
         : { history: progress(document.history) }),
+      ...(document?.synchronizedAt === undefined
+        ? {}
+        : { synchronizedAt: document.synchronizedAt }),
       sync: shownSyncState(),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
@@ -3371,16 +3378,21 @@ export function createGmailInbox(
   // Intake saves intent under its own permit, so a commit can meet a newer revision. Rebase only
   // unchanged provider progress; otherwise synchronization restarts from the durable checkpoint.
   // Keep commit, pruning and publication together against body admission.
-  // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+  // oxlint-disable-next-line eslint/max-params -- History and explicit synchronization metadata ride on the native commit.
   const commitOver = Effect.fnUntraced(function* (
     cache: Cache,
     base: MailboxDocument | undefined,
     next: MailboxDocument,
-    history?: HistoryWrite,
+    options: Readonly<{ history?: HistoryWrite; synchronizedAt?: string }> = {},
   ) {
     let target = { cache, base, document: next };
     for (let attempt = 1; ; attempt += 1) {
-      const saved = yield* commit(target.cache, target.document, history).pipe(
+      // An explicit success owns its time even when it equals the prior base after clock rollback.
+      const document = {
+        ...target.document,
+        ...Struct.pick(options, ['synchronizedAt']),
+      };
+      const saved = yield* commit(target.cache, document, options.history).pipe(
         Effect.asSome,
         Effect.catchIf(
           (error) =>
@@ -3391,8 +3403,8 @@ export function createGmailInbox(
         ),
       );
       if (Option.isSome(saved)) {
-        yield* ready(saved.value, target.document, sync);
-        return { cache: saved.value, document: target.document };
+        yield* ready(saved.value, document, sync);
+        return { cache: saved.value, document };
       }
       target = yield* rebased(target);
     }
@@ -3445,7 +3457,7 @@ export function createGmailInbox(
       cache,
       document,
       { ...document, history: step.history },
-      { segments, keep: segmentNames(step.history) },
+      { history: { segments, keep: segmentNames(step.history) } },
     );
     return true;
   });
@@ -3985,7 +3997,8 @@ export function createGmailInbox(
   const synchronize = Effect.gen(function* () {
     let cache = yield* storage(native.openMailbox);
     const { address, generation } = cache;
-    selectionReference = yield* DateTime.now;
+    const started = yield* DateTime.now;
+    selectionReference = started;
     if (!forgotten) {
       opened = { address, generation };
     }
@@ -4017,6 +4030,9 @@ export function createGmailInbox(
     }
     if (document !== undefined) {
       ({ cache, document } = yield* refreshLabels(cache, document));
+      ({ cache, document } = yield* commitOver(cache, document, document, {
+        synchronizedAt: DateTime.formatIso(started),
+      }));
     }
     yield* finishSynchronization(cache, document);
   }).pipe(

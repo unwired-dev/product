@@ -348,6 +348,102 @@ const downloaded = async () => {
 };
 
 describe('gmail history backfill', () => {
+  it('records an explicit synchronization even when its time equals its base during a rebase', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const synchronizedAt = '2026-10-27T09:41:00.000Z';
+    vi.setSystemTime(synchronizedAt);
+    const gmail = createGmail();
+    mailbox(gmail, 1, 0);
+    const newer = createInbox(gmail.native);
+    let competing = false;
+    const inbox = createInbox({
+      ...gmail.native,
+      commitMailbox: async (...args) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Inject one competing successful refresh at the native CAS boundary.
+        if (competing) {
+          competing = false;
+          vi.setSystemTime('2026-10-27T09:42:00Z');
+          await newer.load();
+        }
+        return gmail.native.commitMailbox(...args);
+      },
+    });
+    await inbox.load();
+    await backfilled(inbox);
+    vi.setSystemTime(synchronizedAt);
+    competing = true;
+    await inbox.load();
+    expect(ready(newer.getSnapshot()).synchronizedAt).toBe(
+      '2026-10-27T09:42:00.000Z',
+    );
+    expect(ready(inbox.getSnapshot()).synchronizedAt).toBe(synchronizedAt);
+    const cache = await gmail.native.openMailbox();
+    const relaunched = createInbox({
+      ...gmail.native,
+      openMailbox: () => Promise.resolve({ ...cache, availability: 'retry' }),
+    });
+    await relaunched.load();
+    expect(ready(relaunched.getSnapshot()).synchronizedAt).toBe(synchronizedAt);
+  });
+
+  it.each(['2026-10-27T09:42:00.000Z', '2026-10-27T08:41:00.000Z'])(
+    'preserves the latest successful synchronization at %s when an older history page rebases',
+    async (synchronizedAt) => {
+      expect.hasAssertions();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      vi.setSystemTime('2026-10-27T09:41:00Z');
+      const gmail = createGmail();
+      mailbox(gmail, 1, 0);
+      const history = holdingHistory(gmail);
+      history.hold();
+      onTestFinished(history.release);
+      const inbox = createInbox(history.native);
+      await inbox.load();
+      await history.reached;
+
+      vi.setSystemTime(synchronizedAt);
+      const newer = createInbox({
+        ...gmail.native,
+        gmailRequest: (path, query, request) => {
+          /* oxlint-disable vitest/no-conditional-in-test -- Only the competing store's background history is unavailable. */
+          if (
+            path === 'messages' &&
+            query.some(
+              ([name, value]) => name === 'maxResults' && value === '100',
+            )
+          ) {
+            return Promise.resolve({ status: 503, body: '{}' });
+          }
+          /* oxlint-enable vitest/no-conditional-in-test */
+          return gmail.native.gmailRequest(path, query, request);
+        },
+      });
+      await newer.load();
+      expect(ready(newer.getSnapshot()).synchronizedAt).toBe(synchronizedAt);
+      newer.forget();
+
+      history.release();
+      await backfilled(inbox);
+      expect(ready(inbox.getSnapshot()).synchronizedAt).toBe(synchronizedAt);
+      const cache = await gmail.native.openMailbox();
+      const relaunched = createInbox({
+        ...gmail.native,
+        openMailbox: () => Promise.resolve({ ...cache, availability: 'retry' }),
+      });
+      await relaunched.load();
+      expect(ready(relaunched.getSnapshot()).synchronizedAt).toBe(
+        synchronizedAt,
+      );
+    },
+  );
+
   it('reveals equal-timestamp pages without duplicating folded changes', async () => {
     expect.hasAssertions();
     const gmail = createGmail();

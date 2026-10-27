@@ -373,6 +373,8 @@ describe('connecting IMAP mailboxes', () => {
     ]);
 
     // A relaunch shows the encrypted cache before the server answers, then resumes from it.
+    const { synchronizedAt } = ready(inbox.getSnapshot());
+    expect(synchronizedAt).toStrictEqual(expect.any(String));
     const relaunched = createMailboxes(
       syntheticConnections({}, { 'imap-connection': imap.native }),
       registration,
@@ -382,6 +384,8 @@ describe('connecting IMAP mailboxes', () => {
     const cachedInbox = imapInbox(relaunched);
     const cached = ready(cachedInbox.getSnapshot());
     expect(cached.status).toBe('retry');
+    // The last successful synchronization survives the relaunch and the failure.
+    expect(cached.synchronizedAt).toBe(synchronizedAt);
     expect(cached.messages.map(({ subject }) => subject)).toStrictEqual([
       'Third',
       'First',

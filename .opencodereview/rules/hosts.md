@@ -1570,6 +1570,15 @@ still applies. See `docs/architecture/macos-client.md`.
 - A dependency declared with a literal version rather than its `catalog:` entry, taken from the other host's catalog, or added to `dependencies` when only tests use it.
 - A change to a host's `scripts/verify-bundle.ts` (`apps/mobile/scripts/verify-bundle.ts`, `apps/macos/scripts/verify-bundle.ts`) that removes or loosens an assertion: the renderer inventory, the stale shared-source comparison, the rejection of the other renderer, Expo, React DOM or backend code in the Mac bundle, or the autolinking list. Version declarations do not prove what the bundle contains; these checks do.
 
+- `inbox.tsx.statusOf` presenting a connection's Inbox synchronization time as
+  freshness of a selected folder, label or Unified Mailbox. Trace the actual
+  listed view through `mailbox-folders.tsx.useListedMailbox`: Unified Mailboxes
+  can retain `folder: INBOX` while replacing the listed rows. Require both the
+  effective Inbox folder and absence of a non-Inbox unified role before using
+  the Inbox time, unless the listed view supplies its own completed read time.
+  Check per-connection and All inboxes as well as non-Inbox views on both hosts;
+  otherwise cached or refused folder reads can appear freshly synchronized.
+
 #### Tests in the same change
 
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
