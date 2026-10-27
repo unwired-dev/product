@@ -580,6 +580,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `createRegistration.resume` treating each Mac window's report of one application activation as a separate restore. The windows share one store and AppState dispatches listeners synchronously, so coalesce those reports or give the subscription one application-level owner; otherwise native Product Account and Gmail verification repeats per window and prolongs the busy state. Coalescing must end with that dispatch, not with the pending restore, so a later activation after unlock still queues a fresh verification.
 - A successful persisted state published before the native operation has durably completed, with no failure path that restores the previous state. Explicit busy/pending presentation states are permitted, as in `createRegistration`.
 - A whole-document CAS conflict in `createGmailInbox` that restarts all synchronization for ordinary concurrent intake, discards newly durable intents, or resurrects an action settled by this operation or another store instance. Review `commitOver`/`rebased` against both the prior base and latest saved pending IDs, including dispatch preparation and settlement, reconciliation, labels and blocked-action resolution. Drop previously known IDs absent from the latest document and revalidate the prepared head before dispatch. Retain newly appended intake IDs in FIFO order, bound rebases, and reject another mailbox/owner before any write; repeated benign intake must not exhaust whole-sync retries or duplicate provider actions.
+- `gmail-inbox.ts.rebasedOnto` copying an unchanged `synchronizedAt` from its
+  stale proposal over another store's completed synchronization. Preserve the
+  saved value when the proposal did not change it relative to its base, while
+  retaining an explicit synchronization update even after clock rollback.
+  Exercise a held history page, another store's successful refresh and cache-only
+  relaunch; otherwise background metadata work loses the last successful time.
 - `createGmailInbox.dispatch` identifying ownership only by pending/message ID,
   a deterministic attempt ID or attempt age after a CAS race. In `rebasedOnto`,
   preserve saved progress that advanced since the base even when stale

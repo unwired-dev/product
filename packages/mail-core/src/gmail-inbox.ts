@@ -915,6 +915,11 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
+      // Unchanged freshness belongs to the latest commit, including another store's sync.
+      ...(next.synchronizedAt === base?.synchronizedAt &&
+      saved.synchronizedAt !== undefined
+        ? { synchronizedAt: saved.synchronizedAt }
+        : {}),
       // Intake may have saved a newly created label while synchronization was reading.
       labels: includingLabels(
         next.labels ?? [],
