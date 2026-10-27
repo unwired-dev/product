@@ -51,6 +51,9 @@ const decodeClaimed = Schema.decodeUnknownOption(
   Schema.Struct({ owner: Schema.NonEmptyString, claimed: Schema.Boolean }),
 );
 
+// Only an explicit native release permits another hold; denied, expired or malformed replies stop it.
+export const deliveryTimeReleased = Schema.is(Schema.Literal(true));
+
 // The default Undo Send Window.
 export const undoSendWindow = 10_000;
 // How long a message that reached neither Convex nor Gmail waits before trying again.
