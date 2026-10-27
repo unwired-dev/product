@@ -21,9 +21,6 @@ static NSDictionary<NSAttributedStringKey, id> *toggled;
 // The characters the body's latest edit inserted, and whether an edit moved its selection.
 static NSRange inserted = {NSNotFound, 0};
 static BOOL edited;
-// The text formatted here that a JavaScript render has not shown yet, and when.
-static NSRange formatted = {NSNotFound, 0};
-static NSTimeInterval formattedAt;
 
 static NSTextView *composerBody(id responder)
 {
@@ -34,7 +31,6 @@ static NSTextView *composerBody(id responder)
         body = responder;
         typing = TypingNeighbour;
         toggled = nil;
-        formatted = NSMakeRange(NSNotFound, 0);
       }
       return responder;
     }
@@ -60,6 +56,8 @@ static void forget(Typing next)
 }
 
 // A list item's marker, which belongs to no span and takes no marks.
+// shortcut: a paragraph that only starts like a marker keeps that start unmarked until JavaScript
+// renders; pass the document's markers to native code if that flash matters.
 static NSUInteger markerLength(NSString *text, NSUInteger start, NSUInteger contentsEnd)
 {
   static NSRegularExpression *markers;
@@ -137,16 +135,6 @@ static NSDictionary<NSAttributedStringKey, id> *marked(
   return result;
 }
 
-static BOOL sameMarks(NSAttributedString *text, NSAttributedString *other, NSRange range)
-{
-  for (NSUInteger at = range.location; at < NSMaxRange(range); at++) {
-    NSDictionary<NSAttributedStringKey, id> *one = [text attributesAtIndex:at effectiveRange:NULL];
-    NSDictionary<NSAttributedStringKey, id> *two = [other attributesAtIndex:at effectiveRange:NULL];
-    if (has(one, 'b') != has(two, 'b') || has(one, 'i') != has(two, 'i') || has(one, 'u') != has(two, 'u')) return NO;
-  }
-  return YES;
-}
-
 // Toggles the mark on the selected text, as the document does: added unless all of it has it.
 // List markers and line breaks are not text a mark covers.
 static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
@@ -182,8 +170,9 @@ static void formatSelection(NSTextView *view, NSRange selection, unichar mark)
   [storage endEditing];
   // Attribute changes otherwise wait a display frame that typed text does not.
   [view displayIfNeeded];
-  formatted = formatted.location == NSNotFound ? selection : NSUnionRange(formatted, selection);
-  formattedAt = NSProcessInfo.processInfo.systemUptime;
+  // Reported like typing, so React Native drops JavaScript renders from before it.
+  inserted = NSMakeRange(NSNotFound, 0);
+  [view didChangeText];
 }
 
 static NSEvent *keyDown(NSEvent *event)
@@ -199,7 +188,6 @@ static NSEvent *keyDown(NSEvent *event)
   // Undo and Redo end marks toggled for typing, and their render may undo marks shown here.
   if ([key.lowercaseString isEqualToString:@"z"]) {
     forget(TypingNeighbour);
-    formatted = NSMakeRange(NSNotFound, 0);
     return event;
   }
   unichar mark = [key characterAtIndex:0];
@@ -227,24 +215,14 @@ void UnwiredInstallComposerFormatting(void)
 {
   // Each JavaScript span carries its own event emitter, so a render after marks shown here
   // replaces the whole text with the same characters, and on Mac React Native then keeps only a
-  // collapsed caret. Keep a selected range across that so the next shortcut formats it. A render
-  // of the same text from before the latest shortcuts would put their marks back; skip it.
+  // collapsed caret. Keep a selected range across that so the next shortcut formats it.
   Method method = class_getInstanceMethod(NSClassFromString(@"RCTUITextView"), @selector(setAttributedText:));
   void (*setAttributedText)(id, SEL, NSAttributedString *) = (void *)method_getImplementation(method);
   method_setImplementation(method, imp_implementationWithBlock(^(NSTextView *view, NSAttributedString *text) {
-    BOOL same = [view.string isEqualToString:text.string];
-    if (view == body && formatted.location != NSNotFound) {
-      // shortcut: a render that still disagrees after a second shows anyway, in case the document
-      // disagrees; replace it with a render count from JavaScript if that ever happens.
-      if (same && NSMaxRange(formatted) <= text.length && !sameMarks(text, view.textStorage, formatted)
-          && NSProcessInfo.processInfo.systemUptime - formattedAt < 1) {
-        return;
-      }
-      formatted = NSMakeRange(NSNotFound, 0);
-    }
     NSRange selection = view.selectedRange;
+    BOOL same = selection.length > 0 && [view.string isEqualToString:text.string];
     setAttributedText(view, @selector(setAttributedText:), text);
-    if (same && selection.length > 0) view.selectedRange = selection;
+    if (same) view.selectedRange = selection;
   }));
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
     return keyDown(event);
@@ -254,7 +232,6 @@ void UnwiredInstallComposerFormatting(void)
     NSScrollView *scroll = body.enclosingScrollView;
     if (body != nil && !NSPointInRect([scroll convertPoint:event.locationInWindow fromView:nil], scroll.bounds)) {
       forget(TypingUnknown);
-      formatted = NSMakeRange(NSNotFound, 0);
     }
     return event;
   }];
