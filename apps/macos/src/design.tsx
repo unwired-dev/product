@@ -154,7 +154,7 @@ export function SFSymbol({
 
 const NativeContextMenu = requireNativeComponent<
   ViewProps & {
-    readonly destructiveColor: ColorValue;
+    readonly destructiveColor: ReturnType<typeof processColor>;
     readonly sections: ReadonlyArray<
       Readonly<{
         palette?: boolean | undefined;
@@ -177,7 +177,7 @@ export function ContextMenu({
   return (
     <NativeContextMenu
       {...props}
-      destructiveColor={colors.statusDestructive}
+      destructiveColor={processColor(colors.statusDestructive)}
       sections={menu.sections}
       onSelect={({ nativeEvent }) => {
         void menu.runs.get(nativeEvent.id)?.();

@@ -8,6 +8,7 @@ import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ComponentProps, ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
+import { lastUpdated } from '@private-email/localization';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   allMail,
@@ -438,7 +439,8 @@ function scopeOf(
 }
 
 // The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
-// downloaded, or how much is unread.
+// downloaded, or how much is unread and, on iPad, when the shown Inboxes were last brought up to
+// date. iPhone's one-line heading has no room for it; its Sync Status details show it instead.
 function statusOf(
   t: Translate,
   shown: readonly InboxMailbox[],
@@ -447,6 +449,8 @@ function statusOf(
     searchOffline,
     waiting,
     downloading,
+    now,
+    inbox,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
@@ -454,6 +458,9 @@ function statusOf(
     // The chosen connection while it waits for authorization, whose unread mail is unknown.
     waiting: Readonly<{ provider: MailProvider }> | undefined;
     downloading: string | undefined;
+    now: number;
+    // Whether the Inbox is listed; another folder or view was not necessarily brought up to date.
+    inbox: boolean;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -472,9 +479,25 @@ function statusOf(
   if (downloading !== undefined) {
     return downloading;
   }
-  return unread === 0
-    ? t('inbox.noUnread')
-    : t('inbox.unread', { count: unread });
+  const status =
+    unread === 0 ? t('inbox.noUnread') : t('inbox.unread', { count: unread });
+  if (!ipad || !inbox) {
+    return status;
+  }
+  const updated = lastUpdated(
+    t,
+    shown.flatMap(({ state }) =>
+      state.kind === 'ready' &&
+      'synchronizedAt' in state &&
+      state.synchronizedAt !== undefined
+        ? [state.synchronizedAt]
+        : [],
+    ),
+    now,
+  );
+  return updated === undefined
+    ? status
+    : t('inbox.statusUpdated', { status, updated });
 }
 
 // Section data lets the native list virtualize online pages together with saved rows.
@@ -751,6 +774,8 @@ export function Inbox({
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
     downloading,
+    now,
+    inbox: view.unified === undefined && folder === inboxFolder,
   });
   const title =
     folderName ??

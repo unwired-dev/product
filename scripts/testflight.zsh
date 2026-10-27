@@ -1,9 +1,10 @@
 #!/bin/zsh
 # Archive a host from the current checkout and upload it to TestFlight.
 set -eo pipefail
-root=${0:A:h:h}
+# CI runs workflow-revision tooling against the selected source checkout.
+root=${TESTFLIGHT_SOURCE_ROOT:-${0:A:h:h}}
 if [[ "${UNWIRED_TESTFLIGHT_ENV_LOADED:-}" != 1 ]]; then
-  exec node "$root/scripts/testflight-env.mjs" "$@"
+  exec node "${0:A:h}/testflight-env.mjs" "$@"
 fi
 # The API key is read from its file, never inherited by project build phases.
 unset UNWIRED_TESTFLIGHT_ENV_LOADED ASC_PRIVATE_KEY
@@ -108,6 +109,15 @@ upload() {
   if (( ${#app} != 1 )); then
     print -u2 "Refusing to upload $host: expected one archived app"
     exit 1
+  fi
+  # The signing wrapper names the identity it prepared; local uploads skip this.
+  if [[ -n "${TESTFLIGHT_IDENTITY_SHA1:-}" ]]; then
+    if ! codesign -d --extract-certificates="$artifacts/$host-certificate" "$app[1]" > "$artifacts/$host-codesign.log" 2>&1 ||
+      [[ "$(ruby -ropenssl -e 'print OpenSSL::Digest::SHA1.hexdigest(OpenSSL::X509::Certificate.new(File.binread(ARGV[0])).to_der).upcase' "$artifacts/$host-certificate0" 2>/dev/null)" != "$TESTFLIGHT_IDENTITY_SHA1" ]]; then
+      print -u2 "Refusing to upload $host: archive is not signed by the prepared identity"
+      exit 1
+    fi
+    print -r -- "Signed: $host; prepared identity $TESTFLIGHT_IDENTITY_SHA1" >> "$artifacts/status.txt"
   fi
   local package_host=$host
   if [[ "$host" == ios ]]; then package_host=mobile; fi

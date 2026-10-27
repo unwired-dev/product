@@ -1084,6 +1084,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Mac native-view color props in `design.tsx.ContextMenu` or another host
+  adapter relying on automatic conversion solely because their TypeScript type
+  is `ColorValue`. Trace the installed renderer's prop processor and native
+  converter, including custom `NSColor` props under legacy-view interop; pass
+  the processed wire value when that prop has no processor. Exercise a packaged
+  menu containing a destructive item, or an unconverted tint can arrive as nil
+  and abort menu construction while component tests still pass.
+
 - `organize-motion` relying on `LayoutAnimation.configureNext` without tracing
   its delegate in the installed renderer and native dependencies. Reanimated can
   replace Fabric's delegate with one that ignores that API; a call-count test
@@ -1569,6 +1577,15 @@ still applies. See `docs/architecture/macos-client.md`.
 
 - A dependency declared with a literal version rather than its `catalog:` entry, taken from the other host's catalog, or added to `dependencies` when only tests use it.
 - A change to a host's `scripts/verify-bundle.ts` (`apps/mobile/scripts/verify-bundle.ts`, `apps/macos/scripts/verify-bundle.ts`) that removes or loosens an assertion: the renderer inventory, the stale shared-source comparison, the rejection of the other renderer, Expo, React DOM or backend code in the Mac bundle, or the autolinking list. Version declarations do not prove what the bundle contains; these checks do.
+
+- `inbox.tsx.statusOf` presenting a connection's Inbox synchronization time as
+  freshness of a selected folder, label or Unified Mailbox. Trace the actual
+  listed view through `mailbox-folders.tsx.useListedMailbox`: Unified Mailboxes
+  can retain `folder: INBOX` while replacing the listed rows. Require both the
+  effective Inbox folder and absence of a non-Inbox unified role before using
+  the Inbox time, unless the listed view supplies its own completed read time.
+  Check per-connection and All inboxes as well as non-Inbox views on both hosts;
+  otherwise cached or refused folder reads can appear freshly synchronized.
 
 #### Tests in the same change
 

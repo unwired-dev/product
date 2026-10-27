@@ -309,18 +309,22 @@ describe('reading Microsoft mail through Graph', () => {
     expect(updated.messages.find(({ id }) => id === read)?.unread).toBe(false);
     expect(updated.messages).toHaveLength(5);
 
-    // An unchanged Inbox returning the same link commits nothing.
+    // An unchanged Inbox returning the same link commits only its synchronization time.
     const commits = graph.commits.length;
     await relaunched.load();
-    expect(graph.commits).toHaveLength(commits);
+    expect(graph.commits).toHaveLength(commits + 1);
+    expect(ready(relaunched.getSnapshot()).messages).toStrictEqual(
+      updated.messages,
+    );
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
 
-    // A fresh link from an empty round is saved, once per synchronization, and used next time.
+    // A fresh link from an empty round is saved, once per synchronization beside its time, and
+    // used next time.
     graph.rotateDelta();
     graph.requests.length = 0;
     await relaunched.load();
     expect(reads(graph)).toStrictEqual(['changes']);
-    expect(graph.commits).toHaveLength(commits + 1);
+    expect(graph.commits).toHaveLength(commits + 3);
     expect(graph.commits.at(-1)).toContain('$deltatoken=');
     expect(graph.commits.at(-1)).toContain('r1');
     await relaunched.load();
@@ -328,7 +332,7 @@ describe('reading Microsoft mail through Graph', () => {
     expect(messageReads(graph).at(-1)?.searchParams.get('$deltatoken')).toMatch(
       /r1$/u,
     );
-    expect(graph.commits).toHaveLength(commits + 2);
+    expect(graph.commits).toHaveLength(commits + 5);
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
   });
 

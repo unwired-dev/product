@@ -259,7 +259,13 @@ the UTC day they arrived; a row shows the time today, Yesterday for the prior
 day, the weekday within the last week and the date before that, with Gmail's
 star as its flag. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
-Offline while the server is being checked or cannot be reached. On iPhone and iPad, while
+Offline while the server is being checked or cannot be reached. Otherwise, on iPad and
+Mac while the Inbox is listed, it also says how long ago the shown mailboxes were last brought up to date, such as **Updated just
+now** or **Updated 5 minutes ago**, counted from the start of each mailbox's latest
+completed synchronization and taking the oldest of them. Each mailbox saves that time
+with its cache after every successful synchronization, even when no mail changed,
+so it survives relaunch and failed attempts. iPhone's one-line subtitle leaves the time
+out. On iPhone and iPad, while
 [search](#searching-saved-mail) is open the heading gives way to its scope choice,
 and **Top Results** reports the result count; each mailbox an online search could
 not reach says so under **From mail servers**. On Mac, search changes the title to
@@ -341,10 +347,9 @@ during search, the capsule rises with it and stays 12pt above it.
 - **Idle.** The capsule fades out. A refused grant or password also keeps its own
   authorization notice above the list, and the sidebar keeps each connection's problem.
 
-Per-account details, the Mac capsule and the last successful synchronization follow
-in [#1442](https://github.com/unwired-dev/product/issues/1442),
-[#1443](https://github.com/unwired-dev/product/issues/1443) and
-[#1444](https://github.com/unwired-dev/product/issues/1444).
+Per-account details and the Mac capsule follow in
+[#1442](https://github.com/unwired-dev/product/issues/1442) and
+[#1443](https://github.com/unwired-dev/product/issues/1443).
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache
