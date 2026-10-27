@@ -470,8 +470,74 @@ final class InboxTests: XCTestCase {
       app.buttons["New Message"].tap()
       let composer = app.otherElements["composer-overlay"]
       XCTAssertTrue(composer.waitForExistence(timeout: 15))
+      // #1165: the format bar stays directly above the software keyboard while the body is edited.
+      let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+        .firstMatch
+      XCTAssertTrue(body.waitForExistence(timeout: 15))
+      body.tap()
+      let keyboard = app.keyboards.firstMatch
+      XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+      formatBarOnKeyboard(app)
+      // Typing keeps the bar in place, and Undo and Redo further along its rail stay reachable.
+      keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", "h")).firstMatch.tap()
+      waitUntil { (body.value as? String ?? "").contains("H") }
+      app.buttons["Bold"].swipeLeft()
+      for control in ["Undo", "Redo"] {
+        let button = app.buttons[control]
+        waitUntil { button.isHittable && button.frame.maxY <= keyboard.frame.minY }
+      }
+      // Delete the letter so Close keeps no Draft for the later Outbox checks.
+      keyboard.keys["delete"].tap()
+      waitUntil { !(body.value as? String ?? "").contains("H") }
+      formatBarOnKeyboard(app)
+      let raised = XCTAttachment(screenshot: app.screenshot())
+      raised.name = "Composer format bar above the keyboard"
+      raised.lifetime = .keepAlways
+      add(raised)
+      // Hiding and showing the keyboard, and rotating, keep the bar on the keyboard.
+      // The body's scroll view dismisses the keyboard interactively when dragged down.
+      for _ in 0..<3 where keyboard.exists {
+        composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+          .press(forDuration: 0.1, thenDragTo: composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        _ = keyboard.waitForNonExistence(timeout: 3)
+      }
+      XCTAssertFalse(keyboard.exists)
+      let hidden = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      hidden.name = "Composer format bar with the keyboard hidden"
+      hidden.lifetime = .keepAlways
+      add(hidden)
+      body.tap()
+      XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+      formatBarOnKeyboard(app)
+      XCUIDevice.shared.orientation = .landscapeLeft
+      waitUntil {
+        let window = app.windows.firstMatch.frame
+        return window.width > window.height
+      }
+      formatBarOnKeyboard(app)
+      let landscape = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      landscape.name = "Composer format bar above the keyboard in landscape"
+      landscape.lifetime = .keepAlways
+      add(landscape)
+      XCUIDevice.shared.orientation = .portrait
+      waitUntil {
+        let window = app.windows.firstMatch.frame
+        return window.height > window.width
+      }
+      formatBarOnKeyboard(app)
       app.buttons["Close"].tap()
       waitUntil { !composer.exists && switcher.isHittable }
+    }
+  }
+
+  // #1165: the iPhone format bar sits on the software keyboard's suggestion strip, which the
+  // keyboard element's frame excludes.
+  private func formatBarOnKeyboard(_ app: XCUIApplication) {
+    let keyboard = app.keyboards.firstMatch
+    let textStyle = app.buttons["Text style"]
+    waitUntil {
+      keyboard.exists && textStyle.isHittable && textStyle.frame.maxY <= keyboard.frame.minY
+        && keyboard.frame.minY - textStyle.frame.maxY < 60
     }
   }
 
@@ -481,6 +547,21 @@ final class InboxTests: XCTestCase {
     app.buttons["New Message"].tap()
     let to = app.textFields["To"]
     XCTAssertTrue(to.waitForExistence(timeout: 15))
+    // #1165: the expanded iPad composer keeps clear of the status bar with its own safe area.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.buttons["Expand"].tap()
+      let collapse = app.buttons["Collapse"]
+      XCTAssertTrue(collapse.waitForExistence(timeout: 10))
+      to.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+      waitUntil { app.buttons["Text style"].isHittable && collapse.frame.minY >= 24 }
+      let expanded = XCTAttachment(screenshot: app.screenshot())
+      expanded.name = "Expanded composer with the keyboard"
+      expanded.lifetime = .keepAlways
+      add(expanded)
+      collapse.tap()
+      XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
+    }
     to.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     type("maya@example.invalid", into: to)

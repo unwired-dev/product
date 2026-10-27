@@ -186,6 +186,8 @@ function MailShell() {
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
   const [expanded, setExpanded] = useState(false);
+  // On iPad the composer floats over the reader until it is expanded to the full window.
+  const floating = regular && !expanded;
   const [height, setHeight] = useState(0);
   // UIKit changes the reading column's width when either leading column moves or hides; every
   // reading-column route reports it.
@@ -460,9 +462,9 @@ function MailShell() {
         {draft === undefined ? null : (
           <View
             testID="composer-overlay"
-            accessibilityViewIsModal={!regular || expanded}
+            accessibilityViewIsModal={!floating}
             style={
-              regular && !expanded
+              floating
                 ? [
                     styles.overlay,
                     {
@@ -478,12 +480,16 @@ function MailShell() {
                   ]
                 : [
                     StyleSheet.absoluteFill,
-                    {
+                    { backgroundColor: colors.surfaceContent },
+                    // On iPhone the composer's own safe area clears the system bars; padding here
+                    // too would apply the insets twice and hide the format bar behind the keyboard
+                    // (#1165). On iPad, in any window width, that safe area gets no insets, so the
+                    // overlay pads here.
+                    !phone && {
                       paddingTop: insets.top,
                       paddingBottom: insets.bottom,
                       paddingLeft: insets.left,
                       paddingRight: insets.right,
-                      backgroundColor: colors.surfaceContent,
                     },
                   ]
             }>

@@ -721,10 +721,14 @@ describe('profile-scoped mobile routes', () => {
       });
       await app.rerender(view());
       expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull();
-      // Outside the split view's screens, the compact composer clears the status bar itself.
+      // The composer's own safe area clears the system bars; padding the overlay too would apply
+      // the insets twice and leave the format bar behind the keyboard (#1165).
       expect(
         screen.getByTestId('composer-overlay', { includeHiddenElements: true }),
-      ).toHaveStyle({ paddingTop: insets.top, paddingBottom: insets.bottom });
+      ).not.toHaveStyle({ paddingTop: insets.top });
+      expect(
+        screen.getByTestId('composer-overlay', { includeHiddenElements: true }),
+      ).not.toHaveStyle({ paddingBottom: insets.bottom });
       await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
       expect(screen.getByLabelText('To')).toHaveProp('value', '');
       await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
