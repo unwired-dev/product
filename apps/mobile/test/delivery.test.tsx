@@ -231,8 +231,12 @@ describe('application-owned Outbox execution', () => {
   it.each([false, 'false'])(
     'waits for the next activation when background time ends with %p, without asking again',
     async (reply) => {
-      let answered = false;
       expect.hasAssertions();
+      const grant = jest
+        .fn<void, [(released: unknown) => void]>()
+        .mockImplementationOnce((end) => {
+          end(reply);
+        });
       await journey(
         'active',
         async ({ host, gmail, change, send, holds }) => {
@@ -250,12 +254,7 @@ describe('application-owned Outbox execution', () => {
           await host.outbox.process();
           expect(gmail.sends).toHaveLength(1);
         },
-        (end) => {
-          if (!answered) {
-            answered = true;
-            end(reply);
-          }
-        },
+        grant,
       );
     },
   );
