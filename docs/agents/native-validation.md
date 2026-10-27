@@ -222,9 +222,7 @@ Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader 
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)),
-reader labels that repeat their role or differ from visible text
-([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
-and email or web addresses used as labels. The contrast gap lists
+AppKit's text Touch Bar, and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and

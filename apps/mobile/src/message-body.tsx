@@ -326,6 +326,7 @@ function MessageLinks({
         },
       ]}>
       <Pressable
+        testID="message-link-control"
         accessibilityRole="link"
         accessibilityLabel={link.text === '' ? link.href : link.text}
         accessibilityHint={link.href}

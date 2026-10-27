@@ -701,8 +701,8 @@ final class WindowTests: XCTestCase {
         .firstMatch.exists
     }
     func ask(_ link: String, title: String, destination: String, buttons: [String]) {
-      // The message's own link and its keyboard control share the name and open the same sheet.
-      window.links[link].firstMatch.click()
+      window.links.matching(identifier: "message-link-control")
+        .matching(NSPredicate(format: "label == %@", link)).firstMatch.click()
       XCTAssertTrue(sheet.waitForExistence(timeout: 10))
       XCTAssertTrue(shows(title))
       XCTAssertTrue(shows(destination))
