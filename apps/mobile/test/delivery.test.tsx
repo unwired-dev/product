@@ -52,9 +52,9 @@ const journey = async (
     send: () => Promise<string>;
     holds: jest.Mock;
     releases: jest.Mock;
-    end: (released: boolean) => void;
+    end: (released: unknown) => void;
   }) => Promise<void>,
-  grant?: (end: (released: boolean) => void) => void,
+  grant?: (end: (released: unknown) => void) => void,
 ) => {
   jest.resetModules();
   // Each journey loads a fresh entry, so it shares the React Native module that entry receives.
@@ -72,8 +72,8 @@ const journey = async (
   });
   const gmail = createSyntheticGmail();
   const connection = syntheticMailboxes['alex@example.invalid'];
-  const endings: Array<(released: boolean) => void> = [];
-  const end = (released: boolean) => {
+  const endings: Array<(released: unknown) => void> = [];
+  const end = (released: unknown) => {
     for (const resolve of endings.splice(0)) {
       resolve(released);
     }
@@ -81,7 +81,7 @@ const journey = async (
   const holds = jest.fn(
     () =>
       // oxlint-disable-next-line promise/avoid-new -- Native background time ends only when released, denied or expired.
-      new Promise<boolean>((resolve) => {
+      new Promise<unknown>((resolve) => {
         endings.push(resolve);
         grant?.(end);
       }),
@@ -228,28 +228,35 @@ describe('application-owned Outbox execution', () => {
     );
   });
 
-  it('waits for the next activation when background time is denied, without asking again', async () => {
-    expect.hasAssertions();
-    await journey(
-      'active',
-      async ({ host, gmail, change, send, holds }) => {
-        await send();
-        await jest.advanceTimersByTimeAsync(0);
-        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
-        expect(holds).toHaveBeenCalledTimes(1);
-        change('background');
-        await jest.advanceTimersByTimeAsync(undoSendWindow + 1000);
-        await host.outbox.process();
-        expect(gmail.sends).toHaveLength(0);
-        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
-        expect(holds).toHaveBeenCalledTimes(1);
-        change('active');
-        await host.outbox.process();
-        expect(gmail.sends).toHaveLength(1);
-      },
-      (end) => {
-        end(false);
-      },
-    );
-  });
+  it.each([false, 'false'])(
+    'waits for the next activation when background time ends with %p, without asking again',
+    async (reply) => {
+      let answered = false;
+      expect.hasAssertions();
+      await journey(
+        'active',
+        async ({ host, gmail, change, send, holds }) => {
+          await send();
+          await jest.advanceTimersByTimeAsync(0);
+          // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+          expect(holds).toHaveBeenCalledTimes(1);
+          change('background');
+          await jest.advanceTimersByTimeAsync(undoSendWindow + 1000);
+          await host.outbox.process();
+          expect(gmail.sends).toHaveLength(0);
+          // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+          expect(holds).toHaveBeenCalledTimes(1);
+          change('active');
+          await host.outbox.process();
+          expect(gmail.sends).toHaveLength(1);
+        },
+        (end) => {
+          if (!answered) {
+            answered = true;
+            end(reply);
+          }
+        },
+      );
+    },
+  );
 });

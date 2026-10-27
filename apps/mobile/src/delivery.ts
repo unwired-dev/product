@@ -1,3 +1,4 @@
+import { deliveryTimeReleased } from '@private-email/mail-core/outbox';
 import { AppState } from 'react-native';
 
 import { native } from './host.ts';
@@ -31,7 +32,7 @@ const hold = async (): Promise<void> => {
     return;
   }
   held = true;
-  const released = await native().holdDelivery();
+  const released = deliveryTimeReleased(await native().holdDelivery());
   held = false;
   spent = !released;
   if (AppState.currentState !== 'active') {

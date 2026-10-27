@@ -16,7 +16,7 @@ interface RegistrationModule
     NativeMailAssistance,
     NativePreferences {
   // Background time for admitted Sends; resolves true after a release, false when denied or expired.
-  readonly holdDelivery: () => Promise<boolean>;
+  readonly holdDelivery: () => Promise<unknown>;
   readonly releaseDelivery: () => void;
 }
 
