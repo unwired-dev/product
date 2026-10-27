@@ -5,7 +5,7 @@ import * as Schema from 'effect/Schema';
 import type { GmailMessage } from './mailbox-message.ts';
 
 import { GmailActionSchema, GmailLabelSchema } from './gmail-actions.ts';
-import { GmailMessageSchema } from './mailbox-message.ts';
+import { GmailMessageSchema, SynchronizationTime } from './mailbox-message.ts';
 import { GraphDeltaLink } from './microsoft-graph.ts';
 
 export type { GmailMessage } from './mailbox-message.ts';
@@ -142,7 +142,7 @@ const MailboxDocumentSchema = Schema.Struct({
   history: Schema.optionalKey(MailboxHistorySchema),
   // When this device began the last synchronization that completed, as an ISO instant; absent
   // until one completes.
-  synchronizedAt: Schema.optionalKey(Schema.String),
+  synchronizedAt: Schema.optionalKey(SynchronizationTime),
   checkpoint: Schema.Union([
     // Listing the Inbox from the history ID read before the first page; `seen` survives an
     // interruption so a replacement listing can drop messages that left the Inbox.

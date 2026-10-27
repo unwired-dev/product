@@ -770,10 +770,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Otherwise stale metadata can rewind progress and report an arrival twice even
   when a filter drops candidates present at the first conflicting commit.
 
-- Persisted synchronization instants in `imap-model.ts`
-  accepted as arbitrary strings before `mailbox-message.ts.newMailSince` converts
-  them unsafely. Reject malformed values at decoding, or synchronization can
-  reject outside typed recovery and leave the Inbox permanently syncing. A cache
+- Persisted synchronization instants in `imap-model.ts` or `mailbox-document.ts`
+  accepted as arbitrary strings before date consumers use them. Reuse
+  `mailbox-message.ts.SynchronizationTime` at decoding, or `newMailSince` can reject
+  outside typed recovery and leave the Inbox permanently syncing, and the Inbox
+  subtitle's `lastUpdated` can show `Updated NaN days ago`. An IMAP cache
   lacking that instant must establish its boundary silently; substituting its
   newest receipt can classify much older moved-in mail as an arrival.
 

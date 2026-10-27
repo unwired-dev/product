@@ -443,25 +443,33 @@ describe('synchronizing a Gmail Inbox', () => {
     ).not.toContain(removed);
   });
 
-  it('preserves an unreadable persisted document without provider work or replacement writes', async () => {
-    expect.hasAssertions();
-    const gmail = createSyntheticGmail({ messages: 1 });
-    const malformedDocument = JSON.stringify({
+  it.each([
+    { version: 1, messages: 'private-mail' },
+    {
       version: 1,
-      messages: 'private-mail',
-    });
-    const cache = await gmail.native.commitMailbox(
-      { address: 'alex@example.invalid', generation: '0' },
-      0,
-      malformedDocument,
-    );
-    const inbox = createGmailInbox(gmail.native);
-    await inbox.load();
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
-    expect(gmail.requests).toHaveLength(0);
-    await expect(gmail.native.openMailbox()).resolves.toStrictEqual(cache);
-    expect(gmail.commits).toStrictEqual([malformedDocument]);
-  });
+      messages: [],
+      checkpoint: { kind: 'current', historyId: '1' },
+      synchronizedAt: 'invalid',
+    },
+  ])(
+    'preserves an unreadable persisted document without provider work or replacement writes (%j)',
+    async (document) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail({ messages: 1 });
+      const malformedDocument = JSON.stringify(document);
+      const cache = await gmail.native.commitMailbox(
+        { address: 'alex@example.invalid', generation: '0' },
+        0,
+        malformedDocument,
+      );
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+      expect(gmail.requests).toHaveLength(0);
+      await expect(gmail.native.openMailbox()).resolves.toStrictEqual(cache);
+      expect(gmail.commits).toStrictEqual([malformedDocument]);
+    },
+  );
 
   it('rejects a stale synchronization commit after same-address mailbox reselection', async () => {
     expect.hasAssertions();
