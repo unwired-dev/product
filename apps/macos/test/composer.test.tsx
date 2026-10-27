@@ -793,7 +793,10 @@ describe('composing Drafts', () => {
       nativeEvent: { selection: { start: 2, end: 7 } },
     });
     // The native body shows the marks first and reports the unchanged text before the key.
-    await fireEvent.changeText(screen.getByLabelText('Message body'), '• Notes');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      '• Notes',
+    );
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'b', metaKey: true },
     });
