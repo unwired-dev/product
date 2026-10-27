@@ -94,7 +94,7 @@ static NSDictionary<NSAttributedStringKey, id> *neighbour(NSTextView *view, NSRa
   if (listLike(text, start, contentsEnd)) return nil;
   NSUInteger from = range.location > start ? range.location - 1
       : NSMaxRange(range) < contentsEnd ? NSMaxRange(range) : NSNotFound;
-  if (from == NSNotFound || [text characterAtIndex:from] == NSAttachmentCharacter) return base(view);
+  if (from == NSNotFound) return base(view);
   return [view.textStorage attributesAtIndex:from effectiveRange:NULL];
 }
 
