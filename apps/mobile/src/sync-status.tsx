@@ -1,7 +1,7 @@
 import { Host, ProgressView } from '@expo/ui/swift-ui';
 import { tint } from '@expo/ui/swift-ui/modifiers';
 import { spacing, typography } from '@private-email/mail-core/theme';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -19,6 +19,7 @@ import {
   useMenuMotion,
   useOutcomeAnnouncement,
 } from './design.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
 
@@ -26,7 +27,6 @@ import { usePalette } from './theme.ts';
 // component (Progress and Attention).
 const styles = StyleSheet.create({
   capsule: {
-    width: 300,
     maxWidth: '100%',
     paddingHorizontal: spacing.l,
     paddingTop: 10,
@@ -127,6 +127,9 @@ export const syncStatusOf = (
       };
 };
 
+// The list column of a regular-width window gives the capsule more room.
+const useCapsuleWidth = () => (use(WindowBarContext) === undefined ? 300 : 320);
+
 // Automatic work shows only after a second; work the person started shows at once.
 const automaticDelay = 1000;
 
@@ -173,6 +176,7 @@ export function SyncStatusCapsule({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  const width = useCapsuleWidth();
   const progressing = status?.kind === 'progress';
   const [waited, setWaited] = useState(false);
   if (!progressing && waited) {
@@ -221,7 +225,11 @@ export function SyncStatusCapsule({
       style={[
         styles.capsule,
         said.percent === undefined && styles.line,
-        { borderRadius: height / 2, boxShadow: colors.smallGlassShadow },
+        {
+          width,
+          borderRadius: height / 2,
+          boxShadow: colors.smallGlassShadow,
+        },
         motion.style,
       ]}>
       <Glass cornerRadius={height / 2} />
