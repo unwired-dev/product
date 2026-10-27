@@ -238,7 +238,7 @@ void UnwiredInstallComposerFormatting(void)
   void (*setAttributedText)(id, SEL, NSAttributedString *) = (void *)method_getImplementation(method);
   method_setImplementation(method, imp_implementationWithBlock(^(NSTextView *view, NSAttributedString *text) {
     NSRange selection = view.selectedRange;
-    BOOL same = selection.length > 0 && [view.string isEqualToString:text.string];
+    BOOL same = selection.length > 0 && composerOf(view) != nil && [view.string isEqualToString:text.string];
     setAttributedText(view, @selector(setAttributedText:), text);
     // React Native applies only a render made after JavaScript had every edit reported to it.
     if (view == body && typing == TypingAwaitingRender) typing = TypingNeighbour;
