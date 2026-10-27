@@ -2213,6 +2213,8 @@ function Editor({
           scrollEnabled={false}
           selection={placed}
           style={[styles.body, { color: colors.textPrimary }]}
+          // ComposerFormatting.m shows formatting shortcuts and marked typing before this renders.
+          testID="composer-body"
           textAlignVertical="top">
           {display.lines.map((line, index) => (
             <Text

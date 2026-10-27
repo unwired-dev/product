@@ -15,6 +15,8 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 // UnwiredCommands.m: the Mail Profile each Inbox window's JavaScript last reported.
 extern "C" NSString *UnwiredWindowProfile(NSString *identifier);
 extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile);
+// ComposerFormatting.m: the composer body shows formatting shortcuts before JavaScript renders them.
+extern "C" void UnwiredInstallComposerFormatting(void);
 
 // Shared Swift in native/private-inbox receives APNs registration and Gmail wake hints.
 @protocol UnwiredPushWakes
@@ -72,6 +74,7 @@ extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profi
   [[NSAppleEventManager sharedAppleEventManager] setEventHandler:self
       andSelector:@selector(handleGoogleURL:reply:) forEventClass:kInternetEventClass andEventID:kAEGetURL];
   [self installMenus];
+  UnwiredInstallComposerFormatting();
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateLanguage:)
       name:UnwiredLanguageDidChange object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateLanguage:)
