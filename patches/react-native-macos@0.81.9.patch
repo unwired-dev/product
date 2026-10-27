@@ -11,7 +11,7 @@ index 6e20d03f64385e3729a7517c6fb8b31f6177d52d..5aab846ad80c9bf20b9e3a15966d6d21
    BOOL _useCustomContainerView;
    NSMutableSet<NSString *> *_accessibilityOrderNativeIDs;
    NSMutableArray<NSObject *> *_accessibilityElements;
-@@ -1035,7 +1035,7 @@ - (RCTUIView *)currentContainerView // [macOS]
+@@ -1035,11 +1035,12 @@ - (RCTUIView *)currentContainerView // [macOS]
  {
    if (_useCustomContainerView) {
      if (!_containerView) {
@@ -20,3 +20,8 @@ index 6e20d03f64385e3729a7517c6fb8b31f6177d52d..5aab846ad80c9bf20b9e3a15966d6d21
        for (RCTPlatformView *subview in self.subviews) { // [macOS]
          [_containerView addSubview:subview];
        }
+       _containerView.clipsToBounds = self.clipsToBounds;
++      _containerView.layer.masksToBounds = self.clipsToBounds;
+       self.clipsToBounds = NO;
+       _containerView.layer.mask = self.layer.mask;
+       self.layer.mask = nil;
