@@ -470,6 +470,27 @@ final class InboxTests: XCTestCase {
       app.buttons["New Message"].tap()
       let composer = app.otherElements["composer-overlay"]
       XCTAssertTrue(composer.waitForExistence(timeout: 15))
+      // #1165: the format bar stays directly above the software keyboard while the body is edited.
+      let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+        .firstMatch
+      XCTAssertTrue(body.waitForExistence(timeout: 15))
+      body.tap()
+      let keyboard = app.keyboards.firstMatch
+      XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+      // The keyboard element's frame starts below its suggestion strip, which the bar sits on.
+      let textStyle = app.buttons["Text style"]
+      waitUntil {
+        textStyle.isHittable && textStyle.frame.maxY <= keyboard.frame.minY
+          && keyboard.frame.minY - textStyle.frame.maxY < 60
+      }
+      // Undo is further along the bar's rail.
+      app.buttons["Bold"].swipeLeft()
+      let undo = app.buttons["Undo"]
+      waitUntil { undo.isHittable && undo.frame.maxY <= keyboard.frame.minY }
+      let raised = XCTAttachment(screenshot: app.screenshot())
+      raised.name = "Composer format bar above the keyboard"
+      raised.lifetime = .keepAlways
+      add(raised)
       app.buttons["Close"].tap()
       waitUntil { !composer.exists && switcher.isHittable }
     }

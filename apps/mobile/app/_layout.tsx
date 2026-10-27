@@ -476,15 +476,10 @@ function MailShell() {
                       boxShadow: colors.menuShadow,
                     },
                   ]
-                : [
+                : // The composer keeps clear of the system bars itself (#1165).
+                  [
                     StyleSheet.absoluteFill,
-                    {
-                      paddingTop: insets.top,
-                      paddingBottom: insets.bottom,
-                      paddingLeft: insets.left,
-                      paddingRight: insets.right,
-                      backgroundColor: colors.surfaceContent,
-                    },
+                    { backgroundColor: colors.surfaceContent },
                   ]
             }>
             <ComposerLayoutContext value={composerLayout}>
