@@ -3566,6 +3566,13 @@ export function createGmailInbox(
 
   // Authentication and retry keep the shown mail; locked or unreadable storage hides it. A removed
   // device's data is already gone, so its Inbox waits for the account page instead.
+  const unavailable = (kind: SyncFailure['kind']) => {
+    // Saved mail stays shown while a foreground restore verifies the mailbox again; the load
+    // after it synchronizes.
+    if (kind !== 'invalidated' || shown?.document === undefined) {
+      publish({ kind: kind === 'locked' ? 'locked' : 'failed' });
+    }
+  };
   const recover = ({
     kind,
     diagnostic,
@@ -3589,7 +3596,7 @@ export function createGmailInbox(
                 : kind,
             );
           } else {
-            publish({ kind: kind === 'locked' ? 'locked' : 'failed' });
+            unavailable(kind);
           }
         }),
       ),

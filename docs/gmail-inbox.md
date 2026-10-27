@@ -329,7 +329,10 @@ again from the committed cache.
 
 If a foreground account check interrupts synchronization and verifies the same
 mailbox again, synchronization starts again from its committed cache, at most
-twice. Its saved Inbox stays visible. Repeated interruptions make the Inbox
+twice. Its saved Inbox stays visible. While that check verifies a connection
+whose grant was not refused, its access is pending, so the Inbox never asks for
+Gmail access again; the synchronization after the check updates it. Repeated
+interruptions keep the saved Inbox shown, and make an Inbox with no saved mail
 unavailable until **Try again** or the next activation.
 
 ## Organizing mail
