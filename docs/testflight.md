@@ -134,8 +134,9 @@ Native signing setup failures report a fixed operation name and exit code;
 cleanup failures identify search-list restoration or keychain deletion. Raw
 `security` diagnostics remain suppressed because they can contain private data.
 The wrapper refuses certificates with less than an hour remaining; rerun all
-jobs to prepare a fresh certificate if retrying an old run. Signing helpers come
-from the workflow revision even when building an older ref. Local invocations
+jobs to prepare a fresh certificate if retrying an old run. Signing helpers and
+the upload runner come from the workflow revision even when building an older
+ref, so older build refs also receive the archive identity check. Local invocations
 continue using the developer's existing Xcode signing identity and skip the
 archive identity check, so their `status.txt` has no `Signed:` line.
 

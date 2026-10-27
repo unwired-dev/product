@@ -171,7 +171,8 @@ jobs:
           trap 'rm -f "$ASC_KEY_PATH"' EXIT
           trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 130' INT
           trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 143' TERM
-          zsh artifacts/testflight/signing-tools/scripts/testflight-signing.zsh zsh scripts/testflight.zsh "$HOST"
+          export TESTFLIGHT_SOURCE_ROOT="$PWD"
+          zsh artifacts/testflight/signing-tools/scripts/testflight-signing.zsh zsh artifacts/testflight/signing-tools/scripts/testflight.zsh "$HOST"
       - name: Upload build status
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

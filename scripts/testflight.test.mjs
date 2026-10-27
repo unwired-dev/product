@@ -224,13 +224,15 @@ if (command === 'xcodebuild') {
   return { directory, checkout, env };
 }
 
-for (const [scenario, platform, expected] of [
+for (const [scenario, platform, expected, workflowRevision] of [
   ['success', 'both', 0],
   ['success', 'ios', 0],
   ['success', 'macos', 0],
   ['signed', 'both', 0],
   ['unsigned-archive', 'ios', 1],
   ['other-identity', 'macos', 1],
+  ['signed', 'both', 0, true],
+  ['other-identity', 'macos', 1, true],
   ['local-profile', 'macos', 0],
   ['pod-retry', 'ios', 0],
   ['pod-failure', 'both', 1],
@@ -250,7 +252,7 @@ for (const [scenario, platform, expected] of [
   ['stale-mac-bundle', 'macos', 1],
 ]) {
   test(
-    `TestFlight runner protects release boundary: ${scenario}, ${platform}`,
+    `TestFlight runner protects release boundary: ${scenario}, ${platform}${workflowRevision ? ', older build ref' : ''}`,
     { skip: process.platform !== 'darwin' },
     // fallow-ignore-next-line complexity -- One table-driven case asserts every refusal and its cleanup together.
     () => {
@@ -262,11 +264,44 @@ for (const [scenario, platform, expected] of [
         if (signedScenarios.has(scenario)) {
           env.TESTFLIGHT_IDENTITY_SHA1 = identity;
         }
-        const result = spawnSync(
-          '/bin/zsh',
-          ['scripts/testflight.zsh', platform],
-          { cwd: checkout, env, encoding: 'utf8' },
-        );
+        let args = ['scripts/testflight.zsh', platform];
+        if (workflowRevision) {
+          const tools = path.join(
+            checkout,
+            'artifacts/testflight/signing-tools/scripts',
+          );
+          mkdirSync(tools, { recursive: true });
+          for (const name of ['testflight.zsh', 'testflight-env.mjs']) {
+            cpSync(path.join(root, 'scripts', name), path.join(tools, name));
+          }
+          // The wrapper is covered separately; exercise the workflow's actual upload command.
+          writeFileSync(path.join(tools, 'testflight-signing.zsh'), '"$@"\n');
+          writeFileSync(
+            path.join(checkout, 'scripts/testflight.zsh'),
+            'exit 92\n',
+          );
+          writeFileSync(
+            path.join(checkout, 'scripts/testflight-env.mjs'),
+            'process.exit(93);\n',
+          );
+          const workflow = readFileSync(
+            path.join(root, '.github/workflows/testflight.yml'),
+            'utf8',
+          );
+          const script = workflow
+            .split('      - name: Archive and upload\n')[1]
+            .split('        run: |\n')[1]
+            .split('      - name: Upload build status\n')[0]
+            .replaceAll(/^ {10}/gmu, '');
+          env.RUNNER_TEMP = directory;
+          env.HOST = platform;
+          args = ['-e', '-o', 'pipefail', '-c', script];
+        }
+        const result = spawnSync('/bin/zsh', args, {
+          cwd: checkout,
+          env,
+          encoding: 'utf8',
+        });
         assert.equal(result.status, expected, result.stdout + result.stderr);
         if (scenario === 'missing-topic') {
           assert.equal(
@@ -281,7 +316,9 @@ for (const [scenario, platform, expected] of [
           );
         }
         const evidence = path.join(checkout, 'artifacts/testflight');
-        const runs = readdirSync(evidence);
+        const runs = readdirSync(evidence).filter(
+          (name) => name !== 'signing-tools',
+        );
         assert.equal(runs.length, 1);
         const run = path.join(evidence, runs[0]);
         assert.ok(!existsSync(path.join(run, 'ios-DerivedData')));

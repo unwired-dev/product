@@ -1,9 +1,10 @@
 #!/bin/zsh
 # Archive a host from the current checkout and upload it to TestFlight.
 set -eo pipefail
-root=${0:A:h:h}
+# CI runs workflow-revision tooling against the selected source checkout.
+root=${TESTFLIGHT_SOURCE_ROOT:-${0:A:h:h}}
 if [[ "${UNWIRED_TESTFLIGHT_ENV_LOADED:-}" != 1 ]]; then
-  exec node "$root/scripts/testflight-env.mjs" "$@"
+  exec node "${0:A:h}/testflight-env.mjs" "$@"
 fi
 # The API key is read from its file, never inherited by project build phases.
 unset UNWIRED_TESTFLIGHT_ENV_LOADED ASC_PRIVATE_KEY
