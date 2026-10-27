@@ -1194,7 +1194,9 @@ describe('connected Gmail Inbox', () => {
       synchronized = store.load();
       await Promise.resolve();
     });
-    expect(screen.queryByRole('progressbar', { name: /^Updating/u })).toBeNull();
+    expect(
+      screen.queryByRole('progressbar', { name: /^Updating/u }),
+    ).toBeNull();
     await expect(
       screen.findByRole(
         'progressbar',
@@ -1212,7 +1214,9 @@ describe('connected Gmail Inbox', () => {
     gmail.fail({ code: 'unavailable' });
     await act(store.load);
     expect(screen.getByText('1 account needs attention')).toBeVisible();
-    expect(screen.queryByRole('progressbar', { name: /^Updating/u })).toBeNull();
+    expect(
+      screen.queryByRole('progressbar', { name: /^Updating/u }),
+    ).toBeNull();
     expect(
       screen.getByRole('header', { name: 'Saturday, by the river?' }),
     ).toBeVisible();

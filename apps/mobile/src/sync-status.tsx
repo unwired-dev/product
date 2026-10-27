@@ -82,7 +82,7 @@ export const offline = (state: InboxMailbox['state']) =>
 
 // All Mail's Historical Metadata Backfill, while it still has older mail to download.
 const backfill = (state: InboxMailbox['state']) =>
-  state.kind === 'ready' && 'history' in state && state.history?.complete === false
+  state.kind === 'ready' && 'history' in state && !state.history?.complete
     ? state.history
     : undefined;
 
@@ -128,9 +128,34 @@ const automaticDelay = 1000;
 
 type Shown = Readonly<{
   kind: SyncStatus['kind'];
-  message: string;
+  label: string;
   percent: number | undefined;
 }>;
+
+type Translate = ReturnType<typeof useLocalization>['t'];
+
+// What the capsule says about a status, with the combined percentage while progress is measurable.
+const describe = (t: Translate, status: SyncStatus): Shown => {
+  if (status.kind === 'attention') {
+    return {
+      kind: 'attention',
+      label: t('syncStatus.attention', { count: status.count }),
+      percent: undefined,
+    };
+  }
+  const message = t('syncStatus.updating', { count: status.count });
+  return {
+    kind: 'progress',
+    label:
+      status.percent === undefined
+        ? message
+        : t('syncStatus.progress', {
+            status: message,
+            percent: status.percent,
+          }),
+    percent: status.percent,
+  };
+};
 
 export function SyncStatusCapsule({
   status,
@@ -160,20 +185,7 @@ export function SyncStatusCapsule({
       clearTimeout(timer);
     };
   }, [progressing]);
-  const current: Shown | undefined =
-    status === undefined
-      ? undefined
-      : status.kind === 'attention'
-        ? {
-            kind: 'attention',
-            message: t('syncStatus.attention', { count: status.count }),
-            percent: undefined,
-          }
-        : {
-            kind: 'progress',
-            message: t('syncStatus.updating', { count: status.count }),
-            percent: status.percent,
-          };
+  const current = status === undefined ? undefined : describe(t, status);
   const open =
     current !== undefined &&
     (current.kind === 'attention' || started || waited);
@@ -181,29 +193,20 @@ export function SyncStatusCapsule({
   const [last, setLast] = useState(current);
   if (
     open &&
-    (last?.kind !== current.kind ||
-      last.message !== current.message ||
-      last.percent !== current.percent)
+    (last?.label !== current.label || last.percent !== current.percent)
   ) {
     setLast(current);
   }
   const [height, setHeight] = useState(0);
   const motion = useMenuMotion(open, 'menu');
   useOutcomeAnnouncement(
-    current?.kind === 'attention' ? current.message : undefined,
+    current?.kind === 'attention' ? current.label : undefined,
     true,
   );
   const said = open ? current : last;
   if (!motion.shown || said === undefined) {
     return null;
   }
-  const label =
-    said.percent === undefined
-      ? said.message
-      : t('syncStatus.progress', {
-          status: said.message,
-          percent: said.percent,
-        });
   return (
     <Animated.View
       accessibilityElementsHidden={!open}
@@ -219,61 +222,85 @@ export function SyncStatusCapsule({
       ]}>
       <Glass cornerRadius={height / 2} />
       {said.kind === 'attention' ? (
-        <View style={styles.status}>
-          <SFSymbol
-            name="exclamationmark.triangle.fill"
-            color={colors.statusWarning}
-          />
-          <Text style={[styles.message, { color: colors.textPrimary }]}>
-            {label}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onTryAgain}
-            style={styles.action}>
-            <Text style={[styles.actionLabel, { color: colors.accentInk }]}>
-              {t('syncStatus.tryAgain')}
-            </Text>
-          </Pressable>
-        </View>
+        <Attention
+          label={said.label}
+          onTryAgain={onTryAgain}
+        />
       ) : (
-        <View
-          accessible
-          accessibilityLabel={label}
-          accessibilityRole="progressbar"
-          accessibilityValue={
-            said.percent === undefined
-              ? undefined
-              : { min: 0, max: 100, now: said.percent }
-          }>
-          <View style={styles.status}>
-            <ActivityIndicator
-              size="small"
-              color={colors.textSecondary}
-            />
-            <Text style={[styles.message, { color: colors.textPrimary }]}>
-              {label}
-            </Text>
-          </View>
-          {said.percent === undefined ? null : (
-            <View
-              style={[
-                styles.track,
-                { backgroundColor: colors.fillTrack },
-              ]}>
-              <View
-                style={[
-                  styles.value,
-                  {
-                    width: `${said.percent}%`,
-                    backgroundColor: colors.accentFill,
-                  },
-                ]}
-              />
-            </View>
-          )}
-        </View>
+        <Progress
+          label={said.label}
+          percent={said.percent}
+        />
       )}
     </Animated.View>
+  );
+}
+
+function Attention({
+  label,
+  onTryAgain,
+}: {
+  readonly label: string;
+  readonly onTryAgain: () => void;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  return (
+    <View style={styles.status}>
+      <SFSymbol
+        name="exclamationmark.triangle.fill"
+        color={colors.statusWarning}
+      />
+      <Text style={[styles.message, { color: colors.textPrimary }]}>
+        {label}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onTryAgain}
+        style={styles.action}>
+        <Text style={[styles.actionLabel, { color: colors.accentInk }]}>
+          {t('syncStatus.tryAgain')}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function Progress({
+  label,
+  percent,
+}: {
+  readonly label: string;
+  readonly percent: number | undefined;
+}) {
+  const colors = usePalette();
+  return (
+    <View
+      accessible
+      accessibilityLabel={label}
+      accessibilityRole="progressbar"
+      accessibilityValue={
+        percent === undefined ? undefined : { min: 0, max: 100, now: percent }
+      }>
+      <View style={styles.status}>
+        <ActivityIndicator
+          size="small"
+          color={colors.textSecondary}
+        />
+        <Text style={[styles.message, { color: colors.textPrimary }]}>
+          {label}
+        </Text>
+      </View>
+      {percent === undefined ? null : (
+        <View style={[styles.track, { backgroundColor: colors.fillTrack }]}>
+          <View
+            style={[
+              styles.value,
+              { width: `${percent}%`, backgroundColor: colors.accentFill },
+            ]}
+          />
+        </View>
+      )}
+    </View>
   );
 }

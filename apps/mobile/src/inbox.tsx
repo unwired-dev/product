@@ -213,11 +213,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
       announce="polite"
       icon="person.crop.circle.badge.exclamationmark"
       iconColor={colors.statusWarning}
-      message={about(
-        t,
-        address,
-        t('gmailSync.authentication', { provider }),
-      )}>
+      message={about(t, address, t('gmailSync.authentication', { provider }))}>
       {account !== undefined && mailbox !== undefined ? (
         <Button
           fill="accent"
@@ -759,12 +755,12 @@ export function Inbox({
   // Set while the list is scrolled from its top, so synchronization keeps the reading position.
   const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
   // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
-  // again does. The control ignores further pulls until it settles, so they start no duplicate work.
+  // Again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
   // Settles every mailbox, so one failing early cannot end the indicator while others still load.
-  const load = (mailboxes: readonly InboxMailbox[]) => async () => {
+  const load = (loaded: readonly InboxMailbox[]) => async () => {
     await Promise.allSettled(
-      mailboxes.map(({ inbox }) =>
+      loaded.map(({ inbox }) =>
         folder !== inboxFolder && 'openFolder' in inbox
           ? inbox.openFolder(folder)
           : inbox.load(),
