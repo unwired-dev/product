@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
@@ -20,6 +21,20 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const sha = 'a'.repeat(40);
 const number = '202610031234';
 const sentinel = 'SYNTHETIC_PRIVATE_KEY_SENTINEL';
+// Archive inspection reads public certificates only; no signing key is needed.
+const certificate = (name) =>
+  spawnSync(
+    'ruby',
+    [
+      '-ropenssl',
+      '-e',
+      `key = OpenSSL::PKey::RSA.new(2048); c = OpenSSL::X509::Certificate.new; c.version = 2; c.serial = 1; c.subject = c.issuer = OpenSSL::X509::Name.parse('/CN=${name}'); c.public_key = key; c.not_before = Time.now; c.not_after = Time.now + 3600; c.sign(key, OpenSSL::Digest::SHA256.new); $stdout.binmode.write(c.to_der)`,
+    ],
+    { maxBuffer: 1 << 20 },
+  ).stdout;
+const prepared = certificate('Prepared identity');
+const identity = createHash('sha1').update(prepared).digest('hex').toUpperCase();
+const signedScenarios = ['signed', 'unsigned-archive', 'other-identity'];
 
 // fallow-ignore-next-line complexity -- One fixture builds the whole fake checkout and toolchain every release scenario shares.
 function fixture(scenario, { dotenv = false } = {}) {
@@ -42,6 +57,11 @@ function fixture(scenario, { dotenv = false } = {}) {
   symlinkSync(process.execPath, path.join(bin, 'node'));
   const key = path.join(directory, 'AuthKey.p8');
   writeFileSync(key, 'synthetic, never used for signing');
+  writeFileSync(path.join(directory, 'prepared.der'), prepared);
+  writeFileSync(
+    path.join(directory, 'other.der'),
+    scenario === 'other-identity' ? certificate('Other identity') : '',
+  );
   for (const name of ['testflight.zsh', 'testflight-env.mjs']) {
     cpSync(
       path.join(root, 'scripts', name),
@@ -119,6 +139,11 @@ const args = process.argv.slice(2);
 const value = (flag) => args[args.indexOf(flag) + 1];
 const record = (name, text) => fs.appendFileSync(path.join(base, name), text + '\\n');
 if (process.env.UNRELATED_SECRET) throw Error('unrelated dotenv secret reached build');
+if (command === 'codesign') {
+  if (scenario === 'unsigned-archive') { console.log('code object is not signed at all'); process.exit(1); }
+  const prefix = args.find(arg => arg.startsWith('--extract-certificates=')).slice('--extract-certificates='.length);
+  fs.copyFileSync(path.join(base, scenario === 'other-identity' ? 'other.der' : 'prepared.der'), prefix + '0');
+}
 if (command === 'git' && args.includes('rev-parse')) console.log(${JSON.stringify(sha)});
 if (command === 'git' && args.includes('status') && process.env.STUB_DIRTY_WORKTREE) console.log(' M tracked-file');
 if (command === 'git' && args.includes('status') && process.env.STUB_GIT_FAILURE) process.exit(128);
@@ -190,7 +215,7 @@ if (command === 'xcodebuild') {
   }
 }
 `;
-  for (const command of ['pnpm', 'pod', 'git', 'xcodebuild']) {
+  for (const command of ['pnpm', 'pod', 'git', 'xcodebuild', 'codesign']) {
     writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
   }
   return { directory, checkout, env };
@@ -200,6 +225,9 @@ for (const [scenario, platform, expected] of [
   ['success', 'both', 0],
   ['success', 'ios', 0],
   ['success', 'macos', 0],
+  ['signed', 'both', 0],
+  ['unsigned-archive', 'ios', 1],
+  ['other-identity', 'macos', 1],
   ['local-profile', 'macos', 0],
   ['pod-retry', 'ios', 0],
   ['pod-failure', 'both', 1],
@@ -228,6 +256,9 @@ for (const [scenario, platform, expected] of [
         if (scenario === 'local-profile') {
           env.UNWIRED_MAC_PROFILE = '/installed/development.provisionprofile';
         }
+        if (signedScenarios.includes(scenario)) {
+          env.TESTFLIGHT_IDENTITY_SHA1 = identity;
+        }
         const result = spawnSync(
           '/bin/zsh',
           ['scripts/testflight.zsh', platform],
@@ -238,6 +269,12 @@ for (const [scenario, platform, expected] of [
           assert.equal(
             result.stderr.trim(),
             `Refusing to upload ${platform}: unexpected archive configuration`,
+          );
+        }
+        if (expected === 1 && signedScenarios.includes(scenario)) {
+          assert.equal(
+            result.stderr.trim(),
+            `Refusing to upload ${platform}: archive is not signed by the prepared identity`,
           );
         }
         const evidence = path.join(checkout, 'artifacts/testflight');
@@ -274,6 +311,17 @@ for (const [scenario, platform, expected] of [
         }
         if (expected === 0) {
           assert.ok(commands.includes('-exportArchive'));
+          const hosts = platform === 'both' ? ['ios', 'macos'] : [platform];
+          assert.deepEqual(
+            readFileSync(path.join(run, 'status.txt'), 'utf8')
+              .split('\n')
+              .filter((line) => line.startsWith('Signed:')),
+            scenario === 'signed'
+              ? hosts.map(
+                  (host) => `Signed: ${host}; prepared identity ${identity}`,
+                )
+              : [],
+          );
           assert.ok(
             readFileSync(path.join(directory, 'notes'), 'utf8').includes(
               `${number} ${sha}`,

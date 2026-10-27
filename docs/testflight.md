@@ -101,6 +101,7 @@ scripts/testflight.zsh ios|macos|both
   refuse a selected Mock Mail Session scenario or a missing Gmail push topic
   generate the native project and install Pods
   xcodebuild archive        # Release, automatic signing through the API key
+  in CI, refuse an archive not signed by the prepared identity
   inspect the archived bundle, source map, native test markers and Info.plist,
     including the configured Gmail push topic
   xcodebuild -exportArchive # cloud-managed distribution signing, direct upload
@@ -124,13 +125,19 @@ keychain for the build, and restores the original list and deletes the keychain
 on exit. The private key and certificate are imported directly; the loose
 private-key file is removed before the build starts.
 The prepared identity must be valid for code signing before the build starts.
+Before export, each upload compares the SHA-1 fingerprint of the archived app's
+leaf signing certificate with the prepared identity, reading only public
+certificate data. A mismatch or an unreadable certificate refuses that host with
+a fixed message; a match adds `Signed: <host>; prepared identity <fingerprint>`
+to `status.txt`.
 Native signing setup failures report a fixed operation name and exit code;
 cleanup failures identify search-list restoration or keychain deletion. Raw
 `security` diagnostics remain suppressed because they can contain private data.
 The wrapper refuses certificates with less than an hour remaining; rerun all
 jobs to prepare a fresh certificate if retrying an old run. Signing helpers come
 from the workflow revision even when building an older ref. Local invocations
-continue using the developer's existing Xcode signing identity.
+continue using the developer's existing Xcode signing identity and skip the
+archive identity check, so their `status.txt` has no `Signed:` line.
 
 Provisioning remains automatic. Xcode uses development signing for the archive
 and cloud-managed distribution signing for export through the App Store Connect
@@ -294,9 +301,12 @@ while the run was queued. Builds now check out the triggering commit. The next
 protected run from `main` without a `ref` input must show one commit in the
 Convex deploy, the upload checkout, `UnwiredCommit` and the What to Test notes.
 
-Archive certificate inspection, renewal, keychain cleanup after an interrupted
-upload, and installation from TestFlight on an iPhone and a Mac remain deferred.
-They are required before claiming the qualified beta in #628.
+Uploads now check the archive signing certificate automatically (#1450). The
+next protected run must show a `Signed:` line for each host in `status.txt`, with
+the fingerprint its log printed as `Prepared TestFlight identity`.
+Renewal, keychain cleanup after an interrupted upload, and installation from
+TestFlight on an iPhone and a Mac remain deferred. They are required before
+claiming the qualified beta in #628.
 
 ### Protected signing validation
 
@@ -309,13 +319,11 @@ Xcode selects the imported identity or that Apple accepts the CSR.
    first run finishes. Both hosts in both runs must log the same `Prepared
 TestFlight identity` fingerprint, and the second run must create no additional
    development certificate.
-2. On the protected runner, inspect each retained development-signed `.xcarchive`,
-   rather than the distribution-signed export.
-   Run `codesign -d --extract-certificates "$RUNNER_TEMP/archive-cert-" "$app"`
-   with `$app` set to its archived `.app`, then
-   `openssl x509 -inform DER -in "$RUNNER_TEMP/archive-cert-0" -noout -fingerprint -sha1`.
-   Its fingerprint must match the prepared identity. Inspect only public
-   certificate data; raw signing logs and private material remain on the runner.
+2. Download each host's status artifact. Its `status.txt` must contain
+   `Signed: <host>; prepared identity <fingerprint>` with the fingerprint that
+   host logged as `Prepared TestFlight identity`. The upload checks the
+   development-signed archive, not the distribution-signed export, and raw
+   signing logs remain on the runner.
 3. At the next natural renewal, confirm a new matching certificate is issued
    and reused by the following run, without changing the stored key or deleting
    another certificate. Missing or revoked identity renewal needs an isolated
