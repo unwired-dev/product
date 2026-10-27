@@ -268,6 +268,14 @@ confirmation path. Rich content follows the app appearance under the
 by [#977](https://github.com/unwired-dev/product/issues/977), superseding the
 fixed light canvas.
 
+For [#1217](https://github.com/unwired-dev/product/issues/1217), the Mac patch
+overrides `RNCWebViewImpl.handleKeyboardEvent:` to call the superclass only when
+`reactTag` is present. Fabric mounts this `RCTView` subclass without a React tag;
+React Native macOS 0.81.9 otherwise builds a keyboard event with a nil tag and
+aborts. Returning `NO` for the untagged view lets the inherited `keyDown:` and
+`keyUp:` methods continue through AppKit's responder chain. The
+[operational guide](../gmail-inbox.md#isolated-rich-presentation) owns the deletion condition.
+
 The Mac reader enables WebKit scrolling for a document wider than its column.
 WebKit consumes vertical wheel input while scrolling is enabled, even when its
 document fits vertically. For a document at or below the 20,000-point presentation

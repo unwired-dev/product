@@ -573,7 +573,11 @@ through `allowsContentJavaScript` and reports the laid-out document size. It
 measures with an app-owned script in WebKit's isolated client content world after
 load; page JavaScript stays disabled. This is the owner-approved measurement
 boundary on both hosts. The [architecture companion](architecture/gmail-inbox.md#message-reading)
-records the accepted decision. The reader passes `javaScriptEnabled={false}`, `incognito`,
+records the accepted decision. On the Mac, the patch also lets keys the page
+leaves unhandled continue to the WebView's host without aborting the app
+([#1217](https://github.com/unwired-dev/product/issues/1217)). Remove that override once React Native macOS
+skips keyboard events for untagged views or the wrapper's Mac view stops
+subclassing `RCTView`. The reader passes `javaScriptEnabled={false}`, `incognito`,
 `allowsLinkPreview={false}`, no base URL, and `originWhitelist={['*']}`. With that
 origin list, every navigation reaches the reader, which cancels it; otherwise the
 wrapper would open unlisted origins itself. The sanitizer parses HTML as a
