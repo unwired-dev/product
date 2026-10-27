@@ -214,6 +214,12 @@ static NSEvent *keyDown(NSEvent *event)
   return event;
 }
 
+// A composer control changed the body or the marks typed text takes; only JavaScript knows how.
+void UnwiredForgetComposerTyping(void)
+{
+  forget(TypingUnknown);
+}
+
 void UnwiredInstallComposerFormatting(void)
 {
   // Each JavaScript span carries its own event emitter, so a render after marks shown here

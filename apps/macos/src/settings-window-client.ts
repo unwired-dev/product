@@ -23,6 +23,8 @@ interface WindowHost extends TurboModule {
   readonly finishClose: (window: string, allowed: boolean) => void;
   // Shows or hides the Inbox window's sidebar, as its Show Sidebar / Hide Sidebar button does.
   readonly toggleSidebar: (window: string) => void;
+  // Ends the marks the composer body shows for typing before a render, after a control edits it.
+  readonly forgetComposerTyping: () => void;
 }
 
 export const windowHost = () =>
