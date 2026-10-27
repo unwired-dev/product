@@ -471,7 +471,11 @@ describe('synchronizing a Gmail Inbox', () => {
       },
     });
     await inbox.load();
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    // The Inbox keeps synchronizing its first mail for the next load.
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      messages: [],
+      sync: 'syncing',
+    });
     expect(gmail.commits).toHaveLength(0);
     await expect(gmail.native.openMailbox()).resolves.toMatchObject({
       revision: 0,
