@@ -1062,6 +1062,43 @@ describe('connected Gmail Inbox', () => {
     },
   );
 
+  it('leaves the last update out of an iPad label heading, which the Inbox synchronization did not refresh', async () => {
+    expect.hasAssertions();
+    const platform = jest.replaceProperty(
+      jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+      'ipad',
+      true,
+    );
+    try {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      const travel = gmail.createLabel('Travel');
+      gmail.setLabel(
+        gmail.deliver({ subject: 'Flight to Zagreb' }),
+        travel,
+        true,
+      );
+      await renderConnected(gmail.native);
+      await expect(
+        screen.findByText(/ · Updated just now$/u),
+      ).resolves.toBeVisible();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: 'Travel. In alex@example.invalid',
+          }),
+        );
+      });
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByText(/^alex@example\.invalid · 1 unread$/u),
+      ).toBeVisible();
+    } finally {
+      platform.restore();
+    }
+  });
+
   it.each([false, true])(
     'shows one Top Results header for provider-only matches (isPad=%s)',
     async (isPad) => {

@@ -488,6 +488,7 @@ function statusOf(
     waiting,
     downloading,
     now,
+    inbox,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
@@ -496,6 +497,8 @@ function statusOf(
     waiting: Readonly<{ provider: MailProvider }> | undefined;
     downloading: string | undefined;
     now: number;
+    // Whether the Inbox is listed; another folder or view was not necessarily brought up to date.
+    inbox: boolean;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -516,7 +519,7 @@ function statusOf(
   }
   const status =
     unread === 0 ? t('inbox.noUnread') : t('inbox.unread', { count: unread });
-  if (!ipad) {
+  if (!ipad || !inbox) {
     return status;
   }
   const updated = lastUpdated(
@@ -809,6 +812,7 @@ export function Inbox({
     waiting: chosenWaiting,
     downloading,
     now,
+    inbox: folder === inboxFolder,
   });
   const title =
     folderName ??
