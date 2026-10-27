@@ -573,10 +573,9 @@ through `allowsContentJavaScript` and reports the laid-out document size. It
 measures with an app-owned script in WebKit's isolated client content world after
 load; page JavaScript stays disabled. This is the owner-approved measurement
 boundary on both hosts. The [architecture companion](architecture/gmail-inbox.md#message-reading)
-records the accepted decision. On the Mac, the patch also sends a key the page
-leaves unhandled on to the WebView's host: the Fabric host mounts the wrapper's
-view without a React tag, and React Native macOS 0.81.9 aborts when it builds a
-keyboard event without one (#1217). Remove that override once React Native macOS
+records the accepted decision. On the Mac, the patch also lets keys the page
+leaves unhandled continue to the WebView's host without aborting the app
+([#1217](https://github.com/unwired-dev/product/issues/1217)). Remove that override once React Native macOS
 skips keyboard events for untagged views or the wrapper's Mac view stops
 subclassing `RCTView`. The reader passes `javaScriptEnabled={false}`, `incognito`,
 `allowsLinkPreview={false}`, no base URL, and `originWhitelist={['*']}`. With that
