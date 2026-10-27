@@ -329,11 +329,13 @@ export type GmailView = Readonly<{
 }>;
 
 // Historical Metadata Backfill progress: All Mail messages stored on this device, and Gmail's
-// count when it reported one.
+// count when it reported one. A failed read pauses an unfinished backfill until the next
+// synchronization.
 export type HistoryProgress = Readonly<{
   downloaded: number;
   total?: number;
   complete: boolean;
+  paused?: true;
 }>;
 
 export type GmailInboxState =
@@ -1881,6 +1883,8 @@ export function createGmailInbox(
   let state: GmailInboxState = { kind: 'loading' };
   // An already-running metadata sync cannot dismiss a newer body grant rejection.
   let authenticationRejected = false;
+  // A failed body prefetch or history read pauses both until the next synchronization.
+  let speculativeFailure = false;
   // The mailbox and document the Inbox shows, and whether Gmail access was verified for it.
   let shown:
     | Readonly<{
@@ -2032,7 +2036,15 @@ export function createGmailInbox(
       ...renderedViews(document, changes),
       ...(document?.history === undefined
         ? {}
-        : { history: progress(document.history) }),
+        : {
+            history: {
+              ...progress(document.history),
+              ...(speculativeFailure &&
+              document.history.current.complete !== true
+                ? { paused: true as const }
+                : {}),
+            },
+          }),
       sync: shownSyncState(),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
@@ -3131,7 +3143,6 @@ export function createGmailInbox(
     );
   });
 
-  let speculativeFailure = false;
   const speculationPaused = (reading: number) =>
     speculativeFailure ||
     owner !== reading ||
@@ -3188,11 +3199,16 @@ export function createGmailInbox(
         if (owner !== reading) {
           return;
         }
+        const pausing = !speculativeFailure;
         speculativeFailure = true;
         if (kind === 'authentication') {
           authenticationRejected = true;
           publish(render());
           return;
+        }
+        // An unfinished backfill now waits for the next synchronization.
+        if (pausing && state.kind === 'ready') {
+          publish(render());
         }
         if (kind !== 'invalidated' && kind !== 'retry') {
           yield* Effect.logError(failed, diagnostic);

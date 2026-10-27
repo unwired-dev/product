@@ -294,7 +294,8 @@ completes. An expired page token also starts a new pass.
 
 The Gmail Inbox state reports the progress per mailbox as downloaded messages,
 Gmail's total from the mailbox profile while the pass runs, and whether the pass
-is complete. While the pass runs, All Mail's subtitle shows the progress, such as
+is complete. A failed history read pauses the pass until the next synchronization,
+and the state marks it paused. While the pass runs, All Mail's subtitle shows the progress, such as
 "41,210 of 86,400 downloaded", and All Mail ends with a "Downloading older mail…"
 row naming the month the list has reached, in place of the note that older mail
 stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
@@ -333,7 +334,8 @@ under it and never moves.
   a pull-down refresh shows it at once.
 - **Attention.** A failure replaces the progress with a warning,
   **1 account needs attention** and **Try Again**, which synchronizes only the
-  mailboxes that could not be reached once registration verifies. VoiceOver hears
+  mailboxes that could not be reached or whose history pass paused, once
+  registration verifies; that synchronization resumes the pass. VoiceOver hears
   the attention summary when it appears.
 - **Idle.** The capsule fades out. A refused grant or password keeps its own
   notice above the list, and the sidebar keeps each connection's problem.

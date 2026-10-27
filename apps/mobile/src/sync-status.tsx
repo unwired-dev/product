@@ -1,3 +1,5 @@
+import { Host, ProgressView } from '@expo/ui/swift-ui';
+import { tint } from '@expo/ui/swift-ui/modifiers';
 import { spacing, typography } from '@private-email/mail-core/theme';
 import { useEffect, useState } from 'react';
 import {
@@ -57,13 +59,6 @@ const styles = StyleSheet.create({
   },
   track: {
     marginTop: 7,
-    height: 3,
-    borderRadius: 1.5,
-    overflow: 'hidden',
-  },
-  value: {
-    height: 3,
-    borderRadius: 1.5,
   },
 });
 
@@ -86,6 +81,11 @@ const backfill = (state: InboxMailbox['state']) =>
     ? state.history
     : undefined;
 
+// A mailbox that needs Try Again: its server could not be reached, or a failed read paused its
+// backfill until the next synchronization.
+export const failed = (state: InboxMailbox['state']) =>
+  offline(state) || backfill(state)?.paused === true;
+
 type SyncStatus =
   | Readonly<{ kind: 'attention'; count: number }>
   | Readonly<{ kind: 'progress'; count: number; percent?: number }>;
@@ -95,9 +95,9 @@ type SyncStatus =
 export const syncStatusOf = (
   shown: readonly InboxMailbox[],
 ): SyncStatus | undefined => {
-  const failed = shown.filter(({ state }) => offline(state)).length;
-  if (failed > 0) {
-    return { kind: 'attention', count: failed };
+  const attention = shown.filter(({ state }) => failed(state)).length;
+  if (attention > 0) {
+    return { kind: 'attention', count: attention };
   }
   const updating = shown.filter(
     ({ state }) => checking(state) || backfill(state) !== undefined,
@@ -292,14 +292,14 @@ function Progress({
         </Text>
       </View>
       {percent === undefined ? null : (
-        <View style={[styles.track, { backgroundColor: colors.fillTrack }]}>
-          <View
-            style={[
-              styles.value,
-              { width: `${percent}%`, backgroundColor: colors.accentFill },
-            ]}
+        <Host
+          matchContents={{ vertical: true }}
+          style={styles.track}>
+          <ProgressView
+            value={percent / 100}
+            modifiers={[tint(colors.accentFill)]}
           />
-        </View>
+        </Host>
       )}
     </View>
   );

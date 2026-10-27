@@ -1617,15 +1617,29 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
   });
 
-  it('shows how much of All Mail has downloaded and ends it with older mail still arriving', async () => {
+  it('shows how much of All Mail has downloaded and asks to try again when its download pauses', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     for (const index of Array.from({ length: 250 }, (_, at) => at)) {
       gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
     }
     gmail.deliver({ subject: 'Lunch on Friday' });
-    // Gmail stops answering partway through the history download.
+    // Gmail holds, then refuses, the third history page.
     gmail.failPage('200', { code: 'unavailable' });
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the history page until progress is checked.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.gmailRequest = async (...args) => {
+      if (
+        args[1].some(([name, value]) => name === 'pageToken' && value === '200')
+      ) {
+        await held;
+      }
+      return request(...args);
+    };
     await renderConnected(gmail.native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
     await act(async () => {
@@ -1638,14 +1652,6 @@ describe('connected Gmail Inbox', () => {
     await expect(
       screen.findByText('alex@example.invalid · 200 of 251 downloaded'),
     ).resolves.toBeVisible();
-    // The capsule measures the same download.
-    await expect(
-      screen.findByRole(
-        'progressbar',
-        { name: 'Updating 1 account · 79%' },
-        { timeout: 3000 },
-      ),
-    ).resolves.toHaveProp('accessibilityValue', { min: 0, max: 100, now: 79 });
     expect(
       screen.getByRole('progressbar', {
         name: /^Downloading older mail… Mail from before \S.* appears here as it arrives\./u,
@@ -1656,6 +1662,40 @@ describe('connected Gmail Inbox', () => {
         'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
       ),
     ).toBeNull();
+    // The capsule measures the same download.
+    await expect(
+      screen.findByRole(
+        'progressbar',
+        { name: 'Updating 1 account · 79%' },
+        { timeout: 3000 },
+      ),
+    ).resolves.toHaveProp('accessibilityValue', { min: 0, max: 100, now: 79 });
+    // The failed read pauses the download, so the capsule asks for attention instead of progress.
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByText('1 account needs attention'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('progressbar', { name: /^Updating/u }),
+    ).toBeNull();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+    });
+    // Try Again resumes the download, which finishes the older mail.
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByRole('progressbar', {
+            name: /^Downloading older mail/u,
+          }),
+        ).toBeNull();
+      },
+      { timeout: 3000 },
+    );
+    expect(screen.queryByText('1 account needs attention')).toBeNull();
   });
 
   it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {

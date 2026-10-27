@@ -94,6 +94,7 @@ import { AccountContext } from './registration-gate.tsx';
 import {
   SyncStatusCapsule,
   checking,
+  failed,
   offline,
   syncStatusOf,
 } from './sync-status.tsx';
@@ -785,7 +786,7 @@ export function Inbox({
   const [retrying, setRetrying] = useState(false);
   const tryAgain = async () => {
     setRetrying(true);
-    const loadFailed = load(shown.filter(({ state }) => offline(state)));
+    const loadFailed = load(shown.filter(({ state }) => failed(state)));
     try {
       await (account === undefined
         ? loadFailed()
