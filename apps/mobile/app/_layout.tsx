@@ -483,8 +483,9 @@ function MailShell() {
                     { backgroundColor: colors.surfaceContent },
                     // On iPhone the composer's own safe area clears the system bars; padding here
                     // too would apply the insets twice and hide the format bar behind the keyboard
-                    // (#1165). The split view gives that safe area no insets, so iPad pads here.
-                    regular && {
+                    // (#1165). On iPad, in any window width, that safe area gets no insets, so the
+                    // overlay pads here.
+                    !phone && {
                       paddingTop: insets.top,
                       paddingBottom: insets.bottom,
                       paddingLeft: insets.left,

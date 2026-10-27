@@ -511,7 +511,7 @@ final class InboxTests: XCTestCase {
         return window.width > window.height
       }
       formatBarOnKeyboard(app)
-      let landscape = XCTAttachment(screenshot: app.screenshot())
+      let landscape = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
       landscape.name = "Composer format bar above the keyboard in landscape"
       landscape.lifetime = .keepAlways
       add(landscape)
