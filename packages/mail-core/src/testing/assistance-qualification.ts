@@ -22,7 +22,7 @@ import {
 // The synthetic corpus the assistance qualification build runs through Apple's on-device model
 // and Translation (#625). Raise the version with any change to its cases, so runs on different
 // corpora are never compared as one. It contains no real mail.
-export const corpusVersion = 3;
+export const corpusVersion = 4;
 
 const longBody = Array.from(
   { length: 80 },
@@ -96,7 +96,64 @@ const rewrites = [
     text: 'ahoj, posilam ti ty podklady, mrkni na to prosim do patku jestli je to ok',
     facts: ['pát'],
   },
+  {
+    id: 'german-note',
+    language: 'de',
+    text: 'hallo, ich schick dir die unterlagen, schau bitte bis freitag drauf ob das passt',
+    facts: ['Freitag'],
+  },
+  // A short word the model once read as a request, adding a subject line and a whole letter.
+  {
+    id: 'instruction-like-note',
+    language: 'en',
+    text: 'Test\nplease expand on this and make it longer',
+    facts: ['expand'],
+  },
+  {
+    id: 'short-czech-note',
+    language: 'cs',
+    text: 'test\nposílám ti podklady, podívej se na ně prosím do pátku',
+    facts: ['pát'],
+  },
 ] as const;
+
+// Common words of each corpus language that the others lack. A ready result switched language when
+// it contains another language's words and none of its own; a short answer with neither stays for
+// human review.
+const commonWords: Readonly<Record<string, readonly string[]>> = {
+  en: [
+    'the',
+    'and',
+    'you',
+    'we',
+    'is',
+    'it',
+    'this',
+    'please',
+    'can',
+    'for',
+    'me',
+    'of',
+    'will',
+    'with',
+  ],
+  cs: ['je', 'na', 've', 'se', 'že', 'pro', 'prosím', 'jsou', 'ti', 'vás'],
+  de: ['der', 'die', 'und', 'ist', 'bis', 'bitte', 'wird', 'sie', 'dir', 'zu'],
+};
+
+const keepsLanguage = (text: string, language: string) => {
+  const words = new Set(text.toLowerCase().match(/\p{L}+/gu));
+  const uses = (candidate: string) =>
+    commonWords[candidate]?.some((word) => words.has(word)) ?? false;
+  return (
+    uses(language) ||
+    !Object.keys(commonWords).some((other) => other !== language && uses(other))
+  );
+};
+
+// What a rewrite adds rather than rewrites: a subject line, salutation, sign-off or placeholder.
+const addedContent =
+  /^(?:subject|předmět|betreff):|\bdear\b|\bregards\b|\[your name\]/imu;
 
 const replies = [
   {
@@ -216,14 +273,15 @@ const settled = async (request: Promise<unknown>) => {
   }
 };
 
-// One generation through the shared store the reader or composer uses, with its evidence.
+// One generation through the shared store the reader or composer uses, with its evidence. A
+// ready result in another language than its case fails.
 async function generation<Input>(
   store: Readonly<{
     start: (input: Input) => Promise<void>;
     getSnapshot: (input: Input) => Generated;
   }>,
   input: Input | undefined,
-  expected: readonly string[],
+  { facts, language }: Readonly<{ facts: readonly string[]; language: string }>,
 ) {
   if (input === undefined) {
     return { result: 'fail' } as const;
@@ -231,21 +289,24 @@ async function generation<Input>(
   const { ms } = await timed(() => store.start(input));
   const state = store.getSnapshot(input);
   const text = state.kind === 'ready' ? state.text.toLowerCase() : '';
+  const kept = state.kind !== 'ready' || keepsLanguage(text, language);
   return {
     ms,
     ...detail(state),
-    facts: expected.filter((fact) => text.includes(fact.toLowerCase())),
-    result: outcome(state.kind === 'ready', state.kind),
+    facts: facts.filter((fact) => text.includes(fact.toLowerCase())),
+    ...(state.kind === 'ready' && { languageKept: kept }),
+    result: kept ? outcome(state.kind === 'ready', state.kind) : 'fail',
   };
 }
 
 async function qualifySummaries(assistance: Native, record: Recorder) {
-  for (const { id, language, subject, body, facts } of summaries) {
+  for (const entry of summaries) {
+    const { id, language, subject, body } = entry;
     const summary = createMessageSummary(assistance);
     const evidence = await generation(
       { start: summary.summarize, getSnapshot: summary.getSnapshot },
       summaryInput({ subject, body }),
-      facts,
+      entry,
     );
     // Only a body beyond the input limit is cut, and its preview says so.
     const omitted = 'omitted' in evidence && evidence.omitted;
@@ -262,15 +323,21 @@ async function qualifySummaries(assistance: Native, record: Recorder) {
 }
 
 async function qualifyDrafts(assistance: Native, record: Recorder) {
-  for (const { id, language, text, facts } of rewrites) {
+  for (const entry of rewrites) {
     const rewrite = createDraftAssistance(assistance);
+    const evidence = await generation(rewrite, rewriteInput(entry.text), entry);
+    const text = 'text' in evidence ? evidence.text : undefined;
+    const added = text !== undefined && addedContent.test(text);
     await record('rewrite', {
-      id,
-      language,
-      ...(await generation(rewrite, rewriteInput(text), facts)),
+      id: entry.id,
+      language: entry.language,
+      ...evidence,
+      ...(text !== undefined && { added }),
+      result: added ? 'fail' : evidence.result,
     });
   }
-  for (const { id, language, recipient, authored, quoted, facts } of replies) {
+  for (const entry of replies) {
+    const { id, language, recipient, authored, quoted } = entry;
     const reply = createDraftAssistance(assistance);
     const input = replyInput({
       authored,
@@ -280,7 +347,7 @@ async function qualifyDrafts(assistance: Native, record: Recorder) {
     await record('reply', {
       id,
       language,
-      ...(await generation(reply, input, facts)),
+      ...(await generation(reply, input, entry)),
     });
   }
 }
@@ -387,6 +454,7 @@ async function qualifyCancellation(assistance: Native, record: Recorder) {
         'assistance-disabled',
         'model-not-ready',
         'unsupported-locale',
+        'unsupported-language',
         'refused',
       ].includes(cancelled.value)
         ? 'unavailable'

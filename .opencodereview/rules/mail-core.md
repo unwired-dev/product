@@ -1540,6 +1540,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Tests in the same change
 
+- `testing/assistance-qualification.ts.keepsLanguage` treating absence of a
+  listed source-language word as proof of a language switch. Require positive
+  evidence of another corpus language before failing an answer; exercise a
+  valid short answer with no listed words as well as a switched answer through
+  the corpus runner. Keep uncertain and mixed-language results subject to human
+  review, or a correct reply such as "Ich nehme am Workshop teil." falsely fails
+  a live-model qualification run.
+
 - `testing/assistance-qualification.ts` treating a delay and two native starts
   as proof of in-flight replacement. Require the older request to be pending
   after its native start immediately before replacement, and reject a run whose

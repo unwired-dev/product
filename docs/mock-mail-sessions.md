@@ -64,7 +64,9 @@ label with an archived message, and a trashed message, listing each view as Gmai
 does, each with a synthetic HTML or plain-text body for the reader, applying label
 changes for the rest of the launch. Journeys that confirm setup with a connected
 mailbox open that synchronized Inbox, open a message, star, archive and undo,
-relaunch from its encrypted cache and return to the account page. The shared
+relaunch from its encrypted cache and return to the account page. On the Mac the
+journey first types a letter into the opened HTML message, which the page leaves
+unhandled, and checks the app keeps running ([#1217](https://github.com/unwired-dev/product/issues/1217)). The shared
 registration journey's two relaunches, during setup and with a connected mailbox,
 also fail if Welcome shows before the saved account's page. A synthetic
 Microsoft mailbox answers the [Microsoft mail](microsoft-mail.md) Graph requests

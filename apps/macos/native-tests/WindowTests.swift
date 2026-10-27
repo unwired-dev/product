@@ -208,9 +208,13 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(
       text("Images in this message are not loaded.", in: resumed).waitForExistence(timeout: 15))
     // The sanitized HTML renders inside the isolated WebKit view.
-    XCTAssertTrue(
-      resumed.webViews.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "seed order"))
-        .firstMatch.waitForExistence(timeout: 15))
+    let seedOrder = webText("seed order", in: resumed)
+    XCTAssertTrue(seedOrder.waitForExistence(timeout: 15))
+    // #1217: a letter the read-only page leaves unhandled must not abort the app.
+    seedOrder.click()
+    resumed.typeKey("j", modifierFlags: [])
+    XCTAssertTrue(seedOrder.waitForExistence(timeout: 5))
+    XCTAssertEqual(app.state, .runningForeground)
     // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
     resumed.buttons["Star"].click()
     XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
@@ -309,7 +313,6 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(first.buttons["Discard Draft"].waitForExistence(timeout: 5))
     first.buttons["Keep Editing"].click()
     XCTAssertTrue(second.popUpButtons["Text style"].exists)
-    // Closing a composer crashes the host (#1174), so the journey ends with both still open.
     app.terminate()
   }
 
@@ -1054,19 +1057,17 @@ final class WindowTests: XCTestCase {
         return (start, until(body("\(message) body.", in: window), from: start))
       }
     }
-    // Closing a composer crashes this host (#1174), so each composer sample ends with a relaunch:
-    // every sample is the first composer of its process.
+    // Each composer sample ends with Close; closing a composer used to abort this host (#1174).
     let subject = window.textFields["Subject"]
-    func relaunch() {
-      app.terminate()
-      app.launch()
-      XCTAssertTrue(row("Jordan Lee").waitForExistence(timeout: 30))
+    func close() {
+      window.buttons["Close"].click()
+      XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
     }
     measure("empty-composer", budget: 300, count: 10) { _ in
       let start = uptime()
       window.buttons["New Message"].click()
       let end = until(subject, from: start)
-      relaunch()
+      close()
       return (start, end)
     }
     window.buttons["New Message"].click()
@@ -1075,14 +1076,14 @@ final class WindowTests: XCTestCase {
     subject.typeText("Warm composer")
     // The Inbox lists the Draft once its edit is saved.
     XCTAssertTrue(row("Draft. Warm composer").waitForExistence(timeout: 10))
-    relaunch()
+    close()
     measure("warm-composer", budget: 200, count: 10) { _ in
       let start = uptime()
       row("Warm composer").click()
       let end = until(
         window.textFields.matching(NSPredicate(format: "value == %@", "Warm composer")).firstMatch,
         from: start)
-      relaunch()
+      close()
       return (start, end)
     }
     // Typing and formatting feedback: each sample runs from the key press or format bar button
@@ -1141,7 +1142,7 @@ final class WindowTests: XCTestCase {
   // #626: the core mail loop by keyboard where the Mac app offers a keyboard path, over the
   // registration-performance build's Gmail and Microsoft mailboxes, with XCTest's accessibility
   // audit of each screen. Opening a row, placing the caret in a new reply, sending and moving
-  // between controls with Tab still need the pointer (#849); Send also crashes this host (#1174).
+  // between controls with Tab still need the pointer (#849).
   // Every audit issue is printed, and one outside knownAccessibilityGap fails the journey.
   // swiftlint:disable:next function_body_length
   func testKeyboardAndAccessibility() throws {
@@ -1205,6 +1206,11 @@ final class WindowTests: XCTestCase {
     for key in [XCUIKeyboardKey.downArrow, .downArrow, .downArrow, .upArrow, .upArrow] {
       app.typeKey(key, modifierFlags: [])
     }
+    // #1194: the highlighted command is the selected element assistive technology reads.
+    let highlighted = window.buttons.matching(
+      NSPredicate(format: "selected == true AND label BEGINSWITH %@", "Search Mail")
+    ).firstMatch
+    XCTAssertTrue(highlighted.waitForExistence(timeout: 5))
     app.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(command.waitForNonExistence(timeout: 10))
     waitForFocus(search)
@@ -1281,6 +1287,7 @@ final class WindowTests: XCTestCase {
     // Reply from the palette starts a Draft beside the reader; it keeps typed text across relaunch.
     row("Outlook update 003").click()
     XCTAssertTrue(body("Outlook update 003 body.", in: window).waitForExistence(timeout: 15))
+    waitUntil { row("Outlook update 003").isSelected }
     try audit(app, "Reader")
     runCommand("Reply", in: app)
     // The empty body is labelled with its placeholder; once typed into, it is found by its text.
@@ -1412,10 +1419,21 @@ final class WindowTests: XCTestCase {
   // Runs every XCTest accessibility audit on the app as shown, prints each issue as an
   // ACCESSIBILITY line and fails on one that no known gap explains.
   private func audit(_ app: XCUIApplication, _ screen: String) throws {
+    // AppKit shows its text Touch Bar only while a text input has keyboard focus.
+    let focused = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
+    let textFocused =
+      focused.exists && [.textField, .searchField, .textView].contains(focused.elementType)
     try app.performAccessibilityAudit { issue in
-      let gap = self.knownAccessibilityGap(issue)
+      if issue.auditType == .parentChild && issue.element == nil {
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.name = "Accessibility \(screen): \(issue.compactDescription)"
+        capture.lifetime = .keepAlways
+        self.add(capture)
+      }
+      let gap = self.knownAccessibilityGap(issue, screen: screen, textFocused: textFocused)
       print("ACCESSIBILITY " + self.json([
-        "screen": screen, "audit": issue.compactDescription,
+        "screen": screen, "audit": issue.compactDescription, "textFocused": textFocused,
         "elementType": issue.element?.elementType.rawValue ?? -1,
         "label": issue.element?.label ?? "", "knownGap": gap ?? "",
       ]))
@@ -1427,22 +1445,26 @@ final class WindowTests: XCTestCase {
   // open window, so this lists labels rather than screens.
   private let contrastGaps: Set<String> = [
     "", "30 September 2025 at 08:00 UTC", "Account & Devices", "Accounts",
-    "All Inboxes. All inboxes · 2 unread", "App", "Application", "Automation",
-    "Colleague 003, colleague003@example.invalid",
-    "Encrypted mailbox list: casey@example.invalid, other@example.invalid.", "Favorites",
-    "Gmail · other@example.invalid", "Go To", "Mailboxes", "Microsoft · casey@example.invalid",
-    "October 2025", "Private sync is on", "Rowan Hale, rowan@example.invalid",
-    "Search. 1 message · All inboxes", "Select a message to start reading.", "Selected Message",
-    "September 2025", "Sign-in methods", "Signed in with Apple.",
+    "All Inboxes. All inboxes · 2 unread",
+    "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
+    "App", "Application", "Automation", "Colleague 003, colleague003@example.invalid",
+    "Encrypted mailbox list: casey@example.invalid, other@example.invalid.", "Error Reporting",
+    "Favorites", "Gmail · other@example.invalid", "Go To", "Known Tracking Pixels",
+    "Known Tracking Pixels stay blocked for every remote-content policy.", "Language", "Mailboxes",
+    "Microsoft · casey@example.invalid", "Moved: “Quarterly planning”.", "October 2025",
+    "Privacy & Data", "Private sync is on", "Remote Content", "Remote Message Content",
+    "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
+    "Select a message to start reading.", "Selected Message", "September 2025", "Sign-in methods",
+    "Signed in with Apple.",
     "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
-    "casey@example.invalid, other@example.invalid are connected on this device.",
-    "relay@privaterelay.example.invalid",
+    "casey@example.invalid", "casey@example.invalid, other@example.invalid are connected on this device.",
+    "other@example.invalid", "relay@privaterelay.example.invalid",
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
-  // Every React Native button and message link control lacks a press action until #1194, so that gap
-  // is not listed per control.
-  private func knownAccessibilityGap(_ issue: XCUIAccessibilityAuditIssue) -> String? {
+  private func knownAccessibilityGap(
+    _ issue: XCUIAccessibilityAuditIssue, screen: String, textFocused: Bool
+  ) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
     // AppKit's Touch Bar for a focused text view.
@@ -1451,11 +1473,14 @@ final class WindowTests: XCTestCase {
     switch issue.auditType {
     case .contrast where type == .staticText && contrastGaps.contains(label):
       return "#1195"
-    case .action where type == .button || (type == .link && label.hasPrefix("Open link: ")):
-      return "#1194"
-    case .parentChild where issue.element == nil:
-      return "#1194"
     case .action where touchBar, .sufficientElementDescription where touchBar:
+      return "AppKit Touch Bar"
+    // The candidate bar's suggestion buttons report a parent that does not list them on these
+    // audited screens. XCTest gives these issues no element or specific detail, so the focused
+    // text input is the narrowest check. Other unlocated issues fail; xcresults hold captures.
+    case .parentChild
+    where issue.element == nil && issue.compactDescription == "Parent/Child mismatch"
+      && textFocused && ["Command Palette", "Reader", "Composer"].contains(screen):
       return "AppKit Touch Bar"
     // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription

@@ -109,10 +109,10 @@ The journey signs in with Apple and connects the synthetic Microsoft and Gmail
 mailboxes, 126 and 128 Inbox Threads. It opens five messages of each once so
 their bodies are cached, then measures 10 relaunches until the unified Inbox
 lists, 21 switches between both Inboxes and All inboxes, 10 body openings per
-mailbox and 10 openings each of an empty composer and a saved Draft. Closing a
-composer currently crashes the Mac host
-([#1174](https://github.com/unwired-dev/product/issues/1174)), so each composer
-sample is the first composer of a relaunched process. In a new message it then
+mailbox and 10 openings each of an empty composer and a saved Draft. Each
+composer sample ends with the composer's Close in the same process, which also
+covers the close-and-reopen crash fixed in
+[#1174](https://github.com/unwired-dev/product/issues/1174). In a new message it then
 types 20 characters into the body, turns bold on at the caret with Command-B and
 types 11 bold characters, then selects the last word and presses Command-B, B,
 I, I, U, U twice, so each mark toggles on that word and back. It then clicks the
@@ -211,23 +211,23 @@ and successful save/close; failed or locked native saves and multiple guarded
 windows remain deferred. Opening a message, placing the
 caret in the new reply and Send still use the pointer (see
 [#849](https://github.com/unwired-dev/product/issues/849)). The journey never
-sends, because Send crashes the host
-([#1174](https://github.com/unwired-dev/product/issues/1174)). Cut and Copy use
+sends. Cut and Copy use
 the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
 Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
-audits still report. These are buttons and message link controls without a press action and the missing
-parent/child links
-([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
+audits still report. These are secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)),
 reader labels that repeat their role or differ from visible text
 ([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
 and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
-the journey; remove a gap once its owner fixes it. The audits run in the host's
+the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
+`Parent/Child mismatch` exception covers only the Command Palette, reader and
+composer audits observed on the Mac host, while a text input has keyboard focus. Retain each run's xcresult captures
+with its log when investigating that exception. The audits run in the host's
 current appearance only. They do not replace VoiceOver,
 Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
 

@@ -702,6 +702,43 @@ release check. The separate unavailable-capability, uninstalled-language and
 signed-in lifecycle checks above remain required; the manual-check waiver and
 tracked output/UI limitations are unchanged.
 
+### Corpus v4 source language review, 2026-10-27
+
+For [#1164](https://github.com/unwired-dev/product/issues/1164), the reviewer
+inspected the implementation-run evidence at
+`artifacts/assistance-qualification/macos.4KW9zT/assistance-qualification.jsonl`
+and reran `scripts/verify-assistance-evidence.py`, which exited 0. This is
+retained live-model evidence, not a new device run performed during review.
+The implementation handoff attributes the signed Mac `Testing` build and
+`qualify:assistance` run to source snapshot
+`90286b9433175e570d61f1d5938f6812d9ffeca7`. The artifact's commit stamp is empty,
+so it does not independently establish that source attribution. The review
+checkout's root lockfile SHA-256 is
+`1865bfa1e52f75b690320bb1ef5ccfe55a15c672b431f7cb01349a909bede41d`.
+
+The device record identifies `Mac16,10`, macOS 27.0.1 (`26A434`), locale
+`en_US@rg=czzzzz`, preferred languages `en-US`/`cs-CZ` and model availability
+`available`. Corpus v4 records **19 pass, four limited, zero fail** across 23
+checks. The Czech summary and both Czech rewrites report `unsupported-language`;
+Czech-to-English translation reports `unsupported-pair`. The German summary and
+rewrite remain German. The English rewrites contain no invented subject,
+greeting or sign-off; the rough note retains its authored greeting. The
+instruction-like note is rewritten as text rather than expanded into a new
+letter. The in-flight replacement row records `nativeStarts: 2` and
+`inFlight: true`.
+
+The new word and letter-frame checks are heuristics, not semantic correctness
+scores. Every answer still needs human review; these results make no claim
+about another model run. Deterministic core, host and runner tests use substituted
+model responses and remain separate from this live-model evidence. The shared
+Swift bridge was compiled only in the Mac Testing build for this slice.
+Physical iPhone and iPad corpus-v4 runs and their language results remain
+deferred to the [#625 owner session](https://github.com/unwired-dev/product/issues/625).
+Mobile compilation remains required through Expo native CI or the owner build.
+Earlier v3 mobile results do not qualify the changed prompts or language guards.
+The existing manual-check waiver and other deferred release checks remain
+unchanged.
+
 ## Native host qualification refresh, 2026-10-20
 
 Issue [#623](https://github.com/unwired-dev/product/issues/623) remains incomplete.
