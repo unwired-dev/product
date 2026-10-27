@@ -23,21 +23,21 @@ const number = '202610031234';
 const sentinel = 'SYNTHETIC_PRIVATE_KEY_SENTINEL';
 // Archive inspection reads public certificates only; no signing key is needed.
 const certificate = (name) =>
-  spawnSync(
-    'ruby',
-    [
-      '-ropenssl',
-      '-e',
-      `key = OpenSSL::PKey::RSA.new(2048); c = OpenSSL::X509::Certificate.new; c.version = 2; c.serial = 1; c.subject = c.issuer = OpenSSL::X509::Name.parse('/CN=${name}'); c.public_key = key; c.not_before = Time.now; c.not_after = Time.now + 3600; c.sign(key, OpenSSL::Digest::SHA256.new); $stdout.binmode.write(c.to_der)`,
-    ],
-    { maxBuffer: 1 << 20 },
-  ).stdout;
+  spawnSync('ruby', [
+    '-ropenssl',
+    '-e',
+    `key = OpenSSL::PKey::RSA.new(2048); c = OpenSSL::X509::Certificate.new; c.version = 2; c.serial = 1; c.subject = c.issuer = OpenSSL::X509::Name.parse('/CN=${name}'); c.public_key = key; c.not_before = Time.now; c.not_after = Time.now + 3600; c.sign(key, OpenSSL::Digest::SHA256.new); $stdout.binmode.write(c.to_der)`,
+  ]).stdout;
 const prepared = certificate('Prepared identity');
 const identity = createHash('sha1')
   .update(prepared)
   .digest('hex')
   .toUpperCase();
-const signedScenarios = ['signed', 'unsigned-archive', 'other-identity'];
+const signedScenarios = new Set([
+  'signed',
+  'unsigned-archive',
+  'other-identity',
+]);
 
 // fallow-ignore-next-line complexity -- One fixture builds the whole fake checkout and toolchain every release scenario shares.
 function fixture(scenario, { dotenv = false } = {}) {
@@ -259,7 +259,7 @@ for (const [scenario, platform, expected] of [
         if (scenario === 'local-profile') {
           env.UNWIRED_MAC_PROFILE = '/installed/development.provisionprofile';
         }
-        if (signedScenarios.includes(scenario)) {
+        if (signedScenarios.has(scenario)) {
           env.TESTFLIGHT_IDENTITY_SHA1 = identity;
         }
         const result = spawnSync(
@@ -274,7 +274,7 @@ for (const [scenario, platform, expected] of [
             `Refusing to upload ${platform}: unexpected archive configuration`,
           );
         }
-        if (expected === 1 && signedScenarios.includes(scenario)) {
+        if (expected === 1 && signedScenarios.has(scenario)) {
           assert.equal(
             result.stderr.trim(),
             `Refusing to upload ${platform}: archive is not signed by the prepared identity`,
