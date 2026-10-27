@@ -218,15 +218,16 @@ nothing has written to it since the journey's last Cut or Copy.
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
 Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
-audits still report. These are buttons and message link controls without a press action and the missing
-parent/child links
-([#1194](https://github.com/unwired-dev/product/issues/1194)), secondary-text
+audits still report. These are secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)),
 reader labels that repeat their role or differ from visible text
 ([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
 and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
-the journey; remove a gap once its owner fixes it. The audits run in the host's
+the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
+`Parent/Child mismatch` exception covers only the Command Palette, reader and
+composer audits observed on the Mac host, while a text input has keyboard focus. Retain each run's xcresult captures
+with its log when investigating that exception. The audits run in the host's
 current appearance only. They do not replace VoiceOver,
 Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
 

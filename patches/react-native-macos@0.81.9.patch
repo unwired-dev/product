@@ -1,5 +1,5 @@
 diff --git a/React/Fabric/Mounting/ComponentViews/View/RCTViewComponentView.mm b/React/Fabric/Mounting/ComponentViews/View/RCTViewComponentView.mm
-index 6e20d03f64385e3729a7517c6fb8b31f6177d52d..5aab846ad80c9bf20b9e3a15966d6d210dad03e7 100644
+index 6e20d03f64385e3729a7517c6fb8b31f6177d52d..57d23bbf91c79838091b1fb256c6d6d254eb5911 100644
 --- a/React/Fabric/Mounting/ComponentViews/View/RCTViewComponentView.mm
 +++ b/React/Fabric/Mounting/ComponentViews/View/RCTViewComponentView.mm
 @@ -63,7 +63,7 @@ @implementation RCTViewComponentView {
@@ -11,7 +11,29 @@ index 6e20d03f64385e3729a7517c6fb8b31f6177d52d..5aab846ad80c9bf20b9e3a15966d6d21
    BOOL _useCustomContainerView;
    NSMutableSet<NSString *> *_accessibilityOrderNativeIDs;
    NSMutableArray<NSObject *> *_accessibilityElements;
-@@ -1035,11 +1035,12 @@ - (RCTUIView *)currentContainerView // [macOS]
+@@ -493,10 +493,20 @@ - (void)updateProps:(const Props::Shared &)props oldProps:(const Props::Shared &
+     // Set role directly on self based on traits.
+     RCTUIAccessibilityTraits traits = RCTUIAccessibilityTraitsFromAccessibilityTraits(newViewProps.accessibilityTraits);
+     self.accessibilityRole = RCTAccessibilityRoleFromTraits(traits);
+-    self.accessibilityEnabled = (traits & RCTUIAccessibilityTraitNotEnabled) == 0;
+ #endif // macOS]
+   }
+ 
++#if TARGET_OS_OSX // [macOS
++  // `accessibilityTraits` and `accessibilityState` both disable the element; only the state selects it.
++  if (oldViewProps.accessibilityTraits != newViewProps.accessibilityTraits ||
++      oldViewProps.accessibilityState != newViewProps.accessibilityState) {
++    RCTUIAccessibilityTraits traits = RCTUIAccessibilityTraitsFromAccessibilityTraits(newViewProps.accessibilityTraits);
++    const auto accessibilityState = newViewProps.accessibilityState.value_or(AccessibilityState{});
++    self.accessibilityElement.accessibilityEnabled = (traits & RCTUIAccessibilityTraitNotEnabled) == 0 && !accessibilityState.disabled;
++    self.accessibilityElement.accessibilitySelected = accessibilityState.selected;
++  }
++#endif // macOS]
++
+ #if !TARGET_OS_OSX // [macOS]
+   // `accessibilityState`
+   if (oldViewProps.accessibilityState != newViewProps.accessibilityState) {
+@@ -1035,11 +1045,12 @@ - (RCTUIView *)currentContainerView // [macOS]
  {
    if (_useCustomContainerView) {
      if (!_containerView) {
@@ -25,3 +47,67 @@ index 6e20d03f64385e3729a7517c6fb8b31f6177d52d..5aab846ad80c9bf20b9e3a15966d6d21
        self.clipsToBounds = NO;
        _containerView.layer.mask = self.layer.mask;
        self.layer.mask = nil;
+@@ -1716,6 +1727,31 @@ - (BOOL)didActivateAccessibilityCustomAction:(UIAccessibilityCustomAction *)acti
+ }
+ 
+ #if TARGET_OS_OSX // [macOS
++// AppKit's press action (VoiceOver's VO-Space) sends the click that Pressability handles as an
++// accessibility click, so it runs the same onPress as a mouse click.
++- (BOOL)canPerformAccessibilityPress
++{
++  // Like a disabled NSButton, a disabled control keeps the action and ignores it.
++  return _eventEmitter && _props->hostPlatformEvents[HostPlatformViewEvents::Offset::Click];
++}
++
++- (BOOL)accessibilityPerformPress
++{
++  if (![self canPerformAccessibilityPress] || !self.isAccessibilityEnabled) {
++    return NO;
++  }
++  _eventEmitter->onAccessibilityPress();
++  return YES;
++}
++
++- (BOOL)isAccessibilitySelectorAllowed:(SEL)selector
++{
++  if (selector == @selector(accessibilityPerformPress)) {
++    return [self canPerformAccessibilityPress];
++  }
++  return [super isAccessibilitySelectorAllowed:selector];
++}
++
+ - (void)handleCommand:(const NSString *)commandName args:(const NSArray *)args
+ {
+   if ([commandName isEqualToString:@"focus"]) {
+diff --git a/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.cpp b/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.cpp
+index 5b8b18d67be7ad215be1df88aae63fa2e7996fa7..084e2f71c7aed67d297ecfe76246c8c094be5bd7 100644
+--- a/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.cpp
++++ b/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.cpp
+@@ -100,6 +100,15 @@ void HostPlatformViewEventEmitter::onAuxClick(const MouseEvent& mouseEvent) cons
+   });
+ }
+ 
++// A click without pointerType, which Pressability's onClick treats as an accessibility click.
++void HostPlatformViewEventEmitter::onAccessibilityPress() const {
++  dispatchEvent("click", [](jsi::Runtime& runtime) {
++    auto payload = jsi::Object(runtime);
++    payload.setProperty(runtime, "button", 0);
++    return payload;
++  });
++}
++
+ #pragma mark - Drag and Drop Events
+ 
+ jsi::Value HostPlatformViewEventEmitter::dataTransferPayload(
+diff --git a/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.h b/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.h
+index 61371e95489c951d28b6ddbddaa43a2876a91e92..25aaed9e817122e7bf5f93acc9a3dd446e39aa82 100644
+--- a/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.h
++++ b/ReactCommon/react/renderer/components/view/platform/macos/react/renderer/components/view/HostPlatformViewEventEmitter.h
+@@ -36,6 +36,7 @@ class HostPlatformViewEventEmitter : public BaseViewEventEmitter {
+   void onClick(MouseEvent const& mouseEvent) const;
+   void onDoubleClick(MouseEvent const& mouseEvent) const;
+   void onAuxClick(MouseEvent const& mouseEvent) const;
++  void onAccessibilityPress() const;
+ 
+ #pragma mark - Drag and Drop Events
+ 
