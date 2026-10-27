@@ -33,7 +33,10 @@ const certificate = (name) =>
     { maxBuffer: 1 << 20 },
   ).stdout;
 const prepared = certificate('Prepared identity');
-const identity = createHash('sha1').update(prepared).digest('hex').toUpperCase();
+const identity = createHash('sha1')
+  .update(prepared)
+  .digest('hex')
+  .toUpperCase();
 const signedScenarios = ['signed', 'unsigned-archive', 'other-identity'];
 
 // fallow-ignore-next-line complexity -- One fixture builds the whole fake checkout and toolchain every release scenario shares.
