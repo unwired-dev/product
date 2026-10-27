@@ -807,6 +807,14 @@ describe('composing Drafts', () => {
       nativeEvent: { key: 'z', metaKey: true },
     });
     expect(drafts()[0]?.body[0]?.spans).toStrictEqual([{ text: 'Notes' }]);
+    // The native same-text report must not add a step between formatting and typing.
+    await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
+      nativeEvent: { key: 'z', metaKey: true },
+    });
+    expect(drafts()[0]?.body[0]?.spans).toStrictEqual([]);
+    await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
+      nativeEvent: { key: 'Z', metaKey: true, shiftKey: true },
+    });
     // Shift-Command-Z redoes it; AppKit reports the key as an uppercase Z.
     expect(
       screen.getByLabelText('Message body').props.keyDownEvents,

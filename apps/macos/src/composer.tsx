@@ -1378,7 +1378,8 @@ export function ComposerNotices({
 }
 
 // The body shows marks for typing before JavaScript renders them (ComposerFormatting.m); a
-// control that edits the body or toggles those marks ends that, whatever activated it.
+// control or Undo that edits the body or toggles those marks ends that until its render shows,
+// whatever activated it.
 const fromControl = () => {
   windowHost()?.forgetComposerTyping();
 };
@@ -1660,6 +1661,7 @@ function Editor({
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
+    fromControl();
     if (sendingNow.current) {
       return;
     }
@@ -1674,6 +1676,10 @@ function Editor({
     const at = selectionNow.current;
     const latest = authored.current;
     const textBefore = displayOf(latest.body).text;
+    // Native selection formatting reports its unchanged text to advance RN's event count.
+    if (text === textBefore) {
+      return;
+    }
     const result = applyText(latest.body, text, {
       marks: typingNow.current,
       selection: at,
@@ -2080,7 +2086,6 @@ function Editor({
           icon="arrow.uturn.backward"
           label={t('drafts.undo')}
           onPress={() => {
-            fromControl();
             travel(undo);
           }}
         />
@@ -2089,7 +2094,6 @@ function Editor({
           icon="arrow.uturn.forward"
           label={t('drafts.redo')}
           onPress={() => {
-            fromControl();
             travel(redo);
           }}
         />

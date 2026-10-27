@@ -20,6 +20,10 @@ static __weak NSTextView *body;
 static NSHashTable<NSTextView *> *seen;
 static Typing typing;
 static NSDictionary<NSAttributedStringKey, id> *toggled;
+// A body whose JavaScript is changing it, as for Undo, still shows the text from before: native
+// marks wait until JavaScript has handled the change and its render arrives.
+static __weak NSTextView *awaited;
+static BOOL handled;
 // The characters the body's latest edit inserted, and whether an edit moved its selection.
 static NSRange inserted = {NSNotFound, 0};
 static BOOL edited;
@@ -196,12 +200,14 @@ static NSEvent *keyDown(NSEvent *event)
   }
   // Undo and Redo end marks toggled for typing, and their render may undo marks shown here.
   if ([key.lowercaseString isEqualToString:@"z"]) {
-    forget(TypingNeighbour);
+    forget(TypingUnknown);
+    awaited = view;
+    handled = NO;
     return event;
   }
   unichar mark = [key characterAtIndex:0];
   if (flags != NSEventModifierFlagCommand || (mark != 'b' && mark != 'i' && mark != 'u')
-      || view.selectedRanges.count != 1) {
+      || view.selectedRanges.count != 1 || awaited == view) {
     return event;
   }
   NSRange selection = view.selectedRange;
@@ -220,10 +226,13 @@ static NSEvent *keyDown(NSEvent *event)
   return event;
 }
 
-// A composer control changed the body or the marks typed text takes; only JavaScript knows how.
+// JavaScript is handling a composer control or Undo that changes the body or the marks typed text
+// takes; only it knows how.
 void UnwiredForgetComposerTyping(void)
 {
   forget(TypingUnknown);
+  awaited = body;
+  handled = YES;
 }
 
 void UnwiredInstallComposerFormatting(void)
@@ -238,6 +247,7 @@ void UnwiredInstallComposerFormatting(void)
     NSRange selection = view.selectedRange;
     BOOL same = selection.length > 0 && [view.string isEqualToString:text.string];
     setAttributedText(view, @selector(setAttributedText:), text);
+    if (view == awaited && handled) awaited = nil;
     if (same) view.selectedRange = selection;
   }));
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
@@ -268,7 +278,8 @@ void UnwiredInstallComposerFormatting(void)
     // reports the selection without moving it.
     NSTextView *view = composerBody(notification.object);
     NSValue *old = notification.userInfo[@"NSOldSelectedCharacterRange"];
-    if (view != nil && !edited && !(old != nil && NSEqualRanges(old.rangeValue, view.selectedRange))) {
+    if (view != nil && !edited && view != awaited
+        && !(old != nil && NSEqualRanges(old.rangeValue, view.selectedRange))) {
       forget(TypingNeighbour);
     }
   }];

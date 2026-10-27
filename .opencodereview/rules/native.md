@@ -692,6 +692,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   screen never cleared its entry. Clear the window's entry on every save;
   otherwise closing a later palette focuses an unrelated control.
 - Window identity, menu routing or lifetime moved out of AppKit; more than one React factory or JavaScript runtime per process; a window root that survives its window; Quit that leaves work running or closing the last window that terminates the app.
+- `ComposerFormatting.m` applying cached or neighboring typing attributes after
+  its JavaScript editor's state becomes unknown. Match cache lifetime to the
+  owning editor across window switches and non-pointer control activation, and
+  check typing before keyboard Undo/Redo has rendered, including a caret move
+  during that interval. A native selection change or old attributed render
+  alone does not prove the semantic result arrived. Otherwise native feedback
+  can show marks that JavaScript later removes from an already shown character.
 - A composer change reviewed without inventorying native exits in
   `apps/macos/macos/UnwiredMail/AppDelegate.mm`: window close/Command-W and
   application termination/Quit can bypass `useLeaveComposer` before destroying

@@ -537,6 +537,11 @@ still applies. See `docs/architecture/macos-client.md`.
   the proposal, and a settled proposal may require fresh enrollment. Otherwise
   an unanswered removal and its Recovery Key become stranded behind the UI.
 
+- `composer.tsx.Editor` recording a native same-text formatting acknowledgement
+  as an authored edit. Keep React Native's event-count acknowledgement separate
+  from semantic history and saving. Exercise successive Undo actions through
+  formatting and the preceding text edit; otherwise an invisible history entry
+  consumes Undo and clears Redo even though the body did not change.
 - `composer.tsx.Editor` accepting edits while Send freezes an immutable Draft for
   admission. Disable text, keyboard, pointer and accessibility editing controls,
   and fence their callbacks synchronously before awaiting admission: render props
