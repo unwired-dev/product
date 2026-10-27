@@ -594,6 +594,8 @@ describe('preview Inbox', () => {
       );
       await app.rerender(<WindowJourney keyboardLift={280} />);
       expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
+      // Sync status over the list rises with the bar, 12 pt above it.
+      expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 356 });
       const edge = screen
         .getAllByTestId('scroll-edge')
         .find((view) => StyleSheet.flatten(view.props.style)?.width === 500);

@@ -358,12 +358,23 @@ export function createWindowBar() {
     hidden: boolean;
     notice: ReactNode;
   }> | null = null;
+  // How far a docked keyboard raises the bar.
+  let lift = 0;
   const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const listener of listeners) {
+      listener();
+    }
+  };
   return {
     show: (content: ReactNode, hidden = false, notice: ReactNode = null) => {
       bar = content === null ? null : { content, hidden, notice };
-      for (const listener of listeners) {
-        listener();
+      changed();
+    },
+    raise: (next: number) => {
+      if (next !== lift) {
+        lift = next;
+        changed();
       }
     },
     subscribe: (listener: () => void) => {
@@ -373,6 +384,7 @@ export function createWindowBar() {
       };
     },
     bar: () => bar,
+    lift: () => lift,
   };
 }
 
@@ -412,6 +424,9 @@ export function WindowBarHost({
   readonly keyboardLift: number;
 }) {
   const bar = useSyncExternalStore(windowBar.subscribe, windowBar.bar);
+  useLayoutEffect(() => {
+    windowBar.raise(keyboardLift);
+  }, [windowBar, keyboardLift]);
   if (bar === null) {
     return null;
   }
@@ -451,6 +466,9 @@ export function WindowBarHost({
   );
 }
 
+// A compact layout's bar stays in the list and never rises.
+const listBar = createWindowBar();
+
 // The floating glass bar over the list, holding search, filters and New Message. A regular-width
 // window shows it across its bottom edge instead.
 export function FloatingBar({
@@ -475,11 +493,14 @@ export function FloatingBar({
 }) {
   const windowBar = use(WindowBarContext);
   const insets = useSafeAreaInsets();
-  // The list excludes its safe area; the window-wide bar includes it.
+  const { subscribe, lift: lifted } = windowBar ?? listBar;
+  const lift = useSyncExternalStore(subscribe, lifted);
+  // The list excludes its safe area; the window-wide bar includes it and rises above a docked
+  // keyboard.
   const noticeBottom =
     windowBar === undefined
       ? paddingBottom
-      : Math.max(spacing.l - insets.bottom, 0);
+      : Math.max(spacing.l - insets.bottom, 0) + lift;
   const content = (
     <>
       <View
@@ -523,6 +544,7 @@ export function FloatingBar({
       ) : null}
       <View
         pointerEvents="box-none"
+        testID="list-notice"
         style={[
           styles.notice,
           {

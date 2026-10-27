@@ -325,7 +325,8 @@ start nothing meanwhile. A failure keeps the saved list and shows the status bel
 On iPhone and iPad a Liquid Glass capsule floats 12pt above the Inbox bar, centred
 over the list, while the shown mailboxes synchronize or need attention
 ([#1441](https://github.com/unwired-dev/product/issues/1441)). The list scrolls
-under it and never moves.
+under it and never moves. On iPad, when a docked keyboard raises the window's bar
+during search, the capsule rises with it and stays 12pt above it.
 
 - **Progress.** An activity indicator and **Updating 2 accounts** count the shown
   mailboxes still checking their server or downloading All Mail's history. While
