@@ -233,7 +233,7 @@ describe('application-owned Outbox execution', () => {
     async (reply) => {
       expect.hasAssertions();
       const grant = jest
-        .fn<void, [(released: unknown) => void]>()
+        .fn<unknown, [(released: unknown) => void]>()
         .mockImplementationOnce((end) => {
           end(reply);
         });
