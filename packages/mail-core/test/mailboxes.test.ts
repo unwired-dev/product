@@ -799,29 +799,21 @@ describe('mailbox connections and the unified Inbox', () => {
     // Native code forgets mailbox access when a restore starts and grants it again once the
     // connection verifies; until then its mailbox reads as invalidated.
     let verifying = false;
-    let forgot: () => void = () => undefined;
-    // oxlint-disable-next-line promise/avoid-new -- Resolves once the restore forgets access.
-    const forgotten = new Promise<void>((resolve) => {
-      forgot = resolve;
-    });
-    let verify: () => void = () => undefined;
-    // oxlint-disable-next-line promise/avoid-new -- Holds the restore's verification of the mailbox.
-    const verified = new Promise<void>((resolve) => {
-      verify = resolve;
-    });
+    const forgotten = Promise.withResolvers<undefined>();
+    const verified = Promise.withResolvers<undefined>();
     let holdVerification = false;
     const registration = createRegistration({
       ...synthetic.vault,
       forgetMailboxAccess: async () => {
         await synthetic.vault.forgetMailboxAccess();
         verifying = true;
-        forgot();
+        forgotten.resolve(undefined);
         return null;
       },
       confirmMailbox: async (connection) => {
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the foreground restore waits.
         if (holdVerification) {
-          await verified;
+          await verified.promise;
         }
         await synthetic.vault.confirmMailbox(connection);
         verifying = false;
@@ -830,12 +822,8 @@ describe('mailbox connections and the unified Inbox', () => {
     });
     await registration.register('google');
     await registration.addMailbox();
-    let reached: () => void = () => undefined;
-    // oxlint-disable-next-line promise/avoid-new -- Resolves once a history read is in flight.
-    const reading = new Promise<void>((resolve) => {
-      reached = resolve;
-    });
-    let release: () => void = () => undefined;
+    const reading = Promise.withResolvers<undefined>();
+    const released = Promise.withResolvers<undefined>();
     let paused = false;
     const base = pendingWhile(
       () => verifying,
@@ -847,11 +835,8 @@ describe('mailbox connections and the unified Inbox', () => {
         gmailRequest: async (path, query, scope) => {
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the paused history read is held.
           if (paused && path === 'history') {
-            reached();
-            // oxlint-disable-next-line promise/avoid-new -- Hold the history response across the restore.
-            await new Promise<void>((resolve) => {
-              release = resolve;
-            });
+            reading.resolve(undefined);
+            await released.promise;
           }
           return base.gmailRequest(path, query, scope);
         },
@@ -870,15 +855,15 @@ describe('mailbox connections and the unified Inbox', () => {
     paused = true;
     holdVerification = true;
     const running = mailboxes.load();
-    await reading;
+    await reading.promise;
     paused = false;
     const foreground = registration.refreshInbox(mailboxes.load);
-    await forgotten;
-    release();
+    await forgotten.promise;
+    released.resolve(undefined);
     await running;
     // The saved mail stays shown, without a warning, while the restore verifies Gmail again.
     expect(ready(inbox.getSnapshot()).messages).toHaveLength(2);
-    verify();
+    verified.resolve(undefined);
     await foreground;
     expect(ready(inbox.getSnapshot()).sync).toBe('current');
     expect(published.length).toBeGreaterThan(0);

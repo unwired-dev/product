@@ -156,11 +156,11 @@ Each read and commit carries the address and opaque native generation returned b
 the synchronization's cache open. Reselection between successive operations,
 including another Google subject reusing the address after revision reset,
 rejects mailbox-invalidated.
-An invalidated synchronization reopens through the FIFO gate after the
-registration operation, obtaining its renewed generation. Same-mailbox foreground
-verification can therefore resume from the committed cache without publishing
-`failed`. Persistent invalidation exhausts the bounded restarts and hides the
-mail. Ownership changes and purge still clear and fence the in-memory Inbox
+An invalidated synchronization retries a native reopen at most twice to obtain
+the mailbox's renewed generation. A reopen while foreground verification is
+pending reports mailbox-invalidated rather than grant rejection. Exhausting these
+retries keeps saved mail visible; an Inbox without a saved document becomes
+unavailable until another load. Ownership changes and purge still clear and fence the in-memory Inbox
 immediately; retrying the native open cannot restore access to the former
 mailbox. Both hosts filter ready state against the selected mailbox
 address before rendering, including the first frame while its cache opens.
