@@ -1084,6 +1084,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Mac native-view color props in `design.tsx.ContextMenu` or another host
+  adapter relying on automatic conversion solely because their TypeScript type
+  is `ColorValue`. Trace the installed renderer's prop processor and native
+  converter, including custom `NSColor` props under legacy-view interop; pass
+  the processed wire value when that prop has no processor. Exercise a packaged
+  menu containing a destructive item, or an unconverted tint can arrive as nil
+  and abort menu construction while component tests still pass.
+
 - `organize-motion` relying on `LayoutAnimation.configureNext` without tracing
   its delegate in the installed renderer and native dependencies. Reanimated can
   replace Fabric's delegate with one that ignores that API; a call-count test
