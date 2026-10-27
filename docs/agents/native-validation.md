@@ -109,10 +109,10 @@ The journey signs in with Apple and connects the synthetic Microsoft and Gmail
 mailboxes, 126 and 128 Inbox Threads. It opens five messages of each once so
 their bodies are cached, then measures 10 relaunches until the unified Inbox
 lists, 21 switches between both Inboxes and All inboxes, 10 body openings per
-mailbox and 10 openings each of an empty composer and a saved Draft. Closing a
-composer currently crashes the Mac host
-([#1174](https://github.com/unwired-dev/product/issues/1174)), so each composer
-sample is the first composer of a relaunched process. In a new message it then
+mailbox and 10 openings each of an empty composer and a saved Draft. Each
+composer sample ends with the composer's Close in the same process, which also
+covers the close-and-reopen crash fixed in
+[#1174](https://github.com/unwired-dev/product/issues/1174). In a new message it then
 types 20 characters into the body, turns bold on at the caret with Command-B and
 types 11 bold characters, then selects the last word and presses Command-B, B,
 I, I, U, U twice, so each mark toggles on that word and back. It then clicks the
@@ -211,8 +211,7 @@ and successful save/close; failed or locked native saves and multiple guarded
 windows remain deferred. Opening a message, placing the
 caret in the new reply and Send still use the pointer (see
 [#849](https://github.com/unwired-dev/product/issues/849)). The journey never
-sends, because Send crashes the host
-([#1174](https://github.com/unwired-dev/product/issues/1174)). Cut and Copy use
+sends. Cut and Copy use
 the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
