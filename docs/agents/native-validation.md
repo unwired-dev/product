@@ -117,7 +117,9 @@ types 20 characters into the body, turns bold on at the caret with Command-B and
 types 11 bold characters, then selects the last word and presses Command-B, B,
 I, I, U, U twice, so each mark toggles on that word and back. It then clicks the
 format bar's Bold, Bold, Italic, Italic, Underline and Underline buttons twice
-over on the same word. The synthetic relay
+over on the same word. Finally it presses Right to collapse the selection, then
+Command-B, and types 4 characters that must be unmarked while the word stays bold.
+The synthetic relay
 records each provider body request in the probe evidence; the journey fails if a
 cached-body sample requested one, or if priming recorded none.
 

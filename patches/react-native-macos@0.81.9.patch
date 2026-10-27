@@ -1,0 +1,15 @@
+diff --git a/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm b/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+index e7254907271b70783e886d378c7824df46e04e93..55f66005c367296a8487fde8eba45ee77d3b3ca1 100644
+--- a/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
++++ b/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+@@ -1292,6 +1292,10 @@ - (void)_setAttributedString:(NSAttributedString *)attributedString
+     NSInteger newOffset = _backedTextInputView.attributedText.length - offsetFromEnd;
+     [_backedTextInputView setSelectedTextRange:NSMakeRange(newOffset, 0)
+                                       notifyDelegate:YES];
++  } else if (NSMaxRange(selectedRange) <= _backedTextInputView.attributedText.length) {
++    // Replacing the text storage collapses a selection to the end without telling JS, which
++    // still holds the selection; keep it, e.g. across a formatting change.
++    [_backedTextInputView setSelectedTextRange:selectedRange notifyDelegate:YES];
+   }
+ #endif // macOS]
+ }
