@@ -1377,6 +1377,12 @@ export function ComposerNotices({
   );
 }
 
+// The body shows marks for typing before JavaScript renders them (ComposerFormatting.m); a
+// control that edits the body or toggles those marks ends that, whatever activated it.
+const fromControl = () => {
+  windowHost()?.forgetComposerTyping();
+};
+
 function Editor({
   initial,
   onClose,
@@ -1699,14 +1705,6 @@ function Editor({
       setPlaced(result.selection);
     }
   };
-  // The body shows marks for typing before JavaScript renders them (ComposerFormatting.m); a
-  // control that edits the body or toggles those marks ends that, whatever activated it.
-  const fromControl =
-    <Args extends readonly unknown[]>(action: (...args: Args) => void) =>
-    (...args: Args) => {
-      windowHost()?.forgetComposerTyping();
-      action(...args);
-    };
   const format = (mark: Mark) => {
     if (sendingNow.current) {
       return;
@@ -2068,24 +2066,32 @@ function Editor({
         active={active}
         kind={kind}
         disabled={sending}
-        onBlock={fromControl(block)}
-        onMark={fromControl(format)}>
+        onBlock={(next) => {
+          fromControl();
+          block(next);
+        }}
+        onMark={(mark) => {
+          fromControl();
+          format(mark);
+        }}>
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />
         <ToolbarButton
           disabled={lockedUnless(history.past.length > 0)}
           icon="arrow.uturn.backward"
           label={t('drafts.undo')}
-          onPress={fromControl(() => {
+          onPress={() => {
+            fromControl();
             travel(undo);
-          })}
+          }}
         />
         <ToolbarButton
           disabled={lockedUnless(history.future.length > 0)}
           icon="arrow.uturn.forward"
           label={t('drafts.redo')}
-          onPress={fromControl(() => {
+          onPress={() => {
+            fromControl();
             travel(redo);
-          })}
+          }}
         />
         <View style={styles.grow} />
         {translation === undefined ? null : (
@@ -2178,7 +2184,10 @@ function Editor({
               captured={captured}
               assistance={assistance}
               translation={translation}
-              onApply={fromControl(applyCaptured)}
+              onApply={(replacement) => {
+                fromControl();
+                applyCaptured(replacement);
+              }}
               onClose={closeCaptured}
             />
           </View>
