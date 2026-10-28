@@ -20,6 +20,8 @@
   NSPopover *_popover;
   // The popover is outside the React root view, so it delivers its own clicks to React.
   RCTSurfaceTouchHandler *_touchHandler;
+  // `shown` closed the popover, and AppKit reports the close only after its animation ends.
+  BOOL _closing;
 }
 - (instancetype)initWithFrame:(NSRect)frame
 {
@@ -59,14 +61,23 @@
 - (void)present
 {
   if (!self.shown || self.window == nil) {
+    if (_popover.shown) _closing = YES;
     [_popover close];
-  } else if (!_popover.shown) {
+  } else if (!_popover.shown && !_closing) {
     // React Native's views are flipped, so their top edge is the minimum Y.
     [_popover showRelativeToRect:self.bounds ofView:self preferredEdge:NSRectEdgeMinY];
   }
 }
 - (void)popoverDidClose:(NSNotification *)notification
 {
+  // A popover shown again while it was closing opens once the close ends, without reporting it.
+  if (_closing) {
+    _closing = NO;
+    if (self.shown && self.window != nil) {
+      [self present];
+      return;
+    }
+  }
   if (self.onClose) self.onClose(@{});
 }
 @end
