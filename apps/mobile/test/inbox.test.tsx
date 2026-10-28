@@ -1,3 +1,5 @@
+import { ok } from 'node:assert/strict';
+
 import type { NativeGmailMailbox } from '@private-email/mail-core/gmail-inbox';
 
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
@@ -1538,6 +1540,53 @@ describe('connected Gmail Inbox', () => {
       await waitFor(() => {
         expect(screen.queryByText('1 account needs attention')).toBeNull();
       });
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('keeps the saved body of a listed folder the cache evicted when the list is pulled down', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const names = Array.from({ length: 9 }, (_, index) => `Folder ${index}`);
+    for (const name of names) {
+      imap.addFolder(name);
+      imap.deliver(name, { subject: `In ${name}` });
+    }
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Folder 0');
+    // Its body is saved while the folder is cached; opening eight more folders evicts it.
+    const folder = inbox.folder('Folder 0');
+    ok(folder?.kind === 'ready');
+    const [shown] = folder.messages;
+    ok(shown !== undefined);
+    const release = inbox.retainMessage(shown.id);
+    await inbox.readMessage(shown.id);
+    release();
+    for (const name of names.slice(1)) {
+      await inbox.openFolder(name);
+    }
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'home-mailbox')}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={{ mailbox: 'home-mailbox', folder: 'Folder 0' }}
+        />
+      </InboxProvider>,
+    );
+    try {
+      await screen.findByText('In Folder 0');
+      await act(async () => {
+        fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(inbox.folder('Folder 0')).toMatchObject({ status: 'current' });
+      });
+      expect(imap.bodies.has(shown.id)).toBe(true);
     } finally {
       await cleanup();
       inbox.forget();
