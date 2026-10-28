@@ -1579,11 +1579,20 @@ describe('connected Gmail Inbox', () => {
     );
     try {
       await screen.findByText('In Folder 0');
+      const readsBefore = imap.server.reads.length;
       await act(async () => {
         fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
         await Promise.resolve();
       });
+      // The folder was already current, so wait for the refresh itself to settle.
       await waitFor(() => {
+        expect(imap.server.reads.slice(readsBefore)).toStrictEqual(
+          expect.arrayContaining(['synchronize INBOX', 'synchronize Folder 0']),
+        );
+        expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+          'refreshing',
+          false,
+        );
         expect(inbox.folder('Folder 0')).toMatchObject({ status: 'current' });
       });
       expect(imap.bodies.has(shown.id)).toBe(true);
