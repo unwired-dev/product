@@ -356,6 +356,42 @@ export const askForText = (
   question: SheetQuestion & { readonly field: string },
 ) => sheet(anchor, question, isTextChoice);
 
+// Asks before a destructive action in a sheet on `anchor`'s window: Cancel is the default button
+// that Return and Escape answer, and the action is marked destructive. `confirm` resolves true
+// only when the action is chosen while the caller is still mounted; unmounting closes the sheet.
+export function useConfirmation() {
+  const anchor = useRef<View>(null);
+  const asked = useRef<ReturnType<typeof askInSheet>>(undefined);
+  useEffect(
+    () => () => {
+      asked.current?.retire();
+      asked.current = undefined;
+    },
+    [],
+  );
+  const confirm = async (
+    question: Readonly<{
+      title: string;
+      detail: string;
+      cancel: string;
+      action: string;
+    }>,
+  ) => {
+    asked.current?.retire();
+    const asking = askInSheet(anchor.current, {
+      title: question.title,
+      detail: question.detail,
+      buttons: [question.cancel, question.action],
+      cancel: 0,
+      destructive: 1,
+    });
+    asked.current = asking;
+    const choice = await asking.answer;
+    return choice === 1 && asked.current === asking;
+  };
+  return { anchor, confirm };
+}
+
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({
   children,

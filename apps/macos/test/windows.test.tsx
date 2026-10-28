@@ -2414,20 +2414,17 @@ describe('mac windows of different Mail Profiles', () => {
       await fireEvent.press(
         settings.getByRole('button', { name: 'Remove Mail Profile…' }),
       );
-      const asked = alert.mock.lastCall;
-      ok(asked);
-      const [title, message, buttons] = asked;
-      expect([title, message]).toStrictEqual([
-        'Remove “Work” and Its Mailboxes?',
-        'other@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with Gmail.',
-      ]);
-      ok(Array.isArray(buttons));
-      expect(buttons.map(({ text, style }) => [text, style])).toStrictEqual([
-        ['Cancel', 'cancel'],
-        ['Remove', 'destructive'],
-      ]);
+      // Cancel is the default button that Return and Escape answer.
+      expect(sheetShown()).toStrictEqual({
+        title: 'Remove “Work” and Its Mailboxes?',
+        detail:
+          'other@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with Gmail.',
+        buttons: ['Cancel', 'Remove'],
+        cancel: 0,
+        destructive: 1,
+      });
       await act(async () => {
-        buttons.find(({ text }) => text === 'Remove')?.onPress?.();
+        chooseSheetButton('Remove');
         await Promise.resolve();
       });
       await waitFor(() => {
@@ -2440,7 +2437,7 @@ describe('mac windows of different Mail Profiles', () => {
         mailboxesOf(store.getSnapshot().snapshot).map(({ address }) => address),
       ).toStrictEqual(['alex@example.invalid']);
       // No refusal followed the question.
-      expect(alert.mock.lastCall?.[0]).toBe(title);
+      expect(alert).not.toHaveBeenCalled();
     } finally {
       alert.mockRestore();
       replaced.restore();

@@ -61,14 +61,18 @@ those states. Follow
 React Native macOS/AppKit controls and presenters over custom equivalents, and
 retain a minimal native adapter only for a documented host API gap. Expo UI
 availability on mobile does not establish Mac compatibility.
-`UnwiredAlert` asks the evaluation editor's save question and the reader's link
-confirmation in an `NSAlert` sheet on the asking view's own window and withdraws it
-by request when its asker goes away. It can name the button Escape answers, mark one
+`UnwiredAlert` asks the evaluation editor's save question, the reader's link
+confirmation and the Settings confirmations that remove a Mail Profile, a Trusted
+Device or uploaded error reports in an `NSAlert` sheet on the asking view's own
+window and withdraws it by request when its asker goes away. A removal keeps Cancel
+as the default button that Return and Escape answer and marks its action
+destructive. It can name the button Escape answers, mark one
 destructive, replace the app icon with an SF Symbol and show a long selectable
 passage, such as a link destination, in a bounded scrolling view: `NSAlert`'s own
 text grows the sheet past the screen.
-React Native macOS 0.81.9's `Alert` asks over the key window and cannot withdraw a
-question. Remove the presenter when the host's alert can target a window and be
+React Native macOS 0.81.9's `Alert` asks over the key window, ignores its `cancel`
+and `destructive` button styles and cannot withdraw a question. Remove the presenter
+when the host's alert can target a window, mark a destructive button and be
 dismissed.
 Sign In's **Sign in with Apple** is AppKit's `ASAuthorizationAppleIDButton` through
 `UnwiredAppleIDButton`: black in Light, white in Dark, and turned off while a

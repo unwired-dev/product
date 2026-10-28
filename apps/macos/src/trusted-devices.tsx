@@ -10,29 +10,17 @@ import {
   revocationProposal,
   trustedDevicesOf,
 } from '@private-email/mail-core/registration';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Text, TextInput } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Text, TextInput } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
-import { AnnouncedAlert } from './design.tsx';
+import { AnnouncedAlert, useConfirmation } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { usePalette } from './theme.ts';
-
-// A native confirmation callback may arrive after its account view closes.
-function useConfirmationLifetime() {
-  const mounted = useRef(false);
-  useLayoutEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  return useCallback(() => mounted.current, []);
-}
 
 // A prepared removal happens only after its replacement Recovery Key is confirmed as saved.
 function RevocationProposal({
@@ -124,7 +112,7 @@ export function TrustedDevices({
     () => new Intl.DateTimeFormat(settings.locale, { dateStyle: 'medium' }),
     [settings.locale],
   );
-  const isCurrent = useConfirmationLifetime();
+  const { anchor, confirm } = useConfirmation();
   const proposal = revocationProposal(t, account);
   // A retained proposal stays confirmable after this device loses its encryption key, when it
   // can no longer approve devices but may still need to repeat the exact removal it sent.
@@ -142,6 +130,7 @@ export function TrustedDevices({
   }
   return (
     <SettingsGroup
+      ref={anchor}
       title={t('revocation.title')}
       footer={devices.length === 0 ? undefined : t('revocation.description')}>
       {notice === undefined ? null : (
@@ -173,25 +162,17 @@ export function TrustedDevices({
             t('revocation.remove', { name: device.name }),
             async () => {
               const owner = store.getSnapshot().snapshot;
-              Alert.alert(
-                t('revocation.confirmTitle', { name: device.name }),
-                t('revocation.confirm', { name: device.name }),
-                [
-                  { text: t('revocation.cancel'), style: 'cancel' },
-                  {
-                    text: t('revocation.remove', { name: device.name }),
-                    style: 'destructive',
-                    onPress: () => {
-                      if (
-                        isCurrent() &&
-                        store.getSnapshot().snapshot === owner
-                      ) {
-                        void store.revokeTrustedDevice(device.id);
-                      }
-                    },
-                  },
-                ],
-              );
+              if (
+                (await confirm({
+                  title: t('revocation.confirmTitle', { name: device.name }),
+                  detail: t('revocation.confirm', { name: device.name }),
+                  cancel: t('revocation.cancel'),
+                  action: t('revocation.remove', { name: device.name }),
+                })) &&
+                store.getSnapshot().snapshot === owner
+              ) {
+                await store.revokeTrustedDevice(device.id);
+              }
             },
             { title: t('settings.remove') },
           )}
