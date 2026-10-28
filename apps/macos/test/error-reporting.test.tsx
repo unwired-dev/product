@@ -6,7 +6,6 @@ import type {
 import { createRegistration } from '@private-email/mail-core/registration';
 import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
 
 import {
   ErrorReportingContext,
@@ -15,6 +14,7 @@ import {
 } from '../src/error-reporting.tsx';
 import { RegistrationGate, SettingsGate } from '../src/registration-gate.tsx';
 import { useSettingsRequest } from '../src/settings-window.ts';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 
 function reporting(initial: ErrorReportingSnapshot) {
   let snapshot = initial;
@@ -122,17 +122,19 @@ describe('error reporting controls', () => {
       enabled: true,
       deletion: 'idle',
     });
-    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
     await render(<ErrorReportingSettings store={store} />);
     await fireEvent.press(
       screen.getByRole('button', { name: 'Delete my error reports' }),
     );
     expect(store.deleteReports).not.toHaveBeenCalled();
-    const buttons = alert.mock.calls[0]?.[2];
-    const confirm = buttons?.find((button) => button.style === 'destructive');
-    expect(confirm?.text).toBe('Delete Reports');
+    // Cancel is the default button that Return and Escape answer.
+    expect(sheetShown()).toMatchObject({
+      buttons: ['Cancel', 'Delete Reports'],
+      cancel: 0,
+      destructive: 1,
+    });
     await act(async () => {
-      confirm?.onPress?.();
+      chooseSheetButton('Delete Reports');
     });
     expect({
       status: screen.getByText('Deletion requested').props.children,
@@ -153,7 +155,6 @@ describe('error reporting controls', () => {
       enabled: false,
       disabled: false,
     });
-    alert.mockRestore();
   });
 
   it.each([

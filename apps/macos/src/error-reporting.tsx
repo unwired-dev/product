@@ -10,7 +10,6 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   StyleSheet,
   Switch,
@@ -19,7 +18,7 @@ import {
 
 import type { SettingsDestination } from './settings.tsx';
 
-import { SFSymbol } from './design.tsx';
+import { SFSymbol, useConfirmation } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { errorReporting } from './registration.ts';
 import { SettingsGroup, SettingsRow, SettingsRowButton } from './settings.tsx';
@@ -182,21 +181,18 @@ export function ErrorReportingSettings({
   const complete =
     (snapshot.kind === 'ready' || snapshot.kind === 'saving') &&
     snapshot.deletion === 'complete';
-  const confirmation = () => {
-    Alert.alert(
-      t('errorReporting.confirmTitle'),
-      t('errorReporting.confirmMessage'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('errorReporting.confirmDelete'),
-          style: 'destructive',
-          onPress: () => {
-            void store.deleteReports();
-          },
-        },
-      ],
-    );
+  const { anchor, confirm } = useConfirmation();
+  const confirmation = async () => {
+    if (
+      await confirm({
+        title: t('errorReporting.confirmTitle'),
+        detail: t('errorReporting.confirmMessage'),
+        cancel: t('common.cancel'),
+        action: t('errorReporting.confirmDelete'),
+      })
+    ) {
+      await store.deleteReports();
+    }
   };
   let consentDescription = signedOut
     ? t('errorReporting.signedOut')
@@ -243,6 +239,7 @@ export function ErrorReportingSettings({
   } else {
     uploaded = (
       <SettingsGroup
+        ref={anchor}
         title={t('errorReporting.uploaded')}
         footer={
           missing
@@ -253,7 +250,9 @@ export function ErrorReportingSettings({
           label={t('errorReporting.delete')}
           disabled={!available || missing}
           destructive
-          onPress={confirmation}
+          onPress={() => {
+            void confirmation();
+          }}
         />
       </SettingsGroup>
     );

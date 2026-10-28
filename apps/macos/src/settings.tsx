@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import type { PressableProps } from 'react-native';
 
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -426,11 +426,14 @@ export function AccountCard({
 
 // A titled group of rows with hairlines between them and an optional explanation below.
 export function SettingsGroup({
+  ref,
   title,
   accessory,
   footer,
   children,
 }: {
+  // The group's view, such as the anchor of a question asked from its rows.
+  readonly ref?: Ref<View>;
   readonly title?: string | undefined;
   // Beside the title, such as the On device marker.
   readonly accessory?: ReactNode;
@@ -454,7 +457,10 @@ export function SettingsGroup({
         </View>
       )}
       {children === undefined || children === null ? null : (
-        <View style={[styles.group, { backgroundColor: colors.fillQuiet }]}>
+        <View
+          ref={ref}
+          collapsable={false}
+          style={[styles.group, { backgroundColor: colors.fillQuiet }]}>
           {/* Each cell draws a hairline above itself; this hides the first one. */}
           <View style={styles.cells}>{children}</View>
         </View>

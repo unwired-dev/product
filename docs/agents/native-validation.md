@@ -186,7 +186,10 @@ focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
 the pop-up shows the choice. In Language it checks that the interface-language pop-up shows
-System Default. It closes Settings with Command-W. It then opens the Gmail
+System Default. In Mail Profiles it adds a **Travel** Mail Profile and asks to remove it:
+the AppKit sheet on Settings offers Cancel and Remove and closes with Escape and with
+Return, its default Cancel, keeping the Mail Profile; Remove then removes it. It closes
+Settings with Command-W. It then opens the Gmail
 message **Garden plans for spring** with the pointer and clicks each link's keyboard control.
 Each link's AppKit alert sheet shows its title and full destination. Command-P stays closed
 behind the sheet, and Escape and Cancel close it. The flagged link's sheet closes with Escape

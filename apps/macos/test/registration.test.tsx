@@ -41,10 +41,9 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useLayoutEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
-  Alert,
   AppState,
   DeviceEventEmitter,
   Pressable,
@@ -65,6 +64,7 @@ import { NotificationsContext } from '../src/notification-settings.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 import {
   chooseMenuItem,
   chooseSubmenuItem,
@@ -81,6 +81,16 @@ import {
   settingsWindow,
 } from './settings-window.tsx';
 import { started } from './started.ts';
+
+// Observe sheet withdrawal at commit, before React flushes passive unmount cleanup.
+function ConfirmationCommitProbe({
+  inspect,
+}: {
+  readonly inspect: () => void;
+}) {
+  useLayoutEffect(inspect, [inspect]);
+  return null;
+}
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -3521,175 +3531,169 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves the explanation, cancellation, renewal and removal. */
   it('retires a native device-removal confirmation when its account view closes', async () => {
     expect.hasAssertions();
-    const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
-    try {
-      const { synthetic } = await signedIn({
-        scenario: 'registration-revocation',
-      });
-      const store = createRegistration(synthetic.vault);
-      const view = await render(
-        <RegistrationGate
-          store={started(store)}
-          preview={false}>
-          {null}
-        </RegistrationGate>,
-      );
-      const remove = english('revocation.remove', {
-        name: syntheticTrustedDevice.name,
-      });
-      await expect(
-        screen.findByRole('button', { name: remove }),
-      ).resolves.toBeVisible();
-      await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: remove }));
-      });
-      const confirm = nativeAlert.mock.lastCall?.[2]?.find(
-        ({ style }) => style === 'destructive',
-      )?.onPress;
-      expect(confirm).toBeDefined();
-      const before = store.getSnapshot();
-      await view.unmount();
-      await act(async () => {
-        confirm?.();
-      });
-      expect(store.getSnapshot()).toBe(before);
-    } finally {
-      nativeAlert.mockRestore();
-    }
+    const { synthetic } = await signedIn({
+      scenario: 'registration-revocation',
+    });
+    const store = createRegistration(synthetic.vault);
+    const view = await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    const remove = english('revocation.remove', {
+      name: syntheticTrustedDevice.name,
+    });
+    await expect(
+      screen.findByRole('button', { name: remove }),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: remove }));
+    });
+    expect(sheetShown()?.buttons).toContain(remove);
+    const before = store.getSnapshot();
+    const atCommit: Array<ReturnType<typeof sheetShown>> = [];
+    await view.rerender(
+      <ConfirmationCommitProbe
+        inspect={() => {
+          atCommit.push(sheetShown());
+        }}
+      />,
+    );
+    // Closing the account view closes its sheet, so the removal can no longer be chosen.
+    expect(atCommit).toStrictEqual([undefined]);
+    expect(sheetShown()).toBeUndefined();
+    expect(store.getSnapshot()).toBe(before);
   });
 
   it('removes another trusted device only after its replacement Recovery Key is confirmed', async () => {
     expect.hasAssertions();
-    const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
-    try {
-      const synthetic = await createRegistrationScenario(
-        'registration-revocation',
+    const synthetic = await createRegistrationScenario(
+      'registration-revocation',
+    );
+    const store = createRegistration(synthetic.vault);
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await continueToSignIn();
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Sign in with Google' }),
       );
-      const store = createRegistration(synthetic.vault);
-      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
-      announce.mockClear();
-      await render(
-        <RegistrationGate
-          store={started(store)}
-          preview={false}>
-          {null}
-        </RegistrationGate>,
+    });
+    expect(screen.queryByRole('button', { name: 'Remove iPad' })).toBeNull();
+    await act(async () => {
+      await fireEvent.changeText(
+        screen.getByLabelText('Last four characters'),
+        lastFour(recoveryKeyOf(synthetic)),
       );
-      await continueToSignIn();
+    });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', { name: english('revocation.title') }),
+    ).resolves.toBeVisible();
+    const added = english('revocation.added', {
+      date: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(
+        syntheticTrustedDevice.registeredAt,
+      ),
+    });
+    expect(screen.getByText(added)).toBeVisible();
+    const { name } = syntheticTrustedDevice;
+    const remove = english('revocation.remove', { name });
+    const entry = english('revocation.label');
+    const proposal = english('revocation.proposal', { name });
+    const prepare = async () => {
+      // The first press only explains what removal does and cannot do.
       await act(async () => {
-        await fireEvent.press(
-          await screen.findByRole('button', { name: 'Sign in with Google' }),
-        );
+        await fireEvent.press(screen.getByRole('button', { name: remove }));
       });
-      expect(screen.queryByRole('button', { name: 'Remove iPad' })).toBeNull();
-      await act(async () => {
-        await fireEvent.changeText(
-          screen.getByLabelText('Last four characters'),
-          lastFour(recoveryKeyOf(synthetic)),
-        );
-      });
-      await act(async () => {
-        await fireEvent.press(
-          screen.getByRole('button', { name: 'Confirm Recovery Key' }),
-        );
-      });
-      await expect(
-        screen.findByRole('header', { name: english('revocation.title') }),
-      ).resolves.toBeVisible();
-      const added = english('revocation.added', {
-        date: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(
-          syntheticTrustedDevice.registeredAt,
-        ),
-      });
-      expect(screen.getByText(added)).toBeVisible();
-      const { name } = syntheticTrustedDevice;
-      const remove = english('revocation.remove', { name });
-      const entry = english('revocation.label');
-      const proposal = english('revocation.proposal', { name });
-      const prepare = async () => {
-        // The first press only explains what removal does and cannot do.
-        await act(async () => {
-          await fireEvent.press(screen.getByRole('button', { name: remove }));
-        });
-        expect(nativeAlert.mock.lastCall?.[0]).toBe(
-          english('revocation.confirmTitle', { name }),
-        );
-        expect(nativeAlert.mock.lastCall?.[1]).toMatch(
+      expect(sheetShown()).toMatchObject({
+        title: english('revocation.confirmTitle', { name }),
+        detail: expect.stringMatching(
           /only then is iPad removed.*cannot be erased remotely/u,
-        );
-        const choices = nativeAlert.mock.lastCall?.[2];
-        expect(choices?.find(({ style }) => style === 'cancel')?.text).toBe(
-          english('revocation.cancel'),
-        );
-        await act(async () => {
-          choices?.find(({ style }) => style === 'destructive')?.onPress?.();
-        });
-      };
-      const confirm = async (text: string) => {
-        await act(async () => {
-          await fireEvent.changeText(screen.getByLabelText(entry), text);
-        });
-        await act(async () => {
-          await fireEvent.press(screen.getByRole('button', { name: remove }));
-        });
-      };
-      const replacementKey = () => replacementKeyOf(store);
-      await prepare();
-      // Prepared, not removed: the replacement key waits for confirmation instead of the list.
-      expect(screen.getByRole('header', { name: proposal })).toBeVisible();
-      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        replacementKey(),
-      );
-      expect(screen.queryByText(added)).toBeNull();
-      await act(async () => {
-        await fireEvent.press(
-          screen.getByRole('button', { name: english('revocation.cancel') }),
-        );
+        ),
+        // Cancel is the default button that Return and Escape answer.
+        buttons: [english('revocation.cancel'), remove],
+        cancel: 0,
+        destructive: 1,
       });
-      // Cancellation changes nothing: the device stays listed and no key is offered.
-      expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
-      expect(screen.getByText(added)).toBeVisible();
-      expect(
-        screen.queryByText(english('revocation.confirm', { name })),
-      ).toBeNull();
-      await prepare();
-      const replacement = replacementKey();
-      await confirm(lastFour(recoveryKeyOf(synthetic)));
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        english('revocation.mismatch'),
+      await act(async () => {
+        chooseSheetButton(remove);
+      });
+    };
+    const confirm = async (text: string) => {
+      await act(async () => {
+        await fireEvent.changeText(screen.getByLabelText(entry), text);
+      });
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: remove }));
+      });
+    };
+    const replacementKey = () => replacementKeyOf(store);
+    await prepare();
+    // Prepared, not removed: the replacement key waits for confirmation instead of the list.
+    expect(screen.getByRole('header', { name: proposal })).toBeVisible();
+    expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+      replacementKey(),
+    );
+    expect(screen.queryByText(added)).toBeNull();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: english('revocation.cancel') }),
       );
-      // VoiceOver hears the refusal at once, since iOS and macOS ignore the alert role.
-      expect(announce).toHaveBeenLastCalledWith(english('revocation.mismatch'));
-      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        replacement,
-      );
-      // Another device changed the account: a fresh key must be saved and confirmed again.
-      synthetic.changeAccount();
-      await confirm(lastFour(replacement));
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        english('revocation.renewed'),
-      );
-      expect(announce).toHaveBeenLastCalledWith(english('revocation.renewed'));
-      const renewed = replacementKey();
-      expect(renewed).not.toBe(replacement);
-      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-        renewed,
-      );
-      expect(screen.getByLabelText(entry)).toHaveProp('value', '');
-      await confirm(lastFour(renewed));
-      await expect(
-        screen.findByText(english('revocation.removed')),
-      ).resolves.toBeVisible();
-      expect(screen.queryByText(added)).toBeNull();
-      expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
-      // The replacement key was confirmed before removal, so nothing else waits for it.
-      expect(screen.queryByTestId('recovery-key')).toBeNull();
-      expect(
-        screen.getByRole('header', { name: 'Private sync is on' }),
-      ).toBeVisible();
-    } finally {
-      nativeAlert.mockRestore();
-    }
+    });
+    // Cancellation changes nothing: the device stays listed and no key is offered.
+    expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
+    expect(screen.getByText(added)).toBeVisible();
+    expect(
+      screen.queryByText(english('revocation.confirm', { name })),
+    ).toBeNull();
+    await prepare();
+    const replacement = replacementKey();
+    await confirm(lastFour(recoveryKeyOf(synthetic)));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      english('revocation.mismatch'),
+    );
+    // VoiceOver hears the refusal at once, since iOS and macOS ignore the alert role.
+    expect(announce).toHaveBeenLastCalledWith(english('revocation.mismatch'));
+    expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+      replacement,
+    );
+    // Another device changed the account: a fresh key must be saved and confirmed again.
+    synthetic.changeAccount();
+    await confirm(lastFour(replacement));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      english('revocation.renewed'),
+    );
+    expect(announce).toHaveBeenLastCalledWith(english('revocation.renewed'));
+    const renewed = replacementKey();
+    expect(renewed).not.toBe(replacement);
+    expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+      renewed,
+    );
+    expect(screen.getByLabelText(entry)).toHaveProp('value', '');
+    await confirm(lastFour(renewed));
+    await expect(
+      screen.findByText(english('revocation.removed')),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText(added)).toBeNull();
+    expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
+    // The replacement key was confirmed before removal, so nothing else waits for it.
+    expect(screen.queryByTestId('recovery-key')).toBeNull();
+    expect(
+      screen.getByRole('header', { name: 'Private sync is on' }),
+    ).toBeVisible();
   });
 
   /* oxlint-enable vitest/max-expects */
@@ -3698,115 +3702,106 @@ describe('product registration', () => {
   /* oxlint-disable vitest/max-expects -- One journey covers successive removals, relaunch and lost-key recovery. */
   it('continues through successive removals and requires fresh enrollment after losing this device key', async () => {
     expect.hasAssertions();
-    const nativeAlert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
-    try {
-      const { synthetic } = await signedIn({
-        scenario: 'registration-revocation',
-      });
-      const firstKey = recoveryKeyOf(synthetic);
-      synthetic.addSecondTrustedDevice();
-      const store = createRegistration(synthetic.vault);
-      const show = () =>
-        render(
-          <RegistrationGate
-            store={started(store)}
-            preview={false}>
-            {null}
-          </RegistrationGate>,
-        );
-      let view = await show();
-      await expect(
-        screen.findByRole('header', { name: 'Private sync is on' }),
-      ).resolves.toBeVisible();
-      const removals = [
-        syntheticTrustedDevice.name,
-        syntheticSecondTrustedDevice.name,
-      ];
-      // Each removal's replacement Recovery Key, which becomes the account's current one.
-      let latestKey = firstKey;
-      for (const name of removals) {
-        const remove = english('revocation.remove', { name });
-        await act(async () => {
-          await fireEvent.press(screen.getByRole('button', { name: remove }));
-        });
-        await act(async () => {
-          nativeAlert.mock.lastCall?.[2]
-            ?.find(({ style }) => style === 'destructive')
-            ?.onPress?.();
-        });
-        const key = replacementKeyOf(store);
-        expect(key).not.toBe(latestKey);
-        latestKey = key;
-        expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
-          key,
-        );
-        await act(async () => {
-          await fireEvent.changeText(
-            screen.getByLabelText(english('revocation.label')),
-            lastFour(key),
-          );
-        });
-        await act(async () => {
-          await fireEvent.press(screen.getByRole('button', { name: remove }));
-        });
-        expect(screen.getByText(english('revocation.removed'))).toBeVisible();
-        expect(screen.queryByRole('button', { name: remove })).toBeNull();
-      }
-      // A native restore that already adopted the complete latest ring needs no Recovery Key screen.
-      await view.unmount();
-      view = await show();
-      await expect(
-        screen.findByRole('header', { name: 'Private sync is on' }),
-      ).resolves.toBeVisible();
-      expect(screen.queryByLabelText('Recovery Key')).toBeNull();
-      synthetic.loseDeviceKey();
-      await act(async () => {
-        await store.resume();
-      });
-      await expect(
-        screen.findByTestId('enrollment-code'),
-      ).resolves.toHaveTextContent(
-        enrollmentCodeOf(store).replaceAll('-', ' '),
+    const { synthetic } = await signedIn({
+      scenario: 'registration-revocation',
+    });
+    const firstKey = recoveryKeyOf(synthetic);
+    synthetic.addSecondTrustedDevice();
+    const store = createRegistration(synthetic.vault);
+    const show = () =>
+      render(
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
       );
-      expect(
-        screen.getByRole('header', { name: 'Approve this device' }),
-      ).toBeVisible();
-      expect(
-        screen.queryByRole('header', { name: 'Private sync is on' }),
-      ).toBeNull();
+    let view = await show();
+    await expect(
+      screen.findByRole('header', { name: 'Private sync is on' }),
+    ).resolves.toBeVisible();
+    const removals = [
+      syntheticTrustedDevice.name,
+      syntheticSecondTrustedDevice.name,
+    ];
+    // Each removal's replacement Recovery Key, which becomes the account's current one.
+    let latestKey = firstKey;
+    for (const name of removals) {
+      const remove = english('revocation.remove', { name });
       await act(async () => {
-        await fireEvent.changeText(
-          screen.getByLabelText('Recovery Key'),
-          firstKey,
-        );
+        await fireEvent.press(screen.getByRole('button', { name: remove }));
       });
       await act(async () => {
-        await fireEvent.press(
-          screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
-        );
+        chooseSheetButton(remove);
       });
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        /does not unlock this Product Account/u,
+      const key = replacementKeyOf(store);
+      expect(key).not.toBe(latestKey);
+      latestKey = key;
+      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+        key,
       );
       await act(async () => {
         await fireEvent.changeText(
-          screen.getByLabelText('Recovery Key'),
-          latestKey,
+          screen.getByLabelText(english('revocation.label')),
+          lastFour(key),
         );
       });
       await act(async () => {
-        await fireEvent.press(
-          screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
-        );
+        await fireEvent.press(screen.getByRole('button', { name: remove }));
       });
-      await expect(
-        screen.findByRole('header', { name: 'Private sync is on' }),
-      ).resolves.toBeVisible();
-      expect(screen.queryByTestId('enrollment-code')).toBeNull();
-      await view.unmount();
-    } finally {
-      nativeAlert.mockRestore();
+      expect(screen.getByText(english('revocation.removed'))).toBeVisible();
+      expect(screen.queryByRole('button', { name: remove })).toBeNull();
     }
+    // A native restore that already adopted the complete latest ring needs no Recovery Key screen.
+    await view.unmount();
+    view = await show();
+    await expect(
+      screen.findByRole('header', { name: 'Private sync is on' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByLabelText('Recovery Key')).toBeNull();
+    synthetic.loseDeviceKey();
+    await act(async () => {
+      await store.resume();
+    });
+    await expect(
+      screen.findByTestId('enrollment-code'),
+    ).resolves.toHaveTextContent(enrollmentCodeOf(store).replaceAll('-', ' '));
+    expect(
+      screen.getByRole('header', { name: 'Approve this device' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'Private sync is on' }),
+    ).toBeNull();
+    await act(async () => {
+      await fireEvent.changeText(
+        screen.getByLabelText('Recovery Key'),
+        firstKey,
+      );
+    });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
+      );
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /does not unlock this Product Account/u,
+    );
+    await act(async () => {
+      await fireEvent.changeText(
+        screen.getByLabelText('Recovery Key'),
+        latestKey,
+      );
+    });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Unlock with Recovery Key' }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Private sync is on' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByTestId('enrollment-code')).toBeNull();
+    await view.unmount();
   });
   /* oxlint-enable vitest/max-expects */
 
