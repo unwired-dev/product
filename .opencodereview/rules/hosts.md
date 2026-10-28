@@ -125,6 +125,15 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### React correctness
 
+- `inbox.tsx` starting a connection reload and its selected IMAP folder read
+  concurrently because their store programs share a semaphore. Trace synchronous
+  state changes before permit acquisition as well as the serialized programs:
+  `openFolder` can replace an evicted folder's ready view with loading before
+  `load` derives body retention. Sequence the dependent actions per connection
+  while retaining concurrency across connections, and exercise a still-listed
+  evicted folder with a saved body; otherwise refresh can delete readable cached
+  mail before the folder read restores its rows.
+
 - `mailbox-folders.tsx.useUnifiedMailbox` retaining folders or views only by
   connection ID and folder name. Reconcile the owning Inbox store as well, and
   release the old subscription or lease before opening the replacement store's
