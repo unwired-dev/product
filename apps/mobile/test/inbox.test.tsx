@@ -2402,7 +2402,7 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
     // Keyboard access reaches the same confirmation.
     const keyboardLink = screen.getByRole('link', {
-      name: 'Open link: the plan',
+      name: 'the plan',
     });
     expect(keyboardLink.props.focusable).toBe(true);
     await fireEvent.press(keyboardLink);
@@ -2427,7 +2427,8 @@ describe('connected Gmail Inbox', () => {
       await Promise.resolve();
     });
     expect(screen.queryByTestId('message-webview')).toBeNull();
-    expect(screen.getByRole('link', { name: 'the plan' })).toBeVisible();
+    // The readable text's link and its keyboard control share the link's name.
+    expect(screen.getAllByRole('link', { name: 'the plan' })).toHaveLength(2);
 
     // Without Gmail, a saved body still opens and another one says it needs downloading.
     gmail.deliver({ subject: 'Not downloaded yet' });
@@ -2455,9 +2456,7 @@ describe('connected Gmail Inbox', () => {
 
     // A queued confirmation must not hand off the previous owner's destination.
     await fireEvent.press(screen.getByRole('button', { name: /Garden plan/u }));
-    await fireEvent.press(
-      screen.getByRole('link', { name: 'Open link: the plan' }),
-    );
+    await fireEvent.press(screen.getByRole('link', { name: 'the plan' }));
     const previousOwnerConfirmation = screen.getByRole('button', {
       name: 'Open link',
     });
@@ -2477,7 +2476,7 @@ describe('connected Gmail Inbox', () => {
     const gardenView = await screen.findByTestId('message-webview');
     const queuedChoice = gardenView.props.onShouldStartLoadWithRequest;
     await fireEvent.press(
-      await screen.findByRole('link', { name: 'Open link: the plan' }),
+      await screen.findByRole('link', { name: 'the plan' }),
     );
     expect(screen.getByText('https://example.invalid/plan')).toBeVisible();
     await fireEvent.press(

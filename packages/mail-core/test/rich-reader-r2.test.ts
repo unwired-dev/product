@@ -882,8 +882,8 @@ describe('rich-reader review regressions', () => {
       '<img src="https://images.example/photo" width="400" height="200"><img src="https://images.example/styled" style="width:50%;height:80px"><img src="https://images.example/pixel" width="1" height="1">',
     );
     expect(result.remoteNodes).toStrictEqual([
-      '<span class="blocked-image" data-remote="0" style="display: inline-block; width: min(100%, 400px); height: 200px" role="img" aria-label="Image not loaded">Image</span>',
-      '<span class="blocked-image" data-remote="1" style="display: inline-block; width: min(100%, 50%); height: 80px" role="img" aria-label="Image not loaded">Image</span>',
+      '<span class="blocked-image" data-remote="0" style="display: inline-block; width: min(100%, 400px); height: 200px"></span>',
+      '<span class="blocked-image" data-remote="1" style="display: inline-block; width: min(100%, 50%); height: 80px"></span>',
     ]);
     expect(result.remoteImages).toStrictEqual([
       'https://images.example/photo',

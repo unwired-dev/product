@@ -113,7 +113,7 @@ describe('queued message link privacy', () => {
       await store.load();
       const app = await render(view(store, id));
       try {
-        const link = screen.getByRole('link', { name: `Open link: ${text}` });
+        const link = screen.getByRole('link', { name: text });
         await fireEvent.press(link);
         expect(sheetShown()).toMatchObject({ ...question, passage: oldHref });
         await act(() => {
@@ -144,7 +144,7 @@ describe('queued message link privacy', () => {
     const app = await render(view(store, id));
     try {
       await fireEvent.press(
-        screen.getByRole('link', { name: 'Open link: https://bank.invalid' }),
+        screen.getByRole('link', { name: 'https://bank.invalid' }),
       );
       expect(sheetShown()).toMatchObject({
         passage: href,
@@ -175,7 +175,7 @@ describe('queued message link privacy', () => {
     await render(view(store, id));
     try {
       await fireEvent.press(
-        screen.getByRole('link', { name: 'Open link: https://bank.invalid' }),
+        screen.getByRole('link', { name: 'https://bank.invalid' }),
       );
       await act(() => {
         chooseSheetButton('Copy link');
@@ -219,7 +219,7 @@ describe('queued message link privacy', () => {
       const app = await render(view(store, id));
       try {
         const link = await screen.findByRole('link', {
-          name: 'Open link: https://bank.invalid',
+          name: 'https://bank.invalid',
         });
         const queuedPress = pressHandler(link);
         const queuedNavigation =
@@ -306,10 +306,10 @@ describe.each(['gmail', 'imap'] as const)(
         try {
           expect(sameId).toBe(id);
           await screen.findByRole('link', {
-            name: 'Open link: https://bank.invalid',
+            name: 'https://bank.invalid',
           });
           const chooseNext = pressHandler(
-            await screen.findByRole('link', { name: 'Open link: Next link' }),
+            await screen.findByRole('link', { name: 'Next link' }),
           );
           const retainedAtCommit: boolean[] = [];
           await app.rerender(
@@ -377,7 +377,7 @@ describe.each(['gmail', 'imap'] as const)(
           expect(sameId).toBe(id);
           const queuedPress = pressHandler(
             await screen.findByRole('link', {
-              name: 'Open link: https://bank.invalid',
+              name: 'https://bank.invalid',
             }),
           );
           const queuedNavigation =
@@ -385,7 +385,7 @@ describe.each(['gmail', 'imap'] as const)(
               .onShouldStartLoadWithRequest;
           await fireEvent.press(
             screen.getByRole('link', {
-              name: 'Open link: https://bank.invalid',
+              name: 'https://bank.invalid',
             }),
           );
           const retained: boolean[] = [];

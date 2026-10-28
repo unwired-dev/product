@@ -1599,7 +1599,22 @@ const readerStyle =
   'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
   '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed;border-radius:4px;' +
-  'padding:2px 6px;font-size:max(4px,.85em)}';
+  'padding:2px 6px;font-size:max(4px,.85em)}' +
+  // The app's label stays on one line inside a sender-sized placeholder, such as a social icon.
+  '.blocked-image:empty::before{display:inline-block;max-width:100%;max-height:100%;overflow:hidden;' +
+  'text-overflow:ellipsis;white-space:nowrap;vertical-align:top;text-decoration:inherit}';
+
+// Fills empty blocked-image placeholders with the app's localized text, so what VoiceOver reads
+// matches what is shown. Remote updates reuse empty placeholders, so this one rule covers them.
+export const labelImagePlaceholders = (document: string, label: string) =>
+  document.replace(
+    '</head>',
+    () =>
+      `<style>.blocked-image:empty::before{content:"${label.replaceAll(
+        /[^\p{L}\p{N} ]/gu,
+        (character) => `\\${character.codePointAt(0)?.toString(16)} `,
+      )}"}</style></head>`,
+  );
 
 // Turns untrusted HTML into a passive document: allowlisted elements, attributes, CSS and URLs,
 // sender colors removed, remote images replaced by non-loading placeholders, and only admitted
@@ -1818,10 +1833,6 @@ export function sanitizeHtml(
     remoteIndex: number | undefined,
   ) => {
     const alt = (attributeOf(element, 'alt') ?? '').trim();
-    const description =
-      alt === ''
-        ? { label: 'Image not loaded', text: 'Image' }
-        : { label: alt, text: alt };
     hidesImages = true;
     describeImage(alt);
     const geometry =
@@ -1837,7 +1848,11 @@ export function sanitizeHtml(
         : ` style="${escapeAttribute(values.join('; '))}"`;
     const marker =
       remoteIndex === undefined ? '' : ` data-remote="${remoteIndex}"`;
-    output += `<span class="blocked-image"${marker}${override} role="img" aria-label="${escapeAttribute(description.label)}">${escapeText(description.text)}</span>`;
+    // Without a description it stays empty for the app's localized text (labelImagePlaceholders),
+    // which names it on screen and to VoiceOver alike.
+    const role =
+      alt === '' ? '' : ` role="img" aria-label="${escapeAttribute(alt)}"`;
+    output += `<span class="blocked-image"${marker}${override}${role}>${escapeText(alt)}</span>`;
   };
 
   // Records a visible Content-ID reference for MIME resolution. Resolution attempts only the

@@ -109,7 +109,7 @@ describe('queued message link privacy', () => {
       await screen.findByRole('button', { name: 'Show quoted text' }),
     );
     const link = await screen.findByRole('link', {
-      name: 'Open link: https://bank.invalid',
+      name: 'https://bank.invalid',
     });
     const queuedPress = pressHandler(link);
     const queuedNavigation =
@@ -163,7 +163,7 @@ describe('queued message link privacy', () => {
       const app = await render(view(store, id));
       try {
         const link = await screen.findByRole('link', {
-          name: 'Open link: https://bank.invalid',
+          name: 'https://bank.invalid',
         });
         const queuedPress = pressHandler(link);
         const queuedNavigation =
@@ -262,7 +262,7 @@ describe.each(['gmail', 'imap'] as const)(
           expect(sameId).toBe(id);
           const queuedPress = pressHandler(
             await screen.findByRole('link', {
-              name: 'Open link: https://bank.invalid',
+              name: 'https://bank.invalid',
             }),
           );
           const queuedNavigation =
@@ -270,7 +270,7 @@ describe.each(['gmail', 'imap'] as const)(
               .onShouldStartLoadWithRequest;
           await fireEvent.press(
             screen.getByRole('link', {
-              name: 'Open link: https://bank.invalid',
+              name: 'https://bank.invalid',
             }),
           );
           const queuedCopy = pressHandler(
