@@ -51,10 +51,24 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     flex: 1,
   },
+  // A 28pt target around the 16pt Try Again label, without growing its 17pt line.
+  inline: {
+    marginVertical: -6,
+  },
+  // A connection's warning sits closer to its title than the capsule's.
+  title: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   track: {
     height: 3,
     borderRadius: 1.5,
     overflow: 'hidden',
+  },
+  fill: {
+    height: '100%',
+    borderRadius: 1.5,
   },
   capsuleTrack: {
     marginTop: 7,
@@ -323,11 +337,13 @@ function CapsuleStatus({
           {said.label}
         </Text>
       </Pressable>
-      <Action
-        label={t('syncStatus.tryAgain')}
-        onPress={onTryAgain}
-        variant="banner"
-      />
+      <View style={styles.inline}>
+        <Action
+          label={t('syncStatus.tryAgain')}
+          onPress={onTryAgain}
+          variant="banner"
+        />
+      </View>
     </View>
   ) : (
     <Pressable
@@ -342,7 +358,7 @@ function CapsuleStatus({
       onPress={onShowDetails}>
       <View style={styles.status}>
         <ActivityIndicator
-          size="small"
+          size={16}
           color={colors.textSecondary}
         />
         <Text style={[styles.message, { color: colors.textPrimary }]}>
@@ -372,11 +388,10 @@ function ProgressBar({
   return (
     <View style={[styles.track, { backgroundColor: colors.fillTrack }, style]}>
       <View
-        style={{
-          width: `${percent}%`,
-          height: '100%',
-          backgroundColor: colors.accentFill,
-        }}
+        style={[
+          styles.fill,
+          { width: `${percent}%`, backgroundColor: colors.accentFill },
+        ]}
       />
     </View>
   );
@@ -413,7 +428,10 @@ function SyncStatusDetails({
       style={styles.details}>
       <Label
         accessibilityRole="header"
-        style={[textStyles.bodyEmphasized, { color: colors.textPrimary }]}>
+        style={[
+          textStyles.bodyEmphasized,
+          { lineHeight: 17, color: colors.textPrimary },
+        ]}>
         {t('syncStatus.title')}
       </Label>
       {shown.map((mailbox, index) => (
@@ -510,7 +528,7 @@ function Connection({
   }`;
   return (
     <>
-      <View style={styles.status}>
+      <View style={styles.title}>
         {attention ? (
           <SFSymbol
             name="exclamationmark.triangle.fill"
@@ -527,12 +545,16 @@ function Connection({
           </Label>
         </View>
         {attention ? (
-          <Action
-            accessibilityLabel={t('syncStatus.tryAgainFor', { account: title })}
-            label={t('syncStatus.tryAgain')}
-            onPress={onTryAgain}
-            variant="banner"
-          />
+          <View style={styles.inline}>
+            <Action
+              accessibilityLabel={t('syncStatus.tryAgainFor', {
+                account: title,
+              })}
+              label={t('syncStatus.tryAgain')}
+              onPress={onTryAgain}
+              variant="banner"
+            />
+          </View>
         ) : null}
       </View>
       <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
