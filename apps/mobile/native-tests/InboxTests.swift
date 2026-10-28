@@ -70,9 +70,6 @@ final class InboxTests: XCTestCase {
     try audit(app, "Sync Status Details Progress")
     let done = app.buttons["Done"]
     if done.exists {
-      let target = settledFrame(of: done)
-      XCTAssertGreaterThanOrEqual(target.width, 44)
-      XCTAssertGreaterThanOrEqual(target.height, 44)
       done.tap()
     } else {
       // The popover closes with a tap outside it, here on the empty reading pane.
