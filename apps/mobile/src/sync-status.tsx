@@ -741,12 +741,11 @@ function Connection({
       <Text style={[styles.detail, { color: colors.textSecondary }]}>
         {connectionStatus(t, mailbox, now)}
       </Text>
+      {/* The status above says the counts; a 3pt bar is too small a target for its own element. */}
       {percent === undefined ? null : (
         <View
-          accessible
-          accessibilityLabel={title}
-          accessibilityRole="progressbar"
-          accessibilityValue={{ min: 0, max: 100, now: percent }}>
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants">
           <ProgressBar percent={percent} />
         </View>
       )}
