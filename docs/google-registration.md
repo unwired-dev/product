@@ -216,8 +216,9 @@ Sources: [restricted-scope verification](https://developers.google.com/identity/
 [OAuth app audience](https://support.google.com/cloud/answer/15549945),
 [Google Workspace user data and developer policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy).
 
-- **Audience.** The protected test tenant's internal audience admits only its own
-  organization. An external app in **Testing** admits at most 100 listed test users,
+- **Audience.** Dedicated consumer Gmail test accounts use an external audience;
+  an internal audience admits only members of its Workspace organization.
+  An external app in **Testing** admits at most 100 listed test users,
   and their grants and refresh tokens expire seven days after consent because the
   request adds `gmail.modify` to the basic-profile scopes. An unverified app **In production** shows the
   unverified-app warning and admits 100 new users over the project's lifetime.
@@ -360,9 +361,9 @@ Version-27 native and protected checks remain required before release when unava
 
 ## Protected real OAuth qualification
 
-Use only the [protected Gmail test tenant](gmail-provider-test-tenant.md), approved
+Use only the [dedicated Gmail test accounts](gmail-provider-test-tenant.md), approved
 native client IDs, a configured Convex development deployment and signed hosts.
-Never put these credentials in a Mock Mail Session. Follow the tenant's access and
+Never put these credentials in a Mock Mail Session. Follow the test accounts' access and
 account-isolation requirements. Do not record authorization URLs, tokens or
 mailbox content in screenshots, logs or test artifacts.
 

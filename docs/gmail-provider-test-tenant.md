@@ -1,65 +1,116 @@
-# Gmail Provider Test Tenant provisioning
+# Dedicated Gmail test accounts
 
-Status: ready following authorized operator attestation.
+Status: awaiting [operator attestation](https://github.com/unwired-dev/product/issues/1528)
+for the consumer-account setup.
 
-This runbook is the repository-safe handoff for provisioning the human-owned Google Workspace Provider Test Tenant. It does not prove that the tenant exists or grant automation access. An authorized human operator must complete the external steps and publish the redacted readiness record described below before the tenant is treated as ready.
+Use at least two dedicated ordinary `@gmail.com` accounts for protected Gmail
+qualification. The owner selected this setup on 2026-10-29 in
+[#1527](https://github.com/unwired-dev/product/issues/1527); a Google Workspace
+subscription or organization-owned domain is not required. This policy change
+does not provision accounts or grant automation access.
 
 ## Safety boundary
 
-- Use a dedicated, project-controlled Google Workspace tenant containing only Provider Test Mailboxes and Synthetic Test Messages.
-- Do not add personal or production identities, aliases, forwarding destinations, personal or production recovery addresses, or mailbox content.
-- Keep the tenant domain, user addresses, administrator identities, recovery material, billing details, OAuth credentials, tokens, and mailbox content in the team's approved protected systems. Do not place them in source control, GitHub issues, pull requests, logs, screenshots, or Mail Test Evidence.
-- Keep the Provider Test Tenant separate from the Provider Test Project. The tenant owns the synthetic identities; the isolated project owns OAuth clients, Gmail API quotas, Pub/Sub resources, and protected automation credentials.
-- Give autonomous agents only redacted readiness and Provider Compatibility Run evidence. Never give them reusable Workspace, Gmail, or Google Cloud credentials.
+- Use project-controlled **Provider Test Accounts** containing only **Provider
+  Test Mailboxes** and **Synthetic Test Messages**.
+- Keep personal and production identities, aliases, forwarding destinations,
+  recovery routes and mailbox content out of these accounts.
+- Keep account addresses, passwords, MFA and recovery material, OAuth credentials,
+  tokens and mailbox content in approved protected systems. Do not put them in
+  source control, GitHub, logs, screenshots or **Mail Test Evidence**.
+- Keep the accounts separate from the isolated **Provider Test Project**, which
+  owns test OAuth clients, Gmail API quotas, Pub/Sub routes and protected
+  automation credentials. Reuse an existing isolated test project where suitable.
+- Give autonomous agents only redacted readiness and **Provider Compatibility
+  Run** evidence. Reusable Gmail and Google Cloud credentials stay behind the
+  protected operator-run workflow.
 
 ## Human provisioning procedure
 
-1. Record the accountable administration, security, recovery, lifecycle, and cost-responsibility roles in the team's protected operational documentation.
-2. Create a dedicated Google Workspace tenant controlled by the project. Configure organization-controlled recovery and require MFA for every administrator before adding test mailboxes.
-3. Create at least two Provider Test Mailboxes. Confirm that every user, alias, recovery route, forwarding rule, and mailbox is isolated from personal and production identities.
-4. Configure the OAuth consent audience as internal to this tenant. The retired Swift prototype owned consent and scope selection and requested only `openid`, `email`, and `https://www.googleapis.com/auth/gmail.modify`; do not approve broader Gmail scopes for this tenant unless the client implementation and this document change together. The protected TypeScript workflow must consume only credentials with this attested scope set and must not broaden Gmail scopes.
-5. Store credentials, recovery material, tokens, and any tenant identifiers only in the approved secret and protected-document systems. Record lifecycle procedures for access review, operator replacement, user rotation, billing review, incident response, and tenant retirement.
-6. Have an authorized operator verify the protected record and the live tenant configuration. The verifier must confirm the synthetic-only boundary without copying sensitive values into the readiness record.
-7. Publish the completed redacted readiness record. Only a record with `status: ready` and every required Boolean set to `true` authorizes subsequent automation work.
+1. Record the accountable account owner, recovery, security and lifecycle roles,
+   plus responsibility for any Google Cloud project costs, in protected records.
+2. Create or designate at least two ordinary Gmail accounts reserved for testing.
+   Enable MFA on each and use project-controlled recovery. Confirm that every
+   mailbox, alias, forwarding rule and recovery route is isolated from personal
+   and production use.
+3. Configure the test project's OAuth audience as **External**. Use the maintained
+   Expo and Mac clients and the four scopes in the
+   [authorization inventory](google-registration.md#what-the-hosts-request):
+   `openid`, `https://www.googleapis.com/auth/userinfo.email`,
+   `https://www.googleapis.com/auth/userinfo.profile` and
+   `https://www.googleapis.com/auth/gmail.modify`. Do not broaden Gmail scopes.
+4. If the project is in **Testing**, list the designated accounts as test users.
+   Gmail grants in this mode expire after seven days; schedule reauthorization
+   accordingly. A verified **In production** External project can also authorize
+   these accounts. Follow [Google's audience rules](https://support.google.com/cloud/answer/15549945).
+   The completed production authorization in #668 does not attest a different
+   test project's configuration.
+5. Store credentials and recovery material only in approved protected systems.
+   Record access review, operator replacement, account rotation and retirement.
+6. Have an authorized operator verify the accounts, current clients/scopes and
+   the protected native execution path, including the configured test backend
+   and Pub/Sub/APNs resources needed by the selected scenarios. Follow
+   [protected real OAuth qualification](google-registration.md#protected-real-oauth-qualification).
+7. Publish the redacted readiness record below after verification. Only a
+   `ready` record meeting the complete schema authorizes protected automation.
+
+Consumer accounts qualify consumer Gmail behavior. Workspace administrator-policy
+coverage requires separate Workspace accounts when that coverage is requested.
+Scenarios requiring a Google identity without Gmail still need a dedicated
+non-Gmail Google identity; an ordinary Google account can provide that case.
 
 ## Current redacted readiness record
 
-This record covers the retired Swift prototype and the scope set in step 4.
-The maintained Expo and Mac hosts request a different set through GoogleSignIn;
-see their [authorization inventory](google-registration.md#what-the-hosts-request).
-An authorized operator must verify those clients and scopes and update the record
-before it can authorize their protected automation.
+The earlier schema-1 Workspace attestation from 2026-10-23 covered the retired
+Swift client. It does not establish readiness of consumer accounts or the
+maintained clients. Schema 2 replaces `tenant` with `accounts`, and
+`audience_internal` with `audience_external`; old records must not authorize this
+setup. Account provisioning and protected execution have not been newly attested.
 
-The canonical readiness artifact is the single YAML block in this section of `docs/gmail-provider-test-tenant.md`. An authorized operator updates it in a reviewed pull request after human verification. Keep `schema_version` set to `1`, change `status` from `awaiting_operator_attestation` to `ready`, set every Boolean field to `true`, provide an ISO 8601 UTC `verified_at`, and provide a non-identifying `authorizer_role`. Do not include domains, email addresses, names, client identifiers, project identifiers, secret names, recovery channels, or links to protected systems.
+The canonical artifact remains the single YAML block in this section of
+`docs/gmail-provider-test-tenant.md`. After human verification, an authorized
+operator updates it in a reviewed pull request: set `status: ready`, every Boolean
+to `true`, `verified_at` to an ISO 8601 UTC timestamp and `authorizer_role` to a
+non-identifying role. Do not include addresses, names, client/project identifiers,
+secret names, recovery channels or links to protected systems.
 
 ```yaml
-schema_version: 1
-status: ready
-verified_at: 2026-10-23T10:21:17Z
-tenant:
-  project_controlled: true
-  synthetic_only: true
-  at_least_two_test_users: true
+schema_version: 2
+status: awaiting_operator_attestation
+verified_at: null
+accounts:
+  project_controlled: false
+  synthetic_only: false
+  at_least_two_test_users: false
 oauth:
-  audience_internal: true
-  scopes_match_client: true
+  audience_external: false
+  scopes_match_client: false
 operations:
-  administrative_owner_recorded: true
-  mfa_recorded: true
-  recovery_recorded: true
-  lifecycle_recorded: true
-  cost_owner_recorded: true
+  administrative_owner_recorded: false
+  mfa_recorded: false
+  recovery_recorded: false
+  lifecycle_recorded: false
+  cost_owner_recorded: false
 secrets:
-  approved_system_only: true
-  repository_exposure_reviewed: true
+  approved_system_only: false
+  repository_exposure_reviewed: false
 automation:
-  authorizer_role: project maintainer
+  authorizer_role: null
 ```
 
-The protected workflow must find exactly one readiness artifact, parse only the documented schema, require `schema_version: 1`, reject unknown fields, and reject missing, duplicate, or malformed artifacts. Readiness requires `status: ready`, a valid ISO 8601 UTC `verified_at`, a non-identifying `authorizer_role`, and every Boolean field set to `true`. Any other value fails closed and leaves Provider Compatibility Runs unauthorized.
+The protected workflow must find exactly one artifact, parse schema 2, and reject
+unknown fields and missing, duplicate or malformed artifacts. Readiness requires
+`status: ready`, a valid UTC `verified_at`, a non-identifying `authorizer_role`
+and every Boolean set to `true`. Null metadata is allowed only while awaiting
+attestation. All other records fail closed and leave Provider Compatibility Runs
+unauthorized.
 
 ## Handoff after readiness
 
-The authorized operator may give the redacted record to the maintainer implementing the protected Gmail workflow. That maintainer must verify the record before configuring automation and must keep all reusable credentials behind the protected workflow described in [ADR 0041](adr/0041-broker-provider-compatibility-through-protected-workflows.md).
-
-This runbook implements the repository-side handoff for [issue #302](https://github.com/unwired-dev/product/issues/302). Actual tenant creation and protected operational attestation remain human actions.
+The authorized operator supplies only the redacted record to the maintainer of
+the protected Gmail workflow. Verify that record before configuring automation;
+keep reusable credentials behind the protected workflow described in
+[ADR 0041](adr/0041-broker-provider-compatibility-through-protected-workflows.md).
+Provisioning and attestation remain operator actions. The completed production
+Google authorization in [#668](https://github.com/unwired-dev/product/issues/668)
+is unchanged by this test-account policy.
