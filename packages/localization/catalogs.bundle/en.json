@@ -109,6 +109,7 @@
     "hideSidebar": "Hide Sidebar",
     "view": "View",
     "commands": "Commands…",
+    "refresh": "Refresh",
     "settings": "Settings…",
     "settingsTitle": "Settings",
     "newMessageTitle": "New Message"
@@ -414,7 +415,16 @@
     "progress": "{{status}} · {{percent, number}}%",
     "attention_one": "{{count}} account needs attention",
     "attention_other": "{{count}} accounts need attention",
-    "tryAgain": "Try Again"
+    "tryAgain": "Try Again",
+    "tryAgainFor": "Try Again for {{account}}",
+    "showDetails": "Shows each account’s sync status",
+    "title": "Sync Status",
+    "history": "Downloading history · {{downloaded, number}} of {{total, number}} messages",
+    "historyDownloaded": "Downloading history · {{downloaded, number}} messages",
+    "upToDate": "Up to date",
+    "upToDateUpdated": "Up to date · {{updated}}",
+    "updatedAt": "Last updated {{time}} · View › Refresh (⌘R)",
+    "refresh": "View › Refresh (⌘R)"
   },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",

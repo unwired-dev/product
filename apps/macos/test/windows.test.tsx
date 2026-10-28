@@ -1584,11 +1584,12 @@ describe('mac windows over a connected Gmail mailbox', () => {
     expect(authorized).toContain(alex);
     gmail.fail({ code: 'unavailable' });
     await act(list.load);
-    expect(
-      first.getByLabelText(
-        'Gmail could not be reached. Showing mail saved on this device.',
-      ),
-    ).toBeVisible();
+    // Each window's Sync Status Capsule reports the unreachable mailbox.
+    for (const window of [first, second]) {
+      expect(
+        window.getByRole('button', { name: '1 account needs attention' }),
+      ).toBeOnTheScreen();
+    }
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
     // The failed save is visible in both windows after Archive closes its reader, announced once.
     held.becomeCacheOnly();

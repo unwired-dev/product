@@ -64,6 +64,18 @@ export const ModalBackground = requireNativeComponent<ViewProps>(
   'UnwiredModalBackground',
 );
 
+// An AppKit popover showing this view's React children, pointing up from the top edge of the view
+// that holds it. AppKit presents it, closes it when the person clicks elsewhere or presses Escape,
+// and then reports `onClose`.
+const NativePopover = requireNativeComponent<
+  ViewProps & {
+    readonly shown: boolean;
+    readonly contentWidth: number;
+    readonly contentHeight: number;
+    readonly onClose: () => void;
+  }
+>('UnwiredPopover');
+
 export function Glass({
   cornerRadius,
   style = StyleSheet.absoluteFill,
@@ -83,6 +95,10 @@ const groupRadius = (28 + 2 * spacing.xs) / 2;
 
 const styles = StyleSheet.create({
   menuContent: { flexGrow: 1 },
+  // The popover points at the holder's top edge; the host itself takes no space.
+  popoverHost: { position: 'absolute', top: 0, left: 0, right: 0, height: 0 },
+  // Laid out at its own size, which the popover takes.
+  popoverContent: { position: 'absolute', top: 0, left: 0 },
   group: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -776,5 +792,48 @@ export function AnnouncedAlert({
       style={style}>
       {children}
     </Label>
+  );
+}
+
+export function Popover({
+  shown,
+  onClose,
+  children,
+}: {
+  readonly shown: boolean;
+  readonly onClose: () => void;
+  readonly children: ReactNode;
+}) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  // The content stays until AppKit has closed the popover, so it does not empty while closing.
+  const [presented, setPresented] = useState(shown);
+  if (shown && !presented) {
+    setPresented(true);
+  }
+  return (
+    <NativePopover
+      contentHeight={size.height}
+      contentWidth={size.width}
+      onClose={() => {
+        setPresented(false);
+        onClose();
+      }}
+      shown={shown && size.height > 0}
+      style={styles.popoverHost}>
+      {presented ? (
+        // The popover takes this one view as its content, so Fabric must not flatten it.
+        <View
+          collapsable={false}
+          onLayout={({ nativeEvent }) => {
+            setSize({
+              width: nativeEvent.layout.width,
+              height: nativeEvent.layout.height,
+            });
+          }}
+          style={styles.popoverContent}>
+          {children}
+        </View>
+      ) : null}
+    </NativePopover>
   );
 }
