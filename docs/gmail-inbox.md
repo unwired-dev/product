@@ -369,7 +369,7 @@ On iPhone and iPad, tapping the capsule opens the same **Sync Status** details
 ([#1442](https://github.com/unwired-dev/product/issues/1442)): in a medium-detent
 sheet with **Done** on iPhone, and in a popover on the capsule on iPad. A connection
 whose grant or password was refused offers its authorization in place of
-**Try Again**: **Allow Gmail access** (or the provider's name) asks for access again
+**Try Again**: **Allow Gmail access**, named for its provider, asks for access again
 and then synchronizes that connection, and **Enter the Password…** opens Email
 Accounts in Settings. Authorizing closes the details first. The footer points to
 pulling the list down instead of ⌘R. On iPhone, whose Inbox heading has no room for
