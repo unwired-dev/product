@@ -1,5 +1,6 @@
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
+import * as Struct from 'effect/Struct';
 
 import type { HistoryPass, MailboxHistory } from './mailbox-document.ts';
 import type { GmailMessage } from './mailbox-message.ts';
@@ -34,6 +35,48 @@ export const segmentNames = (history: MailboxHistory) =>
     ({ name }) => name,
   );
 
+// Messages outside the cached views whose bodies the device keeps.
+export const keptBodies = (history: MailboxHistory | undefined) => [
+  ...(history?.bodies ?? []),
+  ...(history?.reconciling ?? []),
+];
+
+const withBodies = (
+  history: MailboxHistory,
+  bodies: readonly string[],
+  reconciling: readonly string[],
+): MailboxHistory => ({
+  ...Struct.omit(history, ['bodies', 'reconciling']),
+  ...(bodies.length === 0 ? {} : { bodies: [...new Set(bodies)] }),
+  ...(reconciling.length === 0
+    ? {}
+    : { reconciling: [...new Set(reconciling)] }),
+});
+
+// Keeps the bodies of messages Gmail just returned, which are in All Mail.
+export const keepingBodies = (
+  history: MailboxHistory,
+  ids: readonly string[],
+): MailboxHistory => {
+  const kept = new Set(ids);
+  return withBodies(
+    history,
+    [...(history.bodies ?? []), ...ids],
+    (history.reconciling ?? []).filter((id) => !kept.has(id)),
+  );
+};
+
+// Forgets kept bodies the device no longer stores, such as those the budget evicted.
+export const storedBodies = (
+  history: MailboxHistory,
+  stored: ReadonlySet<string>,
+) =>
+  withBodies(
+    history,
+    (history.bodies ?? []).filter((id) => stored.has(id)),
+    (history.reconciling ?? []).filter((id) => stored.has(id)),
+  );
+
 export const progress = (history: MailboxHistory) => ({
   downloaded: history.current.segments.reduce(
     (sum, { count }) => sum + count,
@@ -43,7 +86,8 @@ export const progress = (history: MailboxHistory) => ({
   complete: history.current.complete === true,
 });
 
-// Records each message's newest state, replacing an earlier change no fold is writing yet.
+// Records each message's newest state, replacing an earlier change no fold is writing yet. A
+// message that left All Mail takes its kept body with it.
 export const recorded = (
   history: MailboxHistory,
   found: readonly Found[],
@@ -53,17 +97,26 @@ export const recorded = (
   }
   const through = history.folding?.through ?? history.reconcilingThrough ?? 0;
   const ids = new Set(found.map(([id]) => id));
-  return {
-    ...history,
-    changes: [
-      ...history.changes.filter(
-        ({ id }, index) => index < through || !ids.has(id),
-      ),
-      ...found.map(([id, message]) =>
-        message !== undefined && inAllMail(message) ? { id, message } : { id },
-      ),
-    ],
-  };
+  const left = new Set(
+    found.flatMap(([id, message]) => (inAllMail(message) ? [] : [id])),
+  );
+  return withBodies(
+    {
+      ...history,
+      changes: [
+        ...history.changes.filter(
+          ({ id }, index) => index < through || !ids.has(id),
+        ),
+        ...found.map(([id, message]) =>
+          message !== undefined && inAllMail(message)
+            ? { id, message }
+            : { id },
+        ),
+      ],
+    },
+    (history.bodies ?? []).filter((id) => !left.has(id)),
+    (history.reconciling ?? []).filter((id) => !left.has(id)),
+  );
 };
 
 // Segment messages with the recorded changes applied; a message that left All Mail is dropped.
@@ -84,39 +137,62 @@ export const overlaid = (
 };
 
 // After Gmail expired the history ID or a page token, a new pass lists All Mail again; the last
-// pass stays shown until it completes. Folding waits for that pass.
+// pass stays shown until it completes. Folding waits for that pass, and kept bodies wait for it
+// to list their messages.
 export const restarted = (history: MailboxHistory): MailboxHistory => {
   const previous =
     history.previous ??
     (history.current.segments.length === 0 ? undefined : history.current);
-  return {
-    ...(history.total === undefined ? {} : { total: history.total }),
-    current: { segments: [] },
-    ...(previous === undefined ? {} : { previous }),
-    reconcilingThrough: history.changes.length,
-    changes: history.changes,
-  };
+  return withBodies(
+    {
+      ...(history.total === undefined ? {} : { total: history.total }),
+      current: { segments: [] },
+      ...(previous === undefined ? {} : { previous }),
+      reconcilingThrough: history.changes.length,
+      changes: history.changes,
+    },
+    [],
+    keptBodies(history),
+  );
 };
 
-// Adds a listed page as the pass's next segment. The last page completes the pass, which then
-// replaces the previous one.
+// Adds a listed page, holding the messages `ids` names, as the pass's next segment; their waiting
+// bodies stay. The last page completes the pass, which then replaces the previous one, and drops
+// the bodies it never listed.
 export const listed = (
   history: MailboxHistory,
   segment: HistoryPass['segments'][number],
-  pageToken: string | undefined,
+  {
+    pageToken,
+    ids,
+  }: Readonly<{ pageToken: string | undefined; ids: readonly string[] }>,
 ): MailboxHistory => {
   const segments =
     segment.count === 0
       ? history.current.segments
       : [...history.current.segments, segment];
+  const page = new Set(ids);
+  const reconciling = history.reconciling ?? [];
+  const bodies = [
+    ...(history.bodies ?? []),
+    ...reconciling.filter((id) => page.has(id)),
+  ];
   if (pageToken !== undefined) {
-    return { ...history, current: { segments, pageToken } };
+    return withBodies(
+      { ...history, current: { segments, pageToken } },
+      bodies,
+      reconciling.filter((id) => !page.has(id)),
+    );
   }
-  return {
-    ...(history.total === undefined ? {} : { total: history.total }),
-    current: { segments, complete: true },
-    changes: history.changes.slice(history.reconcilingThrough ?? 0),
-  };
+  return withBodies(
+    {
+      ...(history.total === undefined ? {} : { total: history.total }),
+      current: { segments, complete: true },
+      changes: history.changes.slice(history.reconcilingThrough ?? 0),
+    },
+    bodies,
+    [],
+  );
 };
 
 // A complete pass folds even without segments: its arrivals become the first one. An incomplete
@@ -257,11 +333,15 @@ export const foldStep = Effect.fnUntraced(function* <E>(
     kept.push({ name, count: older.length });
   }
   return {
-    history: {
-      ...(history.total === undefined ? {} : { total: history.total }),
-      current: { ...pass, segments: kept },
-      changes: history.changes.slice(folding.through),
-    },
+    history: withBodies(
+      {
+        ...(history.total === undefined ? {} : { total: history.total }),
+        current: { ...pass, segments: kept },
+        changes: history.changes.slice(folding.through),
+      },
+      history.bodies ?? [],
+      history.reconciling ?? [],
+    ),
     written,
   };
 });

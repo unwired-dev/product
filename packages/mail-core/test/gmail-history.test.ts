@@ -1295,28 +1295,65 @@ describe('gmail history backfill', () => {
     }
   });
 
-  it('keeps a revealed history body only when a cached view also keeps its message', async () => {
+  it('keeps an opened history body across a relaunch until its message leaves All Mail', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     const oldest = at(mailbox(gmail, 300, 0), 299);
-    const label = gmail.createLabel('Saved history');
-    gmail.setLabel(oldest, label, true);
     const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     await scrolled(inbox, 'INBOX', 300);
     await inbox.readMessage(oldest);
+    inbox.forget();
 
-    expect(inbox.messageBody(oldest)?.kind).toBe('ready');
-    expect(gmail.cachedBodies().has(oldest)).toBe(false);
-    await expect(inbox.savedBodies([oldest])).resolves.toStrictEqual(new Set());
+    // Synchronization prunes bodies outside the cached views; this one stays with its history.
+    const relaunched = createInbox(gmail.native);
+    await relaunched.load();
+    await scrolled(relaunched, 'INBOX', 300);
+    const before = gmail.requests.length;
+    await relaunched.readMessage(oldest);
 
-    await inbox.openView(label);
-    await inbox.readMessage(oldest, { refresh: true });
+    expect(relaunched.messageBody(oldest)?.kind).toBe('ready');
+    expect(gmail.requests.slice(before).map(({ path }) => path)).not.toContain(
+      `messages/${oldest}`,
+    );
+
+    gmail.remove(oldest);
+    await relaunched.load();
+
+    await expect(relaunched.savedBodies([oldest])).resolves.toStrictEqual(
+      new Set(),
+    );
+  });
+
+  it('keeps an opened history body only while a pass after an expired history ID still lists it', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 300, 0);
+    const [removed, kept] = [at(everything, -1), at(everything, -2)];
+    const history = holdingHistory(gmail);
+    const inbox = createInbox(history.native);
     await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 300);
+    await inbox.readMessage(removed);
+    await inbox.readMessage(kept);
 
-    await expect(inbox.savedBodies([oldest])).resolves.toStrictEqual(
-      new Set([oldest]),
+    // The fake keeps its history ID until the next change, so expire before removing.
+    gmail.expireHistory();
+    gmail.remove(removed);
+    history.hold();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).history?.complete).toBe(false);
+    await expect(inbox.savedBodies([removed, kept])).resolves.toStrictEqual(
+      new Set([removed, kept]),
+    );
+
+    history.release();
+    await backfilled(inbox);
+    await inbox.load();
+    await expect(inbox.savedBodies([removed, kept])).resolves.toStrictEqual(
+      new Set([kept]),
     );
   });
 
@@ -1343,7 +1380,10 @@ describe('gmail history backfill', () => {
 
       expect(ids(shown(inbox, 'INBOX'))).toContain(id);
       expect(inbox.messageBody(id)?.kind).toBe('ready');
-      await expect(inbox.savedBodies([id])).resolves.toStrictEqual(new Set());
+      await inbox.load();
+      await expect(inbox.savedBodies([id])).resolves.toStrictEqual(
+        new Set([id]),
+      );
     } finally {
       pruning.release();
     }
