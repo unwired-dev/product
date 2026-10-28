@@ -85,9 +85,9 @@ Select exactly one issue from the current repository; this mode does not start a
 backlog-draining loop. An explicitly named issue bypasses automatic selection.
 
 1. Enumerate all open issues labelled `ready-for-agent` without the
-   `in progress` claim, following every page. List them with
-   `gh issue list --label ready-for-agent --limit 1000 --json number,labels`
-   and filter labels locally; `--search` reads a lagging index.
+   `in progress` claim, following every page with
+   `gh api --paginate 'repos/{owner}/{repo}/issues?state=open&labels=ready-for-agent&per_page=100'`.
+   Filter labels and pull requests locally; `--search` reads a lagging index.
    Exclude pull requests, `ready-for-human`, `ready-for-test`, `human needed`
    and `wontfix` issues, plus issues with an open implementation PR or other
    clear evidence of active implementation. For a parent issue, active sub-issue
@@ -139,8 +139,8 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
    includes the host: before claiming, run cheap read-only probes for every
    prerequisite the acceptance criteria name (signing identities, provisioning
    profiles, OS and toolchain versions, physical devices, test accounts,
-   credentials, deployments) and read the comments for an earlier skip note; one
-   newer than the issue's last update still holds, so recheck only its evidence.
+   credentials, deployments) and read the comments for an earlier skip note.
+   Recheck its live evidence before repeating the investigation.
    Credential probes report only each name as set or missing; never print an
    env file, even through a redaction filter, since values can span lines.
    Verify the behavior and platform API the issue presupposes against the code
@@ -171,9 +171,9 @@ starting unrelated work or changing priorities, labels, or dependencies to quali
 Before implementation, load and apply the workflow's
 [simplicity skills](../../../docs/agents/implementation-review.md#simplicity-skills).
 Follow the root guide's coding principles, skill selection and navigation rules.
-In a fresh worktree run `mise exec -- pnpm install --frozen-lockfile`, then run
-the checks selected under the [testing policy](../../../docs/agents/testing.md)
-on the starting revision and record failures already present there. Before
+In a fresh worktree run `mise exec -- pnpm install --frozen-lockfile`. Before
+editing, run the [testing policy](../../../docs/agents/testing.md)'s selected checks
+through `mise exec --` on the starting revision and record existing failures. Before
 substantial work and before the first handoff, fetch the target base and
 integrate upstream changes as the branch's delivery allows; when widening a
 shared type, inspect consumers added upstream since the baseline.
@@ -183,9 +183,10 @@ For user-visible work, follow
 before editing and retain its state list for the handoff.
 
 Complete the issue's requested behavior, update affected documentation, and add
-a changeset when required by repository policy. File a separate defect that
+a changeset when required by repository policy. File or link a separate defect that
 fails a criterion, with its evidence, before fixing it; fix it here only on the
-issue's own surface, otherwise make it a native blocker and deliver the rest
+issue's own surface and record that scope in the PR and both issues;
+otherwise make it a native blocker and deliver the rest
 with a non-closing reference.
 Before naming an external interface (URL or deep-link parameter, initial prop,
 storage key, API argument), search the implementer-readable docs for an existing

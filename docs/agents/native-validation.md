@@ -21,7 +21,8 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   `xcodebuild` processes, booted Simulators) before and after each journey.
   Before attributing a timing or idle-wait failure to the host, compare it with
   a passing baseline and reproduce it without your own concurrent native work.
-- Run `scripts/pre-handoff.sh` without a concurrent native build or journey.
+- Run `scripts/pre-handoff.sh` without a concurrent native build, journey or
+  other heavy local job.
 
 - Before a full native validation matrix, require at least 6 GiB available on
   the data volume. Reclaim only artifacts owned by the current task; otherwise
@@ -43,8 +44,11 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   owns its probe project and results; run it against a task-built app on a
   logged-in macOS desktop.
 - Capture screens from the shell that already holds Screen Recording, by window
-  id (`screencapture -l <id>`). A task-built probe or bundle that captures
+  id (`screencapture -l <id> <path.png>`). A task-built probe or bundle that captures
   itself raises a permission prompt that a locked desktop cannot dismiss.
+  Check that the desktop is unlocked before UI probes; defer XCUITest and
+  active-window checks while locked. After a probe, inspect on-screen windows
+  for permission dialogs it caused before reporting cleanup complete.
 
 Follow the [execution-environment policy](testing.md#execution-environment) for
 sandbox restrictions and the separate PR babysitter validation boundary.
@@ -177,9 +181,11 @@ iPhone and iPad references.
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
 `Testing` build and sign-in as the [performance journey](#mac-performance-journey);
-the runner refuses a build without that scenario:
+the journey requires that scenario:
 
 ```sh
+UNWIRED_MOCK_SCENARIO=registration-performance \
+mise exec -- pnpm --filter @private-email/macos native:build Testing
 mise exec -- pnpm --filter @private-email/macos test:native \
   "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
   testKeyboardAndAccessibility
@@ -337,15 +343,20 @@ checks when simulator automation is unavailable.
 
 When the journey that reaches a changed state fails later at a tracked,
 pre-existing point, place the new step before that point and report the new
-assertions' result with the failing line and its issue, instead of deferring the
-check. Before rerunning a failed native, visual or accessibility check, record
+assertions' result with the failing line and its issue. Confirm stop-on-first-failure
+is enabled and the failure matches the tracked point before treating earlier
+assertions as passed; keep the overall run's failure visible.
+Before adding an accessibility audit, inventory every window and state it will
+cover; reuse an already-audited surrounding state where possible.
+Before rerunning a failed native, visual or accessibility check, record
 the environment facts its baseline assumes (appearance, display layout, locale,
 host load, windows open during an audit) and compare them. When a native CI
 failure does not reproduce locally, compare CI's pinned Xcode and runtime with
-the host's, then run CI's `expo-native-app-<run>` artifact locally to separate
-the build from the test toolchain. If it stays unexplained, push the hypotheses
-on a separate `[WIP]` diagnostic PR that runs them in one CI pass, and close it
-unmerged.
+the host's, then download and unpack CI's `expo-native-app-<run>` tar artifact
+and run it locally to separate the build from the test toolchain. If it stays
+unexplained, use the [diagnostic-push exception](pull-request-babysitting.md#implementer-pr-delivery)
+for a separate non-draft `[WIP]` PR that runs the hypotheses in one CI pass;
+retain its evidence, then close it unmerged and delete its branch.
 
 ## Required release checks
 

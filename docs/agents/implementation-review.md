@@ -70,6 +70,10 @@ GPT model is unavailable, report that delegation as blocked and continue
 independent work; do not fall back to a non-GPT model. When T3 delegation is
 unavailable, run a fresh reviewer from a handoff file with
 `codex exec -m gpt-6.1-sol -c model_reasoning_effort='"high"' --dangerously-bypass-approvals-and-sandbox -C <checkout> - < <handoff>`.
+This unrestricted example is for trusted local work with session authorization.
+Otherwise use the permitted sandbox mode; the
+[execution-environment policy](testing.md#execution-environment), including the
+PR babysitter boundary, still applies.
 
 ## Reading responsibilities
 

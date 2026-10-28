@@ -102,8 +102,9 @@ name that seam in the PR.
 A test keeps the documented expectation when newly observed behavior disagrees
 with the feature guide or an open issue.
 
-Record results from exit status, not the output tail, with skipped tests and
-their reasons. Unavailable or skipped checks do not prove their behavior. When a
+Record each check command's exit status, including separately when batching,
+with skipped-test counts and reasons. An output tail or a pipe's final command
+does not establish the check's status. Unavailable or skipped checks do not prove their behavior. When a
 skip reason describes the current environment, enable the check or report it
 as unexecuted.
 

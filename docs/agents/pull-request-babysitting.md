@@ -31,8 +31,14 @@ work and the stages left undone. After all required
    the PR to the thread with `link_pull_request`.
 3. Invokes the `babysit-pr` skill for that PR alone and keeps it until the PR is
    merged or closed. In T3 Code, call `watch_pull_request` and end the turn;
-   each wakeup runs one babysitting pass. Elsewhere, use the host's PR watcher
-   or the skill's supported monitoring mechanism, never a recurring schedule.
+   each wakeup runs one babysitting pass. If T3 linking or watching is unavailable,
+   report the unlinked or unwatched state and use the host's PR watcher or the
+   skill's supported monitoring mechanism, as outside T3; never a recurring schedule.
+
+For [CI-only native reproduction](native-validation.md#report-what-the-evidence-proves),
+unreviewed diagnostic commits may be pushed on a separate non-draft `[WIP]` PR.
+This exception ends with that PR closed unmerged; product fixes still pass the
+required reviews before delivery.
 
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
