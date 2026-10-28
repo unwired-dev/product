@@ -37,4 +37,4 @@ an agent to take the issue over. Agents skip issues claimed by other work, so th
 duplicate work. Work that delivers only part of an issue applies `in progress`
 only to the sub-issue it implements and leaves it off the parent. The
 [implement-issue skill](../../.agents/skills/implement-issue/SKILL.md) owns
-claiming and parent updates.
+claiming and parent updates, through `scripts/issue-claim`.
