@@ -13,6 +13,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RegisterCommands, usePaletteHeader } from './command-palette.tsx';
@@ -399,6 +400,21 @@ export const WindowBarContext = createContext<
 export function useBarBottomInset() {
   const { bottom } = useSafeAreaInsets();
   return use(WindowBarContext) === undefined ? bottom : 0;
+}
+
+// The compact list's scroll indicator stops at its floating bar: 4pt above the bottom safe area,
+// which UIKit adds itself, or 12pt above the keyboard. React Native replaces the indicator inset
+// whenever the keyboard moves, so the inset follows the keyboard's state.
+export function useBarIndicatorInsets() {
+  const bottomInset = useBarBottomInset();
+  const keyboard = useKeyboardState(({ isVisible, height }) =>
+    isVisible ? height : 0,
+  );
+  if (use(WindowBarContext) !== undefined) {
+    return undefined;
+  }
+  const lift = keyboard > 0 ? keyboard - bottomInset + spacing.m : spacing.xs;
+  return { bottom: lift + barHeight };
 }
 
 function ScrollEdge({ style }: { readonly style: StyleProp<ViewStyle> }) {

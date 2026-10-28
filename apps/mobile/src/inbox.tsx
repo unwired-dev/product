@@ -54,7 +54,11 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
-import { useBarBottomInset, WindowBarContext } from './inbox-bar.tsx';
+import {
+  useBarBottomInset,
+  useBarIndicatorInsets,
+  WindowBarContext,
+} from './inbox-bar.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import {
@@ -653,6 +657,7 @@ export function Inbox({
   const insets = useSafeAreaInsets();
   const inWindow = use(WindowBarContext) !== undefined;
   const bottomInset = useBarBottomInset();
+  const indicatorInsets = useBarIndicatorInsets();
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -1015,6 +1020,7 @@ export function Inbox({
               styles.list,
               { paddingBottom: styles.list.paddingBottom + bottomInset },
             ]}
+            scrollIndicatorInsets={indicatorInsets}
             refreshing={refreshing}
             onRefresh={() => {
               void refresh();
