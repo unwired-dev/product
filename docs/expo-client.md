@@ -99,7 +99,11 @@ must not appear in the iOS production bundle.
 
 Inbox keyboard tracking uses `react-native-keyboard-controller` and Reanimated's
 `IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS` static flag so React commits do not pause the
-bar's transform. Rebuild the native app after changing this flag.
+bar's transform. Rebuild the native app after changing this flag. Both composers
+use that library's `KeyboardAvoidingView`, which follows the keyboard frame by
+frame. The pinned keyboard-controller patch clears its padding when avoidance
+is disabled, preserving the iPad composer's collapsed layout. Remove the patch
+when the supported upstream version clears that padding itself.
 
 Keep the Effect patcher, Oxlint and `oxlint-tsgolint` on the compatible catalog
 versions and update them together. TypeScript 7 is intentionally
