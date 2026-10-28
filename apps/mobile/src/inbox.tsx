@@ -27,6 +27,7 @@ import {
   profileMailboxes,
   resultKey,
 } from '@private-email/mail-core/mailboxes';
+import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
   useEffect,
@@ -912,13 +913,14 @@ export function Inbox({
   return (
     // The floating bar rises above the software keyboard while its search field is in use. The safe
     // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it. The surface
-    // fills those margins too, behind the status bar and home indicator.
+    // fills those margins too, behind the status bar and home indicator. The bar sits 4pt above the
+    // home indicator's safe area and 12pt above the keyboard, as the frames show.
     <KeyboardAvoidingView
       testID="inbox-surface"
       behavior="padding"
       // The window bar already lifts the regular layout's capsule. Only the rows need insets there.
       enabled={!inWindow}
-      keyboardVerticalOffset={-insets.bottom}
+      keyboardVerticalOffset={spacing.m - spacing.xs - insets.bottom}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <SafeAreaView
         edges={{ top: true, bottom: true, left: true }}

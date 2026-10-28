@@ -74,7 +74,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
+    // The frames hold the bar 4pt above the bottom safe area.
     padding: spacing.l,
+    paddingBottom: spacing.xs,
   },
   // A regular-width window's bar: the field 400pt wide and centered, the Filter control leading it
   // and New Message pinned to the trailing edge.
@@ -473,7 +475,6 @@ const listBar = createWindowBar();
 // window shows it across its bottom edge instead.
 export function FloatingBar({
   hidden = false,
-  paddingBottom = spacing.l,
   leading,
   trailing,
   notice = null,
@@ -481,7 +482,6 @@ export function FloatingBar({
   children,
 }: {
   readonly hidden?: boolean;
-  readonly paddingBottom?: number;
   readonly leading: ReactNode;
   readonly trailing: ReactNode;
   // A toast above the bar.
@@ -499,7 +499,7 @@ export function FloatingBar({
   // keyboard.
   const noticeBottom =
     windowBar === undefined
-      ? paddingBottom
+      ? spacing.xs
       : Math.max(spacing.l - insets.bottom, 0) + lift;
   const content = (
     <>
@@ -533,10 +533,7 @@ export function FloatingBar({
       {windowBar === undefined ? (
         <View
           pointerEvents="box-none"
-          style={[
-            styles.bottomBar,
-            { paddingBottom, display: hidden ? 'none' : 'flex' },
-          ]}>
+          style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
           {leading}
           {children}
           {trailing}
