@@ -752,6 +752,44 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(window.textFields["Type a command"].waitForNonExistence(timeout: 10))
   }
 
+  // #1225: removing a Mail Profile asks in a sheet on Settings, where Cancel is the default button
+  // that Escape and Return answer; only Remove removes it.
+  private func profileRemovalJourney(_ app: XCUIApplication, settings: XCUIElement) {
+    let sheet = settings.sheets.firstMatch
+    settings.buttons["Mail Profiles"].click()
+    settings.buttons["Add Mail Profile…"].click()
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    sheet.textFields.firstMatch.click()
+    sheet.typeText("Travel")
+    sheet.buttons["Create"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    let travel = settings.buttons["Travel"]
+    XCTAssertTrue(travel.waitForExistence(timeout: 15))
+    travel.click()
+    let remove = settings.buttons["Remove Mail Profile…"]
+    func ask() {
+      XCTAssertTrue(remove.waitForExistence(timeout: 15))
+      remove.click()
+      XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+      // AppKit exposes the alert's texts as values.
+      XCTAssertTrue(
+        sheet.descendants(matching: .any).matching(NSPredicate(format: "value == %@", "Remove “Travel”?"))
+          .firstMatch.exists)
+      XCTAssertEqual(
+        Set(sheet.buttons.allElementsBoundByIndex.map(\.title).filter { !$0.isEmpty }),
+        ["Cancel", "Remove"])
+    }
+    for key in [XCUIKeyboardKey.escape, .return] {
+      ask()
+      app.typeKey(key, modifierFlags: [])
+      XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+      XCTAssertTrue(travel.exists)
+    }
+    ask()
+    sheet.buttons["Remove"].click()
+    XCTAssertTrue(travel.waitForNonExistence(timeout: 15))
+  }
+
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
     XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
@@ -1263,6 +1301,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(language.waitForExistence(timeout: 15))
     XCTAssertEqual(language.value as? String, "System Default")
     try audit(app, "Language")
+    profileRemovalJourney(app, settings: settings)
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
 
