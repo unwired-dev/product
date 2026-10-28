@@ -494,12 +494,9 @@ const splice = (
     change.start === change.end
       ? []
       : sliceSpans(lines[from.line]?.spans ?? [], column, column + 1);
-  const link =
-    replaced !== undefined
-      ? linkOf(replaced)
-      : linkOf(head.at(-1)) === linkOf(tail[0])
-        ? linkOf(tail[0])
-        : undefined;
+  const inside =
+    linkOf(head.at(-1)) === linkOf(tail[0]) ? linkOf(tail[0]) : undefined;
+  const link = replaced === undefined ? inside : linkOf(replaced);
   const parts = change.inserted
     // Only an inserted image carries its character; typed or pasted ones are dropped.
     .replaceAll(imageCharacter, '')
