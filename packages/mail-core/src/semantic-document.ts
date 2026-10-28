@@ -487,9 +487,19 @@ const splice = (
 ) => {
   const { from, to, kind, head, tail } = edgesOf(lines, change);
   const typed = marks ?? marksOf(head.at(-1) ?? tail[0]);
-  // Text inserted inside a link joins it; at the link's edges it stays unlinked.
+  // Replacing text keeps the link of its first replaced character; text inserted inside a link
+  // joins it, and at the link's edges stays unlinked.
+  const column = Math.max(0, from.column - from.marker);
+  const [replaced] =
+    change.start === change.end
+      ? []
+      : sliceSpans(lines[from.line]?.spans ?? [], column, column + 1);
   const link =
-    linkOf(head.at(-1)) === linkOf(tail[0]) ? linkOf(tail[0]) : undefined;
+    replaced !== undefined
+      ? linkOf(replaced)
+      : linkOf(head.at(-1)) === linkOf(tail[0])
+        ? linkOf(tail[0])
+        : undefined;
   const parts = change.inserted
     // Only an inserted image carries its character; typed or pasted ones are dropped.
     .replaceAll(imageCharacter, '')

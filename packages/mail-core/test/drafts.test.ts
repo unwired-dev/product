@@ -337,6 +337,24 @@ describe('editing a Semantic Message Document', () => {
       { text: ' today' },
     ]);
     expect(withoutImage(withPicture, image.id)).toStrictEqual(inside);
+    // Replacing a link's whole text, or its start or end, keeps the destination.
+    expect(
+      replaceSelection(inside, { start: 5, end: 17 }, 'the proposal').document[0]
+        .spans,
+    ).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the proposal', link },
+      { text: ' today' },
+    ]);
+    expect(
+      applyText(inside, 'Read the big draft today', {
+        selection: { start: 13, end: 17 },
+      }).document[0].spans,
+    ).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the big draft', link },
+      { text: ' today' },
+    ]);
     // An accepted rewrite of other text leaves the link as it was.
     expect(
       replaceSelection(inside, { start: 18, end: 23 }, 'tomorrow').document[0]
