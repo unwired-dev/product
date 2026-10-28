@@ -2169,6 +2169,8 @@ final class InboxTests: XCTestCase {
     if let compose = compose.first {
       XCTAssertEqual(window.maxY - compose.frame.maxY, 40, accuracy: 1)
     }
+    // A reopened HTML body is still opening when the toolbar appears.
+    XCTAssertTrue(end.waitForExistence(timeout: 20))
     let reader = app.scrollViews.containing(NSPredicate(format: "label == %@", end.label)).firstMatch
     XCTAssertEqual(reader.frame.maxY, window.maxY, accuracy: 1)
     let onScreen = { end.exists && window.contains(CGPoint(x: end.frame.midX, y: end.frame.midY)) }
