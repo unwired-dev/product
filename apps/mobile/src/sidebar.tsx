@@ -34,7 +34,12 @@ import type { InboxMailbox } from './private-storage.ts';
 import type { SettingsDestination } from './settings.tsx';
 
 import { usePaletteHeader } from './command-palette.tsx';
-import { GlassGroup, MenuButton, SFSymbol } from './design.tsx';
+import {
+  GlassGroup,
+  MenuButton,
+  NavigationChrome,
+  SFSymbol,
+} from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -413,6 +418,7 @@ export function Mailboxes({
   onView,
   onProfile,
   onCompose,
+  bar,
 }: {
   readonly view: MailboxView;
   readonly onView: (view: MailboxView) => void;
@@ -420,6 +426,8 @@ export function Mailboxes({
   readonly onProfile: (profile: string) => void;
   // Opens a new Draft's composer from iPhone's New Message; none where Mailboxes offers no composer.
   readonly onCompose?: (id: string) => void;
+  // iPhone's single column, whose navigation bar the Inbox shows and Mailboxes hides.
+  readonly bar?: boolean;
 }) {
   const mailboxes = useMailboxes();
   const account = use(AccountContext);
@@ -452,6 +460,7 @@ export function Mailboxes({
         styles.fill,
         compact && { backgroundColor: colors.surfaceContent },
       ]}>
+      {bar === true ? <NavigationChrome /> : null}
       <SafeAreaView
         edges={{ top: true, bottom: true, left: true, right: true }}
         style={styles.fill}>

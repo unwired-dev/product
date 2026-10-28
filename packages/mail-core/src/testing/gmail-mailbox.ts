@@ -822,9 +822,19 @@ export function createSyntheticGmail({
           })
         : rejection('mailbox-invalidated');
     },
-    commitMessageBody: (owner, id, { document, tier, protectedIds }) => {
+    commitMessageBody: (
+      owner,
+      id,
+      { document, tier, protectedIds, expectedRevision },
+    ) => {
       if (!current(owner)) {
         return rejection('mailbox-invalidated');
+      }
+      if (
+        expectedRevision !== undefined &&
+        expectedRevision !== (cache?.revision ?? 0)
+      ) {
+        return rejection('conflict');
       }
       bodyCommits.push({ id, tier, protectedIds });
       if (refusedBodies.has(id)) {

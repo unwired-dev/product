@@ -17,6 +17,7 @@ import type { InlineImage } from './html-sanitizer.ts';
 import { inlineImageLimits, inspectImage } from './inline-images.ts';
 
 export type { BodyLink, InlineImage } from './html-sanitizer.ts';
+export { labelImagePlaceholders } from './html-sanitizer.ts';
 export type { BodySpan, ReadableBody } from './readable-text.ts';
 export { unescapeHtml } from './readable-text.ts';
 export type { MessagePresentation } from './message-presentation.ts';

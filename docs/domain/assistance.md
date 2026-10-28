@@ -1,4 +1,4 @@
-# On-device assistance
+# Mail assistance
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/assistance.md)
 
@@ -7,6 +7,10 @@ Background Message Summaries alongside explicit assistance. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope
 come from the accepted replacement decisions.
 
+Separately opted-in [Private Cloud Mail Assistance](../product/private-cloud-mail-assistance.md)
+is being planned. Its presence here does not change the current on-device-only
+implementation contract.
+
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and
 [power-user launch specification](../product/power-user-launch.md)
@@ -14,6 +18,10 @@ Each term has one canonical definition in this glossary collection. Use the
 for launch scope; a term's presence does not establish implementation or release.
 
 ## Language
+
+**Private Cloud Mail Assistance**:
+Planned help with mail through Apple's Private Cloud Compute after a separate explicit opt-in.
+_Avoid_: Product-backend AI, cloud fallback
 
 **On-Device Mail Assistance**:
 Help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback. It requires an explicit request except for **Background Message Summaries** and the separately confirmed post-launch **Mail Commitment Suggestions**.

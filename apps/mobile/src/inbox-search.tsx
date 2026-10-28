@@ -131,6 +131,7 @@ export function InboxBar({
   onCompose,
   scope,
   notice,
+  listNotice,
 }: {
   readonly hidden: boolean;
   readonly ready: boolean;
@@ -140,6 +141,7 @@ export function InboxBar({
   readonly onCompose: ((id: string) => void) | undefined;
   readonly scope: string | undefined;
   readonly notice: ReactNode;
+  readonly listNotice?: ReactNode;
 }) {
   const { t } = useLocalization();
   const header = usePaletteHeader();
@@ -166,6 +168,7 @@ export function InboxBar({
     <FloatingBar
       hidden={hidden}
       notice={notice}
+      listNotice={listNotice}
       leading={
         searching || !ready ? null : <InboxFilterButton state={filter} />
       }

@@ -122,7 +122,7 @@ describe('context menu event ownership', () => {
     );
     try {
       const link = await app.findByRole('link', {
-        name: 'Open link: the plan',
+        name: 'the plan',
       });
       const menu = contextMenuOf(link);
       const chosen = actionOf(menu, 'Copy Link');

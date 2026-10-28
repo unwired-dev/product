@@ -1,6 +1,7 @@
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
+import * as Struct from 'effect/Struct';
 
 import type { GmailMessage } from './mailbox-message.ts';
 
@@ -79,6 +80,10 @@ const MailboxHistorySchema = Schema.Struct({
       newest: Schema.optionalKey(Schema.String),
     }),
   ),
+  // Messages outside every cached view whose bodies this device keeps until they leave All Mail.
+  bodies: Schema.optionalKey(Schema.Array(GmailId)),
+  // Kept bodies a pass after an expired history ID has not listed yet; it drops those it never lists.
+  reconciling: Schema.optionalKey(Schema.Array(GmailId)),
 });
 export type MailboxHistory = typeof MailboxHistorySchema.Type;
 
@@ -160,9 +165,18 @@ export type MailboxDocument = typeof MailboxDocumentSchema.Type;
 export const sameCheckpoint = Schema.toEquivalence(
   MailboxDocumentSchema.fields.checkpoint,
 );
-export const sameHistory = Schema.toEquivalence(
+const historyEquivalence = Schema.toEquivalence(
   Schema.UndefinedOr(MailboxHistorySchema),
 );
+// Keeping a body is not provider progress, so it never makes a concurrent commit restart.
+const withoutBodies = (history: MailboxHistory | undefined) =>
+  history === undefined
+    ? undefined
+    : Struct.omit(history, ['bodies', 'reconciling']);
+export const sameHistory = (
+  a: MailboxHistory | undefined,
+  b: MailboxHistory | undefined,
+) => historyEquivalence(withoutBodies(a), withoutBodies(b));
 // Graph folders advance independently of the Inbox, including opening or retiring a saved view.
 export const sameGraphViews = Schema.toEquivalence(
   Schema.Array(

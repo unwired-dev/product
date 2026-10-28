@@ -62,7 +62,8 @@ final class InboxTests: XCTestCase {
       app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seed order"))
         .firstMatch.waitForExistence(timeout: 15))
     let bodyLink = app.descendants(matching: .any)
-      .matching(identifier: "Open link: garden plan").firstMatch
+      .matching(identifier: "message-link-control")
+      .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch
     XCTAssertTrue(bodyLink.waitForExistence(timeout: 10))
     bodyLink.tap()
     XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
@@ -1763,8 +1764,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
     verifyPullToRefresh(app)
     verifyCompactInboxHeader(app)
-    verifyCompactBackHold(app)
-    verifyCompactInboxSwipeBack(app)
+    let heading = verifyCompactBackHold(app)
+    verifyCompactInboxSwipeBack(app, heading: heading)
     verifyCompactInboxBottom(app, scrollToEnd: true)
     try verifyFilters(app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
@@ -1954,7 +1955,7 @@ final class InboxTests: XCTestCase {
 
   // #1243: the Inbox's leading-edge swipe returns to Mailboxes as its Back does; one released early
   // keeps the Inbox, and the Inbox reopens with its bar.
-  private func verifyCompactInboxSwipeBack(_ app: XCUIApplication) {
+  private func verifyCompactInboxSwipeBack(_ app: XCUIApplication, heading: CGFloat?) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let inboxes = app.buttons["All inboxes"]
     let back = app.buttons["Back to Mailboxes"]
@@ -1963,6 +1964,7 @@ final class InboxTests: XCTestCase {
     edgeSwipe(app, completing: true)
     XCTAssertTrue(inboxes.waitForExistence(timeout: 10))
     waitUntil { inboxes.isHittable && !back.exists }
+    XCTAssertEqual(verifyCompactMailboxesHeading(app), heading ?? 0, accuracy: 1)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Mailboxes after swiping back from the Inbox"
     shot.lifetime = .keepAlways
@@ -1984,13 +1986,18 @@ final class InboxTests: XCTestCase {
 
   // #968: releasing a held Back returns to usable Mailboxes every time, and the Inbox reopens with
   // its usual header. The checks run after release, so what shows during the hold is unverified.
-  private func verifyCompactBackHold(_ app: XCUIApplication) {
-    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+  // Returns the Mailboxes heading's top, which each later return must keep.
+  private func verifyCompactBackHold(_ app: XCUIApplication) -> CGFloat? {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
     let inboxes = app.buttons["All inboxes"]
+    var heading: CGFloat?
     for hold in 1...2 {
       app.buttons["Back to Mailboxes"].press(forDuration: 1.5)
       XCTAssertTrue(inboxes.waitForExistence(timeout: 10))
       XCTAssertTrue(inboxes.isHittable)
+      let top = verifyCompactMailboxesHeading(app)
+      XCTAssertEqual(top, heading ?? top, accuracy: 1)
+      heading = top
       let shot = XCTAttachment(screenshot: app.screenshot())
       shot.name = "Mailboxes after holding Back, \(hold)"
       shot.lifetime = .keepAlways
@@ -2001,6 +2008,14 @@ final class InboxTests: XCTestCase {
       inboxes.tap()
       verifyCompactInboxHeader(app)
     }
+    return heading
+  }
+
+  // #1247: Mailboxes shows no navigation bar after returning from the Inbox, so its heading sits
+  // directly below the status bar. Returns the heading's top.
+  private func verifyCompactMailboxesHeading(_ app: XCUIApplication) -> CGFloat {
+    XCTAssertEqual(app.navigationBars.count, 0)
+    return settledFrame(of: app.staticTexts["Mailboxes"].firstMatch).minY
   }
 
   // #1067: iPhone Mailboxes fills the screen. Its surface reaches the top and bottom edges behind

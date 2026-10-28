@@ -408,6 +408,14 @@
     "authentication": "{{provider}} needs your permission again to show new mail.",
     "retry": "{{provider}} could not be reached. Showing mail saved on this device."
   },
+  "syncStatus": {
+    "updating_one": "Updating {{count}} account",
+    "updating_other": "Updating {{count}} accounts",
+    "progress": "{{status}} · {{percent, number}}%",
+    "attention_one": "{{count}} account needs attention",
+    "attention_other": "{{count}} accounts need attention",
+    "tryAgain": "Try Again"
+  },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",
     "authentication": "{{provider}} needs your permission again to download this message.",
@@ -416,6 +424,7 @@
     "failed": "This message could not be opened. Your saved mail has been kept.",
     "empty": "This message has no text.",
     "images": "Images in this message are not loaded.",
+    "imageNotLoaded": "Image not loaded",
     "remoteImages": "Images in this message are not loaded. Loading them shows the sender your device's IP address and when you opened this message.",
     "loadImages": "Load images",
     "confirmLink": "Open this link in your browser?",
@@ -424,7 +433,6 @@
     "openLink": "Open link",
     "copyLink": "Copy link",
     "proceed": "Proceed",
-    "linkLabel": "Open link: {{link}}",
     "warning": "• {{warning}}",
     "opening": "Opening message",
     "message": "Message",

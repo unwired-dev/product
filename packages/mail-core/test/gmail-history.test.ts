@@ -9,6 +9,7 @@ import {
 } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import * as Schema from 'effect/Schema';
 
 import { withNativeHistory } from './native-history-store.ts';
 
@@ -666,13 +667,16 @@ describe('gmail history backfill', () => {
     gmail.failPage('400', { code: 'unavailable' });
     const interrupted = createInbox(gmail.native);
     await interrupted.load();
+    // The failed read pauses the backfill until the next synchronization.
     await vi.waitFor(() => {
-      expect(historyPages(gmail)).toContain('400');
+      expect(ready(interrupted.getSnapshot()).history).toStrictEqual({
+        downloaded: 400,
+        total: 1000,
+        complete: false,
+        paused: true,
+      });
     });
-    expect(ready(interrupted.getSnapshot()).history).toMatchObject({
-      downloaded: 400,
-      complete: false,
-    });
+    expect(historyPages(gmail)).toContain('400');
 
     const relaunched = createInbox(gmail.native);
     await relaunched.load();
@@ -1295,29 +1299,100 @@ describe('gmail history backfill', () => {
     }
   });
 
-  it('keeps a revealed history body only when a cached view also keeps its message', async () => {
+  it('keeps an opened history body across a relaunch until its message leaves All Mail', async () => {
     expect.hasAssertions();
-    const gmail = createSyntheticGmail();
+    const gmail = createGmail();
     const oldest = at(mailbox(gmail, 300, 0), 299);
-    const label = gmail.createLabel('Saved history');
-    gmail.setLabel(oldest, label, true);
     const inbox = createInbox(gmail.native);
     await inbox.load();
     await backfilled(inbox);
     await scrolled(inbox, 'INBOX', 300);
     await inbox.readMessage(oldest);
+    inbox.forget();
 
-    expect(inbox.messageBody(oldest)?.kind).toBe('ready');
-    expect(gmail.cachedBodies().has(oldest)).toBe(false);
-    await expect(inbox.savedBodies([oldest])).resolves.toStrictEqual(new Set());
+    // Synchronization prunes bodies outside the cached views; this one stays with its history.
+    const relaunched = createInbox(gmail.native);
+    await relaunched.load();
+    await scrolled(relaunched, 'INBOX', 300);
+    const before = gmail.requests.length;
+    await relaunched.readMessage(oldest);
 
-    await inbox.openView(label);
-    await inbox.readMessage(oldest, { refresh: true });
-    await inbox.load();
-
-    await expect(inbox.savedBodies([oldest])).resolves.toStrictEqual(
-      new Set([oldest]),
+    expect(relaunched.messageBody(oldest)?.kind).toBe('ready');
+    expect(gmail.requests.slice(before).map(({ path }) => path)).not.toContain(
+      `messages/${oldest}`,
     );
+
+    gmail.remove(oldest);
+    await relaunched.load();
+
+    await expect(relaunched.savedBodies([oldest])).resolves.toStrictEqual(
+      new Set(),
+    );
+  });
+
+  it('keeps an opened history body only while a pass after an expired history ID still lists it', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 300, 0);
+    const [removed, kept] = [at(everything, -1), at(everything, -2)];
+    const history = holdingHistory(gmail);
+    const inbox = createInbox(history.native);
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 300);
+    await inbox.readMessage(removed);
+    await inbox.readMessage(kept);
+
+    // The fake keeps its history ID until the next change, so expire before removing.
+    gmail.expireHistory();
+    gmail.remove(removed);
+    history.hold();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).history?.complete).toBe(false);
+    await expect(inbox.savedBodies([removed, kept])).resolves.toStrictEqual(
+      new Set([removed, kept]),
+    );
+
+    history.release();
+    await backfilled(inbox);
+    await inbox.load();
+    await expect(inbox.savedBodies([removed, kept])).resolves.toStrictEqual(
+      new Set([kept]),
+    );
+  });
+
+  it('keeps a history body opened during a pass after an expired history ID only if that pass lists it', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 300, 0);
+    const [trashed, kept] = [at(everything, -1), at(everything, -2)];
+    const history = holdingHistory(gmail);
+    const inbox = createInbox(history.native);
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 300);
+
+    // Gmail no longer reports the move, so only the new pass can show it left All Mail.
+    gmail.expireHistory();
+    gmail.setLabel(trashed, 'TRASH', true);
+    history.hold();
+    await inbox.load();
+    await inbox.readMessage(trashed);
+    await inbox.readMessage(kept);
+    await expect(inbox.savedBodies([trashed, kept])).resolves.toStrictEqual(
+      new Set([trashed, kept]),
+    );
+
+    history.release();
+    await backfilled(inbox);
+    await inbox.load();
+    const scope = Schema.decodeSync(
+      Schema.Struct({ address: Schema.String, generation: Schema.String }),
+    )(await history.native.openMailbox());
+    // Inspect physical membership: savedBodies leaves out messages the Inbox no longer lists.
+    await expect(
+      history.native.listMessageBodies(scope, [trashed, kept]),
+    ).resolves.toMatchObject({ stored: [kept] });
   });
 
   it('shows a downloaded body when a concurrent commit moves its message into revealed history', async () => {
@@ -1343,9 +1418,141 @@ describe('gmail history backfill', () => {
 
       expect(ids(shown(inbox, 'INBOX'))).toContain(id);
       expect(inbox.messageBody(id)?.kind).toBe('ready');
-      await expect(inbox.savedBodies([id])).resolves.toStrictEqual(new Set());
+      await inbox.load();
+      await expect(inbox.savedBodies([id])).resolves.toStrictEqual(
+        new Set([id]),
+      );
     } finally {
       pruning.release();
+    }
+  });
+
+  it.each(['before', 'after'] as const)(
+    'does not retain a deleted history body when another store removes it %s body admission',
+    async (when) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      const id = at(mailbox(gmail, 300, 0), -1);
+      const reached = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const first = createInbox({
+        ...gmail.native,
+        commitMessageBody: async (...args) => {
+          /* oxlint-disable vitest/no-conditional-in-test -- Hold the native boundary on the table-selected side of admission. */
+          if (when === 'before') {
+            reached.resolve(undefined);
+            await release.promise;
+          }
+          const result = await gmail.native.commitMessageBody(...args);
+          if (when === 'after') {
+            reached.resolve(undefined);
+            await release.promise;
+          }
+          /* oxlint-enable vitest/no-conditional-in-test */
+          return result;
+        },
+      });
+      let refusePruning = false;
+      const second = createInbox({
+        ...gmail.native,
+        retainMessageBodies: (...args) =>
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Inject pruning unavailability only during the competing deletion.
+          refusePruning
+            ? Promise.reject(new Error('Controlled pruning outage'))
+            : gmail.native.retainMessageBodies(...args),
+      });
+      try {
+        await second.load();
+        await backfilled(second);
+        await first.load();
+        await backfilled(first);
+        await scrolled(first, 'INBOX', 300);
+        const reading = first.readMessage(id);
+        await reached.promise;
+        gmail.remove(id);
+        // A failed best-effort prune must not let a late reader adopt the deleted body.
+        refusePruning = when === 'after';
+        await second.load();
+        release.resolve(undefined);
+        await reading;
+        refusePruning = false;
+        await second.load();
+        const scope = Schema.decodeSync(
+          Schema.Struct({ address: Schema.String, generation: Schema.String }),
+        )(await gmail.native.openMailbox());
+        // Inspect physical membership: the removed row alone makes savedBodies return empty.
+        await expect(
+          gmail.native.listMessageBodies(scope, [id]),
+        ).resolves.toMatchObject({
+          stored: [],
+        });
+      } finally {
+        release.resolve(undefined);
+        first.forget();
+        second.forget();
+      }
+    },
+  );
+
+  it('keeps a restored history body when synchronization rebases over its retention record', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const id = at(mailbox(gmail, 300, 0), -1);
+    const reached = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let refuseHistory = false;
+    let holdLabels = false;
+    const native: Gmail['native'] = {
+      ...gmail.native,
+      gmailRequest: async (path, query, scope) => {
+        /* oxlint-disable vitest/no-conditional-in-test -- Keep reconciliation incomplete and hold the competing synchronization at its provider boundary. */
+        if (
+          refuseHistory &&
+          path === 'messages' &&
+          query.some(
+            ([name, value]) => name === 'maxResults' && value === '100',
+          )
+        ) {
+          return { status: 503, body: '{}' };
+        }
+        if (holdLabels && path === 'labels') {
+          reached.resolve(undefined);
+          await release.promise;
+        }
+        /* oxlint-enable vitest/no-conditional-in-test */
+        return gmail.native.gmailRequest(path, query, scope);
+      },
+    };
+    const reader = createInbox(native);
+    const writer = createInbox(native);
+    try {
+      await reader.load();
+      await backfilled(reader);
+      gmail.setLabel(id, 'TRASH', true);
+      await reader.load();
+      refuseHistory = true;
+      gmail.expireHistory();
+      gmail.deliver({ subject: 'Starts the new history checkpoint' });
+      await reader.load();
+      gmail.setLabel(id, 'TRASH', false);
+      await reader.load();
+      await scrolled(reader, 'INBOX', 301);
+      holdLabels = true;
+      const syncing = writer.load();
+      await reached.promise;
+      await reader.readMessage(id);
+      await expect(reader.savedBodies([id])).resolves.toStrictEqual(
+        new Set([id]),
+      );
+      release.resolve(undefined);
+      await syncing;
+      await expect(reader.savedBodies([id])).resolves.toStrictEqual(
+        new Set([id]),
+      );
+    } finally {
+      release.resolve(undefined);
+      reader.forget();
+      writer.forget();
     }
   });
 

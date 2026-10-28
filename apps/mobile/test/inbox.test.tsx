@@ -36,10 +36,12 @@ import {
   AccessibilityInfo,
   Animated,
   AppState,
+  DeviceEventEmitter,
   Dimensions,
   Linking,
   StyleSheet,
   useWindowDimensions,
+  View,
 } from 'react-native';
 import { withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -593,12 +595,59 @@ describe('preview Inbox', () => {
       );
       await app.rerender(<WindowJourney keyboardLift={280} />);
       expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
+      // Sync status over the list rises with the bar, 12 pt above it.
+      expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 356 });
+      // The list must not add keyboard padding beneath the already lifted capsule.
+      const list = screen.getByTestId('inbox-surface');
+      await fireEvent(list, 'layout', {
+        persist: () => undefined,
+        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 768 } },
+      });
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          endCoordinates: {
+            screenX: 0,
+            screenY: 488,
+            width: 1024,
+            height: 280,
+          },
+        });
+      });
+      expect(list).toHaveStyle({ paddingBottom: 0 });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'automaticallyAdjustKeyboardInsets',
+        true,
+      );
       const edge = screen
         .getAllByTestId('scroll-edge')
         .find((view) => StyleSheet.flatten(view.props.style)?.width === 500);
       expect(edge).toHaveStyle({ bottom: 280 });
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillHide');
+      });
+      await app.rerender(<WindowJourney />);
+      expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 76 });
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 500, height: 768 } });
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          endCoordinates: { screenX: 0, screenY: 488, width: 500, height: 280 },
+        });
+      });
+      // The compact bar sits 12pt above the keyboard, 8pt more than its 4pt bottom padding.
+      expect(list).toHaveStyle({ paddingBottom: 288 });
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'automaticallyAdjustKeyboardInsets',
+        false,
+      );
     } finally {
-      Dimensions.set({ window });
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillHide');
+        Dimensions.set({ window });
+      });
     }
   });
 
@@ -871,6 +920,7 @@ function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
 async function renderConnected(
   native: NativeGmailMailbox,
   provider: 'gmail' | 'microsoft-graph' = 'gmail',
+  windowBar?: ReturnType<typeof createWindowBar>,
 ) {
   const synthetic = await createRegistrationScenario('registration-success');
   // The mailbox connections the person authorizes, by connection.
@@ -942,7 +992,21 @@ async function renderConnected(
       </RegistrationGate>
     );
   }
-  await render(<Connected />);
+  await render(
+    <WindowBarContext value={windowBar}>
+      <View testID="list-column">
+        <Connected />
+      </View>
+      {windowBar === undefined ? null : (
+        <WindowBarHost
+          windowBar={windowBar}
+          readerWidth={500}
+          bottom={20}
+          keyboardLift={0}
+        />
+      )}
+    </WindowBarContext>,
+  );
   return {
     synthetic,
     authorized,
@@ -953,6 +1017,34 @@ async function renderConnected(
         throw new Error('Expected the connected mailbox');
       }
       return inbox;
+    },
+  };
+}
+
+// Holds one listing page until the journey releases it.
+function holdingPage(
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+  pageToken: string,
+) {
+  let release: () => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Explicit provider suspension, released by the journey.
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    native: {
+      ...native,
+      gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
+        if (
+          args[1].some(
+            ([name, value]) => name === 'pageToken' && value === pageToken,
+          )
+        ) {
+          await held;
+        }
+        return native.gmailRequest(...args);
+      },
     },
   };
 }
@@ -1032,6 +1124,32 @@ const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
 };
 
 describe('connected Gmail Inbox', () => {
+  it('keeps synchronization attention over the list column beside a window-wide bar', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saved mail remains available' });
+    const connected = await renderConnected(
+      gmail.native,
+      'gmail',
+      createWindowBar(),
+    );
+    await screen.findByText('Saved mail remains available');
+    gmail.fail({ code: 'unavailable' });
+    await act(connected.store().load);
+    const list = within(screen.getByTestId('list-column'));
+    expect(list.getByText('1 account needs attention')).toBeVisible();
+    expect(list.getByRole('button', { name: 'Try Again' })).toBeVisible();
+    expect(
+      within(screen.getByTestId('window-bar')).getByLabelText(
+        'Search senders and subjects',
+      ),
+    ).toBeVisible();
+    await fireEvent.press(list.getByRole('button', { name: 'Try Again' }));
+    await waitFor(() => {
+      expect(list.queryByText('1 account needs attention')).toBeNull();
+    });
+  });
+
   it.each([
     { isPad: false, subtitle: /^alex@example\.invalid · 1 unread$/u },
     {
@@ -1264,20 +1382,52 @@ describe('connected Gmail Inbox', () => {
       screen.findByText('Arrives after permission returns'),
     ).resolves.toBeVisible();
 
+    // Automatic synchronization shows its progress only after a second.
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail until the capsule has been checked.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.gmailRequest = async (...args) => {
+      await held;
+      return request(...args);
+    };
+    let synchronized = Promise.resolve();
+    await act(async () => {
+      synchronized = store.load();
+      await Promise.resolve();
+    });
+    expect(
+      screen.queryByRole('progressbar', { name: /^Updating/u }),
+    ).toBeNull();
+    await expect(
+      screen.findByRole(
+        'progressbar',
+        { name: 'Updating 1 account' },
+        { timeout: 3000 },
+      ),
+    ).resolves.toBeVisible();
+    gmail.native.gmailRequest = request;
+    await act(async () => {
+      release();
+      await synchronized;
+    });
+
+    // A failure replaces the progress with Try Again, above the saved mail.
     gmail.fail({ code: 'unavailable' });
     await act(store.load);
+    expect(screen.getByText('1 account needs attention')).toBeVisible();
     expect(
-      screen.getByText(
-        'Gmail could not be reached. Showing mail saved on this device.',
-      ),
-    ).toBeVisible();
+      screen.queryByRole('progressbar', { name: /^Updating/u }),
+    ).toBeNull();
     expect(
       screen.getByRole('header', { name: 'Saturday, by the river?' }),
     ).toBeVisible();
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
     });
-    expect(screen.queryByText(/could not be reached/u)).toBeNull();
+    expect(screen.queryByText('1 account needs attention')).toBeNull();
   });
 
   it('refreshes the shown Inbox when the list is pulled down and settles the indicator after a failure', async () => {
@@ -1305,6 +1455,10 @@ describe('connected Gmail Inbox', () => {
     const indicator = () => screen.getByLabelText('Inbox messages').props;
     await pull();
     expect(indicator()).toMatchObject({ refreshing: true });
+    // A refresh the person started shows its progress at once.
+    expect(
+      screen.getByRole('progressbar', { name: 'Updating 1 account' }),
+    ).toBeVisible();
     expect(screen.queryByText('Arrives with the pull')).toBeNull();
     await act(async () => {
       release();
@@ -1320,12 +1474,10 @@ describe('connected Gmail Inbox', () => {
     gmail.fail({ code: 'unavailable' });
     await pull();
     await expect(
-      screen.findByText(
-        'Gmail could not be reached. Showing mail saved on this device.',
-      ),
+      screen.findByText('1 account needs attention'),
     ).resolves.toBeVisible();
     expect(screen.getByText('Arrives with the pull')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try Again' })).toBeVisible();
     await waitFor(() => {
       expect(indicator()).toMatchObject({ refreshing: false });
     });
@@ -1669,16 +1821,17 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
   });
 
-  it('shows how much of All Mail has downloaded and ends it with older mail still arriving', async () => {
+  it('shows how much of All Mail has downloaded and asks to try again when its download pauses', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     for (const index of Array.from({ length: 250 }, (_, at) => at)) {
       gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
     }
     gmail.deliver({ subject: 'Lunch on Friday' });
-    // Gmail stops answering partway through the history download.
+    // Gmail holds, then refuses, the third history page.
     gmail.failPage('200', { code: 'unavailable' });
-    await renderConnected(gmail.native);
+    const { native, release } = holdingPage(gmail.native, '200');
+    await renderConnected(native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
     await act(async () => {
       await fireEvent.press(
@@ -1700,6 +1853,65 @@ describe('connected Gmail Inbox', () => {
         'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
       ),
     ).toBeNull();
+    // The capsule measures the same download.
+    await expect(
+      screen.findByRole(
+        'progressbar',
+        { name: 'Updating 1 account · 79%' },
+        { timeout: 3000 },
+      ),
+    ).resolves.toHaveProp('accessibilityValue', { min: 0, max: 100, now: 79 });
+    // The failed read pauses the download, so the capsule asks for attention instead of progress.
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByText('1 account needs attention'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('progressbar', { name: /^Updating/u }),
+    ).toBeNull();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+    });
+    // Try Again resumes the download, which finishes the older mail.
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByRole('progressbar', {
+            name: /^Downloading older mail/u,
+          }),
+        ).toBeNull();
+      },
+      { timeout: 3000 },
+    );
+    expect(screen.queryByText('1 account needs attention')).toBeNull();
+  });
+
+  it('keeps a paused history download in Attention when metadata refresh loses authorization', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    for (const index of Array.from({ length: 250 }, (_, at) => at)) {
+      gmail.archive(gmail.deliver({ subject: `Message ${index}` }));
+    }
+    gmail.deliver({ subject: 'Cached Inbox message' });
+    gmail.failPage('200', { code: 'unavailable' });
+    const connected = await renderConnected(gmail.native);
+    await screen.findByText('1 account needs attention');
+    gmail.fail({ status: 401 });
+    await act(connected.store().load);
+    expect(screen.getByText('1 account needs attention')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Allow Gmail access' }),
+    ).toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Allow Gmail access' }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('1 account needs attention')).toBeNull();
+    });
+    expect(screen.getByText('Cached Inbox message')).toBeVisible();
   });
 
   it('keeps a label-only message open while the person browses more views than the cache keeps', async () => {
@@ -2191,7 +2403,7 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
     // Keyboard access reaches the same confirmation.
     const keyboardLink = screen.getByRole('link', {
-      name: 'Open link: the plan',
+      name: 'the plan',
     });
     expect(keyboardLink.props.focusable).toBe(true);
     await fireEvent.press(keyboardLink);
@@ -2216,7 +2428,8 @@ describe('connected Gmail Inbox', () => {
       await Promise.resolve();
     });
     expect(screen.queryByTestId('message-webview')).toBeNull();
-    expect(screen.getByRole('link', { name: 'the plan' })).toBeVisible();
+    // The readable text's link and its keyboard control share the link's name.
+    expect(screen.getAllByRole('link', { name: 'the plan' })).toHaveLength(2);
 
     // Without Gmail, a saved body still opens and another one says it needs downloading.
     gmail.deliver({ subject: 'Not downloaded yet' });
@@ -2244,9 +2457,7 @@ describe('connected Gmail Inbox', () => {
 
     // A queued confirmation must not hand off the previous owner's destination.
     await fireEvent.press(screen.getByRole('button', { name: /Garden plan/u }));
-    await fireEvent.press(
-      screen.getByRole('link', { name: 'Open link: the plan' }),
-    );
+    await fireEvent.press(screen.getByRole('link', { name: 'the plan' }));
     const previousOwnerConfirmation = screen.getByRole('button', {
       name: 'Open link',
     });
@@ -2266,7 +2477,7 @@ describe('connected Gmail Inbox', () => {
     const gardenView = await screen.findByTestId('message-webview');
     const queuedChoice = gardenView.props.onShouldStartLoadWithRequest;
     await fireEvent.press(
-      await screen.findByRole('link', { name: 'Open link: the plan' }),
+      await screen.findByRole('link', { name: 'the plan' }),
     );
     expect(screen.getByText('https://example.invalid/plan')).toBeVisible();
     await fireEvent.press(

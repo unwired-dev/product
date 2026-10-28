@@ -4,6 +4,13 @@ status: accepted
 
 # Expand the Apple launch to power-user mail
 
+## Private Cloud Mail Assistance amendment — 2026-10-28
+
+[ADR 0075](0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
+qualifies the retained on-device-only assistance requirement with a separately
+opted-in PCC mode. It adds no core-mail or on-device release gate and leaves the
+other launch requirements unchanged. Background PCC remains deferred.
+
 ## Continued interview amendment, 2026-10-24
 
 The owner confirmed the [additional launch requirements](../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24),

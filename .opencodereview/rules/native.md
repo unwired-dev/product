@@ -2,6 +2,18 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Private Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
 
+#### UIKit navigation appearance
+
+- `native/design/UnwiredDesign.m`'s `UnwiredNavigationChromeView` restoring a
+  navigation bar when its view leaves the window without checking the screen
+  that owns the visible bar. Trace nested navigation controllers in collapsed
+  Split columns through push, pop, completed and cancelled edge swipes, and
+  unmount. The appearing screen must set the shared bar during the native
+  transition; a departing or covered screen must not overwrite it afterwards.
+  Verify that Mailboxes returns without an empty bar and that cancellation and
+  reopening retain the Inbox's bar, Back and title through native journeys;
+  otherwise a successful return can still introduce a late safe-area jump.
+
 #### Error reporting lifecycle
 
 - `ReportingDocument.decode` or `ErrorReportingStore.load` treating a present

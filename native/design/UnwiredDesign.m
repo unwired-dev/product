@@ -307,11 +307,15 @@ typedef UIView UnwiredPlatformView;
 @interface UnwiredNavigationChromeView : UIView
 @property (nonatomic, weak) UINavigationController *navigation;
 @property (nonatomic, weak) UINavigationController *stack;
+// The stack's screen holding this view, which a collapsed split view pushes and pops.
+@property (nonatomic, weak) UIViewController *screen;
+@property (nonatomic, strong) UIViewController *appearance;
 @property (nonatomic) BOOL previousHidden;
 @property (nonatomic, strong) UnwiredBarTitleView *title;
 @property (nonatomic, copy) NSString *backLabel;
 @property (nonatomic, copy) NSString *backCount;
 @property (nonatomic, strong) UIColor *surface;
+- (void)updateHidden:(BOOL)animated;
 @end
 
 // UIKit fills a held Back's history menu from the screens' titles, which these columns leave empty,
@@ -322,6 +326,12 @@ typedef UIView UnwiredPlatformView;
 
 @implementation UnwiredBackItem
 - (void)setMenu:(UIMenu *)menu {}
+@end
+
+// Sets the bar as its screen appears, so UIKit moves it with a push, a pop or an edge swipe,
+// and a cancelled swipe restores the covering screen's bar.
+@interface UnwiredBarAppearance : UIViewController
+@property (nonatomic, weak) UnwiredNavigationChromeView *chrome;
 @end
 
 // The count on a disk, as Mail's Back shows unread mail; the template image takes the bar's tint
@@ -350,19 +360,7 @@ static UIImage *UnwiredCountDisk(NSString *count)
 - (void)didMoveToWindow
 {
   [super didMoveToWindow];
-  if (self.window == nil) {
-    // A collapsed split view's nested stacks share its outer bar, so a screen covered by another
-    // keeps its bar state until it returns; restoring it would set the covering screen's bar.
-    if (![self.stack.viewControllers containsObject:self.navigation]
-        || self.stack.topViewController == self.navigation) {
-      [self.navigation setNavigationBarHidden:self.previousHidden animated:NO];
-      if (self.navigation.navigationItem.titleView == self.title) {
-        self.navigation.navigationItem.titleView = nil;
-      }
-      self.navigation = nil;
-    }
-    return;
-  }
+  if (self.window == nil) return;
   UIResponder *responder = self;
   while (responder != nil && ![responder isKindOfClass:[UIViewController class]]) {
     responder = responder.nextResponder;
@@ -375,19 +373,54 @@ static UIImage *UnwiredCountDisk(NSString *count)
     stack = stack.navigationController;
   }
   self.stack = stack;
+  UIViewController *screen = (UIViewController *)responder;
+  while (screen.parentViewController != nil && screen.parentViewController != stack) {
+    screen = screen.parentViewController;
+  }
+  self.screen = screen;
+  if (self.appearance == nil) {
+    UnwiredBarAppearance *appearance = [UnwiredBarAppearance new];
+    appearance.chrome = self;
+    self.appearance = appearance;
+  }
+  if (responder != nil && self.appearance.parentViewController != responder) {
+    [self.appearance willMoveToParentViewController:nil];
+    [self.appearance removeFromParentViewController];
+    [(UIViewController *)responder addChildViewController:self.appearance];
+    [self addSubview:self.appearance.view];
+    [self.appearance didMoveToParentViewController:(UIViewController *)responder];
+  }
   if (navigation != nil && navigation != self.navigation) {
     self.navigation = navigation;
     self.previousHidden = navigation.navigationBarHidden;
-    [self updateHidden];
+    // Only an uncovered screen sets the shared bar.
+    if (stack.topViewController == screen) [self updateHidden:NO];
   }
   [self updateBack];
 }
 
+- (void)didMoveToSuperview
+{
+  [super didMoveToSuperview];
+  if (self.superview != nil) return;
+  [self.appearance willMoveToParentViewController:nil];
+  [self.appearance removeFromParentViewController];
+  // A collapsed split view's nested stacks share its outer bar, so only the uncovered screen
+  // restores it. Screens leaving the window by a push, a pop or a cancelled swipe keep the bar
+  // their appearance set.
+  if (self.stack.topViewController == self.screen) {
+    [self.navigation setNavigationBarHidden:self.previousHidden animated:NO];
+    if (self.navigation.navigationItem.titleView == self.title) {
+      self.navigation.navigationItem.titleView = nil;
+    }
+  }
+  self.navigation = nil;
+}
+
 - (void)didSetProps:(NSArray<NSString *> *)changedProps
 {
-  // Only an uncovered screen sets the shared bar.
-  if ([changedProps containsObject:@"backLabel"] && self.stack.topViewController == self.navigation) {
-    [self updateHidden];
+  if ([changedProps containsObject:@"backLabel"] && self.stack.topViewController == self.screen) {
+    [self updateHidden:NO];
   }
   [self updateBack];
 }
@@ -404,10 +437,10 @@ static UIImage *UnwiredCountDisk(NSString *count)
 }
 
 // UIKit pops a collapsed split view's screen by the edge swipe only while its bar shows.
-- (void)updateHidden
+- (void)updateHidden:(BOOL)animated
 {
   [self.navigation setNavigationBarHidden:self.backLabel == nil || self.stack == self.navigation
-                                 animated:NO];
+                                 animated:animated];
 }
 
 // The Back to the screen beneath is that screen's backBarButtonItem.
@@ -427,6 +460,20 @@ static UIImage *UnwiredCountDisk(NSString *count)
                                         action:nil];
   back.accessibilityLabel = self.backLabel;
   screens[index - 1].navigationItem.backBarButtonItem = back;
+}
+@end
+
+@implementation UnwiredBarAppearance
+- (void)loadView
+{
+  self.view = [UIView new];
+  self.view.userInteractionEnabled = NO;
+}
+
+- (void)viewWillAppear:(BOOL)animated
+{
+  [super viewWillAppear:animated];
+  [self.chrome updateHidden:animated];
 }
 @end
 

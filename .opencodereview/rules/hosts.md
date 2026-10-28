@@ -1084,6 +1084,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Mac destructive confirmations in Settings or `design.tsx.useConfirmation`
+  relying on React Native macOS `Alert` button styles or key-window routing.
+  Trace the installed presenter through the native button and owning window:
+  Cancel must answer Return and Escape, the action must set
+  `hasDestructiveAction`, and the request must retire at the owner's unmount
+  commit, before passive cleanup. Otherwise a removal is unmarked, asks on
+  another window or leaves an actionable sheet after its owner has gone.
+
 - Mac native-view color props in `design.tsx.ContextMenu` or another host
   adapter relying on automatic conversion solely because their TypeScript type
   is `ColorValue`. Trace the installed renderer's prop processor and native

@@ -318,9 +318,13 @@ sending connection, and Settings offers one switch per Profile.
 ## Message body cache
 
 Opened and prefetched [Gmail message bodies](gmail-inbox.md#reading-messages) are kept in the
-**Bounded Encrypted Body Cache**, also excluded from backups. Only messages in the
-saved cached views keep bodies; messages revealed only from
-[downloaded history](gmail-inbox.md#historical-metadata-backfill) are read without saving theirs. Bodies are bound to
+**Bounded Encrypted Body Cache**, also excluded from backups. Messages in the
+saved cached views keep bodies while they stay in those views. A message revealed
+only from [downloaded history](gmail-inbox.md#historical-metadata-backfill) keeps
+the body opened from it until the message leaves All Mail or a new history pass
+completes without listing it
+([#1385](https://github.com/unwired-dev/product/issues/1385)); the mailbox document
+names those bodies, so pruning keeps them and they reopen offline. Bodies are bound to
 their Google account, mailbox and message, so a saved body moved to another
 message or mailbox fails to open. A damaged or mismatched body reads as absent and is removed only when writes
 are authorized. Cache-only reads preserve files and access times. Opening is

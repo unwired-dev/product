@@ -1675,11 +1675,27 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   Otherwise scrolling starts extra downloads that recent-cache pruning removes.
 - `createGmailInbox.store` admitting bodies for revealed history that retention
   does not keep, or treating loss of saved-view membership as loss of readability.
-  Check admission against the same cached views as pruning, after taking the
-  publication permit. A message another cached view keeps remains eligible;
-  a commit moving it into revealed history must still show its downloaded body
-  without saving it. Verify saved-body status separately from in-memory readiness,
-  or opens report a false download failure or promise offline content later pruned.
+  Check admission against the same cached views and explicitly opened history
+  bodies as pruning, after taking the publication permit. A message another
+  cached view keeps remains eligible; a commit moving it into revealed history
+  must still show and, when admitted, retain its downloaded body under #1385.
+  Fence native body admission and its history retention record to the same
+  metadata revision. Exercise another store deleting or reconciling away the
+  message both before body admission and before recording retention, including
+  failed best-effort pruning; otherwise late completion permanently restores a
+  deleted body's retention. Verify physical saved-body membership separately
+  from in-memory readiness and from a removed row's empty saved-body lookup.
+  When rebasing concurrent retention, use each message's last recorded state:
+  reconciliation and folding can retain an older deletion before its restoration.
+  Otherwise a harmless concurrent synchronization prunes a newly opened body.
+- `gmail-history.ts.keepingBodies` confirming an opened body from the previous
+  shown pass while an expired-history replacement pass is still reconciling.
+  Keep it pending until the replacement lists its message, and prevent
+  `gmail-inbox.ts.keptSince` from restoring pending retention after that pass
+  completes. Exercise a move to Trash before the replacement pass starts, open
+  the still-shown message during reconciliation, and inspect physical body membership after
+  completion. Otherwise a move absent from incremental history leaves its body
+  cached indefinitely even after the replacement pass omits the message.
 - Body admission in `imap-inbox.ts` deriving the persistent eviction tier from a
   protected set that also includes active readers. Keep current recent-working-set
   membership separate from temporary reader protection: opening an older on-demand

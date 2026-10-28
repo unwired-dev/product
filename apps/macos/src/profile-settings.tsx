@@ -25,7 +25,7 @@ import {
 } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
-import { SFSymbol } from './design.tsx';
+import { SFSymbol, useConfirmation } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
 import { SettingsGroup, SettingsRow, SettingsRowButton } from './settings.tsx';
@@ -150,6 +150,7 @@ export function MailProfilesSettings({
   const colors = usePalette();
   const { t } = useLocalization();
   const [chosen, setChosen] = useState(defaultProfile);
+  const { anchor, confirm } = useConfirmation();
   const choices = useSyncExternalStore(profileChoices.subscribe, () =>
     profileChoices.getSnapshot(account),
   );
@@ -204,16 +205,19 @@ export function MailProfilesSettings({
     const profile = selected;
     const confirmed = owned.map(({ id }) => id);
     const { title, message } = profileRemoval(t, nameOf(profile), owned);
-    Alert.alert(title, message, [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('profiles.removeAction'),
-        style: 'destructive',
-        onPress: () => {
-          void remove(profile, confirmed);
-        },
-      },
-    ]);
+    const answer = async () => {
+      if (
+        await confirm({
+          title,
+          detail: message,
+          cancel: t('common.cancel'),
+          action: t('profiles.removeAction'),
+        })
+      ) {
+        await remove(profile, confirmed);
+      }
+    };
+    void answer();
   };
   return (
     <>
@@ -322,7 +326,9 @@ export function MailProfilesSettings({
         </SettingsGroup>
       )}
       {selected === defaultProfile ? null : (
-        <SettingsGroup footer={t('profiles.settings.removeFooter')}>
+        <SettingsGroup
+          ref={anchor}
+          footer={t('profiles.settings.removeFooter')}>
           <SettingsRowButton
             accessibilityRole="button"
             accessibilityLabel={t('profiles.remove')}

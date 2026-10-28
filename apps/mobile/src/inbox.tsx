@@ -53,6 +53,7 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import {
@@ -93,6 +94,13 @@ import {
   useOutboxActions,
 } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import {
+  SyncStatusCapsule,
+  checking,
+  failed,
+  offline,
+  syncStatusOf,
+} from './sync-status.tsx';
 import { usePalette } from './theme.ts';
 
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
@@ -182,8 +190,8 @@ const useNow = () =>
 const about = (t: Translate, address: string | undefined, text: string) =>
   address === undefined ? text : t('inbox.about', { address, text });
 
-// Synchronization keeps the cached list visible and says why the provider may be behind; the
-// heading's subtitle says while it is being checked.
+// A Gmail mailbox whose grant was refused asks for access again; the Sync Status Capsule reports
+// progress and other failures.
 function SyncNotice({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
@@ -195,8 +203,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
-    state.sync === 'current' ||
-    state.sync === 'syncing'
+    state.sync !== 'authentication'
   ) {
     return null;
   }
@@ -205,42 +212,21 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
     await authorize();
     await actions.load();
   };
-  if (state.sync === 'authentication') {
-    return (
-      <Notice
-        announce="polite"
-        icon="person.crop.circle.badge.exclamationmark"
-        iconColor={colors.statusWarning}
-        message={about(
-          t,
-          address,
-          t('gmailSync.authentication', { provider }),
-        )}>
-        {account !== undefined && mailbox !== undefined ? (
-          <Button
-            fill="accent"
-            label={t('common.allowAccess', { provider })}
-            onPress={() => {
-              void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
-            }}
-          />
-        ) : null}
-      </Notice>
-    );
-  }
   return (
     <Notice
       announce="polite"
-      icon="wifi.slash"
-      message={about(t, address, t('gmailSync.retry', { provider }))}>
-      <Button
-        label={t('common.retry')}
-        onPress={() => {
-          void (account === undefined
-            ? actions.load()
-            : account.refreshInbox(actions.load));
-        }}
-      />
+      icon="person.crop.circle.badge.exclamationmark"
+      iconColor={colors.statusWarning}
+      message={about(t, address, t('gmailSync.authentication', { provider }))}>
+      {account !== undefined && mailbox !== undefined ? (
+        <Button
+          fill="accent"
+          label={t('common.allowAccess', { provider })}
+          onPress={() => {
+            void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
+          }}
+        />
+      ) : null}
     </Notice>
   );
 }
@@ -276,8 +262,7 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
   );
 }
 
-// An IMAP mailbox says when the server could not be read and keeps its saved mail; a refused
-// password is entered again in Settings.
+// An IMAP mailbox whose password was refused enters it again in Settings.
 function ImapNotice({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const mailbox = useMailbox();
@@ -287,47 +272,30 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   if (
     state.kind !== 'ready' ||
     !('imap' in state) ||
-    state.status === 'current' ||
-    state.status === 'syncing'
+    state.status !== 'authentication'
   ) {
     return null;
-  }
-  if (state.status === 'authentication') {
-    return (
-      <Notice
-        announce="polite"
-        icon="person.crop.circle.badge.exclamationmark"
-        iconColor={colors.statusWarning}
-        message={about(t, address, t('imapSync.authentication'))}>
-        {account === undefined ? null : (
-          <Button
-            fill="accent"
-            label={t('mailboxes.enterPassword', {
-              address: mailbox?.address ?? state.address,
-            })}
-            onPress={() => {
-              account.openAccount('mailboxes');
-            }}
-          />
-        )}
-      </Notice>
-    );
   }
   return (
     <Notice
       announce="polite"
-      icon="wifi.slash"
-      message={about(t, address, t('imapSync.retry'))}
-    />
+      icon="person.crop.circle.badge.exclamationmark"
+      iconColor={colors.statusWarning}
+      message={about(t, address, t('imapSync.authentication'))}>
+      {account === undefined ? null : (
+        <Button
+          fill="accent"
+          label={t('mailboxes.enterPassword', {
+            address: mailbox?.address ?? state.address,
+          })}
+          onPress={() => {
+            account.openAccount('mailboxes');
+          }}
+        />
+      )}
+    </Notice>
   );
 }
-
-// A Gmail or IMAP Inbox still checking its server.
-const checking = (state: InboxMailbox['state']) =>
-  state.kind === 'loading' ||
-  (state.kind === 'ready' &&
-    (('sync' in state && state.sync === 'syncing') ||
-      ('status' in state && state.status === 'syncing')));
 
 // A connection whose grant its provider refused has no Inbox until it is authorized again.
 function AuthorizationNeeded({
@@ -470,12 +438,6 @@ function scopeOf(
   }
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
 }
-
-// A mailbox whose server could not be reached shows the mail saved on this device.
-const offline = (state: InboxMailbox['state']) =>
-  state.kind === 'ready' &&
-  (('sync' in state && state.sync === 'retry') ||
-    ('status' in state && state.status === 'retry'));
 
 // The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
 // downloaded, or how much is unread and, on iPad, when the shown Inboxes were last brought up to
@@ -688,6 +650,7 @@ export function Inbox({
   const profile = useProfile();
   const search = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
+  const inWindow = use(WindowBarContext) !== undefined;
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -821,18 +784,19 @@ export function Inbox({
   // Set while the list is scrolled from its top, so synchronization keeps the reading position.
   const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
   // Pulling down synchronizes the shown mailboxes' listed view after registration verifies, as Try
-  // again does. The control ignores further pulls until it settles, so they start no duplicate work.
+  // Again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
   // Settles every mailbox, so one failing early cannot end the indicator while others still load.
-  const loadShown = async () => {
+  const load = (loaded: readonly InboxMailbox[]) => async () => {
     await Promise.allSettled(
-      shown.map(({ inbox }) =>
+      loaded.map(({ inbox }) =>
         folder !== inboxFolder && 'openFolder' in inbox
           ? inbox.openFolder(folder)
           : inbox.load(),
       ),
     );
   };
+  const loadShown = load(shown);
   const refresh = async () => {
     setRefreshing(true);
     try {
@@ -840,11 +804,30 @@ export function Inbox({
         ? loadShown()
         : account.refreshInbox(loadShown));
     } catch {
-      // Each mailbox reports its own failure above the list, which keeps its saved mail.
+      // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
     }
     // Not in `finally`: React Compiler cannot compile a finally clause.
     setRefreshing(false);
   };
+  // Try Again synchronizes only the mailboxes whose server could not be reached, and like a pull
+  // shows its progress at once.
+  const tryAgain = async () => {
+    const loadFailed = load(shown.filter(({ state }) => failed(state)));
+    try {
+      await (account === undefined
+        ? loadFailed()
+        : account.refreshInbox(loadFailed));
+    } catch {
+      // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
+    }
+  };
+  const syncCapsule = (
+    <SyncStatusCapsule
+      status={syncStatusOf(shown)}
+      refreshing={refreshing}
+      onTryAgain={tryAgain}
+    />
+  );
 
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
@@ -933,7 +916,10 @@ export function Inbox({
     // fills those margins too, behind the status bar and home indicator. The bar sits 4pt above the
     // home indicator's safe area and 12pt above the keyboard, as the frames show.
     <KeyboardAvoidingView
+      testID="inbox-surface"
       behavior="padding"
+      // The window bar already lifts the regular layout's capsule. Only the rows need insets there.
+      enabled={!inWindow}
       keyboardVerticalOffset={spacing.m - spacing.xs - insets.bottom}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <SafeAreaView
@@ -1017,6 +1003,7 @@ export function Inbox({
           </View>
           <SectionList
             accessibilityLabel={t('inbox.messages')}
+            automaticallyAdjustKeyboardInsets={inWindow}
             maintainVisibleContentPosition={keepPosition}
             onScrollBeginDrag={() => {
               motion.interrupt();
@@ -1180,6 +1167,7 @@ export function Inbox({
             }}
           />
           <InboxBar
+            listNotice={syncCapsule}
             field={search}
             filter={filtering}
             hidden={composing !== undefined}

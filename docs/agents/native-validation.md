@@ -186,7 +186,10 @@ focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
 the pop-up shows the choice. In Language it checks that the interface-language pop-up shows
-System Default. It closes Settings with Command-W. It then opens the Gmail
+System Default. In Mail Profiles it adds a **Travel** Mail Profile and asks to remove it:
+the AppKit sheet on Settings offers Cancel and Remove and closes with Escape and with
+Return, its default Cancel, keeping the Mail Profile; Remove then removes it. It closes
+Settings with Command-W. It then opens the Gmail
 message **Garden plans for spring** with the pointer and clicks each link's keyboard control.
 Each link's AppKit alert sheet shows its title and full destination. Command-P stays closed
 behind the sheet, and Escape and Cancel close it. The flagged link's sheet closes with Escape
@@ -222,9 +225,7 @@ Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader 
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are secondary-text
 contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)),
-reader labels that repeat their role or differ from visible text
-([#1220](https://github.com/unwired-dev/product/issues/1220)), AppKit's text Touch Bar,
-and email or web addresses used as labels. The contrast gap lists
+AppKit's text Touch Bar, and email or web addresses used as labels. The contrast gap lists
 the labels it covers. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
