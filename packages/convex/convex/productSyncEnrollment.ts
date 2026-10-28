@@ -5,6 +5,7 @@ import type {
 
 import {
   encryptedProductSyncPayloadBodyValidator,
+  productSyncEnrollmentApprovalValidator,
   productSyncEnrollmentCompletionValidator,
   productSyncEnrollmentPendingRequestValidator,
   productSyncEnrollmentRequestResponseValidator,
@@ -217,11 +218,9 @@ function requireSealedKeyRing(
 export const approve = mutation({
   args: {
     ...trustedProofArgs,
-    ciphertextBase64: v.string(),
+    ...productSyncEnrollmentApprovalValidator.fields,
     deviceEncryptionPublicKey: v.string(),
-    encapsulatedKeyBase64: v.string(),
     enrollmentPublicKey: v.string(),
-    keyVersion: v.number(),
     pendingDeviceId: v.string(),
   },
   // fallow-ignore-next-line complexity -- Each refused approval fails closed before the ring is stored.

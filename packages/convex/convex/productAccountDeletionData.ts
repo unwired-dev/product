@@ -1,3 +1,5 @@
+import type { Infer } from 'convex/values';
+
 import { v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
@@ -938,12 +940,14 @@ async function deleteNextBatchData(
 }
 // oxlint-enable complexity
 
+const deletionBatchResultValidator = v.object({ complete: v.boolean() });
+
 export const deleteNextBatch = internalMutation({
   args: { requestId: v.id('productAccountDeletionRequests') },
   handler: async (ctx, args) => ({
     complete: await deleteNextBatchData(ctx, args.requestId),
   }),
-  returns: v.object({ complete: v.boolean() }),
+  returns: deletionBatchResultValidator,
 });
 
 export const continueProductAccountDeletion = internalMutation({
@@ -953,10 +957,11 @@ export const continueProductAccountDeletion = internalMutation({
   },
   handler: async (ctx, args): Promise<null> => {
     try {
-      const result: Readonly<{ complete: boolean }> = await ctx.runMutation(
-        internal.productAccountDeletionData.deleteNextBatch,
-        { requestId: args.requestId },
-      );
+      const result: Readonly<Infer<typeof deletionBatchResultValidator>> =
+        await ctx.runMutation(
+          internal.productAccountDeletionData.deleteNextBatch,
+          { requestId: args.requestId },
+        );
       if (result.complete) {
         return null;
       }

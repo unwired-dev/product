@@ -1,4 +1,9 @@
 import { signInProviderValidator } from '@private-email/contracts/productAccount';
+import {
+  encryptedProductSyncPayloadBodyValidator,
+  productSyncEnrollmentApprovalValidator,
+  productSyncKeyEnvelopeValidator,
+} from '@private-email/contracts/productSync';
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
@@ -163,9 +168,7 @@ export default defineSchema({
   // Each Trusted Device's latest complete key ring, sealed to its encryption key, so it catches up
   // directly after any number of missed rotations. Replaced by the next activation.
   productSyncKeyEnvelopes: defineTable({
-    ciphertextBase64: v.string(),
-    encapsulatedKeyBase64: v.string(),
-    keyEpoch: v.number(),
+    ...productSyncKeyEnvelopeValidator.fields,
     productAccountId: v.id('productAccounts'),
     trustedDeviceId: v.id('trustedDevices'),
   }).index('by_productAccountId_and_trustedDeviceId', [
@@ -243,14 +246,7 @@ export default defineSchema({
   ]),
 
   encryptedProductSyncPayloads: defineTable({
-    encryptedPayload: v.object({
-      algorithm: v.literal('AES-GCM-256'),
-      ciphertextBase64: v.string(),
-      keyVersion: v.number(),
-      nonceBase64: v.string(),
-      schemaVersion: v.number(),
-      tagBase64: v.string(),
-    }),
+    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     payloadIdentifier: v.string(),
     productAccountId: v.id('productAccounts'),
     trustedDeviceId: v.id('trustedDevices'),
@@ -267,11 +263,9 @@ export default defineSchema({
     // Sealed to its one-time key by a Trusted Device holding the newest key epoch.
     approval: v.optional(
       v.object({
+        ...productSyncEnrollmentApprovalValidator.fields,
         approvedAt: v.number(),
         approvedByTrustedDeviceId: v.id('trustedDevices'),
-        ciphertextBase64: v.string(),
-        encapsulatedKeyBase64: v.string(),
-        keyVersion: v.number(),
       }),
     ),
     createdAt: v.number(),
