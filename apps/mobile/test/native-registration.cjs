@@ -12,7 +12,6 @@ const { getEnforcing } = TurboModuleRegistry;
 TurboModuleRegistry.getEnforcing = (name) =>
   name === 'UnwiredRegistration' ? unwiredRegistration : getEnforcing(name);
 
-// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name; the package ships its own mock.
 jest.mock('react-native-keyboard-controller', () =>
   require('react-native-keyboard-controller/jest'),
 );
