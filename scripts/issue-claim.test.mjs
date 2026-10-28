@@ -48,7 +48,12 @@ else if (args[0] === 'api') {
   const [, owner, name, , number, comments] = args[1].split('/');
   const it = issue(number, owner + '/' + name);
   // One comment per page, so a marker past the first page needs --paginate.
-  const pages = it.comments.map((body) => [{ body }]);
+  let bodies = it.comments;
+  if (comments && store.hideLastCommentReads > 0) {
+    store.hideLastCommentReads -= 1;
+    bodies = bodies.slice(0, -1);
+  }
+  const pages = bodies.map((body) => [{ body }]);
   if (comments) {
     if (!args.includes('--paginate')) out(pages[0] ?? []);
     else if (args.includes('--slurp')) out(pages);
@@ -392,4 +397,30 @@ test('rerunning a parallel claim keeps the other owner', (t) => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.issues[7].labels, ['in progress']);
+});
+
+test('the later of two parallel releases removes the label', (t) => {
+  const repo = checkout(t);
+  const issues = {
+    7: open({
+      labels: ['in progress'],
+      comments: [
+        marker('claim', other),
+        marker('claim', repo.owner),
+        marker('release', other),
+      ],
+    }),
+  };
+  // The other owner released after this release's first read; the fake shows
+  // that by serving the other release only from the second comment read on.
+  const result = run(
+    repo,
+    { hideLastCommentReads: 1, issues },
+    'release',
+    '7',
+    '--outcome',
+    'merged',
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.issues[7].labels, []);
 });
