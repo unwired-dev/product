@@ -179,3 +179,24 @@ test('--days sets the threshold', (t) => {
   assert.match(result.stdout, /#7: active since/u);
   assert.equal(run(t, store, '--days', 'x').status, 2);
 });
+
+test('a re-added label starts a new claim after a flag', (t) => {
+  const labelled = (days) => ({
+    event: 'labeled',
+    label: { name: 'in progress' },
+    created_at: daysAgo(days),
+  });
+  const store = {
+    issues: {
+      7: claimed({ comments: [claim('t3/seven', 20)], events: [labelled(20)] }),
+    },
+    branches: { 't3/seven': daysAgo(20) },
+  };
+  const first = run(t, store);
+  assert.match(first.stdout, /#7: flagged/u);
+  first.store.issues[7].events.push(labelled(5));
+  const again = run(t, first.store);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /#7: flagged/u);
+  assert.equal(again.store.issues[7].comments.length, 3);
+});

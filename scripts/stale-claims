@@ -2,8 +2,8 @@
 # Usage: scripts/stale-claims [--days <n>]
 # Comments once on each open `in progress` issue that has no open pull request
 # and no claim-branch commit for <n> days (default 3), and never removes the
-# label. It dates a claim by its scripts/issue-claim marker, falling back to the
-# date the label was added. Policy: docs/agents/issue-tracker.md.
+# label. It dates a claim by its newest scripts/issue-claim marker or label
+# addition. Policy: docs/agents/issue-tracker.md.
 set -euo pipefail
 
 days=3
@@ -34,9 +34,11 @@ for issue in $issues; do
   claims=$(jq -c 'reduce (.[] | .created_at as $at | .body
       | capture("<!-- issue-(?<kind>claim|release) (?<owner>\\{.*?\\}) -->"; "g") | .at = $at) as $m
     ({}; if $m.kind == "claim" then .[$m.owner] = $m.at else del(.[$m.owner]) end)' <<<"$comments")
-  since=$(jq -r '[.[]] | max // empty' <<<"$claims")
-  [[ -n $since ]] || since=$(gh api "repos/$repo/issues/$issue/events" --paginate --slurp |
-    jq -r '[.[][] | select(.event == "labeled" and .label.name == "in progress")] | last | .created_at // empty')
+  labelled=$(gh api "repos/$repo/issues/$issue/events" --paginate --slurp |
+    jq -c '[.[][] | select(.event == "labeled" and .label.name == "in progress") | .created_at]')
+  # The newest claim or label addition dates the claim, so a re-added label
+  # restarts it even when an unreleased claim comment is older.
+  since=$(jq -rn --argjson claims "$claims" --argjson labelled "$labelled" '[$claims[], $labelled[]] | max // empty')
   [[ -n $since ]] || { echo "#$issue: no claim or label date" >&2; continue; }
   # The claim's date identifies it, so a new claim or label can be flagged again.
   marker="<!-- issue-stale-claim $since -->"
