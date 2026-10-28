@@ -394,6 +394,13 @@ export const WindowBarContext = createContext<
   ReturnType<typeof createWindowBar> | undefined
 >(undefined);
 
+// A compact list runs under its floating bar to the screen's bottom edge, so the bar and the list's
+// end clear the bottom safe area themselves; a window bar's layout keeps that safe area.
+export function useBarBottomInset() {
+  const { bottom } = useSafeAreaInsets();
+  return use(WindowBarContext) === undefined ? bottom : 0;
+}
+
 function ScrollEdge({ style }: { readonly style: StyleProp<ViewStyle> }) {
   const colors = usePalette();
   return (
@@ -479,6 +486,7 @@ export function FloatingBar({
   trailing,
   notice = null,
   listNotice = null,
+  bottomInset = 0,
   children,
 }: {
   readonly hidden?: boolean;
@@ -488,6 +496,8 @@ export function FloatingBar({
   readonly notice?: ReactNode;
   // Status that stays over the list even when the bar spans the window.
   readonly listNotice?: ReactNode;
+  // The bottom safe area the list runs under; the bar and its notices stay above it.
+  readonly bottomInset?: number;
   // The search field, or the button that opens it.
   readonly children: ReactNode;
 }) {
@@ -495,11 +505,11 @@ export function FloatingBar({
   const insets = useSafeAreaInsets();
   const { subscribe, lift: lifted } = windowBar ?? listBar;
   const lift = useSyncExternalStore(subscribe, lifted);
-  // The list excludes its safe area; the window-wide bar includes it and rises above a docked
-  // keyboard.
+  // The list's bar clears its bottom inset; the window-wide bar includes the safe area and rises
+  // above a docked keyboard.
   const noticeBottom =
     windowBar === undefined
-      ? spacing.xs
+      ? bottomInset + spacing.xs
       : Math.max(spacing.l - insets.bottom, 0) + lift;
   const content = (
     <>
@@ -528,12 +538,21 @@ export function FloatingBar({
   return (
     <>
       <ScrollEdge
-        style={[styles.listEdge, { display: hidden ? 'none' : 'flex' }]}
+        style={[
+          styles.listEdge,
+          {
+            height: styles.scrollEdge.height + bottomInset,
+            display: hidden ? 'none' : 'flex',
+          },
+        ]}
       />
       {windowBar === undefined ? (
         <View
           pointerEvents="box-none"
-          style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
+          style={[
+            styles.bottomBar,
+            { bottom: bottomInset, display: hidden ? 'none' : 'flex' },
+          ]}>
           {leading}
           {children}
           {trailing}

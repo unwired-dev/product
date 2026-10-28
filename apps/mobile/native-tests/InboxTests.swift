@@ -2362,6 +2362,8 @@ final class InboxTests: XCTestCase {
     let safeArea = runnerWindow.safeAreaInsets.bottom
     let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
     XCTAssertEqual(window.maxY - filter.frame.maxY, safeArea + 4, accuracy: 1)
+    // #1506: the rows run under the floating bar and the home indicator to the screen's bottom edge.
+    XCTAssertEqual(app.scrollViews["Inbox messages"].firstMatch.frame.maxY, window.maxY)
     let colors = pixels(app, at: [surface, edge])
     let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
     let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
