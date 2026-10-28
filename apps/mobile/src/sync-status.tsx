@@ -5,11 +5,11 @@ import { use, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Pressable } from 'react-native-gesture-handler';
 
 import type { InboxMailbox } from './private-storage.ts';
 

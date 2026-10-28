@@ -1084,6 +1084,18 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Inbox keyboard avoidance in `inbox.tsx` or another keyboard-following control
+  animating layout props without checking React-commit pauses in the installed
+  Reanimated version. Inspect opening and closing frame by frame while Search
+  changes the list, not only settled gaps or mocked keyboard events; otherwise
+  the keyboard can briefly cover a bar that appears correct at rest. When
+  synchronous UI props bypass those pauses, trace every interactive descendant
+  of the transformed view, including notices. RN Pressable measures its press
+  region from the ShadowTree while the fast path moves the UIKit view directly;
+  slight finger movement can cancel Close or retry before the tree catches up.
+  Use the supported native gesture-backed control or prove equivalent touch
+  handling through the affected transition, including finger movement.
+
 - Mac destructive confirmations in Settings or `design.tsx.useConfirmation`
   relying on React Native macOS `Alert` button styles or key-window routing.
   Trace the installed presenter through the native button and owning window:

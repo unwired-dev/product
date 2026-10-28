@@ -97,6 +97,14 @@ native peers (gesture handler, Reanimated and Worklets) are explicitly installed
 for reproducible autolinking. `react-dom` is a development peer requirement and
 must not appear in the iOS production bundle.
 
+Inbox keyboard tracking uses `react-native-keyboard-controller` and Reanimated's
+`IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS` static flag so React commits do not pause the
+bar's transform. Rebuild the native app after changing this flag. Controls inside
+the translated bar and its notices use Gesture Handler pressables beneath the
+root `GestureHandlerRootView`, because React Native pressables can cancel a
+moving press against an outdated Fabric layout. Keep this native touch handling
+when changing those controls; mocked presses do not verify it.
+
 Keep the Effect patcher, Oxlint and `oxlint-tsgolint` on the compatible catalog
 versions and update them together. TypeScript 7 is intentionally
 excluded from `expo install --check` because Expo recommends TypeScript 6 while
