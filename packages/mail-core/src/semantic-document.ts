@@ -1,5 +1,7 @@
 import * as Schema from 'effect/Schema';
 
+import { vettedHref } from './link-inspection.ts';
+
 // The Semantic Message Document: ordered body blocks, each a run of marked text. It is the stored
 // and edited form of a Draft body; Markdown is only an input shortcut over it.
 
@@ -65,6 +67,10 @@ const SpanSchema = Schema.Union([
       ),
     ),
     marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
+    // Linked text: web, mail and telephone destinations only, as received links allow.
+    link: Schema.optionalKey(
+      Schema.String.check(Schema.makeFilter((href) => vettedHref(href) === href)),
+    ),
   }),
   // An inline image: one character of the text, carrying the image it shows.
   Schema.Struct({
@@ -95,16 +101,27 @@ const lengthOf = (spans: readonly Span[]) =>
 
 const marksOf = (span: Span | undefined): readonly Mark[] => span?.marks ?? [];
 
+const linkOf = (span: Span | undefined) =>
+  span !== undefined && 'link' in span ? span.link : undefined;
+
 const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
-const spanOf = (text: string, marks: readonly Mark[], image?: Asset): Span => {
+// A span of `text` with `marks`, keeping the image or link of `from`.
+const spanOf = (
+  text: string,
+  marks: readonly Mark[],
+  from: Readonly<{ image: Asset }> | Readonly<{ link?: string | undefined }> = {},
+): Span => {
   const [first, ...rest] = marks;
   const marked =
     first === undefined ? {} : { marks: [first, ...rest] as const };
-  return image === undefined
+  if ('image' in from) {
+    return { text: imageCharacter, image: from.image, ...marked };
+  }
+  return from.link === undefined
     ? { text, ...marked }
-    : { text: imageCharacter, image, ...marked };
+    : { text, ...marked, link: from.link };
 };
 
 // The spans covering code units `from` to `to`. Code units, as editor offsets count them; a
@@ -132,7 +149,7 @@ const sliceSpans = (spans: readonly Span[], from: number, to = Infinity) => {
   return sliced;
 };
 
-// Adjacent text spans with the same marks merge; an image is a span of its own.
+// Adjacent text spans with the same marks and link merge; an image is a span of its own.
 const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
   const spans: Span[] = [];
   for (const span of parts.flat().filter(({ text }) => text !== '')) {
@@ -141,7 +158,8 @@ const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
       last !== undefined &&
       !('image' in last) &&
       !('image' in span) &&
-      sameMarks(marksOf(last), marksOf(span))
+      sameMarks(marksOf(last), marksOf(span)) &&
+      linkOf(last) === linkOf(span)
     ) {
       spans[spans.length - 1] = { ...last, text: last.text + span.text };
     } else {
@@ -465,6 +483,9 @@ const splice = (
 ) => {
   const { from, to, kind, head, tail } = edgesOf(lines, change);
   const typed = marks ?? marksOf(head.at(-1) ?? tail[0]);
+  // Text inserted inside a link joins it; at the link's edges it stays unlinked.
+  const link =
+    linkOf(head.at(-1)) === linkOf(tail[0]) ? linkOf(tail[0]) : undefined;
   const parts = change.inserted
     // Only an inserted image carries its character; typed or pasted ones are dropped.
     .replaceAll(imageCharacter, '')
@@ -475,7 +496,7 @@ const splice = (
     kind: createdKind(kind, { index, count: parts.length, above }),
     spans: joinSpans(
       index === 0 ? head : [],
-      [spanOf(text, typed)],
+      [spanOf(text, typed, { link })],
       index === last ? tail : [],
     ),
   }));
@@ -726,7 +747,7 @@ export function toggleMark(
           markOrder.filter((each) =>
             each === mark ? !has : marksOf(span).includes(each),
           ),
-          'image' in span ? span.image : undefined,
+          span,
         ),
       );
       return {
@@ -767,7 +788,7 @@ export function insertImage(
           kind: each.kind,
           spans: joinSpans(
             sliceSpans(each.spans, 0, column),
-            [spanOf(imageCharacter, [], image)],
+            [spanOf(imageCharacter, [], { image })],
             sliceSpans(each.spans, column),
           ),
         }

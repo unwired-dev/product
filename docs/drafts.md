@@ -157,7 +157,15 @@ transport and known native exit gaps.
   Each activation moves one step, including repeated commands before the
   composer redraws.
 
-Links, the Slash Command Menu and recipient suggestions are later slices.
+The document keeps links on its text. A link destination must be an `http`,
+`https`, `mailto` or `tel` address; a Draft holding any other destination is
+not saved or synchronized. Text typed inside a link joins it, text typed at either
+end of it does not, and formatting, block kinds, inline images, replacements and
+Undo keep it. Sent mail links the text and, in the plain-text alternative, follows
+it with the destination in angle brackets unless the text is the destination.
+Composers cannot yet add, edit or remove links
+([#878](https://github.com/unwired-dev/product/issues/878)); the Slash Command
+Menu and recipient suggestions are later slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
