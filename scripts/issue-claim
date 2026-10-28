@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Usage: scripts/issue-claim claim <issue> [--parallel | --takeover]
+#        scripts/issue-claim release <issue> --outcome <outcome> [--remaining <text>]
+# Owns the `in progress` claim procedure in docs/agents/issue-tracker.md. A claim
+# is the label plus a comment whose marker names this branch and worktree, since
+# sessions can share one GitHub account. A sub-issue's parent gets a comment on
+# claim and release instead of the label. Every step is idempotent, so rerun a
+# command that failed partway.
+set -euo pipefail
+
+usage() {
+  sed -n '2,3s/^# //p' "$0" >&2
+  exit 2
+}
+
+[[ $# -ge 2 ]] || usage
+command=$1 issue=$2
+shift 2
+[[ $issue =~ ^[0-9]+$ ]] || usage
+mode='' outcome='' remaining=''
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --parallel | --takeover) [[ -z $mode ]] || usage; mode=${1#--} ;;
+    --outcome) outcome=${2:?--outcome needs a value}; shift ;;
+    --remaining) remaining=${2:?--remaining needs a value}; shift ;;
+    *) usage ;;
+  esac
+  shift
+done
+
+fail() {
+  echo "issue-claim: $*" >&2
+  exit 1
+}
+
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+branch=$(git branch --show-current)
+worktree=$(git rev-parse --show-toplevel)
+[[ -n $branch ]] || fail "detached HEAD; switch to the task branch first"
+owner=$(jq -cn --arg branch "$branch" --arg worktree "$worktree" '{branch: $branch, worktree: $worktree}')
+
+# Prints the issue's state, parent as owner/repo#number (empty when none) and
+# whether it has the label. A parent can live in another repository.
+read_issue() {
+  gh api "repos/$repo/issues/$issue" --jq '[.state, ((.parent_issue_url // "") | capture("repos/(?<r>[^/]+/[^/]+)/issues/(?<n>[0-9]+)$") // {} | if .r then "\(.r)#\(.n)" else "" end), any(.labels[]; .name == "in progress") | tostring] | join("|")'
+}
+
+# Prints every comment body of owner/repo#number, in order.
+comments() {
+  gh api "repos/${1%#*}/issues/${1##*#}/comments" --paginate --slurp | jq -r '.[][].body'
+}
+
+# Prints the owners of claims that have no matching release, one JSON object per line.
+active_claims() {
+  jq -Rrs '
+    [capture("<!-- issue-(?<kind>claim|release) (?<owner>\\{.*?\\}) -->"; "g")]
+    | reduce .[] as $m ({}; if $m.kind == "claim" then .[$m.owner] = true else del(.[$m.owner]) end)
+    | keys[]' <<<"$1"
+}
+
+# Posts a comment ending in marker $3 unless it already appears after the last
+# occurrence of its opposite marker $4, so each claim cycle posts it once.
+post_once() {
+  local existing
+  existing=$(comments "$1")
+  awk -v m="$3" -v o="$4" 'index($0, m) {last = "m"} index($0, o) {last = "o"} END {exit last != "m"}' <<<"$existing" &&
+    return 0
+  gh issue comment "${1##*#}" --repo "${1%#*}" --body "$2
+
+$3" >/dev/null
+}
+
+state=$(read_issue)
+IFS='|' read -r issue_state parent labelled <<<"$state"
+before=$(comments "$repo#$issue")
+claims=$(active_claims "$before")
+mine=false
+grep -qxF "$owner" <<<"$claims" && mine=true
+others=$(grep -vxF "$owner" <<<"$claims" || true)
+
+case $command in
+  claim)
+    [[ $issue_state == open ]] || fail "#$issue is not open"
+    [[ $labelled == false || $mine == true || -n $mode ]] ||
+      fail "#$issue is claimed by other work; take it over only on the user's request"
+    # Only a parallel implementation keeps other claims; a takeover or a claim
+    # after someone cleared the label retires them.
+    if [[ $mode == takeover || ( $mode != parallel && $mine == false ) ]]; then
+      while IFS= read -r previous; do
+        [[ -z $previous ]] ||
+          post_once "$repo#$issue" "Claim taken over by branch \`$branch\`." "<!-- issue-release $previous -->" "<!-- issue-claim $previous -->"
+      done <<<"$others"
+    fi
+    # The marker goes first, so a rerun after a partial claim recognizes it as ours.
+    post_once "$repo#$issue" "Claimed on branch \`$branch\` in worktree \`$worktree\`." "<!-- issue-claim $owner -->" "<!-- issue-release $owner -->"
+    gh issue edit "$issue" --repo "$repo" --add-label "in progress" >/dev/null
+    [[ -z $parent ]] || post_once "$parent" "Sub-issue $repo#$issue is in progress on branch \`$branch\` in worktree \`$worktree\`." \
+      "<!-- issue-sub-claim $repo#$issue $owner -->" "<!-- issue-sub-release $repo#$issue $owner -->"
+    state=$(read_issue)
+    after=$(comments "$repo#$issue")
+    [[ $(cut -d'|' -f3 <<<"$state") == true ]] && grep -qxF "$owner" <<<"$(active_claims "$after")" ||
+      fail "claim on #$issue did not read back"
+    echo "claimed #$issue"
+    ;;
+  release)
+    case $outcome in
+      merged | closed | abandoned | handed-back | blocked) ;;
+      *) echo "issue-claim: --outcome must be merged, closed, abandoned, handed-back or blocked" >&2; exit 2 ;;
+    esac
+    released="<!-- issue-release $owner -->"
+    # A rerun after a partial release finds its own release marker instead of a claim.
+    [[ $mine == true ]] || grep -qF "$released" <<<"$before" ||
+      fail "no claim on #$issue for this branch and worktree"
+    post_once "$repo#$issue" "Claim released ($outcome) on branch \`$branch\`." "$released" "<!-- issue-claim $owner -->"
+    # A parallel implementation keeps the label while another claim remains.
+    # Re-read after posting, so of two concurrent releases the later removes it.
+    others=$(active_claims "$(comments "$repo#$issue")")
+    [[ -n $others ]] || gh issue edit "$issue" --repo "$repo" --remove-label "in progress" >/dev/null
+    [[ -z $parent ]] || post_once "$parent" "Sub-issue $repo#$issue: $outcome.${remaining:+ Remaining work: $remaining}" \
+      "<!-- issue-sub-release $repo#$issue $owner -->" "<!-- issue-sub-claim $repo#$issue $owner -->"
+    state=$(read_issue)
+    after=$(comments "$repo#$issue")
+    ! grep -qxF "$owner" <<<"$(active_claims "$after")" || fail "release on #$issue did not read back"
+    [[ -n $others || $(cut -d'|' -f3 <<<"$state") == false ]] || fail "release on #$issue did not read back"
+    echo "released #$issue"
+    ;;
+  *) usage ;;
+esac
