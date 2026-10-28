@@ -113,6 +113,8 @@ case $command in
       fail "no claim on #$issue for this branch and worktree"
     post_once "$repo#$issue" "Claim released ($outcome) on branch \`$branch\`." "$released" "<!-- issue-claim $owner -->"
     # A parallel implementation keeps the label while another claim remains.
+    # Re-read after posting, so of two concurrent releases the later removes it.
+    others=$(active_claims "$(comments "$repo#$issue")")
     [[ -n $others ]] || gh issue edit "$issue" --repo "$repo" --remove-label "in progress" >/dev/null
     [[ -z $parent ]] || post_once "$parent" "Sub-issue $repo#$issue: $outcome.${remaining:+ Remaining work: $remaining}" \
       "<!-- issue-sub-release $repo#$issue $owner -->" "<!-- issue-sub-claim $repo#$issue $owner -->"
