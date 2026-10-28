@@ -25,6 +25,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -568,29 +569,34 @@ export default function RootLayout() {
     };
   }, []);
   return (
-    <RegistrationGate>
-      <InboxProvider>
-        <CommandPaletteProvider>
-          <OpenedNotifications />
-          {/* A message or Thread link from before Profiles names none and opens in the Default
-              Profile, which owns every mailbox it can name. */}
-          <WindowProfileScope
-            savedChoices={savedChoices}
-            routeAccount={
-              routeAccount?.params === params ? routeAccount.account : undefined
-            }
-            onRouteAccount={(account) => {
-              setRouteAccount({ params, account });
-            }}
-            link={
-              profileId === undefined && id !== undefined
-                ? defaultProfile
-                : profileId
-            }>
-            <MailShell />
-          </WindowProfileScope>
-        </CommandPaletteProvider>
-      </InboxProvider>
-    </RegistrationGate>
+    // Frame-by-frame keyboard tracking for the Inbox's keyboard avoidance.
+    <KeyboardProvider>
+      <RegistrationGate>
+        <InboxProvider>
+          <CommandPaletteProvider>
+            <OpenedNotifications />
+            {/* A message or Thread link from before Profiles names none and opens in the Default
+                Profile, which owns every mailbox it can name. */}
+            <WindowProfileScope
+              savedChoices={savedChoices}
+              routeAccount={
+                routeAccount?.params === params
+                  ? routeAccount.account
+                  : undefined
+              }
+              onRouteAccount={(account) => {
+                setRouteAccount({ params, account });
+              }}
+              link={
+                profileId === undefined && id !== undefined
+                  ? defaultProfile
+                  : profileId
+              }>
+              <MailShell />
+            </WindowProfileScope>
+          </CommandPaletteProvider>
+        </InboxProvider>
+      </RegistrationGate>
+    </KeyboardProvider>
   );
 }
