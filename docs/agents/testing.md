@@ -182,3 +182,5 @@ flaky failures and classify failures as product, test, or infrastructure defects
 the initial four weeks of evidence before adjusting the budgets, then review trends
 monthly. Do not add coverage or mutation-testing quotas unless later evidence shows that
 they address a specific risk the portfolio is missing.
+
+<!-- Probe for #1495: docs-only change; this PR will be closed unmerged. -->
