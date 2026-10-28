@@ -34,5 +34,7 @@ Add `in progress` when implementation starts and remove it when that work ends,
 whether or not it delivered. A crashed run can leave a stale claim that agents
 keep skipping; a person clears it by removing the label or by explicitly asking
 an agent to take the issue over. Agents skip issues claimed by other work, so the label helps prevent
-duplicate work; the [implement-issue skill](../../.agents/skills/implement-issue/SKILL.md)
-owns the claim procedure.
+duplicate work. Work that delivers only part of an issue applies `in progress`
+only to the sub-issue it implements and leaves it off the parent. The
+[implement-issue skill](../../.agents/skills/implement-issue/SKILL.md) owns
+claiming and parent updates.
