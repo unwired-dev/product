@@ -263,6 +263,9 @@ mise exec -- pnpm --filter @private-email/mobile test:native \
 Add `UNWIRED_APPEARANCE=light` to audit Light; the runner's default is Dark.
 
 The journey signs in with Apple and connects the synthetic Microsoft mailbox.
+On iPhone it then drags the Inbox up 200pt and checks that the first row follows
+the finger, scrolls further, and checks that the navigation title and the floating
+bar keep their frames, attaching a screenshot of each state.
 Each Command Palette command is typed and run with Return: Account opens Settings,
 Inbox leaves it, and Search Mail focuses search. It types a query into search,
 then selects, cuts and pastes it back with Command-A, Command-X and Command-V,
