@@ -424,3 +424,18 @@ test('the later of two parallel releases removes the label', (t) => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.issues[7].labels, []);
 });
+
+test('a failed re-read before the label removal keeps the label', (t) => {
+  const repo = checkout(t);
+  const issues = {
+    7: open({
+      labels: ['in progress'],
+      comments: [marker('claim', other), marker('claim', repo.owner)],
+    }),
+  };
+  // The release comment is the first write; the next read fails.
+  const store = { failReads: 1, failAfterWrites: 1, issues };
+  const result = run(repo, store, 'release', '7', '--outcome', 'merged');
+  assert.notEqual(result.status, 0);
+  assert.deepEqual(result.issues[7].labels, ['in progress']);
+});
