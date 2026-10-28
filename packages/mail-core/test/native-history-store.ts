@@ -39,6 +39,15 @@ const committedOf = Schema.decodeUnknownSync(
 const segmentOf = Schema.decodeUnknownSync(
   Schema.Struct({ document: Schema.NullOr(Schema.String) }),
 );
+const admittedOf = Schema.decodeUnknownSync(
+  Schema.Struct({ admitted: Schema.Boolean }),
+);
+const storedBodiesOf = Schema.decodeUnknownSync(
+  Schema.Struct({
+    stored: Schema.Array(Schema.String),
+    excluded: Schema.Array(Schema.String),
+  }),
+);
 
 // The ordinary suite stays credential-free. The explicit Mac runner supplies a signed native
 // process, substituting only persistence while Gmail responses remain controlled.
@@ -137,6 +146,51 @@ export const withNativeHistory = (gmail: Readonly<Gmail>): Gmail => {
       segmentOf(
         await call({ operation: 'segment', address: scope.address, name }),
       ),
+    // Body calls pass through the synthetic store first, keeping its injected failures and
+    // ownership checks, then answer from the native Bounded Encrypted Body Cache.
+    openMessageBody: async (scope, id) => {
+      await gmail.native.openMessageBody(scope, id);
+      return segmentOf(
+        await call({ operation: 'body', address: scope.address, id }),
+      );
+    },
+    commitMessageBody: async (scope, id, admission) => {
+      if (
+        !admittedOf(await gmail.native.commitMessageBody(scope, id, admission))
+          .admitted
+      ) {
+        return { admitted: false };
+      }
+      return admittedOf(
+        await call({
+          operation: 'commit-body',
+          address: scope.address,
+          id,
+          document: admission.document,
+          tier: admission.tier,
+          protectedIds: admission.protectedIds,
+          revision: admission.expectedRevision,
+        }),
+      );
+    },
+    listMessageBodies: async (scope, ids) => {
+      await gmail.native.listMessageBodies(scope, ids);
+      const { stored, excluded } = storedBodiesOf(
+        await call({ operation: 'list-bodies', address: scope.address, ids }),
+      );
+      return { stored: [...stored], excluded: [...excluded] };
+    },
+    retainMessageBodies: async (scope, ids, protectedIds) => {
+      await gmail.native.retainMessageBodies(scope, ids, protectedIds);
+      await call({
+        operation: 'retain-bodies',
+        address: scope.address,
+        revision: scope.revision,
+        ids,
+        protectedIds,
+      });
+      return null;
+    },
   };
   return { ...gmail, native };
 };

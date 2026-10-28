@@ -310,8 +310,14 @@ its per-connection history status remains in
 [#1369](https://github.com/unwired-dev/product/issues/1369) and
 [#1442](https://github.com/unwired-dev/product/issues/1442). Scrolling to the end
 of the Inbox, a Gmail view or a unified mailbox reveals older downloaded messages in batches from
-the segments, without asking Gmail, so they stay available offline. Messages outside
-the saved cached views are read on demand without saving their bodies.
+the segments, without asking Gmail, so they stay available offline. Opening one of
+those messages downloads its body once and saves it in the
+[body cache](private-inbox-storage.md#message-body-cache), so it reopens offline
+after a relaunch ([#1385](https://github.com/unwired-dev/product/issues/1385)). The
+body stays until Gmail reports the message deleted or outside All Mail, or until a
+new pass after an expired history ID completes without listing it. Until then the
+budget may still evict it like any other opened body. Prefetch saves
+bodies only for the saved cached views.
 If a confirmed removal leaves the recent cache short and its refill cannot finish,
 older downloaded mail remains available, including after an offline relaunch.
 

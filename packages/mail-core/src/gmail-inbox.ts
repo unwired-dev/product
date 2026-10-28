@@ -66,11 +66,14 @@ import {
   foldDue,
   foldStep,
   historyPageSize,
+  keepingBodies,
+  keptBodies,
   listed as listedHistory,
   progress,
   recorded,
   restarted,
   segmentNames,
+  storedBodies,
 } from './gmail-history.ts';
 import { createGraphReader } from './graph-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
@@ -901,6 +904,36 @@ export const reportArrivals = Effect.fnUntraced(function* <M>(
   }
 });
 
+// History bodies a reader kept since `base` was read stay kept, unless `next` saw their message
+// leave All Mail or completed a pass they were still waiting for.
+const keptSince = (
+  base: MailboxDocument | undefined,
+  saved: MailboxDocument,
+  next: MailboxDocument,
+) => {
+  if (next.history === undefined) {
+    return {};
+  }
+  const known = new Set(keptBodies(base?.history));
+  const changed = new Map(
+    next.history.changes.map(({ id, message }) => [id, message]),
+  );
+  return {
+    history: keepingBodies(
+      next.history,
+      [
+        ...(saved.history?.bodies ?? []),
+        ...(next.history.reconcilingThrough === undefined
+          ? []
+          : (saved.history?.reconciling ?? [])),
+      ].filter(
+        (id) =>
+          !known.has(id) && (!changed.has(id) || changed.get(id) !== undefined),
+      ),
+    ),
+  };
+};
+
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
 const rebasedOnto = (
@@ -919,6 +952,7 @@ const rebasedOnto = (
       ...next,
       // Metadata work preserves the latest completed synchronization.
       ...Struct.pick(saved, ['synchronizedAt']),
+      ...keptSince(base, saved, next),
       // Intake may have saved a newly created label while synchronization was reading.
       labels: includingLabels(
         next.labels ?? [],
@@ -2198,8 +2232,9 @@ export function createGmailInbox(
     ]),
   );
   // Bodies of messages that left the cached Inbox and every other cached view leave the device
-  // with them; the recent working set's bodies stay protected as far as they fit. A failed prune is retried at the end of the
-  // next synchronization, even when it commits nothing.
+  // with them, unless downloaded history keeps them; the recent working set's bodies stay
+  // protected as far as they fit. A failed prune is retried at the end of the next
+  // synchronization, even when it commits nothing.
   const retainBodies = (
     { address, generation, revision }: Cache,
     document: MailboxDocument | undefined,
@@ -2210,9 +2245,12 @@ export function createGmailInbox(
           try: () =>
             native.retainMessageBodies(
               { address, generation, revision },
-              (document === undefined ? [] : cachedMessages(document)).map(
-                ({ id }) => id,
-              ),
+              [
+                ...(document === undefined ? [] : cachedMessages(document)).map(
+                  ({ id }) => id,
+                ),
+                ...keptBodies(document?.history),
+              ],
               // Other views' bodies stay, but only the Inbox's recent working set is protected.
               recentWorkingSet(document?.messages ?? [], reference),
             ),
@@ -2762,11 +2800,45 @@ export function createGmailInbox(
     );
   });
 
-  // A message the saved document keeps. Its body is kept with it; older mail scrolling revealed
-  // from downloaded history and online search results are read without being kept.
+  // A message the saved document keeps, whose body is kept with it, or one whose body downloaded
+  // history keeps. Online search results are read without being kept.
   const keepsBody = (id: string) =>
     shown?.document !== undefined &&
-    cachedMessages(shown.document).some((message) => message.id === id);
+    (cachedMessages(shown.document).some((message) => message.id === id) ||
+      keptBodies(shown.document.history).includes(id));
+  // Older mail scrolling revealed from downloaded history; the history keeps its body once stored.
+  const revealedHistory = (id: string) =>
+    shown?.document?.history !== undefined && listed(id) && !keepsBody(id);
+
+  // Records a stored history body in the saved document, so retention keeps it until its message
+  // leaves All Mail. Bodies the budget evicted are forgotten meanwhile.
+  const keepHistoryBody = Effect.fnUntraced(function* (
+    cache: Cache,
+    document: MailboxDocument,
+    { id, reading }: Readonly<{ id: string; reading: number }>,
+  ) {
+    if (document.history === undefined) {
+      return;
+    }
+    const history = keepingBodies(document.history, [id]);
+    const reply = yield* Effect.tryPromise({
+      try: () => native.listMessageBodies(cache, keptBodies(history)),
+      catch: (cause) => rejected(cause, 'failed'),
+    });
+    const { stored } = yield* decodeStoredBodies(reply).pipe(
+      Effect.mapError((error) => malformed(error, 'failed')),
+    );
+    const next = {
+      ...document,
+      history: storedBodies(history, new Set(stored)),
+    };
+    // Body admission and its retention record share one metadata revision. A concurrent
+    // deletion or reconciliation must refuse this record instead of adopting the body again.
+    const saved = yield* commit(cache, next);
+    if (owner === reading) {
+      yield* ready(saved, next, sync);
+    }
+  });
 
   // Stores a body under the current working set's protection. Commits are fenced like mailbox
   // commits: a message that left the cached mailbox, or a closed Inbox, stores nothing.
@@ -2776,10 +2848,13 @@ export function createGmailInbox(
       scope,
       tier,
       reading,
+      fromReader = false,
     }: Readonly<{
       scope: MailboxScope;
       tier: BodyTier;
       reading: number;
+      // A reader downloaded it, rather than prefetch, so downloaded history may keep it.
+      fromReader?: boolean;
     }>,
   ) =>
     encodeBodyDocument(document).pipe(
@@ -2788,7 +2863,14 @@ export function createGmailInbox(
       Effect.flatMap((text) =>
         publication.withPermits(2)(
           Effect.suspend(() => {
-            if (owner !== reading || !readable(document.id)) {
+            const current = shown;
+            const savedDocument = current?.document;
+            if (
+              owner !== reading ||
+              !readable(document.id) ||
+              current === undefined ||
+              savedDocument === undefined
+            ) {
               return Effect.fail(
                 new SyncFailure({
                   kind: 'invalidated',
@@ -2798,7 +2880,8 @@ export function createGmailInbox(
               );
             }
             // A commit can move a still-readable message out of the saved views while this waits.
-            return keepsBody(document.id)
+            const keeping = fromReader && revealedHistory(document.id);
+            return keeping || keepsBody(document.id)
               ? protectedBodies.pipe(
                   Effect.flatMap((protectedIds) =>
                     Effect.tryPromise({
@@ -2807,6 +2890,7 @@ export function createGmailInbox(
                           document: text,
                           tier,
                           protectedIds,
+                          expectedRevision: current.scope.revision,
                         }),
                       catch: (cause) => rejected(cause, 'failed'),
                     }),
@@ -2820,7 +2904,18 @@ export function createGmailInbox(
                     ),
                   ),
                   Effect.tap(({ admitted }) =>
-                    admitted ? shared.cache.changed : Effect.void,
+                    admitted
+                      ? shared.cache.changed.pipe(
+                          Effect.andThen(
+                            keeping
+                              ? keepHistoryBody(current.scope, savedDocument, {
+                                  id: document.id,
+                                  reading,
+                                })
+                              : Effect.void,
+                          ),
+                        )
+                      : Effect.void,
                   ),
                 )
               : Effect.succeed({ admitted: false });
@@ -2890,7 +2985,7 @@ export function createGmailInbox(
     if (authentication) {
       yield* askForGmail(reading, id);
     }
-    yield* store(document, { scope, tier, reading }).pipe(
+    yield* store(document, { scope, tier, reading, fromReader: true }).pipe(
       // A body that could not be kept is still shown, unless its mailbox changed meanwhile.
       Effect.catchIf(
         (failure) => failure.kind !== 'invalidated',
@@ -3340,7 +3435,10 @@ export function createGmailInbox(
           pageMessages.filter(([id]) => changed.has(id)),
         ),
         { name, count: messages.length },
-        page.value.nextPageToken,
+        {
+          pageToken: page.value.nextPageToken,
+          ids: messages.map(({ id }) => id),
+        },
       ),
       written: messages.length === 0 ? [] : [[name, messages] as const],
     };

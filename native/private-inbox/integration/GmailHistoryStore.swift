@@ -14,6 +14,10 @@ import Foundation
     let document: String?
     let history: History?
     let name: String?
+    let id: String?
+    let tier: String?
+    let ids: [String]?
+    let protectedIds: [String]?
   }
 
   static func main() throws {
@@ -49,6 +53,38 @@ import Foundation
               connection: connection, address: command.address, subject: "synthetic-history",
               name: name) ?? NSNull()
           ]
+        case "body":
+          guard let id = command.id else { throw PrivateInboxError.invalidStore }
+          response = [
+            "document": try store.openMessageBody(
+              connection: connection, address: command.address, subject: "synthetic-history",
+              id: id) ?? NSNull()
+          ]
+        case "commit-body":
+          let tiers: [String: PrivateInboxStore.BodyTier] = [
+            "opened": .opened, "prefetched": .prefetched, "excluded": .excluded,
+          ]
+          guard let id = command.id, let document = command.document,
+            let tier = command.tier.flatMap({ tiers[$0] })
+          else { throw PrivateInboxError.invalidStore }
+          response = [
+            "admitted": try store.commitMessageBody(
+              connection: connection, address: command.address, subject: "synthetic-history",
+              id: id, document: document, tier: tier, protectedIds: command.protectedIds ?? [],
+              expectedRevision: command.revision)
+          ]
+        case "list-bodies":
+          let (stored, excluded) = try store.listMessageBodies(
+            connection: connection, address: command.address, subject: "synthetic-history",
+            ids: command.ids ?? [])
+          response = ["stored": stored, "excluded": excluded]
+        case "retain-bodies":
+          guard let revision = command.revision else { throw PrivateInboxError.invalidStore }
+          try store.retainMessageBodies(
+            connection: connection, address: command.address, subject: "synthetic-history",
+            expectedRevision: revision, ids: command.ids ?? [],
+            protectedIds: command.protectedIds ?? [])
+          response = [:]
         default:
           throw PrivateInboxError.invalidStore
         }
