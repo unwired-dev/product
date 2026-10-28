@@ -63,7 +63,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     flex: 1,
   },
-  // A 44pt target around the 17pt label, without growing the capsule.
+  // A 44pt target around a 17pt label, without growing the capsule.
   action: {
     minHeight: 44,
     marginVertical: -14,
@@ -439,7 +439,7 @@ function CapsuleStatus({
         accessibilityLabel={said.label}
         accessibilityRole="button"
         onPress={onShowDetails}
-        style={[styles.status, { flex: 1 }]}>
+        style={[styles.status, styles.action, { flex: 1 }]}>
         <SFSymbol
           name="exclamationmark.triangle.fill"
           color={colors.statusWarning}
@@ -711,6 +711,7 @@ function Connection({
   const title = titleOf(t, mailbox);
   const authorize = refused(mailbox.state);
   const action = actionOf(t, mailbox, onAuthorize !== undefined);
+  const status = connectionStatus(t, mailbox, now);
   return (
     <View style={styles.connection}>
       <View style={styles.connectionTitle}>
@@ -738,17 +739,15 @@ function Connection({
           </Pressable>
         )}
       </View>
-      <Text style={[styles.detail, { color: colors.textSecondary }]}>
-        {connectionStatus(t, mailbox, now)}
-      </Text>
-      {/* The status above says the counts; a 3pt bar is too small a target for its own element. */}
-      {percent === undefined ? null : (
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants">
-          <ProgressBar percent={percent} />
-        </View>
-      )}
+      {/* One element: the status says the counts, and a 3pt bar alone is too small a target. */}
+      <View
+        accessible
+        accessibilityLabel={status}>
+        <Text style={[styles.detail, { color: colors.textSecondary }]}>
+          {status}
+        </Text>
+        {percent === undefined ? null : <ProgressBar percent={percent} />}
+      </View>
     </View>
   );
 }
