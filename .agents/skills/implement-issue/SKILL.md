@@ -48,9 +48,12 @@ branches; report unavailable prerequisites without claiming a completed handoff.
    A substantial issue (several independent deliverables or more than one
    reviewable PR), including an explicitly named issue, is implemented through
    sub-issues. Inventory its remaining criteria, open sub-issues and related
-   issues; select an eligible open sub-issue, or file the smallest reviewable
-   slice as a native sub-issue with its dependencies. Leave the parent open and
-   restart this section for the slice before claiming it. If no slice is
+   issues; select an eligible open sub-issue without the `in progress` label, or
+   file the smallest reviewable slice as a native sub-issue with its
+   dependencies. Restart this section for the slice: it becomes the issue you
+   claim, branch for and deliver. Leave the parent open without the
+   `in progress` label, so other work can take its remaining sub-issues. If no
+   slice is
    actionable, leave one comment naming the remaining work; automatic selection
    continues to the next candidate, otherwise report the blocker.
 4. Set up the task branch as in the workflow's
@@ -72,7 +75,9 @@ branches; report unavailable prerequisites without claiming a completed handoff.
    adds a separate claim comment naming your branch and worktree. If the label
    is absent, claim the issue with
    `gh issue edit <number> --add-label "in progress"`, add a claim comment naming
-   the branch and worktree, and confirm both before editing. Claim comments
+   the branch and worktree, and confirm both before editing. When the claimed
+   issue is a sub-issue, also comment on its parent naming the sub-issue,
+   branch and worktree. Claim comments
    identify owners by branch and worktree, since sessions can share one GitHub
    account. Recheck the issue state,
    claim comments and open PRs before each long phase: a decision panel, each
@@ -92,7 +97,9 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
    `gh issue list --label ready-for-agent --search '-label:"in progress"' --limit 1000`.
    Exclude pull requests, `ready-for-human`, `ready-for-test`, `human needed`,
    and `wontfix` issues, plus issues with an open implementation PR or other clear evidence
-   of active implementation. Apply any narrower scope the user
+   of active implementation. For a parent issue, active sub-issue claims and
+   PRs exclude only those sub-issues; keep the parent while it has other
+   eligible slices. Apply any narrower scope the user
    supplied. Do not infer readiness from age or priority alone.
 2. Rank by priority from every priority signal on the issue: the
    organization's native **Priority issue field** and any priority label, such
@@ -222,7 +229,8 @@ The workflow also governs checkout ownership, follow-up coverage and unavailable
 
 Follow [PR delivery and babysitting](../../../docs/agents/pull-request-babysitting.md#implementer-pr-delivery)
 for commit, push, PR creation, explicit user limits and monitoring. Use a closing
-issue reference only when the PR fully resolves it.
+issue reference only when the PR fully resolves it; a slice's PR closes its
+sub-issue and refers to the parent with `Refs #<parent>`.
 
 When an investigation ends without a diff, publish its cases, evidence,
 remaining checks and recommendation as an issue comment and report that no PR
@@ -238,6 +246,9 @@ Keep the `in progress` label while you own the work, including while the PR is
 open. Remove it with `gh issue edit <number> --remove-label "in progress"` when
 your ownership ends: the PR merges or closes, the work is abandoned or handed
 back, or a blocker halts it.
+When a slice's ownership ends, comment on the parent with the sub-issue's
+outcome (merged PR, abandoned or blocked) and the parent's remaining work, and
+close the parent only when no criterion or open sub-issue remains.
 For a parallel implementation, mark only your claim as released and retain the
 label while another implementation owns the issue.
 
