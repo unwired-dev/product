@@ -65,7 +65,8 @@ This policy does not authorize dropping required behavior to fit a component.
 
 A custom standard interaction needs a concrete gap recorded in its issue or
 local task artifact: the requirement, provided APIs/packages checked and their host versions,
-why they cannot meet it, the smallest retained custom part, and the condition
+every documented property of the provided object, the installed declarations
+searched (file and symbols), why they cannot meet it, the smallest retained custom part, and the condition
 for deleting it. Include or link the record in the PR when delivery includes one.
 Keep application-specific content separate from that exception.
 Reviewers reject custom replacements that have a suitable provided equivalent.

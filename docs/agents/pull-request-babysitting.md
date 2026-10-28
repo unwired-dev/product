@@ -36,7 +36,10 @@ work and the stages left undone. After all required
 
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
-threads. A base merge that conflicts in reviewer-only paths follows the
+threads. Fix every instance of a validated finding's defect class in the PR, and
+record that audit in the reply. A failing check that exercises files the PR
+changed blocks the PR even when it is not required. When main is red from an
+earlier merge, file or update the issue that owns it. A base merge that conflicts in reviewer-only paths follows the
 [merge conflict rule](implementation-review.md#reading-responsibilities). After
 a base sync, inspect what changed in agent guides, workflow docs and skills
 since the previous base, and meet any new delivery requirement, such as a design

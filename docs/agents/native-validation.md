@@ -41,6 +41,9 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   lifecycle and result paths. The [Mac runner](../macos-client.md#verification)
   owns its probe project and results; run it against a task-built app on a
   logged-in macOS desktop.
+- Capture screens from the shell that already holds Screen Recording, by window
+  id (`screencapture -l <id>`). A task-built probe or bundle that captures
+  itself raises a permission prompt that a locked desktop cannot dismiss.
 
 Follow the [execution-environment policy](testing.md#execution-environment) for
 sandbox restrictions and the separate PR babysitter validation boundary.
@@ -100,6 +103,8 @@ is Release-optimized with packaged JavaScript plus the test-only probes, with
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
 
 ```sh
+UNWIRED_MOCK_SCENARIO=registration-performance \
+mise exec -- pnpm --filter @private-email/macos native:build Testing
 mise exec -- pnpm --filter @private-email/macos test:native \
   "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
   testWarmCachePerformance
@@ -170,7 +175,8 @@ iPhone and iPad references.
 ### Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
-`Testing` build and sign-in as the performance journey:
+`Testing` build and sign-in as the [performance journey](#mac-performance-journey);
+the runner refuses a build without that scenario:
 
 ```sh
 mise exec -- pnpm --filter @private-email/macos test:native \
@@ -295,7 +301,10 @@ compilation and packaging. Interaction tests prove only the journeys exercised.
 None substitutes for real provider, credential, encrypted-storage, accessibility
 or physical-device qualification.
 
-Record the target, toolchain, command, result and any unavailable check. Available
+Record the target, toolchain, command, result and any unavailable check. Name an
+artifact from proof that its variant ran: stop the run when a setup or patch
+step fails, print a marker from the patched code, and check each capture against
+its label before citing it. Available
 native checks should run when relevant; the earlier tooling exception permits
 implementation to continue without unavailable version-27 evidence, but does
 not waive release qualification or turn deferred checks into passing results.
@@ -313,6 +322,30 @@ class and orientation. Where one is unavailable, check each journey action
 against that class and record the run as deferred. Before deferring a check for
 lack of an entry point, try a cold deep link and a scenario fixture, and record
 the capability that is still missing.
+
+CI runs only the `open-read-relaunch` native journey, so a change to the
+registration flow, the native bridge or journey files builds and runs the
+affected `registration-*` scenarios locally, or records them as unavailable.
+Verify the capture session reaches each changed screen and state with
+representative content, and extend the fixture when it does not. Copied native
+sources follow the regeneration and binary checks in
+[Expo setup](../expo-client.md#install-and-run); these prove build input, not
+interaction. Rich-reader rendering and CSS changes are measured first through
+WKWebView, never Chrome: render the sanitizer's output at the device width in
+Light and Dark from a `scratchpad/` probe, and defer gesture and device-chrome
+checks when simulator automation is unavailable.
+
+When the journey that reaches a changed state fails later at a tracked,
+pre-existing point, place the new step before that point and report the new
+assertions' result with the failing line and its issue, instead of deferring the
+check. Before rerunning a failed native, visual or accessibility check, record
+the environment facts its baseline assumes (appearance, display layout, locale,
+host load, windows open during an audit) and compare them. When a native CI
+failure does not reproduce locally, compare CI's pinned Xcode and runtime with
+the host's, then run CI's `expo-native-app-<run>` artifact locally to separate
+the build from the test toolchain. If it stays unexplained, push the hypotheses
+on a separate `[WIP]` diagnostic PR that runs them in one CI pass, and close it
+unmerged.
 
 ## Required release checks
 
