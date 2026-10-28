@@ -36,7 +36,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { KeyboardAvoidingView, SectionList, Text, View } from 'react-native';
+import { SectionList, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 

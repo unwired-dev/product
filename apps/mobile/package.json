@@ -39,6 +39,7 @@
     "react-i18next": "catalog:",
     "react-native": "catalog:mobile",
     "react-native-gesture-handler": "catalog:mobile",
+    "react-native-keyboard-controller": "catalog:mobile",
     "react-native-reanimated": "catalog:mobile",
     "react-native-safe-area-context": "catalog:mobile",
     "react-native-screens": "catalog:mobile",
