@@ -393,7 +393,9 @@ styles) so the file stays editable.
   Received attachments sit below their message body, with availability and actions
   following the [received-attachment contract](docs/gmail-inbox.md#received-attachments).
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
-  pane, per the
+  pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
+  safe area, and the reading pane runs to the screen's bottom edge beneath them,
+  per the
   [conversation reader requirements](docs/product/messages-and-delivery.md):
   Reply, Reply All, Forward and the multi-select Category control, which target
   the newest message; Archive, Delete, Move, Spam, Pin, Muted Thread, and Mark

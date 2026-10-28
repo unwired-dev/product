@@ -30,6 +30,11 @@ jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
 }));
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- The reader clears the home indicator itself; this host has no inset.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }),
+}));
+
 // The application callback behind a rendered control, as delayed native input would invoke it.
 const pressHandler = (
   element: Parameters<typeof fireEvent.press>[0],
