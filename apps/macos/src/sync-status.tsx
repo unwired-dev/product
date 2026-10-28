@@ -6,7 +6,6 @@ import { spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import type { InboxMailbox } from './private-storage.ts';
 
 import { Action } from './action.tsx';
 import {
+  AnimatedPanel,
   Glass,
   Popover,
   SFSymbol,
@@ -256,7 +256,7 @@ export function SyncStatusCapsule({
     return null;
   }
   return (
-    <Animated.View
+    <AnimatedPanel
       accessibilityElementsHidden={!open}
       pointerEvents={open ? 'auto' : 'none'}
       onLayout={({ nativeEvent }) => {
@@ -291,7 +291,7 @@ export function SyncStatusCapsule({
           }}
         />
       </Popover>
-    </Animated.View>
+    </AnimatedPanel>
   );
 }
 
