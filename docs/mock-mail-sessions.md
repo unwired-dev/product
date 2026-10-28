@@ -44,7 +44,7 @@ summarizes a message through this synthetic native binding.
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the fourteen registration scenarios
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the registration scenarios
 described in [Google registration](google-registration.md#deterministic-evidence),
 [Apple registration](apple-registration.md#deterministic-evidence),
 [linked sign-in](linked-sign-in.md#deterministic-evidence),
