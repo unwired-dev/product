@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Usage: scripts/stale-claims [--days <n>]
+# Comments once on each open `in progress` issue that has no open pull request
+# and no claim-branch commit for <n> days (default 3), and never removes the
+# label. It dates a claim by its scripts/issue-claim marker, falling back to the
+# date the label was added. Policy: docs/agents/issue-tracker.md.
+set -euo pipefail
+
+days=3
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --days) days=${2:?--days needs a value}; shift ;;
+    *) sed -n '2s/^# //p' "$0" >&2; exit 2 ;;
+  esac
+  shift
+done
+[[ $days =~ ^[0-9]+$ ]] || { echo "stale-claims: --days must be a whole number" >&2; exit 2; }
+
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+prs=$(gh pr list --repo "$repo" --state open --limit 1000 --json headRefName,closingIssuesReferences)
+issues=$(gh issue list --repo "$repo" --state open --label "in progress" --limit 1000 --json number --jq '.[].number')
+
+# Prints the date of the newest commit on a branch, or nothing when it does not exist.
+branch_date() {
+  gh api graphql -F owner="${repo%/*}" -F name="${repo#*/}" -f ref="refs/heads/$1" \
+    -f query='query($owner: String!, $name: String!, $ref: String!) {
+      repository(owner: $owner, name: $name) { ref(qualifiedName: $ref) { target { ... on Commit { committedDate } } } }
+    }' --jq '.data.repository.ref.target.committedDate // empty'
+}
+
+for issue in $issues; do
+  comments=$(gh api "repos/$repo/issues/$issue/comments" --paginate --slurp | jq -c '[.[][] | {body, created_at}]')
+  # Active claims as {owner: claim date}, read like scripts/issue-claim reads them.
+  claims=$(jq -c 'reduce (.[] | .created_at as $at | .body
+      | capture("<!-- issue-(?<kind>claim|release) (?<owner>\\{.*?\\}) -->"; "g") | .at = $at) as $m
+    ({}; if $m.kind == "claim" then .[$m.owner] = $m.at else del(.[$m.owner]) end)' <<<"$comments")
+  since=$(jq -r '[.[]] | max // empty' <<<"$claims")
+  [[ -n $since ]] || since=$(gh api "repos/$repo/issues/$issue/events" --paginate --slurp |
+    jq -r '[.[][] | select(.event == "labeled" and .label.name == "in progress")] | last | .created_at // empty')
+  [[ -n $since ]] || { echo "#$issue: no claim or label date" >&2; continue; }
+  # The claim's date identifies it, so a new claim or label can be flagged again.
+  marker="<!-- issue-stale-claim $since -->"
+  if jq -e --arg marker "$marker" 'any(.[]; .body | contains($marker))' <<<"$comments" >/dev/null; then
+    echo "#$issue: already flagged"
+    continue
+  fi
+  branches=$(jq -c '[keys[] | fromjson | .branch]' <<<"$claims")
+  if jq -e --argjson number "$issue" --arg repo "$repo" --argjson branches "$branches" 'any(.[];
+      (.headRefName | IN($branches[])) or
+      any(.closingIssuesReferences[]; .number == $number and "\(.repository.owner.login)/\(.repository.name)" == $repo))' \
+    <<<"$prs" >/dev/null; then
+    echo "#$issue: open pull request"
+    continue
+  fi
+  latest=$since
+  while IFS= read -r branch; do
+    committed=$(branch_date "$branch")
+    [[ ${committed:0:19} < ${latest:0:19} ]] || latest=$committed
+  done < <(jq -r '.[]' <<<"$branches")
+  # shortcut: drops a commit date's UTC offset, at most 14 hours against a threshold of days.
+  if jq -en --arg latest "$latest" --argjson days "$days" '($latest[0:19] + "Z" | fromdateiso8601) > now - $days * 86400' >/dev/null; then
+    echo "#$issue: active since ${latest:0:10}"
+    continue
+  fi
+  gh issue comment "$issue" --repo "$repo" --body "This \`in progress\` claim has no open pull request and no claim-branch commit since ${latest:0:10}. If the work has stopped, remove the label or ask an agent to take the issue over.
+
+$marker" >/dev/null
+  echo "#$issue: flagged"
+done

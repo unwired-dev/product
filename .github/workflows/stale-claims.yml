@@ -1,0 +1,31 @@
+name: Stale claims
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: stale-claims
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Flag stale in progress claims
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Comment on stale claims
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Days without an open pull request or claim-branch commit; a repository variable overrides it.
+          DAYS: ${{ vars.STALE_CLAIM_DAYS || 3 }}
+        run: scripts/stale-claims --days "$DAYS"
