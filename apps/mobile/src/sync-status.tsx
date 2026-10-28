@@ -53,6 +53,16 @@ const styles = StyleSheet.create({
   line: {
     paddingBottom: 10,
   },
+  // Progress owns the capsule's padding so the whole height opens the details.
+  progress: {
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  progressAction: {
+    minHeight: 44,
+    paddingTop: 10,
+    paddingBottom: 12,
+  },
   status: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -104,7 +114,9 @@ const styles = StyleSheet.create({
   // A 44pt target around Done, without growing the header.
   done: {
     minHeight: 44,
+    minWidth: 44,
     marginVertical: -11,
+    alignItems: 'flex-end',
     justifyContent: 'center',
   },
   connection: {
@@ -332,7 +344,7 @@ export function SyncStatusCapsule({
       }}
       style={[
         styles.capsule,
-        said.percent === undefined && styles.line,
+        said.kind === 'progress' ? styles.progress : styles.line,
         {
           width,
           borderRadius: height / 2,
@@ -469,7 +481,11 @@ function CapsuleStatus({
           ? undefined
           : { min: 0, max: 100, now: said.percent }
       }
-      onPress={onShowDetails}>
+      onPress={onShowDetails}
+      style={[
+        styles.progressAction,
+        said.percent === undefined && styles.line,
+      ]}>
       <View style={styles.status}>
         <ActivityIndicator
           size="small"

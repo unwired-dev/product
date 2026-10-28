@@ -58,6 +58,7 @@ final class InboxTests: XCTestCase {
     let progress = app.buttons
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Updating 1 account")).firstMatch
     XCTAssertTrue(progress.waitForExistence(timeout: 30))
+    XCTAssertGreaterThanOrEqual(settledFrame(of: progress).height, 44)
     try audit(app, "Sync Status Progress")
     progress.tap()
     let title = app.staticTexts["Sync Status"]
@@ -69,6 +70,9 @@ final class InboxTests: XCTestCase {
     try audit(app, "Sync Status Details Progress")
     let done = app.buttons["Done"]
     if done.exists {
+      let target = settledFrame(of: done)
+      XCTAssertGreaterThanOrEqual(target.width, 44)
+      XCTAssertGreaterThanOrEqual(target.height, 44)
       done.tap()
     } else {
       // The popover closes with a tap outside it, here on the empty reading pane.

@@ -1413,6 +1413,11 @@ still applies. See `docs/architecture/macos-client.md`.
   Preserve native dismissal ordering for sheet-to-sheet choices, and keep native
   focus-return evidence distinct from rendered open-state assertions.
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- A new action in `sync-status.tsx` or another compact control counting its
+  non-interactive parent's padding toward the required 44pt iPhone target.
+  Trace the actual pressable bounds and any hit slop in the native tree, including
+  progress without a bar and short labels such as Done; otherwise a large-looking
+  capsule or sheet header still exposes an undersized action.
 - `inbox-bar.tsx.FilterControl` retaining a sheet-specific `accessibilityHint`
   after a regular-width layout opens a popover. Trace the destination in compact
   and regular modes; name the common Filters destination or localize each
