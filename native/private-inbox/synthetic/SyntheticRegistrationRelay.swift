@@ -143,6 +143,31 @@
     }
   }
 
+  // Draft saves fail from the external XCTest's `.draft-saves-fail` notification until its
+  // `.draft-saves-restore`, so a journey can leave a composer with a failed save (#778).
+  @MainActor enum SyntheticDraftSaveFailure {
+    private static var failing = false
+    private static var observing = false
+
+    static func observe() {
+      guard !observing, let bundle = Bundle.main.bundleIdentifier else { return }
+      observing = true
+      let center = CFNotificationCenterGetDarwinNotifyCenter()
+      CFNotificationCenterAddObserver(
+        center, nil,
+        { _, _, _, _, _ in Task { @MainActor in SyntheticDraftSaveFailure.failing = true } },
+        (bundle + ".draft-saves-fail") as CFString, nil, .deliverImmediately)
+      CFNotificationCenterAddObserver(
+        center, nil,
+        { _, _, _, _, _ in Task { @MainActor in SyntheticDraftSaveFailure.failing = false } },
+        (bundle + ".draft-saves-restore") as CFString, nil, .deliverImmediately)
+    }
+
+    static func check() throws {
+      if failing { throw RegistrationError.unavailable }
+    }
+  }
+
   // A synthetic answer's fields; anything malformed is unavailable.
   @MainActor private func ask(_ operation: String, _ payload: [String: Any] = [:]) async throws
     -> [String: Any]

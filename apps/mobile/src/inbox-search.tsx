@@ -21,6 +21,7 @@ import {
   FloatingBar,
   NewMessageButton,
   SearchField,
+  useBarBottomInset,
   WindowBarContext,
 } from './inbox-bar.tsx';
 import { InboxFilterButton } from './inbox-filters.tsx';
@@ -146,6 +147,7 @@ export function InboxBar({
   const { t } = useLocalization();
   const header = usePaletteHeader();
   const inWindow = use(WindowBarContext) !== undefined;
+  const bottomInset = useBarBottomInset();
   const compact = filter.on && !searching && !inWindow;
   let trailing = null;
   if (searching) {
@@ -169,6 +171,7 @@ export function InboxBar({
       hidden={hidden}
       notice={notice}
       listNotice={listNotice}
+      bottomInset={bottomInset}
       leading={
         searching || !ready ? null : <InboxFilterButton state={filter} />
       }

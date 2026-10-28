@@ -54,7 +54,11 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
-import { WindowBarContext } from './inbox-bar.tsx';
+import {
+  useBarBottomInset,
+  useBarIndicatorInsets,
+  WindowBarContext,
+} from './inbox-bar.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
 import { HeadingTitle, InboxHeading } from './inbox-heading.tsx';
 import {
@@ -652,6 +656,8 @@ export function Inbox({
   const search = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
   const inWindow = use(WindowBarContext) !== undefined;
+  const bottomInset = useBarBottomInset();
+  const indicatorInsets = useBarIndicatorInsets();
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -920,7 +926,7 @@ export function Inbox({
       testID="inbox-surface"
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <SafeAreaView
-        edges={{ top: true, bottom: true, left: true }}
+        edges={{ top: true, bottom: inWindow, left: true }}
         style={styles.fill}>
         <View style={styles.fill}>
           <InboxHeading
@@ -1010,7 +1016,11 @@ export function Inbox({
                 nativeEvent.contentOffset.y > 0 ? keepTopRow : undefined,
               );
             }}
-            contentContainerStyle={styles.list}
+            contentContainerStyle={[
+              styles.list,
+              { paddingBottom: styles.list.paddingBottom + bottomInset },
+            ]}
+            scrollIndicatorInsets={indicatorInsets}
             refreshing={refreshing}
             onRefresh={() => {
               void refresh();

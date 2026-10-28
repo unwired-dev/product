@@ -334,7 +334,53 @@ final class InboxTests: XCTestCase {
     shot.name = "Apple registration with Microsoft mail and Gmail"
     shot.lifetime = .keepAlways
     add(shot)
+    failedSaveBack(app)
     sendJourney(app)
+  }
+
+  // #778: the iPhone composer covers the split columns, so neither the reader's Back button nor an
+  // edge swipe leaves a Draft whose save failed. It stays open with its edits until a retry saves.
+  private func failedSaveBack(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let identifier = ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"]!
+    let post = { (name: String) in
+      CFNotificationCenterPostNotification(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        CFNotificationName((identifier + name) as CFString), nil, nil, true)
+    }
+    let back = app.navigationBars.buttons.matching(
+      NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
+    ).firstMatch
+    XCTAssertTrue(back.isHittable)
+    post(".draft-saves-fail")
+    app.buttons["New Message"].tap()
+    let composer = app.otherElements["composer-overlay"]
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    subject.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("Unsaved plans", into: subject)
+    app.buttons["Close"].tap()
+    let blocked = text("This Draft could not be saved, so it stays open.", in: app)
+    XCTAssertTrue(blocked.waitForExistence(timeout: 10))
+    XCTAssertFalse(back.isHittable)
+    // A slow swipe, as people drag, and a fast one.
+    for velocity in [XCUIGestureVelocity.slow, .fast] {
+      edgeSwipe(app, completing: true, velocity: velocity)
+      _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Back transition")], timeout: 2)
+      XCTAssertTrue(composer.exists)
+      XCTAssertEqual(subject.value as? String, "Unsaved plans")
+      XCTAssertFalse(back.isHittable)
+    }
+    let kept = XCTAttachment(screenshot: app.screenshot())
+    kept.name = "Composer kept open after a failed save and Back swipes"
+    kept.lifetime = .keepAlways
+    add(kept)
+    post(".draft-saves-restore")
+    composer.buttons["Try again"].tap()
+    waitUntil { !composer.exists }
+    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    waitUntil { back.isHittable }
   }
 
   // #1037: the Mailboxes Profile Switcher opens its system menu, listing the Primary Profile with
@@ -1839,6 +1885,7 @@ final class InboxTests: XCTestCase {
       XCTWaiter.wait(
         for: [XCTNSPredicateExpectation(predicate: aboveKeyboard, object: nil)], timeout: 10),
       .completed)
+    verifyCompactIndicator(app, bar: search)
     // Search lists matches under Top Results until Close returns to the Inbox.
     type("Maya", into: search)
     XCTAssertTrue(
@@ -1859,6 +1906,8 @@ final class InboxTests: XCTestCase {
     verifyCompactSwipeBackToResults(app, search: search, row: maya)
     app.buttons["Close Search"].tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
+    // React Native resets the indicator inset as the keyboard leaves.
+    verifyCompactIndicator(app, bar: search)
     verifyCompactInboxHeader(app)
     // Close also empties the field, which is not controlled by the query (#970).
     XCTAssertEqual(search.value as? String, "Search")
@@ -2329,6 +2378,16 @@ final class InboxTests: XCTestCase {
     waitUntil { abs(footer.frame.minY - placed.minY) <= 2 }
   }
 
+  // #1506: the list's scroll indicator track stops at the floating bar the rows run under, at rest
+  // and above the keyboard.
+  private func verifyCompactIndicator(_ app: XCUIApplication, bar: XCUIElement) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let track = app.otherElements["Inbox messages"].firstMatch.otherElements
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Vertical scroll bar")).firstMatch
+    XCTAssertTrue(track.waitForExistence(timeout: 10))
+    waitUntil { abs(track.frame.maxY - bar.frame.minY) <= 1 }
+  }
+
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
   // entry the end of the list scrolls clear of the floating bar. The runner starts the simulator in
   // Dark unless UNWIRED_APPEARANCE is light; Dark shows a surface that stops short against the
@@ -2351,6 +2410,7 @@ final class InboxTests: XCTestCase {
         placed = footer.frame
       }
       waitUntil { footer.frame.maxY <= search.frame.minY }
+      verifyCompactIndicator(app, bar: search)
     }
     // #1364: the floating bar sits 4pt above the bottom safe area, as the frames show. The runner's own
     // window shares the device's safe area.
@@ -2362,6 +2422,8 @@ final class InboxTests: XCTestCase {
     let safeArea = runnerWindow.safeAreaInsets.bottom
     let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
     XCTAssertEqual(window.maxY - filter.frame.maxY, safeArea + 4, accuracy: 1)
+    // #1506: the rows run under the floating bar and the home indicator to the screen's bottom edge.
+    XCTAssertEqual(app.otherElements["Inbox messages"].firstMatch.frame.maxY, window.maxY)
     let colors = pixels(app, at: [surface, edge])
     let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
     let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
