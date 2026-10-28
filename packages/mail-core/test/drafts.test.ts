@@ -339,8 +339,8 @@ describe('editing a Semantic Message Document', () => {
     expect(withoutImage(withPicture, image.id)).toStrictEqual(inside);
     // Replacing a link's whole text, or its start or end, keeps the destination.
     expect(
-      replaceSelection(inside, { start: 5, end: 17 }, 'the proposal').document[0]
-        .spans,
+      replaceSelection(inside, { start: 5, end: 17 }, 'the proposal')
+        .document[0].spans,
     ).toStrictEqual([
       { text: 'Read ' },
       { text: 'the proposal', link },
