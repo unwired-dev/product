@@ -2226,6 +2226,9 @@ final class InboxTests: XCTestCase {
       }
       waitUntil { footer.frame.maxY <= search.frame.minY }
     }
+    // #1364: the floating bar sits 4pt above the home indicator's 34pt safe area, as the frames show.
+    let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
+    XCTAssertEqual(window.maxY - filter.frame.maxY, 38, accuracy: 1)
     let colors = pixels(app, at: [surface, edge])
     let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
     let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]

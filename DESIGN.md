@@ -361,7 +361,8 @@ styles) so the file stays editable.
 - **Search bar:** search and New Message share one floating glass bar at the
   bottom of the window, as the [organization requirements](docs/product/organization.md)
   specify. The search field is 400pt wide and centered, with New Message pinned
-  to the trailing edge. On compact layouts it spans the screen width. Rows scroll
+  to the trailing edge. On compact layouts it spans the screen width and sits 4pt
+  above the bottom safe area, or 12pt above the software keyboard. Rows scroll
   under it behind a 72pt scroll edge fade. It hides while the composer is open;
   on Mac, explicitly invoking Search Mail reveals it while keeping the overlay
   Draft open.

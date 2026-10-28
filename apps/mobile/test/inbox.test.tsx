@@ -637,7 +637,8 @@ describe('preview Inbox', () => {
           endCoordinates: { screenX: 0, screenY: 488, width: 500, height: 280 },
         });
       });
-      expect(list).toHaveStyle({ paddingBottom: 280 });
+      // The compact bar sits 12pt above the keyboard, 8pt more than its 4pt bottom padding.
+      expect(list).toHaveStyle({ paddingBottom: 288 });
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'automaticallyAdjustKeyboardInsets',
         false,
