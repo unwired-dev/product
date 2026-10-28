@@ -375,7 +375,8 @@ export function SyncStatusCapsule({
   );
 }
 
-// The details on the capsule: a popover anchored to it, or a medium-detent sheet.
+// The details on the capsule: a popover above it, or a medium-detent sheet. Left to choose, the
+// system opens the Attention capsule's popover beside it, over the search bar.
 function Presenter({
   isPresented,
   onIsPresentedChange,
@@ -390,6 +391,7 @@ function Presenter({
   return usePopover() ? (
     <Host matchContents>
       <Popover
+        arrowEdge="top"
         isPresented={isPresented}
         onIsPresentedChange={onIsPresentedChange}>
         <Popover.Trigger>
