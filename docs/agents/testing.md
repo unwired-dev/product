@@ -129,6 +129,9 @@ Convex backend:
 
 The workflow files [CI](../../.github/workflows/ci.yml) and
 [Mobile](../../.github/workflows/mobile.yml) and [Mac](../../.github/workflows/macos.yml) define the automated commands.
+Pull requests that change only `docs/`, `.agents/` and Markdown files skip the Mobile and Mac
+jobs, which no build input reaches; GitHub accepts the skipped required `Expo mobile` check.
+TypeScript and Fallow still run, and pushes to `main` run every job.
 [Expo validation](../expo-client.md#validate) documents local commands and their
 limits. The native E2E jobs run the iPhone and iPad Inbox journeys on hosted macOS;
 no nightly validation matrix is currently configured. The Swift prototype tests
