@@ -67,7 +67,13 @@ in each review report and in the PR description.
 
 Keep the required review model and reasoning settings above. If an eligible
 GPT model is unavailable, report that delegation as blocked and continue
-independent work; do not fall back to a non-GPT model.
+independent work; do not fall back to a non-GPT model. When T3 delegation is
+unavailable, run a fresh reviewer from a handoff file with
+`codex exec -m gpt-6.1-sol -c model_reasoning_effort='"high"' --dangerously-bypass-approvals-and-sandbox -C <checkout> - < <handoff>`.
+This unrestricted example is for trusted local work with session authorization.
+Otherwise use the permitted sandbox mode; the
+[execution-environment policy](testing.md#execution-environment), including the
+PR babysitter boundary, still applies.
 
 ## Reading responsibilities
 
@@ -167,9 +173,13 @@ over generic skill examples for both roles.
    For standard UI work, record the
    [component choice](native-components.md#choose-the-provided-implementation)
    before implementing, and exercise the smallest affected native journey before
-   expanding the change. Implement and run the selected checks. Documentation
-   changes use formatting, local links and any affected example, command or
-   workflow contracts.
+   expanding the change. List each interaction the component choice claims to
+   preserve with the native check that exercised it, or as unverified. Implement
+   and run the selected checks. Documentation changes use formatting, local
+   links and any affected example, command or workflow contracts. Commit a local
+   snapshot once the first implementation passes its targeted checks.
+   Run `git checkout`, `reset`, `restore` or `clean` as its own command
+   after reading `git status`, never chained after another step.
 4. Pin the actual comparison and hand off first to a separate simplicity reviewer
    with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"` and `fork_turns: "none"`.
    Link or quote the [subagent model policy](#subagent-model-policy) with every
@@ -178,9 +188,14 @@ over generic skill examples for both roles.
    commit, summary, task-owned files, pre-existing changes, checks/results
    (including the `scripts/pre-handoff.sh` verdict line for code changes),
    limitations and [round history](#four-round-safeguard). For UI, include the
-   selected API, remaining gaps and native evidence or deferred checks. Include
-   prior findings, their dispositions and any completed review conclusions
-   proposed for reuse.
+   [state list](#design-approval), the selected API, remaining gaps,
+   preserved interactions with their checks, and native evidence or deferred
+   checks. Cite the documented precedent for a cross-cutting rule, such as an
+   invalidation or retirement rule. Name an evidence directory under
+   `scratchpad/`, confirmed with `git check-ignore -v <path>` for that exact
+   path. Tell the reviewer to run checks in the foreground: the end of its turn
+   is its final report. Include prior findings, their dispositions and any
+   completed review conclusions proposed for reuse.
    For uncommitted work, include staged/unstaged diffs and task-owned untracked
    files. A commit-only diff does not cover them. Give the simplicity reviewer
    the original starting commit and full task comparison. After its final report,
@@ -200,8 +215,8 @@ over generic skill examples for both roles.
    and fresh-context settings for every reviewer. Never run two
    writing reviewers at once. Record inapplicable passes with their reason,
    including design review when no client-visible behavior changed.
-   A failed, cancelled or interrupted reviewer is incomplete whatever its summary
-   says. Before a fresh handoff, inventory its changed paths, commits, artifacts,
+   A failed, cancelled or interrupted reviewer, or a report missing the handoff's
+   required results, is incomplete whatever its summary says. Before a fresh handoff, inventory its changed paths, commits, artifacts,
    processes and devices; the replacement validates that inherited work.
 6. Apply the [review-depth rule](#review-depth) to later fixes and PR feedback.
    Identify invalidated conclusions explicitly. OCR reuse must satisfy its
@@ -303,7 +318,11 @@ Before further implementation edits or review after either limit is reached:
    For React, React Native or Expo code, follow the
    [native skill selection](native-components.md#skills).
 4. Independently validate each finding. Fix confirmed issues directly in the
-   checkout, preserving unrelated work. Update affected tests and documentation,
+   checkout, preserving unrelated work, and audit every instance of a finding's
+   defect class in the change. When a fix would add a native module, public
+   interface or cross-host mechanism the task did not plan, or read a rule more
+   strictly than its documented precedent, report it with the alternative of
+   narrowing the slice and a follow-up issue; the implementer decides. Update affected tests and documentation,
    including architecture docs when needed. This assignment includes fixes,
    even when a review skill's default output is only a findings report.
 5. Run the checks appropriate to the fixes, including `scripts/pre-handoff.sh`
@@ -440,6 +459,12 @@ styles, copy, icons, motion, notifications or accessibility labels.
    captures, design follow-ups and any panel outcomes.
 
 ## Design approval
+
+Before the first UI edit, list every visible state the change adds or alters,
+with its platform, screen and Figma frame ID. Include copy, localized strings,
+sender availability, accessibility labels and system-control states such as
+refresh spinners, menus, sheets and launch placeholders. Reuse this list in the
+design-review handoff.
 
 A request for visual design or redesign, or any change to how a maintained
 client looks that the Figma frames do not already show, starts in Figma.

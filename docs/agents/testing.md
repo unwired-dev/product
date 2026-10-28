@@ -93,6 +93,25 @@ for every changed line.
 | Documentation-only change              | Documentation formatting, links, examples, or other directly relevant checks; product tests are not required                          |
 | Protected or unavailable external seam | The strongest deterministic local evidence plus a documented manual, protected, or pre-release check                                  |
 
+A regression test is evidence only once it fails on the unfixed code: run it
+against the base or with the fix reverted and record that failure. When a
+reported failure cannot be observed directly, reproduce it as a failing
+integration test at the nearest real seam that produces the reported state, and
+name that seam in the PR.
+
+A test keeps the documented expectation when newly observed behavior disagrees
+with the feature guide or an open issue.
+
+Record each check command's exit status, including separately when batching,
+with skipped-test counts and reasons. An output tail or a pipe's final command
+does not establish the check's status. Unavailable or skipped checks do not prove their behavior. When a
+skip reason describes the current environment, enable the check or report it
+as unexecuted.
+
+For experiments and benchmarks, validate isolation across every stratum and run
+a cheap end-to-end baseline before long compute; record the corpus and
+configuration identity.
+
 Run the smallest meaningful checks first. Broaden validation when shared configuration,
 workspace wiring, cross-package behavior, or a high-consequence boundary changes.
 
