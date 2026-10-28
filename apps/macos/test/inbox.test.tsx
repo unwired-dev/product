@@ -1,5 +1,7 @@
 import { ok } from 'node:assert/strict';
 
+import type { TurboModule } from 'react-native';
+
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
@@ -10,16 +12,46 @@ import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-stor
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   within,
 } from '@testing-library/react-native';
+import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+
+// Only the native menu boundary is substituted; its events arrive as the host sends them.
+const commandEvents = () => {
+  const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  const menu: TurboModule = {};
+  return jest
+    .spyOn(TurboModuleRegistry, 'get')
+    .mockImplementation((name) =>
+      name === 'UnwiredCommands' ? menu : get(name),
+    );
+};
+
+// A connected Gmail Inbox with one saved message.
+const renderGmailInbox = async () => {
+  const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+  gmail.deliver({ subject: 'Saved mail remains available' });
+  const inbox = createGmailInbox(gmail.native);
+  await render(
+    <InboxProvider mailboxes={singleMailbox(inbox, 'work-mailbox')}>
+      <Inbox
+        onSelect={() => undefined}
+        selected={undefined}
+      />
+    </InboxProvider>,
+  );
+  await screen.findByText('Saved mail remains available');
+  return { gmail, inbox };
+};
 
 describe('message list', () => {
   it('shows the last update only for Inboxes, leaving it out of a label and unified Sent', async () => {
@@ -122,6 +154,72 @@ describe('message list', () => {
       await cleanup();
       inbox.forget();
       frames.mockRestore();
+    }
+  });
+
+  it('opens each connection’s sync status from the capsule and tries that connection again', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.fail({ code: 'unavailable' });
+      await act(inbox.load);
+      await fireEvent.press(
+        screen.getByRole('button', { name: '1 account needs attention' }),
+      );
+      const details = within(screen.getByTestId('sync-status-details'));
+      expect([
+        details.getByRole('header').props.children,
+        details.getByText(/could not be reached/u).props.children,
+      ]).toStrictEqual([
+        'Sync Status',
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ]);
+      expect(
+        details.getByText(/^Last updated .* · View › Refresh \(⌘R\)$/u),
+      ).toBeOnTheScreen();
+      // The connection's own Try Again synchronizes it, and the capsule leaves with its failure.
+      gmail.deliver({ subject: 'Arrives after Try Again' });
+      await act(async () => {
+        await fireEvent.press(
+          details.getByRole('button', {
+            name: 'Try Again for Gmail · work-mailbox',
+          }),
+        );
+      });
+      await expect(
+        screen.findByText('Arrives after Try Again'),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.queryByRole('button', { name: '1 account needs attention' }),
+      ).toBeNull();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('synchronizes the Inbox when View › Refresh is chosen in its window', async () => {
+    expect.hasAssertions();
+    const commands = commandEvents();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.deliver({ subject: 'Arrives with Refresh' });
+      await act(async () => {
+        DeviceEventEmitter.emit('refresh', { window: 'inbox-window-other' });
+        await Promise.resolve();
+      });
+      expect(screen.queryByText('Arrives with Refresh')).toBeNull();
+      await act(async () => {
+        DeviceEventEmitter.emit('refresh', { window: 'inbox-window-' });
+        await Promise.resolve();
+      });
+      await expect(
+        screen.findByText('Arrives with Refresh'),
+      ).resolves.toBeOnTheScreen();
+    } finally {
+      await cleanup();
+      inbox.forget();
+      commands.mockRestore();
     }
   });
 

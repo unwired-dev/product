@@ -111,8 +111,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
   **Retry change** or **Discard change**, prefixed with its address when there are
-  several. On iPhone and iPad the [Sync Status Capsule](#sync-status-capsule)
-  reports unreachable mailboxes together instead of a notice for each. **Allow Gmail access** authorizes only that mailbox, with the same Google
+  several. The [Sync Status Capsule](#sync-status-capsule) reports unreachable
+  mailboxes together instead of a notice for each. **Allow Gmail access** authorizes only that mailbox, with the same Google
   account. When a verification finds one mailbox's grant refused, that mailbox shows
   **Gmail needs your permission again** and **Allow Gmail access for** its address,
   and its saved mail stays closed, while every other mailbox stays open and usable.
@@ -336,7 +336,9 @@ start nothing meanwhile. A failure keeps the saved list and shows the status bel
 
 On iPhone and iPad a Liquid Glass capsule floats 12pt above the Inbox bar, centred
 over the list, while the shown mailboxes synchronize or need attention
-([#1441](https://github.com/unwired-dev/product/issues/1441)). The list scrolls
+([#1441](https://github.com/unwired-dev/product/issues/1441)); on Mac it floats
+12pt above the search bar, centred over the message list
+([#1443](https://github.com/unwired-dev/product/issues/1443)). The list scrolls
 under it and never moves. On iPad, when a docked keyboard raises the window's bar
 during search, the capsule rises with it and stays 12pt above it.
 
@@ -344,7 +346,7 @@ during search, the capsule rises with it and stays 12pt above it.
   mailboxes still checking their server or downloading All Mail's history. While
   a history pass knows Gmail's total, the message adds the combined percentage and
   a progress bar shows it. Automatic synchronization appears only after a second;
-  a pull-down refresh shows it at once.
+  a pull-down refresh, or **View › Refresh** (⌘R) on Mac, shows it at once.
 - **Attention.** A failure replaces the progress with a warning,
   **1 account needs attention** and **Try Again**, which synchronizes only the
   mailboxes needing authorization, that could not be reached, or whose history pass paused, once
@@ -353,9 +355,16 @@ during search, the capsule rises with it and stays 12pt above it.
 - **Idle.** The capsule fades out. A refused grant or password also keeps its own
   authorization notice above the list, and the sidebar keeps each connection's problem.
 
-Per-account details and the Mac capsule follow in
-[#1442](https://github.com/unwired-dev/product/issues/1442) and
-[#1443](https://github.com/unwired-dev/product/issues/1443).
+On Mac, clicking the capsule opens **Sync Status** in an AppKit popover above it.
+Each shown connection has a row with its provider and address and what it is doing:
+checking its server, downloading history with its message count and a progress bar,
+up to date with its last update, or its problem with a warning and its own
+**Try Again**, which synchronizes only that connection. Below the rows the popover
+gives the time the shown mailboxes were last all up to date and points to
+**View › Refresh** (⌘R), which synchronizes the key window's shown mailboxes and
+their listed view. Clicking elsewhere or pressing Escape closes the popover, and it
+closes with the capsule. Per-account details on iPhone and iPad follow in
+[#1442](https://github.com/unwired-dev/product/issues/1442).
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache

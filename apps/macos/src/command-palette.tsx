@@ -295,6 +295,32 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
   }, [identifier]);
 }
 
+// While mounted, View › Refresh, Command-R, chosen in this window runs `refresh`.
+export function useRefreshCommand(refresh: () => void) {
+  const { identifier } = use(PaletteContext);
+  const refreshNow = useRef(refresh);
+  useLayoutEffect(() => {
+    refreshNow.current = refresh;
+  }, [refresh]);
+  useEffect(() => {
+    const menu = commandMenu();
+    if (menu === null) {
+      return undefined;
+    }
+    const subscription = new NativeEventEmitter(menu).addListener(
+      'refresh',
+      ({ window }: { readonly window: string }) => {
+        if (window === identifier) {
+          refreshNow.current();
+        }
+      },
+    );
+    return () => {
+      subscription.remove();
+    };
+  }, [identifier]);
+}
+
 // Collects the commands the window's screens offer; every window has one, above every screen that
 // shows the CommandBar.
 export function CommandPaletteProvider({

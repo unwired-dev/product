@@ -1151,7 +1151,7 @@ describe('product registration', () => {
     synthetic.google.refreshFailure = undefined;
     ({ openMailbox } = gmail.native);
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
     });
     await expect(
       screen.findByText('After verification'),

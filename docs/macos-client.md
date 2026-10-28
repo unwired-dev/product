@@ -42,7 +42,7 @@ native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
 `UnwiredMenu` and `UnwiredAlert` presenters, `UnwiredAppleIDButton`,
-`UnwiredPushButton`, `UnwiredPopUpButton` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
+`UnwiredPushButton`, `UnwiredPopUpButton`, `UnwiredPopover` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
 `UnwiredPopUpButton`. Settings rows, the IMAP security field and the composer's From
 and Text style show their current choice and open their menu over it, with the choice
 checked. The reader's Folders and More and the composer's actions and Writing tools are
@@ -108,6 +108,15 @@ and widening that window again brings it back; the button's label follows each
 change. Expanding the sidebar in a narrower window widens the window. The
 account and registration pages show no sidebar. React Native macOS 0.81.9 has no
 split view; remove the adapter when it offers one.
+
+The Inbox's [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) opens its
+per-connection details in an AppKit `NSPopover` through `UnwiredPopover`, which
+shows its React content in the popover and points it at the capsule's top edge.
+AppKit presents and animates it, and closes it on a click elsewhere or Escape.
+React Native macOS 0.81.9 has no popover; remove the adapter when it offers one.
+The details' 3pt progress bars are React views in `accentFill`: React Native macOS
+has no determinate progress view, and `NSProgressIndicator` draws in the system
+accent color instead.
 
 The Profile Switcher keeps its monogram trigger. It uses `accent/selection-subtle`
 while pressed or while its menu is open.
