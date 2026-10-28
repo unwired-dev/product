@@ -71,6 +71,7 @@ assert.deepEqual(
     '@react-native-masked-view/masked-view',
     'expo',
     'react-native-gesture-handler',
+    'react-native-keyboard-controller',
     'react-native-reanimated',
     'react-native-safe-area-context',
     'react-native-screens',

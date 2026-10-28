@@ -11,3 +11,7 @@ const unwiredRegistration = {
 const { getEnforcing } = TurboModuleRegistry;
 TurboModuleRegistry.getEnforcing = (name) =>
   name === 'UnwiredRegistration' ? unwiredRegistration : getEnforcing(name);
+
+jest.mock('react-native-keyboard-controller', () =>
+  require('react-native-keyboard-controller/jest'),
+);

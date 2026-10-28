@@ -1100,6 +1100,22 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Inbox keyboard tracking in `inbox.tsx` or another keyboard-following control
+  judged only by settled gaps or mocked keyboard events. Trace the installed
+  renderer and animation dependencies, including React-commit pauses, and inspect
+  opening and closing frame by frame while Search changes the list; otherwise
+  the keyboard can briefly cover a bar that appears correct at rest. When
+  synchronous UI props bypass commits, enumerate the transformed interactive
+  descendants, including notice retry controls, and distinguish native
+  moving-touch evidence from deferred hit-testing qualification.
+
+- A control migration in `inbox-bar.tsx`, `sync-status.tsx` or another translated
+  subtree preserving accessibility props without checking the native accessibility
+  tree. Gesture-backed controls can expose both a wrapper and an inner button;
+  require a single accessible action per control and exercise the maintained
+  journey's unqualified locator. Replacing that locator with `firstMatch` hides
+  duplication rather than proving that the control has one accessibility element.
+
 - `design.tsx.MenuButton` letting its label wrapper grow along the vertical axis
   inside a content-growing scroll view. Trace the native trigger and label layout
   in the evaluation composer's translation panel and fixed-minimum-height sidebar

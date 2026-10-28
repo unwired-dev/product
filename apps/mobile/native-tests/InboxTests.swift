@@ -1599,6 +1599,7 @@ final class InboxTests: XCTestCase {
     }
     let outlook = row("Colleague 003. Outlook update 003")
     XCTAssertTrue(row("Colleague 001. Outlook update 001").waitForExistence(timeout: 20))
+    verifyCompactInboxScroll(app, first: row("Colleague 001. Outlook update 001"))
     try audit(app, "Inbox")
     if phone {
       app.buttons["Back to Mailboxes"].tap()
@@ -2001,6 +2002,42 @@ final class InboxTests: XCTestCase {
     for text in [title, subtitle] {
       XCTAssertEqual(text.frame.midX, window.midX, accuracy: 1)
     }
+  }
+
+  // #1481: a long Inbox follows the finger and scrolls under the floating bar, while the title and
+  // the floating bar stay where the frames place them. The list returns to its top afterwards.
+  private func verifyCompactInboxScroll(_ app: XCUIApplication, first: XCUIElement) {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    let title = app.navigationBars.firstMatch.staticTexts["Inbox"].firstMatch
+    let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    let top = settledFrame(of: first).minY
+    let chrome = [title.frame, filter.frame]
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+    // Held at the end, the drag leaves no momentum, so the list stops where the finger did.
+    start.press(
+      forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -200)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+    XCTContext.runActivity(named: "Dragged 200pt: first row moved \(top - first.frame.minY)pt") { _ in }
+    XCTAssertEqual(top - first.frame.minY, 200, accuracy: 24)
+    XCTAssertEqual([title.frame, filter.frame], chrome)
+    let held = XCTAttachment(screenshot: app.screenshot())
+    held.name = "Inbox dragged 200pt"
+    held.lifetime = .keepAlways
+    add(held)
+    for _ in 0..<3 {
+      app.swipeUp()
+    }
+    XCTAssertEqual([title.frame, filter.frame], chrome)
+    let scrolled = XCTAttachment(screenshot: app.screenshot())
+    scrolled.name = "Inbox scrolled under the floating bar"
+    scrolled.lifetime = .keepAlways
+    add(scrolled)
+    for _ in 0..<6 {
+      if settledFrame(of: first).minY == top { break }
+      app.swipeDown()
+    }
+    XCTAssertEqual(settledFrame(of: first).minY, top)
   }
 
   // #1243: the Inbox's leading-edge swipe returns to Mailboxes as its Back does; one released early

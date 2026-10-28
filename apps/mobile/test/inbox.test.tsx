@@ -40,7 +40,6 @@ import {
   AccessibilityInfo,
   Animated,
   AppState,
-  DeviceEventEmitter,
   Dimensions,
   Linking,
   StyleSheet,
@@ -601,25 +600,9 @@ describe('preview Inbox', () => {
       expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
       // Sync status over the list rises with the bar, 12 pt above it.
       expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 356 });
-      // The list must not add keyboard padding beneath the already lifted capsule.
-      const list = screen.getByTestId('inbox-surface');
-      await fireEvent(list, 'layout', {
-        persist: () => undefined,
-        nativeEvent: { layout: { x: 0, y: 0, width: 340, height: 768 } },
-      });
-      await act(() => {
-        DeviceEventEmitter.emit('keyboardWillShow', {
-          duration: 0,
-          easing: 'keyboard',
-          endCoordinates: {
-            screenX: 0,
-            screenY: 488,
-            width: 1024,
-            height: 280,
-          },
-        });
-      });
-      expect(list).toHaveStyle({ paddingBottom: 0 });
+      // The keyboard must not move the bar on top of the window bar's own lift.
+      const sticky = screen.getByTestId('keyboard-bar');
+      expect(sticky).toHaveProp('enabled', false);
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'automaticallyAdjustKeyboardInsets',
         true,
@@ -628,28 +611,20 @@ describe('preview Inbox', () => {
         .getAllByTestId('scroll-edge')
         .find((view) => StyleSheet.flatten(view.props.style)?.width === 500);
       expect(edge).toHaveStyle({ bottom: 280 });
-      await act(() => {
-        DeviceEventEmitter.emit('keyboardWillHide');
-      });
       await app.rerender(<WindowJourney />);
       expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 76 });
       await act(() => {
         Dimensions.set({ window: { ...window, width: 500, height: 768 } });
-        DeviceEventEmitter.emit('keyboardWillShow', {
-          duration: 0,
-          easing: 'keyboard',
-          endCoordinates: { screenX: 0, screenY: 488, width: 500, height: 280 },
-        });
       });
-      // The compact bar sits 12pt above the keyboard, 8pt more than its 4pt bottom padding.
-      expect(list).toHaveStyle({ paddingBottom: 288 });
+      // The compact bar tracks the keyboard 12pt above it, 8pt more than its 4pt bottom padding.
+      expect(sticky).toHaveProp('enabled', true);
+      expect(sticky).toHaveProp('offset', { opened: -8 });
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'automaticallyAdjustKeyboardInsets',
-        false,
+        true,
       );
     } finally {
       await act(() => {
-        DeviceEventEmitter.emit('keyboardWillHide');
         Dimensions.set({ window });
       });
     }
