@@ -69,19 +69,15 @@ branches; report unavailable prerequisites without claiming a completed handoff.
    unmerged code through
    [decision authority](../../../docs/agents/implementation-review.md#decision-panel).
    Preserve unrelated edits and never commit to the
-   default branch. Recheck the live `in progress` label before editing. Retain
-   it for your existing claim or an explicitly authorized takeover or parallel
-   implementation; otherwise stop if it is present. A parallel implementation
-   adds a separate claim comment naming your branch and worktree. If the label
-   is absent, claim the issue with
-   `gh issue edit <number> --add-label "in progress"`, add a claim comment naming
-   the branch and worktree, and confirm both before editing. When the claimed
-   issue is a sub-issue, also comment on its parent naming the sub-issue,
-   branch and worktree. Claim comments
-   identify owners by branch and worktree, since sessions can share one GitHub
-   account. Recheck the issue state,
+   default branch. Before editing, claim the issue from the task branch with
+   `scripts/issue-claim claim <number>`; add `--takeover` or `--parallel` only
+   for a takeover or parallel implementation the user requested. It refuses an issue claimed by other
+   work, adds the label and a claim comment naming the branch and worktree,
+   tells a sub-issue's parent, and fails unless the claim reads back. Rerunning
+   it for your own claim finishes a partial claim and otherwise changes nothing. Recheck the issue state,
    claim comments and open PRs before each long phase: a decision panel, each
-   reviewer handoff and each push. A failed label read or claim blocks implementation. Skip the claim
+   reviewer handoff and each push. A refused or failed claim blocks
+   implementation. Skip the claim
    only when an explicit user limit excludes GitHub writes, and say so in the report.
    Identify the acceptance criteria and the checks that will demonstrate them.
    Record material assumptions. Resolve missing requirements through the
@@ -242,14 +238,12 @@ For PR deliveries, recheck the issue's acceptance criteria against the final
 diff and evidence, verify the remote PR head contains the reviewed changes, and
 keep required CI and review completion as separate gates.
 
-Keep the `in progress` label while you own the work, including while the PR is
-open. Remove it with `gh issue edit <number> --remove-label "in progress"` when
-your ownership ends: the PR merges or closes, the work is abandoned or handed
-back, or a blocker halts it.
-When a slice's ownership ends, comment on the parent with the sub-issue's
-outcome (merged PR, abandoned or blocked) and the parent's remaining work, and
-close the parent only when no criterion or open sub-issue remains.
-For a parallel implementation, mark only your claim as released and retain the
-label while another implementation owns the issue.
+Keep the claim while you own the work, including while the PR is open. When
+your ownership ends, run
+`scripts/issue-claim release <number> --outcome merged|closed|abandoned|handed-back|blocked`,
+adding `--remaining "<text>"` for a sub-issue. It removes the label unless a
+parallel implementation still holds a claim, and reports the outcome and
+remaining work on a sub-issue's parent. Close the parent only when no
+criterion or open sub-issue remains.
 
 Report the PR URL, verification results and ownership/monitoring state accurately.
