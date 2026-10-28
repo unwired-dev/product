@@ -2058,8 +2058,9 @@ final class InboxTests: XCTestCase {
     edgeSwipe(app, completing: false)
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { reader.isHittable && !back.exists }
+    // #1222: a slow swipe, as people drag, and a fast one.
     for round in 1...2 {
-      edgeSwipe(app, completing: true)
+      edgeSwipe(app, completing: true, velocity: round == 1 ? .slow : .fast)
       XCTAssertTrue(back.waitForExistence(timeout: 10))
       // The swipe leaves the message's route as Back does, so the Inbox no longer selects it.
       waitUntil { row.isHittable && !row.isSelected && !reader.exists }
@@ -2093,13 +2094,15 @@ final class InboxTests: XCTestCase {
   // A leading-edge swipe across the iPhone window. A held release leaves the position to decide, so
   // an early swipe holds. A completed swipe is released while moving: on CI's Xcode 27.0 a pop held
   // at 0.9 snapped back, unlike on 27.1.
-  private func edgeSwipe(_ app: XCUIApplication, completing: Bool) {
+  private func edgeSwipe(
+    _ app: XCUIApplication, completing: Bool, velocity: XCUIGestureVelocity = .fast
+  ) {
     let window = app.windows.firstMatch
     window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).press(
       forDuration: 0.05,
       thenDragTo: window.coordinate(
         withNormalizedOffset: CGVector(dx: completing ? 0.9 : 0.25, dy: 0.5)),
-      withVelocity: completing ? .fast : .slow, thenHoldForDuration: completing ? 0 : 0.3)
+      withVelocity: completing ? velocity : .slow, thenHoldForDuration: completing ? 0 : 0.3)
   }
 
   // #976: after scrolling a body taller than the screen until `text` shows, an iPhone edge swipe
