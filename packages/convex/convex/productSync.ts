@@ -119,7 +119,6 @@ async function insertPayload(
   args: {
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     payloadIdentifier: string;
-    trustedDeviceCredential?: string;
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   },
   productAccountId: Doc<'encryptedProductSyncPayloads'>['productAccountId'],
@@ -138,37 +137,6 @@ async function insertPayload(
     throw new Error('Encrypted Product Sync payload was not stored');
   }
   return payload;
-}
-
-async function preparePayloadWrite(
-  ctx: MutationCtx,
-  args: Readonly<{
-    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
-    payloadIdentifier: string;
-    trustedDeviceCredential?: string;
-    trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
-  }>,
-): Promise<{
-  account: AuthenticatedProductAccount;
-  existingPayload: Doc<'encryptedProductSyncPayloads'> | null;
-}> {
-  const account = await requireAuthenticatedTrustedDevice(
-    ctx,
-    args.trustedDeviceId,
-    args.trustedDeviceCredential,
-  );
-  requireCurrentProductSyncKeyEpoch(account, args.encryptedPayload.keyVersion);
-  if (args.payloadIdentifier !== recoveryPayloadIdentifier) {
-    await requireRecoveryEnvelope(ctx, account.productAccountId);
-  }
-  return {
-    account,
-    existingPayload: await findPayload(
-      ctx,
-      account.productAccountId,
-      args.payloadIdentifier,
-    ),
-  };
 }
 
 async function updatePayload(
@@ -211,16 +179,14 @@ export const putEncryptedPayloadIfUnchanged = mutation({
     if (isMailProfileRecord(args.payloadIdentifier)) {
       throw new Error('Mail Profile records require an atomic write');
     }
-    await requireMailProfileCapability(
+    const account = await requireAuthenticatedTrustedDevice(
       ctx,
-      await requireAuthenticatedTrustedDevice(
-        ctx,
-        args.trustedDeviceId,
-        args.trustedDeviceCredential,
-      ),
-      mailProfileCapability,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
     );
-    return writeEncryptedPayloadIfUnchanged(ctx, args);
+    await requireMailProfileCapability(ctx, account, mailProfileCapability);
+    await requireRecoveryEnvelope(ctx, account.productAccountId);
+    return writeEncryptedPayloadIfUnchanged(ctx, account, args);
   },
   returns: encryptedProductSyncPayloadValidator,
 });
@@ -438,7 +404,6 @@ type EncryptedPayloadAtomicWrite = Readonly<{
 type EncryptedPayloadAtomicMutation = Readonly<{
   checks: readonly EncryptedPayloadRevision[];
   deletes: readonly EncryptedPayloadRevision[];
-  trustedDeviceCredential?: string;
   trustedDeviceId: Id<'trustedDevices'>;
   writes: readonly EncryptedPayloadAtomicWrite[];
 }>;
@@ -557,7 +522,6 @@ async function writeAtomicPayload(
           {
             encryptedPayload: write.encryptedPayload,
             payloadIdentifier: write.payloadIdentifier,
-            trustedDeviceCredential: args.trustedDeviceCredential,
             trustedDeviceId: args.trustedDeviceId,
           },
           productAccountId,
@@ -664,7 +628,7 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
       trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const payload = await writeEncryptedPayloadIfUnchanged(ctx, {
+    const payload = await writeEncryptedPayloadIfUnchanged(ctx, account, {
       ...args,
       payloadIdentifier: recoveryPayloadIdentifier,
       trustedDeviceId,
@@ -710,18 +674,24 @@ async function insertMissingPayload(
   return payload;
 }
 
+// Callers authenticate the account within the same transaction.
 async function writeEncryptedPayloadIfUnchanged(
   ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
   args: Readonly<{
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     expectedUpdatedAt?: number;
     payloadIdentifier: string;
     recoveryVerifier?: string;
-    trustedDeviceCredential?: string;
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<EncryptedProductSyncPayload> {
-  const { account, existingPayload } = await preparePayloadWrite(ctx, args);
+  requireCurrentProductSyncKeyEpoch(account, args.encryptedPayload.keyVersion);
+  const existingPayload = await findPayload(
+    ctx,
+    account.productAccountId,
+    args.payloadIdentifier,
+  );
   if (existingPayload === null) {
     if (args.expectedUpdatedAt !== undefined) {
       throw new ConvexError({ code: productSyncPayloadChangedErrorCode });

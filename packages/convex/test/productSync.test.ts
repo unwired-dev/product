@@ -14,7 +14,7 @@ import { convexTest } from 'convex-test';
 import type { Id } from '../convex/_generated/dataModel.js';
 
 import payloadChangedError from '../../contracts/fixtures/productSync.payloadChanged.error.json' with { type: 'json' };
-import { api } from '../convex/_generated/api.js';
+import { api, internal } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
 import {
   connectTrusted,
@@ -438,6 +438,40 @@ describe('productSync encrypted payloads', () => {
             payloadIdentifier: 'record:wrong-key-epoch',
           },
         ],
+      }),
+    ).rejects.toMatchObject({
+      data: { code: 'PRODUCT_SYNC_KEY_ROTATION_REQUIRED' },
+    });
+  });
+
+  it('rejects a conditional write or Recovery Key replacement encrypted for the wrong key epoch', async () => {
+    expect.assertions(2);
+    const { asUser, connect } = await connectAppleDevice();
+    const recovery = await asUser.query(
+      api.productSync.getEncryptedPayloadForTrustedDevice,
+      {
+        payloadIdentifier: 'product-account-recovery-v1',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const wrongEpoch = { ...encryptedPayload, keyVersion: 2 };
+
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+        encryptedPayload: wrongEpoch,
+        expectedUpdatedAt: undefined,
+        payloadIdentifier: 'record:wrong-key-epoch',
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toMatchObject({
+      data: { code: 'PRODUCT_SYNC_KEY_ROTATION_REQUIRED' },
+    });
+    await expect(
+      asUser.mutation(internal.productSync.replaceRecoveryMaterialIfUnchanged, {
+        encryptedPayload: wrongEpoch,
+        expectedUpdatedAt: recovery!.updatedAt,
+        recoveryVerifier,
+        trustedDeviceId: connect.trustedDeviceId,
       }),
     ).rejects.toMatchObject({
       data: { code: 'PRODUCT_SYNC_KEY_ROTATION_REQUIRED' },
