@@ -1100,6 +1100,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- `design.tsx.MenuButton` letting its label wrapper grow along the vertical axis
+  inside a content-growing scroll view. Trace the native trigger and label layout
+  in the evaluation composer's translation panel and fixed-minimum-height sidebar
+  and Settings callers. Keep the label at its content height and centre it within
+  the trigger's touch target; otherwise a translation pop-up can consume the
+  viewport and push its result and Replace/Keep actions off screen. Require native
+  layout evidence, since component mocks do not calculate this growth.
+
 - Mac destructive confirmations in Settings or `design.tsx.useConfirmation`
   relying on React Native macOS `Alert` button styles or key-window routing.
   Trace the installed presenter through the native button and owning window:

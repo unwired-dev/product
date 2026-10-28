@@ -190,6 +190,9 @@ const groupRadius = (44 + 2 * spacing.xs) / 2;
 
 const styles = StyleSheet.create({
   menuContent: { flexGrow: 1 },
+  // The label keeps its own height and the button centres it: a growing label stretched the
+  // translation pop-up down the whole evaluation composer.
+  menuButton: { justifyContent: 'center' },
   group: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -361,11 +364,10 @@ export function MenuButton({
       onSelect={({ nativeEvent }) => {
         void menu.runs.get(nativeEvent.id)?.();
       }}
-      style={style}>
+      style={[styles.menuButton, style]}>
       <View
         collapsable={false}
-        pointerEvents="none"
-        style={styles.menuContent}>
+        pointerEvents="none">
         {children}
       </View>
     </NativeMenuButton>
