@@ -66,8 +66,8 @@ confirmation and the Settings confirmations that remove a Mail Profile, a Truste
 Device or uploaded error reports in an `NSAlert` sheet on the asking view's own
 window and withdraws it by request when its asker goes away. A removal keeps Cancel
 as the default button that Return and Escape answer and marks its action
-destructive. It can name the button Escape answers, mark one
-destructive, replace the app icon with an SF Symbol and show a long selectable
+destructive. In general, the presenter can name the button Escape answers, mark
+one destructive, replace the app icon with an SF Symbol and show a long selectable
 passage, such as a link destination, in a bounded scrolling view: `NSAlert`'s own
 text grows the sheet past the screen.
 React Native macOS 0.81.9's `Alert` asks over the key window, ignores its `cancel`
