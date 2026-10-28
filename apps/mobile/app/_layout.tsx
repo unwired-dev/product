@@ -25,7 +25,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import {
   SafeAreaProvider,
@@ -571,35 +570,33 @@ export default function RootLayout() {
   }, []);
   return (
     // Frame-by-frame keyboard tracking for the Inbox's keyboard avoidance.
-    <GestureHandlerRootView>
-      <KeyboardProvider>
-        <RegistrationGate>
-          <InboxProvider>
-            <CommandPaletteProvider>
-              <OpenedNotifications />
-              {/* A message or Thread link from before Profiles names none and opens in the Default
+    <KeyboardProvider>
+      <RegistrationGate>
+        <InboxProvider>
+          <CommandPaletteProvider>
+            <OpenedNotifications />
+            {/* A message or Thread link from before Profiles names none and opens in the Default
                 Profile, which owns every mailbox it can name. */}
-              <WindowProfileScope
-                savedChoices={savedChoices}
-                routeAccount={
-                  routeAccount?.params === params
-                    ? routeAccount.account
-                    : undefined
-                }
-                onRouteAccount={(account) => {
-                  setRouteAccount({ params, account });
-                }}
-                link={
-                  profileId === undefined && id !== undefined
-                    ? defaultProfile
-                    : profileId
-                }>
-                <MailShell />
-              </WindowProfileScope>
-            </CommandPaletteProvider>
-          </InboxProvider>
-        </RegistrationGate>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+            <WindowProfileScope
+              savedChoices={savedChoices}
+              routeAccount={
+                routeAccount?.params === params
+                  ? routeAccount.account
+                  : undefined
+              }
+              onRouteAccount={(account) => {
+                setRouteAccount({ params, account });
+              }}
+              link={
+                profileId === undefined && id !== undefined
+                  ? defaultProfile
+                  : profileId
+              }>
+              <MailShell />
+            </WindowProfileScope>
+          </CommandPaletteProvider>
+        </InboxProvider>
+      </RegistrationGate>
+    </KeyboardProvider>
   );
 }

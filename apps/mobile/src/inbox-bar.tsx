@@ -12,8 +12,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
-import { Pressable } from 'react-native-gesture-handler';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RegisterCommands, usePaletteHeader } from './command-palette.tsx';

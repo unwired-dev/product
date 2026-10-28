@@ -8,11 +8,11 @@ import {
   AccessibilityInfo,
   Animated,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { Pressable } from 'react-native-gesture-handler';
 
 import { Action } from './action.tsx';
 import { SFSymbol, useMenuMotion } from './design.tsx';
