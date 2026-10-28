@@ -281,7 +281,7 @@ export async function requireTrustedDevice(
   ctx: QueryCtx | MutationCtx,
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
-): Promise<void> {
+): Promise<Doc<'trustedDevices'>> {
   const trustedDevice = await ctx.db.get('trustedDevices', trustedDeviceId);
   if (trustedDevice === null) {
     const revokedDevice = await ctx.db
@@ -300,6 +300,7 @@ export async function requireTrustedDevice(
   if (trustedDevice.productAccountId !== productAccountId) {
     throw new Error('Trusted device required');
   }
+  return trustedDevice;
 }
 
 type TrustedDeviceProofAccount = Readonly<{
@@ -317,18 +318,11 @@ export async function requireTrustedDeviceProof(
   account: TrustedDeviceProofAccount,
   proof: TrustedDeviceProof,
 ): Promise<void> {
-  await requireTrustedDevice(
+  const trustedDevice = await requireTrustedDevice(
     ctx,
     account.productAccountId,
     proof.trustedDeviceId,
   );
-  const trustedDevice = await ctx.db.get(
-    'trustedDevices',
-    proof.trustedDeviceId,
-  );
-  if (trustedDevice === null) {
-    throw new Error('Trusted device required');
-  }
   if (trustedDevice.credentialDigest !== undefined) {
     if (
       proof.trustedDeviceCredential === undefined ||
