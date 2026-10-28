@@ -1,4 +1,5 @@
 import type { EncryptedProductSyncPayload } from '@private-email/contracts/productSync';
+import type { Infer } from 'convex/values';
 
 import {
   encryptedProductSyncPayloadBodyValidator,
@@ -390,16 +391,13 @@ const encryptedPayloadAtomicWriteValidator = v.object({
   payloadIdentifier: v.string(),
 });
 
-type EncryptedPayloadRevision = Readonly<{
-  expectedUpdatedAt: number;
-  payloadIdentifier: string;
-}>;
+type EncryptedPayloadRevision = Readonly<
+  Infer<typeof encryptedPayloadRevisionValidator>
+>;
 
-type EncryptedPayloadAtomicWrite = Readonly<{
-  encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
-  expectedUpdatedAt?: number;
-  payloadIdentifier: string;
-}>;
+type EncryptedPayloadAtomicWrite = Readonly<
+  Infer<typeof encryptedPayloadAtomicWriteValidator>
+>;
 
 type EncryptedPayloadAtomicMutation = Readonly<{
   checks: readonly EncryptedPayloadRevision[];
