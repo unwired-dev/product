@@ -69,7 +69,9 @@ const SpanSchema = Schema.Union([
     marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
     // Linked text: web, mail and telephone destinations only, as received links allow.
     link: Schema.optionalKey(
-      Schema.String.check(Schema.makeFilter((href) => vettedHref(href) === href)),
+      Schema.String.check(
+        Schema.makeFilter((href) => vettedHref(href) === href),
+      ),
     ),
   }),
   // An inline image: one character of the text, carrying the image it shows.
@@ -111,7 +113,9 @@ const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
 const spanOf = (
   text: string,
   marks: readonly Mark[],
-  from: Readonly<{ image: Asset }> | Readonly<{ link?: string | undefined }> = {},
+  from:
+    | Readonly<{ image: Asset }>
+    | Readonly<{ link?: string | undefined }> = {},
 ): Span => {
   const [first, ...rest] = marks;
   const marked =

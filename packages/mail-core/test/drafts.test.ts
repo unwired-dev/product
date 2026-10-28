@@ -259,7 +259,11 @@ describe('editing a Semantic Message Document', () => {
     const linked: SemanticDocument = [
       {
         kind: 'paragraph',
-        spans: [{ text: 'Read ' }, { text: 'the plan', link }, { text: ' today' }],
+        spans: [
+          { text: 'Read ' },
+          { text: 'the plan', link },
+          { text: ' today' },
+        ],
       },
     ];
     // Typing inside the link extends it; typing at either edge stays outside it.
@@ -320,7 +324,11 @@ describe('editing a Semantic Message Document', () => {
       type: 'image/png',
       state: 'importing',
     } as const;
-    const withPicture = insertImage(inside, { start: 9, end: 9 }, image).document;
+    const withPicture = insertImage(
+      inside,
+      { start: 9, end: 9 },
+      image,
+    ).document;
     expect(withPicture[0].spans).toStrictEqual([
       { text: 'Read ' },
       { text: 'the ', link },
