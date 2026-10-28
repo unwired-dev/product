@@ -288,6 +288,14 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredOpenCommandPalette" object:window.identifier];
 }
 
+// Command-R synchronizes the key Inbox window's mailboxes; its JavaScript listens for the window.
+- (void)refresh:(id)sender
+{
+  NSWindow *window = NSApp.keyWindow;
+  if (window.identifier == nil) return;
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredRefresh" object:window.identifier];
+}
+
 - (void)focusInbox:(id)sender
 {
   if (self.inboxWindows.count == 0) {
@@ -456,6 +464,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   viewItem.submenu = view;
   NSMenuItem *commands = [view addItemWithTitle:UnwiredNativeText(@"commands") action:@selector(showCommands:) keyEquivalent:@"p"];
   commands.target = self;
+  NSMenuItem *refresh = [view addItemWithTitle:UnwiredNativeText(@"refresh") action:@selector(refresh:) keyEquivalent:@"r"];
+  refresh.target = self;
 
   NSMenuItem *windowItem = [main addItemWithTitle:UnwiredNativeText(@"window") action:nil keyEquivalent:@""];
   NSMenu *windows = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"window")];

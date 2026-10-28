@@ -228,6 +228,13 @@ still applies. See `docs/architecture/macos-client.md`.
   explicitly held work; otherwise the indicator ends early and admits another
   interaction while synchronization is still running.
 
+- `inbox.tsx` retrying a connection's Sync Status Capsule while a non-Inbox
+  folder is listed, but only reopening that folder. Trace both the connection
+  snapshot and listed-folder view through the real Inbox store: IMAP
+  `openFolder` updates the folder view, while `load` recovers the connection's
+  status. Exercise recovery from that view and preserve its listed mail;
+  otherwise a successful folder read leaves the capsule asking for attention.
+
 - `profile-settings.tsx.change` or another host progress owner retiring its
   pending entry only after a fulfilled store action. Trace rejected promises as
   well as state-reported refusals; cleanup must retire that operation on either

@@ -811,7 +811,9 @@ describe('sending a Draft', () => {
           'Lisbon. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
         ),
       ).toBeOnTheScreen();
-      expect(screen.queryByText('Try Again')).toBeNull();
+      expect(
+        screen.queryByText('Couldn’t return “Lisbon” to Drafts.'),
+      ).toBeNull();
     } finally {
       sender.outbox.dispose();
     }

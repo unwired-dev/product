@@ -776,11 +776,16 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(thread.waitForExistence(timeout: 10))
     thread.tap()
     verifyScrolledSwipeBack(app, row: thread, text: app.staticTexts["Crew 6, note 20."].firstMatch)
+    thread.tap()
+    verifyCompactReaderBottom(app, row: thread, end: app.staticTexts["Crew 6, note 40."].firstMatch)
     let guide = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
       .firstMatch
     guide.tap()
     verifyScrolledSwipeBack(
       app, row: guide, text: app.staticTexts["Field guide, section 20."].firstMatch)
+    guide.tap()
+    verifyCompactReaderBottom(
+      app, row: guide, end: app.staticTexts["Field guide, section 40."].firstMatch)
     let back = app.buttons["Back to Mailboxes"]
     // Settings covers the mail on iPhone. From a destination, a swipe released early keeps it, a
     // completed one returns to the list of destinations, and another to the Mailboxes beneath.
@@ -2147,6 +2152,45 @@ final class InboxTests: XCTestCase {
     shot.name = "Inbox after swiping back from a scrolled body"
     shot.lifetime = .keepAlways
     add(shot)
+  }
+
+  // #1365: a reopened iPhone reader scrolls to the screen's bottom edge beneath its floating
+  // toolbar, which sits 2pt above the 34pt bottom safe area as the frames place it, and the body's
+  // end scrolls clear of the toolbar.
+  private func verifyCompactReaderBottom(_ app: XCUIApplication, row: XCUIElement, end: XCUIElement) {
+    let window = app.windows.firstMatch.frame
+    let reply = app.buttons["Reply"]
+    XCTAssertTrue(reply.waitForExistence(timeout: 20))
+    // Each 44pt button sits 4pt inside its 52pt glass.
+    XCTAssertEqual(window.maxY - settledFrame(of: reply).maxY, 40, accuracy: 1)
+    let compose = app.buttons.matching(identifier: "New Message").allElementsBoundByIndex
+      .filter { $0.isHittable }
+    XCTAssertEqual(compose.count, 1)
+    if let compose = compose.first {
+      XCTAssertEqual(window.maxY - compose.frame.maxY, 40, accuracy: 1)
+    }
+    // A reopened HTML body is still opening when the toolbar appears.
+    XCTAssertTrue(end.waitForExistence(timeout: 20))
+    let reader = app.scrollViews.containing(NSPredicate(format: "label == %@", end.label)).firstMatch
+    XCTAssertEqual(reader.frame.maxY, window.maxY, accuracy: 1)
+    let onScreen = { end.exists && window.contains(CGPoint(x: end.frame.midX, y: end.frame.midY)) }
+    // Swipe until the body's end stops moving: the reader has scrolled to its end.
+    var placed = CGRect.null
+    for _ in 0..<20 {
+      app.swipeUp(velocity: .fast)
+      guard onScreen() else { continue }
+      let frame = settledFrame(of: end)
+      if frame == placed { break }
+      placed = frame
+    }
+    XCTAssertTrue(onScreen())
+    XCTAssertLessThanOrEqual(settledFrame(of: end).maxY, reply.frame.minY - 4)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Reader scrolled to the end of its body"
+    shot.lifetime = .keepAlways
+    add(shot)
+    edgeSwipe(app, completing: true)
+    waitUntil { row.isHittable && !end.exists }
   }
 
   // The element's frame once two separate polls see it unchanged, after scrolling momentum or a

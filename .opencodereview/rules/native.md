@@ -668,6 +668,15 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### AppKit host
 
+- `UnwiredPopoverView` or another native presenter forwarding a delayed close
+  callback into a newer presentation request. Trace `shown`, native display state
+  and the React `Popover` content owner through close, reopen before completion,
+  repeated close, native dismissal, window removal and unmount. AppKit can mark
+  a popover closed before its close animation ends; reconcile the completion with
+  the current request without clearing newly requested content or reopening a
+  user-dismissed presentation. Otherwise a late callback immediately dismisses
+  reopened details or leaves React and AppKit disagreeing about what is open.
+
 - `AppDelegate.mm.openWindowWithProfile` passing a restored Profile only to its
   React root while `willEncodeRestorableState` reads a separate native map. Seed
   native restoration state when constructing the window, before JavaScript or
