@@ -838,15 +838,16 @@ export function Inbox({
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
-  // Synchronizes these mailboxes, which clears a recovered connection's status, and reads the
-  // listed IMAP folder again for its own mail.
+  // Synchronizing clears a recovered connection's status; a listed IMAP folder is read again after
+  // it, since the folder read hides an evicted folder's rows from the synchronization's body prune.
   const load = (loaded: readonly InboxMailbox[]) => async () => {
     await Promise.allSettled(
-      loaded.flatMap(({ inbox }) =>
-        folder !== inboxFolder && 'openFolder' in inbox
-          ? [inbox.load(), inbox.openFolder(folder)]
-          : [inbox.load()],
-      ),
+      loaded.map(async ({ inbox }) => {
+        await inbox.load();
+        if (folder !== inboxFolder && 'openFolder' in inbox) {
+          await inbox.openFolder(folder);
+        }
+      }),
     );
   };
   const synchronize = (loaded: readonly InboxMailbox[]) =>
