@@ -15,9 +15,9 @@ does not provision accounts or grant automation access.
   Test Mailboxes** and **Synthetic Test Messages**.
 - Keep personal and production identities, aliases, forwarding destinations,
   recovery routes and mailbox content out of these accounts.
-- Keep account addresses, passwords, MFA and recovery material, OAuth credentials,
-  tokens and mailbox content in approved protected systems. Do not put them in
-  source control, GitHub, logs, screenshots or **Mail Test Evidence**.
+- Keep account addresses, passwords, MFA and recovery material, billing details,
+  OAuth credentials, tokens and mailbox content in approved protected systems.
+  Do not put them in source control, GitHub, logs, screenshots or **Mail Test Evidence**.
 - Keep the accounts separate from the isolated **Provider Test Project**, which
   owns test OAuth clients, Gmail API quotas, Pub/Sub routes and protected
   automation credentials. Reuse an existing isolated test project where suitable.
@@ -46,7 +46,8 @@ does not provision accounts or grant automation access.
    The completed production authorization in #668 does not attest a different
    test project's configuration.
 5. Store credentials and recovery material only in approved protected systems.
-   Record access review, operator replacement, account rotation and retirement.
+   Record access review, operator replacement, account rotation, Google Cloud cost
+   review, incident response and retirement.
 6. Have an authorized operator verify the accounts, current clients/scopes and
    the protected native execution path, including the configured test backend
    and Pub/Sub/APNs resources needed by the selected scenarios. Follow

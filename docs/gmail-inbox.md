@@ -1544,7 +1544,7 @@ and trashed mail, opening an archived result without saving its body (also throu
 synchronization), one mailbox's outage or refused grant beside the other's results, a
 failed next page kept for retry, and storage locking or a removal while its search runs. The controlled
 Gmail matches every word of `q` in sender, subject and content; Gmail's own operators
-need the protected tenant. Rendered journeys on both hosts search Gmail only on
+need the dedicated Gmail test accounts. Rendered journeys on both hosts search Gmail only on
 request below the saved results, open an archived result in the reader without saving
 it, drop the answer when the query changes, show one mailbox's outage beside the
 other's and the saved results, search again, and discard a reply for a query that
