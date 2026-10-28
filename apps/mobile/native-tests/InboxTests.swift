@@ -1987,8 +1987,8 @@ final class InboxTests: XCTestCase {
     let title = app.navigationBars.firstMatch.staticTexts["Inbox"].firstMatch
     let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
     XCTAssertTrue(title.waitForExistence(timeout: 10))
+    let top = settledFrame(of: first).minY
     let chrome = [title.frame, filter.frame]
-    let top = first.frame.minY
     let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
     // Held at the end, the drag leaves no momentum, so the list stops where the finger did.
     start.press(
@@ -2009,10 +2009,11 @@ final class InboxTests: XCTestCase {
     scrolled.name = "Inbox scrolled under the floating bar"
     scrolled.lifetime = .keepAlways
     add(scrolled)
-    for _ in 0..<6 where first.frame.minY != top {
+    for _ in 0..<6 {
+      if settledFrame(of: first).minY == top { break }
       app.swipeDown()
     }
-    waitUntil { first.frame.minY == top }
+    XCTAssertEqual(settledFrame(of: first).minY, top)
   }
 
   // #1243: the Inbox's leading-edge swipe returns to Mailboxes as its Back does; one released early
