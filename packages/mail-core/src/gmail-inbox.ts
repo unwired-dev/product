@@ -468,9 +468,10 @@ const bodiesInMemory = 20;
 const mailbox = /^\s*(?:"?(?<name>[^"<]*?)"?\s*)?<(?<address>[^<>]+)>\s*$/u;
 
 const sender = (from: string) => {
-  const match = mailbox.exec(from)?.groups;
-  const address = (match?.address ?? from).trim();
-  const name = match?.name?.trim() ?? '';
+  // Positional captures: Hermes leaves `groups` unset on some named-group results.
+  const [, named, bracketed] = mailbox.exec(from) ?? [];
+  const address = (bracketed ?? from).trim();
+  const name = named?.trim() ?? '';
   return { sender: name === '' ? address : name, address };
 };
 

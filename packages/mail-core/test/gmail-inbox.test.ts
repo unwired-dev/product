@@ -96,6 +96,36 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(listRequests(gmail)).toHaveLength(3);
   });
 
+  it('reads sender names when regular expression results carry no named groups, as on Hermes', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 0 });
+    gmail.deliver({ from: 'oliver@example.invalid' });
+    gmail.deliver({ from: '"Chen, Maya" <maya@example.invalid>' });
+    const inbox = createGmailInbox(gmail.native);
+    const nativeExec = RegExp.prototype.exec;
+    const spy = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(function withoutNamedGroups(this: RegExp, text) {
+        const result = nativeExec.call(this, text);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only a match carries groups to drop.
+        if (result !== null) {
+          delete result.groups;
+        }
+        return result;
+      });
+    await inbox.load();
+    spy.mockRestore();
+    expect(
+      ready(inbox.getSnapshot()).messages.map(({ sender, address }) => ({
+        sender,
+        address,
+      })),
+    ).toStrictEqual([
+      { sender: 'Chen, Maya', address: 'maya@example.invalid' },
+      { sender: 'oliver@example.invalid', address: 'oliver@example.invalid' },
+    ]);
+  });
+
   it('fills the bounded Inbox when a listed message leaves before metadata arrives', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 300 });
