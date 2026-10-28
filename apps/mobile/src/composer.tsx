@@ -1392,8 +1392,8 @@ function Editor({
 }: {
   readonly initial: Draft;
   readonly onClose: () => void;
-  // Closing an empty Draft or discarding one removes it, which unmounts this editor before it can
-  // call `onClose`; the composer closes in its place while it still shows Draft `id`.
+  // Closing an empty Draft, discarding one or sending one removes it, which can unmount this editor
+  // before it can call `onClose`; the composer closes in its place while it still shows Draft `id`.
   readonly onClosedAfterRemoval: (id: string) => void;
   // Another editor changed this Draft first, so this editor's version is now the copy `id`.
   readonly onRebind: (id: string) => void;
@@ -1956,6 +1956,8 @@ function Editor({
         setRefused(refusal);
         setSending(false);
       }
+    } else if (refusal === undefined) {
+      onClosedAfterRemoval(authored.current.id);
     }
   };
   const title = clip(draft.subject) || t('drafts.newMessage');

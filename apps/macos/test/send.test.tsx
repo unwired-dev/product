@@ -666,8 +666,8 @@ describe('sending a Draft', () => {
       expect(screen.getByText(warning)).toBeOnTheScreen();
       await press('Cancel');
       expect(screen.queryByText(warning)).toBeNull();
-      // #918: close the unavailable composer left after Send before checking bar feedback.
-      await press('Close');
+      // A successful Send closes its composer, without leaving an unavailable Draft behind.
+      expect(screen.queryByText('This Draft is not available.')).toBeNull();
       await press('Edit');
       const refused = 'Couldn’t return “Unknown” to Drafts.';
       const undo = jest.spyOn(sender.outbox, 'undo');
@@ -752,8 +752,8 @@ describe('sending a Draft', () => {
       await render(<App sender={sender} />);
       await compose('Lisbon');
       await press('Send');
-      // #918: the admitted Draft can unmount its editor before Send closes the composer.
-      await press('Close');
+      // The admitted Draft leaves the store before Send settles, and the composer still closes.
+      expect(screen.queryByText('This Draft is not available.')).toBeNull();
       sender.storage.failNextCommit('locked');
       await press('Undo');
       // The row stays as it was, and the refusal is heard at once.
@@ -797,8 +797,8 @@ describe('sending a Draft', () => {
         );
       await compose('Lisbon');
       await press('Send');
-      // #918: the admitted Draft can unmount its editor before Send closes the composer.
-      await press('Close');
+      // The admitted Draft leaves the store before Send settles, and the composer still closes.
+      expect(screen.queryByText('This Draft is not available.')).toBeNull();
       sender.storage.failNextCommit('locked');
       await press('Undo');
       expect(
