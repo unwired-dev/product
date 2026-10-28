@@ -1100,6 +1100,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Composer keyboard avoidance in `composer.tsx` and `evaluation-composer.tsx`
+  disabled while the keyboard is open without clearing its animated padding.
+  Trace the installed library's disabled branch and Reanimated's prop retention
+  through expanded-to-floating and compact-to-regular layout changes. Returning
+  an empty style does not reset an applied value, so the iPad composer can retain
+  a keyboard-sized empty region after Collapse. Keep the editor mounted and
+  qualify those transitions natively rather than relying on the keyboard mock.
+
 - Inbox keyboard tracking in `inbox.tsx` or another keyboard-following control
   judged only by settled gaps or mocked keyboard events. Trace the installed
   renderer and animation dependencies, including React-commit pauses, and inspect
