@@ -49,21 +49,42 @@ final class InboxTests: XCTestCase {
   }
 
   // #1441: the Sync Status Capsule while the Gmail history downloads (Progress), after its next
-  // page fails (Attention) and once Try Again downloads the rest (hidden).
+  // page fails (Attention) and once Try Again downloads the rest (hidden). #1442: tapping it opens
+  // the per-account details, a sheet on iPhone and a popover on iPad.
   private func syncStatusJourney(_ app: XCUIApplication) throws {
     connectGmail(app)
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
-    let progress = app.descendants(matching: .any)
+    let progress = app.buttons
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Updating 1 account")).firstMatch
     XCTAssertTrue(progress.waitForExistence(timeout: 30))
     try audit(app, "Sync Status Progress")
-    let attention = text("1 account needs attention", in: app)
+    progress.tap()
+    let title = app.staticTexts["Sync Status"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Downloading history ·", in: app).waitForExistence(timeout: 10))
+    try audit(app, "Sync Status Details Progress")
+    let done = app.buttons["Done"]
+    if done.exists {
+      done.tap()
+    } else {
+      // The popover closes with a tap outside it.
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.1)).tap()
+    }
+    XCTAssertTrue(title.waitForNonExistence(timeout: 10))
+    let attention = app.buttons["1 account needs attention"]
     XCTAssertTrue(attention.waitForExistence(timeout: 180))
     try audit(app, "Sync Status Attention")
-    app.buttons["Try Again"].tap()
+    attention.tap()
+    let tryAgain = app.buttons
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Try Again for Gmail")).firstMatch
+    XCTAssertTrue(tryAgain.waitForExistence(timeout: 10))
+    try audit(app, "Sync Status Details Attention")
+    // The connection's own Try Again downloads the rest, and the details close with the capsule.
+    tryAgain.tap()
     XCTAssertTrue(attention.waitForNonExistence(timeout: 30))
     XCTAssertTrue(progress.waitForNonExistence(timeout: 30))
+    XCTAssertTrue(title.waitForNonExistence(timeout: 30))
   }
 
   private func registrationJourney(_ app: XCUIApplication) throws {

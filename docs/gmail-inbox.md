@@ -363,8 +363,17 @@ up to date with its last update, or its problem with a warning and its own
 gives the time the shown mailboxes were last all up to date and points to
 **View › Refresh** (⌘R), which synchronizes the key window's shown mailboxes and
 their listed view. Clicking elsewhere or pressing Escape closes the popover, and it
-closes with the capsule. Per-account details on iPhone and iPad follow in
-[#1442](https://github.com/unwired-dev/product/issues/1442).
+closes with the capsule.
+
+On iPhone and iPad, tapping the capsule opens the same **Sync Status** details
+([#1442](https://github.com/unwired-dev/product/issues/1442)): in a medium-detent
+sheet with **Done** on iPhone, and in a popover on the capsule on iPad. A connection
+whose grant or password was refused offers its authorization in place of
+**Try Again**: **Allow Gmail access** (or the provider's name) asks for access again
+and then synchronizes that connection, and **Enter the Password…** opens Email
+Accounts in Settings. Authorizing closes the details first. The footer points to
+pulling the list down instead of ⌘R. On iPhone, whose Inbox heading has no room for
+the last update, this footer is where it appears.
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache

@@ -5,7 +5,7 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps, ContextType, ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
 import { lastUpdated } from '@private-email/localization';
@@ -95,13 +95,7 @@ import {
   useOutboxActions,
 } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import {
-  SyncStatusCapsule,
-  checking,
-  failed,
-  offline,
-  syncStatusOf,
-} from './sync-status.tsx';
+import { SyncStatusCapsule, checking, offline } from './sync-status.tsx';
 import { usePalette } from './theme.ts';
 
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
@@ -610,6 +604,25 @@ function InboxFooter({
   );
 }
 
+// Asks again for the access a mailbox's provider refused, as its notice does: IMAP enters the
+// password in Settings, and Gmail synchronizes again once access is authorized.
+const authorizer = (
+  account: ContextType<typeof AccountContext>,
+  load: (loaded: readonly InboxMailbox[]) => () => Promise<void>,
+) =>
+  account === undefined
+    ? undefined
+    : (mailbox: InboxMailbox) => {
+        if (mailbox.provider === 'imap') {
+          account.openAccount('mailboxes');
+          return;
+        }
+        void (async () => {
+          await account.authorizeMailbox(mailbox.id);
+          await load([mailbox])();
+        })();
+      };
+
 export function Inbox({
   visible,
   selected,
@@ -813,23 +826,24 @@ export function Inbox({
     // Not in `finally`: React Compiler cannot compile a finally clause.
     setRefreshing(false);
   };
-  // Try Again synchronizes only the mailboxes whose server could not be reached, and like a pull
-  // shows its progress at once.
-  const tryAgain = async () => {
-    const loadFailed = load(shown.filter(({ state }) => failed(state)));
+  // Try Again synchronizes only the mailboxes that need attention, and like a pull shows its
+  // progress at once.
+  const tryAgain = async (loaded: readonly InboxMailbox[]) => {
     try {
       await (account === undefined
-        ? loadFailed()
-        : account.refreshInbox(loadFailed));
+        ? load(loaded)()
+        : account.refreshInbox(load(loaded)));
     } catch {
       // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
     }
   };
   const syncCapsule = (
     <SyncStatusCapsule
-      status={syncStatusOf(shown)}
+      shown={shown}
       refreshing={refreshing}
+      now={now}
       onTryAgain={tryAgain}
+      onAuthorize={authorizer(account, load)}
     />
   );
 

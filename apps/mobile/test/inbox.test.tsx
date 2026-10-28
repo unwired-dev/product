@@ -1377,12 +1377,10 @@ describe('connected Gmail Inbox', () => {
       synchronized = store.load();
       await Promise.resolve();
     });
-    expect(
-      screen.queryByRole('progressbar', { name: /^Updating/u }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Updating/u })).toBeNull();
     await expect(
       screen.findByRole(
-        'progressbar',
+        'button',
         { name: 'Updating 1 account' },
         { timeout: 3000 },
       ),
@@ -1397,9 +1395,7 @@ describe('connected Gmail Inbox', () => {
     gmail.fail({ code: 'unavailable' });
     await act(store.load);
     expect(screen.getByText('1 account needs attention')).toBeVisible();
-    expect(
-      screen.queryByRole('progressbar', { name: /^Updating/u }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Updating/u })).toBeNull();
     expect(
       screen.getByRole('header', { name: 'Saturday, by the river?' }),
     ).toBeVisible();
@@ -1407,6 +1403,97 @@ describe('connected Gmail Inbox', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
     });
     expect(screen.queryByText('1 account needs attention')).toBeNull();
+  });
+
+  it('lists each connection’s sync status from the capsule, where it is authorized or tried again on its own', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saturday, by the river?' });
+    const connected = await renderConnected(gmail.native);
+    const store = connected.store();
+    await screen.findByRole('button', { name: /Saturday, by the river\?/u });
+    const openDetails = async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: '1 account needs attention' }),
+      );
+      return within(screen.getByTestId('sync-status-details'));
+    };
+
+    // On iPhone the details are a sheet with Done, naming the connection and why it failed.
+    gmail.fail({ status: 401 });
+    await act(store.load);
+    let details = await openDetails();
+    expect(screen.getByTestId('bottom-sheet')).toBeVisible();
+    expect(details.getByRole('header', { name: 'Sync Status' })).toBeVisible();
+    expect(details.getByText('Gmail · alex@example.invalid')).toBeVisible();
+    expect(
+      details.getByText('Gmail needs your permission again to show new mail.'),
+    ).toBeVisible();
+    expect(details.getByText(/Pull down to refresh$/u)).toBeVisible();
+    await fireEvent.press(details.getByRole('button', { name: 'Done' }));
+    await waitFor(() => {
+      expect(screen.queryByTestId('sync-status-details')).toBeNull();
+    });
+    details = await openDetails();
+    // A refused connection offers the Inbox's authorization, which closes the sheet first.
+    await act(async () => {
+      await fireEvent.press(
+        details.getByRole('button', { name: 'Allow Gmail access' }),
+      );
+    });
+    expect(connected.authorized).toContain(alex);
+    await waitFor(() => {
+      expect(screen.queryByTestId('sync-status-details')).toBeNull();
+    });
+
+    // A connection that could not be reached is tried again on its own.
+    gmail.fail({ code: 'unavailable' });
+    await act(store.load);
+    details = await openDetails();
+    expect(
+      details.getByText(
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ),
+    ).toBeVisible();
+    gmail.deliver({ subject: 'Arrives after Try Again' });
+    await act(async () => {
+      await fireEvent.press(
+        details.getByRole('button', {
+          name: 'Try Again for Gmail · alex@example.invalid',
+        }),
+      );
+    });
+    await expect(
+      screen.findByText('Arrives after Try Again'),
+    ).resolves.toBeVisible();
+    // The details close with the capsule.
+    await waitFor(() => {
+      expect(screen.queryByTestId('sync-status-details')).toBeNull();
+    });
+    expect(screen.queryByText('1 account needs attention')).toBeNull();
+  });
+
+  it('opens the sync status details in a popover on the capsule in a regular-width window', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saturday, by the river?' });
+    const connected = await renderConnected(
+      gmail.native,
+      'gmail',
+      createWindowBar(),
+    );
+    await screen.findByRole('button', { name: /Saturday, by the river\?/u });
+    gmail.fail({ code: 'unavailable' });
+    await act(connected.store().load);
+    await fireEvent.press(
+      screen.getByRole('button', { name: '1 account needs attention' }),
+    );
+    const details = within(screen.getByTestId('popover'));
+    expect(details.getByRole('header', { name: 'Sync Status' })).toBeVisible();
+    // The popover closes by tapping outside it, so it has no Done.
+    expect(details.queryByRole('button', { name: 'Done' })).toBeNull();
+    expect(details.getByText('Gmail · alex@example.invalid')).toBeVisible();
+    expect(screen.queryByTestId('bottom-sheet')).toBeNull();
   });
 
   it('refreshes the shown Inbox when the list is pulled down and settles the indicator after a failure', async () => {
@@ -1436,7 +1523,7 @@ describe('connected Gmail Inbox', () => {
     expect(indicator()).toMatchObject({ refreshing: true });
     // A refresh the person started shows its progress at once.
     expect(
-      screen.getByRole('progressbar', { name: 'Updating 1 account' }),
+      screen.getByRole('button', { name: 'Updating 1 account' }),
     ).toBeVisible();
     expect(screen.queryByText('Arrives with the pull')).toBeNull();
     await act(async () => {
@@ -1950,7 +2037,7 @@ describe('connected Gmail Inbox', () => {
     // The capsule measures the same download.
     await expect(
       screen.findByRole(
-        'progressbar',
+        'button',
         { name: 'Updating 1 account · 79%' },
         { timeout: 3000 },
       ),
@@ -1963,9 +2050,7 @@ describe('connected Gmail Inbox', () => {
     await expect(
       screen.findByText('1 account needs attention'),
     ).resolves.toBeVisible();
-    expect(
-      screen.queryByRole('progressbar', { name: /^Updating/u }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Updating/u })).toBeNull();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
     });
