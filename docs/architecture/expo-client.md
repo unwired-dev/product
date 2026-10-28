@@ -59,6 +59,14 @@ menu dismissal beneath while control children stay inside interactive glass.
 Remove the patch when the supported upstream version preserves that hit-testing
 contract. A JavaScript component mock cannot validate this native behavior.
 
+The pinned `@expo/ui@57.0.26` patch keeps `BottomSheet` children mounted after
+their first presentation. On an interactive swipe, SwiftUI reports dismissal
+when the swipe commits, while the sheet still slides away. Unmounting the React
+children then leaves the bare sheet covering the Inbox floating bar. SwiftUI
+still owns presentation, dismissal and gestures; the patch preserves both
+dismissal callbacks. It also applies to the reply sheet. Remove the patch when a
+supported upstream version retains content through the complete dismissal.
+
 ## Native E2E in CI
 
 The original 15-minute limit interrupted a hosted run after iPhone passed but
