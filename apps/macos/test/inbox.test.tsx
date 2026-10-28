@@ -4,9 +4,11 @@ import type { TurboModule } from 'react-native';
 
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import {
@@ -15,6 +17,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react-native';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -197,6 +200,45 @@ describe('message list', () => {
       expect(
         screen.queryByRole('button', { name: '1 account needs attention' }),
       ).toBeNull();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('clears an IMAP connection’s attention when Try Again succeeds while another folder is listed', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.deliver('Archive', { subject: 'Filed invoice' });
+    const inbox = createImapInbox(imap.native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'home-mailbox')}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={{ mailbox: 'home-mailbox', folder: 'Archive' }}
+        />
+      </InboxProvider>,
+    );
+    try {
+      // The sidebar opens a chosen folder; this test opens it directly.
+      await act(inbox.load);
+      await act(() => inbox.openFolder('Archive'));
+      await screen.findByText('Filed invoice');
+      imap.server.failure = 'offline';
+      await act(inbox.load);
+      imap.server.failure = undefined;
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Try Again' }),
+        );
+      });
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: '1 account needs attention' }),
+        ).toBeNull();
+      });
     } finally {
       await cleanup();
       inbox.forget();
