@@ -362,7 +362,7 @@ export const askForText = (
 export function useConfirmation() {
   const anchor = useRef<View>(null);
   const asked = useRef<ReturnType<typeof askInSheet>>(undefined);
-  useEffect(
+  useLayoutEffect(
     () => () => {
       asked.current?.retire();
       asked.current = undefined;

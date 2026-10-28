@@ -41,7 +41,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useLayoutEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
   AppState,
@@ -81,6 +81,16 @@ import {
   settingsWindow,
 } from './settings-window.tsx';
 import { started } from './started.ts';
+
+// Observe sheet withdrawal at commit, before React flushes passive unmount cleanup.
+function ConfirmationCommitProbe({
+  inspect,
+}: {
+  readonly inspect: () => void;
+}) {
+  useLayoutEffect(inspect, [inspect]);
+  return null;
+}
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -3543,8 +3553,16 @@ describe('product registration', () => {
     });
     expect(sheetShown()?.buttons).toContain(remove);
     const before = store.getSnapshot();
-    await view.unmount();
+    const atCommit: Array<ReturnType<typeof sheetShown>> = [];
+    await view.rerender(
+      <ConfirmationCommitProbe
+        inspect={() => {
+          atCommit.push(sheetShown());
+        }}
+      />,
+    );
     // Closing the account view closes its sheet, so the removal can no longer be chosen.
+    expect(atCommit).toStrictEqual([undefined]);
     expect(sheetShown()).toBeUndefined();
     expect(store.getSnapshot()).toBe(before);
   });
