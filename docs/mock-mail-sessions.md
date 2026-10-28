@@ -136,7 +136,10 @@ text position. It also checks that Crew 6's body unmounts once it lies more than
 screen away, and that scrolling back to Crew 6 mounts it again. On iPhone, the
 cold-opened Thread's Back then shows the Inbox, which opens Crew 6, then the field
 guide, in the reader. After scrolling into each body, a leading-edge swipe released
-early keeps the reading position, and a completed one returns to the Inbox. In
+early keeps the reading position, and a completed one returns to the Inbox.
+Reopened, each reader's scroll view reaches the window's bottom edge, its Reply and
+New Message end 40pt above it (the 52pt glass 2pt above the 34pt safe area), and
+the body's end scrolls clear of them. In
 Settings, a swipe from Account & Devices returns to the list of destinations, and
 another to Mailboxes. Open Inbox from Account & Devices then shows the Inbox with
 the Thread's row, and Account reopens Settings on its list of destinations. CI

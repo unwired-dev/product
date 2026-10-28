@@ -35,6 +35,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { SavedAttachment } from './message-body.tsx';
@@ -84,6 +85,15 @@ import { MessageTranslation } from './translation.tsx';
 // On iPhone the reader is a pushed screen with its own header and bottom toolbar, in every
 // orientation; on iPad the toolbar sits at the top like the Mac's.
 const compact = Platform.OS === 'ios' && !Platform.isPad;
+// On iPhone the content runs to the screen's bottom edge beneath the home indicator, and the
+// floating toolbar's 52pt glass sits 2pt above the bottom safe area, as the frames place them.
+const readerEdges = { top: true, bottom: !compact, left: true, right: true };
+const toolbarLift = 2;
+// The content's bottom padding clears iPhone's bottom toolbar or a regular window's floating bar,
+// and on iPhone the home indicator it runs beneath.
+const clearsBottom = (bar: boolean, inset: number) => ({
+  paddingBottom: (bar ? 52 + 2 * spacing.l : spacing.s) + (compact ? inset : 0),
+});
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   // The regular-width toolbar: glass groups at the pane's trailing edge.
@@ -99,7 +109,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: spacing.l,
     right: spacing.l,
-    bottom: spacing.l,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -118,8 +127,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     gap: spacing.l,
   },
-  // Clears iPhone's bottom toolbar, and iPad's floating bar across the window.
-  clearsBar: { paddingBottom: 52 + 2 * spacing.l },
   header: {
     width: '100%',
     maxWidth: 760,
@@ -889,6 +896,7 @@ function MailboxMessage({
   const mailbox = useMailbox();
   const account = use(AccountContext);
   const windowBar = use(WindowBarContext);
+  const insets = useSafeAreaInsets();
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [panel, setPanel] = useState<ReaderPanel>();
   const colors = usePalette();
@@ -935,7 +943,7 @@ function MailboxMessage({
   );
   return (
     <SafeAreaView
-      edges={{ top: true, bottom: true, left: true, right: true }}
+      edges={readerEdges}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <ResponseStatusContext value={setResponseStatus}>
         <LinkConfirmationProvider
@@ -962,7 +970,7 @@ function MailboxMessage({
           <ReaderScrollView
             contentContainerStyle={[
               styles.content,
-              compact || windowBar !== undefined ? styles.clearsBar : null,
+              clearsBottom(compact || windowBar !== undefined, insets.bottom),
             ]}>
             <MessageMetadata message={message} />
             <MessageActionsNotice id={message.id} />
@@ -985,7 +993,10 @@ function MailboxMessage({
             <View
               // The gaps between its groups leave taps to the panel dismissal beneath.
               pointerEvents="box-none"
-              style={styles.bottomToolbar}>
+              style={[
+                styles.bottomToolbar,
+                { bottom: insets.bottom + toolbarLift },
+              ]}>
               <View
                 pointerEvents="box-none"
                 style={styles.bottomActions}>
@@ -1042,6 +1053,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const { t } = useLocalization();
   const mailbox = useMailbox();
   const windowBar = use(WindowBarContext);
+  const insets = useSafeAreaInsets();
   // The opened message stays scrolled into place as the Thread lays out until the person scrolls.
   const pinned = useRef(true);
   const messages = useMemo(
@@ -1068,7 +1080,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
   }
   return (
     <SafeAreaView
-      edges={{ top: true, bottom: true, left: true, right: true }}
+      edges={readerEdges}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <QuotedHistoryContext value="collapsible">
         <LinkConfirmationProvider
@@ -1090,7 +1102,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
           <ReaderScrollView
             contentContainerStyle={[
               styles.content,
-              windowBar === undefined ? null : styles.clearsBar,
+              clearsBottom(windowBar !== undefined, insets.bottom),
             ]}
             maintainVisibleContentPosition={keepVisibleMessage}
             onScrollBeginDrag={() => {
