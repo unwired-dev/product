@@ -53,16 +53,27 @@ const withBodies = (
     : { reconciling: [...new Set(reconciling)] }),
 });
 
-// Keeps the bodies of messages Gmail just returned, which are in All Mail.
+// Keeps the bodies of opened messages. While a pass after an expired history ID runs, the shown
+// pass may still list messages that already left All Mail, so their bodies wait for the new pass
+// to list them; one it listed before the body was kept is dropped and read online again.
 export const keepingBodies = (
   history: MailboxHistory,
   ids: readonly string[],
 ): MailboxHistory => {
+  const bodies = history.bodies ?? [];
+  const reconciling = history.reconciling ?? [];
+  if (history.reconcilingThrough !== undefined) {
+    const kept = new Set(bodies);
+    return withBodies(history, bodies, [
+      ...reconciling,
+      ...ids.filter((id) => !kept.has(id)),
+    ]);
+  }
   const kept = new Set(ids);
   return withBodies(
     history,
-    [...(history.bodies ?? []), ...ids],
-    (history.reconciling ?? []).filter((id) => !kept.has(id)),
+    [...bodies, ...ids],
+    reconciling.filter((id) => !kept.has(id)),
   );
 };
 

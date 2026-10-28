@@ -1358,6 +1358,40 @@ describe('gmail history backfill', () => {
     );
   });
 
+  it('keeps a history body opened during a pass after an expired history ID only if that pass lists it', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const everything = mailbox(gmail, 300, 0);
+    const [trashed, kept] = [at(everything, -1), at(everything, -2)];
+    const history = holdingHistory(gmail);
+    const inbox = createInbox(history.native);
+    await inbox.load();
+    await backfilled(inbox);
+    await scrolled(inbox, 'INBOX', 300);
+
+    // Gmail no longer reports the move, so only the new pass can show it left All Mail.
+    gmail.expireHistory();
+    gmail.setLabel(trashed, 'TRASH', true);
+    history.hold();
+    await inbox.load();
+    await inbox.readMessage(trashed);
+    await inbox.readMessage(kept);
+    await expect(inbox.savedBodies([trashed, kept])).resolves.toStrictEqual(
+      new Set([trashed, kept]),
+    );
+
+    history.release();
+    await backfilled(inbox);
+    await inbox.load();
+    const scope = Schema.decodeSync(
+      Schema.Struct({ address: Schema.String, generation: Schema.String }),
+    )(await history.native.openMailbox());
+    // Inspect physical membership: savedBodies leaves out messages the Inbox no longer lists.
+    await expect(
+      history.native.listMessageBodies(scope, [trashed, kept]),
+    ).resolves.toMatchObject({ stored: [kept] });
+  });
+
   it('shows a downloaded body when a concurrent commit moves its message into revealed history', async () => {
     expect.hasAssertions();
     const gmail = createGmail();

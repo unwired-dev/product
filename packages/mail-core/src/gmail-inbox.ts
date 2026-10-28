@@ -903,7 +903,7 @@ export const reportArrivals = Effect.fnUntraced(function* <M>(
 });
 
 // History bodies a reader kept since `base` was read stay kept, unless `next` saw their message
-// leave All Mail.
+// leave All Mail or completed a pass they were still waiting for.
 const keptSince = (
   base: MailboxDocument | undefined,
   saved: MailboxDocument,
@@ -919,7 +919,12 @@ const keptSince = (
   return {
     history: keepingBodies(
       next.history,
-      keptBodies(saved.history).filter(
+      [
+        ...(saved.history?.bodies ?? []),
+        ...(next.history.reconcilingThrough === undefined
+          ? []
+          : (saved.history?.reconciling ?? [])),
+      ].filter(
         (id) =>
           !known.has(id) && (!changed.has(id) || changed.get(id) !== undefined),
       ),
