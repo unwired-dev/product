@@ -1032,6 +1032,92 @@ const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
 };
 
 describe('connected Gmail Inbox', () => {
+  it.each([
+    { isPad: false, subtitle: /^alex@example\.invalid · 1 unread$/u },
+    {
+      isPad: true,
+      subtitle: /^alex@example\.invalid · 1 unread · Updated just now$/u,
+    },
+  ])(
+    'shows the last successful update in the idle heading only on iPad (isPad=$isPad)',
+    async ({ isPad, subtitle }) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      const clock = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(Date.parse('2026-10-27T09:41:00Z'));
+      try {
+        const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+        gmail.deliver({ subject: 'Saved Inbox message' });
+        await renderConnected(gmail.native);
+        await expect(screen.findByText(subtitle)).resolves.toBeVisible();
+      } finally {
+        clock.mockRestore();
+        platform.restore();
+      }
+    },
+  );
+
+  it('leaves the last update out of iPad label and unified headings, which the Inbox synchronization did not refresh', async () => {
+    expect.hasAssertions();
+    const platform = jest.replaceProperty(
+      jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+      'ipad',
+      true,
+    );
+    const clock = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-10-27T09:41:00Z'));
+    try {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      const travel = gmail.createLabel('Travel');
+      const message = gmail.deliver({ subject: 'Flight to Zagreb' });
+      gmail.setLabel(message, travel, true);
+      gmail.setLabel(message, 'SENT', true);
+      await renderConnected(gmail.native);
+      await expect(
+        screen.findByText(/ · Updated just now$/u),
+      ).resolves.toBeVisible();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: 'Travel. In alex@example.invalid',
+          }),
+        );
+      });
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByText(/^alex@example\.invalid · 1 unread$/u),
+      ).toBeVisible();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Sent. In All mailboxes' }),
+        );
+      });
+      await screen.findByRole('button', { name: /Flight to Zagreb/u });
+      expect(screen.getByText(/^All mailboxes · 1 unread$/u)).toBeVisible();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'All inboxes' }),
+        );
+      });
+      await expect(
+        screen.findByText(
+          /^alex@example\.invalid · 1 unread · Updated just now$/u,
+        ),
+      ).resolves.toBeVisible();
+    } finally {
+      clock.mockRestore();
+      platform.restore();
+    }
+  });
+
   it.each([false, true])(
     'shows one Top Results header for provider-only matches (isPad=%s)',
     async (isPad) => {

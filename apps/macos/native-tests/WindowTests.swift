@@ -196,7 +196,10 @@ final class WindowTests: XCTestCase {
     entry.click()
     entry.typeText(String(presented.suffix(4)))
     resumed.buttons["Confirm Recovery Key"].click()
-    // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
+    // Confirmed setup keeps the account page open until Open Inbox shows the synchronized Gmail
+    // Inbox, listed over two Gmail pages.
+    XCTAssertTrue(resumed.buttons["Open Inbox"].waitForExistence(timeout: 15))
+    resumed.buttons["Open Inbox"].click()
     let rowan = "Unread. Rowan Hale. Garden plans for spring"
     XCTAssertTrue(resumed.buttons[rowan].waitForExistence(timeout: 20))
     XCTAssertTrue(
@@ -210,6 +213,18 @@ final class WindowTests: XCTestCase {
     // The sanitized HTML renders inside the isolated WebKit view.
     let seedOrder = webText("seed order", in: resumed)
     XCTAssertTrue(seedOrder.waitForExistence(timeout: 15))
+    // #1191: a secondary click opens the context menus of the row, the reader's sender and a link.
+    func opensMenu(_ item: String, from target: XCUIElement) {
+      target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+      XCTAssertTrue(app.menuItems[item].waitForExistence(timeout: 5))
+      app.typeKey(.escape, modifierFlags: [])
+      XCTAssertTrue(app.menuItems[item].waitForNonExistence(timeout: 5))
+    }
+    opensMenu("Archive", from: resumed.buttons[rowan])
+    // The sender's label repeats on its inner text, so it is clicked by position.
+    opensMenu(
+      "Copy Address", from: resumed.staticTexts["Rowan Hale, rowan@example.invalid"].firstMatch)
+    opensMenu("Copy Link", from: resumed.links["Open link: garden plan"])
     // #1217: a letter the read-only page leaves unhandled must not abort the app.
     seedOrder.click()
     resumed.typeKey("j", modifierFlags: [])

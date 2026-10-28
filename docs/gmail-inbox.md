@@ -258,7 +258,13 @@ the UTC day they arrived; a row shows the time today, Yesterday for the prior
 day, the weekday within the last week and the date before that, with Gmail's
 star as its flag. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
-Offline while the server is being checked or cannot be reached. On iPhone and iPad, while
+Offline while the server is being checked or cannot be reached. Otherwise, on iPad and
+Mac while the Inbox is listed, it also says how long ago the shown mailboxes were last brought up to date, such as **Updated just
+now** or **Updated 5 minutes ago**, counted from the start of each mailbox's latest
+completed synchronization and taking the oldest of them. Each mailbox saves that time
+with its cache after every successful synchronization, even when no mail changed,
+so it survives relaunch and failed attempts. iPhone's one-line subtitle leaves the time
+out. On iPhone and iPad, while
 [search](#searching-saved-mail) is open the heading gives way to its scope choice,
 and **Top Results** reports the result count; each mailbox an online search could
 not reach says so under **From mail servers**. On Mac, search changes the title to

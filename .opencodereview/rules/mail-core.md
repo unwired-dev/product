@@ -580,6 +580,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `createRegistration.resume` treating each Mac window's report of one application activation as a separate restore. The windows share one store and AppState dispatches listeners synchronously, so coalesce those reports or give the subscription one application-level owner; otherwise native Product Account and Gmail verification repeats per window and prolongs the busy state. Coalescing must end with that dispatch, not with the pending restore, so a later activation after unlock still queues a fresh verification.
 - A successful persisted state published before the native operation has durably completed, with no failure path that restores the previous state. Explicit busy/pending presentation states are permitted, as in `createRegistration`.
 - A whole-document CAS conflict in `createGmailInbox` that restarts all synchronization for ordinary concurrent intake, discards newly durable intents, or resurrects an action settled by this operation or another store instance. Review `commitOver`/`rebased` against both the prior base and latest saved pending IDs, including dispatch preparation and settlement, reconciliation, labels and blocked-action resolution. Drop previously known IDs absent from the latest document and revalidate the prepared head before dispatch. Retain newly appended intake IDs in FIFO order, bound rebases, and reject another mailbox/owner before any write; repeated benign intake must not exhaust whole-sync retries or duplicate provider actions.
+- `gmail-inbox.ts.rebasedOnto` copying an unchanged `synchronizedAt` from its
+  stale proposal over another store's completed synchronization. Preserve the
+  saved value when the proposal did not change it relative to its base, while
+  retaining an explicit synchronization update even after clock rollback makes
+  its time equal to the original base. Distinguish explicit success from
+  unchanged metadata rather than inferring intent solely from value equality.
+  Exercise a held history page, another store's successful refresh and cache-only
+  relaunch; otherwise background metadata work loses the last successful time.
 - `createGmailInbox.dispatch` identifying ownership only by pending/message ID,
   a deterministic attempt ID or attempt age after a CAS race. In `rebasedOnto`,
   preserve saved progress that advanced since the base even when stale
@@ -762,10 +770,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Otherwise stale metadata can rewind progress and report an arrival twice even
   when a filter drops candidates present at the first conflicting commit.
 
-- Persisted synchronization instants in `imap-model.ts`
-  accepted as arbitrary strings before `mailbox-message.ts.newMailSince` converts
-  them unsafely. Reject malformed values at decoding, or synchronization can
-  reject outside typed recovery and leave the Inbox permanently syncing. A cache
+- Persisted synchronization instants in `imap-model.ts` or `mailbox-document.ts`
+  accepted as arbitrary strings before date consumers use them. Reuse
+  `mailbox-message.ts.SynchronizationTime` at decoding, or `newMailSince` can reject
+  outside typed recovery and leave the Inbox permanently syncing, and the Inbox
+  subtitle's `lastUpdated` can show `Updated NaN days ago`. An IMAP cache
   lacking that instant must establish its boundary silently; substituting its
   newest receipt can classify much older moved-in mail as an arrival.
 

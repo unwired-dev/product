@@ -82,6 +82,7 @@ Dir.mktmpdir("testflight-signing with spaces-", "#{root}/scratchpad") do |direct
     raise 'Signing key leaked to build' if ENV['TESTFLIGHT_SIGNING_KEY'] || ENV['TESTFLIGHT_CERTIFICATE']
     private_files = Dir.glob("#{ENV.fetch('RUNNER_TEMP')}/testflight-signing.*/*").grep(/key\.pem|identity\.p12|password$/)
     raise 'Private files retained during build' unless private_files.empty?
+    raise 'Prepared identity not handed to upload' unless ENV['TESTFLIGHT_IDENTITY_SHA1'] == ENV.fetch('EXPECTED_IDENTITY')
     File.write("#{ENV.fetch('RUNNER_TEMP')}/uploaded", 'yes')
     case ENV.fetch('SCENARIO')
     when 'failure' then exit 42
@@ -100,6 +101,7 @@ Dir.mktmpdir("testflight-signing with spaces-", "#{root}/scratchpad") do |direct
     certificate.sign(key, OpenSSL::Digest::SHA256.new)
     env = { 'PATH' => "#{bin}:#{ENV.fetch('PATH')}", '__ETC_ZSHENV_SOURCED' => '1', 'HOME' => run,
       'RUNNER_TEMP' => run, 'CALLS' => "#{run}/calls", 'SCENARIO' => scenario,
+      'EXPECTED_IDENTITY' => OpenSSL::Digest::SHA1.hexdigest(certificate.to_der).upcase,
       'TESTFLIGHT_SIGNING_KEY' => key.to_pem,
       'TESTFLIGHT_CERTIFICATE' => scenario == 'malformed' ? 'INVALID_CERTIFICATE_SENTINEL' : certificate.to_der.unpack1('H*') }
     output, status = Open3.capture2e(env, '/bin/zsh', "#{root}/scripts/testflight-signing.zsh", 'ruby', "#{directory}/upload.rb", unsetenv_others: true)

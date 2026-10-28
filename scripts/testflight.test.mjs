@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
@@ -20,6 +21,23 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const sha = 'a'.repeat(40);
 const number = '202610031234';
 const sentinel = 'SYNTHETIC_PRIVATE_KEY_SENTINEL';
+// Archive inspection reads public certificates only; no signing key is needed.
+const certificate = (name) =>
+  spawnSync('ruby', [
+    '-ropenssl',
+    '-e',
+    `key = OpenSSL::PKey::RSA.new(2048); c = OpenSSL::X509::Certificate.new; c.version = 2; c.serial = 1; c.subject = c.issuer = OpenSSL::X509::Name.parse('/CN=${name}'); c.public_key = key; c.not_before = Time.now; c.not_after = Time.now + 3600; c.sign(key, OpenSSL::Digest::SHA256.new); $stdout.binmode.write(c.to_der)`,
+  ]).stdout;
+const prepared = certificate('Prepared identity');
+const identity = createHash('sha1')
+  .update(prepared)
+  .digest('hex')
+  .toUpperCase();
+const signedScenarios = new Set([
+  'signed',
+  'unsigned-archive',
+  'other-identity',
+]);
 
 // fallow-ignore-next-line complexity -- One fixture builds the whole fake checkout and toolchain every release scenario shares.
 function fixture(scenario, { dotenv = false } = {}) {
@@ -42,6 +60,11 @@ function fixture(scenario, { dotenv = false } = {}) {
   symlinkSync(process.execPath, path.join(bin, 'node'));
   const key = path.join(directory, 'AuthKey.p8');
   writeFileSync(key, 'synthetic, never used for signing');
+  writeFileSync(path.join(directory, 'prepared.der'), prepared);
+  writeFileSync(
+    path.join(directory, 'other.der'),
+    scenario === 'other-identity' ? certificate('Other identity') : '',
+  );
   for (const name of ['testflight.zsh', 'testflight-env.mjs']) {
     cpSync(
       path.join(root, 'scripts', name),
@@ -119,6 +142,11 @@ const args = process.argv.slice(2);
 const value = (flag) => args[args.indexOf(flag) + 1];
 const record = (name, text) => fs.appendFileSync(path.join(base, name), text + '\\n');
 if (process.env.UNRELATED_SECRET) throw Error('unrelated dotenv secret reached build');
+if (command === 'codesign') {
+  if (scenario === 'unsigned-archive') { console.log('code object is not signed at all'); process.exit(1); }
+  const prefix = args.find(arg => arg.startsWith('--extract-certificates=')).slice('--extract-certificates='.length);
+  fs.copyFileSync(path.join(base, scenario === 'other-identity' ? 'other.der' : 'prepared.der'), prefix + '0');
+}
 if (command === 'git' && args.includes('rev-parse')) console.log(${JSON.stringify(sha)});
 if (command === 'git' && args.includes('status') && process.env.STUB_DIRTY_WORKTREE) console.log(' M tracked-file');
 if (command === 'git' && args.includes('status') && process.env.STUB_GIT_FAILURE) process.exit(128);
@@ -190,16 +218,21 @@ if (command === 'xcodebuild') {
   }
 }
 `;
-  for (const command of ['pnpm', 'pod', 'git', 'xcodebuild']) {
+  for (const command of ['pnpm', 'pod', 'git', 'xcodebuild', 'codesign']) {
     writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
   }
   return { directory, checkout, env };
 }
 
-for (const [scenario, platform, expected] of [
+for (const [scenario, platform, expected, workflowRevision] of [
   ['success', 'both', 0],
   ['success', 'ios', 0],
   ['success', 'macos', 0],
+  ['signed', 'both', 0],
+  ['unsigned-archive', 'ios', 1],
+  ['other-identity', 'macos', 1],
+  ['signed', 'both', 0, true],
+  ['other-identity', 'macos', 1, true],
   ['local-profile', 'macos', 0],
   ['pod-retry', 'ios', 0],
   ['pod-failure', 'both', 1],
@@ -219,7 +252,7 @@ for (const [scenario, platform, expected] of [
   ['stale-mac-bundle', 'macos', 1],
 ]) {
   test(
-    `TestFlight runner protects release boundary: ${scenario}, ${platform}`,
+    `TestFlight runner protects release boundary: ${scenario}, ${platform}${workflowRevision ? ', older build ref' : ''}`,
     { skip: process.platform !== 'darwin' },
     // fallow-ignore-next-line complexity -- One table-driven case asserts every refusal and its cleanup together.
     () => {
@@ -228,11 +261,47 @@ for (const [scenario, platform, expected] of [
         if (scenario === 'local-profile') {
           env.UNWIRED_MAC_PROFILE = '/installed/development.provisionprofile';
         }
-        const result = spawnSync(
-          '/bin/zsh',
-          ['scripts/testflight.zsh', platform],
-          { cwd: checkout, env, encoding: 'utf8' },
-        );
+        if (signedScenarios.has(scenario)) {
+          env.TESTFLIGHT_IDENTITY_SHA1 = identity;
+        }
+        let args = ['scripts/testflight.zsh', platform];
+        if (workflowRevision) {
+          const tools = path.join(
+            checkout,
+            'artifacts/testflight/signing-tools/scripts',
+          );
+          mkdirSync(tools, { recursive: true });
+          for (const name of ['testflight.zsh', 'testflight-env.mjs']) {
+            cpSync(path.join(root, 'scripts', name), path.join(tools, name));
+          }
+          // The wrapper is covered separately; exercise the workflow's actual upload command.
+          writeFileSync(path.join(tools, 'testflight-signing.zsh'), '"$@"\n');
+          writeFileSync(
+            path.join(checkout, 'scripts/testflight.zsh'),
+            'exit 92\n',
+          );
+          writeFileSync(
+            path.join(checkout, 'scripts/testflight-env.mjs'),
+            'process.exit(93);\n',
+          );
+          const workflow = readFileSync(
+            path.join(root, '.github/workflows/testflight.yml'),
+            'utf8',
+          );
+          const script = workflow
+            .split('      - name: Archive and upload\n')[1]
+            .split('        run: |\n')[1]
+            .split('      - name: Upload build status\n')[0]
+            .replaceAll(/^ {10}/gmu, '');
+          env.RUNNER_TEMP = directory;
+          env.HOST = platform;
+          args = ['-e', '-o', 'pipefail', '-c', script];
+        }
+        const result = spawnSync('/bin/zsh', args, {
+          cwd: checkout,
+          env,
+          encoding: 'utf8',
+        });
         assert.equal(result.status, expected, result.stdout + result.stderr);
         if (scenario === 'missing-topic') {
           assert.equal(
@@ -240,8 +309,16 @@ for (const [scenario, platform, expected] of [
             `Refusing to upload ${platform}: unexpected archive configuration`,
           );
         }
+        if (expected === 1 && signedScenarios.has(scenario)) {
+          assert.equal(
+            result.stderr.trim(),
+            `Refusing to upload ${platform}: archive is not signed by the prepared identity`,
+          );
+        }
         const evidence = path.join(checkout, 'artifacts/testflight');
-        const runs = readdirSync(evidence);
+        const runs = readdirSync(evidence).filter(
+          (name) => name !== 'signing-tools',
+        );
         assert.equal(runs.length, 1);
         const run = path.join(evidence, runs[0]);
         assert.ok(!existsSync(path.join(run, 'ios-DerivedData')));
@@ -274,6 +351,17 @@ for (const [scenario, platform, expected] of [
         }
         if (expected === 0) {
           assert.ok(commands.includes('-exportArchive'));
+          const hosts = platform === 'both' ? ['ios', 'macos'] : [platform];
+          assert.deepEqual(
+            readFileSync(path.join(run, 'status.txt'), 'utf8')
+              .split('\n')
+              .filter((line) => line.startsWith('Signed:')),
+            scenario === 'signed'
+              ? hosts.map(
+                  (host) => `Signed: ${host}; prepared identity ${identity}`,
+                )
+              : [],
+          );
           assert.ok(
             readFileSync(path.join(directory, 'notes'), 'utf8').includes(
               `${number} ${sha}`,

@@ -132,6 +132,9 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
 - Each folder's messages and checkpoint are committed together to the connection's
   encrypted cache, so an interrupted synchronization repeats only the step that did
   not commit. The Inbox and up to eight other opened folders stay cached.
+  The Inbox's commit also records when its synchronization started, which the
+  list subtitle reports as the connection's
+  [last update](gmail-inbox.md#behavior).
 - After a successful folder synchronization, a saved body is removed when its
   message appears in neither a cached folder's list nor a still-shown view of an
   evicted folder. This includes messages expunged from a folder or replaced by a new

@@ -550,7 +550,7 @@ describe('the isolated rich reader', () => {
     });
   });
 
-  it('prunes bodies after a failed prune even when the next synchronization commits nothing', async () => {
+  it('prunes bodies after failed prunes at the next verified synchronization', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const archived = gmail.deliver({ subject: 'Archived' });
@@ -560,6 +560,8 @@ describe('the isolated rich reader', () => {
     await read(inbox, archived);
     await read(inbox, kept);
     gmail.archive(archived);
+    // Both listing commits and the synchronization time's commit fail to prune.
+    gmail.failRetain('unavailable');
     gmail.failRetain('unavailable');
     gmail.failRetain('unavailable');
     await inbox.load();
@@ -574,9 +576,9 @@ describe('the isolated rich reader', () => {
     await relaunched.load();
     expect(gmail.cachedBodies().has(archived)).toBe(true);
     gmail.native.openMailbox = open;
-    // A verified synchronization after relaunch commits nothing but still retries pruning.
+    // A verified synchronization after relaunch commits only its time but still retries pruning.
     await relaunched.load();
-    expect(gmail.commits).toHaveLength(commits);
+    expect(gmail.commits).toHaveLength(commits + 1);
     expect([...gmail.cachedBodies().keys()]).toStrictEqual([kept]);
   });
 
@@ -1534,8 +1536,12 @@ describe('the isolated rich reader', () => {
       expect(refused).toMatchObject({ sync: 'authentication' });
       history.release();
       await syncing;
-      // Older metadata results cannot dismiss the notice or retry without renewed permission.
-      expect(inbox.getSnapshot()).toStrictEqual(refused);
+      // Older metadata results cannot dismiss the notice or retry without renewed permission,
+      // though a completed synchronization still records its time.
+      expect(inbox.getSnapshot()).toStrictEqual({
+        ...refused,
+        synchronizedAt: expect.any(String),
+      });
       expect(inbox.messageBody(id)).toStrictEqual({
         kind: 'unavailable',
         reason: 'authentication',
@@ -1547,6 +1553,7 @@ describe('the isolated rich reader', () => {
       expect(inbox.getSnapshot()).toStrictEqual({
         ...refused,
         sync: 'current',
+        synchronizedAt: expect.any(String),
       });
     },
   );

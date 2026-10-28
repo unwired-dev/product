@@ -264,6 +264,8 @@ export type ImapInboxState =
       // The Inbox folder's messages, newest first, with changes not yet applied by the server.
       readonly messages: readonly ImapMessage[];
       readonly status: Sync;
+      // When the Inbox folder's last completed read began, as an ISO instant; absent before one.
+      readonly synchronizedAt?: string;
       readonly folders: readonly ImapFolder[];
       // What the server advertised at its last listing; unknown before one was read.
       readonly capabilities: ImapCapabilities | undefined;
@@ -1080,11 +1082,13 @@ export function createImapInbox(
     }
     reportBlocked();
     shownStatus = authenticationRejected ? 'authentication' : next;
+    const { messages = [], synchronizedAt } = cacheOf(inboxFolder) ?? {};
     state = {
       kind: 'ready',
       address: opened.address,
-      messages: projected(cacheOf(inboxFolder)?.messages ?? [], changes()),
+      messages: projected(messages, changes()),
       status: shownStatus,
+      ...(synchronizedAt === undefined ? {} : { synchronizedAt }),
       folders: document.folders,
       capabilities: document.capabilities,
       pending: changes().length,
