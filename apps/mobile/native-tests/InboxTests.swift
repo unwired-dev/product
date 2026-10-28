@@ -71,8 +71,8 @@ final class InboxTests: XCTestCase {
     if done.exists {
       done.tap()
     } else {
-      // The popover closes with a tap outside it.
-      app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.1)).tap()
+      // The popover closes with a tap outside it, here on the empty reading pane.
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.35)).tap()
     }
     XCTAssertTrue(title.waitForNonExistence(timeout: 10))
     let attention = app.buttons["1 account needs attention"]
