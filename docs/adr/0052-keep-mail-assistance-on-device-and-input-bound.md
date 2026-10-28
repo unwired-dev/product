@@ -24,6 +24,14 @@ restrictions below only for that feature; Catch Up retention and all other
 assistance contracts remain unchanged. It adds no launch requirement or claim of
 implementation.
 
+## Private Cloud Mail Assistance amendment — 2026-10-28
+
+[ADR 0075](0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
+adds a separately authorized PCC mode and scopes its exceptions to the local-only
+input and network restrictions below. The existing on-device mode retains those
+restrictions. The linked decision preserves the consent, safety and lifecycle
+boundaries and defers background PCC.
+
 ## Context
 
 Compose, response, and understanding features need a shared model boundary before they add user interfaces. Mail and Draft content is private, can contain adversarial instructions, and can change while inference is running. The application must also remain useful when the system model is unavailable.

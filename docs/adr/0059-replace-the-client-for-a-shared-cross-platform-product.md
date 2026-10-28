@@ -4,6 +4,13 @@ status: accepted
 
 # Replace the client for a shared cross-platform product
 
+## Private Cloud Mail Assistance amendment — 2026-10-28
+
+[ADR 0075](0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
+qualifies the retained on-device-only assistance requirement with a separately
+opted-in PCC mode. Existing local assistance and core mail remain independently
+releasable; background PCC remains deferred. Other replacement boundaries remain.
+
 ## Draft and invitation launch amendment, 2026-10-24
 
 The [confirmed launch additions](../product/power-user-launch.md#confirmed-scope-additions-from-2026-10-24)

@@ -24,6 +24,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Catch Up, the planned chat-style Inbox, and background summaries](catch-up.md)
 - [On-device translation](message-translation.md)
 - [On-device Draft rewrites and reply suggestions](draft-assistance.md)
+- [Private Cloud Mail Assistance: confirmed planned scope and delivery](product/private-cloud-mail-assistance.md)
 - [On-device assistance qualification on physical hardware](assistance-qualification.md)
 - [Drafts, the composer and provider-hosted launch work](drafts.md)
 - [Tiptap Draft editor evaluation on iPhone, iPad and Mac](draft-editor-evaluation.md)
