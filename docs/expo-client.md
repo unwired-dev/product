@@ -138,6 +138,10 @@ Native projects are generated and ignored. Regenerate with `pnpm native:generate
 after changing native dependencies or app configuration. Root `pnpm install`
 applies the pinned `expo-glass-effect` patch; regenerate and rebuild after changing
 it, and verify reader toolbar padding dismisses an open menu while buttons still work.
+It also applies the pinned `@expo/ui` patch, which keeps `BottomSheet` content mounted
+after dismissal: SwiftUI reports a swipe dismissal when the swipe commits, and unmounting
+then would leave the bare sheet sliding over the screen. Bundling picks up a change to it
+without regenerating; verify by swiping the Filters sheet away.
 Keep native changes in
 config plugins. The design plugin compiles `native/design`, the SF Symbol and
 other native design views the Mac host shares: it copies their sources into the
