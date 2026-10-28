@@ -900,7 +900,7 @@ describe('storing Drafts', () => {
       drafts.update({
         ...created,
         subject: 'Studio review on Thursday',
-        body: linked('javascript:alert(1)'),
+        body: linked('data:text/html,notes'),
       }),
     ).resolves.toBe(false);
     await expect(
