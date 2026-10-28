@@ -116,16 +116,31 @@ const discoverNamespaces = (socket, tag, failed) => {
     );
   }
 };
+// Floods LIST without ever answering it, far past what fits in the socket buffers: only a client
+// that stops at its bound and closes the session ends the flood early.
+const floodFolders = (socket) => {
+  const total = 100_000;
+  let index = 0;
+  const flood = () => {
+    while (!socket.destroyed && index < total) {
+      index += 1;
+      if (!socket.write(`* LIST (\\HasNoChildren) "/" "Folder ${index}"\r\n`)) {
+        socket.once('drain', flood);
+        return;
+      }
+    }
+  };
+  socket.once('close', () => {
+    if (index < total) {
+      operations.add('folder-flood');
+    }
+  });
+  flood();
+};
 const listFolders = (socket, command, overflowing) => {
   operations.add('list');
   if (overflowing) {
-    operations.add('folder-overflow');
-    socket.write(
-      Array.from(
-        { length: 1001 },
-        (_, index) => `* LIST (\\HasNoChildren) "/" "Folder ${index}"\r\n`,
-      ).join(''),
-    );
+    floodFolders(socket);
   } else if (command.includes('Shared/')) {
     operations.add('shared-list');
     socket.write('* LIST (\\HasNoChildren) "/" "Shared/Team"\r\n');
@@ -447,7 +462,9 @@ const server = tls.createServer(
         discoverNamespaces(socket, tag, namespaceFailure);
       } else if (command.startsWith('LIST ')) {
         listFolders(socket, command, overflowing);
-        ok();
+        if (!overflowing) {
+          ok();
+        }
       } else if (/^(?:UID )?FETCH /u.test(command)) {
         answerFetch(socket, session, { tag, command });
       } else if (command === 'LOGOUT') {
@@ -505,7 +522,7 @@ process.on('SIGTERM', () => {
       'examine',
       'expunge',
       'flags-or-size',
-      'folder-overflow',
+      'folder-flood',
       'gone',
       'idle',
       'idle-done',

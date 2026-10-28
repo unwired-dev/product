@@ -160,8 +160,10 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 folders, preserves the prior
-  list and cached mail for a later retry. Case variants of the reserved `INBOX` name share that spelling;
-  other folder names stay as listed, including folders with an inbox role.
+  list and cached mail for a later retry. Listing stops reading at the 1,001st
+  folder the server sends, across all namespaces, and closes that session. Case
+  variants of the reserved `INBOX` name share that spelling; other folder names
+  stay as listed, including folders with an inbox role.
 
 Freshness follows the hosts' application lifecycles. Every Inbox load, including
 foreground catch-up, the five-minute poll and each background opportunity iOS grants,
