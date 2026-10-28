@@ -9,6 +9,7 @@ import * as Schema from 'effect/Schema';
 import type { Reply, RequestURL } from './synthetic-relay.ts';
 
 import { allMail, inView } from '../gmail-actions.ts';
+import { historyPageSize } from '../gmail-history.ts';
 import {
   SyntheticScenario,
   refuse,
@@ -318,6 +319,31 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           labelIds: next,
         });
       });
+      // The `registration-sync-status` mailbox downloads its history slowly, so the Inbox shows
+      // the Sync Status Capsule: the history listing returns two messages, holds the next page for
+      // two minutes and fails it once, then lists the rest.
+      const slowHistory =
+        scenario === 'registration-sync-status' ? { failed: false } : undefined;
+      const historyPage = Effect.fnUntraced(function* (
+        listed: ReadonlyArray<{
+          readonly id: string;
+          readonly threadId: string;
+        }>,
+        pageToken: string | undefined,
+      ) {
+        if (pageToken === undefined) {
+          return yield* reply(200, {
+            messages: listed.slice(0, 2),
+            nextPageToken: 'rest',
+          });
+        }
+        if (slowHistory?.failed === false) {
+          slowHistory.failed = true;
+          yield* Effect.sleep('2 minutes');
+          return yield* reply(503, { error: { code: 503 } });
+        }
+        return yield* reply(200, { messages: listed.slice(2) });
+      });
       // Gmail's named resources, by the request's last path segment.
       const resources: Readonly<
         Record<
@@ -332,6 +358,13 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           reply(200, {
             emailAddress: 'other@example.invalid',
             historyId: '100',
+            ...(slowHistory === undefined
+              ? {}
+              : {
+                  messagesTotal: [...labels.values()].filter((ids) =>
+                    inView(allMail, ids),
+                  ).length,
+                }),
           }),
         // Synthetic Gmail accepts every message and keeps nothing of it.
         send: () =>
@@ -347,17 +380,20 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
         // includeSpamTrash and every other message without a label.
         messages: ({ item }) => {
           if (item('labelIds') !== 'INBOX' && item('q') === undefined) {
-            return reply(200, {
-              messages: Arr.sort(
-                Object.entries(messages).filter(
-                  ([id]) =>
-                    inView(item('labelIds') ?? allMail, labels.get(id) ?? []) &&
-                    (item('includeSpamTrash') === 'true' ||
-                      !['SPAM', 'TRASH'].includes(item('labelIds') ?? '')),
-                ),
-                newestFirst,
-              ).map(([id]) => ({ id, threadId: threadOf(id) })),
-            });
+            const listed = Arr.sort(
+              Object.entries(messages).filter(
+                ([id]) =>
+                  inView(item('labelIds') ?? allMail, labels.get(id) ?? []) &&
+                  (item('includeSpamTrash') === 'true' ||
+                    !['SPAM', 'TRASH'].includes(item('labelIds') ?? '')),
+              ),
+              newestFirst,
+            ).map(([id]) => ({ id, threadId: threadOf(id) }));
+            return slowHistory !== undefined &&
+              item('labelIds') === undefined &&
+              item('maxResults') === String(historyPageSize)
+              ? historyPage(listed, item('pageToken'))
+              : reply(200, { messages: listed });
           }
           const listed = Object.entries(messages)
             .filter(([, message]) => message.labelIds?.includes('INBOX'))
