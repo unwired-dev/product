@@ -44,7 +44,7 @@ summarizes a message through this synthetic native binding.
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the fourteen registration scenarios
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the registration scenarios
 described in [Google registration](google-registration.md#deterministic-evidence),
 [Apple registration](apple-registration.md#deterministic-evidence),
 [linked sign-in](linked-sign-in.md#deterministic-evidence),
@@ -153,6 +153,14 @@ connects both mailboxes and times its interactions over them; the Mac
 drives them by keyboard. The Expo native journey connects the Microsoft mailbox and
 [drives it by hardware keyboard](agents/native-validation.md#iphone-and-ipad-keyboard-and-accessibility-journey)
 on iPhone and iPad. CI runs none of them.
+In `registration-sync-status`, the synthetic Gmail mailbox downloads its history
+slowly: Gmail reports the mailbox's message count, lists two messages, then holds
+the next page for two minutes and fails it once with a server error before listing
+the rest. The Expo native journey signs in like Google registration and audits the
+Inbox's [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) while it shows
+progress, then after the failure, when it asks for attention. Try Again downloads
+the rest and hides the capsule. CI does not run this scenario; it is local native
+evidence for iPhone and iPad in Light and Dark (`UNWIRED_APPEARANCE`).
 The Mac, iPhone and iPad `categorization-spike` builds reuse the `open-read-relaunch`
 mailbox and add the [DeBERTa categorization spike](categorization-spike.md) page to
 the empty reader; iPhone opens on it. They have no native journey; their evidence

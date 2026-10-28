@@ -21,7 +21,8 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
 }
 
 final class InboxTests: XCTestCase {
-  private func registrationJourney(_ app: XCUIApplication) throws {
+  // A new Product Account connects the synthetic Gmail mailbox and confirms its Recovery Key.
+  private func connectGmail(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Connect your mail"].waitForExistence(timeout: 15))
@@ -45,6 +46,28 @@ final class InboxTests: XCTestCase {
     let entry = app.textFields["Last four characters"]
     enter(String(presented.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
+  }
+
+  // #1441: the Sync Status Capsule while the Gmail history downloads (Progress), after its next
+  // page fails (Attention) and once Try Again downloads the rest (hidden).
+  private func syncStatusJourney(_ app: XCUIApplication) throws {
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    let progress = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Updating 1 account")).firstMatch
+    XCTAssertTrue(progress.waitForExistence(timeout: 30))
+    try audit(app, "Sync Status Progress")
+    let attention = text("1 account needs attention", in: app)
+    XCTAssertTrue(attention.waitForExistence(timeout: 180))
+    try audit(app, "Sync Status Attention")
+    app.buttons["Try Again"].tap()
+    XCTAssertTrue(attention.waitForNonExistence(timeout: 30))
+    XCTAssertTrue(progress.waitForNonExistence(timeout: 30))
+  }
+
+  private func registrationJourney(_ app: XCUIApplication) throws {
+    connectGmail(app)
     // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
@@ -1778,6 +1801,7 @@ final class InboxTests: XCTestCase {
       case "registration-draft-editor": draftEditorJourney(app)
       case "registration-thread": threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
+      case "registration-sync-status": try syncStatusJourney(app)
       default:
         try registrationJourney(app)
       }

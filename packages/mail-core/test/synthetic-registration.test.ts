@@ -752,3 +752,60 @@ describe('the performance mailboxes', () => {
     ).toBe('Outlook update 125 body. Nothing here came from a real mailbox.');
   });
 });
+
+describe('the sync status mailbox', () => {
+  it('holds its Gmail history after two messages, fails that page once, then lists the rest', async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-sync-status', { state: null });
+    const gmail = (path: string) =>
+      ask('google.gmail', {
+        subject: 'synthetic-alternate-mailbox',
+        url: `https://gmail.googleapis.com/gmail/v1/users/me/${path}`,
+        body: null,
+      });
+    const exchange = <
+      S extends Schema.Top & { readonly DecodingServices: never },
+    >(
+      body: S,
+    ) => Schema.Struct({ status: Schema.Finite, body });
+    const { messagesTotal } = decoded(
+      exchange(
+        Schema.fromJsonString(Schema.Struct({ messagesTotal: Schema.Finite })),
+      ),
+      await gmail('profile'),
+    ).body;
+    const first = decoded(
+      exchange(Page),
+      await gmail('messages?maxResults=100'),
+    ).body;
+    expect(first).toMatchObject({ nextPageToken: 'rest' });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let answered = false;
+      const held = (async () => {
+        const outcome = await gmail('messages?maxResults=100&pageToken=rest');
+        answered = true;
+        return outcome;
+      })();
+      await vi.advanceTimersByTimeAsync(119_000);
+      expect(answered).toBe(false);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(decoded(exchange(Schema.String), await held).status).toBe(503);
+    } finally {
+      vi.useRealTimers();
+    }
+    const rest = decoded(
+      exchange(Page),
+      await gmail('messages?maxResults=100&pageToken=rest'),
+    ).body;
+    expect([first.messages.length, rest.messages.length]).toStrictEqual([
+      2,
+      messagesTotal - 2,
+    ]);
+    // A view's listing of All Mail is not the history download: it lists every message at once.
+    expect(
+      decoded(exchange(Page), await gmail('messages?maxResults=50')).body
+        .messages,
+    ).toHaveLength(messagesTotal);
+  });
+});
