@@ -20,10 +20,10 @@ Use the repository's existing readiness labels:
 | Will not be actioned   | `wontfix`         |
 | Claimed by active work | `in progress`     |
 
-Use `ready-for-test` in place of `ready-for-agent` or `ready-for-human` when the
-implementation is merged and only a person testing a released build, such as
-one distributed through TestFlight, remains. Comment on the issue with what to
-test.
+When only human work remains, replace `ready-for-agent` with `ready-for-human`.
+Use `ready-for-test` instead when the implementation
+is merged and only a person testing a released build, such as one distributed
+through TestFlight, remains. Comment what remains, including what to test.
 
 Check `gh label list --repo unwired-dev/product` before applying labels. Explain
 missing information or blockers in the issue; do not assume `needs-triage` or
