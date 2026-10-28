@@ -188,6 +188,8 @@ function MailShell() {
   const [expanded, setExpanded] = useState(false);
   // On iPad the composer floats over the reader until it is expanded to the full window.
   const floating = regular && !expanded;
+  // iPhone's single column, where Mailboxes and the Inbox share one navigation bar.
+  const bar = phone && collapsed;
   const [height, setHeight] = useState(0);
   // UIKit changes the reading column's width when either leading column moves or hides; every
   // reading-column route reports it.
@@ -393,6 +395,7 @@ function MailShell() {
                       splitView.current?.show('supplementary');
                     }}
                     onCompose={compose}
+                    bar={bar}
                   />
                 </SafeAreaProvider>
               </Split.Column>
@@ -410,7 +413,7 @@ function MailShell() {
                     visible={inboxVisible}
                     composing={draft}
                     onClose={closeReader}
-                    bar={phone && collapsed}
+                    bar={bar}
                     onCompose={compose}
                     onSelect={selectMessage}
                     onSelectBehindComposer={
