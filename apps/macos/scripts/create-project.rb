@@ -91,7 +91,7 @@ localization = project.main_group.new_group('Localization', '../../../native/loc
 target.add_file_references(%w[UnwiredLocalization.m UnwiredLanguagePreferences.m].map { |name| localization.new_file(name) })
 localization.new_file('UnwiredLanguagePreferences.h')
 design = project.main_group.new_group('Design', '../../../native/design')
-target.add_file_references(%w[UnwiredDesign.m UnwiredSidebar.m].map { |name| design.new_file(name) })
+target.add_file_references(%w[UnwiredDesign.m UnwiredPopover.m UnwiredSidebar.m].map { |name| design.new_file(name) })
 catalogs = project.main_group.new_file('../../../packages/localization/catalogs.bundle')
 target.resources_build_phase.add_file_reference(catalogs)
 project.add_build_configuration('Testing', :release)

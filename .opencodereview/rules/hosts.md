@@ -125,6 +125,15 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### React correctness
 
+- `inbox.tsx` starting a connection reload and its selected IMAP folder read
+  concurrently because their store programs share a semaphore. Trace synchronous
+  state changes before permit acquisition as well as the serialized programs:
+  `openFolder` can replace an evicted folder's ready view with loading before
+  `load` derives body retention. Sequence the dependent actions per connection
+  while retaining concurrency across connections, and exercise a still-listed
+  evicted folder with a saved body; otherwise refresh can delete readable cached
+  mail before the folder read restores its rows.
+
 - `mailbox-folders.tsx.useUnifiedMailbox` retaining folders or views only by
   connection ID and folder name. Reconcile the owning Inbox store as well, and
   release the old subscription or lease before opening the replacement store's
@@ -218,6 +227,13 @@ still applies. See `docs/architecture/macos-client.md`.
   operation owned by that interaction settles. Exercise a fast rejection beside
   explicitly held work; otherwise the indicator ends early and admits another
   interaction while synchronization is still running.
+
+- `inbox.tsx` retrying a connection's Sync Status Capsule while a non-Inbox
+  folder is listed, but only reopening that folder. Trace both the connection
+  snapshot and listed-folder view through the real Inbox store: IMAP
+  `openFolder` updates the folder view, while `load` recovers the connection's
+  status. Exercise recovery from that view and preserve its listed mail;
+  otherwise a successful folder read leaves the capsule asking for attention.
 
 - `profile-settings.tsx.change` or another host progress owner retiring its
   pending entry only after a fulfilled store action. Trace rejected promises as
@@ -1099,6 +1115,14 @@ still applies. See `docs/architecture/macos-client.md`.
   require a single accessible action per control and exercise the maintained
   journey's unqualified locator. Replacing that locator with `firstMatch` hides
   duplication rather than proving that the control has one accessibility element.
+
+- `design.tsx.MenuButton` letting its label wrapper grow along the vertical axis
+  inside a content-growing scroll view. Trace the native trigger and label layout
+  in the evaluation composer's translation panel and fixed-minimum-height sidebar
+  and Settings callers. Keep the label at its content height and centre it within
+  the trigger's touch target; otherwise a translation pop-up can consume the
+  viewport and push its result and Replace/Keep actions off screen. Require native
+  layout evidence, since component mocks do not calculate this growth.
 
 - Mac destructive confirmations in Settings or `design.tsx.useConfirmation`
   relying on React Native macOS `Alert` button styles or key-window routing.

@@ -1,25 +1,60 @@
 import { ok } from 'node:assert/strict';
 
+import type { TurboModule } from 'react-native';
+
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react-native';
+import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+
+// Only the native menu boundary is substituted; its events arrive as the host sends them.
+const commandEvents = () => {
+  const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  const menu: TurboModule = {};
+  return jest
+    .spyOn(TurboModuleRegistry, 'get')
+    .mockImplementation((name) =>
+      name === 'UnwiredCommands' ? menu : get(name),
+    );
+};
+
+// A connected Gmail Inbox with one saved message.
+const renderGmailInbox = async () => {
+  const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+  gmail.deliver({ subject: 'Saved mail remains available' });
+  const inbox = createGmailInbox(gmail.native);
+  await render(
+    <InboxProvider mailboxes={singleMailbox(inbox, 'work-mailbox')}>
+      <Inbox
+        onSelect={() => undefined}
+        selected={undefined}
+      />
+    </InboxProvider>,
+  );
+  await screen.findByText('Saved mail remains available');
+  return { gmail, inbox };
+};
 
 describe('message list', () => {
   it('shows the last update only for Inboxes, leaving it out of a label and unified Sent', async () => {
@@ -122,6 +157,169 @@ describe('message list', () => {
       await cleanup();
       inbox.forget();
       frames.mockRestore();
+    }
+  });
+
+  it('opens each connection’s sync status from the capsule and tries that connection again', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.fail({ code: 'unavailable' });
+      await act(inbox.load);
+      await fireEvent.press(
+        screen.getByRole('button', { name: '1 account needs attention' }),
+      );
+      const details = within(screen.getByTestId('sync-status-details'));
+      expect([
+        details.getByRole('header', { name: 'Sync Status' }).props
+          .accessibilityLabel,
+        details.getByLabelText('Gmail · work-mailbox').props.accessibilityLabel,
+        details.getByLabelText(
+          'Gmail could not be reached. Showing mail saved on this device.',
+        ).props.accessibilityLabel,
+      ]).toStrictEqual([
+        'Sync Status',
+        'Gmail · work-mailbox',
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ]);
+      expect(
+        details.getByLabelText(/^Last updated .* · View › Refresh \(⌘R\)$/u),
+      ).toBeOnTheScreen();
+      // The connection's own Try Again synchronizes it, and the capsule leaves with its failure.
+      gmail.deliver({ subject: 'Arrives after Try Again' });
+      await act(async () => {
+        await fireEvent.press(
+          details.getByRole('button', {
+            name: 'Try Again for Gmail · work-mailbox',
+          }),
+        );
+      });
+      await expect(
+        screen.findByText('Arrives after Try Again'),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.queryByRole('button', { name: '1 account needs attention' }),
+      ).toBeNull();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('clears an IMAP connection’s attention when Try Again succeeds while another folder is listed', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.deliver('Archive', { subject: 'Filed invoice' });
+    const inbox = createImapInbox(imap.native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'home-mailbox')}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={{ mailbox: 'home-mailbox', folder: 'Archive' }}
+        />
+      </InboxProvider>,
+    );
+    try {
+      // The sidebar opens a chosen folder; this test opens it directly.
+      await act(inbox.load);
+      await act(() => inbox.openFolder('Archive'));
+      await screen.findByText('Filed invoice');
+      imap.server.failure = 'offline';
+      await act(inbox.load);
+      imap.server.failure = undefined;
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Try Again' }),
+        );
+      });
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: '1 account needs attention' }),
+        ).toBeNull();
+      });
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('synchronizes the Inbox when View › Refresh is chosen in its window', async () => {
+    expect.hasAssertions();
+    const commands = commandEvents();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.deliver({ subject: 'Arrives with Refresh' });
+      await act(async () => {
+        DeviceEventEmitter.emit('refresh', { window: 'inbox-window-other' });
+        await Promise.resolve();
+      });
+      expect(screen.queryByText('Arrives with Refresh')).toBeNull();
+      await act(async () => {
+        DeviceEventEmitter.emit('refresh', { window: 'inbox-window-' });
+        await Promise.resolve();
+      });
+      await expect(
+        screen.findByText('Arrives with Refresh'),
+      ).resolves.toBeOnTheScreen();
+    } finally {
+      await cleanup();
+      inbox.forget();
+      commands.mockRestore();
+    }
+  });
+
+  it('keeps the saved body of a listed folder the cache evicted when View › Refresh is chosen', async () => {
+    expect.hasAssertions();
+    const commands = commandEvents();
+    const imap = createSyntheticImap();
+    const names = Array.from({ length: 9 }, (_, index) => `Folder ${index}`);
+    for (const name of names) {
+      imap.addFolder(name);
+      imap.deliver(name, { subject: `In ${name}` });
+    }
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Folder 0');
+    // Its body is saved while the folder is cached; opening eight more folders evicts it.
+    const folder = inbox.folder('Folder 0');
+    ok(folder?.kind === 'ready');
+    const [shown] = folder.messages;
+    ok(shown !== undefined);
+    const release = inbox.retainMessage(shown.id);
+    await inbox.readMessage(shown.id);
+    release();
+    for (const name of names.slice(1)) {
+      await inbox.openFolder(name);
+    }
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'home-mailbox')}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={{ mailbox: 'home-mailbox', folder: 'Folder 0' }}
+        />
+      </InboxProvider>,
+    );
+    try {
+      await screen.findByText('In Folder 0');
+      const readsBefore = imap.server.reads.length;
+      await act(async () => {
+        DeviceEventEmitter.emit('refresh', { window: 'inbox-window-' });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(imap.server.reads.slice(readsBefore)).toStrictEqual(
+          expect.arrayContaining(['synchronize INBOX', 'synchronize Folder 0']),
+        );
+        expect(inbox.folder('Folder 0')).toMatchObject({ status: 'current' });
+      });
+      expect(imap.bodies.has(shown.id)).toBe(true);
+    } finally {
+      await cleanup();
+      inbox.forget();
+      commands.mockRestore();
     }
   });
 

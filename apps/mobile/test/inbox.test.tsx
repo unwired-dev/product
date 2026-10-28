@@ -1,7 +1,10 @@
+import { ok } from 'node:assert/strict';
+
 import type { NativeGmailMailbox } from '@private-email/mail-core/gmail-inbox';
 
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import {
   createMailboxes,
   singleMailbox,
@@ -16,6 +19,7 @@ import {
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
@@ -1456,6 +1460,121 @@ describe('connected Gmail Inbox', () => {
     await waitFor(() => {
       expect(indicator()).toMatchObject({ refreshing: false });
     });
+  });
+
+  it('clears an IMAP connection’s attention when a pull or Try Again succeeds while another folder is listed', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.deliver('Archive', { subject: 'Filed invoice' });
+    const inbox = createImapInbox(imap.native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'home-mailbox')}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={{ mailbox: 'home-mailbox', folder: 'Archive' }}
+        />
+      </InboxProvider>,
+    );
+    try {
+      // The sidebar opens a chosen folder; this test opens it directly.
+      await act(inbox.load);
+      await act(() => inbox.openFolder('Archive'));
+      await screen.findByText('Filed invoice');
+      const fail = async () => {
+        imap.server.failure = 'offline';
+        await act(inbox.load);
+        expect(screen.getByText('1 account needs attention')).toBeVisible();
+        imap.server.failure = undefined;
+      };
+
+      await fail();
+      imap.deliver('Archive', { subject: 'Filed with the pull' });
+      await act(async () => {
+        fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+        await Promise.resolve();
+      });
+      await expect(
+        screen.findByText('Filed with the pull'),
+      ).resolves.toBeVisible();
+      await waitFor(() => {
+        expect(screen.queryByText('1 account needs attention')).toBeNull();
+      });
+
+      await fail();
+      imap.deliver('Archive', { subject: 'Filed after Try Again' });
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Try Again' }),
+        );
+      });
+      await expect(
+        screen.findByText('Filed after Try Again'),
+      ).resolves.toBeVisible();
+      await waitFor(() => {
+        expect(screen.queryByText('1 account needs attention')).toBeNull();
+      });
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('keeps the saved body of a listed folder the cache evicted when the list is pulled down', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const names = Array.from({ length: 9 }, (_, index) => `Folder ${index}`);
+    for (const name of names) {
+      imap.addFolder(name);
+      imap.deliver(name, { subject: `In ${name}` });
+    }
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Folder 0');
+    // Its body is saved while the folder is cached; opening eight more folders evicts it.
+    const folder = inbox.folder('Folder 0');
+    ok(folder?.kind === 'ready');
+    const [shown] = folder.messages;
+    ok(shown !== undefined);
+    const release = inbox.retainMessage(shown.id);
+    await inbox.readMessage(shown.id);
+    release();
+    for (const name of names.slice(1)) {
+      await inbox.openFolder(name);
+    }
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'home-mailbox')}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={{ mailbox: 'home-mailbox', folder: 'Folder 0' }}
+        />
+      </InboxProvider>,
+    );
+    try {
+      await screen.findByText('In Folder 0');
+      const readsBefore = imap.server.reads.length;
+      await act(async () => {
+        fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+        await Promise.resolve();
+      });
+      // The folder was already current, so wait for the refresh itself to settle.
+      await waitFor(() => {
+        expect(imap.server.reads.slice(readsBefore)).toStrictEqual(
+          expect.arrayContaining(['synchronize INBOX', 'synchronize Folder 0']),
+        );
+        expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+          'refreshing',
+          false,
+        );
+        expect(inbox.folder('Folder 0')).toMatchObject({ status: 'current' });
+      });
+      expect(imap.bodies.has(shown.id)).toBe(true);
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
   });
 
   it('organizes mail from the reader and the row, keeping an offline archive until Undo', async () => {

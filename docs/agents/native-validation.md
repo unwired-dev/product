@@ -21,6 +21,8 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   `xcodebuild` processes, booted Simulators) before and after each journey.
   Before attributing a timing or idle-wait failure to the host, compare it with
   a passing baseline and reproduce it without your own concurrent native work.
+- Run `scripts/pre-handoff.sh` without a concurrent native build, journey or
+  other heavy local job.
 
 - Before a full native validation matrix, require at least 6 GiB available on
   the data volume. Reclaim only artifacts owned by the current task; otherwise
@@ -41,6 +43,12 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   lifecycle and result paths. The [Mac runner](../macos-client.md#verification)
   owns its probe project and results; run it against a task-built app on a
   logged-in macOS desktop.
+- Capture screens from the shell that already holds Screen Recording, by window
+  id (`screencapture -l <id> <path.png>`). A task-built probe or bundle that captures
+  itself raises a permission prompt that a locked desktop cannot dismiss.
+  Check that the desktop is unlocked before UI probes; defer XCUITest and
+  active-window checks while locked. After a probe, inspect on-screen windows
+  for permission dialogs it caused before reporting cleanup complete.
 
 Follow the [execution-environment policy](testing.md#execution-environment) for
 sandbox restrictions and the separate PR babysitter validation boundary.
@@ -100,6 +108,8 @@ is Release-optimized with packaged JavaScript plus the test-only probes, with
 [Mac runner](../mock-mail-sessions.md#native-mac-entry-point):
 
 ```sh
+UNWIRED_MOCK_SCENARIO=registration-performance \
+mise exec -- pnpm --filter @private-email/macos native:build Testing
 mise exec -- pnpm --filter @private-email/macos test:native \
   "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
   testWarmCachePerformance
@@ -170,9 +180,12 @@ iPhone and iPad references.
 ### Mac keyboard and accessibility journey
 
 The `testKeyboardAndAccessibility` journey uses the same `registration-performance`
-`Testing` build and sign-in as the performance journey:
+`Testing` build and sign-in as the [performance journey](#mac-performance-journey);
+the journey requires that scenario:
 
 ```sh
+UNWIRED_MOCK_SCENARIO=registration-performance \
+mise exec -- pnpm --filter @private-email/macos native:build Testing
 mise exec -- pnpm --filter @private-email/macos test:native \
   "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
   testKeyboardAndAccessibility
@@ -295,8 +308,10 @@ compilation and packaging. Interaction tests prove only the journeys exercised.
 None substitutes for real provider, credential, encrypted-storage, accessibility
 or physical-device qualification.
 
-Record the target, toolchain, command, result and any unavailable check. Available
-native checks should run when relevant; the earlier tooling exception permits
+Record the target, toolchain, command, result and any unavailable check. For a
+patched probe, stop if setup or patching fails and log a marker from the patched
+code to prove which variant ran. Check each capture against its label before
+citing it. Available native checks should run when relevant; the earlier tooling exception permits
 implementation to continue without unavailable version-27 evidence, but does
 not waive release qualification or turn deferred checks into passing results.
 
@@ -313,6 +328,35 @@ class and orientation. Where one is unavailable, check each journey action
 against that class and record the run as deferred. Before deferring a check for
 lack of an entry point, try a cold deep link and a scenario fixture, and record
 the capability that is still missing.
+
+CI runs only the `open-read-relaunch` native journey, so a change to the
+registration flow, the native bridge or journey files builds and runs the
+affected `registration-*` scenarios locally, or records them as unavailable.
+Verify the capture session reaches each changed screen and state with
+representative content, and extend the fixture when it does not. Copied native
+sources follow the regeneration and binary checks in
+[Expo setup](../expo-client.md#install-and-run); these prove build input, not
+interaction. Rich-reader rendering and CSS changes are measured first through
+WKWebView, never Chrome: render the sanitizer's output at the device width in
+Light and Dark from a `scratchpad/` probe, and defer gesture and device-chrome
+checks when simulator automation is unavailable.
+
+When the journey that reaches a changed state fails later at a tracked,
+pre-existing point, place the new step before that point and report the new
+assertions' result with the failing line and its issue. Confirm stop-on-first-failure
+is enabled and the failure matches the tracked point before treating earlier
+assertions as passed; keep the overall run's failure visible.
+Before adding an accessibility audit, inventory every window and state it will
+cover; reuse an already-audited surrounding state where possible.
+Before rerunning a failed native, visual or accessibility check, record
+the environment facts its baseline assumes (appearance, display layout, locale,
+host load, windows open during an audit) and compare them. When a native CI
+failure does not reproduce locally, compare CI's pinned Xcode and runtime with
+the host's, then download and unpack CI's `expo-native-app-<run>` tar artifact
+and run it locally to separate the build from the test toolchain. If it stays
+unexplained, use the [diagnostic-push exception](pull-request-babysitting.md#implementer-pr-delivery)
+for a separate non-draft `[WIP]` PR that runs the hypotheses in one CI pass;
+retain its evidence, then close it unmerged and delete its branch.
 
 ## Required release checks
 

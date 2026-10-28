@@ -123,7 +123,9 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   synchronization does not replace it with an empty listing.
 - On iPhone and iPad, pulling down the list synchronizes the shown folder, or the
   Inbox of each shown connection, as described for the
-  [Gmail Inbox](gmail-inbox.md#gmail-inbox-synchronization).
+  [Gmail Inbox](gmail-inbox.md#gmail-inbox-synchronization). With another folder
+  shown, pulling down and **Try Again** also synchronize the connection, so a
+  recovered connection leaves the Attention state.
 - The first synchronization lists the newest 200 messages of the folder. Later ones
   send the committed checkpoint (UIDVALIDITY, UIDNEXT and the cached UIDs), read only
   the flags of those UIDs and the messages that arrived since UIDNEXT, and drop cached

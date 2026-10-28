@@ -3,6 +3,8 @@
 
 // The Commands… menu item, Command-P, tells the key window's JavaScript to open its Command Palette.
 NSNotificationName const UnwiredOpenCommandPalette = @"UnwiredOpenCommandPalette";
+// View › Refresh, Command-R, tells the key window's JavaScript to synchronize its Inbox.
+NSNotificationName const UnwiredRefresh = @"UnwiredRefresh";
 // Closing a window whose composer holds unsaved edits asks its JavaScript first.
 NSNotificationName const UnwiredWindowShouldClose = @"UnwiredWindowShouldClose";
 
@@ -62,12 +64,14 @@ RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"windowShouldClose", @"settingsClosed"]; }
+- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"windowShouldClose", @"settingsClosed"]; }
 
 - (void)startObserving
 {
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(openCommandPalette:)
       name:UnwiredOpenCommandPalette object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refresh:)
+      name:UnwiredRefresh object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowShouldClose:)
       name:UnwiredWindowShouldClose object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsClosed:)
@@ -82,6 +86,11 @@ RCT_EXPORT_MODULE()
 - (void)openCommandPalette:(NSNotification *)notification
 {
   [self sendEventWithName:@"openCommandPalette" body:@{@"window": notification.object ?: @""}];
+}
+
+- (void)refresh:(NSNotification *)notification
+{
+  [self sendEventWithName:@"refresh" body:@{@"window": notification.object ?: @""}];
 }
 
 - (void)windowShouldClose:(NSNotification *)notification

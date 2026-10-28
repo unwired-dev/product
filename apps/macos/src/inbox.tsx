@@ -46,7 +46,7 @@ import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
 import { Action } from './action.tsx';
-import { RegisterCommands } from './command-palette.tsx';
+import { RegisterCommands, useRefreshCommand } from './command-palette.tsx';
 import {
   DraftHeading,
   DraftList,
@@ -90,6 +90,7 @@ import {
   useOutboxActions,
 } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import { checking, offline, SyncStatusCapsule } from './sync-status.tsx';
 import { usePalette } from './theme.ts';
 
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
@@ -177,8 +178,8 @@ const useNow = () =>
 const about = (t: Translate, address: string | undefined, text: string) =>
   address === undefined ? text : t('inbox.about', { address, text });
 
-// Synchronization keeps the cached list visible and says why the provider may be behind; the
-// heading's subtitle says while it is being checked.
+// A provider that refused this mailbox's grant asks for access again; the Sync Status Capsule
+// reports other synchronization trouble.
 function SyncNotice({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
@@ -190,8 +191,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   if (
     state.kind !== 'ready' ||
     !('sync' in state) ||
-    state.sync === 'current' ||
-    state.sync === 'syncing'
+    state.sync !== 'authentication'
   ) {
     return null;
   }
@@ -200,42 +200,21 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
     await authorize();
     await actions.load();
   };
-  if (state.sync === 'authentication') {
-    return (
-      <Notice
-        announce="polite"
-        icon="person.crop.circle.badge.exclamationmark"
-        iconColor={colors.statusWarning}
-        message={about(
-          t,
-          address,
-          t('gmailSync.authentication', { provider }),
-        )}>
-        {account !== undefined && mailbox !== undefined ? (
-          <Button
-            fill="accent"
-            label={t('common.allowAccess', { provider })}
-            onPress={() => {
-              void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
-            }}
-          />
-        ) : null}
-      </Notice>
-    );
-  }
   return (
     <Notice
       announce="polite"
-      icon="wifi.slash"
-      message={about(t, address, t('gmailSync.retry', { provider }))}>
-      <Button
-        label={t('common.retry')}
-        onPress={() => {
-          void (account === undefined
-            ? actions.load()
-            : account.refreshInbox(actions.load));
-        }}
-      />
+      icon="person.crop.circle.badge.exclamationmark"
+      iconColor={colors.statusWarning}
+      message={about(t, address, t('gmailSync.authentication', { provider }))}>
+      {account !== undefined && mailbox !== undefined ? (
+        <Button
+          fill="accent"
+          label={t('common.allowAccess', { provider })}
+          onPress={() => {
+            void handleAllowGmail(() => account.authorizeMailbox(mailbox.id));
+          }}
+        />
+      ) : null}
     </Notice>
   );
 }
@@ -271,8 +250,8 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
   );
 }
 
-// An IMAP mailbox says when the server could not be read and keeps its saved mail; a refused
-// password is entered again in Settings.
+// An IMAP server that refused the password asks for it again in Settings; the Sync Status
+// Capsule reports other synchronization trouble.
 function ImapNotice({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const mailbox = useMailbox();
@@ -282,47 +261,30 @@ function ImapNotice({ address }: { readonly address: string | undefined }) {
   if (
     state.kind !== 'ready' ||
     !('imap' in state) ||
-    state.status === 'current' ||
-    state.status === 'syncing'
+    state.status !== 'authentication'
   ) {
     return null;
-  }
-  if (state.status === 'authentication') {
-    return (
-      <Notice
-        announce="polite"
-        icon="person.crop.circle.badge.exclamationmark"
-        iconColor={colors.statusWarning}
-        message={about(t, address, t('imapSync.authentication'))}>
-        {account === undefined ? null : (
-          <Button
-            fill="accent"
-            label={t('mailboxes.enterPassword', {
-              address: mailbox?.address ?? state.address,
-            })}
-            onPress={() => {
-              account.openAccount('mailboxes');
-            }}
-          />
-        )}
-      </Notice>
-    );
   }
   return (
     <Notice
       announce="polite"
-      icon="wifi.slash"
-      message={about(t, address, t('imapSync.retry'))}
-    />
+      icon="person.crop.circle.badge.exclamationmark"
+      iconColor={colors.statusWarning}
+      message={about(t, address, t('imapSync.authentication'))}>
+      {account === undefined ? null : (
+        <Button
+          fill="accent"
+          label={t('mailboxes.enterPassword', {
+            address: mailbox?.address ?? state.address,
+          })}
+          onPress={() => {
+            account.openAccount('mailboxes');
+          }}
+        />
+      )}
+    </Notice>
   );
 }
-
-// A Gmail or IMAP Inbox still checking its server.
-const checking = (state: InboxMailbox['state']) =>
-  state.kind === 'loading' ||
-  (state.kind === 'ready' &&
-    (('sync' in state && state.sync === 'syncing') ||
-      ('status' in state && state.status === 'syncing')));
 
 // A connection whose grant its provider refused has no Inbox until it is authorized again.
 function AuthorizationNeeded({
@@ -526,12 +488,6 @@ function scopeOf(
   }
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
 }
-
-// A mailbox whose server could not be reached shows the mail saved on this device.
-const offline = (state: InboxMailbox['state']) =>
-  state.kind === 'ready' &&
-  (('sync' in state && state.sync === 'retry') ||
-    ('status' in state && state.status === 'retry'));
 
 // Below a view's listed mail: its older mail still downloading, or that only its newest mail is
 // saved on this device.
@@ -882,6 +838,34 @@ export function Inbox({
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
+  // Synchronizing clears a recovered connection's status; a listed IMAP folder is read again after
+  // it, since the folder read hides an evicted folder's rows from the synchronization's body prune.
+  const load = (loaded: readonly InboxMailbox[]) => async () => {
+    await Promise.allSettled(
+      loaded.map(async ({ inbox }) => {
+        await inbox.load();
+        if (folder !== inboxFolder && 'openFolder' in inbox) {
+          await inbox.openFolder(folder);
+        }
+      }),
+    );
+  };
+  const synchronize = (loaded: readonly InboxMailbox[]) =>
+    account === undefined ? load(loaded)() : account.refreshInbox(load(loaded));
+  const [refreshing, setRefreshing] = useState(false);
+  useRefreshCommand(() => {
+    const refresh = async () => {
+      setRefreshing(true);
+      try {
+        await synchronize(shown);
+      } catch {
+        // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
+      }
+      // Not in `finally`: React Compiler cannot compile a finally clause.
+      setRefreshing(false);
+    };
+    void refresh();
+  });
   const scopeName = scopeOf(t, shown, {
     unified: view.unified !== undefined,
     several,
@@ -1243,7 +1227,17 @@ export function Inbox({
           query={query}
           ready={ready}
           scope={scope}
-          notice={outboxActions.toast}
+          notice={
+            <>
+              <SyncStatusCapsule
+                now={now}
+                onTryAgain={synchronize}
+                refreshing={refreshing}
+                shown={shown}
+              />
+              {outboxActions.toast}
+            </>
+          }
         />
       </View>
     </View>
