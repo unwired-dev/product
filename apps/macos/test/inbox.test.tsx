@@ -168,14 +168,19 @@ describe('message list', () => {
       );
       const details = within(screen.getByTestId('sync-status-details'));
       expect([
-        details.getByRole('header').props.children,
-        details.getByText(/could not be reached/u).props.children,
+        details.getByRole('header', { name: 'Sync Status' }).props
+          .accessibilityLabel,
+        details.getByLabelText('Gmail · work-mailbox').props.accessibilityLabel,
+        details.getByLabelText(
+          'Gmail could not be reached. Showing mail saved on this device.',
+        ).props.accessibilityLabel,
       ]).toStrictEqual([
         'Sync Status',
+        'Gmail · work-mailbox',
         'Gmail could not be reached. Showing mail saved on this device.',
       ]);
       expect(
-        details.getByText(/^Last updated .* · View › Refresh \(⌘R\)$/u),
+        details.getByLabelText(/^Last updated .* · View › Refresh \(⌘R\)$/u),
       ).toBeOnTheScreen();
       // The connection's own Try Again synchronizes it, and the capsule leaves with its failure.
       gmail.deliver({ subject: 'Arrives after Try Again' });

@@ -23,6 +23,7 @@ import {
   useMenuMotion,
   useOutcomeAnnouncement,
 } from './design.tsx';
+import { Label } from './label.tsx';
 import { useLocalization, useMessageListDateFormats } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -410,11 +411,11 @@ function SyncStatusDetails({
     <View
       testID="sync-status-details"
       style={styles.details}>
-      <Text
+      <Label
         accessibilityRole="header"
         style={[textStyles.bodyEmphasized, { color: colors.textPrimary }]}>
         {t('syncStatus.title')}
-      </Text>
+      </Label>
       {shown.map((mailbox, index) => (
         <View
           key={mailbox.id}
@@ -436,11 +437,11 @@ function SyncStatusDetails({
           />
         </View>
       ))}
-      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+      <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
         {oldest === undefined
           ? t('syncStatus.refresh')
           : t('syncStatus.updatedAt', { time: time.format(oldest) })}
-      </Text>
+      </Label>
     </View>
   );
 }
@@ -516,9 +517,15 @@ function Connection({
             color={colors.statusWarning}
           />
         ) : null}
-        <Text style={[styles.message, { color: colors.textPrimary }]}>
-          {title}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Label
+            style={[
+              textStyles.body,
+              { lineHeight: 17, color: colors.textPrimary },
+            ]}>
+            {title}
+          </Label>
+        </View>
         {attention ? (
           <Action
             accessibilityLabel={t('syncStatus.tryAgainFor', { account: title })}
@@ -528,9 +535,9 @@ function Connection({
           />
         ) : null}
       </View>
-      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+      <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
         {connectionStatus(t, mailbox, now)}
-      </Text>
+      </Label>
       {percent === undefined ? null : (
         <View
           accessible
