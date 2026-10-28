@@ -913,15 +913,16 @@ const keptSince = (
     return {};
   }
   const known = new Set(keptBodies(base?.history));
-  const left = new Set(
-    next.history.changes.flatMap(({ id, message }) =>
-      message === undefined ? [id] : [],
-    ),
+  const changed = new Map(
+    next.history.changes.map(({ id, message }) => [id, message]),
   );
   return {
     history: keepingBodies(
       next.history,
-      keptBodies(saved.history).filter((id) => !known.has(id) && !left.has(id)),
+      keptBodies(saved.history).filter(
+        (id) =>
+          !known.has(id) && (!changed.has(id) || changed.get(id) !== undefined),
+      ),
     ),
   };
 };
@@ -2795,21 +2796,16 @@ export function createGmailInbox(
   // Records a stored history body in the saved document, so retention keeps it until its message
   // leaves All Mail. Bodies the budget evicted are forgotten meanwhile.
   const keepHistoryBody = Effect.fnUntraced(function* (
-    scope: MailboxScope,
-    id: string,
+    cache: Cache,
+    document: MailboxDocument,
+    { id, reading }: Readonly<{ id: string; reading: number }>,
   ) {
-    const cache = yield* storage(native.openMailbox);
-    const document = Option.getOrUndefined(yield* documentOf(cache));
-    if (
-      document?.history === undefined ||
-      cache.availability !== undefined ||
-      !sameMailbox(scope, cache)
-    ) {
+    if (document.history === undefined) {
       return;
     }
     const history = keepingBodies(document.history, [id]);
     const reply = yield* Effect.tryPromise({
-      try: () => native.listMessageBodies(scope, keptBodies(history)),
+      try: () => native.listMessageBodies(cache, keptBodies(history)),
       catch: (cause) => rejected(cause, 'failed'),
     });
     const { stored } = yield* decodeStoredBodies(reply).pipe(
@@ -2819,7 +2815,12 @@ export function createGmailInbox(
       ...document,
       history: storedBodies(history, new Set(stored)),
     };
-    yield* ready(yield* commit(cache, next), next, sync);
+    // Body admission and its retention record share one metadata revision. A concurrent
+    // deletion or reconciliation must refuse this record instead of adopting the body again.
+    const saved = yield* commit(cache, next);
+    if (owner === reading) {
+      yield* ready(saved, next, sync);
+    }
   });
 
   // Stores a body under the current working set's protection. Commits are fenced like mailbox
@@ -2845,7 +2846,14 @@ export function createGmailInbox(
       Effect.flatMap((text) =>
         publication.withPermits(2)(
           Effect.suspend(() => {
-            if (owner !== reading || !readable(document.id)) {
+            const current = shown;
+            const savedDocument = current?.document;
+            if (
+              owner !== reading ||
+              !readable(document.id) ||
+              current === undefined ||
+              savedDocument === undefined
+            ) {
               return Effect.fail(
                 new SyncFailure({
                   kind: 'invalidated',
@@ -2865,6 +2873,7 @@ export function createGmailInbox(
                           document: text,
                           tier,
                           protectedIds,
+                          expectedRevision: current.scope.revision,
                         }),
                       catch: (cause) => rejected(cause, 'failed'),
                     }),
@@ -2882,7 +2891,10 @@ export function createGmailInbox(
                       ? shared.cache.changed.pipe(
                           Effect.andThen(
                             keeping
-                              ? keepHistoryBody(scope, document.id)
+                              ? keepHistoryBody(current.scope, savedDocument, {
+                                  id: document.id,
+                                  reading,
+                                })
                               : Effect.void,
                           ),
                         )

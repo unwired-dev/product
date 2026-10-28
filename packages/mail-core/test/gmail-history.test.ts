@@ -9,6 +9,7 @@ import {
 } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import * as Schema from 'effect/Schema';
 
 import { withNativeHistory } from './native-history-store.ts';
 
@@ -1386,6 +1387,135 @@ describe('gmail history backfill', () => {
       );
     } finally {
       pruning.release();
+    }
+  });
+
+  it.each(['before', 'after'] as const)(
+    'does not retain a deleted history body when another store removes it %s body admission',
+    async (when) => {
+      expect.hasAssertions();
+      const gmail = createGmail();
+      const id = at(mailbox(gmail, 300, 0), -1);
+      const reached = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const first = createInbox({
+        ...gmail.native,
+        commitMessageBody: async (...args) => {
+          /* oxlint-disable vitest/no-conditional-in-test -- Hold the native boundary on the table-selected side of admission. */
+          if (when === 'before') {
+            reached.resolve(undefined);
+            await release.promise;
+          }
+          const result = await gmail.native.commitMessageBody(...args);
+          if (when === 'after') {
+            reached.resolve(undefined);
+            await release.promise;
+          }
+          /* oxlint-enable vitest/no-conditional-in-test */
+          return result;
+        },
+      });
+      let refusePruning = false;
+      const second = createInbox({
+        ...gmail.native,
+        retainMessageBodies: (...args) =>
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Inject pruning unavailability only during the competing deletion.
+          refusePruning
+            ? Promise.reject(new Error('Controlled pruning outage'))
+            : gmail.native.retainMessageBodies(...args),
+      });
+      try {
+        await second.load();
+        await backfilled(second);
+        await first.load();
+        await backfilled(first);
+        await scrolled(first, 'INBOX', 300);
+        const reading = first.readMessage(id);
+        await reached.promise;
+        gmail.remove(id);
+        // A failed best-effort prune must not let a late reader adopt the deleted body.
+        refusePruning = when === 'after';
+        await second.load();
+        release.resolve(undefined);
+        await reading;
+        refusePruning = false;
+        await second.load();
+        const scope = Schema.decodeSync(
+          Schema.Struct({ address: Schema.String, generation: Schema.String }),
+        )(await gmail.native.openMailbox());
+        // Inspect physical membership: the removed row alone makes savedBodies return empty.
+        await expect(
+          gmail.native.listMessageBodies(scope, [id]),
+        ).resolves.toMatchObject({
+          stored: [],
+        });
+      } finally {
+        release.resolve(undefined);
+        first.forget();
+        second.forget();
+      }
+    },
+  );
+
+  it('keeps a restored history body when synchronization rebases over its retention record', async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const id = at(mailbox(gmail, 300, 0), -1);
+    const reached = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let refuseHistory = false;
+    let holdLabels = false;
+    const native: Gmail['native'] = {
+      ...gmail.native,
+      gmailRequest: async (path, query, scope) => {
+        /* oxlint-disable vitest/no-conditional-in-test -- Keep reconciliation incomplete and hold the competing synchronization at its provider boundary. */
+        if (
+          refuseHistory &&
+          path === 'messages' &&
+          query.some(
+            ([name, value]) => name === 'maxResults' && value === '100',
+          )
+        ) {
+          return { status: 503, body: '{}' };
+        }
+        if (holdLabels && path === 'labels') {
+          reached.resolve(undefined);
+          await release.promise;
+        }
+        /* oxlint-enable vitest/no-conditional-in-test */
+        return gmail.native.gmailRequest(path, query, scope);
+      },
+    };
+    const reader = createInbox(native);
+    const writer = createInbox(native);
+    try {
+      await reader.load();
+      await backfilled(reader);
+      gmail.setLabel(id, 'TRASH', true);
+      await reader.load();
+      refuseHistory = true;
+      gmail.expireHistory();
+      gmail.deliver({ subject: 'Starts the new history checkpoint' });
+      await reader.load();
+      gmail.setLabel(id, 'TRASH', false);
+      await reader.load();
+      await scrolled(reader, 'INBOX', 301);
+      holdLabels = true;
+      const syncing = writer.load();
+      await reached.promise;
+      await reader.readMessage(id);
+      await expect(reader.savedBodies([id])).resolves.toStrictEqual(
+        new Set([id]),
+      );
+      release.resolve(undefined);
+      await syncing;
+      await expect(reader.savedBodies([id])).resolves.toStrictEqual(
+        new Set([id]),
+      );
+    } finally {
+      release.resolve(undefined);
+      reader.forget();
+      writer.forget();
     }
   });
 
