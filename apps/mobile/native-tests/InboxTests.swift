@@ -2270,9 +2270,16 @@ final class InboxTests: XCTestCase {
       }
       waitUntil { footer.frame.maxY <= search.frame.minY }
     }
-    // #1364: the floating bar sits 4pt above the home indicator's 34pt safe area, as the frames show.
+    // #1364: the floating bar sits 4pt above the bottom safe area, as the frames show. The runner's own
+    // window shares the device's safe area.
+    guard
+      let runnerWindow = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first
+    else {
+      return XCTFail("The runner has no window to read the bottom safe area from")
+    }
+    let safeArea = runnerWindow.safeAreaInsets.bottom
     let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
-    XCTAssertEqual(window.maxY - filter.frame.maxY, 38, accuracy: 1)
+    XCTAssertEqual(window.maxY - filter.frame.maxY, safeArea + 4, accuracy: 1)
     let colors = pixels(app, at: [surface, edge])
     let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
     let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
