@@ -1,0 +1,331 @@
+import { Host, ProgressView } from '@expo/ui/swift-ui';
+import { tint } from '@expo/ui/swift-ui/modifiers';
+import { spacing, typography } from '@private-email/mail-core/theme';
+import { use, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+import type { InboxMailbox } from './private-storage.ts';
+
+import {
+  Glass,
+  SFSymbol,
+  useMenuMotion,
+  useOutcomeAnnouncement,
+} from './design.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
+import { useLocalization } from './localization.ts';
+import { usePalette } from './theme.ts';
+
+// The Sync Status Capsule floating above the Inbox bar, from the "Sync Status Capsule" Figma
+// component (Progress and Attention).
+const styles = StyleSheet.create({
+  capsule: {
+    maxWidth: '100%',
+    paddingHorizontal: spacing.l,
+    paddingTop: 10,
+    paddingBottom: 12,
+  },
+  // Without a progress bar the capsule is one line high.
+  line: {
+    paddingBottom: 10,
+  },
+  status: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  message: {
+    ...typography.ios.footnote,
+    lineHeight: 17,
+    flex: 1,
+  },
+  // A 44pt target around the 17pt label, without growing the capsule.
+  action: {
+    minHeight: 44,
+    marginVertical: -14,
+    justifyContent: 'center',
+  },
+  actionLabel: {
+    ...typography.ios.footnote,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  track: {
+    marginTop: 7,
+  },
+});
+
+// A Gmail or IMAP Inbox still checking its server.
+export const checking = (state: InboxMailbox['state']) =>
+  state.kind === 'loading' ||
+  (state.kind === 'ready' &&
+    (('sync' in state && state.sync === 'syncing') ||
+      ('status' in state && state.status === 'syncing')));
+
+// A mailbox whose server could not be reached shows the mail saved on this device.
+export const offline = (state: InboxMailbox['state']) =>
+  state.kind === 'ready' &&
+  (('sync' in state && state.sync === 'retry') ||
+    ('status' in state && state.status === 'retry'));
+
+// All Mail's Historical Metadata Backfill, while it still has older mail to download.
+const backfill = (state: InboxMailbox['state']) =>
+  state.kind === 'ready' && 'history' in state && !state.history?.complete
+    ? state.history
+    : undefined;
+
+// A mailbox that needs attention: authorization was refused, its server could not be reached,
+// or a failed read paused its backfill until the next synchronization.
+export const failed = (state: InboxMailbox['state']) =>
+  offline(state) ||
+  backfill(state)?.paused === true ||
+  (state.kind === 'ready' &&
+    (('sync' in state && state.sync === 'authentication') ||
+      ('status' in state && state.status === 'authentication')));
+
+type SyncStatus =
+  | Readonly<{ kind: 'attention'; count: number }>
+  | Readonly<{ kind: 'progress'; count: number; percent?: number }>;
+
+// One status for the shown mailboxes, undefined when idle. A failure replaces progress, and
+// progress is measurable while some backfill knows its total.
+export const syncStatusOf = (
+  shown: readonly InboxMailbox[],
+): SyncStatus | undefined => {
+  const attention = shown.filter(({ state }) => failed(state)).length;
+  if (attention > 0) {
+    return { kind: 'attention', count: attention };
+  }
+  const updating = shown.filter(
+    ({ state }) => checking(state) || backfill(state) !== undefined,
+  ).length;
+  if (updating === 0) {
+    return undefined;
+  }
+  let downloaded = 0;
+  let total = 0;
+  for (const { state } of shown) {
+    const history = backfill(state);
+    if (history?.total !== undefined && history.total > 0) {
+      downloaded += Math.min(history.downloaded, history.total);
+      total += history.total;
+    }
+  }
+  return total === 0
+    ? { kind: 'progress', count: updating }
+    : {
+        kind: 'progress',
+        count: updating,
+        percent: Math.floor((downloaded / total) * 100),
+      };
+};
+
+// The list column of a regular-width window gives the capsule more room.
+const useCapsuleWidth = () => (use(WindowBarContext) === undefined ? 300 : 320);
+
+// Automatic work shows only after a second; work the person started shows at once.
+const automaticDelay = 1000;
+
+type Shown = Readonly<{
+  kind: SyncStatus['kind'];
+  label: string;
+  percent: number | undefined;
+}>;
+
+type Translate = ReturnType<typeof useLocalization>['t'];
+
+// What the capsule says about a status, with the combined percentage while progress is measurable.
+const describe = (t: Translate, status: SyncStatus): Shown => {
+  if (status.kind === 'attention') {
+    return {
+      kind: 'attention',
+      label: t('syncStatus.attention', { count: status.count }),
+      percent: undefined,
+    };
+  }
+  const message = t('syncStatus.updating', { count: status.count });
+  return {
+    kind: 'progress',
+    label:
+      status.percent === undefined
+        ? message
+        : t('syncStatus.progress', {
+            status: message,
+            percent: status.percent,
+          }),
+    percent: status.percent,
+  };
+};
+
+// Whether progress has lasted long enough to show automatic work.
+const useWaited = (progressing: boolean) => {
+  const [waited, setWaited] = useState(false);
+  if (!progressing && waited) {
+    setWaited(false);
+  }
+  useEffect(() => {
+    if (!progressing) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setWaited(true);
+    }, automaticDelay);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [progressing]);
+  return waited;
+};
+
+export function SyncStatusCapsule({
+  status,
+  refreshing,
+  onTryAgain,
+}: {
+  readonly status: SyncStatus | undefined;
+  // While a refresh the person started runs.
+  readonly refreshing: boolean;
+  readonly onTryAgain: () => Promise<void>;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const width = useCapsuleWidth();
+  const waited = useWaited(status?.kind === 'progress');
+  const [retrying, setRetrying] = useState(false);
+  const tryAgain = async () => {
+    setRetrying(true);
+    await onTryAgain();
+    setRetrying(false);
+  };
+  const current = status === undefined ? undefined : describe(t, status);
+  const open =
+    current !== undefined &&
+    (current.kind === 'attention' || refreshing || retrying || waited);
+  // The closing capsule keeps what it last said while it fades.
+  const [last, setLast] = useState(current);
+  if (
+    open &&
+    (last?.label !== current.label || last.percent !== current.percent)
+  ) {
+    setLast(current);
+  }
+  const [height, setHeight] = useState(0);
+  const motion = useMenuMotion(open, 'menu');
+  useOutcomeAnnouncement(
+    current?.kind === 'attention' ? current.label : undefined,
+    true,
+  );
+  const said = open ? current : last;
+  if (!motion.shown || said === undefined) {
+    return null;
+  }
+  return (
+    <Animated.View
+      accessibilityElementsHidden={!open}
+      pointerEvents={open ? 'auto' : 'none'}
+      onLayout={({ nativeEvent }) => {
+        setHeight(nativeEvent.layout.height);
+      }}
+      style={[
+        styles.capsule,
+        said.percent === undefined && styles.line,
+        {
+          width,
+          borderRadius: height / 2,
+          boxShadow: colors.smallGlassShadow,
+        },
+        motion.style,
+      ]}>
+      <Glass cornerRadius={height / 2} />
+      {said.kind === 'attention' ? (
+        <Attention
+          label={said.label}
+          onTryAgain={() => {
+            void tryAgain();
+          }}
+        />
+      ) : (
+        <Progress
+          label={said.label}
+          percent={said.percent}
+        />
+      )}
+    </Animated.View>
+  );
+}
+
+function Attention({
+  label,
+  onTryAgain,
+}: {
+  readonly label: string;
+  readonly onTryAgain: () => void;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  return (
+    <View style={styles.status}>
+      <SFSymbol
+        name="exclamationmark.triangle.fill"
+        color={colors.statusWarning}
+      />
+      <Text style={[styles.message, { color: colors.textPrimary }]}>
+        {label}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onTryAgain}
+        style={styles.action}>
+        <Text style={[styles.actionLabel, { color: colors.accentInk }]}>
+          {t('syncStatus.tryAgain')}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function Progress({
+  label,
+  percent,
+}: {
+  readonly label: string;
+  readonly percent: number | undefined;
+}) {
+  const colors = usePalette();
+  return (
+    <View
+      accessible
+      accessibilityLabel={label}
+      accessibilityRole="progressbar"
+      accessibilityValue={
+        percent === undefined ? undefined : { min: 0, max: 100, now: percent }
+      }>
+      <View style={styles.status}>
+        <ActivityIndicator
+          size="small"
+          color={colors.textSecondary}
+        />
+        <Text style={[styles.message, { color: colors.textPrimary }]}>
+          {label}
+        </Text>
+      </View>
+      {percent === undefined ? null : (
+        <Host
+          matchContents={{ vertical: true }}
+          style={styles.track}>
+          <ProgressView
+            value={percent / 100}
+            modifiers={[tint(colors.accentFill)]}
+          />
+        </Host>
+      )}
+    </View>
+  );
+}

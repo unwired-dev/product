@@ -13,6 +13,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RegisterCommands, usePaletteHeader } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
@@ -26,14 +27,16 @@ import {
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
+const barHeight = 48;
+
 const styles = StyleSheet.create({
   newMessage: {
-    width: 48,
-    height: 48,
+    width: barHeight,
+    height: barHeight,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  search: { ...textStyles.body, flex: 1, minHeight: 48 },
+  search: { ...textStyles.body, flex: 1, minHeight: barHeight },
   round: { padding: 0, borderRadius: 24, backgroundColor: 'transparent' },
   filtered: {
     flexShrink: 1,
@@ -51,7 +54,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  filteredBy: { flexShrink: 1, minHeight: 48, justifyContent: 'center' },
+  filteredBy: { flexShrink: 1, minHeight: barHeight, justifyContent: 'center' },
   filteredByCaption: { ...textStyles.caption1, fontWeight: '600' },
   filteredByValue: {
     flexDirection: 'row',
@@ -355,12 +358,23 @@ export function createWindowBar() {
     hidden: boolean;
     notice: ReactNode;
   }> | null = null;
+  // How far a docked keyboard raises the bar.
+  let lift = 0;
   const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const listener of listeners) {
+      listener();
+    }
+  };
   return {
     show: (content: ReactNode, hidden = false, notice: ReactNode = null) => {
       bar = content === null ? null : { content, hidden, notice };
-      for (const listener of listeners) {
-        listener();
+      changed();
+    },
+    raise: (next: number) => {
+      if (next !== lift) {
+        lift = next;
+        changed();
       }
     },
     subscribe: (listener: () => void) => {
@@ -370,6 +384,7 @@ export function createWindowBar() {
       };
     },
     bar: () => bar,
+    lift: () => lift,
   };
 }
 
@@ -409,6 +424,9 @@ export function WindowBarHost({
   readonly keyboardLift: number;
 }) {
   const bar = useSyncExternalStore(windowBar.subscribe, windowBar.bar);
+  useLayoutEffect(() => {
+    windowBar.raise(keyboardLift);
+  }, [windowBar, keyboardLift]);
   if (bar === null) {
     return null;
   }
@@ -438,7 +456,7 @@ export function WindowBarHost({
         style={[
           styles.notice,
           {
-            bottom: bottom + 48 + spacing.m,
+            bottom: bottom + barHeight + spacing.m,
             display: bar.hidden ? 'none' : 'flex',
           },
         ]}>
@@ -448,6 +466,9 @@ export function WindowBarHost({
   );
 }
 
+// A compact layout's bar stays in the list and never rises.
+const listBar = createWindowBar();
+
 // The floating glass bar over the list, holding search, filters and New Message. A regular-width
 // window shows it across its bottom edge instead.
 export function FloatingBar({
@@ -456,6 +477,7 @@ export function FloatingBar({
   leading,
   trailing,
   notice = null,
+  listNotice = null,
   children,
 }: {
   readonly hidden?: boolean;
@@ -464,10 +486,21 @@ export function FloatingBar({
   readonly trailing: ReactNode;
   // A toast above the bar.
   readonly notice?: ReactNode;
+  // Status that stays over the list even when the bar spans the window.
+  readonly listNotice?: ReactNode;
   // The search field, or the button that opens it.
   readonly children: ReactNode;
 }) {
   const windowBar = use(WindowBarContext);
+  const insets = useSafeAreaInsets();
+  const { subscribe, lift: lifted } = windowBar ?? listBar;
+  const lift = useSyncExternalStore(subscribe, lifted);
+  // The list excludes its safe area; the window-wide bar includes it and rises above a docked
+  // keyboard.
+  const noticeBottom =
+    windowBar === undefined
+      ? paddingBottom
+      : Math.max(spacing.l - insets.bottom, 0) + lift;
   const content = (
     <>
       <View
@@ -509,19 +542,19 @@ export function FloatingBar({
           {trailing}
         </View>
       ) : null}
-      {windowBar === undefined ? (
-        <View
-          pointerEvents="box-none"
-          style={[
-            styles.notice,
-            {
-              bottom: paddingBottom + 48 + spacing.m,
-              display: hidden ? 'none' : 'flex',
-            },
-          ]}>
-          {notice}
-        </View>
-      ) : null}
+      <View
+        pointerEvents="box-none"
+        testID="list-notice"
+        style={[
+          styles.notice,
+          {
+            bottom: noticeBottom + barHeight + spacing.m,
+            display: hidden ? 'none' : 'flex',
+          },
+        ]}>
+        {listNotice}
+        {windowBar === undefined ? notice : null}
+      </View>
     </>
   );
 }

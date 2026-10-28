@@ -666,13 +666,16 @@ describe('gmail history backfill', () => {
     gmail.failPage('400', { code: 'unavailable' });
     const interrupted = createInbox(gmail.native);
     await interrupted.load();
+    // The failed read pauses the backfill until the next synchronization.
     await vi.waitFor(() => {
-      expect(historyPages(gmail)).toContain('400');
+      expect(ready(interrupted.getSnapshot()).history).toStrictEqual({
+        downloaded: 400,
+        total: 1000,
+        complete: false,
+        paused: true,
+      });
     });
-    expect(ready(interrupted.getSnapshot()).history).toMatchObject({
-      downloaded: 400,
-      complete: false,
-    });
+    expect(historyPages(gmail)).toContain('400');
 
     const relaunched = createInbox(gmail.native);
     await relaunched.load();
