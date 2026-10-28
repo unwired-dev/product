@@ -67,9 +67,8 @@ in each review report and in the PR description.
 
 Keep the required review model and reasoning settings above. If an eligible
 GPT model is unavailable, report that delegation as blocked and continue
-independent work; do not fall back to a non-GPT model. The model, reasoning and
-fresh context are the contract, not the transport: when T3 delegation is
-unavailable, run the reviewer from a handoff file with
+independent work; do not fall back to a non-GPT model. When T3 delegation is
+unavailable, run a fresh reviewer from a handoff file with
 `codex exec -m gpt-6.1-sol -c model_reasoning_effort='"high"' --dangerously-bypass-approvals-and-sandbox -C <checkout> - < <handoff>`.
 
 ## Reading responsibilities
@@ -174,8 +173,8 @@ over generic skill examples for both roles.
    preserve with the native check that exercised it, or as unverified. Implement
    and run the selected checks. Documentation changes use formatting, local
    links and any affected example, command or workflow contracts. Commit a local
-   snapshot once the first implementation passes its targeted checks, then add
-   commits. Run `git checkout`, `reset`, `restore` or `clean` as its own command
+   snapshot once the first implementation passes its targeted checks.
+   Run `git checkout`, `reset`, `restore` or `clean` as its own command
    after reading `git status`, never chained after another step.
 4. Pin the actual comparison and hand off first to a separate simplicity reviewer
    with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"` and `fork_turns: "none"`.
@@ -185,7 +184,7 @@ over generic skill examples for both roles.
    commit, summary, task-owned files, pre-existing changes, checks/results
    (including the `scripts/pre-handoff.sh` verdict line for code changes),
    limitations and [round history](#four-round-safeguard). For UI, include the
-   visible states with their frame IDs, the selected API, remaining gaps,
+   [state list](#design-approval), the selected API, remaining gaps,
    preserved interactions with their checks, and native evidence or deferred
    checks. Cite the documented precedent for a cross-cutting rule, such as an
    invalidation or retirement rule. Name an evidence directory under
@@ -456,6 +455,12 @@ styles, copy, icons, motion, notifications or accessibility labels.
    captures, design follow-ups and any panel outcomes.
 
 ## Design approval
+
+Before the first UI edit, list every visible state the change adds or alters,
+with its platform, screen and Figma frame ID. Include copy, localized strings,
+sender availability, accessibility labels and system-control states such as
+refresh spinners, menus, sheets and launch placeholders. Reuse this list in the
+design-review handoff.
 
 A request for visual design or redesign, or any change to how a maintained
 client looks that the Figma frames do not already show, starts in Figma.

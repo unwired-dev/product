@@ -21,6 +21,7 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   `xcodebuild` processes, booted Simulators) before and after each journey.
   Before attributing a timing or idle-wait failure to the host, compare it with
   a passing baseline and reproduce it without your own concurrent native work.
+- Run `scripts/pre-handoff.sh` without a concurrent native build or journey.
 
 - Before a full native validation matrix, require at least 6 GiB available on
   the data volume. Reclaim only artifacts owned by the current task; otherwise
@@ -301,11 +302,10 @@ compilation and packaging. Interaction tests prove only the journeys exercised.
 None substitutes for real provider, credential, encrypted-storage, accessibility
 or physical-device qualification.
 
-Record the target, toolchain, command, result and any unavailable check. Name an
-artifact from proof that its variant ran: stop the run when a setup or patch
-step fails, print a marker from the patched code, and check each capture against
-its label before citing it. Available
-native checks should run when relevant; the earlier tooling exception permits
+Record the target, toolchain, command, result and any unavailable check. For a
+patched probe, stop if setup or patching fails and log a marker from the patched
+code to prove which variant ran. Check each capture against its label before
+citing it. Available native checks should run when relevant; the earlier tooling exception permits
 implementation to continue without unavailable version-27 evidence, but does
 not waive release qualification or turn deferred checks into passing results.
 

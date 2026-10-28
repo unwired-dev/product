@@ -131,9 +131,8 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
    provable by an agent, or human-only (physical device, owner account, owner
    decision, design approval); state the remaining scope. Skip and report a
    candidate resolved this way, or one whose only remainder is human-only; do
-   not close it, but replace the latter's `ready-for-agent` with the
-   [issue policy](../../../docs/agents/issue-tracker.md)'s `ready-for-test` or
-   `ready-for-human`.
+   not close it. For human-only work, apply the
+   [readiness policy](../../../docs/agents/issue-tracker.md#triage-labels).
 4. Select the first candidate whose blockers are satisfied and whose requirements
    are actionable. Recheck its live state, readiness, `in progress` label,
    dependencies and active PRs immediately before claiming it. Actionable
@@ -179,19 +178,15 @@ substantial work and before the first handoff, fetch the target base and
 integrate upstream changes as the branch's delivery allows; when widening a
 shared type, inspect consumers added upstream since the baseline.
 
-Before the first edit, list every visible state the change adds or alters, with
-its platform, screen and Figma frame ID: copy, localized strings, sender
-availability, accessibility labels and system-control states such as refresh
-spinners, menus, sheets and launch placeholders. A state without a frame needs
+For user-visible work, follow
 [design approval](../../../docs/agents/implementation-review.md#design-approval)
-before code; reuse the list in the design-review handoff.
+before editing and retain its state list for the handoff.
 
 Complete the issue's requested behavior, update affected documentation, and add
 a changeset when required by repository policy. File a separate defect that
 fails a criterion, with its evidence, before fixing it; fix it here only on the
 issue's own surface, otherwise make it a native blocker and deliver the rest
-with a non-closing reference. A test keeps the documented expectation when newly
-observed behavior disagrees with the feature guide or an open issue.
+with a non-closing reference.
 Before naming an external interface (URL or deep-link parameter, initial prop,
 storage key, API argument), search the implementer-readable docs for an existing
 contract, reuse its name and cite the source in the handoff.
@@ -203,12 +198,11 @@ final report. Fold its requirements into any cross-layer contract before
 spawning implementers.
 
 Run the relevant checks under the [testing policy](../../../docs/agents/testing.md)
-and setup guides. Record each result from its exit status, not its output tail,
-with skipped tests and their reasons; an unavailable check, or a skip whose
-reason names the environment it ran in, is never a pass. Before the first
+and setup guides, including their evidence requirements. Before the first
 reviewer handoff and after each reviewer's fixes, run
-`mise exec -- scripts/pre-handoff.sh`, CI's TypeScript and Fallow jobs, while no
-native build or journey runs, and put its verdict line in the handoff. A shared
+`mise exec -- scripts/pre-handoff.sh` under the
+[native resource policy](../../../docs/agents/native-validation.md#own-the-resources-used-by-the-check),
+and put its verdict line in the handoff. A shared
 package change needs its dependents' suites; when the full test run is too broad,
 `mise exec -- pnpm turbo run test --filter='...[origin/main]'` selects changed
 packages and their dependents. List them in the handoff. A native change
@@ -241,9 +235,9 @@ keep required CI and review completion as separate gates.
 Keep the claim while you own the work, including while the PR is open. When
 your ownership ends, run
 `scripts/issue-claim release <number> --outcome merged|closed|abandoned|handed-back|blocked`,
-adding `--remaining "<text>"` for a sub-issue. When a merged PR leaves only
-human-only criteria, replace `ready-for-agent` with `ready-for-test` or
-`ready-for-human` and comment what remains. Close the parent only when no
+adding `--remaining "<text>"` for a sub-issue. Apply the
+[readiness policy](../../../docs/agents/issue-tracker.md#triage-labels) to any
+human-only remainder. Close the parent only when no
 criterion or open sub-issue remains.
 
 Report the PR URL, verification results and ownership/monitoring state accurately.

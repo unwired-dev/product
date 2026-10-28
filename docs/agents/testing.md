@@ -99,6 +99,14 @@ reported failure cannot be observed directly, reproduce it as a failing
 integration test at the nearest real seam that produces the reported state, and
 name that seam in the PR.
 
+A test keeps the documented expectation when newly observed behavior disagrees
+with the feature guide or an open issue.
+
+Record results from exit status, not the output tail, with skipped tests and
+their reasons. Unavailable or skipped checks do not prove their behavior. When a
+skip reason describes the current environment, enable the check or report it
+as unexecuted.
+
 For experiments and benchmarks, validate isolation across every stratum and run
 a cheap end-to-end baseline before long compute; record the corpus and
 configuration identity.
