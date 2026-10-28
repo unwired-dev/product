@@ -2,8 +2,10 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { productAccountDeletionResponseValidator } from '@private-email/contracts';
-import { productAccountDeletionAbortedErrorCode } from '@private-email/contracts/productAccount';
+import {
+  productAccountDeletionAbortedErrorCode,
+  productAccountDeletionResponseValidator,
+} from '@private-email/contracts/productAccount';
 import { ConvexError, v } from 'convex/values';
 import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
