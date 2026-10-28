@@ -596,9 +596,9 @@ describe('preview Inbox', () => {
       expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
       // Sync status over the list rises with the bar, 12 pt above it.
       expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 356 });
-      // The list must not add keyboard padding beneath the already lifted capsule.
-      const list = screen.getByTestId('inbox-surface');
-      expect(list).toHaveProp('enabled', false);
+      // The keyboard must not move the bar on top of the window bar's own lift.
+      const sticky = screen.getByTestId('keyboard-bar');
+      expect(sticky).toHaveProp('enabled', false);
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'automaticallyAdjustKeyboardInsets',
         true,
@@ -613,11 +613,11 @@ describe('preview Inbox', () => {
         Dimensions.set({ window: { ...window, width: 500, height: 768 } });
       });
       // The compact bar tracks the keyboard 12pt above it, 8pt more than its 4pt bottom padding.
-      expect(list).toHaveProp('enabled', true);
-      expect(list).toHaveProp('keyboardVerticalOffset', 8);
+      expect(sticky).toHaveProp('enabled', true);
+      expect(sticky).toHaveProp('offset', { opened: -8 });
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'automaticallyAdjustKeyboardInsets',
-        false,
+        true,
       );
     } finally {
       await act(() => {

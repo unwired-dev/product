@@ -36,8 +36,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { SectionList, Text, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { SectionList, StyleSheet, Text, View } from 'react-native';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
@@ -912,16 +912,9 @@ export function Inbox({
     </View>
   );
   return (
-    // The floating bar rises above the software keyboard while its search field is in use. The safe
-    // area keeps its bottom inset as a margin, so the keyboard's overlap discounts it. The surface
-    // fills those margins too, behind the status bar and home indicator. The bar sits 4pt above the
-    // home indicator's safe area and 12pt above the keyboard, as the frames show.
-    <KeyboardAvoidingView
+    // The surface fills the safe area's margins too, behind the status bar and home indicator.
+    <View
       testID="inbox-surface"
-      behavior="padding"
-      // The window bar already lifts the regular layout's capsule. Only the rows need insets there.
-      enabled={!inWindow}
-      keyboardVerticalOffset={spacing.m - spacing.xs - insets.bottom}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <SafeAreaView
         edges={{ top: true, bottom: true, left: true }}
@@ -1004,7 +997,7 @@ export function Inbox({
           </View>
           <SectionList
             accessibilityLabel={t('inbox.messages')}
-            automaticallyAdjustKeyboardInsets={inWindow}
+            automaticallyAdjustKeyboardInsets
             maintainVisibleContentPosition={keepPosition}
             onScrollBeginDrag={() => {
               motion.interrupt();
@@ -1167,19 +1160,30 @@ export function Inbox({
               );
             }}
           />
-          <InboxBar
-            listNotice={syncCapsule}
-            field={search}
-            filter={filtering}
-            hidden={composing !== undefined}
-            notice={outboxActions.toast}
-            onCompose={onCompose}
-            ready={ready}
-            scope={scope}
-            search={searchState}
-          />
+          {/* The floating bar rides on the software keyboard while its search field is in use, moving
+              with it frame by frame. It sits 4pt above the home indicator's safe area and 12pt above
+              the keyboard, as the frames show. The window bar already lifts the regular layout's
+              capsule. */}
+          <KeyboardStickyView
+            enabled={!inWindow}
+            offset={{ opened: insets.bottom + spacing.xs - spacing.m }}
+            pointerEvents="box-none"
+            style={StyleSheet.absoluteFill}
+            testID="keyboard-bar">
+            <InboxBar
+              listNotice={syncCapsule}
+              field={search}
+              filter={filtering}
+              hidden={composing !== undefined}
+              notice={outboxActions.toast}
+              onCompose={onCompose}
+              ready={ready}
+              scope={scope}
+              search={searchState}
+            />
+          </KeyboardStickyView>
         </View>
       </SafeAreaView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
