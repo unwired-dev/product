@@ -511,8 +511,7 @@ export function DraftList() {
       ) : null}
       {state.kind === 'ready' &&
       (state.save === 'failed' || state.save === 'locked') ? (
-        // Shown wherever the person returns to the Inbox, including the iPhone system Back that
-        // leaves a composer without its own notice.
+        // Shown wherever the person returns to the Inbox.
         <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
           <Text
             accessibilityRole="alert"

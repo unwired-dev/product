@@ -135,6 +135,7 @@ final class UnwiredRegistration: NSObject {
     if let store = Self.sharedStore { return store }
     #if UNWIRED_REGISTRATION_MOCK
       let store = try syntheticRegistrationStore(mailCache: try await Self.launchMailCache())
+      SyntheticDraftSaveFailure.observe()
       store.stopErrorReporting = { try ErrorReportingRuntime.shared.disableForAccountRemoval() }
       store.withdrawNotifications = { UnwiredNotifications.withdraw($0) }
       Self.sharedStore = store
@@ -1566,6 +1567,9 @@ extension UnwiredRegistration {
       else {
         throw RegistrationError.unavailable
       }
+      #if UNWIRED_REGISTRATION_MOCK
+        try SyntheticDraftSaveFailure.check()
+      #endif
       return try await $0.commitDrafts(
         owner: owner, expectedRevision: revision, document: document, keep: keep)
     }
