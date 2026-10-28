@@ -14,6 +14,12 @@ maintainability and design reviews in that order. Record the applicable rows and
 their reasons in the handoff. Later review depth follows the changed contract
 rather than the task's size or file count.
 
+A documentation-only task whose full comparison changes fewer than 50 lines
+(added plus deleted) may instead hand off once to a combined reviewer that
+performs both the simplicity and documentation reviews in one pass. Record that
+choice and the line count in the handoff. Code and runtime configuration keep
+both reviews.
+
 | Change                                                                                                            | Required review                                                                                                                                                |
 | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Documentation only                                                                                                | Independent documentation review, formatting, links and examples. Operational policy, command and configuration guidance also verifies its affected contracts. |
@@ -184,6 +190,8 @@ over generic skill examples for both roles.
    exact checkpoint plan's `from`, `to`, mode, reason and prior report under
    [incremental checkpoints](#incremental-ocr-checkpoints). Snapshot commits are
    authorized before review; pushing still waits for the required reviews.
+   A [combined documentation review](#review-depth) receives this handoff once
+   and reports both passes.
 5. Pause implementer writes while a reviewer owns the checkout and wait for its
    final report before the next pass. Run applicable maintainability and design
    passes after the independent documentation or OCR review, giving each the

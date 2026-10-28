@@ -14,9 +14,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Detect build changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.changes.outputs.skip }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - id: changes
+        env:
+          DRAFT: ${{ github.event.pull_request.draft }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/ci-skip-builds.sh >> "$GITHUB_OUTPUT"
+
   mobile:
     name: Expo mobile
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.skip != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -43,7 +63,8 @@ jobs:
 
   native-checks:
     name: Expo native storage checks
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.skip != 'true' }}
     runs-on: xcode-27
     timeout-minutes: 34
     defaults:
@@ -101,7 +122,8 @@ jobs:
 
   native-reporting:
     name: Error reporting native contracts
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.skip != 'true' }}
     runs-on: xcode-27
     timeout-minutes: 25
     defaults:
@@ -142,7 +164,8 @@ jobs:
 
   native-build:
     name: Expo native build
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.skip != 'true' }}
     runs-on: xcode-27
     timeout-minutes: 25
     defaults:

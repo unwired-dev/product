@@ -787,13 +787,16 @@ export function Inbox({
   // Again does. The control ignores further pulls until it settles, so they start no duplicate work.
   const [refreshing, setRefreshing] = useState(false);
   // Settles every mailbox, so one failing early cannot end the indicator while others still load.
+  // Synchronizing clears a recovered connection's status; a listed IMAP folder is read again after
+  // it, since the folder read hides an evicted folder's rows from the synchronization's body prune.
   const load = (loaded: readonly InboxMailbox[]) => async () => {
     await Promise.allSettled(
-      loaded.map(({ inbox }) =>
-        folder !== inboxFolder && 'openFolder' in inbox
-          ? inbox.openFolder(folder)
-          : inbox.load(),
-      ),
+      loaded.map(async ({ inbox }) => {
+        await inbox.load();
+        if (folder !== inboxFolder && 'openFolder' in inbox) {
+          await inbox.openFolder(folder);
+        }
+      }),
     );
   };
   const loadShown = load(shown);

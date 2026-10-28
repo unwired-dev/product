@@ -125,6 +125,15 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### React correctness
 
+- `inbox.tsx` starting a connection reload and its selected IMAP folder read
+  concurrently because their store programs share a semaphore. Trace synchronous
+  state changes before permit acquisition as well as the serialized programs:
+  `openFolder` can replace an evicted folder's ready view with loading before
+  `load` derives body retention. Sequence the dependent actions per connection
+  while retaining concurrency across connections, and exercise a still-listed
+  evicted folder with a saved body; otherwise refresh can delete readable cached
+  mail before the folder read restores its rows.
+
 - `mailbox-folders.tsx.useUnifiedMailbox` retaining folders or views only by
   connection ID and folder name. Reconcile the owning Inbox store as well, and
   release the old subscription or lease before opening the replacement store's
@@ -1090,6 +1099,14 @@ still applies. See `docs/architecture/macos-client.md`.
   old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
+
+- `design.tsx.MenuButton` letting its label wrapper grow along the vertical axis
+  inside a content-growing scroll view. Trace the native trigger and label layout
+  in the evaluation composer's translation panel and fixed-minimum-height sidebar
+  and Settings callers. Keep the label at its content height and centre it within
+  the trigger's touch target; otherwise a translation pop-up can consume the
+  viewport and push its result and Replace/Keep actions off screen. Require native
+  layout evidence, since component mocks do not calculate this growth.
 
 - Mac destructive confirmations in Settings or `design.tsx.useConfirmation`
   relying on React Native macOS `Alert` button styles or key-window routing.
