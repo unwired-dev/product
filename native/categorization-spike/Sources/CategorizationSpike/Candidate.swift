@@ -2,12 +2,12 @@ import CoreML
 import Foundation
 
 // What tools/deberta-mac-spike/export.py writes beside each compiled candidate.
-public struct Manifest: Codable, Sendable {
-  public enum Labels: Codable, Sendable {
+public struct Manifest: Decodable, Sendable {
+  public enum Labels: Decodable, Sendable {
     case system([String])
     case custom(entailment: Int, negative: Int)
 
-    private struct Pair: Codable { let entailment: Int; let negative: Int }
+    private struct Pair: Decodable { let entailment: Int; let negative: Int }
 
     public init(from decoder: any Decoder) throws {
       let container = try decoder.singleValueContainer()
@@ -16,15 +16,6 @@ public struct Manifest: Codable, Sendable {
       } else {
         let pair = try container.decode(Pair.self)
         self = .custom(entailment: pair.entailment, negative: pair.negative)
-      }
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-      var container = encoder.singleValueContainer()
-      switch self {
-      case .system(let names): try container.encode(names)
-      case .custom(let entailment, let negative):
-        try container.encode(Pair(entailment: entailment, negative: negative))
       }
     }
   }
