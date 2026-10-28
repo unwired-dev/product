@@ -165,8 +165,10 @@ JavaScript still receives only the stable registration failure code.
 
 [#668](https://github.com/unwired-dev/product/issues/668) requires that people outside
 the test-user list can register with Google, or with Apple and then Gmail, and
-authorize Gmail in the released app. **Status: not established.** No production
-consent configuration, Google verification or production-host run is recorded.
+authorize Gmail in the released app. **Status: owner-verified on 2026-10-28.**
+The owner confirmed that production Google authorization was verified and requested
+closure of #668. This records the owner's confirmation, not a new agent-run
+qualification or additional Google console evidence.
 Google requirements below were checked on 2026-10-25.
 
 ### What the hosts request
@@ -282,6 +284,10 @@ data before submission. This documentation slice does not qualify either.
 
 ### Remaining owner actions
 
+The owner confirmed #668 complete on 2026-10-28. The checklist below remains the
+production configuration and revalidation procedure for future authorization,
+scope, client or data-flow changes, rather than an outstanding task list for #668.
+
 1. Resolve the push-history retention conflict and decide the security-assessment
    route above using the resulting data flows.
 2. Configure the production project: external audience, **In production** publishing
@@ -295,8 +301,8 @@ data before submission. This documentation slice does not qualify either.
    test-user list, verify Google and Apple-then-Gmail registration, Gmail consent,
    token refresh after relaunch, and recovery after revoking the grant in the Google
    account. Keep credentials and mailbox content out of the evidence.
-5. Record the configuration and verification status here without identifiers. Until
-   then, intended users stay blocked and #668 stays open.
+5. Record updated configuration and verification status without identifiers.
+   Track any renewed authorization or verification blocker in a qualification issue.
 
 ## Deterministic evidence
 
