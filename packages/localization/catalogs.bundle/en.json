@@ -852,7 +852,7 @@
       "edit": "Edit Link",
       "text": "Text",
       "destination": "Link",
-      "hint": "Enter an HTTP, HTTPS, or email link for the selected text.",
+      "hint": "Enter an HTTP, HTTPS, email, or telephone link for the selected text.",
       "remove": "Remove Link",
       "apply": "Apply"
     },
