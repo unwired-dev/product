@@ -61,7 +61,7 @@ final class InboxTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(settledFrame(of: progress).height, 44)
     try audit(app, "Sync Status Progress")
     progress.tap()
-    let title = app.staticTexts["Sync Status"]
+    let title = app.staticTexts["Sync Status"].firstMatch
     XCTAssertTrue(title.waitForExistence(timeout: 10))
     // The row's status and its bar are one element.
     XCTAssertTrue(
