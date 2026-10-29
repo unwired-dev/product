@@ -63,6 +63,12 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 12,
   },
+  // Without a bar, a 44pt target around the one line, without growing the 40pt capsule.
+  progressLine: {
+    marginVertical: -2,
+    paddingBottom: 10,
+    justifyContent: 'center',
+  },
   status: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -484,7 +490,7 @@ function CapsuleStatus({
       onPress={onShowDetails}
       style={[
         styles.progressAction,
-        said.percent === undefined && styles.line,
+        said.percent === undefined && styles.progressLine,
       ]}>
       <View style={styles.status}>
         <ActivityIndicator
