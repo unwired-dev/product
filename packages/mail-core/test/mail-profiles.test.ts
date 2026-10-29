@@ -13,6 +13,7 @@ import {
   unavailableProfile,
 } from '../src/registration.ts';
 import {
+  createSyntheticVault,
   storeProfile,
   storedProfiles,
 } from '../src/testing/registration-vault.ts';
@@ -281,6 +282,121 @@ describe('mail profiles', () => {
     ).toStrictEqual(stored);
     // Every connection still belongs to the Default Profile.
     expect(owners(published)).toStrictEqual([defaultProfile]);
+  });
+
+  // A restored Apple sign-in has no session for this process, and cannot renew one silently.
+  it('signs in with Apple again before a relaunched process writes Profiles, and writes nothing if cancelled', async () => {
+    expect.hasAssertions();
+    const context = setup();
+    const { flow, relaunch, google, apple, sync, mailboxId } = context;
+    const appleAccount = 'account-synthetic-apple-subject';
+    await flow.signIn('apple');
+    google.subject = 'synthetic-mailbox-subject';
+    await flow.addMailbox('gmail', false);
+    const id = await mailboxId();
+    // Each write runs in a freshly relaunched process.
+    const relaunched = async (
+      write: (process: ReturnType<typeof relaunch>) => Promise<unknown>,
+    ) => {
+      const process = relaunch();
+      await process.restore();
+      return write(process);
+    };
+
+    const { signIns } = apple;
+    const created = await relaunched((process) =>
+      process.createProfile('Work'),
+    );
+    const work = profileNamed(created, 'Work').id;
+    expect(listed(created)).toStrictEqual([{ id: work, name: 'Work' }]);
+    await relaunched((process) => process.renameProfile(work, 'Office'));
+    await relaunched((process) => process.moveMailbox(id, work));
+    await relaunched((process) => process.notifyMailbox(id, true));
+    expect(storedProfiles(sync, appleAccount)).toStrictEqual(
+      expect.arrayContaining([
+        { kind: 'profile', id: work, version: 3, name: 'Office' },
+        expect.objectContaining({ kind: 'mailbox', profile: work }),
+        expect.objectContaining({ kind: 'notifications', enabled: true }),
+      ]),
+    );
+    expect(apple.signIns).toBe(signIns + 4);
+
+    // Cancelling that sign-in changes nothing and reports no failure, even when removing the
+    // Profile would first remove its mailbox.
+    apple.outcome = 'cancelled';
+    const stored = storedProfiles(sync, appleAccount);
+    const store = createRegistration(createSyntheticVault(context).vault);
+    await store.restore();
+    await store.createProfile('Home');
+    await store.removeProfile(work, [id]);
+    expect(apple.signIns).toBe(signIns + 6);
+    expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([
+      { id: work, name: 'Office' },
+    ]);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([work]);
+    expect(storedProfiles(sync, appleAccount)).toStrictEqual(stored);
+
+    // A failed sign-in also keeps the populated Profile intact, but offers failure feedback.
+    apple.outcome = 'unavailable';
+    await store.removeProfile(work, [id]);
+    expect(store.getSnapshot().profileFailure).toBe('failed');
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([
+      { id: work, name: 'Office' },
+    ]);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([work]);
+    expect(storedProfiles(sync, appleAccount)).toStrictEqual(stored);
+
+    // Signed in again, the Profile goes with its mailbox.
+    apple.outcome = undefined;
+    await store.removeProfile(work, [id]);
+    expect(apple.signIns).toBe(signIns + 8);
+    expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([]);
+  });
+
+  it('renews a Google sign-in silently when the relaunch restored it offline, before a Profile write', async () => {
+    expect.hasAssertions();
+    const { relaunch, backend, google, sync } = await connected();
+    backend.offline = true;
+    const process = relaunch();
+    await process.restore();
+    backend.offline = false;
+
+    const hints = google.hints.length;
+    const created = await process.createProfile('Work');
+    const { id } = profileNamed(created, 'Work');
+    expect(listed(created)).toStrictEqual([{ id, name: 'Work' }]);
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 1, name: 'Work' },
+    ]);
+    // No interactive sign-in.
+    expect(google.hints).toHaveLength(hints);
+  });
+
+  it('renames a Profile on this device while a Google relaunch stays offline, and publishes it after renewal', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, backend, sync } = await connected();
+    const { id } = profileNamed(await flow.createProfile('Work'), 'Work');
+    backend.offline = true;
+    const process = relaunch();
+    await process.restore();
+
+    expect(listed(await process.renameProfile(id, 'Office'))).toStrictEqual([
+      { id, name: 'Office', pending: true },
+    ]);
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 1, name: 'Work' },
+    ]);
+
+    backend.offline = false;
+    expect(listed(await process.refreshPrivateSync())).toStrictEqual([
+      { id, name: 'Office' },
+    ]);
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 2, name: 'Office' },
+    ]);
   });
 
   it('applies only its own pending name over another device’s edits, and a removal elsewhere wins', async () => {

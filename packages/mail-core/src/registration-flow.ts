@@ -443,6 +443,18 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     return yield* mailboxStatus;
   });
 
+  // Product Sync writes need this process's Product Sign-In, which a relaunch connects only when
+  // Google renews it. Google renews silently; Apple cannot, so it asks interactively.
+  const session = Effect.gen(function* () {
+    const value = yield* saved;
+    if (value.session) {
+      return;
+    }
+    yield* value.signInProvider === 'google'
+      ? reconfirm(value)
+      : signIn('apple');
+  });
+
   // Verifies the current Product Account and then the identity being linked, both interactively.
   const link = Effect.fnUntraced(function* (other: SignInProvider) {
     const value = yield* saved;
@@ -911,7 +923,8 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     // The snapshot carries the new Profile's identifier for the host that asked.
     createProfile: (name: string) =>
       program(
-        productSyncFlow.createProfile(name).pipe(
+        session.pipe(
+          Effect.andThen(productSyncFlow.createProfile(name)),
           Effect.flatMap((profileCreated) =>
             synchronize.pipe(
               Effect.andThen(current),
@@ -922,14 +935,24 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       ),
     renameProfile: (id: string, name: string) =>
       program(
-        productSyncFlow
-          .renameProfile(id, name)
-          .pipe(Effect.andThen(synchronize), Effect.andThen(current)),
+        session.pipe(
+          // A rename is saved on this device first; offline, it publishes after a later renewal.
+          Effect.catchIf(
+            (error) => error.code === 'offline',
+            () => Effect.void,
+          ),
+          Effect.andThen(productSyncFlow.renameProfile(id, name)),
+          Effect.andThen(synchronize),
+          Effect.andThen(current),
+        ),
       ),
+    // Signs in for Product Sync before a change whose first steps cannot wait for it.
+    ensureSession: () => program(session.pipe(Effect.andThen(current))),
     // Removing a Profile and moving a connection need Product Sync.
     removeProfile: (id: string) =>
       program(
         Effect.gen(function* () {
+          yield* session;
           // A mailbox removal may have committed before its reply was lost. Finish its pending
           // tombstone before checking whether the Profile still owns a live connection.
           if ((yield* saved).mailboxRemovalPending) {
@@ -941,7 +964,8 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       ),
     moveMailbox: (connection: string, profile: string) =>
       program(
-        saved.pipe(
+        session.pipe(
+          Effect.andThen(saved),
           Effect.flatMap((value) =>
             productSyncFlow.moveMailbox(value, connection, profile),
           ),
@@ -951,7 +975,8 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     // Turning a connection's New Mail Notifications on or off needs Product Sync.
     notifyMailbox: (connection: string, enabled: boolean) =>
       program(
-        saved.pipe(
+        session.pipe(
+          Effect.andThen(saved),
           Effect.flatMap((value) =>
             productSyncFlow.notifyMailbox(value, connection, enabled),
           ),

@@ -195,9 +195,14 @@ window's own checked, then **New Mail Profile…**. Choosing a Profile switches 
 that window. New Mail Profile… asks for a name and creates the Profile through the
 fenced store without switching to it. When another Trusted Device's client cannot
 keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
-asks to try again. Creating a Profile needs a Product Sign-In verified since the
-app launched; after a relaunch it fails until the person signs in again
-([#1188](https://github.com/unwired-dev/product/issues/1188)).
+asks to try again. Creating, renaming, moving, removing and notification changes
+need a Product Sign-In verified since the app launched. After a relaunch, Google
+renews it silently and Apple asks to sign in again before the change; cancelling
+that sign-in changes nothing and shows no failure
+([#1188](https://github.com/unwired-dev/product/issues/1188)). A relaunch that
+restored Google offline cannot create a Profile until the renewal connects, and
+asks to try again; a rename is still saved on this device and publishes after
+the renewal.
 
 A window opens a targeted link's Profile first, then the Profile it restores, then
 the device-local Startup Profile, then the Default Profile. A restored or Startup
