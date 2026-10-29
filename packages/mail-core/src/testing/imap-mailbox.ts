@@ -157,6 +157,11 @@ export function createSyntheticImap({
   };
   const reach = () =>
     server.failure === undefined ? undefined : rejection(server.failure);
+  const historyRefusal = () =>
+    reach() ??
+    (server.historyFailure === undefined
+      ? undefined
+      : rejection(server.historyFailure));
   // A command on a session that is not open is refused, as native code refuses a closed handle.
   const inSession = (session: string) =>
     server.sessions.has(session) ? reach() : rejection('mailbox-invalidated');
@@ -493,17 +498,12 @@ export function createSyntheticImap({
     // them, and the known UIDs still present.
     imapHistory: (_mailbox, request) => {
       server.reads.push(`history ${request.folder} ${request.below ?? 'next'}`);
-      const failed =
-        reach() ??
-        (server.historyFailure === undefined
-          ? undefined
-          : rejection(server.historyFailure));
-      if (failed !== undefined) {
-        return failed;
-      }
       const current = folders.get(request.folder);
-      if (current === undefined) {
-        return rejection('imap-missing');
+      const refused =
+        historyRefusal() ??
+        (current === undefined ? rejection('imap-missing') : undefined);
+      if (refused !== undefined || current === undefined) {
+        return refused ?? rejection('imap-missing');
       }
       const below = request.below ?? current.uidNext;
       const range = Arr.sort(

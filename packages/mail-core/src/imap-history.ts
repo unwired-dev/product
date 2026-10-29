@@ -10,13 +10,13 @@ import { inboxFolder, listedMessage } from './imap-model.ts';
 
 // ponytail: messages per history read and per saved segment, without Gmail's folding; a million
 // messages name 2,000 segments in the document. Fold segments if that ever slows its commits.
-export const historyPage = 500;
+const historyPage = 500;
 
 const downloaded = (history: ImapFolderHistory) =>
   history.segments.reduce((sum, { count }) => sum + count, 0);
 
 // The folders Historical Metadata Backfill downloads, the Inbox first.
-export const historyFolders = (document: ImapDocument) => [
+const historyFolders = (document: ImapDocument) => [
   inboxFolder,
   ...document.folders
     .filter(({ name, selectable }) => selectable && name !== inboxFolder)

@@ -33,7 +33,7 @@ const FolderSchema = Schema.Struct({
 });
 export type ImapFolder = typeof FolderSchema.Type;
 
-export const ImapMessageSchema = Schema.Struct({
+const ImapMessageSchema = Schema.Struct({
   // The folder, UIDVALIDITY and UID together identify a message; none is reused within them.
   id: Schema.NonEmptyString,
   folder: Schema.NonEmptyString,

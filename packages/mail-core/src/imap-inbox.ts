@@ -26,6 +26,7 @@ import type {
   ImapCapabilities,
   ImapDocument,
   ImapFolder,
+  ImapFolderHistory,
   ImapMessage,
   ImapPending,
 } from './imap-model.ts';
@@ -46,6 +47,7 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { segmentName } from './gmail-history.ts';
 import {
   createBodyLoads,
   downloadFailure,
@@ -2460,38 +2462,25 @@ export function createImapInbox(
       ? []
       : yield* decodeSegment(text).pipe(Effect.mapError(malformed));
   });
-  const segmentName = Effect.map(
-    Effect.all([
-      Random.nextIntBetween(0, 2 ** 31 - 1),
-      Random.nextIntBetween(0, 2 ** 31 - 1),
-    ]),
-    ([high, low]) => `${high.toString(36)}${low.toString(36)}`,
-  );
-  // One Historical Metadata Backfill read of the next folder, committed with the segment it saved.
-  // A folder the server no longer selects settles. False once every folder settled.
-  const backfillStep = Effect.fnUntraced(function* (scope: Scope) {
-    if (document === undefined || prefetchPaused(scope)) {
-      return false;
-    }
-    const name = nextHistoryFolder(document, settled);
-    if (name === undefined) {
-      return false;
-    }
-    const history = document.history?.find(({ folder }) => folder === name);
-    const checking =
+  // The segment an expunge check compares with the server next, if one is under way.
+  const checkedSegment = Effect.fnUntraced(function* (
+    scope: Scope,
+    history: ImapFolderHistory | undefined,
+  ) {
+    const segment =
       history?.checking === undefined
         ? undefined
         : history.segments[history.checking];
-    const checked =
-      checking === undefined
-        ? undefined
-        : yield* readSegment(scope, checking.name);
-    const read = yield* call(() =>
-      native.imapHistory(
-        scope,
-        historyRequest(name, history, checked?.map(({ uid }) => uid) ?? []),
-      ),
-    ).pipe(
+    return segment === undefined
+      ? undefined
+      : yield* readSegment(scope, segment.name);
+  });
+  // One bounded history read; none when the folder is gone or refuses its UIDVALIDITY.
+  const readHistory = (
+    scope: Scope,
+    request: Readonly<ReturnType<typeof historyRequest>>,
+  ) =>
+    call(() => native.imapHistory(scope, request)).pipe(
       Effect.flatMap((reply) =>
         decodeHistoryRead(reply).pipe(Effect.mapError(malformed)),
       ),
@@ -2501,20 +2490,12 @@ export function createImapInbox(
         () => Effect.succeedNone,
       ),
     );
-    if (!current(scope) || document === undefined) {
-      return false;
-    }
-    if (Option.isNone(read)) {
-      settled.add(name);
-      return true;
-    }
-    const step = applyHistoryRead(history, {
-      folder: name,
-      read: read.value,
-      name: yield* segmentName,
-      ...(checked === undefined ? {} : { checked }),
-    });
-    const latest = document;
+  // Commits the read's folder history with the segments it wrote, removing any it dropped.
+  const saveHistory = Effect.fnUntraced(function* (
+    latest: ImapDocument,
+    step: ReturnType<typeof applyHistoryRead>,
+    name: string,
+  ) {
     const others = (latest.history ?? []).filter(
       ({ folder }) => folder !== name,
     );
@@ -2529,6 +2510,37 @@ export function createImapInbox(
       );
     }
     yield* commit(next, { segments, keep: segmentNames(next) });
+  });
+  // One Historical Metadata Backfill read of the next folder, committed with the segment it saved.
+  // A folder the server no longer selects settles. False once every folder settled.
+  const backfillStep = Effect.fnUntraced(function* (scope: Scope) {
+    const name =
+      document === undefined || prefetchPaused(scope)
+        ? undefined
+        : nextHistoryFolder(document, settled);
+    if (name === undefined) {
+      return false;
+    }
+    const history = document?.history?.find(({ folder }) => folder === name);
+    const checked = yield* checkedSegment(scope, history);
+    const read = yield* readHistory(
+      scope,
+      historyRequest(name, history, checked?.map(({ uid }) => uid) ?? []),
+    );
+    if (!current(scope) || document === undefined) {
+      return false;
+    }
+    if (Option.isNone(read)) {
+      settled.add(name);
+      return true;
+    }
+    const step = applyHistoryRead(history, {
+      folder: name,
+      read: read.value,
+      name: yield* segmentName,
+      ...(checked === undefined ? {} : { checked }),
+    });
+    yield* saveHistory(document, step, name);
     if (step.settled) {
       settled.add(name);
     } else {

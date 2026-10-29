@@ -1,5 +1,6 @@
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
+import * as Random from 'effect/Random';
 import * as Struct from 'effect/Struct';
 
 import type { HistoryPass, MailboxHistory } from './mailbox-document.ts';
@@ -14,6 +15,14 @@ import { newestFirst } from './mailbox-document.ts';
 
 // Messages each listed page, and so each segment, holds.
 export const historyPageSize = 100;
+// A fresh segment name: lowercase base-36 digits, as the native store admits.
+export const segmentName = Effect.map(
+  Effect.all([
+    Random.nextIntBetween(0, 2 ** 31 - 1),
+    Random.nextIntBetween(0, 2 ** 31 - 1),
+  ]),
+  ([high, low]) => `${high.toString(36)}${low.toString(36)}`,
+);
 // Recorded changes past this many are folded into the segments, keeping the document small.
 const foldAt = 200;
 // ponytail: segments one fold step rewrites; a fold over a large history spans many steps.
