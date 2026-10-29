@@ -337,10 +337,20 @@ describe('mail profiles', () => {
     expect(owners(store.getSnapshot().snapshot)).toStrictEqual([work]);
     expect(storedProfiles(sync, appleAccount)).toStrictEqual(stored);
 
+    // A failed sign-in also keeps the populated Profile intact, but offers failure feedback.
+    apple.outcome = 'unavailable';
+    await store.removeProfile(work, [id]);
+    expect(store.getSnapshot().profileFailure).toBe('failed');
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([
+      { id: work, name: 'Office' },
+    ]);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([work]);
+    expect(storedProfiles(sync, appleAccount)).toStrictEqual(stored);
+
     // Signed in again, the Profile goes with its mailbox.
     apple.outcome = undefined;
     await store.removeProfile(work, [id]);
-    expect(apple.signIns).toBe(signIns + 7);
+    expect(apple.signIns).toBe(signIns + 8);
     expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
     expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
     expect(owners(store.getSnapshot().snapshot)).toStrictEqual([]);

@@ -437,6 +437,16 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(work.waitForExistence(timeout: 15))
     work.tap()
     let switched = app.buttons["Mail Profile, Work"]
+    // Switching remounts the shell on its Inbox column. Reveal Mailboxes before checking it.
+    if !switched.waitForExistence(timeout: 5) || !switched.isHittable {
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        let back = app.buttons["Back to Mailboxes"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        back.tap()
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
+    }
     XCTAssertTrue(switched.waitForExistence(timeout: 10))
     let workWindow = XCTAttachment(screenshot: app.screenshot())
     workWindow.name = "Window switched to a Profile created after relaunch"
@@ -448,6 +458,15 @@ final class InboxTests: XCTestCase {
     ).firstMatch
     XCTAssertTrue(primary.waitForExistence(timeout: 10))
     primary.tap()
+    if !switcher.waitForExistence(timeout: 5) || !switcher.isHittable {
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        let back = app.buttons["Back to Mailboxes"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        back.tap()
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
+    }
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
     mailProfilesSettingsJourney(app, switcher: switcher)
     // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
