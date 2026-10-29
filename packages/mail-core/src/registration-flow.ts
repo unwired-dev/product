@@ -936,6 +936,8 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           Effect.andThen(current),
         ),
       ),
+    // Signs in for Product Sync before a change whose first steps cannot wait for it.
+    ensureSession: () => program(session.pipe(Effect.andThen(current))),
     // Removing a Profile and moving a connection need Product Sync.
     removeProfile: (id: string) =>
       program(

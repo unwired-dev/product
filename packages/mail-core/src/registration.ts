@@ -701,6 +701,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
     removeProfile: (profile: string, confirmed: readonly string[] = []) =>
       changeProfile(
         Effect.gen(function* () {
+          // A sign-in cancelled after mailboxes were removed would leave the Profile half removed.
+          yield* request(native.ensureSession());
           for (const id of confirmed) {
             // Earlier steps can learn a move or finish despite losing their reply. Always use the
             // current saved snapshot and publish completed cleanup before the next fallible step.

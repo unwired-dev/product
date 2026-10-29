@@ -319,21 +319,31 @@ describe('mail profiles', () => {
         expect.objectContaining({ kind: 'notifications', enabled: true }),
       ]),
     );
-    await relaunched((process) => process.moveMailbox(id, defaultProfile));
-    const removed = await relaunched((process) => process.removeProfile(work));
-    expect(listed(removed)).toStrictEqual([]);
-    expect(apple.signIns).toBe(signIns + 6);
+    expect(apple.signIns).toBe(signIns + 4);
 
-    // Cancelling that sign-in leaves the Profiles as they were, with no failure to report.
+    // Cancelling that sign-in changes nothing and reports no failure, even when removing the
+    // Profile would first remove its mailbox.
     apple.outcome = 'cancelled';
     const stored = storedProfiles(sync, appleAccount);
     const store = createRegistration(createSyntheticVault(context).vault);
     await store.restore();
     await store.createProfile('Home');
+    await store.removeProfile(work, [id]);
+    expect(apple.signIns).toBe(signIns + 6);
+    expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([
+      { id: work, name: 'Office' },
+    ]);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([work]);
+    expect(storedProfiles(sync, appleAccount)).toStrictEqual(stored);
+
+    // Signed in again, the Profile goes with its mailbox.
+    apple.outcome = undefined;
+    await store.removeProfile(work, [id]);
     expect(apple.signIns).toBe(signIns + 7);
     expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
-    expect(profilesOf(store.getSnapshot().snapshot)).toStrictEqual([]);
-    expect(storedProfiles(sync, appleAccount)).toStrictEqual(stored);
+    expect(listed(store.getSnapshot().snapshot)).toStrictEqual([]);
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([]);
   });
 
   it('renews a Google sign-in silently when the relaunch restored it offline, before a Profile write', async () => {
