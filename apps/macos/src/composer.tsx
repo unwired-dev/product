@@ -1387,12 +1387,17 @@ export function ComposerNotices({
   );
 }
 
+// A New Message window's toolbar row, which takes the composer's From, and its actions and Send,
+// in place of its header and bottom row.
+export type Toolbar = (from: ReactNode, actions: ReactNode) => ReactNode;
+
 function Editor({
   initial,
   onClose,
   onClosedAfterRemoval,
   onRebind,
   onExpand,
+  renderToolbar,
 }: {
   readonly initial: Draft;
   readonly onClose: () => void;
@@ -1401,6 +1406,7 @@ function Editor({
   readonly onRebind: (id: string) => void;
   // Moves the saved Draft into its own window, when offered.
   readonly onExpand?: ((id: string) => void) | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
@@ -2019,6 +2025,35 @@ function Editor({
       : title;
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
+  const actions = (
+    <ComposerActions
+      disabled={lockedUnless(closing !== 'saving')}
+      onDiscard={() => {
+        if (!sendingNow.current && lifetime.current.finishing === 0) {
+          setClosing('discard');
+        }
+      }}
+    />
+  );
+  const sender = (
+    <SendingMailbox
+      draft={draft}
+      editable={!sending}
+      onChange={(mailbox) => {
+        change(withSender(authored.current, mailbox));
+      }}
+    />
+  );
+  const sendButton = (
+    <Button
+      disabled={closing === 'saving'}
+      label={t('drafts.send')}
+      fill="accent"
+      onPress={() => {
+        void send();
+      }}
+    />
+  );
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
@@ -2052,45 +2087,48 @@ function Editor({
         );
       }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.header}>
-        <ToolbarButton
-          disabled={closing === 'saving'}
-          icon="xmark"
-          label={t('drafts.close')}
-          onPress={() => {
-            void close();
-          }}
-        />
-        <View
-          accessible
-          accessibilityLabel={titleLabel}
-          accessibilityRole="header"
-          style={styles.grow}>
-          <Text
-            numberOfLines={1}
-            style={[styles.title, { color: colors.textPrimary }]}>
-            {title}
-          </Text>
-        </View>
-        {onExpand === undefined ? null : (
+      {renderToolbar === undefined ? (
+        <View style={styles.header}>
           <ToolbarButton
-            disabled={lockedUnless(closing !== 'saving')}
-            icon="arrow.up.left.and.arrow.down.right"
-            label={t('drafts.expand')}
+            disabled={closing === 'saving'}
+            icon="xmark"
+            label={t('drafts.close')}
             onPress={() => {
-              void expand();
+              void close();
             }}
           />
-        )}
-        <ComposerActions
-          disabled={lockedUnless(closing !== 'saving')}
-          onDiscard={() => {
-            if (!sendingNow.current && lifetime.current.finishing === 0) {
-              setClosing('discard');
-            }
-          }}
-        />
-      </View>
+          <View
+            accessible
+            accessibilityLabel={titleLabel}
+            accessibilityRole="header"
+            style={styles.grow}>
+            <Text
+              numberOfLines={1}
+              style={[styles.title, { color: colors.textPrimary }]}>
+              {title}
+            </Text>
+          </View>
+          {onExpand === undefined ? null : (
+            <ToolbarButton
+              disabled={lockedUnless(closing !== 'saving')}
+              icon="arrow.up.left.and.arrow.down.right"
+              label={t('drafts.expand')}
+              onPress={() => {
+                void expand();
+              }}
+            />
+          )}
+          {actions}
+        </View>
+      ) : (
+        renderToolbar(
+          sender,
+          <>
+            {actions}
+            {sendButton}
+          </>,
+        )
+      )}
       <FormatBar
         active={active}
         kind={kind}
@@ -2390,24 +2428,13 @@ function Editor({
           ) : null}
         </View>
       </ScrollView>
-      <View style={[styles.actions, { borderTopColor: colors.separator }]}>
-        <SendingMailbox
-          draft={draft}
-          editable={!sending}
-          onChange={(mailbox) => {
-            change(withSender(authored.current, mailbox));
-          }}
-        />
-        <View style={styles.grow} />
-        <Button
-          disabled={closing === 'saving'}
-          label={t('drafts.send')}
-          fill="accent"
-          onPress={() => {
-            void send();
-          }}
-        />
-      </View>
+      {renderToolbar === undefined ? (
+        <View style={[styles.actions, { borderTopColor: colors.separator }]}>
+          {sender}
+          <View style={styles.grow} />
+          {sendButton}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -2418,12 +2445,14 @@ export function Composer({
   onClose,
   onRebind,
   onExpand,
+  renderToolbar,
 }: {
   readonly id: string;
   readonly onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const state = useDrafts();
   const store = useDraftStore();
@@ -2467,19 +2496,24 @@ export function Composer({
         onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}
         onRebind={rebind}
+        renderToolbar={renderToolbar}
       />
     );
   }
   const waiting = state.kind === 'loading';
   return (
     <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={styles.header}>
-        <ToolbarButton
-          icon="xmark"
-          label={t('drafts.close')}
-          onPress={onClose}
-        />
-      </View>
+      {renderToolbar === undefined ? (
+        <View style={styles.header}>
+          <ToolbarButton
+            icon="xmark"
+            label={t('drafts.close')}
+            onPress={onClose}
+          />
+        </View>
+      ) : (
+        renderToolbar(null, null)
+      )}
       <View style={styles.alerts}>
         {waiting ? (
           <ActivityIndicator accessibilityLabel={t('drafts.loading')} />

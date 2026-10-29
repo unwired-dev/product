@@ -127,6 +127,12 @@ const handledKeys = [
 const barHeight = 44;
 const inputHeight = 36;
 const inputWidth = 320;
+// A New Message window draws its toolbar row beneath the window controls, which end 88pt in.
+const toolbarHeight = 52;
+const toolbarInputHeight = 32;
+// Fits the open query's placeholder beside its esc key; the title and From give way first.
+const toolbarInputWidth = 192;
+const windowControlsWidth = 88;
 const panelWidth = 460;
 // The focus ring sits 3pt outside the input.
 const ringWidth = 3;
@@ -139,15 +145,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.m,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  toolbar: {
+    height: toolbarHeight,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: spacing.m,
+    paddingBottom: spacing.s,
+    paddingLeft: windowControlsWidth + 10,
+    paddingRight: spacing.l,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  windowTitle: { ...textStyles.bodyEmphasized, width: 120, flexShrink: 1 },
+  field: { width: inputWidth },
+  toolbarField: { flex: 1, minWidth: toolbarInputWidth, maxWidth: inputWidth },
+  trailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginLeft: 'auto',
+  },
   pill: {
-    width: inputWidth,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    height: inputHeight,
     paddingLeft: spacing.m,
     paddingRight: spacing.s,
-    borderRadius: inputHeight / 2,
     borderCurve: 'continuous',
   },
   focusRing: {
@@ -157,7 +180,6 @@ const styles = StyleSheet.create({
     right: -ringWidth,
     bottom: -ringWidth,
     borderWidth: ringWidth,
-    borderRadius: inputHeight / 2 + ringWidth,
     borderCurve: 'continuous',
     opacity: 0.3,
   },
@@ -183,11 +205,9 @@ const styles = StyleSheet.create({
   // Beneath the bar and its panel, over the window's content.
   scrim: { zIndex: 5 },
   panel: {
-    // Hangs beneath the bar, outside its bounds; still clickable, since the bar does not clip.
+    // Hangs 6pt beneath the input, outside the bar; still clickable, since the bar does not clip.
     position: 'absolute',
-    // 6pt beneath the input, which is centered in the bar.
-    top: (barHeight + inputHeight) / 2 + 6,
-    left: spacing.m,
+    left: 0,
     width: panelWidth,
     maxHeight: 520,
     padding: 6,
@@ -374,9 +394,20 @@ export function OutsideClickLayer() {
 // The command input that stays visible at the top of the window. While the palette is closed it
 // is a button; open, it is the focused query with the matching commands beneath. The open palette
 // belongs to the bar, so it leaves with the screen that shows it, as when the gate replaces the
-// window's screen.
-export function CommandBar() {
+// window's screen. A New Message window's bar is its toolbar row: the window's title, the bar's
+// input and the composer's From, with its actions at the trailing edge.
+export function CommandBar({
+  title,
+  from,
+  actions,
+}: {
+  readonly title?: string | undefined;
+  readonly from?: ReactNode;
+  readonly actions?: ReactNode;
+}) {
   const { registry, identifier } = use(PaletteContext);
+  const toolbar = title !== undefined;
+  const height = toolbar ? toolbarInputHeight : inputHeight;
   const colors = usePalette();
   const { t } = useLocalization();
   // The commands as listed when the palette opened, while it is open.
@@ -471,55 +502,78 @@ export function CommandBar() {
       )}
       <View
         style={[
-          styles.bar,
+          toolbar ? styles.toolbar : styles.bar,
           styles.layer,
           {
-            backgroundColor: colors.surfaceSidebar,
+            backgroundColor: toolbar
+              ? colors.surfaceContent
+              : colors.surfaceSidebar,
             borderBottomColor: colors.separator,
           },
         ]}>
-        {opened === undefined ? (
-          <Pressable
-            accessibilityLabel={t('commands.openPalette')}
-            accessibilityRole="button"
-            onBlur={() => {
-              pillFocused.current = false;
-            }}
-            onFocus={() => {
-              pillFocused.current = true;
-            }}
-            onPress={open}
-            ref={pill}
-            style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
-            <Glass cornerRadius={inputHeight / 2} />
-            <SFSymbol
-              name="command"
-              color={colors.textSecondary}
-            />
-            <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-              {t('commands.open')}
-            </Text>
-            <Text
+        {toolbar ? (
+          // The window's own title names it for VoiceOver.
+          <Text
+            accessible={false}
+            numberOfLines={1}
+            style={[styles.windowTitle, { color: colors.textPrimary }]}>
+            {title}
+          </Text>
+        ) : null}
+        <View style={toolbar ? styles.toolbarField : styles.field}>
+          {opened === undefined ? (
+            <Pressable
+              accessibilityLabel={t('commands.openPalette')}
+              accessibilityRole="button"
+              onBlur={() => {
+                pillFocused.current = false;
+              }}
+              onFocus={() => {
+                pillFocused.current = true;
+              }}
+              onPress={open}
+              ref={pill}
               style={[
-                styles.key,
+                styles.pill,
                 {
-                  backgroundColor: colors.fillQuiet,
-                  color: colors.textSecondary,
+                  height,
+                  borderRadius: height / 2,
+                  boxShadow: colors.smallGlassShadow,
                 },
               ]}>
-              {t('commands.shortcut')}
-            </Text>
-          </Pressable>
-        ) : null}
-        {motion.shown && shown !== undefined ? (
-          <Palette
-            close={close}
-            key={openings}
-            open={opened !== undefined}
-            opened={shown}
-            style={motion.style}
-          />
-        ) : null}
+              <Glass cornerRadius={height / 2} />
+              <SFSymbol
+                name="command"
+                color={colors.textSecondary}
+              />
+              <Text style={[styles.pillText, { color: colors.textSecondary }]}>
+                {t('commands.open')}
+              </Text>
+              <Text
+                style={[
+                  styles.key,
+                  {
+                    backgroundColor: colors.fillQuiet,
+                    color: colors.textSecondary,
+                  },
+                ]}>
+                {t('commands.shortcut')}
+              </Text>
+            </Pressable>
+          ) : null}
+          {motion.shown && shown !== undefined ? (
+            <Palette
+              close={close}
+              height={height}
+              key={openings}
+              open={opened !== undefined}
+              opened={shown}
+              style={motion.style}
+            />
+          ) : null}
+        </View>
+        {from}
+        {toolbar ? <View style={styles.trailing}>{actions}</View> : null}
       </View>
     </>
   );
@@ -532,11 +586,13 @@ function Palette({
   opened,
   open,
   close,
+  height,
   style,
 }: {
   readonly opened: readonly Command[];
   readonly open: boolean;
   readonly close: () => void;
+  readonly height: number;
   readonly style: ReturnType<typeof useMenuMotion>['style'];
 }) {
   const { registry } = use(PaletteContext);
@@ -645,11 +701,11 @@ function Palette({
     if (row === undefined) {
       return;
     }
-    const { offset, height } = visible.current;
+    const { offset, height: shown } = visible.current;
     if (row.y < offset) {
       scroll(row.y);
-    } else if (row.y + row.height > offset + height) {
-      scroll(row.y + row.height - height);
+    } else if (row.y + row.height > offset + shown) {
+      scroll(row.y + row.height - shown);
     }
   };
   const keyDown = ({ nativeEvent }: KeyEvent) => {
@@ -668,6 +724,7 @@ function Palette({
       {open ? (
         <QueryField
           choosing={choosing}
+          height={height}
           onChangeText={(text) => {
             restart();
             if (choosing === undefined) {
@@ -689,7 +746,11 @@ function Palette({
         pointerEvents={open ? 'auto' : 'none'}
         style={[
           styles.panel,
-          { borderColor: colors.separator, boxShadow: colors.menuShadow },
+          {
+            top: height + 6,
+            borderColor: colors.separator,
+            boxShadow: colors.menuShadow,
+          },
           style,
         ]}
         testID="command-palette">
@@ -795,6 +856,7 @@ function Palette({
 // closes the palette or leaves the picker.
 function QueryField({
   choosing,
+  height,
   prompt,
   value,
   onChangeText,
@@ -804,6 +866,7 @@ function QueryField({
   onSubmit,
 }: {
   readonly choosing: Command | undefined;
+  readonly height: number;
   readonly prompt: string;
   readonly value: string;
   readonly onChangeText: (text: string) => void;
@@ -816,11 +879,25 @@ function QueryField({
   const { t } = useLocalization();
   const input = useRef<TextInputHandle>(null);
   return (
-    <View style={[styles.pill, { boxShadow: colors.smallGlassShadow }]}>
-      <Glass cornerRadius={inputHeight / 2} />
+    <View
+      style={[
+        styles.pill,
+        {
+          height,
+          borderRadius: height / 2,
+          boxShadow: colors.smallGlassShadow,
+        },
+      ]}>
+      <Glass cornerRadius={height / 2} />
       <View
         pointerEvents="none"
-        style={[styles.focusRing, { borderColor: colors.accentFill }]}
+        style={[
+          styles.focusRing,
+          {
+            borderRadius: height / 2 + ringWidth,
+            borderColor: colors.accentFill,
+          },
+        ]}
       />
       <SFSymbol
         name="command"
