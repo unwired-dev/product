@@ -224,7 +224,10 @@ final class WindowTests: XCTestCase {
     // The sender's label repeats on its inner text, so it is clicked by position.
     opensMenu(
       "Copy Address", from: resumed.staticTexts["Rowan Hale, rowan@example.invalid"].firstMatch)
-    opensMenu("Copy Link", from: resumed.links["Open link: garden plan"])
+    opensMenu(
+      "Copy Link",
+      from: resumed.links.matching(identifier: "message-link-control")
+        .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch)
     // #1217: a letter the read-only page leaves unhandled must not abort the app.
     seedOrder.click()
     resumed.typeKey("j", modifierFlags: [])
@@ -249,8 +252,16 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
     app.launch()
-    // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
+    // An Apple relaunch has no backend session to read the mailbox back from private sync, so the
+    // account page opens first. Relaunch reopens the encrypted cache, then setup stays reachable
+    // from the Inbox.
     let relaunched = app.windows["Inbox 1"]
+    if apple {
+      XCTAssertTrue(
+        text("Your Gmail mailbox changes are still waiting", in: relaunched).waitForExistence(
+          timeout: 20))
+      relaunched.buttons["Open Inbox"].click()
+    }
     XCTAssertTrue(relaunched.buttons[starred].waitForExistence(timeout: 20))
     relaunched.buttons[starred].click()
     relaunched.buttons["Account"].click()
@@ -900,8 +911,9 @@ final class WindowTests: XCTestCase {
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
 
+    // The reader names its sender as one text, "Maya Chen, maya@example.com".
     func address(_ window: XCUIElement, _ value: String) -> XCUIElement {
-      window.textViews.matching(NSPredicate(format: "value == %@", value)).firstMatch
+      window.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", ", " + value)).firstMatch
     }
     let first = app.windows["Inbox 1"]
     XCTAssertTrue(first.waitForExistence(timeout: 30))
