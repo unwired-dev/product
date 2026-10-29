@@ -261,7 +261,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   an element's replaced decoration/background, or discarding importance across
   shorthand and longhand properties. Audit inherited and intrinsic tag defaults,
   quoted family names and legacy attributes through conversion and outgoing
-  encoding. Refuse formatting the document cannot hold; otherwise conversion
+  encoding. Check CSS-only color functions against legacy HTML attribute parsing,
+  invalid shorthand/longhand values, and ancestor decoration colors when text
+  colors change. Verify code-mark/font combinations through the encoder as well
+  as conversion. Refuse formatting the document cannot hold; otherwise conversion
   claims fidelity while changing visible fonts, marks or backgrounds.
 - `draft-html.ts.endElement` flattening separate ordered lists into adjacent
   numbered blocks. Compare source list boundaries with the document's

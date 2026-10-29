@@ -42,6 +42,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
           {
             text: 'all marks',
             marks: ['bold', 'italic', 'underline', 'strikethrough', 'code'],
+            font: 'Arial',
           },
           { text: ' and ' },
           {
@@ -168,6 +169,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
       ['<body bgcolor="#000000"><p>dark</p></body>', ['bgcolor']],
       ['<p>a<br style="display:none">b</p>', ['display']],
       ['<p>a<br clear="all">b</p>', ['clear']],
+      ['<p popover>hidden</p>', ['popover']],
       ['<font size="+1">relative</font>', ['size']],
       ['<p style="font-weight:500">medium</p>', ['font-weight']],
       ['<p style="font-weight:800">heavy</p>', ['font-weight']],
@@ -176,6 +178,24 @@ describe('a Semantic Message Document from Draft HTML', () => {
       ['<p style="color:rgb(1,2 3)">invalid</p>', ['color']],
       ['<p style="color:rgb(1,2,3 / 1)">invalid</p>', ['color']],
       ['<p style="font-style:oblique">slanted</p>', ['font-style']],
+      [
+        '<p style="text-decoration:none underline">invalid</p>',
+        ['text-decoration'],
+      ],
+      [
+        '<p style="text-decoration:underline\u00a0line-through">invalid</p>',
+        ['text-decoration'],
+      ],
+      [
+        '<span style="background-color:#123456;background-color:none">text</span>',
+        ['background-color'],
+      ],
+      ['<font color="rgb(1,2,3)">text</font>', ['color']],
+      ['<body text="rgb(1,2,3)">text</body>', ['text']],
+      [
+        '<body link="rgb(1,2,3)"><a href="https://example.invalid">text</a></body>',
+        ['link'],
+      ],
       [String.raw`<p style="font-family:foo\ bar">font</p>`, ['style']],
     ] as const) {
       expect(documentFromHtml(html)).toStrictEqual({ unsupported });
@@ -664,10 +684,53 @@ describe('a Semantic Message Document from Draft HTML', () => {
           spans: [{ text: 'x', link, marks: ['underline', 'strikethrough'] }],
         },
       ],
+      [
+        `<p><a href="${link}" style="text-decoration:none;text-decoration-line:underline">x</a></p>`,
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'x', link, marks: ['underline'] }],
+        },
+      ],
+      [
+        `<p style="text-decoration:underline;color:#123456"><a href="${link}" style="text-decoration:none;color:#123456">x</a></p>`,
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'x', link, marks: ['underline'], color: '#123456' }],
+        },
+      ],
+      [
+        `<p style="color:#123456"><a href="${link}" style="color:inherit">x</a></p>`,
+        { kind: 'paragraph', spans: [{ text: 'x', link, color: '#123456' }] },
+      ],
       // <code> shows its own monospace font, which outgoing mail sets inside any font.
       [
         '<p><span style="font-family:Arial"><code>x</code></span></p>',
         { kind: 'paragraph', spans: [{ text: 'x', marks: ['code'] }] },
+      ],
+      [
+        '<p><code style="font-family:Arial">x</code></p>',
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'x', marks: ['code'], font: 'Arial' }],
+        },
+      ],
+      [
+        '<p style="font-family:Arial"><code style="font-family:inherit">x</code></p>',
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'x', marks: ['code'], font: 'Arial' }],
+        },
+      ],
+      [
+        '<p><code><font face="Arial">x</font></code></p>',
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'x', marks: ['code'], font: 'Arial' }],
+        },
+      ],
+      [
+        '<pre style="font-family:Arial"><code>x</code></pre>',
+        { kind: 'code', spans: [{ text: 'x' }] },
       ],
       // A code block shows its monospace font unless it sets its own.
       [
@@ -711,13 +774,24 @@ describe('a Semantic Message Document from Draft HTML', () => {
         `<p style="text-decoration:none"><a href="${link}" style="text-decoration-line:inherit">x</a></p>`,
         'text-decoration-line',
       ],
-      ['<p><code style="font-family:Arial">x</code></p>', 'font-family'],
-      ['<p><code><font face="Arial">x</font></code></p>', 'face'],
+      ['<p><code style="font-family:inherit">x</code></p>', 'font-family'],
+      [`<p><a href="${link}" style="color:inherit">x</a></p>`, 'color'],
       ['<div style="font-size:12px"><h1>x</h1></div>', 'font-size'],
     ] as const) {
       expect(documentFromHtml(html)).toStrictEqual({
         unsupported: [unsupported],
       });
+    }
+  });
+
+  it('refuses an ancestor decoration whose color the outgoing marks would change', () => {
+    expect.hasAssertions();
+    for (const html of [
+      '<p><u><span style="color:#ff0000">x</span></u></p>',
+      '<p><s style="color:#123456"><font color="#abcdef">x</font></s></p>',
+      '<p><u><a href="https://example.invalid">x</a></u></p>',
+    ]) {
+      expect(documentFromHtml(html)).toStrictEqual({ unsupported: ['color'] });
     }
   });
 });

@@ -158,6 +158,9 @@ const colorOf = (value: string) => {
     ? `#${values.map((each) => each.toString(16).padStart(2, '0')).join('')}`
     : undefined;
 };
+// Legacy HTML color attributes do not parse rgb() as CSS does.
+const attributeColorOf = (value: string) =>
+  hex.test(value) ? colorOf(value) : undefined;
 
 const isFont = Schema.is(FontSchema);
 const trimValue = (value: string) =>
@@ -233,12 +236,13 @@ const colorRule: Rule = (context, value) => {
   const color = colorOf(value);
   return color === undefined ? undefined : formatted(context, { color });
 };
-// Outgoing mail sets a font outside <code>, whose own monospace font would win.
+const attributeColorRule: Rule = (context, value) => {
+  const color = attributeColorOf(value);
+  return color === undefined ? undefined : formatted(context, { color });
+};
 const fontRule: Rule = (context, value) => {
   const font = familyOf(value);
-  return font === undefined || context.format.marks.includes('code')
-    ? undefined
-    : formatted(context, { font });
+  return font === undefined ? undefined : formatted(context, { font });
 };
 const alignRule: Rule = (context, value) => {
   const lower = value.toLowerCase();
@@ -252,7 +256,14 @@ const decorations: ReadonlyMap<string, Mark> = new Map([
 ]);
 const decorationRule: Rule = (context, value) => {
   let { format } = context;
-  for (const line of value.toLowerCase().split(/\s+/u)) {
+  const lines = value.toLowerCase().split(/[\t\n\f\r ]+/u);
+  if (
+    (lines.includes('none') && lines.length > 1) ||
+    new Set(lines).size !== lines.length
+  ) {
+    return undefined;
+  }
+  for (const line of lines) {
     const mark = decorations.get(line);
     if (mark === undefined && line !== 'none') {
       return undefined;
@@ -307,7 +318,10 @@ const propertyRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
   ...['background', 'background-color'].map((property): [string, Rule] => [
     property,
     (context, value, block) => {
-      if (/^(?:transparent|none)$/iu.test(value)) {
+      if (
+        /^transparent$/iu.test(value) ||
+        (property === 'background' && /^none$/iu.test(value))
+      ) {
         return context;
       }
       const background = colorOf(value);
@@ -348,13 +362,14 @@ const attributeRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
     'body background',
     'br clear',
     'hidden',
+    'popover',
   ].map((attribute): [string, Rule] => [attribute, () => undefined]),
-  ['font color', colorRule],
-  ['body text', colorRule],
+  ['font color', attributeColorRule],
+  ['body text', attributeColorRule],
   [
     'body link',
     (context, value) => {
-      const linkColor = colorOf(value);
+      const linkColor = attributeColorOf(value);
       return linkColor === undefined ? undefined : { ...context, linkColor };
     },
   ],
@@ -432,7 +447,12 @@ const inheritedRules: ReadonlyMap<
 > = new Map([
   [
     'color',
-    (context, parent) => formatted(context, { color: parent.format.color }),
+    (context, parent) =>
+      context.format.link !== undefined &&
+      parent.format.link === undefined &&
+      parent.format.color === undefined
+        ? undefined
+        : formatted(context, { color: parent.format.color }),
   ],
   [
     'background',
@@ -446,7 +466,12 @@ const inheritedRules: ReadonlyMap<
   ],
   [
     'font-family',
-    (context, parent) => formatted(context, { font: parent.format.font }),
+    (context, parent) =>
+      context.format.marks.includes('code') &&
+      !parent.format.marks.includes('code') &&
+      parent.format.font === undefined
+        ? undefined
+        : formatted(context, { font: parent.format.font }),
   ],
   [
     'font-size',
@@ -520,21 +545,7 @@ const styled = (
     ...entries.filter(([property]) => !important.has(property)),
     ...entries.filter(([property]) => important.has(property)),
   ];
-  // A link is underlined. The document cannot hold one whose own style removes that.
-  if (
-    applying.context.format.link !== undefined &&
-    parent.format.link === undefined
-  ) {
-    for (const [property, value] of ordered) {
-      if (
-        property.startsWith('text-decoration') &&
-        !/(?:^|\s)underline(?:\s|$)/iu.test(value)
-      ) {
-        applying.unsupported.add(property);
-      }
-    }
-  }
-  return ordered.reduce((context, [property, value]) => {
+  const inner = ordered.reduce((context, [property, value]) => {
     if (/^inherit$/iu.test(trimValue(value))) {
       const inherit = inheritedRules.get(property);
       if (inherit !== undefined) {
@@ -554,6 +565,20 @@ const styled = (
     const base = replacementContext(context, parent, property);
     return applied({ ...applying, context: base }, [property, value], rule);
   }, applying.context);
+  // Check the winning decoration and ancestor lines, not an overridden declaration.
+  if (
+    inner.format.link !== undefined &&
+    parent.format.link === undefined &&
+    !inner.format.marks.includes('underline')
+  ) {
+    const property = ordered.find(
+      ([name]) => name === 'text-decoration' || name === 'text-decoration-line',
+    )?.[0];
+    if (property !== undefined) {
+      applying.unsupported.add(property);
+    }
+  }
+  return inner;
 };
 
 // The context an element's children take by its tag, or undefined where the document cannot
@@ -563,15 +588,15 @@ const tagContext = (
   context: Context,
 ): Context | undefined => {
   const tag = element.tagName;
+  if (tag === 'code' && element.parentNode?.nodeName === 'pre') {
+    return formatted(context, { font: undefined });
+  }
   const structure = structureTags.get(tag);
   if (structure !== undefined) {
     return structure(context);
   }
   const mark = markTags.get(tag);
-  const plain =
-    blockTags.has(tag) ||
-    transparentTags.has(tag) ||
-    (tag === 'code' && element.parentNode?.nodeName === 'pre');
+  const plain = blockTags.has(tag) || transparentTags.has(tag);
   if (plain) {
     return context;
   }
@@ -583,6 +608,15 @@ const tagContext = (
         ...(mark === 'code' ? { font: undefined } : {}),
       });
 };
+
+// Ancestor lines keep their original color; outgoing marks take the text's color.
+const decorationColorChanged = (context: Context, parent: Context) =>
+  parent.format.marks.some(
+    (mark) => mark === 'underline' || mark === 'strikethrough',
+  ) &&
+  (context.format.color !== parent.format.color ||
+    (context.format.link !== parent.format.link &&
+      context.format.color === undefined));
 
 // The context an element's children take, or undefined when the document cannot hold it.
 // Attributes apply first, then the style that overrides them.
@@ -614,6 +648,9 @@ const contextOf = (
     style === undefined
       ? attributed
       : styled({ context: attributed, block, unsupported }, style, context);
+  if (decorationColorChanged(inner, context)) {
+    unsupported.add('color');
+  }
   // Outgoing mail sends a heading's size from its own style alone.
   if (
     headingStarts(inner, context) &&
