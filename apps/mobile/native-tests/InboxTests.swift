@@ -72,6 +72,8 @@ final class InboxTests: XCTestCase {
     if done.exists {
       done.tap()
     } else {
+      // The popover opens above its capsule.
+      XCTAssertLessThanOrEqual(title.frame.maxY, progress.frame.minY)
       // The popover closes with a tap outside it, here on the empty reading pane.
       app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.35)).tap()
     }
@@ -83,6 +85,9 @@ final class InboxTests: XCTestCase {
     let tryAgain = app.buttons
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Try Again for Gmail")).firstMatch
     XCTAssertTrue(tryAgain.waitForExistence(timeout: 10))
+    if !done.exists {
+      XCTAssertLessThanOrEqual(tryAgain.frame.maxY, attention.frame.minY)
+    }
     try audit(app, "Sync Status Details Attention")
     // The connection's own Try Again downloads the rest, and the details close with the capsule.
     tryAgain.tap()
