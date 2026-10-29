@@ -27,11 +27,11 @@ import type {
 } from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
 
+import { logNote } from './diagnostics.ts';
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
 import { newestFirst } from './mailbox-views.ts';
-import { notificationsOff, notPosted } from './notifications.ts';
 import {
   defaultProfile,
   mailboxesOf,
@@ -571,7 +571,11 @@ export function createMailboxes(
                   eligible,
                 );
               }
-              return Effect.runPromise(notPosted(notificationsOff));
+              return Effect.runPromise(
+                logNote(
+                  'New mail notifications not posted: connection closed or its notifications off',
+                ),
+              );
             };
       const opened =
         provider === 'imap'

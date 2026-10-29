@@ -136,8 +136,9 @@ mail, its sender, an address, a token or an account. JavaScript notes reach the
 - `Gmail history added messages: N after the notification boundary: N unread in the
 Inbox: N` classifies each Gmail history page; `Gmail history expired` marks a relisting,
   which notifies nothing.
-- `New mail notifications not posted:` names the reason: the system authorization, a
-  connection closed or turned off, or an unknown Mail Profile.
+- `New mail notifications not posted:` names the reason: a connection closed or its
+  notifications off, the system authorization, a connection closed or turned off while
+  posting waited, or an unknown Mail Profile.
 - `New mail notifications handed to the host: N` counts what reached native posting.
 
 Native posting logs under the app's bundle identifier, category `notifications`: how many

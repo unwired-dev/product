@@ -154,13 +154,12 @@ export const notificationContent = (
     : { title: '', body: t('notifications.newMail') };
 
 // Why New Mail Notifications were not posted, without the mail or its connection.
-export const notPosted = (reason: string) =>
+const notPosted = (reason: string) =>
   logNote('New mail notifications not posted:', reason);
-export const notificationsOff = 'connection closed or its notifications off';
 
 // This device's notification settings for Settings, and the New Mail Notifications it posts once
-// a connection's synchronization commits new Inbox mail, while the connection's policy is on.
-// Content is decided here, on the device.
+// a connection's synchronization commits new Inbox mail. The caller has already checked that the
+// connection's policy is on; content is decided here, on the device.
 export function createNotifications(
   native: Omit<
     NativeNotifications,
@@ -215,8 +214,8 @@ export function createNotifications(
           call(() => native.openNotificationSettings()),
         ),
       ),
-    // `eligible` is checked after reading the settings, just before posting: the connection may
-    // have been removed or turned off meanwhile.
+    // `eligible` is checked again after reading the settings, just before posting: the
+    // connection may have been removed or turned off meanwhile.
     arrived: (
       { profile: currentProfile, ...mailbox }: Arrival,
       messages: readonly ArrivedMessage[],
@@ -235,7 +234,9 @@ export function createNotifications(
               return yield* notPosted(`authorization ${current.authorization}`);
             }
             if (!eligible()) {
-              return yield* notPosted(notificationsOff);
+              return yield* notPosted(
+                'connection closed or turned off meanwhile',
+              );
             }
             if (profile === undefined) {
               return yield* notPosted('Mail Profile unknown');
