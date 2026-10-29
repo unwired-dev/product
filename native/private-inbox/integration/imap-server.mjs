@@ -137,7 +137,15 @@ const floodFolders = (socket, total) => {
   });
   flood();
 };
-const listFolders = (socket, command, overflowing) => {
+// The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
+const folders =
+  '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n';
+// Exactly as many responses as the client's bound allows.
+const foldersAtLimit = Array.from(
+  { length: 1000 },
+  (_, index) => `* LIST (\\HasNoChildren) "/" "Folder ${index + 1}"\r\n`,
+).join('');
+const listFolders = (socket, command, { overflowing, listed }) => {
   operations.add('list');
   if (overflowing) {
     floodFolders(socket, overflowing);
@@ -145,10 +153,7 @@ const listFolders = (socket, command, overflowing) => {
     operations.add('shared-list');
     socket.write('* LIST (\\HasNoChildren) "/" "Shared/Team"\r\n');
   } else if (!command.includes('Shared')) {
-    socket.write(
-      // The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
-      '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n',
-    );
+    socket.write(listed);
   }
 };
 // What each synthetic user's server advertises: organizing needs MOVE, or UIDPLUS for a targeted
@@ -398,6 +403,7 @@ const server = tls.createServer(
     socket.write('* OK [CAPABILITY IMAP4rev1] Controlled server ready\r\n');
     let input = '';
     let overflowing = 0;
+    let listed = folders;
     let namespaces = false;
     let namespaceFailure = false;
     let user = '';
@@ -457,6 +463,9 @@ const server = tls.createServer(
           } else if (command.includes('folder-limit')) {
             overflowing = 1001;
           }
+          listed = command.includes('folders-at-limit')
+            ? foldersAtLimit
+            : folders;
           namespaceFailure = command.includes('namespace-failure');
           namespaces = ['namespace-failure', 'namespaced'].some((name) =>
             command.includes(name),
@@ -466,7 +475,7 @@ const server = tls.createServer(
       } else if (command === 'NAMESPACE') {
         discoverNamespaces(socket, tag, namespaceFailure);
       } else if (command.startsWith('LIST ')) {
-        listFolders(socket, command, overflowing);
+        listFolders(socket, command, { overflowing, listed });
         if (overflowing === 0) {
           ok();
         }

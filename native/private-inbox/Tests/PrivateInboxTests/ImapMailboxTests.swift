@@ -588,6 +588,10 @@ extension PrivateInboxTests {
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"folder-limit"}"#.utf8))
     await #expect(throws: RegistrationError.unavailable) { _ = try await listed(atLimit) }
+    let full = try JSONDecoder().decode(
+      ImapAccount.self,
+      from: Data(#"{"host":"localhost","port":\#(port),"username":"folders-at-limit"}"#.utf8))
+    #expect(try await listed(full).0.count == 1_000)
     let undiscovered = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespace-failure"}"#.utf8))
