@@ -77,13 +77,14 @@ rules instead:
 - Inline code combines with the other marks, which Tiptap's default excludes.
 - Tiptap's own input and paste rules are off; the page applies the documented
   shortcuts itself so that Undo restores the literal marker.
-- **Link conversion remains incomplete.** The Semantic Message Document stores
-  validated link destinations after
-  [#1525](https://github.com/unwired-dev/product/issues/1525), but the evaluation
-  editor's conversion omits them. It offers no link authoring, drops pasted
-  destinations and loses existing links when it edits a body.
-  [#878](https://github.com/unwired-dev/product/issues/878) owns the remaining
-  editor support (see [Decisions](#decisions)).
+- The Semantic Message Document stores validated link destinations after
+  [#1525](https://github.com/unwired-dev/product/issues/1525).
+  [#1542](https://github.com/unwired-dev/product/issues/1542) adds a Tiptap link
+  mark and conversion that preserve those destinations through edits and admit
+  pasted destinations through the shared `vettedHref` policy. The
+  [evaluation guide](../draft-editor-evaluation.md#semantic-mismatches) owns the
+  current behavior; [#878](https://github.com/unwired-dev/product/issues/878)
+  still owns link authoring for both composers (see [Decisions](#decisions)).
 - Tiptap's extra keyboard shortcuts (for example Command-E for inline code and
   Command-Option-1 for a heading) also work in the page; the current composer
   documents only Command-B, Command-I and Command-U.
@@ -105,6 +106,7 @@ any vendor package. It
 needed configuration to stay within the document: no nesting, one textblock per code
 line, inline code combined with other marks, its own shortcuts in place of Tiptap's
 input rules, and a normalizer after each edit. Links were the gap: the document
-could not store them. #1525 adds document support; editor link support remains in
+could not store them. #1525 adds document support and #1542 adds link preservation
+in the evaluation editor. Link authoring remains in
 [#878](https://github.com/unwired-dev/product/issues/878), which blocks #823. The Mac
 host remains unproven for formatting too.

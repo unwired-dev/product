@@ -1,5 +1,5 @@
-// The page's script: Tiptap over the Semantic Message Document's blocks, marks and Inline Images,
-// and the Draft's Attachments, posting each edit and selection change to the host. The host
+// The page's script: Tiptap over the Semantic Message Document's blocks, marks, links and Inline
+// Images, and the Draft's Attachments, posting each edit and selection change to the host. The host
 // injects `draftEditor` before this script runs and sends commands through `draftCommand`.
 import type {
   Asset,
@@ -9,7 +9,8 @@ import type {
 import type { ChainedCommands, Editor as TiptapEditor } from '@tiptap/core';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 
-import { Editor, Extension, Node } from '@tiptap/core';
+import { vettedHref } from '@private-email/mail-core/link-inspection';
+import { Editor, Extension, Mark, Node } from '@tiptap/core';
 import Blockquote from '@tiptap/extension-blockquote';
 import Bold from '@tiptap/extension-bold';
 import Code from '@tiptap/extension-code';
@@ -113,6 +114,26 @@ const InlineImage = Node.create({
     },
 });
 
+// Linked text. Text typed inside a link joins it, and at its edges stays unlinked. A pasted link
+// keeps its destination only when it is one the Draft admits as written; otherwise only its text
+// is pasted. The host refuses every navigation, so selecting linked text never opens it.
+const Link = Mark.create({
+  name: 'link',
+  inclusive: false,
+  keepOnSplit: false,
+  addAttributes: () => ({ href: { default: null } }),
+  parseHTML: () => [
+    {
+      tag: 'a[href]',
+      getAttrs: (element) => {
+        const href = element.getAttribute('href') ?? '';
+        return vettedHref(href) === href ? { href } : false;
+      },
+    },
+  ],
+  renderHTML: ({ HTMLAttributes }) => ['a', HTMLAttributes, 0],
+});
+
 // One code line per textblock, as the Semantic Message Document stores code; consecutive lines
 // show as one block. A pasted multi-line block splits into lines.
 const CodeLine = Node.create({
@@ -179,6 +200,19 @@ const shortcuts = new Map<string, BlockKind>([
 
 const typing = 'draftTyping';
 const imageCharacter = '\uFFFC';
+
+// The first replaced character owns the replacement's link, including for Select All.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's state is a class; this only reads it.
+const replacedLink = ({ doc }: EditorState, from: number, to: number) => {
+  if (from === to) {
+    return undefined;
+  }
+  let node = doc.nodeAt(from);
+  while (node !== null && !node.isInline) {
+    node = node.firstChild;
+  }
+  return node?.marks.find((mark) => mark.type.name === 'link');
+};
 
 // Whether a paste or drop carries files or image data, which only native code may read.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM's DataTransfer is mutable by design; this only reads it.
@@ -310,7 +344,15 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             const kind = shortcuts.get(marker);
             const word =
               from === to && [...text].length === 1 && !/\s/u.test(text);
-            view.dispatch(word ? deflt().setMeta(typing, true) : deflt());
+            // Unlike marksAcross, the document keeps the first replaced character's link
+            // even when the selection crosses its end.
+            const link = replacedLink(view.state, from, to);
+            const tr = deflt();
+            if (link !== undefined) {
+              // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
+              tr.addMark(tr.mapping.map(from, -1), tr.mapping.map(to), link);
+            }
+            view.dispatch(word ? tr.setMeta(typing, true) : tr);
             if (kind !== undefined) {
               setKind(
                 editor.chain().deleteRange({
@@ -443,6 +485,7 @@ if (draftEditor !== undefined && element !== null) {
       Strike,
       // The Semantic Message Document admits inline code with other marks.
       Code.extend({ excludes: '' }),
+      Link,
       UndoRedo.configure({ newGroupDelay: Number.MAX_SAFE_INTEGER }),
       DraftBehavior,
     ],
