@@ -391,7 +391,9 @@ describe('mail profiles', () => {
     ]);
 
     backend.offline = false;
-    await process.renameProfile(id, 'Office');
+    expect(listed(await process.refreshPrivateSync())).toStrictEqual([
+      { id, name: 'Office' },
+    ]);
     expect(storedProfiles(sync, account)).toStrictEqual([
       { kind: 'profile', id, version: 2, name: 'Office' },
     ]);
