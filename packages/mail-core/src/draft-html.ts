@@ -467,8 +467,9 @@ const inheritedRules: ReadonlyMap<
   [
     'font-family',
     (context, parent) =>
-      context.format.marks.includes('code') &&
-      !parent.format.marks.includes('code') &&
+      ((context.format.marks.includes('code') &&
+        !parent.format.marks.includes('code')) ||
+        (context.kind === 'code' && parent.kind !== 'code')) &&
       parent.format.font === undefined
         ? undefined
         : formatted(context, { font: parent.format.font }),
@@ -525,6 +526,18 @@ const replacementContext = (
     ? (inheritedRules.get(property)?.(context, parent) ?? context)
     : context;
 
+// The parser drops values it cannot vet, such as calc() sizes. Drafts must refuse them instead.
+const reportRejected = (
+  unsupported: Set<string>,
+  rejected: ReadonlySet<string>,
+) => {
+  for (const property of rejected) {
+    if (!ignoredProperties.test(property)) {
+      unsupported.add(property);
+    }
+  }
+};
+
 const styled = (
   applying: Applying,
   style: string,
@@ -535,10 +548,11 @@ const styled = (
     applying.unsupported.add('style');
     return applying.context;
   }
-  const { declared, limited, important } = parseDeclarations(style);
+  const { declared, limited, important, rejected } = parseDeclarations(style);
   if (limited) {
     applying.unsupported.add('style');
   }
+  reportRejected(applying.unsupported, rejected);
   // Longhands and shorthands compete at the same priority before they replace each other.
   const entries = [...declared];
   const ordered = [

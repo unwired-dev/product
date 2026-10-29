@@ -810,6 +810,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
         'text-decoration-line',
       ],
       ['<p><code style="font-family:inherit">x</code></p>', 'font-family'],
+      ['<pre style="font-family:inherit">x</pre>', 'font-family'],
       [`<p><a href="${link}" style="color:inherit">x</a></p>`, 'color'],
       ['<div style="font-size:12px"><h1>x</h1></div>', 'font-size'],
     ] as const) {
@@ -817,6 +818,15 @@ describe('a Semantic Message Document from Draft HTML', () => {
         unsupported: [unsupported],
       });
     }
+  });
+
+  it('refuses valid CSS values the style parser cannot vet instead of dropping them', () => {
+    expect.hasAssertions();
+    expect(
+      documentFromHtml(
+        '<p style="font-size:calc(2em + 4px);line-height:calc(1em + 2px)">x</p>',
+      ),
+    ).toStrictEqual({ unsupported: ['font-size'] });
   });
 
   it('refuses link underline colors that flattening would replace with the outgoing default', () => {
