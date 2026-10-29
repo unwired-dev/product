@@ -64,7 +64,11 @@ describe('synchronizing Drafts through Product Sync', () => {
               kind: 'paragraph',
               spans: [
                 { text: 'Numbers ' },
-                { text: 'attached', link: 'https://example.invalid/numbers' },
+                {
+                  text: 'attached',
+                  link: 'https://example.invalid/numbers',
+                  color: '#d1242f',
+                },
               ],
               align: 'center',
             },
@@ -115,6 +119,7 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(continued.body[0].spans.at(-1)).toStrictEqual({
       text: 'attached',
       link: 'https://example.invalid/numbers',
+      color: '#d1242f',
     });
     const [, slowAsset] = assetsOf(continued);
     // The import running on the phone stays incomplete, and is never sent.

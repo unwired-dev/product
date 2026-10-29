@@ -187,6 +187,16 @@ Composers do not yet show or set alignment, and no Draft holds one until Drafts
 from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
+Text can also carry a color, stored as lowercase `#rrggbb`; text without one shows
+in the default text color, and a Draft holding any other color value is not saved
+or synchronized. Typed and replacing text takes the color of the text before it,
+or at the start of a block the text after it, and line breaks, joined blocks,
+formatting, block kinds, inline images, link edits and Undo keep each color.
+Sent mail colors the text, links included, with an inline `color` style; plain
+text is unchanged. Composers do not yet show or set color, and no Draft holds one
+until Drafts from other mail clients open
+([#1267](https://github.com/unwired-dev/product/issues/1267)).
+
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
 

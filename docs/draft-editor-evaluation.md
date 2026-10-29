@@ -167,7 +167,8 @@ remove a link:
 [#878](https://github.com/unwired-dev/product/issues/878) owns link authoring for
 both composers and blocks the adoption decision in #823.
 
-The page does not keep block alignment: editing a body here drops it
+The page does not keep block alignment or text color: editing a body here drops
+them
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Return in code always starts another code line; use **Code block** to return the

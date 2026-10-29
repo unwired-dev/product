@@ -33,6 +33,11 @@ export type BlockKind = typeof BlockKindSchema.Type;
 // A block without an alignment is start-aligned.
 export const AlignmentSchema = Schema.Literals(['center', 'right', 'justify']);
 
+// Text without a color shows in the default text color.
+export const ColorSchema = Schema.String.check(
+  Schema.isPattern(/^#[\da-f]{6}$/u),
+);
+
 // The character an inline image occupies in the editor's text; typed text never contains it.
 export const imageCharacter = '\uFFFC';
 
@@ -84,6 +89,7 @@ const SpanSchema = Schema.Union([
         Schema.makeFilter((href) => vettedHref(href) === href),
       ),
     ),
+    color: Schema.optionalKey(ColorSchema),
   }),
   // An inline image: one character of the text, carrying the image it shows.
   Schema.Struct({
@@ -118,16 +124,19 @@ const marksOf = (span: Span | undefined): readonly Mark[] => span?.marks ?? [];
 const linkOf = (span: Span | undefined) =>
   span !== undefined && 'link' in span ? span.link : undefined;
 
+const colorOf = (span: Span | undefined) =>
+  span !== undefined && 'color' in span ? span.color : undefined;
+
 const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
-// A span of `text` with `marks`, keeping the image or link of `from`.
+// A span of `text` with `marks`, keeping the image, or the link and color, of `from`.
 const spanOf = (
   text: string,
   marks: readonly Mark[],
   from:
     | Readonly<{ image: Asset }>
-    | Readonly<{ link?: string | undefined }> = {},
+    | Readonly<{ link?: string | undefined; color?: string | undefined }> = {},
 ): Span => {
   const [first, ...rest] = marks;
   const marked =
@@ -135,9 +144,12 @@ const spanOf = (
   if ('image' in from) {
     return { text: imageCharacter, image: from.image, ...marked };
   }
-  return from.link === undefined
-    ? { text, ...marked }
-    : { text, ...marked, link: from.link };
+  return {
+    text,
+    ...marked,
+    ...(from.link === undefined ? {} : { link: from.link }),
+    ...(from.color === undefined ? {} : { color: from.color }),
+  };
 };
 
 // The spans covering code units `from` to `to`. Code units, as editor offsets count them; a
@@ -165,7 +177,7 @@ const sliceSpans = (spans: readonly Span[], from: number, to = Infinity) => {
   return sliced;
 };
 
-// Adjacent text spans with the same marks and link merge; an image is a span of its own.
+// Adjacent text spans with the same marks, link and color merge; an image is a span of its own.
 const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
   const spans: Span[] = [];
   for (const span of parts.flat().filter(({ text }) => text !== '')) {
@@ -175,7 +187,8 @@ const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
       !('image' in last) &&
       !('image' in span) &&
       sameMarks(marksOf(last), marksOf(span)) &&
-      linkOf(last) === linkOf(span)
+      linkOf(last) === linkOf(span) &&
+      colorOf(last) === colorOf(span)
     ) {
       spans[spans.length - 1] = { ...last, text: last.text + span.text };
     } else {
@@ -501,6 +514,7 @@ const splice = (
 ) => {
   const { from, to, first, kind, head, tail } = edgesOf(lines, change);
   const typed = marks ?? marksOf(head.at(-1) ?? tail[0]);
+  const color = colorOf(head.at(-1) ?? tail[0]);
   // Replacing text keeps the link of its first replaced character; text inserted inside a link
   // joins it, and at the link's edges stays unlinked.
   const column = Math.max(0, from.column - from.marker);
@@ -522,7 +536,7 @@ const splice = (
     kind: createdKind(kind, { index, count: parts.length, above }),
     spans: joinSpans(
       index === 0 ? head : [],
-      [spanOf(text, typed, { link })],
+      [spanOf(text, typed, { link, color })],
       index === last ? tail : [],
     ),
   }));
@@ -553,7 +567,8 @@ const shortcutAt = (
 };
 
 // Applies the editor's new text to the document. The change is the span between the unchanged
-// start and end of the text; inserted characters take `marks`, or those of the text before them.
+// start and end of the text; inserted characters take `marks`, or those of the text before them,
+// and that text's color.
 // Deleting into a list marker turns that item into a paragraph. `shown` is the text the editor
 // reported last, which it may still show instead of the document's display.
 export function applyText(
@@ -691,7 +706,7 @@ export function selectedText(
 }
 
 // Replaces the text a selection covers with `text` as one edit. List markers inside the
-// selection stay, and the inserted text takes the marks of the text before it.
+// selection stay, and the inserted text takes the marks and color of the text before it.
 export function replaceSelection(
   document: SemanticDocument,
   selection: Selection,
@@ -847,7 +862,8 @@ export function linkAt(
 }
 
 // Replaces a link's text and destination as one edit, or with no destination removes the link
-// and keeps its text. Unchanged text keeps its marks; new text takes those of the link's start.
+// and keeps its text. Unchanged text keeps its marks and colors; new text takes those of the
+// link's start.
 export function setLink(
   document: SemanticDocument,
   link: Link,
@@ -860,16 +876,16 @@ export function setLink(
   const from = column - marker;
   const to = from + link.end - link.start;
   const spans = document[line]?.spans ?? [];
+  const [first] = sliceSpans(spans, from, from + 1);
   const linked =
     text === link.text
       ? sliceSpans(spans, from, to).map((span) =>
-          spanOf(span.text, marksOf(span), { link: href }),
-        )
-      : [
-          spanOf(text, marksOf(sliceSpans(spans, from, from + 1)[0]), {
+          spanOf(span.text, marksOf(span), {
             link: href,
+            color: colorOf(span),
           }),
-        ];
+        )
+      : [spanOf(text, marksOf(first), { link: href, color: colorOf(first) })];
   const caret = link.start + text.length;
   return {
     document: documentOf(
