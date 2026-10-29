@@ -1115,7 +1115,7 @@ export const parseDeclarations = (style: string) => {
       declared.set(name, value);
     }
   }
-  return { declared, unsafe, limited };
+  return { declared, unsafe, limited, important };
 };
 
 function filterStyle(style: string, tag = ''): FilteredStyle {

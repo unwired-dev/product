@@ -168,6 +168,10 @@ describe('a Semantic Message Document from Draft HTML', () => {
       ['<font size="+1">relative</font>', ['size']],
       ['<p style="font-weight:500">medium</p>', ['font-weight']],
       ['<p style="font-weight:800">heavy</p>', ['font-weight']],
+      ['<p style="font-weight:0x190">invalid</p>', ['font-weight']],
+      ['<p style="color:rgb(1\u00A0 2 3)">invalid</p>', ['color']],
+      ['<p style="color:rgb(1,2 3)">invalid</p>', ['color']],
+      ['<p style="color:rgb(1,2,3 / 1)">invalid</p>', ['color']],
       ['<p style="font-style:oblique">slanted</p>', ['font-style']],
       [String.raw`<p style="font-family:foo\ bar">font</p>`, ['style']],
     ] as const) {
@@ -262,6 +266,32 @@ describe('a Semantic Message Document from Draft HTML', () => {
         ],
       });
     }
+  });
+
+  it('refuses bare numeric and non-CSS whitespace font names instead of changing inherited fonts', () => {
+    expect.hasAssertions();
+    for (const family of [
+      '123',
+      '1abc',
+      '-1abc',
+      'Arial\u00A0',
+      'inherit\u00A0',
+      'Arial inherit',
+      'serif Foo',
+    ]) {
+      expect(
+        documentFromHtml(
+          `<div style="font-family:Arial"><span style="font-family:${family}">text</span></div>`,
+        ),
+      ).toStrictEqual({ unsupported: ['font-family'] });
+    }
+    expect(
+      documentFromHtml('<p style="font-family:&quot;123&quot;">text</p>'),
+    ).toStrictEqual({
+      document: [
+        { kind: 'paragraph', spans: [{ text: 'text', font: '"123"' }] },
+      ],
+    });
   });
 
   it('reads formatting when the host transform omits named capture groups', () => {
@@ -493,5 +523,116 @@ describe('a Semantic Message Document from Draft HTML', () => {
         { kind: 'code', spans: [{ text: ' b' }] },
       ],
     });
+  });
+
+  it('replaces an element decoration while retaining decorations from its ancestors', () => {
+    expect.hasAssertions();
+    for (const [html, span] of [
+      ['<u style="text-decoration:none">text</u>', { text: 'text' }],
+      [
+        '<s style="text-decoration:underline">text</s>',
+        { text: 'text', marks: ['underline'] },
+      ],
+      [
+        '<u><s style="text-decoration:none">text</s></u>',
+        { text: 'text', marks: ['underline'] },
+      ],
+      ['<u style="text-decoration-line:none">text</u>', { text: 'text' }],
+      [
+        '<span style="text-decoration:underline;text-decoration-line:none">text</span>',
+        { text: 'text' },
+      ],
+      [
+        '<span style="text-decoration:underline!important;text-decoration-line:none">text</span>',
+        { text: 'text', marks: ['underline'] },
+      ],
+      [
+        '<span style="text-decoration-line:line-through!important;text-decoration:underline">text</span>',
+        { text: 'text', marks: ['strikethrough'] },
+      ],
+    ] as const) {
+      expect(documentFromHtml(html)).toStrictEqual({
+        document: [
+          {
+            kind: 'paragraph',
+            spans: [span],
+          },
+        ],
+      });
+    }
+  });
+
+  it('resolves background shorthand resets and importance before flattening spans', () => {
+    expect.hasAssertions();
+    for (const [style, span] of [
+      ['background-color:#123456;background:none', { text: 'text' }],
+      [
+        'background-color:#123456!important;background:#abcdef',
+        { text: 'text', background: '#123456' },
+      ],
+      [
+        'background:#123456!important;background-color:#abcdef',
+        { text: 'text', background: '#123456' },
+      ],
+    ] as const) {
+      expect(
+        documentFromHtml(`<span style="${style}">text</span>`),
+      ).toStrictEqual({
+        document: [
+          {
+            kind: 'paragraph',
+            spans: [span],
+          },
+        ],
+      });
+    }
+    expect(
+      documentFromHtml(
+        '<span style="background:#123456"><span style="background-color:#abcdef;background:none">text</span></span>',
+      ),
+    ).toStrictEqual({
+      document: [
+        { kind: 'paragraph', spans: [{ text: 'text', background: '#123456' }] },
+      ],
+    });
+  });
+
+  it('refuses adjacent ordered-list restarts that the document would renumber', () => {
+    expect.hasAssertions();
+    expect(
+      documentFromHtml(
+        '<ol><li>one</li></ol><div><ol><li>one again</li></ol></div>',
+      ),
+    ).toStrictEqual({ unsupported: ['ol'] });
+    expect(documentFromHtml('<ol><li>one</li></ol><ol></ol>')).toStrictEqual({
+      document: [{ kind: 'numbered', spans: [{ text: 'one' }] }],
+    });
+    expect(
+      documentFromHtml(
+        '<ol><li>one</li></ol><p><br></p><ol><li>one again</li></ol>',
+      ),
+    ).toStrictEqual({
+      document: [
+        { kind: 'numbered', spans: [{ text: 'one' }] },
+        { kind: 'paragraph', spans: [] },
+        { kind: 'numbered', spans: [{ text: 'one again' }] },
+      ],
+    });
+  });
+
+  it('refuses heading font resets that cannot override the document heading defaults', () => {
+    expect.hasAssertions();
+    for (const html of [
+      '<h1 style="font-weight:normal">text</h1>',
+      '<h2><span style="font-weight:400">text</span></h2>',
+      '<h3 style="font-weight:inherit">text</h3>',
+    ]) {
+      expect(documentFromHtml(html)).toStrictEqual({
+        unsupported: ['font-weight'],
+      });
+    }
+    expect(
+      documentFromHtml('<h1 style="font-size:inherit">text</h1>'),
+    ).toStrictEqual({ unsupported: ['font-size'] });
   });
 });

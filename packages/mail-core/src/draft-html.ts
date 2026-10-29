@@ -1,7 +1,7 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- parse5 tree nodes are mutable library types; the conversion only reads them. */
 import type { DefaultTreeAdapterTypes } from 'parse5';
 
-import { isTokenComma, tokenize } from '@csstools/css-tokenizer';
+import { isTokenComma, TokenType, tokenize } from '@csstools/css-tokenizer';
 import * as Schema from 'effect/Schema';
 import { parse } from 'parse5';
 
@@ -117,7 +117,9 @@ const alignments: ReadonlyMap<string, Block['align']> = new Map([
 
 const hex = /^#(?<digits>[\da-f]{3}|[\da-f]{6})$/iu;
 const rgb =
-  /^rgba?\(\s*(?<r>\d{1,3})(?:\s*,\s*|\s+)(?<g>\d{1,3})(?:\s*,\s*|\s+)(?<b>\d{1,3})(?:\s*[,/]\s*(?<alpha>1(?:\.0*)?|100%))?\s*\)$/iu;
+  /^rgba?\([\t\n\f\r ]*(?<r>\d{1,3})[\t\n\f\r ]*,[\t\n\f\r ]*(?<g>\d{1,3})[\t\n\f\r ]*,[\t\n\f\r ]*(?<b>\d{1,3})(?:[\t\n\f\r ]*,[\t\n\f\r ]*(?<alpha>1(?:\.0+)?|100%))?[\t\n\f\r ]*\)$/iu;
+const modernRgb =
+  /^rgba?\([\t\n\f\r ]*(?<r>\d{1,3})[\t\n\f\r ]+(?<g>\d{1,3})[\t\n\f\r ]+(?<b>\d{1,3})(?:[\t\n\f\r ]*\/[\t\n\f\r ]*(?<alpha>1(?:\.0+)?|100%))?[\t\n\f\r ]*\)$/iu;
 
 // #rrggbb, #rgb and opaque rgb(); any other form, including color names, is undefined.
 const colorOf = (value: string) => {
@@ -129,7 +131,7 @@ const colorOf = (value: string) => {
         : digits;
     return `#${full.toLowerCase()}`;
   }
-  const channels = rgb.exec(value);
+  const channels = rgb.exec(value) ?? modernRgb.exec(value);
   if (channels === null) {
     return undefined;
   }
@@ -140,8 +142,30 @@ const colorOf = (value: string) => {
 };
 
 const isFont = Schema.is(FontSchema);
+const trimValue = (value: string) =>
+  value.replaceAll(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, '');
 // CSS-wide keywords and the reserved `default` control the cascade; they are never family names.
 const cssKeywords = /^(?:inherit|initial|unset|revert|revert-layer|default)$/iu;
+const genericFamilies =
+  /^(?:serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|math|emoji|fangsong|caption|icon|menu|message-box|small-caption|status-bar)$/iu;
+const familyTokens = new Set([
+  TokenType.Ident,
+  TokenType.String,
+  TokenType.Whitespace,
+  TokenType.EOF,
+]);
+const familyNameOf = (name: string) => {
+  const trimmed = trimValue(name);
+  const quoted = /^(?<quote>["'])(?<name>.*)\k<quote>$/u.exec(trimmed);
+  if (quoted?.[2] !== undefined) {
+    return `"${quoted[2]}"`;
+  }
+  const words = trimmed.split(/[\t\n\f\r ]+/u);
+  return words.some((word) => cssKeywords.test(word)) ||
+    (words.length > 1 && words.some((word) => genericFamilies.test(word)))
+    ? undefined
+    : words.join(' ');
+};
 const familyOf = (value: string) => {
   const names: string[] = [];
   let current = '';
@@ -150,18 +174,14 @@ const familyOf = (value: string) => {
       names.push(current);
       current = '';
     } else {
+      if (!familyTokens.has(token[0])) {
+        return undefined;
+      }
       current += token[1];
     }
   }
-  const family = [...names, current].map((name) => {
-    const trimmed = name.trim();
-    const quoted = /^(?<quote>["'])(?<name>.*)\k<quote>$/u.exec(trimmed);
-    return quoted?.[2] === undefined
-      ? trimmed.replaceAll(/\s+/gu, ' ')
-      : `"${quoted[2]}"`;
-  });
-  return family.some((name) => cssKeywords.test(name)) ||
-    !isFont(family.join(', '))
+  const family = [...names, current].map(familyNameOf);
+  return family.includes(undefined) || !isFont(family.join(', '))
     ? undefined
     : family.join(', ');
 };
@@ -246,9 +266,15 @@ const propertyRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
     'font-weight',
     (context, value) => {
       const lower = value.toLowerCase();
-      const weight = Number(lower);
+      const weight = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/iu.test(
+        lower,
+      )
+        ? Number(lower)
+        : undefined;
       const bold = lower === 'bold' || weight === 700;
-      return bold || lower === 'normal' || weight === 400
+      return bold ||
+        ((lower === 'normal' || weight === 400) &&
+          !context.kind.startsWith('heading'))
         ? { ...context, format: withMark(context.format, 'bold', bold) }
         : undefined;
     },
@@ -372,16 +398,31 @@ const applied = (
   if (rule === undefined) {
     return context;
   }
-  const next = rule(context, value.trim(), block);
+  const next = rule(context, trimValue(value), block);
   if (next === undefined) {
     unsupported.add(name);
   }
   return next ?? context;
 };
 
+const headingStarts = (context: Context, parent: Context) =>
+  context.kind.startsWith('heading') && context.kind !== parent.kind;
+const parentDecorations = (context: Context, parent: Context): Context => ({
+  ...context,
+  format: withMark(
+    withMark(
+      context.format,
+      'underline',
+      parent.format.marks.includes('underline'),
+    ),
+    'strikethrough',
+    parent.format.marks.includes('strikethrough'),
+  ),
+});
+
 const inheritedRules: ReadonlyMap<
   string,
-  (context: Context, parent: Context) => Context
+  (context: Context, parent: Context) => Context | undefined
 > = new Map([
   [
     'color',
@@ -403,20 +444,28 @@ const inheritedRules: ReadonlyMap<
   ],
   [
     'font-size',
-    (context, parent) => formatted(context, { size: parent.format.size }),
+    (context, parent) =>
+      headingStarts(context, parent) && parent.format.size === undefined
+        ? undefined
+        : formatted(context, { size: parent.format.size }),
   ],
   ['text-align', (context, parent) => ({ ...context, align: parent.align })],
   [
     'font-weight',
-    (context, parent) => ({
-      ...context,
-      format: withMark(
-        context.format,
-        'bold',
-        parent.format.marks.includes('bold'),
-      ),
-    }),
+    (context, parent) =>
+      headingStarts(context, parent) && !parent.format.marks.includes('bold')
+        ? undefined
+        : {
+            ...context,
+            format: withMark(
+              context.format,
+              'bold',
+              parent.format.marks.includes('bold'),
+            ),
+          },
   ],
+  ['text-decoration', parentDecorations],
+  ['text-decoration-line', parentDecorations],
   [
     'font-style',
     (context, parent) => ({
@@ -430,6 +479,21 @@ const inheritedRules: ReadonlyMap<
   ],
 ]);
 
+const replacementProperties = new Set([
+  'text-decoration',
+  'text-decoration-line',
+  'background',
+  'background-color',
+]);
+const replacementContext = (
+  context: Context,
+  parent: Context,
+  property: string,
+) =>
+  replacementProperties.has(property)
+    ? (inheritedRules.get(property)?.(context, parent) ?? context)
+    : context;
+
 const styled = (
   applying: Applying,
   style: string,
@@ -440,26 +504,35 @@ const styled = (
     applying.unsupported.add('style');
     return applying.context;
   }
-  const { declared, limited } = parseDeclarations(style);
+  const { declared, limited, important } = parseDeclarations(style);
   if (limited) {
     applying.unsupported.add('style');
   }
-  return [...declared].reduce((context, [property, value]) => {
-    if (/^\s*inherit\s*$/iu.test(value)) {
+  // Longhands and shorthands compete at the same priority before they replace each other.
+  const entries = [...declared];
+  const ordered = [
+    ...entries.filter(([property]) => !important.has(property)),
+    ...entries.filter(([property]) => important.has(property)),
+  ];
+  return ordered.reduce((context, [property, value]) => {
+    if (/^inherit$/iu.test(trimValue(value))) {
       const inherit = inheritedRules.get(property);
       if (inherit !== undefined) {
-        return inherit(context, parent);
+        return applied({ ...applying, context }, [property, value], () =>
+          inherit(context, parent),
+        );
       }
     }
     // Any other CSS-wide keyword resolves through a cascade the document does not keep.
-    const keyword = cssKeywords.test(value.trim());
+    const keyword = cssKeywords.test(trimValue(value));
     if (keyword && ignoredProperties.test(property)) {
       return context;
     }
     const rule = keyword
       ? () => undefined
       : (propertyRules.get(property) ?? otherProperty(property));
-    return applied({ ...applying, context }, [property, value], rule);
+    const base = replacementContext(context, parent, property);
+    return applied({ ...applying, context: base }, [property, value], rule);
   }, applying.context);
 };
 
@@ -542,6 +615,13 @@ const sameFormat = (one: Format, other: Format) =>
   one.size === other.size;
 
 const isDocument = Schema.is(SemanticDocumentSchema);
+
+const listChanged = (tag: string, before: number, blocks: readonly Block[]) =>
+  tag === 'li'
+    ? blocks.length - before > 1
+    : tag === 'ol' &&
+      blocks[before]?.kind === 'numbered' &&
+      blocks[before - 1]?.kind === 'numbered';
 
 const hiddenElement = (element: DefaultTreeAdapterTypes.Element) => {
   const hidden = element.attrs.find(({ name }) => name === 'hidden');
@@ -668,8 +748,8 @@ export function documentFromHtml(html: string): DraftHtml {
     if (line !== undefined || empty) {
       endLine(step.context);
     }
-    if (step.tag === 'li' && blocks.length - step.before > 1) {
-      unsupported.add('li');
+    if (listChanged(step.tag, step.before, blocks)) {
+      unsupported.add(step.tag);
     }
   };
   const visit = (step: Step) => {

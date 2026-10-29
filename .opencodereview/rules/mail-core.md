@@ -257,6 +257,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `draft-html.ts.styled` treating CSS controls as ordinary font names, retaining
+  an element's replaced decoration/background, or discarding importance across
+  shorthand and longhand properties. Audit inherited and intrinsic tag defaults,
+  quoted family names and legacy attributes through conversion and outgoing
+  encoding. Refuse formatting the document cannot hold; otherwise conversion
+  claims fidelity while changing visible fonts, marks or backgrounds.
+- `draft-html.ts.endElement` flattening separate ordered lists into adjacent
+  numbered blocks. Compare source list boundaries with the document's
+  consecutive-block numbering, including transparent wrappers and empty lists;
+  otherwise a restarted list silently continues the preceding list's numbers.
 - `html-sanitizer.ts.readDeclarations` passing sender CSS to a recursive parser
   before bounding block and function nesting, including a new dependency's own
   throw limit and recursive token serialization. Check the installed parser's
