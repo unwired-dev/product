@@ -13,10 +13,7 @@ import {
   profileRemoval,
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
-import {
-  defaultProfile,
-  profilesOf,
-} from '@private-email/mail-core/registration';
+import { defaultProfile } from '@private-email/mail-core/registration';
 import { spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
@@ -197,18 +194,17 @@ export function MailProfilesSettings({
   };
   // Duplicate copies only the name into a new Profile, then opens it for renaming.
   const duplicate = async () => {
-    const failure = await change({ control: 'duplicate' }, () =>
-      store.createProfile(t('profiles.copyName', { name: nameOf(selected) })),
+    const created = store.createProfile(
+      t('profiles.copyName', { name: nameOf(selected) }),
     );
+    const failure = await change({ control: 'duplicate' }, () => created);
     if (failure !== undefined) {
       refused(t, 'new', failure);
       return;
     }
-    const created = profilesOf(store.getSnapshot().snapshot).find(
-      ({ id }) => !ids.includes(id),
-    );
-    if (created !== undefined) {
-      setChosen(created.id);
+    const id = await created;
+    if (id !== undefined) {
+      setChosen(id);
     }
   };
   const remove = async (profile: string, confirmed: readonly string[]) => {

@@ -1,4 +1,5 @@
 ---
+'@private-email/mail-core': minor
 '@private-email/mobile': minor
 '@private-email/macos': minor
 '@private-email/localization': patch
@@ -9,3 +10,5 @@ Duplicate Mail Profile creates “<name> Copy” without asking, selects it and
 shows its page for renaming. It copies only the name; mailboxes, sign-ins, mail
 and Drafts stay with the original. A Profile that owns no mailboxes now says so
 in its Mailboxes group and points to moving one from its current Profile.
+Creating a Mail Profile now resolves with the new Profile's identifier, so
+Duplicate opens its own copy even when another creation finishes first.

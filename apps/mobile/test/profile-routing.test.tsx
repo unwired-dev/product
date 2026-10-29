@@ -1301,7 +1301,7 @@ describe('the mobile Profile Switcher', () => {
 
   it('duplicates a Mail Profile into a selected copy without its mailboxes', async () => {
     expect.hasAssertions();
-    const { registration, work } = await createTwoProfileRegistration();
+    const { registration, vault, work } = await createTwoProfileRegistration();
     const mode = jest.replaceProperty(
       jest.requireMock<{ previewInbox: boolean }>(
         '@private-email/mail-core/registration-mode',
@@ -1326,10 +1326,33 @@ describe('the mobile Profile Switcher', () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Work' }),
       );
+      const { recordProfiles } = vault;
+      let release: () => void = () => undefined;
+      let started: () => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const admitted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      jest
+        .spyOn(vault, 'recordProfiles')
+        .mockImplementationOnce(async (next) => {
+          started();
+          await held;
+          return recordProfiles(next);
+        });
+      // Another New Mail Profile… finishes ahead of Duplicate.
+      const family = registration.createProfile('Family');
+      await admitted;
       await fireEvent.press(
         screen.getByRole('button', { name: 'Duplicate Mail Profile' }),
       );
-      // The copy is selected and its page opens for renaming.
+      release();
+      await family;
+      // The copy, not the Profile created elsewhere, is selected and opens for renaming.
       await expect(
         screen.findByRole('header', { name: 'Work Copy' }),
       ).resolves.toBeVisible();
@@ -1342,15 +1365,19 @@ describe('the mobile Profile Switcher', () => {
         screen.getByText('No mailboxes in this Mail Profile'),
       ).toBeVisible();
       const { snapshot } = registration.getSnapshot();
-      const copy = profilesOf(snapshot).find(({ id }) => id !== work);
+      const [created, copy] = profilesOf(snapshot).filter(
+        ({ id }) => id !== work,
+      );
       // Published through Private Sync; the mailbox stays with Work.
       expect({
+        created: created?.name,
         copy,
         owners: mailboxesOf(snapshot).map(({ address, profile }) => [
           address,
           profile,
         ]),
       }).toStrictEqual({
+        created: 'Family',
         copy: { id: copy?.id, name: 'Work Copy' },
         owners: [
           ['alex@example.invalid', defaultProfile],
