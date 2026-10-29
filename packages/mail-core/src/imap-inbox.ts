@@ -15,6 +15,8 @@ import * as Semaphore from 'effect/Semaphore';
 import type { AttachmentFailure } from './attachment-downloads.ts';
 import type { DeliveryProblem } from './draft-model.ts';
 import type {
+  HistoryProgress,
+  HistoryWrite,
   NativeGmailMailbox,
   OutgoingSend,
   SendOutcome,
@@ -53,6 +55,13 @@ import {
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import {
+  applyHistoryRead,
+  historyProgress,
+  historyRequest,
+  nextHistoryFolder,
+  segmentNames,
+} from './imap-history.ts';
+import {
   applyFolderRead,
   arrivedMessages,
   cachedFolders,
@@ -63,14 +72,17 @@ import {
   decodeDocument,
   decodeFolderRead,
   decodeCount,
+  decodeHistoryRead,
   decodeHeaders,
   decodeIdle,
   decodeListedFolders,
   decodeModify,
   decodeRaw,
   decodeSearch,
+  decodeSegment,
   decodeSession,
   encodeDocument,
+  encodeSegment,
   folderListing,
   inboxFolder,
   listedMessage,
@@ -123,6 +135,7 @@ export interface NativeImapMailbox
       NativeGmailMailbox,
       | 'openMailbox'
       | 'commitMailbox'
+      | 'openMailboxSegment'
       | 'openMessageBody'
       | 'commitMessageBody'
       | 'listMessageBodies'
@@ -165,6 +178,20 @@ export interface NativeImapMailbox
         uidNext: number;
         known: readonly number[];
       }>;
+    }>,
+  ) => Promise<unknown>;
+  // Resolves the folder's `{ uidValidity, uidNext, total, messages, below, present }`: up to `limit`
+  // of the newest messages with UIDs from `above` up to, not including, `below` (UIDNEXT when
+  // absent), the cursor to read the rest below, and which `known` UIDs remain. Each read examines
+  // the folder and searches bounded UID ranges; `imap-missing` when the folder is gone.
+  readonly imapHistory: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{
+      folder: string;
+      above: number;
+      below?: number;
+      limit: number;
+      known: readonly number[];
     }>,
   ) => Promise<unknown>;
   // Resolves `{ data }`, the raw message as standard base64; rejects with `imap-changed` when the
@@ -281,6 +308,8 @@ export type ImapInboxState =
       readonly originalIds?: ReadonlyMap<string, string>;
       // Whether Undo can still reverse the notice's move.
       readonly undo: boolean;
+      // Historical Metadata Backfill of every folder; absent until it starts.
+      readonly history?: HistoryProgress;
       // Marks an IMAP Inbox among other providers'.
       readonly imap: true;
     };
@@ -755,6 +784,23 @@ export function createImapInbox(
   const withdrawals = new Set<string>();
   let shownStatus: Sync = 'current';
   let authenticationRejected = false;
+  // Folders whose history was read up to date, or that are gone, since the connection opened.
+  const settled = new Set<string>();
+  // A failed history read pauses the backfill until the next Inbox synchronization.
+  let backfillPaused = false;
+  const renderedHistory = (current: ImapDocument) => {
+    const history = historyProgress(current);
+    return history === undefined
+      ? {}
+      : {
+          history: {
+            ...history,
+            ...(backfillPaused && !history.complete
+              ? { paused: true as const }
+              : {}),
+          },
+        };
+  };
   // The change being dispatched; its pending move cannot be withdrawn.
   let sending: string | undefined = undefined;
   let notice: ImapNotice | undefined = undefined;
@@ -1099,6 +1145,7 @@ export function createImapInbox(
       ...(notice === undefined ? {} : { notice }),
       ...motionFacts(),
       undo: undoable(),
+      ...renderedHistory(document),
       imap: true,
     };
     notify();
@@ -1166,7 +1213,10 @@ export function createImapInbox(
     return cache.availability === undefined;
   });
 
-  const commit = Effect.fnUntraced(function* (next: ImapDocument) {
+  const commit = Effect.fnUntraced(function* (
+    next: ImapDocument,
+    history?: HistoryWrite,
+  ) {
     const scope = opened;
     if (scope === undefined || forgotten) {
       return yield* new ImapFailure({
@@ -1177,7 +1227,9 @@ export function createImapInbox(
     }
     const text = yield* encodeDocument(next).pipe(Effect.mapError(malformed));
     const reply = yield* decodeCommit(
-      yield* call(() => native.commitMailbox(scope, scope.revision, text)),
+      yield* call(() =>
+        native.commitMailbox(scope, scope.revision, text, history),
+      ),
     ).pipe(Effect.mapError(malformed));
     if (forgotten) {
       return;
@@ -1198,12 +1250,24 @@ export function createImapInbox(
       folders.filter(({ selectable }) => selectable).map(({ name }) => name),
     );
     const kept = (name: string) => name === inboxFolder || offered.has(name);
-    yield* commit({
+    const next: ImapDocument = {
       ...current,
       folders,
       capabilities,
       mailboxes: current.mailboxes.filter(({ name }) => kept(name)),
-    });
+      ...(current.history === undefined
+        ? {}
+        : {
+            history: current.history.filter(({ folder }) => kept(folder)),
+          }),
+    };
+    // A retired folder's history segments leave with it.
+    yield* commit(
+      next,
+      next.history?.length === current.history?.length
+        ? undefined
+        : { segments: {}, keep: segmentNames(next) },
+    );
     for (const name of folderViews.keys()) {
       if (!kept(name)) {
         folderViews.delete(name);
@@ -1324,6 +1388,7 @@ export function createImapInbox(
       originalIds = new Map();
       restoring.clear();
       authenticationRejected = false;
+      settled.clear();
       lifetime += 1;
       opened = undefined;
       document = undefined;
@@ -1739,6 +1804,7 @@ export function createImapInbox(
             yield* drain;
             render('current');
             schedulePrefetch();
+            scheduleBackfill();
           }).pipe(
             Effect.retry({
               times: 1,
@@ -2379,6 +2445,160 @@ export function createImapInbox(
         Effect.ensuring(
           Effect.sync(() => {
             prefetching = false;
+          }),
+        ),
+      ),
+    );
+  }
+
+  // A segment's messages, none once a later commit removed it.
+  const readSegment = Effect.fnUntraced(function* (scope: Scope, name: string) {
+    const { document: text } = yield* decodeCachedBody(
+      yield* call(() => native.openMailboxSegment(scope, name)),
+    ).pipe(Effect.mapError(malformed));
+    return text === null
+      ? []
+      : yield* decodeSegment(text).pipe(Effect.mapError(malformed));
+  });
+  const segmentName = Effect.map(
+    Effect.all([
+      Random.nextIntBetween(0, 2 ** 31 - 1),
+      Random.nextIntBetween(0, 2 ** 31 - 1),
+    ]),
+    ([high, low]) => `${high.toString(36)}${low.toString(36)}`,
+  );
+  // One Historical Metadata Backfill read of the next folder, committed with the segment it saved.
+  // A folder the server no longer selects settles. False once every folder settled.
+  const backfillStep = Effect.fnUntraced(function* (scope: Scope) {
+    if (document === undefined || prefetchPaused(scope)) {
+      return false;
+    }
+    const name = nextHistoryFolder(document, settled);
+    if (name === undefined) {
+      return false;
+    }
+    const history = document.history?.find(({ folder }) => folder === name);
+    const checking =
+      history?.checking === undefined
+        ? undefined
+        : history.segments[history.checking];
+    const checked =
+      checking === undefined
+        ? undefined
+        : yield* readSegment(scope, checking.name);
+    const read = yield* call(() =>
+      native.imapHistory(
+        scope,
+        historyRequest(name, history, checked?.map(({ uid }) => uid) ?? []),
+      ),
+    ).pipe(
+      Effect.flatMap((reply) =>
+        decodeHistoryRead(reply).pipe(Effect.mapError(malformed)),
+      ),
+      Effect.asSome,
+      Effect.catchIf(
+        ({ kind }) => kind === 'missing' || kind === 'changed',
+        () => Effect.succeedNone,
+      ),
+    );
+    if (!current(scope) || document === undefined) {
+      return false;
+    }
+    if (Option.isNone(read)) {
+      settled.add(name);
+      return true;
+    }
+    const step = applyHistoryRead(history, {
+      folder: name,
+      read: read.value,
+      name: yield* segmentName,
+      ...(checked === undefined ? {} : { checked }),
+    });
+    const latest = document;
+    const others = (latest.history ?? []).filter(
+      ({ folder }) => folder !== name,
+    );
+    const next: ImapDocument = {
+      ...latest,
+      history: step.history === undefined ? others : [...others, step.history],
+    };
+    const segments: Record<string, string> = {};
+    for (const [segment, messages] of step.written) {
+      segments[segment] = yield* encodeSegment(messages).pipe(
+        Effect.mapError(malformed),
+      );
+    }
+    yield* commit(next, { segments, keep: segmentNames(next) });
+    if (step.settled) {
+      settled.add(name);
+    } else {
+      settled.delete(name);
+    }
+    render();
+    return true;
+  });
+  // A refused password asks for it again, as for prefetch; any other failure pauses the backfill.
+  const backfillFailed = (scope: Scope) => (failure: Failure) => {
+    if (!current(scope)) {
+      return Effect.void;
+    }
+    if (changesAccess(failure.kind)) {
+      return prefetchFailed(scope)(failure);
+    }
+    backfillPaused = true;
+    render();
+    return expected(failure.kind) || failure.kind === 'conflict'
+      ? Effect.void
+      : Effect.logError('IMAP history read failed:', failure.diagnostic);
+  };
+  let backfilling = false;
+  let backfillAgain = false;
+  // Starts the backfill lane after an Inbox synchronization, clearing a pause. Each step waits
+  // while an explicit read waits or runs anywhere on the device, and holds the connection's
+  // synchronization permit; the lane stops once every folder settled or a step fails.
+  function scheduleBackfill() {
+    backfillPaused = false;
+    if (backfilling) {
+      backfillAgain = true;
+      return;
+    }
+    backfilling = true;
+    const scope = opened;
+    if (scope === undefined) {
+      backfilling = false;
+      return;
+    }
+    void runLogged(
+      Effect.gen(function* () {
+        for (;;) {
+          yield* shared.idle.await;
+          if (
+            !(yield* semaphore.withPermit(
+              // A read may have begun while the permit was queued.
+              Effect.suspend(() =>
+                shared.idle.isOpen()
+                  ? backfillStep(scope)
+                  : Effect.succeed(true),
+              ),
+            ))
+          ) {
+            return;
+          }
+          // Let queued synchronization acquire the permit before the next step.
+          yield* Effect.yieldNow;
+        }
+      }).pipe(
+        // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+        Effect.catch(backfillFailed(scope)),
+        Effect.ensuring(
+          Effect.suspend(() => {
+            backfilling = false;
+            const again = backfillAgain;
+            backfillAgain = false;
+            if (again) {
+              scheduleBackfill();
+            }
+            return Effect.void;
           }),
         ),
       ),

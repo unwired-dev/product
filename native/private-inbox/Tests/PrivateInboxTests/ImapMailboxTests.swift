@@ -54,6 +54,14 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
     try record("message \(folder) \(uidValidity) \(uid)", password)
     return Data("Subject: Synthetic\r\n\r\nBody".utf8)
   }
+  func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest) async throws
+    -> ImapHistoryPage
+  {
+    try record("history \(request.folder) \(request.below ?? 0)", password)
+    return ImapHistoryPage(
+      uidValidity: state.uidValidity, uidNext: state.uidNext, total: state.messages.count,
+      messages: state.messages, below: 1, present: request.known)
+  }
   func headers(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
   ) async throws -> [ImapHeaders] {
@@ -774,6 +782,14 @@ extension PrivateInboxTests {
       limit: 50)
     #expect(largeSearch.found.first?.messages.map(\.uid) == [4_000_000_000])
     #expect(largeSearch.found.first?.more == true)
+    // A history page searches bounded UID windows newest first, keeps `limit` of them and resumes
+    // below the oldest it kept; a billions-wide reported range is clamped to the window.
+    let page = try await provider.history(
+      try account("history"), password: password,
+      request: ImapHistoryRequest(folder: "INBOX", above: 1, below: nil, limit: 2, known: [5, 11]))
+    #expect(page.uidValidity == 7 && page.uidNext == 12 && page.total == 1)
+    #expect(page.messages.map(\.uid) == [7, 11] || page.messages.map(\.uid) == [11, 7])
+    #expect(page.below == 7 && page.present == [11])
 
     #expect(try await provider.idle(synthetic, password: password, folder: "INBOX", seconds: 30))
     #expect(try await provider.idle(synthetic, password: password, folder: "Quiet", seconds: 1) == false)

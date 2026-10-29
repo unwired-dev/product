@@ -115,6 +115,8 @@ export function createSyntheticImap({
     changes: [] as string[],
     // Sessions opened and not yet closed.
     sessions: new Set<string>(),
+    // The code history reads alone reject with, as a server failing mid-backfill would.
+    historyFailure: undefined as string | undefined,
   };
   let sessionCount = 0;
   // The connection's SMTP server: what it accepted, and the code its next submission rejects
@@ -136,6 +138,8 @@ export function createSyntheticImap({
     availability: undefined as 'retry' | undefined,
     commits: 0,
   };
+  // History segments saved beside the document, by name.
+  const segments = new Map<string, string>();
   const bodies = new Map<string, string>();
   // Each saved body's eviction tier: opened, prefetched, or an exclusion marker.
   const tiers = new Map<string, string>();
@@ -485,6 +489,45 @@ export function createSyntheticImap({
           .map(({ uid, flags }) => ({ uid, flags })),
       });
     },
+    // The newest messages of the requested UID range, as native code's bounded UID searches find
+    // them, and the known UIDs still present.
+    imapHistory: (_mailbox, request) => {
+      server.reads.push(`history ${request.folder} ${request.below ?? 'next'}`);
+      const failed =
+        reach() ??
+        (server.historyFailure === undefined
+          ? undefined
+          : rejection(server.historyFailure));
+      if (failed !== undefined) {
+        return failed;
+      }
+      const current = folders.get(request.folder);
+      if (current === undefined) {
+        return rejection('imap-missing');
+      }
+      const below = request.below ?? current.uidNext;
+      const range = Arr.sort(
+        current.messages.filter(
+          ({ uid }) => uid >= request.above && uid < below,
+        ),
+        newestUid,
+      );
+      const page = range.slice(0, request.limit);
+      const known = new Set(request.known);
+      return Promise.resolve({
+        uidValidity: current.uidValidity,
+        uidNext: current.uidNext,
+        total: current.messages.length,
+        messages: page.map(envelope),
+        below:
+          range.length > request.limit
+            ? (page.at(-1)?.uid ?? request.above)
+            : Math.min(below, request.above),
+        present: current.messages
+          .filter(({ uid }) => known.has(uid))
+          .map(({ uid }) => uid),
+      });
+    },
     imapMessage: (_mailbox, request) => {
       server.reads.push(`message ${request.folder} ${request.uid}`);
       const current = examined(request);
@@ -521,18 +564,33 @@ export function createSyntheticImap({
           ? {}
           : { availability: cache.availability }),
       }),
-    commitMailbox: (mailbox, expectedRevision, document) => {
+    // Writes history segments before the document, then removes those `keep` leaves out.
+    // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+    commitMailbox: (mailbox, expectedRevision, document, history) => {
       if (mailbox.generation !== cache.generation) {
         return rejection('mailbox-invalidated');
       }
       if (expectedRevision !== cache.revision) {
         return rejection('conflict');
       }
+      for (const [name, segment] of Object.entries(history?.segments ?? {})) {
+        segments.set(name, segment);
+      }
       cache.revision += 1;
       cache.commits += 1;
       cache.document = document;
+      if (history !== undefined) {
+        const kept = new Set(history.keep);
+        for (const name of segments.keys()) {
+          if (!kept.has(name)) {
+            segments.delete(name);
+          }
+        }
+      }
       return Promise.resolve({ revision: cache.revision });
     },
+    openMailboxSegment: (_mailbox, name) =>
+      Promise.resolve({ document: segments.get(name) ?? null }),
     openMessageBody: (_mailbox, id) =>
       Promise.resolve({ document: bodies.get(id) ?? null }),
     commitMessageBody: (_mailbox, id, admission) => {
@@ -574,6 +632,7 @@ export function createSyntheticImap({
     server,
     smtp,
     cache,
+    segments,
     bodies,
     tiers,
     files,

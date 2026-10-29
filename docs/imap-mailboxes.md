@@ -188,6 +188,42 @@ It stays there if that folder name reappears, until the person chooses it again.
 Local search marks a body as available on this device only when the body cache
 confirms it is saved; listing a message alone does not make its body available offline.
 
+### Historical Metadata Backfill
+
+Once the Inbox is current, each connection downloads the metadata of every selectable
+folder in the background, Inbox first and then the folders in listed order, as the
+[Gmail backfill](gmail-inbox.md#historical-metadata-backfill) does for All Mail. It
+reads no message bodies and yields to synchronization and message opens.
+
+- Each read examines one folder and searches bounded UID windows below its cursor,
+  newest first, keeping at most 500 messages. A window starts at the page size and
+  grows to at most 65,536 UIDs over at most eight searches, so sparse folders advance
+  without unbounded requests. Reported ranges are clamped to the searched window
+  before they are expanded.
+- Each read's messages are saved as one encrypted history segment beside the mailbox
+  document, committed with the folder's checkpoint: its UIDVALIDITY, the UID cursor,
+  the UIDNEXT the pass started from and the server's message count. An interrupted
+  read or a relaunch resumes from the last committed cursor. A changed UIDVALIDITY
+  discards that folder's history and restarts only that folder.
+- When a pass reaches the oldest UID, messages that arrived since the pass started
+  are read in a further pass. When the downloaded count then exceeds the server's
+  message count, every segment is checked against the server, at most 500 known UIDs
+  per read, and messages expunged meanwhile are removed. A completed folder is
+  checked once per launch and read again after new arrivals.
+- History does not count against the Inbox's 200 recent messages or the eight cached
+  folders: evicting an opened folder's cache keeps its history. A folder the refreshed
+  list no longer offers leaves the history with its segments.
+- The IMAP Inbox state reports downloaded messages, the folders' total once every
+  folder has begun, whether the history is complete, and whether it is paused. The
+  [sync status](gmail-inbox.md#sync-status-capsule) shows this progress as it does for
+  Gmail. A failed read pauses the download until the next Inbox synchronization and
+  keeps its checkpoints. A refused password marks the connection as needing its
+  password again, as synchronization does. A folder that is gone or refuses its
+  UIDVALIDITY is skipped until the next launch.
+
+Downloaded history is not shown in folder lists or searched yet. Scrolling past a
+folder's cached messages still shows only those messages.
+
 ## Reading
 
 Opening a message downloads its source (up to 40 MB), subject to bounded MIME parsing,
@@ -441,8 +477,9 @@ close-answers-at-once case uses a controlled `ImapSession`.
 From the workspace root:
 
 ```sh
-mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts test/imap-remote-content.test.ts test/imap-attachments.test.ts test/imap-prefetch.test.ts
+mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/imap.test.ts test/imap-organize.test.ts test/imap-send.test.ts test/imap-registration.test.ts test/imap-remote-content.test.ts test/imap-attachments.test.ts test/imap-prefetch.test.ts test/imap-history.test.ts
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/test.zsh ios
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer mise exec -- zsh native/private-inbox/integration/history.zsh
 ```
 
 From `native/private-inbox`:
@@ -476,6 +513,13 @@ an unreachable server, a refused password, locked storage, an expunged message,
 cancellation, a new UIDVALIDITY with a download in flight, including for a folder that
 had left the cache, a body arriving after that change, isolation between folders
 whose names contain delimiters, and deletion with the last reader and the Inbox.
+`test/imap-history.test.ts` downloads a 1,100-message Inbox and a 600-message Archive
+in bounded reads while the Inbox keeps 200 recent messages, pauses on an outage and
+resumes after relaunch from the committed cursor, removes a message expunged during the
+download and adds one that arrived, restarts only the folder whose UIDVALIDITY changed,
+keeps history for a folder evicted from the cache, and reports a refused password.
+`native/private-inbox/integration/history.zsh` runs these journeys and the Gmail
+history journeys against the real encrypted store in a signed Mac process.
 `test/imap-prefetch.test.ts` saves recent single-part bodies after synchronization
 without reading the source of a message with an attachment, opens them offline, reads
 nothing again at the next synchronization, pauses while the server cannot be reached or
@@ -500,7 +544,8 @@ prefetch preflight's header-only read of unfolded MIME fields,
 UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also checks
 `\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,
 refusal without MOVE or UIDPLUS, a refused destination, a connection dropped after MOVE,
-a removed folder, cross-folder search, and IDLE waking on a change and timing out. A
+a removed folder, cross-folder search, a history read that clamps an oversized UID range
+reply to its bounded window, and IDLE waking on a change and timing out. A
 TLS SMTP fixture beside it, with the same certificate, checks real SwiftMail submission
 over implicit TLS and STARTTLS, leaving a server without STARTTLS before any password,
 a refused password, a temporary refusal, a refused recipient without partial delivery,
@@ -514,5 +559,5 @@ Real iCloud Mail and Fastmail read, organizing, search, IDLE, SMTP submission an
 filing qualification remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
-hosts. Native Mock Mail Sessions currently refuse IMAP connection attempts; the shared
+hosts, and backfilling large real IMAP folders. Native Mock Mail Sessions currently refuse IMAP connection attempts; the shared
 controlled-provider fixture is not native mock or provider qualification.

@@ -129,6 +129,27 @@ struct ImapFolderState: Sendable, Equatable {
   let reset: Bool
 }
 
+// One Historical Metadata Backfill read: up to `limit` of the newest messages with UIDs from
+// `above` up to, not including, `below` (UIDNEXT when nil), and the `known` UIDs to check.
+struct ImapHistoryRequest: Sendable, Equatable {
+  let folder: String
+  let above: UInt32
+  let below: UInt32?
+  let limit: Int
+  let known: [UInt32]
+}
+
+// What a history read found: the folder's identity and message count, the messages, the exclusive
+// UID the next read starts below, and which known UIDs remain.
+struct ImapHistoryPage: Sendable, Equatable {
+  let uidValidity: UInt32
+  let uidNext: UInt32
+  let total: Int
+  let messages: [ImapEnvelope]
+  let below: UInt32
+  let present: [UInt32]
+}
+
 // The checkpoint a synchronization resumes from.
 struct ImapCheckpoint: Sendable, Equatable {
   let uidValidity: UInt32
@@ -143,6 +164,9 @@ protocol ImapProvider: Sendable {
   func synchronize(
     _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?, window: Int
   ) async throws -> ImapFolderState
+  // One page of the folder's history, newest first, found by bounded UID-range searches.
+  func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest) async throws
+    -> ImapHistoryPage
   // The raw RFC 5322 message, read without setting \Seen.
   func message(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uid: UInt32,
@@ -315,6 +339,62 @@ struct SwiftMailImap: ImapProvider {
         uidValidity: validity,
         uidNext: max(selection.uidNext.value, from.uidNext, (arrivals.map(\.uid).max() ?? 0) &+ 1),
         messages: arrivals, flags: flags, reset: false)
+    }
+  }
+
+  // Searches at most eight UID ranges below the cursor, each up to four times wider than the last,
+  // so every request stays bounded however sparse the folder's UIDs are; no extension is needed.
+  func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest) async throws
+    -> ImapHistoryPage
+  {
+    try await session(account, password) { server in
+      let selection = try await Self.examine(server, folder: request.folder)
+      var next = selection.uidNext.value
+      if next == 0, let latest = selection.latest(1) {
+        let newest = try await server.fetchMessageInfosBulk(using: latest, options: .uidFlagsOnly)
+        next = (newest.compactMap { $0.uid?.value }.max() ?? 0) &+ 1
+      }
+      let present =
+        request.known.isEmpty
+        ? []
+        : try await server.fetchMessageInfosBulk(
+          using: UIDSet(request.known.map(UID.init)), options: .uidFlagsOnly
+        ).compactMap { $0.uid?.value }
+      let floor = max(request.above, 1)
+      var high = request.below ?? next
+      var span = UInt32(request.limit)
+      var found: [UInt32] = []
+      var searches = 0
+      while found.count < request.limit, high > floor, searches < 8 {
+        searches += 1
+        let low = high - min(span, high - floor)
+        let result: ExtendedSearchResult<UID> = try await server.extendedSearch(
+          identifierSet: UIDSet(UID(low)...UID(high - 1)), criteria: [.all])
+        // Clamp each reported range to the searched window before expanding it: an untrusted server
+        // may answer with billions of identifiers.
+        for range in (result.all ?? UIDSet()).ranges.reversed() where found.count <= request.limit {
+          let lower = max(range.lowerBound, Int(low))
+          let upper = min(range.upperBound, Int(high) - 1)
+          if lower <= upper {
+            found += (lower...upper).reversed().prefix(request.limit + 1 - found.count)
+              .map { UInt32($0) }
+          }
+        }
+        high = low
+        span = min(span &* 4, 1 << 16)
+      }
+      let kept = Array(found.prefix(request.limit))
+      let messages =
+        kept.isEmpty
+        ? []
+        : try await server.fetchMessageInfosBulk(
+          using: UIDSet(kept.map(UID.init)), options: .slim
+        ).compactMap(Self.envelope)
+      return ImapHistoryPage(
+        uidValidity: selection.uidValidity.value,
+        uidNext: max(next, (found.max() ?? 0) &+ 1), total: selection.messageCount,
+        messages: messages, below: found.count > request.limit ? (kept.last ?? high) : high,
+        present: present)
     }
   }
 
@@ -605,6 +685,11 @@ struct SwiftMailImap: ImapProvider {
     ) async throws -> ImapFolderState {
       throw ImapFailure.offline
     }
+    func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest)
+      async throws -> ImapHistoryPage
+    {
+      throw ImapFailure.offline
+    }
     func message(
       _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uid: UInt32,
       limit: Int
@@ -737,6 +822,24 @@ extension RegistrationStore {
       "reset": state.reset,
       "messages": state.messages.map(Self.envelopeReply),
       "flags": state.flags.map { ["uid": Double($0.key), "flags": $0.value] as [String: Any] },
+    ]
+  }
+
+  // One history page of at most 500 messages, checking at most 500 known UIDs.
+  func imapHistory(
+    connection: String, address: String, generation: String, request: ImapHistoryRequest
+  ) async throws -> [String: Any] {
+    guard Self.imapFolderName(request.folder), request.above > 0,
+      request.below.map({ $0 > 0 }) ?? true, (1...500).contains(request.limit),
+      request.known.count <= 500
+    else { throw RegistrationError.unavailable }
+    let page = try await imapWork(connection: connection, address: address, generation: generation) {
+      try await imap.history($0, password: $1, request: request)
+    }
+    return [
+      "uidValidity": Double(page.uidValidity), "uidNext": Double(page.uidNext),
+      "total": Double(page.total), "messages": page.messages.map(Self.envelopeReply),
+      "below": Double(page.below), "present": page.present.map(Double.init),
     ]
   }
 

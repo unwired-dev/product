@@ -1356,6 +1356,32 @@ extension UnwiredRegistration {
     }
   }
 
+  // `request` names the `folder`, the UID range `above` and optional `below`, the `limit` and the
+  // `known` UIDs to check.
+  @objc(imapHistory:request:resolver:rejecter:)
+  func imapHistory(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapHistory", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let above = (request["above"] as? Double).flatMap({ UInt32(exactly: $0) }),
+        let limit = (request["limit"] as? Double).flatMap({ Int(exactly: $0) }),
+        let known = request["known"] as? [Double]
+      else { throw RegistrationError.unavailable }
+      let below = (request["below"] as? Double).flatMap { UInt32(exactly: $0) }
+      let uids = known.compactMap { UInt32(exactly: $0) }
+      guard uids.count == known.count, (below == nil) == (request["below"] == nil) else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.imapHistory(
+        connection: connection, address: address, generation: generation,
+        request: ImapHistoryRequest(
+          folder: folder, above: above, below: below, limit: limit, known: uids))
+    }
+  }
+
   // `message` names `{ folder, uidValidity, uid }`; a changed UIDVALIDITY reads nothing.
   @objc(imapMessage:message:resolver:rejecter:)
   func imapMessage(

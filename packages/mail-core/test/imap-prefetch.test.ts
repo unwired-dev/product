@@ -160,8 +160,11 @@ describe('imap recent-body prefetch', () => {
   it('saves recent single-part bodies after synchronization without reading the source of a message with an attachment', async () => {
     expect.hasAssertions();
     const { imap, inbox, uids, ids } = await prefetched();
-    // One body-free read chooses the sources; mail outside the 30 days is not read.
-    expect(imap.server.reads).toStrictEqual([
+    // One body-free read chooses the sources; mail outside the 30 days is not read. Historical
+    // Metadata Backfill reads only envelopes.
+    expect(
+      imap.server.reads.filter((read) => !read.startsWith('history ')),
+    ).toStrictEqual([
       'login',
       'folders',
       'synchronize INBOX',

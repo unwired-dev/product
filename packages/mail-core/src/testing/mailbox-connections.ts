@@ -36,6 +36,8 @@ export function syntheticConnections(
     imapSynchronize: (mailbox, request) =>
       server(mailbox.connection)?.imapSynchronize(mailbox, request) ??
       missing(),
+    imapHistory: (mailbox, request) =>
+      server(mailbox.connection)?.imapHistory(mailbox, request) ?? missing(),
     imapMessage: (mailbox, message) =>
       server(mailbox.connection)?.imapMessage(mailbox, message) ?? missing(),
     imapHeaders: (mailbox, request) =>

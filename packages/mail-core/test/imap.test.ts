@@ -243,7 +243,12 @@ describe('connecting IMAP mailboxes', () => {
     expect(opened).toHaveBeenLastCalledWith(
       expect.objectContaining({ generation: 'generation-2' }),
     );
-    expect(imap.server.reads).toHaveLength(reads + 3);
+    // Login, listing and the Inbox; Historical Metadata Backfill may read on.
+    expect(imap.server.reads.slice(reads, reads + 3)).toStrictEqual([
+      'login',
+      'folders',
+      'synchronize INBOX',
+    ]);
     expect(device.imap.logins).toBe(logins + 1);
     const otherInbox = mailboxes.getConnections()[1]?.inbox;
     Vitest.assert.isDefined(otherInbox);
