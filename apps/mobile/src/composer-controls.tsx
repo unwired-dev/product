@@ -41,13 +41,7 @@ import {
   View,
 } from 'react-native';
 
-import {
-  Button,
-  Glass,
-  SFSymbol,
-  ToolbarButton,
-  useMenuMotion,
-} from './design.tsx';
+import { Glass, SFSymbol, ToolbarButton, useMenuMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -640,19 +634,26 @@ function LinkPopover({
         {t('drafts.link.hint')}
       </Text>
       <View style={styles.linkActions}>
-        <Button
-          destructive
-          label={t('drafts.link.remove')}
-          size="compact"
-          onPress={onRemove}
-        />
-        <Button
-          disabled={!applicable}
-          fill="accent"
-          label={t('drafts.link.apply')}
-          size="compact"
-          onPress={onApply}
-        />
+        <Host matchContents>
+          <SwiftUIButton
+            label={t('drafts.link.remove')}
+            modifiers={[buttonStyle('bordered')]}
+            // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+            role="destructive"
+            onPress={onRemove}
+          />
+        </Host>
+        <Host matchContents>
+          <SwiftUIButton
+            label={t('drafts.link.apply')}
+            modifiers={[
+              buttonStyle('borderedProminent'),
+              tint(colors.accentFill),
+              inactive(!applicable),
+            ]}
+            onPress={onApply}
+          />
+        </Host>
       </View>
     </View>
   );
