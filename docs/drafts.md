@@ -67,7 +67,9 @@ transport and known native exit gaps.
   window's composer does. Several New Message windows can be open, and AppKit
   does not restore them. A New Message window closes if its Product Account is
   replaced or its Inbox becomes unavailable. The Inbox column stays
-  interactive beneath the overlay while the covered reader waits. Selecting
+  interactive beside the overlay. On the Mac, so does the reader's toolbar and
+  the rest of the reader above it; its Reply, Reply All and Forward first close
+  the open Draft as New Message does. Selecting
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout
   retain the same editor and Undo history; the Mac's New Message window starts a

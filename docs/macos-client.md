@@ -131,8 +131,8 @@ Reading leaves unread flags unchanged. Explicit read/unread actions persist and
 update all windows without changing their selections.
 A window's one composer overlays the reader as described in
 [composing](drafts.md#composing); opening a Draft keeps the selected message
-behind it, selecting another message updates that reader without closing the
-Draft, and Expand saves the Draft and moves it into its own New Message window,
+behind it, whose toolbar stays usable above the overlay, selecting another
+message updates that reader without closing the Draft, and Expand saves the Draft and moves it into its own New Message window,
 closing the overlay. AppKit does not restore New Message windows; closing one
 or quitting asks its composer first, as an Inbox window does.
 

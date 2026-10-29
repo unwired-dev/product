@@ -210,13 +210,14 @@ and with Return, its default Cancel. The journey never opens or copies a link. A
 Command-P opens the palette again. It then searches for the
 Microsoft message **Quarterly planning** and opens it. The reader's **Folders** AppKit
 menu closes with Escape and with a click outside, then Down and Return choose
-**Projects**, which moves the message and closes its reader. This runs before Reply
-because the reader toolbar ignores clicks while a reply composer is docked
-([#1211](https://github.com/unwired-dev/product/issues/1211)). Before continuing, it
+**Projects**, which moves the message and closes its reader. Before continuing, it
 checks the moved-message notice and rejects refusal, unsaved, pending and unfinished
 save/sync states. This is a synthetic completion proxy, not provider destination
 readback. It runs Reply from the palette,
-types into the reply and pastes into it. After relaunch, it checks that the
+types into the reply and pastes into it. With the reply docked, it clicks the
+reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
+**Folders** opens its menu, which Escape closes, and the read toggle flips while the
+reply keeps its text. After relaunch, it checks that the
 saved Draft reopens with that text. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
