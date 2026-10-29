@@ -1524,7 +1524,7 @@ route.
 
 Real iOS background scheduling, APNs delivery and packaged Mac journeys with no
 window open are pre-release evidence, as is a real Gmail watch, Pub/Sub and APNs
-round trip through the protected test tenant.
+round trip through the dedicated Gmail test accounts.
 Native wake delivery in #781 also requires mounted-screen journeys while
 restored connections change. Shared-store tests do not qualify whether those
 host updates independently trigger synchronization of unrelated mailboxes.
@@ -1544,7 +1544,7 @@ and trashed mail, opening an archived result without saving its body (also throu
 synchronization), one mailbox's outage or refused grant beside the other's results, a
 failed next page kept for retry, and storage locking or a removal while its search runs. The controlled
 Gmail matches every word of `q` in sender, subject and content; Gmail's own operators
-need the protected tenant. Rendered journeys on both hosts search Gmail only on
+need the dedicated Gmail test accounts. Rendered journeys on both hosts search Gmail only on
 request below the saved results, open an archived result in the reader without saving
 it, drop the answer when the query changes, show one mailbox's outage beside the
 other's and the saved results, search again, and discard a reply for a query that
@@ -1702,7 +1702,7 @@ For packaged journeys, select `registration-declined` with the
 ## Protected Gmail qualification
 
 These checks are deterministic application evidence, not real Gmail evidence. With
-the [protected Gmail test tenant](gmail-provider-test-tenant.md) and signed hosts,
+the [dedicated Gmail test accounts](gmail-provider-test-tenant.md) and signed hosts,
 verify on iPhone, iPad and Mac before release:
 
 - the first listing of a large Inbox, with the newest 50 usable first;

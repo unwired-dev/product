@@ -126,6 +126,44 @@ describe('building an outgoing message', () => {
     );
   });
 
+  it('links each linked run once and names its destination in the plain-text alternative', async () => {
+    expect.hasAssertions();
+    const plan = 'https://example.invalid/plan?a=1&b=2';
+    const parsed = await PostalMime.parse(
+      assemble(
+        build(
+          draft({
+            body: [
+              {
+                kind: 'paragraph',
+                spans: [
+                  { text: 'Read ' },
+                  { text: 'the ', link: plan },
+                  { text: 'big', marks: ['bold'], link: plan },
+                  { text: ' plan', link: plan },
+                  { text: ' or write to ' },
+                  {
+                    text: 'mailto:sam@example.invalid',
+                    link: 'mailto:sam@example.invalid',
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    expect(parsed.html).toBe(
+      '<!DOCTYPE html><html><body><p>Read <a href="https://example.invalid/plan?a=1&amp;b=2">' +
+        'the <strong>big</strong> plan</a> or write to ' +
+        '<a href="mailto:sam@example.invalid">mailto:sam@example.invalid</a></p></body></html>',
+    );
+    expect(parsed.text).toBe(
+      'Read the big plan <https://example.invalid/plan?a=1&b=2> or write to mailto:sam@example.invalid',
+    );
+  });
+
   it('preserves long subjects, recipient names and UTF-8 filenames within MIME line limits', async () => {
     expect.hasAssertions();
     const subject = 'x'.repeat(1200);

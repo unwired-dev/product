@@ -157,7 +157,15 @@ transport and known native exit gaps.
   Each activation moves one step, including repeated commands before the
   composer redraws.
 
-Links, the Slash Command Menu and recipient suggestions are later slices.
+The document keeps links on its text. A link destination must be an `http`,
+`https`, `mailto` or `tel` address; a Draft holding any other destination is
+not saved or synchronized. Text typed inside a link joins it, text typed at either
+end of it does not, and formatting, block kinds, inline images, replacements and
+Undo keep it. Sent mail links the text and, in the plain-text alternative, follows
+it with the destination in angle brackets unless the text is the destination.
+Composers cannot yet add, edit or remove links
+([#878](https://github.com/unwired-dev/product/issues/878)); the Slash Command
+Menu and recipient suggestions are later slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
@@ -334,7 +342,9 @@ until it can preserve offline copies and concurrent publication safely.
 ## Replies and forwards
 
 [#613](https://github.com/unwired-dev/product/issues/613) adds **Reply**,
-**Reply All** and **Forward** to the Gmail reader on iPhone, iPad and Mac. They
+**Reply All** and **Forward** to the Gmail reader on iPhone, iPad and Mac, and
+[#1023](https://github.com/unwired-dev/product/issues/1023) to the
+[IMAP reader](imap-mailboxes.md#reading). They
 appear once the opened message's body and headers are read, and only while the
 reader's own mailbox can send: a response never starts from another mailbox. Each
 opens the new Draft in the existing composer. Nothing is sent; editing, Close,
@@ -348,7 +358,7 @@ reopening, **Undo** and **Discard** work as for any Draft.
   sender while the response's first save is pending.
 - **Recipients.** **Reply** goes to Reply-To, or else to From. A message this mailbox
   sent is answered to its original To recipients. **Reply All** adds the original
-  To recipients in To and keeps Cc in Cc, which the composer shows. All known Gmail
+  To recipients in To and keeps Cc in Cc, which the composer shows. All known
   addresses of the sending Mail Profile are left out, unless the message was
   sent to the active sender alone. An excluded address can be added manually. Each address appears
   once, compared without case, and a group keeps its members without its display
@@ -356,8 +366,8 @@ reopening, **Undo** and **Discard** work as for any Draft.
   Entries that are not a valid address are left out, so a malformed header
   can leave a field empty for the person to fill.
 - **Subject and threading.** A reply's subject starts with `Re:` and a forward's
-  with `Fwd:`, unless it already does. A reply records the Gmail thread, the
-  message's Message-ID as In-Reply-To, and up to 20 References ending with it, for
+  with `Fwd:`, unless it already does. A reply records the Gmail thread (IMAP has
+  none), the message's Message-ID as In-Reply-To, and up to 20 References ending with it, for
   the delivery slice. When References is absent, a single parent In-Reply-To supplies
   the earlier identifier. Identifiers inside comments are ignored. A forward records
   only the message it forwards.

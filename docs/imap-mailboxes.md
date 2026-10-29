@@ -159,9 +159,12 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   Junk, Trash and mail found nowhere else. After the refreshed list is saved successfully, a folder it no
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
-  unavailable namespace discovery or more than 1,000 folders, preserves the prior
-  list and cached mail for a later retry. Case variants of the reserved `INBOX` name share that spelling;
-  other folder names stay as listed, including folders with an inbox role.
+  unavailable namespace discovery or more than 1,000 LIST responses, preserves the
+  prior list and cached mail for a later retry. Listing stops reading at the 1,001st
+  LIST response the server sends, across all namespaces and before duplicate names
+  merge, and closes that session. Case
+  variants of the reserved `INBOX` name share that spelling; other folder names
+  stay as listed, including folders with an inbox role.
 
 Freshness follows the hosts' application lifecycles. Every Inbox load, including
 foreground catch-up, the five-minute poll and each background opportunity iOS grants,
@@ -236,8 +239,19 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   is no longer in the folder. A search result or a refused read changes no other
   attachment until that synchronization.
 
-There is no Reply, Reply All or Forward for IMAP mail; a new message can be sent from
-an IMAP connection, as [Sending](#sending) describes.
+[#1023](https://github.com/unwired-dev/product/issues/1023) offers **Reply**,
+**Reply All** and **Forward** for IMAP mail as for Gmail's
+[replies and forwards](drafts.md#replies-and-forwards), once the opened message's body
+and headers are read and only while the receiving connection can [send](#sending). A
+receive-only connection offers none. The Draft sends from the connection that received
+the message, with its In-Reply-To and References headers but no thread, because IMAP
+has no conversation identifier. Forward copies the received attachments through the
+attachment downloads above. Saved bodies keep the headers a response needs; a body
+saved before they were kept is read from the server again when opened, and while the
+server cannot be reached it opens as saved without the response actions. Responses
+follow the folder identity like attachments: once a new UIDVALIDITY supersedes the
+opened message, it offers none. Real-provider qualification remains under
+[#632](https://github.com/unwired-dev/product/issues/632).
 
 [#1021](https://github.com/unwired-dev/product/issues/1021) saves recent Inbox bodies
 before they are opened, under Gmail's
@@ -345,8 +359,8 @@ reader offers each one that applies:
   mail in folders, which Move to covers; the **Thread** view, because IMAP gives the
   app no conversation identifier like Gmail's thread ID; and Gmail's view-based Move to,
   which removes only the shown label, because an IMAP message is in exactly one folder.
-- **Separate work:** Reply, Reply All and Forward need sending and belong to
-  [#1023](https://github.com/unwired-dev/product/issues/1023).
+- **Offered with sending:** Reply, Reply All and Forward, from a connection with
+  verified SMTP, as [Reading](#reading) describes.
 
 ## Online search
 
@@ -391,8 +405,8 @@ waits to send until the connection's folder list has been read.
 
 ## Engine and dependencies
 
-The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) 1.16.0. Its exact
-revisions and linked products are owned by
+The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) at a main-branch
+revision after 1.16.0. Its exact revisions and linked products are owned by
 [`native/private-inbox/Package.swift`](../native/private-inbox/Package.swift), with the
 resolved dependency graph in [`Package.resolved`](../native/private-inbox/Package.resolved).
 Both hosts must build that graph and pass their `verify:bundle` gate. Incremental

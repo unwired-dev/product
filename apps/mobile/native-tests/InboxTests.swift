@@ -684,14 +684,13 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     type("maya@example.invalid", into: to)
     app.buttons["Send"].tap()
-    // #918: the admitted Draft can unmount its editor before Send closes the composer. Wait only
-    // until either outcome, so the Undo Send Window remains for the Outbox checks.
+    // #918: Send closes the composer itself, even when the admitted Draft leaves Drafts first. Wait
+    // only until either outcome, so the Undo Send Window remains for the Outbox checks.
     let unavailable = app.staticTexts["This Draft is not available."].firstMatch
     let composer = app.otherElements["composer-overlay"]
     waitUntil({ !composer.exists || unavailable.exists }, timeout: 10)
-    if unavailable.exists {
-      app.buttons["Close"].tap()
-    }
+    XCTAssertFalse(unavailable.exists, "Send left the composer on an unavailable Draft")
+    XCTAssertFalse(composer.exists, "Send did not close the composer")
     let row = { (status: String) in
       app.descendants(matching: .any).matching(
         NSPredicate(format: "label ENDSWITH %@", ". " + status)

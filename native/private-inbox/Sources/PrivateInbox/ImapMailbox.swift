@@ -190,9 +190,11 @@ struct SwiftMailImap: ImapProvider {
     let server = IMAPServer(
       host: account.host, port: account.port, transportSecurity: .implicitTLS,
       certificateVerificationPolicy: .fullVerification, minimumTLSVersion: .tlsv12,
-      // Bound the wire declaration before SwiftMail buffers bytes, even when RFC822.SIZE lies.
+      // Bound the wire declaration before SwiftMail buffers bytes, even when RFC822.SIZE lies, and
+      // stop reading a folder list past 1,000 folders.
       parserLimits: IMAPParserLimits(
-        bodySizeLimit: UInt64(literalLimit), messageAttributeLimit: 64))
+        bodySizeLimit: UInt64(literalLimit), messageAttributeLimit: 64,
+        maximumListResponses: 1_000))
     do {
       try await server.connect()
       do {

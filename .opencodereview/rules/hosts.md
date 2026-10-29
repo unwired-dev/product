@@ -779,11 +779,12 @@ still applies. See `docs/architecture/macos-client.md`.
   settle its Saving state to retryable blocked feedback, and resolve false.
   Otherwise direct Close leaves an unhandled rejection and a disabled button,
   while guarded navigation refuses silently with the same stuck editor.
-- `Composer` replacing an empty editor with its unavailable fallback before a
-  successful Close or Discard resolves. Removal can unmount the editor before its
+- `Composer` replacing an editor with its unavailable fallback before a
+  successful Close, Discard or Send resolves. Removal can unmount the editor before its
   Promise settles; notify only the still-mounted composer that still owns that
   Draft, rather than skipping completion because the editor retired. Exercise
-  untouched New Message Close and Discard, plus ownership changes while finishing;
+  untouched New Message Close, Discard and Outbox admission published before Send
+  resolves, plus ownership changes while finishing;
   otherwise the window remains on an unavailable Draft and its floating bar stays
   hidden after the Draft was successfully removed.
 

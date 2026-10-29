@@ -77,11 +77,13 @@ rules instead:
 - Inline code combines with the other marks, which Tiptap's default excludes.
 - Tiptap's own input and paste rules are off; the page applies the documented
   shortcuts itself so that Undo restores the literal marker.
-- **Links are not representable.** The current Semantic Message Document has no link,
-  so the editor offers no link authoring and drops pasted destinations. Adding links
-  to the document for both composers is
-  [#878](https://github.com/unwired-dev/product/issues/878) (see
-  [Decisions](#decisions)).
+- **Link conversion remains incomplete.** The Semantic Message Document stores
+  validated link destinations after
+  [#1525](https://github.com/unwired-dev/product/issues/1525), but the evaluation
+  editor's conversion omits them. It offers no link authoring, drops pasted
+  destinations and loses existing links when it edits a body.
+  [#878](https://github.com/unwired-dev/product/issues/878) owns the remaining
+  editor support (see [Decisions](#decisions)).
 - Tiptap's extra keyboard shortcuts (for example Command-E for inline code and
   Command-Option-1 for a heading) also work in the page; the current composer
   documents only Command-B, Command-I and Command-U.
@@ -96,12 +98,13 @@ decision. B won 3–0 (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`): adding
 durable link semantics is a product-format change for both composers that deserves
 its own slice, and the evaluation should expose the gap rather than close it.
 
-**#819 finding.** Tiptap can hold every block kind and mark the current Semantic
-Message Document has, with Markdown shortcuts, word-step history and assistance
-results that match the current composer, without patching any vendor package. It
+**#819 finding.** Tiptap could hold every block kind and mark the Semantic
+Message Document had at that evaluation, with Markdown shortcuts, word-step
+history and assistance results that matched the current composer, without patching
+any vendor package. It
 needed configuration to stay within the document: no nesting, one textblock per code
 line, inline code combined with other marks, its own shortcuts in place of Tiptap's
-input rules, and a normalizer after each edit. Links are the gap: the document cannot
-store them, so link editing waits for
+input rules, and a normalizer after each edit. Links were the gap: the document
+could not store them. #1525 adds document support; editor link support remains in
 [#878](https://github.com/unwired-dev/product/issues/878), which blocks #823. The Mac
 host remains unproven for formatting too.

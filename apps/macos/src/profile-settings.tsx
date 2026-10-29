@@ -135,7 +135,7 @@ function ProfileName({
 type Pending = Readonly<{ control: string; progress?: string }>;
 
 // Settings › Mail Profiles: every Profile with its connections, Add Mail Profile…, the selected
-// Profile's name, and this device's Startup Profile.
+// Profile's name, mailboxes and Duplicate, and this device's Startup Profile.
 export function MailProfilesSettings({
   account,
   profiles,
@@ -190,6 +190,21 @@ export function MailProfilesSettings({
     );
     if (failure !== undefined) {
       refused(t, 'move', failure);
+    }
+  };
+  // Duplicate copies only the name into a new Profile, then opens it for renaming.
+  const duplicate = async () => {
+    const created = store.createProfile(
+      t('profiles.copyName', { name: nameOf(selected) }),
+    );
+    const failure = await change({ control: 'duplicate' }, () => created);
+    if (failure !== undefined) {
+      refused(t, 'new', failure);
+      return;
+    }
+    const id = await created;
+    if (id !== undefined) {
+      setChosen(id);
     }
   };
   const remove = async (profile: string, confirmed: readonly string[]) => {
@@ -290,10 +305,16 @@ export function MailProfilesSettings({
           />
         </SettingsRow>
       </SettingsGroup>
-      {owned.length === 0 ? null : (
+      {mailboxes.length === 0 ? null : (
         <SettingsGroup
           title={t('profiles.settings.mailboxes')}
           footer={t('profiles.settings.moveFooter')}>
+          {owned.length === 0 ? (
+            <SettingsRow
+              title={t('profiles.settings.emptyMailboxes')}
+              subtitle={t('profiles.settings.emptyMailboxesDetail')}
+            />
+          ) : null}
           {owned.map((mailbox) => (
             <SettingsRow
               key={mailbox.id}
@@ -325,6 +346,21 @@ export function MailProfilesSettings({
           ))}
         </SettingsGroup>
       )}
+      <SettingsGroup footer={t('profiles.settings.duplicateFooter')}>
+        <SettingsRowButton
+          accessibilityRole="button"
+          accessibilityLabel={t('profiles.duplicate')}
+          disabled={busy}
+          onPress={() => {
+            void duplicate();
+          }}>
+          <SettingsRow
+            title={t('profiles.duplicate')}
+            disabled={busy}>
+            {progress('duplicate')}
+          </SettingsRow>
+        </SettingsRowButton>
+      </SettingsGroup>
       {selected === defaultProfile ? null : (
         <SettingsGroup
           ref={anchor}

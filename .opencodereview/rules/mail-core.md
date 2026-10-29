@@ -1206,6 +1206,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   with its unselected suffix. Check mixed blocks, not just homogeneous bullets;
   otherwise accepted translation changes surrounding semantic formatting.
 
+- `semantic-document.ts.splice` using only the retained neighbours to inherit a
+  link during a nonempty replacement. Exercise whole-label and boundary-reaching
+  selections through both `replaceSelection` and `applyText`, preserving the
+  first replaced character's destination. Check zero-width insertions separately:
+  typing inside a link extends it, while typing at either edge stays unlinked.
+  Otherwise assistance, translation or typing over a selection silently removes
+  a link even though ordinary interior typing preserves it.
+
 - `createFreshness.wake` allowing registration verification to auto-load newly
   revealed connections before its route is rechecked. Trace `Registration.refreshInbox`
   publications and `createMailboxes` subscriptions, not just the selected load callback.

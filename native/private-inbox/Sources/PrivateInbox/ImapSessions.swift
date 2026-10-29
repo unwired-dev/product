@@ -23,7 +23,6 @@ protocol ImapSession: Sendable {
 
 #if canImport(SwiftMail)
   final class SwiftMailImapSession: ImapSession {
-    private static let folderLimit = 1_000
     // The LIST attributes SwiftMail reports, by their RFC 3501, 6154 and 8457 names.
     private static let attributes: [(Mailbox.Info.Attributes, String)] = [
       (.noSelect, "\\Noselect"), (.hasChildren, "\\HasChildren"),
@@ -55,8 +54,12 @@ protocol ImapSession: Sendable {
             _ = try await server.fetchNamespaces()
           }
         }
-        let listed = try await server.listMailboxes()
-        guard listed.count <= Self.folderLimit else { throw RegistrationError.unavailable }
+        let listed: [Mailbox.Info]
+        do {
+          listed = try await server.listMailboxes()
+        } catch is ExceededListResponseLimitError {
+          throw RegistrationError.unavailable
+        }
         return listed.map { info in
           ImapListedFolder(
             name: info.name,

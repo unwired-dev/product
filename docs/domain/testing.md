@@ -19,12 +19,12 @@ for launch scope; a term's presence does not establish implementation or release
 A non-production mailbox hosted by a real **Mail Provider** and reserved for provider-compatibility testing.
 _Avoid_: Personal mailbox, user mailbox
 
-**Provider Test Tenant**:
-An organization-controlled, synthetic-only provider domain containing **Provider Test Mailboxes** and isolated from personal and production identities.
-_Avoid_: Production tenant, personal provider account
+**Provider Test Accounts**:
+Project-controlled provider identities reserved for **Provider Test Mailboxes** and **Synthetic Test Messages**, isolated from personal and production use. They may be ordinary consumer accounts without an organization-owned domain.
+_Avoid_: Provider Test Tenant, personal provider accounts
 
 **Provider Test Project**:
-An isolated provider-platform project whose authorization, API quotas, event routes, and credentials exist only to support compatibility testing against a **Provider Test Tenant**.
+An isolated provider-platform project whose authorization, API quotas, event routes, and credentials exist only to support compatibility testing with **Provider Test Accounts**.
 _Avoid_: Production provider project, shared provider credentials
 
 **Mailbox Scenario**:
@@ -44,7 +44,7 @@ The everyday sequence in which a person receives, synchronizes, reads, organizes
 _Avoid_: Seeded inbox rendering, provider qualification
 
 **Provider Compatibility Run**:
-A serialized execution of a **Mailbox Scenario** against a **Provider Test Tenant** and **Provider Test Project** through protected automation that does not expose reusable provider credentials.
+A serialized execution of a **Mailbox Scenario** against **Provider Test Accounts** and a **Provider Test Project** through protected automation that does not expose reusable provider credentials.
 _Avoid_: Personal-account testing
 
 **Mail Test Evidence**:
