@@ -5,12 +5,14 @@
 #import <AppKit/AppKit.h>
 #import <React/RCTSurfaceTouchHandler.h>
 
-// An AppKit popover showing this view's React children, pointing up from this view's top edge.
+// An AppKit popover showing this view's React children, pointing up from this view's top edge, or
+// down from its bottom edge when `below`.
 // AppKit presents and animates it, closes it when the person clicks elsewhere or presses Escape,
 // and the view then reports `onClose`.
 // React Native macOS 0.81.9 has no popover; remove this view when it offers one.
 @interface UnwiredPopoverView : RCTView <NSPopoverDelegate>
 @property (nonatomic) BOOL shown;
+@property (nonatomic) BOOL below;
 @property (nonatomic) CGFloat contentWidth;
 @property (nonatomic) CGFloat contentHeight;
 @property (nonatomic, copy) RCTDirectEventBlock onClose;
@@ -65,7 +67,9 @@
     [_popover close];
   } else if (!_popover.shown && !_closing) {
     // React Native's views are flipped, so their top edge is the minimum Y.
-    [_popover showRelativeToRect:self.bounds ofView:self preferredEdge:NSRectEdgeMinY];
+    [_popover showRelativeToRect:self.bounds
+                          ofView:self
+                   preferredEdge:self.below ? NSRectEdgeMaxY : NSRectEdgeMinY];
   }
 }
 - (void)popoverDidClose:(NSNotification *)notification
@@ -88,6 +92,7 @@
 @implementation UnwiredPopoverManager
 RCT_EXPORT_MODULE(UnwiredPopover)
 RCT_EXPORT_VIEW_PROPERTY(shown, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(below, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(contentWidth, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(contentHeight, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(onClose, RCTDirectEventBlock)

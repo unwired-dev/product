@@ -38,6 +38,7 @@ import {
   imageCharacter,
   imagesOf,
   insertImage,
+  linkAt,
   marksAt,
   plainText,
   previewOf,
@@ -46,6 +47,7 @@ import {
   SemanticDocumentSchema,
   replaceSelection,
   setBlockKind,
+  setLink,
   toggled,
   toggleMark,
   undo,
@@ -366,7 +368,7 @@ describe('editing a Semantic Message Document', () => {
     ]);
   });
 
-  it('keeps block alignment through typing, line breaks, marks, block kinds, images and replacements', () => {
+  it('keeps block alignment through typing, line breaks, marks, block kinds, images, links and replacements', () => {
     expect.hasAssertions();
     const aligned: SemanticDocument = [
       { kind: 'paragraph', spans: [{ text: 'Dear Sam' }], align: 'right' },
@@ -436,6 +438,12 @@ describe('editing a Semantic Message Document', () => {
     ).document;
     expect(alignments(withPicture)).toStrictEqual(['right', 'center']);
     expect(withoutImage(withPicture, image.id)).toStrictEqual(aligned);
+    const linked = setLink(
+      aligned,
+      { start: 5, end: 8, text: 'Sam', href: 'mailto:sam@example.invalid' },
+      { text: 'Sam', href: 'mailto:sam@example.invalid' },
+    ).document;
+    expect(alignments(linked)).toStrictEqual(['right', 'center']);
     // A replacement across blocks keeps each block's alignment.
     expect(
       replaceSelection(aligned, { start: 0, end: 15 }, 'Hi Sam\nCheers')
@@ -447,6 +455,80 @@ describe('editing a Semantic Message Document', () => {
     const history = record(historyOf(aligned), typedAligned);
     expect(undo(history).present).toBe(aligned);
     expect(redo(undo(history)).present).toBe(typedAligned);
+  });
+
+  it('finds the link at a caret or selection and edits or removes it as one step', () => {
+    expect.hasAssertions();
+    const link = 'https://example.invalid/lease';
+    // The second line is a list item, so its marker shifts editor offsets by three.
+    const document: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Notes' }] },
+      {
+        kind: 'numbered',
+        spans: [
+          { text: 'Sign ' },
+          { text: 'the ', link },
+          { text: 'lease', marks: ['bold'], link },
+          { text: ' today' },
+        ],
+      },
+    ];
+    const found = { start: 14, end: 23, text: 'the lease', href: link };
+    expect(linkAt(document, { start: 17, end: 17 })).toStrictEqual(found);
+    expect(linkAt(document, { start: 14, end: 23 })).toStrictEqual(found);
+    // A caret at either end touches the link; a selection reaching past it does not.
+    expect(linkAt(document, { start: 14, end: 14 })).toStrictEqual(found);
+    expect(linkAt(document, { start: 23, end: 23 })).toStrictEqual(found);
+    expect(linkAt(document, { start: 13, end: 13 })).toBeUndefined();
+    expect(linkAt(document, { start: 12, end: 18 })).toBeUndefined();
+    expect(linkAt(document, { start: 3, end: 3 })).toBeUndefined();
+
+    for (const text of [
+      '',
+      'line\nbreak',
+      `image${imageCharacter}placeholder`,
+    ]) {
+      expect(setLink(document, found, { text, href: link }).document).toBe(
+        document,
+      );
+    }
+
+    // Changing only the destination keeps the text's marks.
+    const moved = setLink(document, found, {
+      text: 'the lease',
+      href: `${link}-v3`,
+    });
+    expect(moved.document[1]?.spans).toStrictEqual([
+      { text: 'Sign ' },
+      { text: 'the ', link: `${link}-v3` },
+      { text: 'lease', marks: ['bold'], link: `${link}-v3` },
+      { text: ' today' },
+    ]);
+    expect(moved.document[0]).toBe(document[0]);
+    // New text takes the marks of the link's start, and the caret follows it.
+    const renamed = setLink(document, found, {
+      text: 'revised lease',
+      href: link,
+    });
+    expect(renamed.document[1]?.spans).toStrictEqual([
+      { text: 'Sign ' },
+      { text: 'revised lease', link },
+      { text: ' today' },
+    ]);
+    expect(renamed.selection).toStrictEqual({ start: 27, end: 27 });
+    // Removing the link keeps its text and marks, merged with the text around it.
+    expect(
+      setLink(document, found, { text: 'the lease' }).document[1]?.spans,
+    ).toStrictEqual([
+      { text: 'Sign the ' },
+      { text: 'lease', marks: ['bold'] },
+      { text: ' today' },
+    ]);
+
+    // Each change is one Undo step.
+    const history = record(historyOf(document), renamed.document);
+    expect(undo(history).present).toBe(document);
+    expect(redo(undo(history)).present).toBe(renamed.document);
   });
 
   it('undoes typing a word at a time and redoes it', () => {

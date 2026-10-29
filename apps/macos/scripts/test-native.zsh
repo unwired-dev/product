@@ -48,7 +48,7 @@ journey=${2:-testIndependentWindowsCloseReopenAndQuit}
 # runs five accessibility audits.
 allowance=120
 [[ "$journey" == testWarmCachePerformance ]] && allowance=1200
-[[ "$journey" == testKeyboardAndAccessibility ]] && allowance=600
+[[ "$journey" == testKeyboardAndAccessibility* ]] && allowance=600
 "$repo_root/scripts/record-host-load.sh" "$UNWIRED_TEST_ARTIFACTS/host-load.txt" "before $journey"
 test_exit=0
 xcodebuild test "-only-testing:WindowProbe/WindowTests/$journey" -project WindowProbe.xcodeproj -scheme WindowProbe \

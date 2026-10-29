@@ -19,6 +19,7 @@ import type {
 import type {
   Asset,
   BlockKind,
+  Link,
   Mark,
   Selection,
   SemanticDocument,
@@ -66,6 +67,7 @@ import {
   historyOf,
   imageCharacter,
   imagesOf,
+  linkAt,
   marksAt,
   clip,
   previewOf,
@@ -74,6 +76,7 @@ import {
   replaceSelection,
   selectedText,
   setBlockKind,
+  setLink,
   toggled,
   toggleMark,
   undo,
@@ -111,7 +114,12 @@ import {
 
 import { Action } from './action.tsx';
 import { useCloseGuard } from './command-palette.tsx';
-import { ComposerActions, FormatBar, PopUp } from './composer-controls.tsx';
+import {
+  ComposerActions,
+  FormatBar,
+  LinkEditor,
+  PopUp,
+} from './composer-controls.tsx';
 import {
   Notice as Banner,
   Button,
@@ -323,8 +331,9 @@ const decorations = {
   both: 'underline line-through',
 } as const;
 
-const markStyle = (marks: readonly Mark[] = []): TextStyle => {
-  const underline = marks.includes('underline');
+// Linked text shows underlined, as the Link Editor frames draw it.
+const markStyle = (marks: readonly Mark[] = [], linked = false): TextStyle => {
+  const underline = linked || marks.includes('underline');
   const strikethrough = marks.includes('strikethrough');
   let decoration: (typeof decorations)[keyof typeof decorations] | undefined =
     undefined;
@@ -1793,6 +1802,17 @@ function Editor({
     selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
   };
+  const editLink = (link: Link, text: string, href?: string) => {
+    if (sendingNow.current) {
+      return;
+    }
+    const latest = authored.current;
+    const result = setLink(latest.body, link, { text, href });
+    change({ ...latest, body: result.document });
+    placeTyping(undefined);
+    selectionNow.current = result.selection ?? selectionNow.current;
+    setPlaced(result.selection);
+  };
   // Entries still being typed become recipients as one undoable correction; invalid text stays
   // in its field. Returns the finished Draft.
   const finishEntries = useCallback(() => {
@@ -2083,6 +2103,14 @@ function Editor({
           fromControl();
           format(mark);
         }}>
+        <LinkEditor
+          disabled={sending}
+          link={linkAt(draft.body, selection)}
+          onChange={(link, text, href) => {
+            fromControl();
+            editLink(link, text, href);
+          }}
+        />
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />
         <ToolbarButton
           disabled={lockedUnless(history.past.length > 0)}
@@ -2254,7 +2282,7 @@ function Editor({
                 <Text
                   // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
                   key={at}
-                  style={markStyle(span.marks)}>
+                  style={markStyle(span.marks, 'link' in span)}>
                   {span.text}
                 </Text>
               ))}
