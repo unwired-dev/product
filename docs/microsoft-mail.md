@@ -121,8 +121,14 @@ page is saved as its own encrypted history segment beside the mailbox document,
 with the receipt time the next page lists below and the messages already listed at
 that time, so relaunching or an interrupted page continues where the last saved
 page ended without listing earlier pages again. Messages that share one receipt
-time are listed once each across pages. The opened-folder bounds never evict
-downloaded history.
+time are listed once each across pages; within thousands of them, the pass also
+saves Graph's continuation of the listing, so each step reads one new page. The
+opened-folder bounds never evict downloaded history.
+
+When Move to lists only part of the mailbox's folders, the pass first walks every
+folder list page, nested folders included, saving its place after each page. Until
+that walk completes, the progress names no total and is not complete, and no
+folder leaves the history.
 
 Before a folder's first page, the device starts a Graph delta round for the folder
 and saves its link, so changes made while the pass runs are not lost. After each

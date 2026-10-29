@@ -11,7 +11,11 @@ import {
   GraphId,
   SynchronizationTime,
 } from './mailbox-message.ts';
-import { GraphDeltaLink } from './microsoft-graph.ts';
+import {
+  GraphDeltaLink,
+  GraphFoldersLink,
+  GraphInboxLink,
+} from './microsoft-graph.ts';
 
 export type { GmailMessage } from './mailbox-message.ts';
 
@@ -94,7 +98,8 @@ export type MailboxHistory = typeof MailboxHistorySchema.Type;
 // One Microsoft folder's Historical Metadata Backfill. A delta round from the folder's first page
 // runs before its pass, so the link that round ends with names every change the pass may miss. The
 // pass lists the folder newest first, each page below `pageToken`, the oldest receipt listed so
-// far, skipping the `edge` messages already listed at that receipt.
+// far, skipping the `edge` messages already listed at that receipt. While more messages share
+// that receipt than one step lists, `scan` continues the listing where the last step stopped.
 const GraphFolderHistorySchema = Schema.Struct({
   // A well-known folder's role label, such as INBOX, or a folder ID.
   folder: GraphId,
@@ -103,10 +108,28 @@ const GraphFolderHistorySchema = Schema.Struct({
   // Graph's link for the folder's later changes, once the round ended.
   link: Schema.optionalKey(GraphDeltaLink),
   edge: Schema.optionalKey(Schema.Array(GraphId)),
+  scan: Schema.optionalKey(GraphInboxLink),
   history: MailboxHistorySchema,
 });
 export type GraphFolderHistory = typeof GraphFolderHistorySchema.Type;
-const GraphHistorySchema = Schema.Array(GraphFolderHistorySchema);
+// The folders of a mailbox with more than Move to lists, walked once per backfill run a folder
+// list page at a time: `found` names those the last complete walk found, and `walk` the lists the
+// current walk has still to read and the folders it found so far.
+const GraphInventorySchema = Schema.Struct({
+  found: Schema.optionalKey(Schema.Array(GraphId)),
+  walk: Schema.optionalKey(
+    Schema.Struct({
+      pending: Schema.Array(GraphFoldersLink),
+      seen: Schema.Array(GraphId),
+    }),
+  ),
+});
+export type GraphInventory = typeof GraphInventorySchema.Type;
+const GraphHistorySchema = Schema.Struct({
+  folders: Schema.Array(GraphFolderHistorySchema),
+  inventory: Schema.optionalKey(GraphInventorySchema),
+});
+export type GraphHistory = typeof GraphHistorySchema.Type;
 
 // A history segment's messages, in listing order.
 const SegmentSchema = Schema.fromJsonString(Schema.Array(GmailMessageSchema));

@@ -1,15 +1,16 @@
-import type * as Schema from 'effect/Schema';
-
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
+import * as Schema from 'effect/Schema';
 import * as Struct from 'effect/Struct';
 
 import type { GmailLabel } from './gmail-actions.ts';
 import type {
   GmailMessage,
   GraphFolderHistory,
+  GraphHistory,
+  GraphInventory,
   MailboxDocument,
   MailboxScope,
   PendingAction,
@@ -72,6 +73,8 @@ import {
   graphSentCopies,
   graphUnavailableActions,
   graphWellKnownFolder,
+  GraphFoldersLink,
+  GraphInboxLink,
   isGraphSearchLink,
   listedMessage,
   wellKnownFolders,
@@ -157,6 +160,18 @@ const isGraphCheckpoint = (
   checkpoint: MailboxDocument['checkpoint'],
 ): checkpoint is GraphCheckpoint =>
   checkpoint.kind === 'graph-listing' || checkpoint.kind === 'graph-current';
+
+// A continuation of a history listing, as Graph returns it.
+const listingLink = (link: string) =>
+  Schema.is(GraphInboxLink)(link)
+    ? Effect.succeed(link)
+    : Effect.fail(
+        new SyncFailure({
+          kind: 'retry',
+          cause: 'listing',
+          diagnostic: 'listing page without link',
+        }),
+      );
 
 // Graph's synchronization and body reads share the store's cache and presentation boundaries.
 export function createGraphReader(native: NativeGraphMailbox) {
@@ -735,26 +750,34 @@ export function createGraphReader(native: NativeGraphMailbox) {
         : { ...entry, round: link };
     }
     const changed = yield* readChanged(scope, entry.folder, page.value.value);
+    // A change among the messages listed at the pass's oldest receipt may shift the continuation,
+    // so the pass lists from that receipt again.
+    const edge = new Set(entry.edge);
     return {
-      ...entry,
+      ...(changed.some(([id]) => edge.has(id))
+        ? Struct.omit(entry, ['scan'])
+        : entry),
       link,
       history: recorded(entry.history, changed),
     };
   });
 
-  // The pass's next page below its oldest listed receipt, without the messages already listed
-  // there. A page of only those follows its continuation.
+  // The pass's next page from its oldest listed receipt, or its continuation, without the messages
+  // already listed at that receipt. A page of only those follows its continuation, and a step that
+  // found nothing else saves where it stopped for the next.
   const historyPage = Effect.fnUntraced(function* (
     scope: MailboxScope,
     entry: GraphFolderHistory,
     name: string,
   ) {
     const edge = new Set(entry.edge);
-    let url = graphMessages(
-      entry.folder,
-      historyPageSize,
-      entry.history.current.pageToken,
-    );
+    let url =
+      entry.scan ??
+      graphMessages(
+        entry.folder,
+        historyPageSize,
+        entry.history.current.pageToken,
+      );
     for (let pages = 0; pages < historyPageSize; pages += 1) {
       const page = yield* graphGet(scope)(url, decodeGraphInbox);
       const messages = page.value
@@ -765,18 +788,63 @@ export function createGraphReader(native: NativeGraphMailbox) {
         return {
           entry: listedFolder(entry, messages, {
             name,
-            end: next === undefined,
+            next: next === undefined ? undefined : yield* listingLink(next),
           }),
           messages,
         };
       }
       url = next;
     }
-    return yield* new SyncFailure({
-      kind: 'retry',
-      cause: 'listing',
-      diagnostic: 'history page limit',
-    });
+    return {
+      entry: { ...entry, scan: yield* listingLink(url) },
+      messages: [],
+    };
+  });
+
+  // Names the backfill run whose folder walk completed, beside the folder IDs in `done`; no folder
+  // ID holds `#`.
+  const walked = '#folders';
+  // One folder list page of the inventory's walk, which begins anew once per backfill run. Its own
+  // folders' lists and its continuation join the walk; a folder gone since its parent was listed
+  // has none. The well-known folders stay out.
+  const inventoryStep = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    inventory: GraphInventory | undefined,
+    done: Set<string>,
+  ) {
+    const [url = graphFolders, ...pending] = inventory?.walk?.pending ?? [];
+    const roles = yield* folderRoles(scope);
+    const page = yield* graphGet(scope)(url, decodeGraphFolders).pipe(
+      Effect.catchTag('GmailNotFound', () =>
+        Effect.succeed<Effect.Success<ReturnType<typeof decodeGraphFolders>>>({
+          value: [],
+        }),
+      ),
+    );
+    const next = page['@odata.nextLink'];
+    const lists = [
+      ...pending,
+      ...(next === undefined ? [] : [next]),
+      ...page.value.flatMap(({ id, childFolderCount = 0 }) =>
+        childFolderCount > 0 ? [graphChildFolders(id)] : [],
+      ),
+    ];
+    if (!lists.every(Schema.is(GraphFoldersLink))) {
+      return yield* new SyncFailure({
+        kind: 'retry',
+        cause: 'listing',
+        diagnostic: 'folder page without link',
+      });
+    }
+    const seen = [
+      ...(inventory?.walk?.seen ?? []),
+      ...page.value.flatMap(({ id }) => (roles.has(id) ? [] : [id])),
+    ];
+    if (lists.length === 0) {
+      done.add(walked);
+      return { found: seen };
+    }
+    return { ...inventory, walk: { pending: lists, seen } };
   });
 
   // The first of the folders the history lacks, with its total; a folder Graph no longer has is
@@ -837,16 +905,35 @@ export function createGraphReader(native: NativeGraphMailbox) {
   ): Effect.fn.Return<
     Option.Option<
       Readonly<{
-        folders: readonly GraphFolderHistory[];
+        history: GraphHistory;
         written: ReadonlyArray<readonly [string, readonly GmailMessage[]]>;
       }>
     >,
     E | SyncFailure | GmailNotFound
   > {
-    const wanted = historyFolders(document);
-    const folders = (document.graphHistory ?? []).filter(({ folder }) =>
-      wanted.includes(folder),
+    const saved = document.graphHistory;
+    const { wanted, known: complete } = historyFolders(document);
+    // A folder leaves the history once the mailbox's folders are known without it.
+    const folders = (saved?.folders ?? []).filter(
+      ({ folder }) => !complete || wanted.includes(folder),
     );
+    const { inventory } = saved ?? {};
+    const updated = (next: readonly GraphFolderHistory[]) => ({
+      folders: next,
+      ...(inventory === undefined ? {} : { inventory }),
+    });
+    if (
+      document.labelsLimited === true &&
+      (inventory?.walk !== undefined || !done.has(walked))
+    ) {
+      return Option.some({
+        history: {
+          folders,
+          inventory: yield* inventoryStep(scope, inventory, done),
+        },
+        written: [],
+      });
+    }
     const listed = new Set(folders.map(({ folder }) => folder));
     const added = yield* addedFolder(
       scope,
@@ -854,7 +941,10 @@ export function createGraphReader(native: NativeGraphMailbox) {
       done,
     );
     if (Option.isSome(added)) {
-      return Option.some({ folders: [...folders, added.value], written: [] });
+      return Option.some({
+        history: updated([...folders, added.value]),
+        written: [],
+      });
     }
     // A folder Graph removed leaves the history.
     const replaced = (
@@ -868,7 +958,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
     if (folding !== undefined) {
       const step = yield* foldStep(folding.history, read, newName);
       return Option.some({
-        folders: replaced(folding, { ...folding, history: step.history }),
+        history: updated(
+          replaced(folding, { ...folding, history: step.history }),
+        ),
         written: step.written,
       });
     }
@@ -877,15 +969,18 @@ export function createGraphReader(native: NativeGraphMailbox) {
         ({ folder, link }) => link !== undefined && !done.has(folder),
       ) ?? folders.find((entry) => entry.history.current.complete !== true);
     if (target === undefined) {
-      return folders.length === (document.graphHistory ?? []).length
+      return folders.length === (saved?.folders ?? []).length
         ? Option.none()
-        : Option.some({ folders, written: [] });
+        : Option.some({ history: updated(folders), written: [] });
     }
     const { next, written } = yield* folderStep(scope, target, {
       done,
       newName,
     });
-    return Option.some({ folders: replaced(target, next), written });
+    return Option.some({
+      history: updated(replaced(target, next)),
+      written,
+    });
   });
 
   return {

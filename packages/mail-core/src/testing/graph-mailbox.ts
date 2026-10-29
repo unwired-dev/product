@@ -98,6 +98,7 @@ export function createSyntheticGraph({
   address = 'casey@example.invalid',
   messages: count = 0,
   pageSize = 2,
+  folderPageSize = Number.POSITIVE_INFINITY,
   inboxName = 'Inbox',
   assets,
 }: {
@@ -105,6 +106,8 @@ export function createSyntheticGraph({
   readonly messages?: number;
   // Items per list and delta page, as Graph's odata.maxpagesize preference allows.
   readonly pageSize?: number;
+  // Folders per folder list page, every folder in one unless given.
+  readonly folderPageSize?: number;
   // The provider's localized display name, independent of the app's language.
   readonly inboxName?: string;
   // A Draft Asset's verified bytes as native code reads them; undefined when they no longer verify.
@@ -421,7 +424,16 @@ export function createSyntheticGraph({
     }
     const { name, nested } = path.groups ?? {};
     if (name === undefined || nested !== undefined) {
-      return respond({ value: children(name) });
+      const listing = children(name);
+      const offset = Number(url.searchParams.get('$skip') ?? 0);
+      const next = new URL(url);
+      next.searchParams.set('$skip', String(offset + folderPageSize));
+      return respond({
+        value: listing.slice(offset, offset + folderPageSize),
+        ...(offset + folderPageSize < listing.length
+          ? { '@odata.nextLink': next.toString() }
+          : {}),
+      });
     }
     const folder = pathFolder(name);
     return folder === undefined

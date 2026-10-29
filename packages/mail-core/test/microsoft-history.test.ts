@@ -9,8 +9,13 @@ import { withNativeHistory } from './native-history-store.ts';
 type Graph = ReturnType<typeof createSyntheticGraph>;
 type Inbox = ReturnType<typeof createGmailInbox>;
 
-const createGraph = () =>
-  withNativeHistory(createSyntheticGraph({ pageSize: 50 }));
+const createGraph = (folderPageSize?: number) =>
+  withNativeHistory(
+    createSyntheticGraph({
+      pageSize: 50,
+      ...(folderPageSize === undefined ? {} : { folderPageSize }),
+    }),
+  );
 
 // Stop background work before the signed storage process's earlier-registered teardown closes it.
 const createInbox = (native: Graph['native']) => {
@@ -50,29 +55,33 @@ const delivered = (graph: Graph, count: number, folder: string) =>
 const savedHistory = Schema.decodeUnknownSync(
   Schema.fromJsonString(
     Schema.Struct({
-      graphHistory: Schema.Array(
-        Schema.Struct({
-          folder: Schema.String,
-          history: Schema.Struct({
-            current: Schema.Struct({
-              segments: Schema.Array(Schema.Struct({ name: Schema.String })),
-            }),
-            previous: Schema.optionalKey(
-              Schema.Struct({
+      graphHistory: Schema.Struct({
+        folders: Schema.Array(
+          Schema.Struct({
+            folder: Schema.String,
+            history: Schema.Struct({
+              current: Schema.Struct({
                 segments: Schema.Array(Schema.Struct({ name: Schema.String })),
               }),
-            ),
-            changes: Schema.Array(
-              Schema.Struct({
-                id: Schema.String,
-                message: Schema.optionalKey(
-                  Schema.Struct({ id: Schema.String }),
-                ),
-              }),
-            ),
+              previous: Schema.optionalKey(
+                Schema.Struct({
+                  segments: Schema.Array(
+                    Schema.Struct({ name: Schema.String }),
+                  ),
+                }),
+              ),
+              changes: Schema.Array(
+                Schema.Struct({
+                  id: Schema.String,
+                  message: Schema.optionalKey(
+                    Schema.Struct({ id: Schema.String }),
+                  ),
+                }),
+              ),
+            }),
           }),
-        }),
-      ),
+        ),
+      }),
     }),
   ),
 );
@@ -98,7 +107,7 @@ const downloaded = async (graph: Graph) => {
   const scope = await graph.native.openMailbox();
   const { graphHistory } = savedHistory(scope.document ?? '');
   const folders = new Map<string, string[]>();
-  for (const { folder, history } of graphHistory) {
+  for (const { folder, history } of graphHistory.folders) {
     const listed: string[] = [];
     for (const { name } of (history.previous ?? history.current).segments) {
       const { document } = await graph.native.openMailboxSegment(scope, name);
@@ -132,6 +141,13 @@ const historyListings = (graph: Graph) =>
         `${pathname.split('/').at(-2)} ${searchParams.get('$filter') ?? ''}`,
     );
 
+// How many Inbox pages of 50 Graph was asked for, including continuations.
+const inboxPages = (graph: Graph) =>
+  graph.requests.filter(
+    ({ pathname, searchParams }) =>
+      pathname.endsWith('/inbox/messages') && searchParams.get('$top') === '50',
+  ).length;
+
 const sorted = (ids: readonly string[]) => ids.toSorted();
 
 // Graph answers history listings after the first `pages` with the status `refusal()` gives, as
@@ -146,7 +162,7 @@ const refusingAfter = (
     ...graph.native,
     graphRequest: (url, owner) => {
       const status = refusal();
-      if (url.includes('$top=50') && status !== undefined) {
+      if (/(?:\$|%24)top=50/u.test(url) && status !== undefined) {
         listed += 1;
         if (listed > pages) {
           return Promise.resolve({ status, body: '{}' });
@@ -156,6 +172,21 @@ const refusingAfter = (
     },
   };
 };
+
+// Graph answers each continuation of a folder list, which Move to never reads, with the status
+// `refusal()` gives.
+const refusingFolderPages = (
+  graph: Graph,
+  refusal: () => number | undefined,
+): Graph['native'] => ({
+  ...graph.native,
+  graphRequest: (url, owner) => {
+    const status = refusal();
+    return status !== undefined && /mailFolders\?.*(?:\$|%24)skip=/u.test(url)
+      ? Promise.resolve({ status, body: '{}' })
+      : graph.native.graphRequest(url, owner);
+  },
+});
 
 describe('microsoft historical metadata backfill', () => {
   it('downloads each folder after the Inbox is usable and reports progress', async () => {
@@ -197,6 +228,70 @@ describe('microsoft historical metadata backfill', () => {
     expect(progress(inbox)?.downloaded).toBe(120);
     const folders = await downloaded(graph);
     expect(folders.get('INBOX')).toStrictEqual(sorted(ids));
+  });
+
+  it('lists a receipt shared by thousands of messages once each, across a relaunch', async () => {
+    expect.hasAssertions();
+    const graph = createGraph();
+    const ids = Array.from({ length: 2601 }, (_, index) =>
+      graph.deliver({ subject: `Batch ${index}`, at: Date.UTC(2026, 8, 1) }),
+    );
+    let refusal: number | undefined = 503;
+    const interrupted = createInbox(refusingAfter(graph, 30, () => refusal));
+    await interrupted.load();
+    await vi.waitFor(() => {
+      expect(progress(interrupted)?.paused).toBe(true);
+    });
+    interrupted.forget();
+    refusal = undefined;
+    const listedBefore = inboxPages(graph);
+
+    const relaunched = createInbox(graph.native);
+    await relaunched.load();
+    await backfilled(relaunched);
+    expect(progress(relaunched)?.downloaded).toBe(2601);
+    // Each step continues where the last page within the shared receipt ended.
+    expect(inboxPages(graph) - listedBefore).toBeLessThan(30);
+    const folders = await downloaded(graph);
+    expect(folders.get('INBOX')).toStrictEqual(sorted(ids));
+  });
+
+  it('downloads folders beyond those Move to lists, across a relaunch', async () => {
+    expect.hasAssertions();
+    const graph = createGraph(100);
+    const folders = Array.from({ length: 260 }, (_, index) =>
+      graph.createFolder(`Folder ${String(index).padStart(3, '0')}`),
+    );
+    // Sorted after every other folder, on the last page of the folder list.
+    const last = graph.createFolder('Folder 260');
+    const nested = graph.createFolder('Nested', folders[150]);
+    const lastIds = delivered(graph, 3, last);
+    const nestedIds = delivered(graph, 2, nested);
+    delivered(graph, 4, 'inbox');
+    let refusal: number | undefined = 503;
+    const interrupted = createInbox(refusingFolderPages(graph, () => refusal));
+    await interrupted.load();
+    // Until every folder is found, the download claims no total and is not complete.
+    await vi.waitFor(() => {
+      expect(progress(interrupted)?.paused).toBe(true);
+    });
+    expect(progress(interrupted)).not.toHaveProperty('total');
+    interrupted.forget();
+    refusal = undefined;
+
+    const relaunched = createInbox(graph.native);
+    await relaunched.load();
+    await backfilled(relaunched);
+    expect(progress(relaunched)).toStrictEqual({
+      downloaded: 9,
+      total: 9,
+      complete: true,
+    });
+    // A folder Move to does not list keeps its history through later synchronizations.
+    await relaunched.load();
+    const saved = await downloaded(graph);
+    expect(saved.get(last)).toStrictEqual(sorted(lastIds));
+    expect(saved.get(nested)).toStrictEqual(sorted(nestedIds));
   });
 
   it('resumes after relaunch without rewinding or listing a page twice', async () => {

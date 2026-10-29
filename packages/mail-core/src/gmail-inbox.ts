@@ -2076,7 +2076,7 @@ export function createGmailInbox(
     const downloaded =
       document?.graphHistory === undefined
         ? document?.history && progress(document.history)
-        : graphProgress(document.graphHistory);
+        : graphProgress(document);
     return downloaded === undefined
       ? {}
       : {
@@ -3596,15 +3596,15 @@ export function createGmailInbox(
       if (Option.isNone(step)) {
         return false;
       }
-      const { folders, written } = step.value;
+      const { history, written } = step.value;
       yield* commitOver(
         cache,
         document,
-        { ...document, graphHistory: folders },
+        { ...document, graphHistory: history },
         {
           history: {
             segments: yield* encodedSegments(written),
-            keep: graphSegmentNames(folders),
+            keep: graphSegmentNames(history),
           },
         },
       );

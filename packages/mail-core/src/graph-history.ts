@@ -4,6 +4,7 @@ import * as Struct from 'effect/Struct';
 import type {
   GmailMessage,
   GraphFolderHistory,
+  GraphHistory,
   MailboxDocument,
 } from './mailbox-document.ts';
 
@@ -18,13 +19,27 @@ import { newestFirst } from './mailbox-document.ts';
 export const historyPage = 50;
 
 // Inbox, Sent Items and Archive, then the mailbox's own folders. Deleted Items, Junk Email, Drafts
-// and Outbox stay out, as Trash and Spam stay out of Gmail's All Mail.
-export const historyFolders = (document: MailboxDocument) => [
-  'INBOX',
-  'SENT',
-  'ARCHIVE',
-  ...(document.labels ?? []).map(({ id }) => id),
-];
+// and Outbox stay out, as Trash and Spam stay out of Gmail's All Mail. Move to lists every own
+// folder unless the mailbox has more than it lists; then the walked inventory names them too, and
+// they are `known` once a walk completed.
+export const historyFolders = (document: MailboxDocument) => {
+  const limited = document.labelsLimited === true;
+  const inventory = document.graphHistory?.inventory;
+  return {
+    wanted: [
+      ...new Set([
+        'INBOX',
+        'SENT',
+        'ARCHIVE',
+        ...(document.labels ?? []).map(({ id }) => id),
+        ...(limited
+          ? [...(inventory?.found ?? []), ...(inventory?.walk?.seen ?? [])]
+          : []),
+      ]),
+    ],
+    known: !limited || inventory?.found !== undefined,
+  };
+};
 
 export const newFolder = (folder: string, total: number) => ({
   folder,
@@ -42,12 +57,14 @@ export const restartedFolder = (
 
 // Adds one listed page as the pass's next segment; the page that ends the folder completes it.
 // Messages listed at the page's oldest receipt are skipped by the next page, which lists from that
-// receipt again so equal receipts across pages are neither lost nor repeated.
+// receipt again so equal receipts across pages are neither lost nor repeated. While a page stays at
+// the receipt it listed from, the next one follows Graph's continuation `next` instead.
 export const listedFolder = (
   entry: GraphFolderHistory,
   page: readonly GmailMessage[],
-  { name, end }: Readonly<{ name: string; end: boolean }>,
+  { name, next }: Readonly<{ name: string; next: string | undefined }>,
 ): GraphFolderHistory => {
+  const end = next === undefined;
   const messages = Arr.sort(page, newestFirst);
   const oldest = messages.at(-1)?.receivedAt;
   const until = entry.history.current.pageToken;
@@ -66,15 +83,21 @@ export const listedFolder = (
     },
   );
   return {
-    ...Struct.omit(entry, ['edge']),
+    ...Struct.omit(entry, ['edge', 'scan']),
     ...(end ? {} : { edge: oldest === undefined ? (entry.edge ?? []) : edge }),
+    ...(next !== undefined && (oldest === undefined || oldest === until)
+      ? { scan: next }
+      : {}),
     history,
   };
 };
 
-// Progress across folders. A folder whose pass after an expired link is still listing counts its
-// last complete pass, so downloaded history never rewinds.
-export const graphProgress = (folders: readonly GraphFolderHistory[]) => {
+// Progress across folders, unknown in total and incomplete until the mailbox's folders are known. A
+// folder whose pass after an expired link is still listing counts its last complete pass, so
+// downloaded history never rewinds.
+export const graphProgress = (document: MailboxDocument) => {
+  const { known } = historyFolders(document);
+  const folders = document.graphHistory?.folders ?? [];
   const passes = folders.map(({ history }) => shownPass(history));
   const totals = folders.map(({ history }) => history.total);
   return {
@@ -83,12 +106,12 @@ export const graphProgress = (folders: readonly GraphFolderHistory[]) => {
         segments.reduce((count, segment) => count + segment.count, sum),
       0,
     ),
-    ...(totals.every((total) => total !== undefined)
+    ...(known && totals.every((total) => total !== undefined)
       ? { total: totals.reduce((sum, total) => sum + total, 0) }
       : {}),
-    complete: passes.every(({ complete }) => complete === true),
+    complete: known && passes.every(({ complete }) => complete === true),
   };
 };
 
-export const graphSegmentNames = (folders: readonly GraphFolderHistory[]) =>
+export const graphSegmentNames = ({ folders }: GraphHistory) =>
   folders.flatMap(({ history }) => segmentNames(history));
