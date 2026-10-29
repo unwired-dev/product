@@ -503,6 +503,7 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 @property (nonatomic, weak) UINavigationController *navigation;
 @property (nonatomic, weak) UIViewController *screen;
 @property (nonatomic, strong) UISearchController *search;
+@property (nonatomic, strong) UISwipeGestureRecognizer *swipe;
 @property (nonatomic, copy) NSString *text;
 @property (nonatomic, copy) NSString *placeholder;
 @property (nonatomic, copy) NSString *searchLabel;
@@ -543,10 +544,8 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
     _composeEnabled = YES;
     // Search hides the navigation bar's title, so the field takes its downward swipe to the Command
     // Palette.
-    UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self
-                                                                                 action:@selector(swipePalette)];
-    swipe.direction = UISwipeGestureRecognizerDirectionDown;
-    [_search.searchBar.searchTextField addGestureRecognizer:swipe];
+    _swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swipePalette)];
+    _swipe.direction = UISwipeGestureRecognizerDirectionDown;
   }
   return self;
 }
@@ -714,6 +713,13 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 - (void)willPresentSearchController:(UISearchController *)searchController
 {
   if (self.onSearchFocus) self.onSearchFocus(@{});
+}
+
+- (void)didPresentSearchController:(UISearchController *)searchController
+{
+  // The toolbar hosts the field anew when search opens, dropping recognizers added before.
+  UITextField *field = searchController.searchBar.searchTextField;
+  if (![field.gestureRecognizers containsObject:self.swipe]) [field addGestureRecognizer:self.swipe];
 }
 
 - (void)didDismissSearchController:(UISearchController *)searchController
