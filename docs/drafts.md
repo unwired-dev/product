@@ -202,6 +202,17 @@ and `background-color` styles; plain text is unchanged. Composers do not yet sho
 or set either, and no Draft holds one until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
+Text can also carry a font family and a font size. The family is a CSS family
+list, such as `"Helvetica Neue", Arial, sans-serif`: names separated by a comma
+and a space, each bare or in double quotes. The size is a positive number of CSS
+pixels. Text without them shows in the default font, and a Draft holding any
+other value is not saved or synchronized. Typing, replacing and editing keep them
+as they keep color, and text in another family or size stays separate. Sent mail
+sets them with inline `font-family` and `font-size` styles in `px`, links
+included; plain text is unchanged. Composers do not yet show or set fonts, and no
+Draft holds one until Drafts from other mail clients open
+([#1267](https://github.com/unwired-dev/product/issues/1267)).
+
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
 

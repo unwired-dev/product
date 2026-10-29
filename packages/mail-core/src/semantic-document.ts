@@ -38,6 +38,18 @@ export const ColorSchema = Schema.String.check(
   Schema.isPattern(/^#[\da-f]{6}$/u),
 );
 
+// Text without a font family or size shows in the default font. A family is a CSS family list:
+// bare names, or double-quoted names without quotes, backslashes or control characters.
+const familyName = String.raw`(?:[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*|"[^"\\\p{Cc}]+")`;
+const FontSchema = Schema.String.check(
+  Schema.isPattern(new RegExp(`^${familyName}(?:, ${familyName})*$`, 'u')),
+);
+// In CSS pixels.
+const FontSizeSchema = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThan(0),
+);
+
 // The character an inline image occupies in the editor's text; typed text never contains it.
 export const imageCharacter = '\uFFFC';
 
@@ -91,6 +103,8 @@ const SpanSchema = Schema.Union([
     ),
     color: Schema.optionalKey(ColorSchema),
     background: Schema.optionalKey(ColorSchema),
+    font: Schema.optionalKey(FontSchema),
+    size: Schema.optionalKey(FontSizeSchema),
   }),
   // An inline image: one character of the text, carrying the image it shows.
   Schema.Struct({
@@ -125,21 +139,31 @@ const marksOf = (span: Span | undefined): readonly Mark[] => span?.marks ?? [];
 const linkOf = (span: Span | undefined) =>
   span !== undefined && 'link' in span ? span.link : undefined;
 
-// The text color and background of a span, as `spanOf` keeps them.
+// The text color, background, font family and size of a span, as `spanOf` keeps them.
 const paintOf = (span: Span | undefined) =>
   span === undefined || 'image' in span
     ? {}
-    : { color: span.color, background: span.background };
+    : {
+        color: span.color,
+        background: span.background,
+        font: span.font,
+        size: span.size,
+      };
 
 const samePaint = (left: Span, right: Span) => {
   const [one, other] = [paintOf(left), paintOf(right)];
-  return one.color === other.color && one.background === other.background;
+  return (
+    one.color === other.color &&
+    one.background === other.background &&
+    one.font === other.font &&
+    one.size === other.size
+  );
 };
 
 const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
-// A span of `text` with `marks`, keeping the image, or the link, color and background, of `from`.
+// A span of `text` with `marks`, keeping the image, or the link and paint, of `from`.
 const spanOf = (
   text: string,
   marks: readonly Mark[],
@@ -149,6 +173,8 @@ const spanOf = (
         link?: string | undefined;
         color?: string | undefined;
         background?: string | undefined;
+        font?: string | undefined;
+        size?: number | undefined;
       }> = {},
 ): Span => {
   const [first, ...rest] = marks;
@@ -163,6 +189,8 @@ const spanOf = (
     ...(from.link === undefined ? {} : { link: from.link }),
     ...(from.color === undefined ? {} : { color: from.color }),
     ...(from.background === undefined ? {} : { background: from.background }),
+    ...(from.font === undefined ? {} : { font: from.font }),
+    ...(from.size === undefined ? {} : { size: from.size }),
   };
 };
 
@@ -191,7 +219,7 @@ const sliceSpans = (spans: readonly Span[], from: number, to = Infinity) => {
   return sliced;
 };
 
-// Adjacent text spans with the same marks, link, color and background merge; an image is a span of its own.
+// Adjacent text spans with the same marks, link, colors and font merge; an image is a span of its own.
 const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
   const spans: Span[] = [];
   for (const span of parts.flat().filter(({ text }) => text !== '')) {
@@ -582,7 +610,7 @@ const shortcutAt = (
 
 // Applies the editor's new text to the document. The change is the span between the unchanged
 // start and end of the text; inserted characters take `marks`, or those of the text before them,
-// and that text's color and background.
+// and that text's colors and font.
 // Deleting into a list marker turns that item into a paragraph. `shown` is the text the editor
 // reported last, which it may still show instead of the document's display.
 export function applyText(
@@ -720,8 +748,7 @@ export function selectedText(
 }
 
 // Replaces the text a selection covers with `text` as one edit. List markers inside the
-// selection stay, and the inserted text takes the marks, color and background of the text before
-// it.
+// selection stay, and the inserted text takes the marks, colors and font of the text before it.
 export function replaceSelection(
   document: SemanticDocument,
   selection: Selection,
@@ -877,7 +904,7 @@ export function linkAt(
 }
 
 // Replaces a link's text and destination as one edit, or with no destination removes the link
-// and keeps its text. Unchanged text keeps its marks, colors and backgrounds; new text takes those
+// and keeps its text. Unchanged text keeps its marks, colors and fonts; new text takes those
 // of the link's start.
 export function setLink(
   document: SemanticDocument,
