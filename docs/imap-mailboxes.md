@@ -159,9 +159,12 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   Junk, Trash and mail found nowhere else. After the refreshed list is saved successfully, a folder it no
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
-  unavailable namespace discovery or more than 1,000 folders, preserves the prior
-  list and cached mail for a later retry. Case variants of the reserved `INBOX` name share that spelling;
-  other folder names stay as listed, including folders with an inbox role.
+  unavailable namespace discovery or more than 1,000 LIST responses, preserves the
+  prior list and cached mail for a later retry. Listing stops reading at the 1,001st
+  LIST response the server sends, across all namespaces and before duplicate names
+  merge, and closes that session. Case
+  variants of the reserved `INBOX` name share that spelling; other folder names
+  stay as listed, including folders with an inbox role.
 
 Freshness follows the hosts' application lifecycles. Every Inbox load, including
 foreground catch-up, the five-minute poll and each background opportunity iOS grants,
@@ -391,8 +394,8 @@ waits to send until the connection's folder list has been read.
 
 ## Engine and dependencies
 
-The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) 1.16.0. Its exact
-revisions and linked products are owned by
+The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) at a main-branch
+revision after 1.16.0. Its exact revisions and linked products are owned by
 [`native/private-inbox/Package.swift`](../native/private-inbox/Package.swift), with the
 resolved dependency graph in [`Package.resolved`](../native/private-inbox/Package.resolved).
 Both hosts must build that graph and pass their `verify:bundle` gate. Incremental

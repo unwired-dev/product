@@ -10,11 +10,12 @@ let package = Package(
     .package(
       url: "https://github.com/getsentry/sentry-cocoa.git",
       revision: "4bb2282661ee6ca2212aa01d19a1214394cd3c45"),
-    // SwiftMail 1.16.0. It pins swift-nio-imap to a revision, so SwiftPM accepts it only by
-    // revision; the hosts and the storage probe pin the same commit.
+    // SwiftMail main after 1.16.0, at the merge that bounds LIST responses. It pins
+    // swift-nio-imap to a revision, so SwiftPM accepts it only by revision; the hosts and the
+    // storage probe pin the same commit.
     .package(
       url: "https://github.com/Cocoanetics/SwiftMail.git",
-      revision: "88c45cbd31b347b373f7c87e197be63eb95efbc2"),
+      revision: "15f5466a852749749680e01db3ecf0abd97e93d6"),
     // swift-log 1.16.1, the version SwiftMail resolves, so its logs can be silenced.
     .package(
       url: "https://github.com/apple/swift-log.git",
