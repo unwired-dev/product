@@ -2,6 +2,7 @@ import type { Command } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
+import type { Link } from '@private-email/mail-core/semantic-document';
 import type { TranslationLanguage } from '@private-email/mail-core/translation';
 
 import {
@@ -28,6 +29,7 @@ import {
   clip,
   imagesOf,
   replaceSelection,
+  setLink,
 } from '@private-email/mail-core/semantic-document';
 import {
   use,
@@ -359,6 +361,26 @@ function EvaluationEditor({
       selection: result.selection ?? captured.selection,
     });
   };
+  // Applies a Link Editor change to the body revision the page reported, as one undoable edit in
+  // the page.
+  const editLink = (link: Link, text: string, href?: string) => {
+    const reported = pageNow.current;
+    if (
+      !mounted.current ||
+      busy.current ||
+      reported === undefined ||
+      reported.revision !== bodyRevision.current
+    ) {
+      return;
+    }
+    const result = setLink(authored.current.body, link, { text, href });
+    run({
+      type: 'replace',
+      revision: reported.revision,
+      document: result.document,
+      selection: result.selection ?? reported.selection,
+    });
+  };
   // The page loads once with the opened body; later edits never reload it.
   // oxlint-disable-next-line react/hook-use-state -- The mounted page keeps its original source.
   const [source] = useState(() => ({ html: page }));
@@ -652,6 +674,7 @@ function EvaluationEditor({
               void add(from, inline);
             }}
             onCapture={capture}
+            onLink={editLink}
           />
         )}
       </MenuPresence>

@@ -589,6 +589,69 @@ describe('the Tiptap evaluation composer', () => {
     ]);
   });
 
+  it('edits and removes a link through the Link Editor as one page edit each', async () => {
+    expect.hasAssertions();
+    injectedScripts.length = 0;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(<App drafts={createDrafts(storage.native, registration)} />);
+    await press('New Message');
+    const { report, revision } = simulatedPage();
+    const lease = 'https://docs.example.invalid/lease';
+    const body = (...spans: SemanticDocument[number]['spans']) =>
+      [{ kind: 'paragraph', spans }] as const;
+    await report({
+      document: body(
+        { text: 'Read ' },
+        { text: 'the lease', marks: ['bold'], link: lease },
+        { text: ' today' },
+      ),
+      selection: { start: 2, end: 2 },
+    });
+    // Away from a link there is nothing to edit.
+    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
+    await report({ selection: { start: 8, end: 8 } });
+    await press('Edit Link');
+    const text = screen.getByLabelText('Text');
+    const destination = screen.getByLabelText('Link');
+    expect(text).toHaveProp('value', 'the lease');
+    expect(destination).toHaveProp('value', lease);
+    // Only a destination a person may open can be applied.
+    await fireEvent.changeText(destination, 'ftp://docs.example.invalid');
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    await fireEvent.changeText(destination, `${lease}-v3`);
+    await fireEvent.changeText(text, 'revised lease');
+    const before = injectedScripts.length;
+    await fireEvent(destination, 'submitEditing');
+    expect(injectedScripts.slice(before)).toStrictEqual([
+      commandScript({
+        type: 'replace',
+        revision: revision(),
+        document: body(
+          { text: 'Read ' },
+          { text: 'revised lease', marks: ['bold'], link: `${lease}-v3` },
+          { text: ' today' },
+        ),
+        selection: { start: 18, end: 18 },
+      }),
+    ]);
+
+    // Remove Link keeps the text without its link.
+    await press('Edit Link');
+    await press('Remove Link');
+    expect(lastCommand()).toBe(
+      commandScript({
+        type: 'replace',
+        revision: revision(),
+        document: body(
+          { text: 'Read ' },
+          { text: 'the lease', marks: ['bold'] },
+          { text: ' today' },
+        ),
+        selection: { start: 14, end: 14 },
+      }),
+    );
+  });
+
   it.each(['onError', 'onContentProcessDidTerminate'])(
     'retires captures and queued page input when the page reports %s',
     async (event) => {

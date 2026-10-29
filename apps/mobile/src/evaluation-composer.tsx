@@ -2,6 +2,7 @@ import type { Command } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
+import type { Link } from '@private-email/mail-core/semantic-document';
 
 import {
   commandScript,
@@ -26,6 +27,7 @@ import {
 import {
   imagesOf,
   replaceSelection,
+  setLink,
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
 import {
@@ -378,6 +380,26 @@ function EvaluationEditor({
       selection: result.selection ?? captured.selection,
     });
   };
+  // Applies a Link Editor change to the body revision the page reported, as one undoable edit in
+  // the page.
+  const editLink = (link: Link, text: string, href?: string) => {
+    const reported = pageNow.current;
+    if (
+      !mounted.current ||
+      busy.current ||
+      reported === undefined ||
+      reported.revision !== bodyRevision.current
+    ) {
+      return;
+    }
+    const result = setLink(authored.current.body, link, { text, href });
+    run({
+      type: 'replace',
+      revision: reported.revision,
+      document: result.document,
+      selection: result.selection ?? reported.selection,
+    });
+  };
   // The page loads once with the opened body; later edits never reload it.
   // oxlint-disable-next-line react/hook-use-state -- The mounted page keeps its original source.
   const [source] = useState(() => ({ html: page }));
@@ -554,6 +576,7 @@ function EvaluationEditor({
       void add(from, inline);
     },
     onCapture: capture,
+    onLink: editLink,
   };
   // Controls appear once the page reports that it is ready for commands.
   const shown = stopped || closing === 'saving' ? undefined : pageState;
@@ -800,9 +823,11 @@ function EvaluationEditor({
         </View>
         {retained.phone === undefined ? null : (
           <FormatPanel
+            draft={draft}
             open={open === 'format'}
             page={retained.phone}
             run={run}
+            onLink={editLink}
             onClose={() => {
               setOpen(undefined);
               run({ type: 'focus' });
