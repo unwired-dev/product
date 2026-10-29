@@ -61,7 +61,7 @@ import {
   historyProgress,
   historyRequest,
   nextHistoryFolder,
-  segmentNames,
+  historySegmentNames,
 } from './imap-history.ts';
 import {
   applyFolderRead,
@@ -1268,7 +1268,7 @@ export function createImapInbox(
       next,
       next.history?.length === current.history?.length
         ? undefined
-        : { segments: {}, keep: segmentNames(next) },
+        : { segments: {}, keep: historySegmentNames(next) },
     );
     for (const name of folderViews.keys()) {
       if (!kept(name)) {
@@ -2462,7 +2462,7 @@ export function createImapInbox(
       ? []
       : yield* decodeSegment(text).pipe(Effect.mapError(malformed));
   });
-  // The segment an expunge check compares with the server next, if one is under way.
+  // The segment an expunge check compares with the server next; none unless one is under way.
   const checkedSegment = Effect.fnUntraced(function* (
     scope: Scope,
     history: ImapFolderHistory | undefined,
@@ -2471,9 +2471,7 @@ export function createImapInbox(
       history?.checking === undefined
         ? undefined
         : history.segments[history.checking];
-    return segment === undefined
-      ? undefined
-      : yield* readSegment(scope, segment.name);
+    return segment === undefined ? [] : yield* readSegment(scope, segment.name);
   });
   // One bounded history read; none when the folder is gone or refuses its UIDVALIDITY.
   const readHistory = (
@@ -2509,44 +2507,59 @@ export function createImapInbox(
         Effect.mapError(malformed),
       );
     }
-    yield* commit(next, { segments, keep: segmentNames(next) });
+    yield* commit(next, { segments, keep: historySegmentNames(next) });
   });
   // One Historical Metadata Backfill read of the next folder, committed with the segment it saved.
   // A folder the server no longer selects settles. False once every folder settled.
-  const backfillStep = Effect.fnUntraced(function* (scope: Scope) {
+  // The folder backfill reads next, with its history; none while paused or done.
+  const nextBackfill = (scope: Scope) => {
     const name =
       document === undefined || prefetchPaused(scope)
         ? undefined
         : nextHistoryFolder(document, settled);
-    if (name === undefined) {
+    return name === undefined
+      ? undefined
+      : {
+          name,
+          history: document?.history?.find(({ folder }) => folder === name),
+        };
+  };
+  const backfillStep = Effect.fnUntraced(function* (scope: Scope) {
+    const target = nextBackfill(scope);
+    if (target === undefined) {
       return false;
     }
-    const history = document?.history?.find(({ folder }) => folder === name);
+    const { name, history } = target;
     const checked = yield* checkedSegment(scope, history);
     const read = yield* readHistory(
       scope,
-      historyRequest(name, history, checked?.map(({ uid }) => uid) ?? []),
+      historyRequest(
+        name,
+        history,
+        checked.map(({ uid }) => uid),
+      ),
     );
     if (!current(scope) || document === undefined) {
       return false;
     }
-    if (Option.isNone(read)) {
-      settled.add(name);
-      return true;
+    const step = Option.isNone(read)
+      ? undefined
+      : applyHistoryRead(history, {
+          folder: name,
+          read: read.value,
+          name: yield* segmentName,
+          checked,
+        });
+    if (step !== undefined) {
+      yield* saveHistory(document, step, name);
+      render();
     }
-    const step = applyHistoryRead(history, {
-      folder: name,
-      read: read.value,
-      name: yield* segmentName,
-      ...(checked === undefined ? {} : { checked }),
-    });
-    yield* saveHistory(document, step, name);
-    if (step.settled) {
-      settled.add(name);
-    } else {
+    // A gone folder, or one refusing its UIDVALIDITY, waits for the next launch.
+    if (step?.settled === false) {
       settled.delete(name);
+    } else {
+      settled.add(name);
     }
-    render();
     return true;
   });
   // A refused password asks for it again, as for prefetch; any other failure pauses the backfill.

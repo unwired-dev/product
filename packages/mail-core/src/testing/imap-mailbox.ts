@@ -59,6 +59,39 @@ const mimeHeaders = (raw: string) =>
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error(`Synthetic ${code}`), { code }));
 
+// The newest `limit` messages of [above, below) a history read reports, the cursor below them and
+// which of the `known` UIDs remain.
+const historyPageOf = (
+  folder: Readonly<ServerFolder>,
+  request: Readonly<{
+    above: number;
+    below?: number;
+    limit: number;
+    known: readonly number[];
+  }>,
+) => {
+  const below = request.below ?? folder.uidNext;
+  const range = Arr.sort(
+    folder.messages.filter(({ uid }) => uid >= request.above && uid < below),
+    newestUid,
+  );
+  const page = range.slice(0, request.limit);
+  const known = new Set(request.known);
+  return {
+    uidValidity: folder.uidValidity,
+    uidNext: folder.uidNext,
+    total: folder.messages.length,
+    messages: page.map(envelope),
+    below:
+      range.length > request.limit
+        ? (page.at(-1)?.uid ?? request.above)
+        : Math.min(below, request.above),
+    present: folder.messages
+      .filter(({ uid }) => known.has(uid))
+      .map(({ uid }) => uid),
+  };
+};
+
 // A plain-text message with the headers its envelope reports.
 export const syntheticRaw = (subject: string, body: string) =>
   [
@@ -499,35 +532,14 @@ export function createSyntheticImap({
     imapHistory: (_mailbox, request) => {
       server.reads.push(`history ${request.folder} ${request.below ?? 'next'}`);
       const current = folders.get(request.folder);
-      const refused =
+      return (
         historyRefusal() ??
-        (current === undefined ? rejection('imap-missing') : undefined);
-      if (refused !== undefined || current === undefined) {
-        return refused ?? rejection('imap-missing');
-      }
-      const below = request.below ?? current.uidNext;
-      const range = Arr.sort(
-        current.messages.filter(
-          ({ uid }) => uid >= request.above && uid < below,
-        ),
-        newestUid,
+        (current === undefined
+          ? rejection('imap-missing')
+          : Promise.resolve(historyPageOf(current, request)))
       );
-      const page = range.slice(0, request.limit);
-      const known = new Set(request.known);
-      return Promise.resolve({
-        uidValidity: current.uidValidity,
-        uidNext: current.uidNext,
-        total: current.messages.length,
-        messages: page.map(envelope),
-        below:
-          range.length > request.limit
-            ? (page.at(-1)?.uid ?? request.above)
-            : Math.min(below, request.above),
-        present: current.messages
-          .filter(({ uid }) => known.has(uid))
-          .map(({ uid }) => uid),
-      });
     },
+
     imapMessage: (_mailbox, request) => {
       server.reads.push(`message ${request.folder} ${request.uid}`);
       const current = examined(request);

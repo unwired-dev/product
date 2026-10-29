@@ -134,7 +134,7 @@ export function applyHistoryRead(
     folder: string;
     read: HistoryRead;
     name: string;
-    checked?: readonly ImapMessage[];
+    checked: readonly ImapMessage[];
   }>,
 ): Step {
   if (history !== undefined && history.uidValidity !== read.uidValidity) {
@@ -154,7 +154,7 @@ export function applyHistoryRead(
     const present = new Set(read.present);
     const { segments, next, written } = reconciled(
       base,
-      (checked ?? []).filter(({ uid }) => present.has(uid)),
+      checked.filter(({ uid }) => present.has(uid)),
       name,
     );
     const updated = { ...base, segments, checking: next };
@@ -183,7 +183,7 @@ export function applyHistoryRead(
 }
 
 // Every segment the document's history names, which a history commit keeps.
-export const segmentNames = (document: ImapDocument) =>
+export const historySegmentNames = (document: ImapDocument) =>
   (document.history ?? []).flatMap(({ segments }) =>
     segments.map(({ name }) => name),
   );
