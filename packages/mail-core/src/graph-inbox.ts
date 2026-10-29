@@ -240,9 +240,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
       deltaIds(items),
       (id) =>
         graphGet(scope)(graphFolderMessage(view, id), decodeGraphListed).pipe(
-          Effect.map(
-            (message) => [id, folderMessage(message, view)] as const,
-          ),
+          Effect.map((message) => [id, folderMessage(message, view)] as const),
           Effect.catchTag('GmailNotFound', () =>
             Effect.succeed([id, undefined] as const),
           ),
@@ -715,16 +713,16 @@ export function createGraphReader(native: NativeGraphMailbox) {
       decodeGraphDelta,
     ).pipe(
       Effect.asSome,
-      Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
-      Effect.catchTag('GmailNotFound', () =>
-        Effect.succeed(Option.some(undefined)),
-      ),
+      Effect.catchTags({
+        GmailInvalidPage: () => Effect.succeedNone,
+        GmailNotFound: () => Effect.succeedSome(undefined),
+      }),
     );
     if (Option.isNone(page)) {
-      return Option.some(restartedFolder(entry));
+      return restartedFolder(entry);
     }
     if (page.value === undefined) {
-      return Option.none();
+      return undefined;
     }
     const next = page.value['@odata.nextLink'];
     const link = yield* pageLink(page.value);
@@ -732,18 +730,16 @@ export function createGraphReader(native: NativeGraphMailbox) {
       done.add(entry.folder);
     }
     if (before) {
-      return Option.some(
-        next === undefined
-          ? { ...Struct.omit(entry, ['round']), link }
-          : { ...entry, round: link },
-      );
+      return next === undefined
+        ? { ...Struct.omit(entry, ['round']), link }
+        : { ...entry, round: link };
     }
     const changed = yield* readChanged(scope, entry.folder, page.value.value);
-    return Option.some({
+    return {
       ...entry,
       link,
       history: recorded(entry.history, changed),
-    });
+    };
   });
 
   // The pass's next page below its oldest listed receipt, without the messages already listed
@@ -753,7 +749,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
     entry: GraphFolderHistory,
     name: string,
   ) {
-    const edge = new Set(entry.edge ?? []);
+    const edge = new Set(entry.edge);
     let url = graphMessages(
       entry.folder,
       historyPageSize,
@@ -767,7 +763,10 @@ export function createGraphReader(native: NativeGraphMailbox) {
       const next = page['@odata.nextLink'];
       if (messages.length > 0 || next === undefined) {
         return {
-          entry: listedFolder(entry, messages, { name, end: next === undefined }),
+          entry: listedFolder(entry, messages, {
+            name,
+            end: next === undefined,
+          }),
           messages,
         };
       }
@@ -811,32 +810,29 @@ export function createGraphReader(native: NativeGraphMailbox) {
     );
     const replace = (
       entry: GraphFolderHistory,
-      next: Option.Option<GraphFolderHistory>,
+      next: GraphFolderHistory | undefined,
     ) =>
       Option.some({
-        folders: Option.match(next, {
-          onNone: () => folders.filter((other) => other !== entry),
-          onSome: (value) =>
-            folders.map((other) => (other === entry ? value : other)),
-        }),
+        folders:
+          next === undefined
+            ? folders.filter((other) => other !== entry)
+            : folders.map((other) => (other === entry ? next : other)),
         written: [],
       });
-    const known = new Set(folders.map(({ folder }) => folder));
-    for (const folder of wanted) {
-      if (known.has(folder) || done.has(folder)) {
-        continue;
-      }
+    const listed = new Set(folders.map(({ folder }) => folder));
+    for (const folder of wanted.filter(
+      (each) => !listed.has(each) && !done.has(each),
+    )) {
       const total = yield* folderTotal(scope, folder);
-      if (Option.isNone(total)) {
-        done.add(folder);
-        continue;
+      if (Option.isSome(total)) {
+        return Option.some({
+          folders: [...folders, newFolder(folder, total.value)],
+          written: [],
+        });
       }
-      return Option.some({
-        folders: [...folders, newFolder(folder, total.value)],
-        written: [],
-      });
+      done.add(folder);
     }
-    const folding = folders.find(({ history }) => foldDue(history));
+    const folding = folders.find((entry) => foldDue(entry.history));
     if (folding !== undefined) {
       const step = yield* foldStep(folding.history, read, newName);
       return Option.some({
@@ -853,7 +849,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
       return replace(changing, yield* historyRound(scope, changing, done));
     }
     const listing = folders.find(
-      ({ history }) => history.current.complete !== true,
+      (entry) => entry.history.current.complete !== true,
     );
     if (listing === undefined) {
       return folders.length === (document.graphHistory ?? []).length

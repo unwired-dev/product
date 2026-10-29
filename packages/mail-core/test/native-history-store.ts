@@ -2,14 +2,23 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
-import type { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import type { NativeGmailMailbox } from '@private-email/mail-core/gmail-inbox';
 
 import * as Config from 'effect/Config';
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import { onTestFinished } from 'vitest';
 
-type Gmail = ReturnType<typeof createSyntheticGmail>;
+type Stored = Pick<
+  NativeGmailMailbox,
+  | 'openMailbox'
+  | 'commitMailbox'
+  | 'openMailboxSegment'
+  | 'openMessageBody'
+  | 'commitMessageBody'
+  | 'listMessageBodies'
+  | 'retainMessageBodies'
+>;
 const json = Schema.fromJsonString(Schema.Unknown);
 const encode = Schema.encodeSync(json);
 const decode = Schema.decodeUnknownSync(json);
@@ -51,8 +60,7 @@ const storedBodiesOf = Schema.decodeUnknownSync(
 
 // The ordinary suite stays credential-free. The explicit Mac runner supplies a signed native
 // process, substituting only persistence while Gmail or Graph responses remain controlled.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The controlled provider is a live mutable test service.
-export const withNativeHistory = <T extends Readonly<{ native: Gmail['native'] }>>(
+export const withNativeHistory = <T extends Readonly<{ native: Stored }>>(
   gmail: T,
 ): T => {
   const executable = Effect.runSync(
@@ -118,8 +126,7 @@ export const withNativeHistory = <T extends Readonly<{ native: Gmail['native'] }
     child.stdin.write(`${encode(command)}\n`);
     return result.promise;
   };
-  const native: Gmail['native'] = {
-    ...gmail.native,
+  const persistence: Stored = {
     openMailbox: async () => {
       const scope = scopeOf(await gmail.native.openMailbox());
       return {
@@ -194,5 +201,5 @@ export const withNativeHistory = <T extends Readonly<{ native: Gmail['native'] }
       return null;
     },
   };
-  return { ...gmail, native };
+  return { ...gmail, native: { ...gmail.native, ...persistence } };
 };

@@ -9,7 +9,8 @@ import { withNativeHistory } from './native-history-store.ts';
 type Graph = ReturnType<typeof createSyntheticGraph>;
 type Inbox = ReturnType<typeof createGmailInbox>;
 
-const createGraph = () => withNativeHistory(createSyntheticGraph({ pageSize: 50 }));
+const createGraph = () =>
+  withNativeHistory(createSyntheticGraph({ pageSize: 50 }));
 
 // Stop background work before the signed storage process's earlier-registered teardown closes it.
 const createInbox = (native: Graph['native']) => {
@@ -36,19 +37,13 @@ const backfilled = async (inbox: Inbox) => {
   );
 };
 
-// Delivers `count` messages to `folder`, a minute apart unless `at` gives them one receipt.
-const delivered = (
-  graph: Graph,
-  count: number,
-  folder: string,
-  at?: number,
-) =>
+// Delivers `count` messages to `folder`, a minute apart.
+const delivered = (graph: Graph, count: number, folder: string) =>
   Array.from({ length: count }, (_, index) =>
     graph.deliver({
       subject: `${folder} ${index}`,
       folder,
       isRead: index % 2 === 1,
-      ...(at === undefined ? {} : { at }),
     }),
   );
 
@@ -70,7 +65,9 @@ const savedHistory = Schema.decodeUnknownSync(
             changes: Schema.Array(
               Schema.Struct({
                 id: Schema.String,
-                message: Schema.optionalKey(Schema.Struct({ id: Schema.String })),
+                message: Schema.optionalKey(
+                  Schema.Struct({ id: Schema.String }),
+                ),
               }),
             ),
           }),
@@ -82,6 +79,18 @@ const savedHistory = Schema.decodeUnknownSync(
 const segmentIds = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Array(Schema.Struct({ id: Schema.String }))),
 );
+
+// The download counts each published Inbox state shows, until `stop` is called.
+const shownCounts = (inbox: Inbox) => {
+  const counts: number[] = [];
+  const stop = inbox.subscribe(() => {
+    const count = progress(inbox)?.downloaded;
+    if (count !== undefined) {
+      counts.push(count);
+    }
+  });
+  return { counts, stop };
+};
 
 // The message IDs the saved history holds for each folder, from its segments with the recorded
 // changes applied, as the native store returns them.
@@ -125,21 +134,22 @@ const historyListings = (graph: Graph) =>
 
 const sorted = (ids: readonly string[]) => ids.toSorted();
 
-// Graph refuses history listings after the first `pages` while `failing()` says so, as when it is
-// unavailable partway through a folder.
-const failingAfter = (
+// Graph answers history listings after the first `pages` with the status `refusal()` gives, as
+// when it is unavailable, throttles or refuses the grant partway through a folder.
+const refusingAfter = (
   graph: Graph,
   pages: number,
-  failing: () => boolean,
+  refusal: () => number | undefined,
 ): Graph['native'] => {
   let listed = 0;
   return {
     ...graph.native,
     graphRequest: (url, owner) => {
-      if (url.includes('$top=50') && failing()) {
+      const status = refusal();
+      if (url.includes('$top=50') && status !== undefined) {
         listed += 1;
         if (listed > pages) {
-          return Promise.resolve({ status: 503, body: '{}' });
+          return Promise.resolve({ status, body: '{}' });
         }
       }
       return graph.native.graphRequest(url, owner);
@@ -147,7 +157,7 @@ const failingAfter = (
   };
 };
 
-describe('Microsoft Historical Metadata Backfill', () => {
+describe('microsoft historical metadata backfill', () => {
   it('downloads each folder after the Inbox is usable and reports progress', async () => {
     expect.hasAssertions();
     const graph = createGraph();
@@ -166,31 +176,35 @@ describe('Microsoft Historical Metadata Backfill', () => {
       complete: true,
     });
     const folders = await downloaded(graph);
-    expect(folders.get('INBOX')).toStrictEqual(sorted(inboxIds));
-    expect(folders.get('SENT')).toStrictEqual(sorted(sentIds));
-    expect(folders.get('ARCHIVE')).toStrictEqual([]);
-    expect(folders.get(projects)).toStrictEqual(sorted(projectIds));
     // Deleted Items stays out, as Gmail's Trash does.
-    expect([...folders.keys()]).toHaveLength(4);
+    expect(Object.fromEntries(folders)).toStrictEqual({
+      INBOX: sorted(inboxIds),
+      SENT: sorted(sentIds),
+      ARCHIVE: [],
+      [projects]: sorted(projectIds),
+    });
   });
 
   it('lists messages sharing one receipt across pages once each', async () => {
     expect.hasAssertions();
     const graph = createGraph();
-    const ids = delivered(graph, 120, 'inbox', Date.UTC(2026, 8, 1));
+    const ids = Array.from({ length: 120 }, (_, index) =>
+      graph.deliver({ subject: `Batch ${index}`, at: Date.UTC(2026, 8, 1) }),
+    );
     const inbox = createInbox(graph.native);
     await inbox.load();
     await backfilled(inbox);
     expect(progress(inbox)?.downloaded).toBe(120);
-    expect((await downloaded(graph)).get('INBOX')).toStrictEqual(sorted(ids));
+    const folders = await downloaded(graph);
+    expect(folders.get('INBOX')).toStrictEqual(sorted(ids));
   });
 
   it('resumes after relaunch without rewinding or listing a page twice', async () => {
     expect.hasAssertions();
     const graph = createGraph();
     const ids = delivered(graph, 300, 'inbox');
-    let failing = true;
-    const interrupted = createInbox(failingAfter(graph, 4, () => failing));
+    let refusal: number | undefined = 503;
+    const interrupted = createInbox(refusingAfter(graph, 4, () => refusal));
     await interrupted.load();
     // The failed read pauses the backfill until the next synchronization. Each later page lists
     // from the oldest receipt before it, so its first message was listed already.
@@ -203,7 +217,7 @@ describe('Microsoft Historical Metadata Backfill', () => {
       });
     });
     interrupted.forget();
-    failing = false;
+    refusal = undefined;
     const earlier = historyListings(graph);
 
     const relaunched = createInbox(graph.native);
@@ -222,7 +236,8 @@ describe('Microsoft Historical Metadata Backfill', () => {
     expect(
       historyListings(graph).filter((entry) => entry.startsWith('inbox')),
     ).toHaveLength(7);
-    expect((await downloaded(graph)).get('INBOX')).toStrictEqual(sorted(ids));
+    const folders = await downloaded(graph);
+    expect(folders.get('INBOX')).toStrictEqual(sorted(ids));
   });
 
   it('keeps new, moved, deleted and read mail current during and after the pass', async () => {
@@ -231,21 +246,21 @@ describe('Microsoft Historical Metadata Backfill', () => {
     const projects = graph.createFolder('Projects');
     const ids = delivered(graph, 300, 'inbox');
     const projectIds = delivered(graph, 60, projects);
-    let failing = true;
-    const inbox = createInbox(failingAfter(graph, 4, () => failing));
+    let refusal: number | undefined = 503;
+    const inbox = createInbox(refusingAfter(graph, 4, () => refusal));
     await inbox.load();
     await vi.waitFor(() => {
       expect(progress(inbox)?.paused).toBe(true);
     });
     // Older mail already listed and mail the pass has yet to list both change.
-    const [oldest, older, old] = ids;
-    const listedMoved = ids.at(-1) ?? '';
+    const [oldest = '', older = '', old = ''] = ids;
+    const [listedMoved = ''] = ids.slice(-1);
     graph.move(listedMoved, projects);
-    graph.purge(old ?? '');
-    graph.markRead(oldest ?? '');
-    graph.move(older ?? '', 'deleteditems');
+    graph.purge(old);
+    graph.markRead(oldest);
+    graph.move(older, 'deleteditems');
     const arrival = graph.deliver({ subject: 'Arrival' });
-    failing = false;
+    refusal = undefined;
     await inbox.load();
     await backfilled(inbox);
     const expected = ids.filter(
@@ -277,23 +292,16 @@ describe('Microsoft Historical Metadata Backfill', () => {
     await backfilled(inbox);
     graph.expireDelta();
     const arrival = graph.deliver({ subject: 'After expiry' });
-    const shown: number[] = [];
-    const unsubscribe = inbox.subscribe(() => {
-      const downloadedNow = progress(inbox)?.downloaded;
-      if (downloadedNow !== undefined) {
-        shown.push(downloadedNow);
-      }
-    });
+    const shown = shownCounts(inbox);
     await inbox.load();
     await vi.waitFor(async () => {
-      expect((await downloaded(graph)).get('INBOX')).toStrictEqual(
-        sorted([...ids, arrival]),
-      );
+      const folders = await downloaded(graph);
+      expect(folders.get('INBOX')).toStrictEqual(sorted([...ids, arrival]));
     });
     await backfilled(inbox);
-    unsubscribe();
+    shown.stop();
     // Progress never falls back to the empty new pass.
-    expect(Math.min(...shown)).toBeGreaterThanOrEqual(150);
+    expect(Math.min(...shown.counts)).toBeGreaterThanOrEqual(150);
     expect(progress(inbox)?.downloaded).toBe(151);
   });
 
@@ -302,16 +310,7 @@ describe('Microsoft Historical Metadata Backfill', () => {
     const graph = createGraph();
     delivered(graph, 120, 'inbox');
     let refusal: number | undefined = 429;
-    const native: Graph['native'] = {
-      ...graph.native,
-      graphRequest: (url, owner) =>
-        refusal !== undefined &&
-        url.includes('$top=50') &&
-        url.includes('$filter')
-          ? Promise.resolve({ status: refusal, body: '{}' })
-          : graph.native.graphRequest(url, owner),
-    };
-    const inbox = createInbox(native);
+    const inbox = createInbox(refusingAfter(graph, 1, () => refusal));
     await inbox.load();
     await vi.waitFor(() => {
       expect(progress(inbox)).toStrictEqual({
@@ -351,6 +350,7 @@ describe('Microsoft Historical Metadata Backfill', () => {
     expect(
       historyListings(graph).filter((entry) => entry.startsWith('inbox')),
     ).toHaveLength(103);
-    expect((await downloaded(graph)).get('INBOX')).toStrictEqual(sorted(ids));
+    const folders = await downloaded(graph);
+    expect(folders.get('INBOX')).toStrictEqual(sorted(ids));
   });
 });

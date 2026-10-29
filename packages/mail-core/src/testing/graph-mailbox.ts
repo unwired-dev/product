@@ -400,6 +400,15 @@ export function createSyntheticGraph({
         .map(([id, folder]) => ({ id, displayName: folder.name })),
     ].map((folder) => ({ ...folder, childFolderCount: own(folder.id) }));
   };
+  // A well-known folder's name or a folder's ID as a path names it, or undefined when it is gone.
+  const pathFolder = (segment: string) => {
+    const name = decodeURIComponent(segment);
+    const known = name.toLowerCase();
+    if (known in wellKnown) {
+      return missingFolders.has(known) ? undefined : known;
+    }
+    return folders.has(name) ? name : undefined;
+  };
   // A folder's ID and message count, a folder's own folders, or every top-level folder; a removed
   // folder is gone from each.
   const folderRead = (url: URL) => {
@@ -421,15 +430,6 @@ export function createSyntheticGraph({
           id: folderId(folder),
           totalItemCount: newest(folder).length,
         });
-  };
-  // A well-known folder's name or a folder's ID as a path names it, or undefined when it is gone.
-  const pathFolder = (segment: string) => {
-    const name = decodeURIComponent(segment);
-    const known = name.toLowerCase();
-    if (known in wellKnown) {
-      return missingFolders.has(known) ? undefined : known;
-    }
-    return folders.has(name) ? name : undefined;
   };
   // A folder's newest messages, its delta, or one of its messages, as a delta change is read; a
   // message that left the folder, and a folder that is gone, are not found.

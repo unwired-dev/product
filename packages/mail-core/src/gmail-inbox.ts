@@ -2070,26 +2070,26 @@ export function createGmailInbox(
         ? [label]
         : [],
     );
-  // fallow-ignore-next-line complexity -- Each optional part of the shown document maps to one field of the ready state.
   // Backfill progress across Gmail's All Mail or a Microsoft mailbox's folders; a failed step
   // pauses an unfinished backfill until the next synchronization.
   const shownHistory = (document: MailboxDocument | undefined) => {
-    const shown =
+    const downloaded =
       document?.graphHistory === undefined
         ? document?.history && progress(document.history)
         : graphProgress(document.graphHistory);
-    return shown === undefined
+    return downloaded === undefined
       ? {}
       : {
           history: {
-            ...shown,
-            ...(speculativeFailure && !shown.complete
+            ...downloaded,
+            ...(speculativeFailure && !downloaded.complete
               ? { paused: true as const }
               : {}),
           },
         };
   };
 
+  // fallow-ignore-next-line complexity -- Each optional part of the shown document maps to one field of the ready state.
   function render(): Extract<GmailInboxState, { kind: 'ready' }> {
     const document = shown?.document;
     const durable = document?.pending ?? [];
