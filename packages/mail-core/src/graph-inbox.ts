@@ -23,9 +23,12 @@ import { foldDue, foldStep, recorded } from './gmail-history.ts';
 import {
   historyFolders,
   historyPage as historyPageSize,
+  keptFolders,
   listedFolder,
   newFolder,
   restartedFolder,
+  walkDue,
+  withFolders,
 } from './graph-history.ts';
 import {
   cacheLimit,
@@ -886,18 +889,60 @@ export function createGraphReader(native: NativeGraphMailbox) {
     };
   });
 
-  // The next step of a Microsoft mailbox's Historical Metadata Backfill, or none once each folder's
-  // pass is complete and its round in this run ended. Each new folder first reads its total; a
-  // folder with enough recorded changes folds them into its segments; each folder's round then
-  // records its changes; and the first incomplete pass lists its next page, one segment each.
-  const history = Effect.fnUntraced(function* <E>(
+  // The next fold, round or page among the saved folders, or none once each pass is complete and
+  // each folder's round in this run ended. A folder with enough recorded changes folds them into its
+  // segments; each folder's round then records its changes; and the first incomplete pass lists
+  // its next page, one segment each.
+  const folderWork = Effect.fnUntraced(function* <E>(
     scope: MailboxScope,
-    document: MailboxDocument,
+    folders: readonly GraphFolderHistory[],
     {
       done,
       read,
       newName,
     }: Readonly<{
+      done: Set<string>;
+      read: (name: string) => Effect.Effect<readonly GmailMessage[], E>;
+      newName: Effect.Effect<string>;
+    }>,
+  ) {
+    // A folder Graph removed leaves the history.
+    const replaced = (
+      entry: GraphFolderHistory,
+      next: GraphFolderHistory | undefined,
+    ) =>
+      next === undefined
+        ? folders.filter((other) => other !== entry)
+        : folders.map((other) => (other === entry ? next : other));
+    const folding = folders.find((entry) => foldDue(entry.history));
+    if (folding !== undefined) {
+      const step = yield* foldStep(folding.history, read, newName);
+      return Option.some({
+        folders: replaced(folding, { ...folding, history: step.history }),
+        written: step.written,
+      });
+    }
+    const target =
+      folders.find(
+        ({ folder, link }) => link !== undefined && !done.has(folder),
+      ) ?? folders.find((entry) => entry.history.current.complete !== true);
+    if (target === undefined) {
+      return Option.none();
+    }
+    const { next, written } = yield* folderStep(scope, target, {
+      done,
+      newName,
+    });
+    return Option.some({ folders: replaced(target, next), written });
+  });
+
+  // The next step of a Microsoft mailbox's Historical Metadata Backfill, or none once it has
+  // nothing left to do in this run. When Move to lists only part of the folders, the walk of every
+  // folder comes first; then each new folder reads its total before the folders' own work.
+  const history = Effect.fnUntraced(function* <E>(
+    scope: MailboxScope,
+    document: MailboxDocument,
+    options: Readonly<{
       done: Set<string>;
       read: (name: string) => Effect.Effect<readonly GmailMessage[], E>;
       newName: Effect.Effect<string>;
@@ -911,21 +956,13 @@ export function createGraphReader(native: NativeGraphMailbox) {
     >,
     E | SyncFailure | GmailNotFound
   > {
+    const { done } = options;
     const saved = document.graphHistory;
-    const { wanted, known: complete } = historyFolders(document);
-    // A folder leaves the history once the mailbox's folders are known without it.
-    const folders = (saved?.folders ?? []).filter(
-      ({ folder }) => !complete || wanted.includes(folder),
-    );
-    const { inventory } = saved ?? {};
-    const updated = (next: readonly GraphFolderHistory[]) => ({
-      folders: next,
-      ...(inventory === undefined ? {} : { inventory }),
-    });
-    if (
-      document.labelsLimited === true &&
-      (inventory?.walk !== undefined || !done.has(walked))
-    ) {
+    const inventory = saved?.inventory;
+    const folders = keptFolders(document);
+    const updated = (next: readonly GraphFolderHistory[]) =>
+      withFolders(saved, next);
+    if (walkDue(document, done.has(walked))) {
       return Option.some({
         history: {
           folders,
@@ -937,7 +974,9 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const listed = new Set(folders.map(({ folder }) => folder));
     const added = yield* addedFolder(
       scope,
-      wanted.filter((folder) => !listed.has(folder) && !done.has(folder)),
+      historyFolders(document).wanted.filter(
+        (folder) => !listed.has(folder) && !done.has(folder),
+      ),
       done,
     );
     if (Option.isSome(added)) {
@@ -946,41 +985,17 @@ export function createGraphReader(native: NativeGraphMailbox) {
         written: [],
       });
     }
-    // A folder Graph removed leaves the history.
-    const replaced = (
-      entry: GraphFolderHistory,
-      next: GraphFolderHistory | undefined,
-    ) =>
-      next === undefined
-        ? folders.filter((other) => other !== entry)
-        : folders.map((other) => (other === entry ? next : other));
-    const folding = folders.find((entry) => foldDue(entry.history));
-    if (folding !== undefined) {
-      const step = yield* foldStep(folding.history, read, newName);
+    const work = yield* folderWork(scope, folders, options);
+    if (Option.isSome(work)) {
       return Option.some({
-        history: updated(
-          replaced(folding, { ...folding, history: step.history }),
-        ),
-        written: step.written,
+        history: updated(work.value.folders),
+        written: work.value.written,
       });
     }
-    const target =
-      folders.find(
-        ({ folder, link }) => link !== undefined && !done.has(folder),
-      ) ?? folders.find((entry) => entry.history.current.complete !== true);
-    if (target === undefined) {
-      return folders.length === (saved?.folders ?? []).length
-        ? Option.none()
-        : Option.some({ history: updated(folders), written: [] });
-    }
-    const { next, written } = yield* folderStep(scope, target, {
-      done,
-      newName,
-    });
-    return Option.some({
-      history: updated(replaced(target, next)),
-      written,
-    });
+    // A folder that left the history is saved without it.
+    return folders.length === (saved?.folders.length ?? 0)
+      ? Option.none()
+      : Option.some({ history: updated(folders), written: [] });
   });
 
   return {

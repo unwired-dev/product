@@ -41,6 +41,30 @@ export const historyFolders = (document: MailboxDocument) => {
   };
 };
 
+// Whether the step walks the mailbox's folders: when Move to lists only part of them, a walk runs
+// once per backfill run and continues a saved one.
+export const walkDue = (document: MailboxDocument, walked: boolean) =>
+  document.labelsLimited === true &&
+  (document.graphHistory?.inventory?.walk !== undefined || !walked);
+
+// The saved folders a step starts from: once the mailbox's folders are all known, a folder it no
+// longer has leaves the history.
+export const keptFolders = (document: MailboxDocument) => {
+  const { wanted, known } = historyFolders(document);
+  return (document.graphHistory?.folders ?? []).filter(
+    ({ folder }) => !known || wanted.includes(folder),
+  );
+};
+
+// The history with `folders`, keeping its walk of the mailbox's folders.
+export const withFolders = (
+  history: GraphHistory | undefined,
+  folders: readonly GraphFolderHistory[],
+): GraphHistory => ({
+  folders,
+  ...(history?.inventory === undefined ? {} : { inventory: history.inventory }),
+});
+
 export const newFolder = (folder: string, total: number) => ({
   folder,
   history: { total, current: { segments: [] }, changes: [] },
