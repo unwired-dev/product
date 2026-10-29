@@ -137,7 +137,7 @@ provider availability. It no longer covers a declined Gmail session after Apple 
 ## Protected real qualification
 
 Use signed hosts, a configured Convex development deployment, a test Apple ID and
-the [protected Gmail test tenant](gmail-provider-test-tenant.md). Do not record
+the [dedicated Gmail test accounts](gmail-provider-test-tenant.md). Do not record
 identity tokens, relay addresses or mailbox content in screenshots or artifacts.
 
 On iPhone, iPad and Mac, register with Apple, choosing both shared and hidden

@@ -14,6 +14,7 @@ import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox
 import {
   createRegistration,
   mailboxesOf,
+  profilesOf,
 } from '@private-email/mail-core/registration';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
@@ -2268,6 +2269,102 @@ describe('mac windows of different Mail Profiles', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('duplicates a Mail Profile into a selected copy without its mailboxes', async () => {
+    expect.hasAssertions();
+    const { vault, work } = await createTwoProfileRegistration();
+    const store = createRegistration({
+      ...vault,
+      registration: () => vault.registration(),
+      recordProfiles: (next) => vault.recordProfiles(next),
+    });
+    await store.restore();
+    const replaced = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof store }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      store,
+    );
+    const inbox = createGmailInbox(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
+    try {
+      const app = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="duplicate" />
+        </MacWindows>,
+      );
+      await chooseProfile(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'Manage Mail Profiles…',
+      );
+      const settings = settingsWindow();
+      await fireEvent.press(
+        await settings.findByRole('button', { name: 'Work' }),
+      );
+      const { recordProfiles } = vault;
+      let release: () => void = () => undefined;
+      let started: () => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const admitted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      jest
+        .spyOn(vault, 'recordProfiles')
+        .mockImplementationOnce(async (next) => {
+          started();
+          await held;
+          return recordProfiles(next);
+        });
+      // Another window's New Mail Profile… finishes ahead of Duplicate.
+      const family = store.createProfile('Family');
+      await admitted;
+      await fireEvent.press(
+        settings.getByRole('button', { name: 'Duplicate Mail Profile' }),
+      );
+      release();
+      await family;
+      // The copy, not the Profile created elsewhere, is selected and its page opens for renaming.
+      await expect(
+        settings.findByRole('header', { name: 'Work Copy' }),
+      ).resolves.toBeVisible();
+      expect(settings.getByDisplayValue('Work Copy')).toBeVisible();
+      expect(settings.getByRole('button', { name: 'Work Copy' })).toHaveProp(
+        'accessibilityHint',
+        'No mailboxes',
+      );
+      expect(
+        settings.getByText('No mailboxes in this Mail Profile'),
+      ).toBeVisible();
+      const { snapshot } = store.getSnapshot();
+      const [created, copy] = profilesOf(snapshot).filter(
+        ({ id }) => id !== work,
+      );
+      // Published through Private Sync; the mailbox stays with Work.
+      expect({
+        created: created?.name,
+        copy,
+        owners: mailboxesOf(snapshot).map(({ address, profile }) => [
+          address,
+          profile,
+        ]),
+      }).toStrictEqual({
+        created: 'Family',
+        copy: { id: copy?.id, name: 'Work Copy' },
+        owners: [
+          ['alex@example.invalid', defaultProfile],
+          ['other@example.invalid', work],
+        ],
+      });
+    } finally {
+      replaced.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
   it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
     expect.hasAssertions();
@@ -2346,7 +2443,11 @@ describe('mac windows of different Mail Profiles', () => {
         text: 'Moving to Primary Profile…',
       });
       expect(pending).toBeDisabled();
-      for (const name of ['Add Mail Profile…', 'Remove Mail Profile…']) {
+      for (const name of [
+        'Add Mail Profile…',
+        'Duplicate Mail Profile',
+        'Remove Mail Profile…',
+      ]) {
         expect(settings.getByRole('button', { name })).toBeDisabled();
       }
       expect(settings.getByDisplayValue('Office')).toHaveProp(

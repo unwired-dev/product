@@ -115,7 +115,15 @@ that metadata revision inside its file-locked transaction so another store's com
 fences stale work too. Protection follows the
 current committed Inbox at one synchronization reference instant, including before
 prefetch starts. A concurrent authentication refusal survives the synchronization
-that was already running. Reader responses remain follow-up work under #882.
+that was already running.
+
+Issue #1023 adds reader responses through the shared response/Draft flow. Body
+reads retain response headers; older saved bodies are refreshed on explicit open,
+with the saved body still readable after a non-access-changing failure. Responses
+require a visible, non-superseded source and verified sending capability. IMAP
+replies retain RFC threading headers without a provider conversation identifier;
+Forward uses the existing attachment downloads. The operational
+[reader contract](../imap-mailboxes.md#reading) owns the visible behavior.
 
 The header preflight requests at most 20 UIDs and configures a 256 KiB BODY
 literal limit. That bounds the requested header payload to 5 MiB when the server

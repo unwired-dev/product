@@ -553,8 +553,8 @@ export function createMailProfileProgram<E>(
     }
   });
 
-  // Names a new Profile in the vault, which publishes it once Product Sync is reachable. Its
-  // opaque identifier never changes.
+  // Names a new Profile in the vault, which publishes it once Product Sync is reachable, and
+  // returns its opaque identifier, which never changes.
   const create = Effect.fnUntraced(function* (name: string) {
     const pending = yield* named(name);
     const state = yield* known;
@@ -565,6 +565,7 @@ export function createMailProfileProgram<E>(
         profiles: [...state.profiles, { id, pending }],
       }),
     );
+    return id;
   });
 
   const rename = Effect.fnUntraced(function* (id: string, name: string) {

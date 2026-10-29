@@ -116,24 +116,44 @@ const discoverNamespaces = (socket, tag, failed) => {
     );
   }
 };
-const listFolders = (socket, command, overflowing) => {
+// Sends LIST responses without ever answering the command. A flood far past what fits in the socket
+// buffers ends early only when the client stops at its bound and closes the session; exactly 1,001
+// responses fail only a client whose bound is 1,000 or lower.
+const floodFolders = (socket, total) => {
+  let index = 0;
+  const flood = () => {
+    while (!socket.destroyed && index < total) {
+      index += 1;
+      if (!socket.write(`* LIST (\\HasNoChildren) "/" "Folder ${index}"\r\n`)) {
+        socket.once('drain', flood);
+        return;
+      }
+    }
+  };
+  socket.once('close', () => {
+    if (index < total) {
+      operations.add('folder-flood');
+    }
+  });
+  flood();
+};
+// The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
+const folders =
+  '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n';
+// Exactly as many responses as the client's bound allows.
+const foldersAtLimit = Array.from(
+  { length: 1000 },
+  (_, index) => `* LIST (\\HasNoChildren) "/" "Folder ${index + 1}"\r\n`,
+).join('');
+const listFolders = (socket, command, { overflowing, listed }) => {
   operations.add('list');
   if (overflowing) {
-    operations.add('folder-overflow');
-    socket.write(
-      Array.from(
-        { length: 1001 },
-        (_, index) => `* LIST (\\HasNoChildren) "/" "Folder ${index}"\r\n`,
-      ).join(''),
-    );
+    floodFolders(socket, overflowing);
   } else if (command.includes('Shared/')) {
     operations.add('shared-list');
     socket.write('* LIST (\\HasNoChildren) "/" "Shared/Team"\r\n');
   } else if (!command.includes('Shared')) {
-    socket.write(
-      // The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
-      '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n',
-    );
+    socket.write(listed);
   }
 };
 // What each synthetic user's server advertises: organizing needs MOVE, or UIDPLUS for a targeted
@@ -382,7 +402,8 @@ const server = tls.createServer(
     });
     socket.write('* OK [CAPABILITY IMAP4rev1] Controlled server ready\r\n');
     let input = '';
-    let overflowing = false;
+    let overflowing = 0;
+    let listed = folders;
     let namespaces = false;
     let namespaceFailure = false;
     let user = '';
@@ -436,7 +457,15 @@ const server = tls.createServer(
           assert.match(command, /synthetic-password/u);
           user = userOf(command);
           session.user = user;
-          overflowing = command.includes('many-folders');
+          overflowing = 0;
+          if (command.includes('many-folders')) {
+            overflowing = 100_000;
+          } else if (command.includes('folder-limit')) {
+            overflowing = 1001;
+          }
+          listed = command.includes('folders-at-limit')
+            ? foldersAtLimit
+            : folders;
           namespaceFailure = command.includes('namespace-failure');
           namespaces = ['namespace-failure', 'namespaced'].some((name) =>
             command.includes(name),
@@ -446,8 +475,10 @@ const server = tls.createServer(
       } else if (command === 'NAMESPACE') {
         discoverNamespaces(socket, tag, namespaceFailure);
       } else if (command.startsWith('LIST ')) {
-        listFolders(socket, command, overflowing);
-        ok();
+        listFolders(socket, command, { overflowing, listed });
+        if (overflowing === 0) {
+          ok();
+        }
       } else if (/^(?:UID )?FETCH /u.test(command)) {
         answerFetch(socket, session, { tag, command });
       } else if (command === 'LOGOUT') {
@@ -505,7 +536,7 @@ process.on('SIGTERM', () => {
       'examine',
       'expunge',
       'flags-or-size',
-      'folder-overflow',
+      'folder-flood',
       'gone',
       'idle',
       'idle-done',

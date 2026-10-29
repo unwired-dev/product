@@ -182,17 +182,38 @@ const tags: Readonly<Record<Mark, string>> = {
   underline: 'u',
   strikethrough: 's',
 };
+type Span = Block['spans'][number];
+// Consecutive spans with the same link destination, which renders once around them.
+const linkRuns = (spans: Block['spans']) => {
+  const runs: Array<{ link: string | undefined; spans: Span[] }> = [];
+  for (const span of spans) {
+    const link = 'link' in span ? span.link : undefined;
+    const last = runs.at(-1);
+    if (last !== undefined && last.link === link) {
+      last.spans.push(span);
+    } else {
+      runs.push({ link, spans: [span] });
+    }
+  }
+  return runs;
+};
+const htmlSpan = (span: Span) => {
+  const inner =
+    'image' in span
+      ? `<img src="cid:${contentIdOf(span.image)}" alt="${escapeHtml(span.image.name)}">`
+      : escapeHtml(span.text);
+  return (span.marks ?? []).reduceRight(
+    (html, mark) => `<${tags[mark]}>${html}</${tags[mark]}>`,
+    inner,
+  );
+};
 const htmlSpans = (spans: Block['spans']) =>
-  spans
-    .map((span) => {
-      const inner =
-        'image' in span
-          ? `<img src="cid:${contentIdOf(span.image)}" alt="${escapeHtml(span.image.name)}">`
-          : escapeHtml(span.text);
-      return (span.marks ?? []).reduceRight(
-        (html, mark) => `<${tags[mark]}>${html}</${tags[mark]}>`,
-        inner,
-      );
+  linkRuns(spans)
+    .map(({ link, spans: run }) => {
+      const inner = run.map(htmlSpan).join('');
+      return link === undefined
+        ? inner
+        : `<a href="${escapeHtml(link)}">${inner}</a>`;
     })
     .join('');
 const containers: Partial<Record<Block['kind'], string>> = {
@@ -243,8 +264,18 @@ const plainOf = (document: readonly Block[]) => {
   return document
     .map(({ kind, spans }) => {
       number = kind === 'numbered' ? number + 1 : 0;
-      const text = spans
-        .map((span) => ('image' in span ? `[${span.image.name}]` : span.text))
+      // Linked text is followed by its destination, unless it already reads as it.
+      const text = linkRuns(spans)
+        .map(({ link, spans: run }) => {
+          const shown = run
+            .map((span) =>
+              'image' in span ? `[${span.image.name}]` : span.text,
+            )
+            .join('');
+          return link === undefined || link === shown
+            ? shown
+            : `${shown} <${link}>`;
+        })
         .join('');
       if (kind === 'bulleted') {
         return `- ${text}`;

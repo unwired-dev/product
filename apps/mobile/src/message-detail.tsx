@@ -435,8 +435,8 @@ function ResponseStatusNotice({
   );
 }
 
-// Reply, Reply All and Forward, once an opened Gmail message's body and headers are read. A
-// response always sends from the reader's own mailbox; one that cannot send offers none.
+// Reply, Reply All and Forward, once an opened message's body and headers are read. A response
+// always sends from the reader's own mailbox; one that cannot send offers none.
 function ResponseActions({
   message,
   onCompose,
@@ -481,7 +481,6 @@ function ResponseActions({
   ).find(({ id }) => id === mailbox?.id);
   if (
     !('responseSource' in inbox) ||
-    !('threadId' in message) ||
     onCompose === undefined ||
     sender === undefined ||
     source === undefined ||
@@ -1074,7 +1073,8 @@ function ThreadMessages({ id }: { readonly id: string }) {
     state.kind !== 'ready' ||
     opened === undefined ||
     !('threadId' in opened) ||
-    !('responseSource' in inbox)
+    !('responseSource' in inbox) ||
+    'openFolder' in inbox
   ) {
     return <EmptyDetail id={id} />;
   }

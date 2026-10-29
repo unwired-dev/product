@@ -45,6 +45,7 @@ const cached = (id: string, copies: number) => ({
   document: JSON.stringify({
     version: 2,
     id,
+    headers: {},
     html: `<p>Photo</p>${'<img src="cid:photo">'.repeat(copies)}`,
     images: {
       admitted: [
@@ -65,6 +66,7 @@ const remoteBody = (id: string) => ({
   document: JSON.stringify({
     version: 2,
     id,
+    headers: {},
     html: `<p>Photo</p>${`<img src="${photo}">`.repeat(2)}`,
   }),
 });

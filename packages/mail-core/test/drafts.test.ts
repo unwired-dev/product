@@ -44,10 +44,12 @@ import {
   record,
   redo,
   SemanticDocumentSchema,
+  replaceSelection,
   setBlockKind,
   toggled,
   toggleMark,
   undo,
+  withoutImage,
 } from '../src/semantic-document.ts';
 import { createSyntheticDrafts } from '../src/testing/drafts.ts';
 
@@ -249,6 +251,119 @@ describe('editing a Semantic Message Document', () => {
         ),
       ).toStrictEqual([override]);
     }
+  });
+
+  it('keeps link destinations through typing, marks, block kinds, images and replacements', () => {
+    expect.hasAssertions();
+    const link = 'https://example.invalid/plan?a=1&b=2';
+    const linked: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Read ' },
+          { text: 'the plan', link },
+          { text: ' today' },
+        ],
+      },
+    ];
+    // Typing inside the link extends it; typing at either edge stays outside it.
+    const inside = applyText(linked, 'Read the big plan today', {
+      selection: { start: 9, end: 9 },
+    }).document;
+    expect(inside[0].spans).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the big plan', link },
+      { text: ' today' },
+    ]);
+    expect(
+      applyText(inside, 'Read the big plans today', {
+        selection: { start: 17, end: 17 },
+      }).document[0].spans,
+    ).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the big plan', link },
+      { text: 's today' },
+    ]);
+    expect(
+      applyText(inside, 'Read Xthe big plan today', {
+        selection: { start: 5, end: 5 },
+      }).document[0].spans,
+    ).toStrictEqual([
+      { text: 'Read X' },
+      { text: 'the big plan', link },
+      { text: ' today' },
+    ]);
+    // Marks split the link into spans that keep it, and rejoin when removed.
+    const bold = toggleMark(inside, { start: 9, end: 12 }, 'bold');
+    expect(bold[0].spans).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the ', link },
+      { text: 'big', marks: ['bold'], link },
+      { text: ' plan', link },
+      { text: ' today' },
+    ]);
+    expect(toggleMark(bold, { start: 9, end: 12 }, 'bold')).toStrictEqual(
+      inside,
+    );
+    expect(
+      setBlockKind(inside, { start: 0, end: 0 }, 'heading1').document[0].spans,
+    ).toStrictEqual(inside[0].spans);
+    // A line break inside the link leaves the destination on both lines.
+    expect(
+      applyText(inside, 'Read the big\n plan today', {
+        selection: { start: 12, end: 12 },
+      }).document.map(({ spans }) => spans),
+    ).toStrictEqual([
+      [{ text: 'Read ' }, { text: 'the big', link }],
+      [{ text: ' plan', link }, { text: ' today' }],
+    ]);
+    // An image splits the link without carrying it; removing the image rejoins it.
+    const image = {
+      id: 'image0001',
+      name: 'chart.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const withPicture = insertImage(
+      inside,
+      { start: 9, end: 9 },
+      image,
+    ).document;
+    expect(withPicture[0].spans).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the ', link },
+      { text: imageCharacter, image },
+      { text: 'big plan', link },
+      { text: ' today' },
+    ]);
+    expect(withoutImage(withPicture, image.id)).toStrictEqual(inside);
+    // Replacing a link's whole text, or its start or end, keeps the destination.
+    expect(
+      replaceSelection(inside, { start: 5, end: 17 }, 'the proposal')
+        .document[0].spans,
+    ).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the proposal', link },
+      { text: ' today' },
+    ]);
+    expect(
+      applyText(inside, 'Read the big draft today', {
+        selection: { start: 13, end: 17 },
+      }).document[0].spans,
+    ).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the big draft', link },
+      { text: ' today' },
+    ]);
+    // An accepted rewrite of other text leaves the link as it was.
+    expect(
+      replaceSelection(inside, { start: 18, end: 23 }, 'tomorrow').document[0]
+        .spans,
+    ).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the big plan', link },
+      { text: ' tomorrow' },
+    ]);
   });
 
   it('undoes typing a word at a time and redoes it', () => {
@@ -795,6 +910,25 @@ describe('storing Drafts', () => {
     );
     await expect(drafts.save()).resolves.toBe(true);
 
+    // A link destination outside the safe schemes is never stored; a safe one is.
+    const linked = (link: string): SemanticDocument => [
+      { kind: 'paragraph', spans: [{ text: 'Notes', link }] },
+    ];
+    await expect(
+      drafts.update({
+        ...created,
+        subject: 'Studio review on Thursday',
+        body: linked('data:text/html,notes'),
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      drafts.update({
+        ...created,
+        subject: 'Studio review on Thursday',
+        body: linked('https://example.invalid/notes'),
+      }),
+    ).resolves.toBe(true);
+
     // A new store, as after relaunch, reopens the same Draft without sending it.
     const relaunched = createDrafts(storage.native, session.registration);
     await relaunched.load();
@@ -803,7 +937,12 @@ describe('storing Drafts', () => {
       'the reopened Draft',
     );
     expect(reopened.subject).toBe('Studio review on Thursday');
-    expect(plainText(reopened.body)).toBe('Notes');
+    expect(reopened.body).toStrictEqual([
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'Notes', link: 'https://example.invalid/notes' }],
+      },
+    ]);
     expect(reopened.connection).toBe(alex.id);
     // A connection listed before Mail Profiles, and so its Draft, belongs to the Default Profile.
     expect(

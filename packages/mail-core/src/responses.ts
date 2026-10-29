@@ -9,6 +9,7 @@ import type {
   Recipient,
 } from './drafts.ts';
 import type { GmailInbox, GmailMessage } from './gmail-inbox.ts';
+import type { ImapInbox } from './imap-inbox.ts';
 import type { BodyDocument, BodySpan } from './message-body.ts';
 import type { MailboxConnection } from './registration-snapshot.ts';
 import type { Asset, Block, SemanticDocument } from './semantic-document.ts';
@@ -141,10 +142,14 @@ const repliedTo = (
     : sender;
 };
 
+// The opened message a response answers; an IMAP message has no thread.
+type AnsweredMessage = Pick<GmailMessage, 'id' | 'subject' | 'sender'> &
+  Readonly<{ threadId?: string }>;
+
 // What a response is made from: the opened message, sent from `from`. `received` is the shown
 // received date; a forward also attaches `attachments`.
 type ResponseSource = Readonly<{
-  message: Pick<GmailMessage, 'id' | 'threadId' | 'subject' | 'sender'>;
+  message: AnsweredMessage;
   document: BodyDocument;
   connection: string;
   from: string;
@@ -311,7 +316,11 @@ function replied(
       response: {
         kind,
         message: message.id,
-        thread: { connection: source.connection, id: message.threadId },
+        ...(message.threadId === undefined
+          ? {}
+          : {
+              thread: { connection: source.connection, id: message.threadId },
+            }),
         ...(inReplyTo === undefined ? {} : { inReplyTo }),
         references,
       },
@@ -332,7 +341,7 @@ export const respond = (
 // failed asset.
 export async function forwardedAttachments(
   inbox: Pick<
-    GmailInbox,
+    GmailInbox | ImapInbox,
     'messageAttachments' | 'downloadAttachment' | 'attachmentFile'
   >,
   { mailbox, id }: Readonly<{ mailbox: string; id: string }>,
@@ -382,7 +391,7 @@ export async function startResponse(
       'create' | 'abandon' | 'fill' | 'prepare' | 'getSnapshot'
     >;
     inbox: Pick<
-      GmailInbox,
+      GmailInbox | ImapInbox,
       | 'responseSource'
       | 'getSnapshot'
       | 'messageAttachments'
@@ -401,7 +410,7 @@ export async function startResponse(
   }: Readonly<{
     kind: ResponseKind;
     mailbox: Pick<MailboxConnection, 'id' | 'address' | 'profile'>;
-    message: Pick<GmailMessage, 'id' | 'threadId' | 'subject' | 'sender'>;
+    message: AnsweredMessage;
     received: string;
     mailboxes?: ReadonlyArray<Pick<MailboxConnection, 'address' | 'profile'>>;
     current?: () => boolean;

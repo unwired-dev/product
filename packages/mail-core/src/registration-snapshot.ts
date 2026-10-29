@@ -126,6 +126,7 @@ const Account = Schema.Struct({
   signInProvider: SignInProviderSchema,
   // Action-only receipt metadata, removed before publishing the snapshot to hosts.
   imapConnected: Schema.optionalKey(Schema.NonEmptyString),
+  profileCreated: Schema.optionalKey(Schema.NonEmptyString),
   // An unanswered removal stays resumable instead of reopening account access.
   removalPending: Schema.optionalKey(Schema.Literals(['sign-out', 'deletion'])),
   // The other Sign-In Provider explicitly linked to the same Product Account.

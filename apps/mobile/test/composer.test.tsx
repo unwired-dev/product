@@ -3766,8 +3766,140 @@ describe('adding files and images to a Draft', () => {
   /* oxlint-enable vitest/max-expects */
 });
 
+// Maya's message open in the reader of an IMAP connection, which sends through `sending`'s SMTP
+// server when it has one; returns the Draft store a response starts in.
+async function readImapPlans(sending: Readonly<{ smtp?: object }>) {
+  const initial = connected(['alex@example.invalid']);
+  const registration = account({
+    ...initial,
+    mailboxes: JSON.stringify([
+      ...mailboxesOf(initial),
+      {
+        id: 'imap',
+        address: 'imap@example.invalid',
+        provider: 'imap',
+        imap: { host: 'imap.example.invalid', port: 993, username: 'imap' },
+        ...sending,
+        state: 'connected',
+      },
+    ]),
+  });
+  const imap = createSyntheticImap({ address: 'imap@example.invalid' });
+  imap.deliver('INBOX', {
+    subject: 'Plans',
+    raw: [
+      'From: Maya Chen <maya@example.invalid>',
+      'To: imap@example.invalid, Bob <bob@example.invalid>',
+      'Subject: Plans',
+      'Message-ID: <imap-plans@example.invalid>',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'Shall we meet on Friday?',
+    ].join('\r\n'),
+  });
+  const mailboxes = createMailboxes(
+    syntheticConnections(
+      { [alex]: createSyntheticGmail({ messages: 0 }) },
+      { imap: imap.native },
+    ),
+    registration,
+  );
+  await mailboxes.load();
+  const inbox = mailboxes
+    .getConnections()
+    .find(({ id }) => id === 'imap')?.inbox;
+  const state = inbox?.getSnapshot();
+  const message = state?.kind === 'ready' ? state.messages[0]?.id : undefined;
+  ok(message !== undefined, 'Expected the IMAP message');
+  const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+  const drafts = createDrafts(storage.native, registration);
+  function Reader() {
+    const [composing, setComposing] = useState<string>();
+    return (
+      <AccountContext
+        value={{
+          mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
+          openAccount: ignore,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+          account: 'synthetic-product-account',
+          profiles: [],
+          createProfile: () => Promise.resolve(undefined),
+        }}>
+        <InboxProvider
+          drafts={drafts}
+          mailboxes={{
+            ...mailboxes,
+            getSnapshot: mailboxes.getConnections,
+          }}>
+          {composing === undefined ? (
+            <MessageDetail
+              id={message}
+              mailbox="imap"
+              onCompose={setComposing}
+            />
+          ) : (
+            <DraftComposer
+              id={composing}
+              onClose={() => {
+                setComposing(undefined);
+              }}
+              onRebind={setComposing}
+            />
+          )}
+        </InboxProvider>
+      </AccountContext>
+    );
+  }
+  await render(<Reader />);
+  await expect(
+    screen.findByText('Shall we meet on Friday?'),
+  ).resolves.toBeOnTheScreen();
+  return drafts;
+}
+const imapSmtp = {
+  smtp: {
+    host: 'smtp.example.invalid',
+    port: 465,
+    security: 'tls',
+    username: 'imap',
+  },
+};
+
 describe('replying to and forwarding from the reader', () => {
   /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it('offers no response to an IMAP message from a receive-only connection', async () => {
+    expect.hasAssertions();
+    await readImapPlans({});
+    expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Forward' })).toBeNull();
+  });
+
+  it('replies to an IMAP message from a connection with SMTP', async () => {
+    expect.hasAssertions();
+    const drafts = await readImapPlans(imapSmtp);
+    await press('Reply');
+    await press('Reply All');
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Re: Plans',
+    );
+    const [draft] = draftsOf(drafts.getSnapshot());
+    expect(draft).toMatchObject({
+      connection: 'imap',
+      from: 'imap@example.invalid',
+      to: [
+        { name: 'Maya Chen', address: 'maya@example.invalid' },
+        { name: 'Bob', address: 'bob@example.invalid' },
+      ],
+      response: {
+        kind: 'replyAll',
+        inReplyTo: '<imap-plans@example.invalid>',
+      },
+    });
+    expect(draft?.response).not.toHaveProperty('thread');
+  });
+
   it.each(['TRASH', 'SPAM'])(
     'restores mail from %s through the iPhone Reply sheet',
     async (folder) => {
