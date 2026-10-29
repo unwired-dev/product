@@ -149,7 +149,7 @@ jest.mock('@expo/ui/swift-ui', () => {
       children,
     );
   }
-  function Button({ label, onPress, modifiers }) {
+  function Button({ label, onPress, modifiers, children }) {
     return React.createElement(
       Pressable,
       {
@@ -159,7 +159,7 @@ jest.mock('@expo/ui/swift-ui', () => {
           (each) => each.$type === 'disabled' && each.disabled,
         ),
       },
-      React.createElement(Text, null, label),
+      label === undefined ? children : React.createElement(Text, null, label),
     );
   }
   // A menu picker lists its options as radios; each option's tag modifier is its value.
@@ -224,6 +224,7 @@ jest.mock('@expo/ui/swift-ui', () => {
     Popover,
     Group: Passthrough,
     Host: Passthrough,
+    HStack: Passthrough,
     Label: Labeled,
     LabeledContent: Labeled,
     Picker,
@@ -238,6 +239,7 @@ jest.mock('@expo/ui/swift-ui', () => {
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
+  contentShape: (shape) => ({ $type: 'contentShape', shape }),
   controlSize: (size) => ({ $type: 'controlSize', size }),
   labelStyle: (style) => ({ $type: 'labelStyle', style }),
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
@@ -246,11 +248,13 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   frame: (params) => ({ $type: 'frame', ...params }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
   monospacedDigit: () => ({ $type: 'monospacedDigit' }),
+  padding: (params) => ({ $type: 'padding', ...params }),
   pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
   scrollContentBackground: (visible) => ({
     $type: 'scrollContentBackground',
     visible,
   }),
+  shapes: { rectangle: () => ({ type: 'rectangle' }) },
   tag: (tag) => ({ $type: 'tag', tag }),
   tint: (tint) => ({ $type: 'tint', tint }),
   presentationBackground: (style) => ({

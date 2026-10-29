@@ -164,6 +164,33 @@ describe('building an outgoing message', () => {
     );
   });
 
+  it('aligns paragraphs, headings, list items and quotes in HTML and leaves plain text as written', async () => {
+    expect.hasAssertions();
+    const parsed = await PostalMime.parse(
+      assemble(
+        build(
+          draft({
+            body: [
+              { kind: 'heading1', spans: [{ text: 'Menu' }], align: 'center' },
+              { kind: 'paragraph', spans: [], align: 'right' },
+              { kind: 'bulleted', spans: [{ text: 'Soup' }], align: 'justify' },
+              { kind: 'quote', spans: [{ text: 'Yum' }], align: 'right' },
+              { kind: 'code', spans: [{ text: 'x' }], align: 'center' },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    expect(parsed.html).toBe(
+      '<!DOCTYPE html><html><body><h1 style="text-align:center">Menu</h1>' +
+        '<p style="text-align:right"><br></p><ul><li style="text-align:justify">Soup</li></ul>' +
+        '<blockquote><p style="text-align:right">Yum</p></blockquote>' +
+        '<pre><code>x</code></pre></body></html>',
+    );
+    expect(parsed.text).toBe('Menu\n\n- Soup\n> Yum\nx');
+  });
+
   it('preserves long subjects, recipient names and UTF-8 filenames within MIME line limits', async () => {
     expect.hasAssertions();
     const subject = 'x'.repeat(1200);

@@ -307,6 +307,12 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Keep this draft.',
       );
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
+      // The reader's toolbar above the overlay stays usable without closing the Draft (#1211).
+      await fireEvent.press(app.getByRole('button', { name: 'Mark as read' }));
+      await expect(
+        app.findByRole('button', { name: 'Mark as unread' }),
+      ).resolves.toBeVisible();
+      expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
       expect(
         app.getByRole('alert', {

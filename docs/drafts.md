@@ -67,7 +67,9 @@ transport and known native exit gaps.
   window's composer does. Several New Message windows can be open, and AppKit
   does not restore them. A New Message window closes if its Product Account is
   replaced or its Inbox becomes unavailable. The Inbox column stays
-  interactive beneath the overlay while the covered reader waits. Selecting
+  interactive beside the overlay. On the Mac, so does the reader's toolbar and
+  the rest of the reader above it; its Reply, Reply All and Forward first close
+  the open Draft as New Message does. Selecting
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout
   retain the same editor and Undo history; the Mac's New Message window starts a
@@ -174,6 +176,16 @@ change is one Undo step. The control is unavailable away from a link: composers
 cannot yet link unlinked text
 ([#878](https://github.com/unwired-dev/product/issues/878)), and the Slash
 Command Menu and recipient suggestions are later slices.
+
+Each block can also be centered, right-aligned or justified; a block without an
+alignment is start-aligned, and a Draft holding any other alignment is not saved
+or synchronized. A line break keeps the alignment of the block it splits, joining
+two blocks keeps the first block's, and typing, formatting, block kinds, inline
+images, replacements and Undo keep it. Sent mail aligns headings, paragraphs, list
+items and quotes; code lines share one `<pre>` and are sent without their alignment.
+Composers do not yet show or set alignment, and no Draft holds one until Drafts
+from other mail clients open
+([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.

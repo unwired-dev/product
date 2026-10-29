@@ -1333,7 +1333,7 @@ final class WindowTests: XCTestCase {
 
     // #1125: Move's AppKit menu lists the Microsoft mailbox's own folders. Escape and a click
     // outside dismiss it; the keyboard chooses a folder, which moves the message and closes its
-    // reader. It runs before Reply: a docked reply composer blocks the reader toolbar (#1211).
+    // reader.
     func searchFor(_ query: String) {
       runCommand("Search Mail", in: app)
       waitForFocus(search)
@@ -1395,6 +1395,19 @@ final class WindowTests: XCTestCase {
     app.typeKey("v", modifierFlags: .command)
     waitUntil { typed.value as? String == "Keyboard replyKeyboard reply" }
     try audit(app, "Composer")
+    // #1211: the reader's toolbar above the docked reply takes clicks. Folders opens its menu and
+    // the read toggle flips, and the reply keeps its text.
+    move.click()
+    XCTAssertTrue(projects.waitForExistence(timeout: 5))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
+    let read = window.buttons["Mark as read"]
+    let unread = window.buttons["Mark as unread"]
+    let (toggle, toggled) = read.exists ? (read, unread) : (unread, read)
+    toggle.click()
+    XCTAssertTrue(toggled.waitForExistence(timeout: 10))
+    assertProviderActionsSettled(window, provider: "Microsoft")
+    XCTAssertEqual(typed.value as? String, "Keyboard replyKeyboard reply")
     // The composer hides the search field; Search Mail shows it again. Clearing the query lists
     // the Inbox, with the saved Draft.
     runCommand("Search Mail", in: app)

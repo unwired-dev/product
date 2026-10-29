@@ -173,6 +173,9 @@ Link Editor is shown. The page cannot yet link unlinked text:
 [#878](https://github.com/unwired-dev/product/issues/878) owns link creation for
 both composers and blocks the adoption decision in #823.
 
+The page does not keep block alignment: editing a body here drops it
+([#1267](https://github.com/unwired-dev/product/issues/1267)).
+
 Return in code always starts another code line; use **Code block** to return the
 selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E
 for inline code and Command-Option-1 for a heading, also work in the page.

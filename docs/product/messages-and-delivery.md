@@ -31,7 +31,7 @@ implemented.
 ## Prototype composer presentation
 
 - On regular-width layouts, composing starts as a bottom-anchored, nonmodal overlay contained by the detail column; expanding that composer takes over the entire app surface while preserving the same editor and Draft state; on the Mac, expanding instead saves the Draft and moves it into its own New Message window, closing the overlay with no way back
-- While that composer is not expanded, the sidebar and Thread list remain interactive, the covered detail column does not, and changing Thread selection updates the reader behind the composer without dismissing or resetting its Draft; closing reveals the latest selection
+- While that composer is not expanded, the sidebar and Thread list remain interactive, the part of the detail column under the composer does not (on the Mac, the reader's toolbar and uncovered content above it stay interactive), and changing Thread selection updates the reader behind the composer without dismissing or resetting its Draft; closing reveals the latest selection
 - The regular-width composer spans the detail column with 12-point outer insets and uses 70 percent of available height clamped from 420 through 720 points; it has only overlay and full-app states (on the Mac, overlay and New Message window), not freeform drag resizing
 - On compact layouts, composing is an editor destination pushed into the existing navigation stack rather than a sheet or full-screen modal
 - Composer expansion is transient to the open editor and never changes how a later Draft opens; the legacy synchronized partial-or-full opening preference is ignored after migration.

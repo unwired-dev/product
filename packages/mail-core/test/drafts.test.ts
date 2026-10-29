@@ -368,6 +368,95 @@ describe('editing a Semantic Message Document', () => {
     ]);
   });
 
+  it('keeps block alignment through typing, line breaks, marks, block kinds, images, links and replacements', () => {
+    expect.hasAssertions();
+    const aligned: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Dear Sam' }], align: 'right' },
+      { kind: 'paragraph', spans: [{ text: 'Thanks' }], align: 'center' },
+    ];
+    const alignments = (document: SemanticDocument) =>
+      document.map(({ align }) => align);
+    expect(Schema.is(SemanticDocumentSchema)(aligned)).toBe(true);
+    expect(
+      Schema.is(SemanticDocumentSchema)([
+        { kind: 'paragraph', spans: [], align: 'middle' },
+      ]),
+    ).toBe(false);
+    const typedAligned = applyText(aligned, 'Dear Sam!\nThanks', {
+      selection: { start: 8, end: 8 },
+    }).document;
+    expect(alignments(typedAligned)).toStrictEqual(['right', 'center']);
+    // A line break keeps the alignment of the block it splits; joining keeps the first block's.
+    expect(
+      alignments(
+        applyText(aligned, 'Dear\n Sam\nThanks', {
+          selection: { start: 4, end: 4 },
+        }).document,
+      ),
+    ).toStrictEqual(['right', 'right', 'center']);
+    expect(
+      applyText(aligned, 'Dear SamThanks', {
+        selection: { start: 9, end: 9 },
+        deletion: 'backward',
+      }).document,
+    ).toStrictEqual([
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'Dear SamThanks' }],
+        align: 'right',
+      },
+    ]);
+    expect(
+      alignments(toggleMark(aligned, { start: 0, end: 15 }, 'bold')),
+    ).toStrictEqual(['right', 'center']);
+    expect(
+      setBlockKind(aligned, { start: 0, end: 0 }, 'heading1').document[0],
+    ).toStrictEqual({
+      kind: 'heading1',
+      spans: [{ text: 'Dear Sam' }],
+      align: 'right',
+    });
+    // A Markdown shortcut changes the kind and keeps the alignment.
+    const empty: SemanticDocument = [
+      { kind: 'paragraph', spans: [], align: 'center' },
+    ];
+    const dash = applyText(empty, '-', { selection: { start: 0, end: 0 } });
+    expect(
+      applyText(dash.document, '- ', { selection: { start: 1, end: 1 } })
+        .document,
+    ).toStrictEqual([{ kind: 'bulleted', spans: [], align: 'center' }]);
+    const image = {
+      id: 'image0002',
+      name: 'logo.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const withPicture = insertImage(
+      aligned,
+      { start: 4, end: 4 },
+      image,
+    ).document;
+    expect(alignments(withPicture)).toStrictEqual(['right', 'center']);
+    expect(withoutImage(withPicture, image.id)).toStrictEqual(aligned);
+    const linked = setLink(
+      aligned,
+      { start: 5, end: 8, text: 'Sam', href: 'mailto:sam@example.invalid' },
+      { text: 'Sam', href: 'mailto:sam@example.invalid' },
+    ).document;
+    expect(alignments(linked)).toStrictEqual(['right', 'center']);
+    // A replacement across blocks keeps each block's alignment.
+    expect(
+      replaceSelection(aligned, { start: 0, end: 15 }, 'Hi Sam\nCheers')
+        .document,
+    ).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Hi Sam' }], align: 'right' },
+      { kind: 'paragraph', spans: [{ text: 'Cheers' }], align: 'center' },
+    ]);
+    const history = record(historyOf(aligned), typedAligned);
+    expect(undo(history).present).toBe(aligned);
+    expect(redo(undo(history)).present).toBe(typedAligned);
+  });
+
   it('finds the link at a caret or selection and edits or removes it as one step', () => {
     expect.hasAssertions();
     const link = 'https://example.invalid/lease';
@@ -988,7 +1077,7 @@ describe('storing Drafts', () => {
 
     // A link destination outside the safe schemes is never stored; a safe one is.
     const linked = (link: string): SemanticDocument => [
-      { kind: 'paragraph', spans: [{ text: 'Notes', link }] },
+      { kind: 'paragraph', spans: [{ text: 'Notes', link }], align: 'center' },
     ];
     await expect(
       drafts.update({
@@ -1004,6 +1093,21 @@ describe('storing Drafts', () => {
         body: linked('https://example.invalid/notes'),
       }),
     ).resolves.toBe(true);
+    // Nor is an alignment the document does not define.
+    await expect(
+      drafts.update({
+        ...created,
+        subject: 'Studio review on Thursday',
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Notes' }],
+            // @ts-expect-error -- not an alignment the document defines
+            align: 'middle',
+          },
+        ],
+      }),
+    ).resolves.toBe(false);
 
     // A new store, as after relaunch, reopens the same Draft without sending it.
     const relaunched = createDrafts(storage.native, session.registration);
@@ -1017,6 +1121,7 @@ describe('storing Drafts', () => {
       {
         kind: 'paragraph',
         spans: [{ text: 'Notes', link: 'https://example.invalid/notes' }],
+        align: 'center',
       },
     ]);
     expect(reopened.connection).toBe(alex.id);
