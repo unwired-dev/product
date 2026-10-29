@@ -62,9 +62,10 @@ transport and known native exit gaps.
   stays beneath the window's [command bar](command-palette.md#entry-points), and
   **Expand** saves the Draft, then moves it into its own **New Message** window and
   closes the overlay; there is no way back into the Inbox window. A failed save
-  keeps the Draft in the overlay. The New Message window has its own command bar
-  and the composer's Close; closing the window or quitting asks as an Inbox
-  window's composer does. Several New Message windows can be open, and AppKit
+  keeps the Draft in the overlay. The New Message window's toolbar row, beside
+  the window controls, holds its title, its own command bar, From, the Compose
+  actions overflow with Discard, and Send; it has no composer Close or bottom
+  row. Closing the window or quitting asks as an Inbox window's composer does. Several New Message windows can be open, and AppKit
   does not restore them. A New Message window closes if its Product Account is
   replaced or its Inbox becomes unavailable. The Inbox column stays
   interactive beside the overlay. On the Mac, so does the reader's toolbar and
@@ -109,12 +110,15 @@ transport and known native exit gaps.
   retain bounded previews. Sender/subject search lists received mail alone; clearing the search
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
 - The composer shows the body first, then attachments, then the **Subject**,
-  **To**, **Cc** and **Bcc** fields with right-aligned labels; its header holds
+  **To**, **Cc** and **Bcc** fields with right-aligned labels. Except in the Mac
+  New Message window described above, its header holds
   Close, the title and a Compose actions menu with Discard, and the format bar (text style, bold, italic,
   underline, strikethrough, inline code, lists, Undo, Redo, Translate, Rewrite
   and the file and image controls) sits under the header on Mac and iPad and
   above the keyboard on iPhone. On touch layouts, Text style stays at the leading
-  edge while the remaining controls scroll horizontally at their full touch size. On Mac, **From** and **Send** share the bottom row;
+  edge while the remaining controls scroll horizontally at their full touch size.
+  In the Mac overlay, **From** and **Send** share the bottom row; in its New
+  Message window they share the toolbar row above the format bar;
   on iPhone and iPad, **From** sits under the header and **Send** in it.
   These platform control rows stay fixed. Save status, errors and confirmations
   scroll with the body, assets and fields in one outer scroll view; stacked
@@ -185,6 +189,16 @@ images, replacements and Undo keep it. Sent mail aligns headings, paragraphs, li
 items and quotes; code lines share one `<pre>` and are sent without their alignment.
 Composers do not yet show or set alignment, and no Draft holds one until Drafts
 from other mail clients open
+([#1267](https://github.com/unwired-dev/product/issues/1267)).
+
+Text can also carry a color, stored as lowercase `#rrggbb`; text without one shows
+in the default text color, and a Draft holding any other color value is not saved
+or synchronized. Typed and replacing text takes the color of the text before it,
+or at the start of a block the text after it, and line breaks, joined blocks,
+formatting, block kinds, inline images, link edits and Undo keep each color.
+Sent mail colors the text, links included, with an inline `color` style; plain
+text is unchanged. Composers do not yet show or set color, and no Draft holds one
+until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build

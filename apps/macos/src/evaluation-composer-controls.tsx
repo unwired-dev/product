@@ -1,6 +1,7 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
+import type { Link } from '@private-email/mail-core/semantic-document';
 import type { TranslationLanguage } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
@@ -8,7 +9,10 @@ import {
   canRewrite,
   canSuggestReply,
 } from '@private-email/mail-core/assistance';
-import { selectedText } from '@private-email/mail-core/semantic-document';
+import {
+  linkAt,
+  selectedText,
+} from '@private-email/mail-core/semantic-document';
 import {
   hasTranslatableText,
   translationInputLimit,
@@ -17,7 +21,7 @@ import { use } from 'react';
 import { Text, TextInput, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import { FormatBar, PopUp } from './composer-controls.tsx';
+import { FormatBar, LinkEditor, PopUp } from './composer-controls.tsx';
 import { composerStyles, Recipients, rewriteLabel } from './composer.tsx';
 import { ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -48,12 +52,14 @@ export function PageFormatBar({
   run,
   onAdd,
   onCapture,
+  onLink,
 }: {
   readonly draft: Draft;
   readonly page: PageState;
   readonly run: (command: Command) => void;
   readonly onAdd: (source: PickSource, inline: boolean) => void;
   readonly onCapture: Capture;
+  readonly onLink: (link: Link, text: string, href?: string) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -77,6 +83,11 @@ export function PageFormatBar({
       onMark={(mark) => {
         run({ type: 'mark', mark });
       }}>
+      <LinkEditor
+        disabled={false}
+        link={linkAt(draft.body, page.selection)}
+        onChange={onLink}
+      />
       <View style={[s.divider, { backgroundColor: colors.separator }]} />
       <ToolbarButton
         disabled={!page.undo}

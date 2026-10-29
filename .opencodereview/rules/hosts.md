@@ -274,6 +274,15 @@ still applies. See `docs/architecture/macos-client.md`.
   tagged with the newer revision. Page-local insertion and thumbnail updates do
   not derive a replacement from host text and need no matching-body fence.
 
+- `evaluation-composer.tsx.editLink` applying a Link Editor's captured range to a
+  newer body merely because the replacement uses the latest page revision.
+  Revalidate the captured link's range, text and destination against the current
+  authored body before Apply or Remove Link; edits elsewhere may proceed when
+  that exact link remains intact. Exercise a moved link and a changed destination
+  while the editor is open on both hosts. Otherwise `setLink` can overwrite
+  unrelated text or remove a different link even though the page's revision
+  guard accepts the command. Keep the accepted-body revision fence too.
+
 - `categorization-spike-page.tsx` reusing request identities across window roots
   or remounts, retaining results after selector changes, or continuing unattended
   actions after dismissal. Trace its process-wide native cancellation/progress

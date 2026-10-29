@@ -494,6 +494,7 @@ export function ComposerWindow({
   const identifier = `composer-window-${windowId}`;
   const [id, setId] = useState(draft);
   const colors = usePalette();
+  const { t } = useLocalization();
   return (
     <CommandPaletteProvider
       windowId={windowId}
@@ -502,13 +503,19 @@ export function ComposerWindow({
         <ProfileScope profile={profile}>
           <View
             style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
-            <CommandBar />
             <DraftComposer
               id={id}
               onClose={() => {
                 windowHost()?.finishClose(identifier, true);
               }}
               onRebind={setId}
+              renderToolbar={(from, actions) => (
+                <CommandBar
+                  title={t('drafts.newMessage')}
+                  from={from}
+                  actions={actions}
+                />
+              )}
             />
           </View>
         </ProfileScope>

@@ -425,7 +425,11 @@ styles) so the file stays editable.
   mockups still show a 60% inline composer.
   One composer per window keeps Expand visible in the Mac overlay and
   expand/collapse visible on regular-width iPad; the Mac New Message window
-  omits both. Close stays directly accessible and destructive Discard in overflow. The sidebar and list
+  omits both. Close stays directly accessible and destructive Discard in overflow.
+  The Mac New Message window has no composer header or bottom row: its toolbar
+  row holds the window controls, the "New Message" title, the Command Input, the
+  From pop-up, the Compose actions overflow and Send. The frame's Remind Me to
+  Send bell waits for #658, and the overflow keeps Discard reachable. The sidebar and list
   remain interactive beside the overlay, and on the Mac so do the reader's
   toolbar and the uncovered reader above it; save failures appear inline.
   In the approved compose design ([iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140),

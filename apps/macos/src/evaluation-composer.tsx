@@ -2,6 +2,7 @@ import type { Command } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
+import type { Link } from '@private-email/mail-core/semantic-document';
 import type { TranslationLanguage } from '@private-email/mail-core/translation';
 
 import {
@@ -27,7 +28,9 @@ import {
 import {
   clip,
   imagesOf,
+  linkAt,
   replaceSelection,
+  setLink,
 } from '@private-email/mail-core/semantic-document';
 import {
   use,
@@ -40,7 +43,7 @@ import {
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import type { Closing } from './composer.tsx';
+import type { Closing, Toolbar } from './composer.tsx';
 import type { PageState } from './evaluation-composer-controls.tsx';
 
 import { useCloseGuard } from './command-palette.tsx';
@@ -90,12 +93,14 @@ function EvaluationEditor({
   onClose,
   onRebind,
   onExpand,
+  renderToolbar,
 }: {
   readonly page: string;
   readonly initial: Draft;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
@@ -359,6 +364,32 @@ function EvaluationEditor({
       selection: result.selection ?? captured.selection,
     });
   };
+  // Applies a Link Editor change to the body revision the page reported, as one undoable edit in
+  // the page. A link the page has moved or changed since the editor opened stays as it is.
+  const editLink = (link: Link, text: string, href?: string) => {
+    const reported = pageNow.current;
+    const { body } = authored.current;
+    const current = linkAt(body, link);
+    if (
+      !mounted.current ||
+      busy.current ||
+      reported === undefined ||
+      reported.revision !== bodyRevision.current ||
+      current?.start !== link.start ||
+      current.end !== link.end ||
+      current.text !== link.text ||
+      current.href !== link.href
+    ) {
+      return;
+    }
+    const result = setLink(body, link, { text, href });
+    run({
+      type: 'replace',
+      revision: reported.revision,
+      document: result.document,
+      selection: result.selection ?? reported.selection,
+    });
+  };
   // The page loads once with the opened body; later edits never reload it.
   // oxlint-disable-next-line react/hook-use-state -- The mounted page keeps its original source.
   const [source] = useState(() => ({ html: page }));
@@ -603,42 +634,65 @@ function EvaluationEditor({
   const { quoted: _quoted, ...owned } = draft;
   // Controls appear once the page reports that it is ready for commands.
   const shown = stopped || closing === 'saving' ? undefined : pageState;
+  const sender = (
+    <SendingMailbox
+      draft={draft}
+      editable={closing !== 'saving' && !sending}
+      onChange={(mailbox) => {
+        change(withSender(authored.current, mailbox));
+      }}
+    />
+  );
+  const sendButton = (
+    <Button
+      disabled={closing === 'saving'}
+      label={t('drafts.send')}
+      fill="accent"
+      onPress={() => {
+        void send();
+      }}
+    />
+  );
   return (
     <View
       ref={root}
       collapsable={false}
       style={[s.fill, { backgroundColor: colors.surfaceContent }]}>
-      <View style={s.header}>
-        <ToolbarButton
-          disabled={closing === 'saving'}
-          icon="xmark"
-          label={t('drafts.close')}
-          onPress={() => {
-            void close();
-          }}
-        />
-        <View
-          accessible
-          accessibilityLabel={titleLabel}
-          accessibilityRole="header"
-          style={s.grow}>
-          <Text
-            numberOfLines={1}
-            style={[s.title, { color: colors.textPrimary }]}>
-            {title}
-          </Text>
-        </View>
-        {onExpand === undefined ? null : (
+      {renderToolbar === undefined ? (
+        <View style={s.header}>
           <ToolbarButton
             disabled={closing === 'saving'}
-            icon="arrow.up.left.and.arrow.down.right"
-            label={t('drafts.expand')}
+            icon="xmark"
+            label={t('drafts.close')}
             onPress={() => {
-              void expand();
+              void close();
             }}
           />
-        )}
-      </View>
+          <View
+            accessible
+            accessibilityLabel={titleLabel}
+            accessibilityRole="header"
+            style={s.grow}>
+            <Text
+              numberOfLines={1}
+              style={[s.title, { color: colors.textPrimary }]}>
+              {title}
+            </Text>
+          </View>
+          {onExpand === undefined ? null : (
+            <ToolbarButton
+              disabled={closing === 'saving'}
+              icon="arrow.up.left.and.arrow.down.right"
+              label={t('drafts.expand')}
+              onPress={() => {
+                void expand();
+              }}
+            />
+          )}
+        </View>
+      ) : (
+        renderToolbar(sender, sendButton)
+      )}
       <MenuPresence
         open={shown !== undefined}
         origin="top"
@@ -652,6 +706,7 @@ function EvaluationEditor({
               void add(from, inline);
             }}
             onCapture={capture}
+            onLink={editLink}
           />
         )}
       </MenuPresence>
@@ -790,24 +845,13 @@ function EvaluationEditor({
           }}
         />
       </ScrollView>
-      <View style={[s.actions, { borderTopColor: colors.separator }]}>
-        <SendingMailbox
-          draft={draft}
-          editable={closing !== 'saving' && !sending}
-          onChange={(mailbox) => {
-            change(withSender(authored.current, mailbox));
-          }}
-        />
-        <View style={s.grow} />
-        <Button
-          disabled={closing === 'saving'}
-          label={t('drafts.send')}
-          fill="accent"
-          onPress={() => {
-            void send();
-          }}
-        />
-      </View>
+      {renderToolbar === undefined ? (
+        <View style={[s.actions, { borderTopColor: colors.separator }]}>
+          {sender}
+          <View style={s.grow} />
+          {sendButton}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -821,12 +865,14 @@ function EvaluationComposer({
   onClose,
   onRebind,
   onExpand,
+  renderToolbar,
 }: {
   readonly page: string;
   readonly id: string;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const state = useDrafts();
   const draft = draftOf(state, id);
@@ -856,6 +902,7 @@ function EvaluationComposer({
         onClose={onClose}
         onExpand={onExpand}
         onRebind={onRebind}
+        renderToolbar={renderToolbar}
       />
     );
   }
@@ -867,6 +914,7 @@ function EvaluationComposer({
       onClose={onClose}
       onExpand={onExpand}
       onRebind={rebind}
+      renderToolbar={renderToolbar}
     />
   );
 }
@@ -878,6 +926,7 @@ type ComposerProps = Readonly<{
   onRebind: (id: string) => void;
   // Moves the saved Draft into its own window, when offered.
   onExpand?: ((id: string) => void) | undefined;
+  renderToolbar?: Toolbar | undefined;
 }>;
 
 // `registration-draft-editor` builds open Drafts in the Tiptap evaluation editor; every other
