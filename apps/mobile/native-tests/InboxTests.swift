@@ -385,8 +385,8 @@ final class InboxTests: XCTestCase {
 
   // #1037: the Mailboxes Profile Switcher opens its system menu, listing the Primary Profile with
   // its connections and New Mail Profile…, whose prompt asks for a name and cancels without
-  // change. Creating a Profile needs this launch's verified Product Sign-In, which this journey no
-  // longer has after its relaunch, so creating and switching stay with the app integration tests.
+  // change. #1188: after this journey's relaunch, creating a Profile signs in with Apple again
+  // first, and the window then switches to the new Profile and back.
   private func profileSwitcherJourney(_ app: XCUIApplication) {
     let switcher = app.buttons["Mail Profile, Primary Profile"]
     // The switcher sits in the Mailboxes column; on iPhone that column is one Back away.
@@ -419,6 +419,35 @@ final class InboxTests: XCTestCase {
     add(named)
     prompt.buttons["Cancel"].tap()
     XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+    switcher.tap()
+    XCTAssertTrue(create.waitForExistence(timeout: 10))
+    create.tap()
+    XCTAssertTrue(prompt.waitForExistence(timeout: 10))
+    let name = prompt.textFields.firstMatch
+    name.tap()
+    type("Work", into: name)
+    prompt.buttons["Create"].tap()
+    XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(app.alerts["New Mail Profile"].waitForExistence(timeout: 5))
+    // The new Profile owns no mailboxes; choosing it switches this window.
+    switcher.tap()
+    let work = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Work"))
+      .firstMatch
+    XCTAssertTrue(work.waitForExistence(timeout: 15))
+    work.tap()
+    let switched = app.buttons["Mail Profile, Work"]
+    XCTAssertTrue(switched.waitForExistence(timeout: 10))
+    let workWindow = XCTAttachment(screenshot: app.screenshot())
+    workWindow.name = "Window switched to a Profile created after relaunch"
+    workWindow.lifetime = .keepAlways
+    add(workWindow)
+    switched.tap()
+    let primary = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Primary Profile")
+    ).firstMatch
+    XCTAssertTrue(primary.waitForExistence(timeout: 10))
+    primary.tap()
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
     mailProfilesSettingsJourney(app, switcher: switcher)
     // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
