@@ -218,8 +218,8 @@ outgoing mail, into a Semantic Message Document
 ([#1567](https://github.com/unwired-dev/product/issues/1567)); provider Drafts
 use it once they open. It lays out text as a browser does, collapsing spaces
 and treating each `<br>` as a line break, and reads block kinds, marks, links,
-alignment, `#rrggbb`, `#rgb` and opaque `rgb()`/`rgba()` colors, families and sizes in
-`px`, `pt`, keywords or absolute `<font size="1">` through `<font size="7">`,
+alignment, `#rrggbb`, `#rgb` and opaque `rgb()`/`rgba()` colors, families and
+sizes in `px`, `pt`, keywords or absolute `<font size="1">` through `<font size="7">`,
 whether set on a block or on text. Body `text` and unvisited `link` colors are
 preserved. CSS weights `normal`/`400` and `bold`/`700` become the corresponding
 mark; other weights and oblique fonts are reported rather than approximated.
@@ -228,15 +228,15 @@ language and namespace attributes, left-to-right or automatic `dir`, HTML-hidden
 content without a display override, spacing (margins, padding, line height),
 Outlook `mso-` properties and quote borders. Browser-dependent active/visited
 link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
-Anything else, such as a table, an image,
-headings four to six, a nested list or quote, a color name, a relative size, a
-block background, custom or reversed list numbering, a multiline list item or
-right-to-left text, makes it report the
+Anything else, such as a table, an image, headings four to six, a nested list
+or quote, a color name, a relative size, a block background, custom or reversed
+list numbering, a multiline list item, right-to-left text or a CSS-wide keyword
+other than `inherit` (`initial`, `unset`, `revert`), makes it report the
 element, attribute or CSS property instead of a document, so the Draft is never
 silently changed. Escaped CSS and declarations beyond the CSS parser's nesting
-budget report the `style` attribute. Outgoing HTML reads back to the same document, apart from the
-spaces HTML collapses, a trailing empty code line and code alignment, which is
-not sent.
+budget report the `style` attribute. Outgoing HTML reads back to the same
+document, apart from the spaces HTML collapses, a trailing empty code line and
+code alignment, which is not sent.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.

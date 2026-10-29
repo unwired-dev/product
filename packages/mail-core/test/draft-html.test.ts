@@ -442,6 +442,32 @@ describe('a Semantic Message Document from Draft HTML', () => {
     ).toStrictEqual({ unsupported: ['text-decoration'] });
   });
 
+  it('refuses CSS-wide keywords other than inherit instead of reading them as values', () => {
+    expect.hasAssertions();
+
+    expect(
+      documentFromHtml(
+        '<div style="font-family:Arial"><span style="font-family:unset">a</span></div>' +
+          '<font face="initial">b</font><font face="Arial, revert">c</font>' +
+          '<blockquote style="border:initial">d</blockquote>' +
+          '<p style="font-size:revert-layer;margin:unset">e</p>',
+      ),
+    ).toStrictEqual({
+      unsupported: ['font-family', 'face', 'border', 'font-size'],
+    });
+    expect(
+      documentFromHtml(
+        '<div style="font-family:Arial"><span style="font-family:inherit">a</span></div>' +
+          '<p style="font-family:\'unset\'">b</p>',
+      ),
+    ).toStrictEqual({
+      document: [
+        { kind: 'paragraph', spans: [{ text: 'a', font: 'Arial' }] },
+        { kind: 'paragraph', spans: [{ text: 'b', font: '"unset"' }] },
+      ],
+    });
+  });
+
   it('collapses whitespace as a browser shows it', () => {
     expect.hasAssertions();
 

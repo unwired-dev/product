@@ -140,6 +140,8 @@ const colorOf = (value: string) => {
 };
 
 const isFont = Schema.is(FontSchema);
+// CSS-wide keywords and the reserved `default` control the cascade; they are never family names.
+const cssKeywords = /^(?:inherit|initial|unset|revert|revert-layer|default)$/iu;
 const familyOf = (value: string) => {
   const names: string[] = [];
   let current = '';
@@ -151,16 +153,17 @@ const familyOf = (value: string) => {
       current += token[1];
     }
   }
-  const family = [...names, current]
-    .map((name) => {
-      const trimmed = name.trim();
-      const quoted = /^(?<quote>["'])(?<name>.*)\k<quote>$/u.exec(trimmed);
-      return quoted?.[2] === undefined
-        ? trimmed.replaceAll(/\s+/gu, ' ')
-        : `"${quoted[2]}"`;
-    })
-    .join(', ');
-  return isFont(family) ? family : undefined;
+  const family = [...names, current].map((name) => {
+    const trimmed = name.trim();
+    const quoted = /^(?<quote>["'])(?<name>.*)\k<quote>$/u.exec(trimmed);
+    return quoted?.[2] === undefined
+      ? trimmed.replaceAll(/\s+/gu, ' ')
+      : `"${quoted[2]}"`;
+  });
+  return family.some((name) => cssKeywords.test(name)) ||
+    !isFont(family.join(', '))
+    ? undefined
+    : family.join(', ');
 };
 
 const sizeOf = (value: string) => {
@@ -447,13 +450,16 @@ const styled = (
       if (inherit !== undefined) {
         return inherit(context, parent);
       }
-      if (ignoredProperties.test(property)) {
-        return context;
-      }
     }
-    const rule = unsafe.has(property)
-      ? () => undefined
-      : (propertyRules.get(property) ?? otherProperty(property));
+    // Any other CSS-wide keyword resolves through a cascade the document does not keep.
+    const keyword = cssKeywords.test(value.trim());
+    if (keyword && ignoredProperties.test(property)) {
+      return context;
+    }
+    const rule =
+      unsafe.has(property) || keyword
+        ? () => undefined
+        : (propertyRules.get(property) ?? otherProperty(property));
     return applied({ ...applying, context }, [property, value], rule);
   }, applying.context);
 };
