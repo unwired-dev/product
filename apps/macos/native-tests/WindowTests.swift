@@ -1463,6 +1463,18 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(windowBody.value as? String, "Keyboard replyKeyboard reply")
     XCTAssertTrue(typed.waitForNonExistence(timeout: 10))
     XCTAssertFalse(composer.buttons["Expand"].exists)
+    // #1286: Send and the Command Palette sit in the toolbar row beside the window controls and
+    // take clicks there.
+    let send = composer.buttons["Send"]
+    XCTAssertTrue(send.waitForExistence(timeout: 10))
+    XCTAssertEqual(
+      send.frame.midY, composer.buttons[XCUIIdentifierCloseWindow].frame.midY, accuracy: 3)
+    composer.buttons["Open Command Palette"].click()
+    let query = composer.textFields.matching(NSPredicate(format: "label == %@", "Type a command"))
+      .firstMatch
+    XCTAssertTrue(query.waitForExistence(timeout: 10))
+    composer.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     // Both native exits must reach the regular editor's recipient/save guard.
     let to = composer.textFields.matching(NSPredicate(format: "label == %@", "To")).firstMatch
     XCTAssertTrue(to.waitForExistence(timeout: 10))
@@ -1492,7 +1504,7 @@ final class WindowTests: XCTestCase {
     window.buttons["Expand"].click()
     let quittingComposer = app.windows["composer-window-2"]
     XCTAssertTrue(quittingComposer.waitForExistence(timeout: 15))
-    XCTAssertTrue(quittingComposer.buttons["Close"].waitForExistence(timeout: 15))
+    XCTAssertTrue(quittingComposer.buttons["Send"].waitForExistence(timeout: 15))
     quittingComposer.typeKey("q", modifierFlags: .command)
     XCTAssertTrue(app.wait(for: .notRunning, timeout: 15))
   }

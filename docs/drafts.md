@@ -62,9 +62,10 @@ transport and known native exit gaps.
   stays beneath the window's [command bar](command-palette.md#entry-points), and
   **Expand** saves the Draft, then moves it into its own **New Message** window and
   closes the overlay; there is no way back into the Inbox window. A failed save
-  keeps the Draft in the overlay. The New Message window has its own command bar
-  and the composer's Close; closing the window or quitting asks as an Inbox
-  window's composer does. Several New Message windows can be open, and AppKit
+  keeps the Draft in the overlay. The New Message window's toolbar row, beside
+  the window controls, holds its title, its own command bar, From, the Compose
+  actions overflow with Discard, and Send; it has no composer Close or bottom
+  row. Closing the window or quitting asks as an Inbox window's composer does. Several New Message windows can be open, and AppKit
   does not restore them. A New Message window closes if its Product Account is
   replaced or its Inbox becomes unavailable. The Inbox column stays
   interactive beside the overlay. On the Mac, so does the reader's toolbar and

@@ -216,9 +216,15 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   self.nextComposerNumber += 1;
   NSString *windowID = [NSString stringWithFormat:@"%lu", (unsigned long)self.nextComposerNumber];
   NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 760, 640)
-      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView
       backing:NSBackingStoreBuffered defer:NO];
   window.title = UnwiredNativeText(@"newMessageTitle");
+  // The composer draws the window's toolbar row, with its title, beside the window controls; the
+  // empty unified toolbar gives the title bar that row's height.
+  window.titleVisibility = NSWindowTitleHidden;
+  window.titlebarAppearsTransparent = YES;
+  window.toolbar = [[NSToolbar alloc] initWithIdentifier:@"composer-toolbar"];
+  window.toolbarStyle = NSWindowToolbarStyleUnified;
   window.identifier = [@"composer-window-" stringByAppendingString:windowID];
   window.restorable = NO;
   window.accessibilityIdentifier = window.identifier;

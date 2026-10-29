@@ -387,6 +387,17 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).resolves.toHaveTextContent('Keep this draft.');
       expect(window.getByLabelText('To')).toHaveProp('value', 'unfinished');
       expect(window.queryByRole('button', { name: 'Expand' })).toBeNull();
+      // #1286: the toolbar row holds the Command Palette, From, the actions and Send; the window's
+      // own controls close it.
+      expect(window.queryByRole('button', { name: 'Close' })).toBeNull();
+      expect(
+        window.getByRole('button', { name: 'Open Command Palette' }),
+      ).toBeVisible();
+      expect(window.getByLabelText(/^Send from /u)).toBeVisible();
+      expect(
+        window.getByRole('button', { name: 'Compose actions' }),
+      ).toBeVisible();
+      expect(window.getAllByRole('button', { name: 'Send' })).toHaveLength(1);
       // Native Close and Quit must reach this editor's leave guard, including unfinished entries.
       await act(async () => {
         DeviceEventEmitter.emit('windowShouldClose', {
@@ -417,9 +428,13 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).toBeVisible();
       expect(closedWindows()).toStrictEqual([]);
       storage.setLocked(false);
-      await fireEvent.press(window.getByRole('button', { name: 'Close' }));
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'composer-window-1',
+        });
+      });
       await waitFor(() => {
-        expect(closedWindows()).toStrictEqual(['composer-window-1']);
+        expect(closedWindows()).toContain('composer-window-1');
       });
       await app.rerender(
         <AccountContext value={accountActions}>
