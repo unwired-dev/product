@@ -180,7 +180,7 @@ alignment is start-aligned, and a Draft holding any other alignment is not saved
 or synchronized. A line break keeps the alignment of the block it splits, joining
 two blocks keeps the first block's, and typing, formatting, block kinds, inline
 images, replacements and Undo keep it. Sent mail aligns headings, paragraphs, list
-items and quotes; code lines share one block and are sent without their alignment.
+items and quotes; code lines share one `<pre>` and are sent without their alignment.
 Composers do not yet show or set alignment, and no Draft holds one until Drafts
 from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).

@@ -1093,6 +1093,21 @@ describe('storing Drafts', () => {
         body: linked('https://example.invalid/notes'),
       }),
     ).resolves.toBe(true);
+    // Nor is an alignment the document does not define.
+    await expect(
+      drafts.update({
+        ...created,
+        subject: 'Studio review on Thursday',
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Notes' }],
+            // @ts-expect-error -- not an alignment the document defines
+            align: 'middle',
+          },
+        ],
+      }),
+    ).resolves.toBe(false);
 
     // A new store, as after relaunch, reopens the same Draft without sending it.
     const relaunched = createDrafts(storage.native, session.registration);
