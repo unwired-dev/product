@@ -223,7 +223,7 @@ Beneath the selected Profile, **Mailboxes** lists the connections it owns, each
 with a system pop-up naming its Mail Profile; choosing another Profile moves the
 connection. A Profile that owns none says so and points to moving one from its
 current Profile. **Duplicate Mail Profile**, on every Profile, creates
-“<name> Copy” without asking, selects it and shows its page for renaming
+`<name> Copy` without asking, selects it and shows its page for renaming
 ([#1533](https://github.com/unwired-dev/product/issues/1533)). It copies only the
 name, the one reviewed Profile-scoped setting so far, and never a connection,
 sign-in, cached mail, Drafts, Outbox attempt, history, notification policy or pin.
