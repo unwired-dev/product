@@ -66,6 +66,7 @@ describe('synchronizing Drafts through Product Sync', () => {
                 { text: 'Numbers ' },
                 { text: 'attached', link: 'https://example.invalid/numbers' },
               ],
+              align: 'center',
             },
           ],
           { start: 0, end: 0 },
@@ -110,6 +111,7 @@ describe('synchronizing Drafts through Product Sync', () => {
       from: alex.address,
       subject: 'Plan',
     });
+    expect(continued.body[0].align).toBe('center');
     expect(continued.body[0].spans.at(-1)).toStrictEqual({
       text: 'attached',
       link: 'https://example.invalid/numbers',

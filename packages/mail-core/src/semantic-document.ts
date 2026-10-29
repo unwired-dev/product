@@ -27,6 +27,9 @@ export const BlockKindSchema = Schema.Literals([
 ]);
 export type BlockKind = typeof BlockKindSchema.Type;
 
+// A block without an alignment is start-aligned.
+export const AlignmentSchema = Schema.Literals(['center', 'right', 'justify']);
+
 // The character an inline image occupies in the editor's text; typed text never contains it.
 export const imageCharacter = '\uFFFC';
 
@@ -84,6 +87,7 @@ const SpanSchema = Schema.Union([
 export const BlockSchema = Schema.Struct({
   kind: BlockKindSchema,
   spans: Schema.Array(SpanSchema),
+  align: Schema.optionalKey(AlignmentSchema),
 });
 export type Block = typeof BlockSchema.Type;
 export const SemanticDocumentSchema = Schema.NonEmptyArray(BlockSchema);
@@ -472,20 +476,22 @@ const edgesOf = (lines: readonly Block[], { start, end }: Change) => {
   return {
     from,
     to,
+    first,
     kind: removesMarker ? 'paragraph' : first.kind,
     head: sliceSpans(first.spans, 0, Math.max(0, from.column - from.marker)),
     tail: sliceSpans(last.spans, Math.max(0, to.column - to.marker)),
   } as const;
 };
 
-// Replaces the changed span of the lines, returning the new lines and the caret after it.
+// Replaces the changed span of the lines, returning the new lines and the caret after it. Every
+// created block keeps the alignment of the block the change starts in.
 // fallow-ignore-next-line complexity -- Inherited marks and created block kinds are one splice.
 const splice = (
   lines: readonly Block[],
   change: Change,
   marks: readonly Mark[] | undefined,
 ) => {
-  const { from, to, kind, head, tail } = edgesOf(lines, change);
+  const { from, to, first, kind, head, tail } = edgesOf(lines, change);
   const typed = marks ?? marksOf(head.at(-1) ?? tail[0]);
   // Replacing text keeps the link of its first replaced character; text inserted inside a link
   // joins it, and at the link's edges stays unlinked.
@@ -504,6 +510,7 @@ const splice = (
   const above = head.length === 0 && parts.length > 1 && parts[0] === '';
   const last = parts.length - 1;
   const created = parts.map((text, index): Block => ({
+    ...first,
     kind: createdKind(kind, { index, count: parts.length, above }),
     spans: joinSpans(
       index === 0 ? head : [],
@@ -573,7 +580,11 @@ export function applyText(
   if (current !== undefined && shortcut !== undefined) {
     const converted = lines.map((each, index) =>
       index === line
-        ? { kind: shortcut, spans: sliceSpans(current.spans, column) }
+        ? {
+            ...current,
+            kind: shortcut,
+            spans: sliceSpans(current.spans, column),
+          }
         : each,
     );
     return {
@@ -696,12 +707,17 @@ export function replaceSelection(
   const translated = result.lines
     .slice(from.line, result.line + 1)
     .map((line, index) => {
-      // Retain corresponding selected block kinds, and the block of an unselected suffix.
-      let kind = originals[index]?.kind ?? continuation(lastKind);
-      if (index === result.line - from.line && index > 0 && tailRemains) {
-        kind = lastKind;
-      }
-      return kind === line.kind ? line : { ...line, kind };
+      // Retain corresponding selected blocks' kinds and alignments, and those of the block of an
+      // unselected suffix.
+      const source =
+        index === result.line - from.line && index > 0 && tailRemains
+          ? last
+          : originals[index];
+      return {
+        ...(source ?? line),
+        kind: source?.kind ?? continuation(lastKind),
+        spans: line.spans,
+      };
     });
   const keptKinds = [
     ...result.lines.slice(0, from.line),
@@ -762,7 +778,7 @@ export function toggleMark(
         ),
       );
       return {
-        kind: line.kind,
+        ...line,
         spans: joinSpans(
           sliceSpans(line.spans, 0, first),
           toggledSpans,
@@ -796,7 +812,7 @@ export function insertImage(
   const result = lines.map((each, index) =>
     index === line
       ? {
-          kind: each.kind,
+          ...each,
           spans: joinSpans(
             sliceSpans(each.spans, 0, column),
             [spanOf(imageCharacter, [], { image })],
@@ -854,7 +870,7 @@ export const withImage = (
 // The document without the inline image `id`, keeping the text around it.
 export const withoutImage = (document: SemanticDocument, id: string) =>
   editImageBlocks(document, id, (block) => ({
-    kind: block.kind,
+    ...block,
     spans: joinSpans(block.spans.filter((span) => !showsImage(span, id))),
   }));
 
