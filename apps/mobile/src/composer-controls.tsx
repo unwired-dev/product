@@ -10,20 +10,26 @@ import {
   BottomSheet,
   Group,
   Host,
+  HStack,
   Popover,
   RNHostView,
+  Spacer,
   Button as SwiftUIButton,
+  Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
   buttonBorderShape,
   buttonStyle,
+  contentShape,
   controlSize,
   disabled as inactive,
   font,
   foregroundStyle,
   frame,
   labelStyle,
+  padding,
   presentationDetents,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { vettedHref } from '@private-email/mail-core/link-inspection';
@@ -752,18 +758,22 @@ function LinkSheet({
         {t('drafts.link.hint')}
       </Text>
       <View
-        style={[
-          styles.linkGroup,
-          styles.linkRow,
-          { backgroundColor: colors.surfaceContent },
-        ]}>
-        <Host matchContents>
+        style={[styles.linkGroup, { backgroundColor: colors.surfaceContent }]}>
+        <Host matchContents={{ vertical: true }}>
           <SwiftUIButton
             // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
             role="destructive"
-            label={t('drafts.link.remove')}
-            onPress={onRemove}
-          />
+            onPress={onRemove}>
+            <HStack
+              modifiers={[
+                padding({ horizontal: spacing.l }),
+                frame({ minHeight: 48 }),
+                contentShape(shapes.rectangle()),
+              ]}>
+              <SwiftUIText>{t('drafts.link.remove')}</SwiftUIText>
+              <Spacer />
+            </HStack>
+          </SwiftUIButton>
         </Host>
       </View>
     </View>
