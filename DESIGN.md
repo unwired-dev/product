@@ -25,8 +25,8 @@ colors:
   apple-on-button-dark: '#000000'
   text-primary: 'rgba(0, 0, 0, 0.85)'
   text-primary-dark: 'rgba(255, 255, 255, 0.85)'
-  text-secondary: 'rgba(0, 0, 0, 0.6)'
-  text-secondary-dark: 'rgba(255, 255, 255, 0.55)'
+  text-secondary: '#4F4F54'
+  text-secondary-dark: '#B0B0B5'
   surface-content: '#FFFFFF'
   surface-content-dark: '#1E1E1E'
   surface-sidebar: '#F3F2F5'
@@ -269,7 +269,7 @@ Graphite neutrals with a single warm seal.
 | Apple button      | `apple/button`            | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles            |
 | On Apple button   | `apple/on-button`         | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                   |
 | Primary text      | `text/primary`            | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                  |
-| Secondary text    | `text/secondary`          | black 60%     | white 55%     | Previews, timestamps, captions                                |
+| Secondary text    | `text/secondary`          | `#4F4F54`     | `#B0B0B5`     | Previews, timestamps, captions, section headers               |
 | Content surface   | `surface/content`         | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                 |
 | Sidebar surface   | `surface/sidebar`         | `#F3F2F5`     | `#2A2A2C`     | Opaque stand-in for the sidebar material                      |
 | Bubble surface    | `surface/bubble`          | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                     |
@@ -286,8 +286,9 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | On accent on accent fill           | 10.88 | 5.10  |
 | Accent ink on content              | 10.88 | 10.26 |
 | Primary text on content            | 15.08 | 12.30 |
-| Secondary text on content          | 5.74  | 5.91  |
-| Secondary text on bubble           | 5.54  | 5.34  |
+| Secondary text on content          | 8.14  | 7.72  |
+| Secondary text on sidebar          | 7.30  | 6.63  |
+| Secondary text on bubble           | 7.22  | 6.45  |
 | On device ink on on device surface | 6.11  | 7.22  |
 | Warning on content                 | 5.28  | 9.35  |
 | Destructive on content             | 5.38  | 5.91  |
@@ -296,8 +297,9 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | White on monogram                  | 17.94 | 5.10  |
 | Unread dot (non-text) on content   | 10.88 | 3.27  |
 
-`text/secondary` is 60% black, not the macOS Labels/Secondary 50% black, which
-reaches only 3.95:1 on white and fails AA for text.
+`text/secondary` is solid, not the translucent macOS Labels/Secondary, so sidebar glass
+and the desktop behind it cannot lower its contrast. The macOS 50% black reaches only
+3.95:1 on white and fails AA for text (#1195).
 
 ## Typography
 
