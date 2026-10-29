@@ -1,0 +1,39 @@
+diff --git a/lib/commonjs/components/KeyboardAvoidingView/index.js b/lib/commonjs/components/KeyboardAvoidingView/index.js
+index cd3f692e09fecc5aae11cfd5bdc7bf4b9f9f618d..666ba0bf6ddf0882aaaa39778ae8a93adcd09f69 100644
+--- a/lib/commonjs/components/KeyboardAvoidingView/index.js
++++ b/lib/commonjs/components/KeyboardAvoidingView/index.js
+@@ -101,7 +101,7 @@ const KeyboardAvoidingView = /*#__PURE__*/(0, _react.forwardRef)(({
+   }, [onLayoutProps, automaticOffset]);
+   const animatedStyle = (0, _reactNativeReanimated.useAnimatedStyle)(() => {
+     if (!enabled) {
+-      return {};
++      return behavior === "padding" ? { paddingBottom: 0 } : {};
+     }
+     const bottom = interpolateToRelativeKeyboardHeight(keyboard.progress.value);
+     const translateY = interpolateToRelativeKeyboardHeight(translate.value);
+diff --git a/lib/module/components/KeyboardAvoidingView/index.js b/lib/module/components/KeyboardAvoidingView/index.js
+index 60b803b285631bc25a03392d7b329658149c1249..822e6a63d430fd54eea10f67b11a7ddfe068b24b 100644
+--- a/lib/module/components/KeyboardAvoidingView/index.js
++++ b/lib/module/components/KeyboardAvoidingView/index.js
+@@ -93,7 +93,7 @@ const KeyboardAvoidingView = /*#__PURE__*/forwardRef(({
+   }, [onLayoutProps, automaticOffset]);
+   const animatedStyle = useAnimatedStyle(() => {
+     if (!enabled) {
+-      return {};
++      return behavior === "padding" ? { paddingBottom: 0 } : {};
+     }
+     const bottom = interpolateToRelativeKeyboardHeight(keyboard.progress.value);
+     const translateY = interpolateToRelativeKeyboardHeight(translate.value);
+diff --git a/src/components/KeyboardAvoidingView/index.tsx b/src/components/KeyboardAvoidingView/index.tsx
+index ec2ee2961c89f815bcd2a2b710df52ef898c8fe9..a7391e15d5bc8e9f3ef93233ccef0c3c5dfb0ecb 100644
+--- a/src/components/KeyboardAvoidingView/index.tsx
++++ b/src/components/KeyboardAvoidingView/index.tsx
+@@ -166,7 +166,7 @@ const KeyboardAvoidingView = forwardRef<
+ 
+     const animatedStyle = useAnimatedStyle(() => {
+       if (!enabled) {
+-        return {};
++        return behavior === "padding" ? { paddingBottom: 0 } : {};
+       }
+ 
+       const bottom = interpolateToRelativeKeyboardHeight(

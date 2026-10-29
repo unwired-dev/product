@@ -93,7 +93,6 @@ import {
   ActivityIndicator,
   AppState,
   Image,
-  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -101,6 +100,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import { Action } from './action.tsx';
@@ -511,8 +511,7 @@ export function DraftList() {
       ) : null}
       {state.kind === 'ready' &&
       (state.save === 'failed' || state.save === 'locked') ? (
-        // Shown wherever the person returns to the Inbox, including the iPhone system Back that
-        // leaves a composer without its own notice.
+        // Shown wherever the person returns to the Inbox.
         <View style={[styles.bar, { paddingHorizontal: spacing.xl }]}>
           <Text
             accessibilityRole="alert"

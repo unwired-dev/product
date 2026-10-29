@@ -67,6 +67,21 @@ still owns presentation, dismissal and gestures; the patch preserves both
 dismissal callbacks. It also applies to the reply sheet. Remove the patch when a
 supported upstream version retains content through the complete dismissal.
 
+## Composer keyboard tracking
+
+Both mobile composers use `react-native-keyboard-controller@1.21.9`'s
+`KeyboardAvoidingView`. React Native 0.86.3 schedules its padding change through
+`LayoutAnimation`, but Reanimated 4.5.1 replaces Fabric's animation delegate, so
+the core component jumps instead of following the keyboard.
+
+The library's disabled animated-style branch returns an empty object. Reanimated
+retains previously applied values unless they are explicitly cleared, so disabling
+avoidance while the keyboard is open can retain padding after collapsing the
+expanded iPad composer or moving to a regular-width layout. The pinned patch
+sets `paddingBottom` to zero for disabled padding behavior, without remounting the
+editor or changing the other behaviors. Native iPad transition qualification of
+this patch remains deferred.
+
 ## Native E2E in CI
 
 The original 15-minute limit interrupted a hosted run after iPhone passed but

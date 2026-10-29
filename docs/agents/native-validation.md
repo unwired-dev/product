@@ -372,6 +372,10 @@ actual source revision and exact root lockfile:
   deterministic visible persistence journey on iPhone, iPad and native Mac;
   zero selected tests is failure. Include compact/regular mobile layouts,
   keyboard interaction, process termination and restored state after relaunch.
+- On iPad, check expanded-to-floating composer collapse and compact-to-regular
+  layout transitions with the software keyboard open and the editor kept mounted.
+  Verify avoidance padding clears while editor state is preserved. These composer
+  transition checks remain deferred until native evidence is recorded.
 - Exercise Mac menus, shortcuts, independent window selection, last-window close,
   Dock/Finder reopen and explicit Quit against AppKit. Verify application-scoped
   work continues without a window and stops on Quit. Use the actual accessibility

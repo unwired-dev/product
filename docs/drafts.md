@@ -186,8 +186,8 @@ later events from the editor that discarded it.
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. Mac window close and **Quit** use this same leave guard. The compact iPhone
-system **Back** still has the separate native limitation below.
+composer stays open and says so. Mac window close and **Quit** use this same leave guard. On iPhone
+the composer covers the Inbox and reader, so their system **Back** and edge swipe cannot leave it.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
@@ -638,14 +638,9 @@ session, and the Convex dashboard showing only opaque `draft.` and `draft-asset.
 records. The packaged Mock Mail Sessions' synthetic backend supports the records
 but no journey drives a second device yet.
 
-Known native gap, deferred before release: compact iPhone system **Back** can hide
-a composer without first validating recipient entry or saving its changes. The
-Inbox warning
-and **Save Drafts** action mitigate a failed or locked save, but do not prevent
-Back or make unsaved edits durable. Add and qualify native transition protection
-before release, covering the Back button and swipe, pending/failed/locked saves,
-unfinished recipients, selecting the same Draft to reveal it again, and successful
-retry.
+The iPhone native journey fails a Draft's save, then shows the composer keeping its
+edits open through the reader's hidden **Back** and a slow and a fast edge swipe,
+until **Try again** saves and closes it.
 
 Mac window close, Command-W and **Quit** ask each open composer to finish before
 closing its window. Unfinished recipients and pending, failed or locked saves
@@ -654,8 +649,8 @@ explicit discard, Quit continues through the remaining guarded windows. Closing
 the last window keeps the application running; Quit stops it. Forced account or
 device invalidation still removes private editor state.
 
-Native release qualification remains required for failed/locked saves, multiple
-guarded windows, last-window close and Quit with no windows, alongside successful
-retry. [#778](https://github.com/unwired-dev/product/issues/778) tracks remaining
-native exit qualification and the compact iPhone Back gap. Component tests do not
-satisfy those native checks.
+Native release qualification remains required for iPhone Back with unfinished
+recipients and locked saves, and on Mac for failed/locked saves, multiple guarded
+windows, last-window close and Quit with no windows, alongside successful retry.
+[#778](https://github.com/unwired-dev/product/issues/778) tracks that remaining
+native exit qualification. Component tests do not satisfy those native checks.
