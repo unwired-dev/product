@@ -1061,7 +1061,9 @@ const readDeclarations = (style: string) => {
       (isTokenSemicolon(token) && open.length === 0) ||
       type === TokenType.EOF
     ) {
-      if (!tooDeep) {
+      if (tooDeep) {
+        declarations.push(null);
+      } else {
         declarations.push(
           readDeclaration(
             parseListOfComponentValues(tokens.slice(from, index)),
@@ -1091,9 +1093,12 @@ export const parseDeclarations = (style: string) => {
   const declared = new Map<string, string>();
   const important = new Set<string>();
   const unsafe = new Set<string>();
+  let limited = false;
   for (const declaration of readDeclarations(style)) {
+    limited ||= declaration === null;
     if (
       declaration !== undefined &&
+      declaration !== null &&
       (declaration.important || !important.has(declaration.name))
     ) {
       const { name, value } = declaration;
@@ -1110,7 +1115,7 @@ export const parseDeclarations = (style: string) => {
       declared.set(name, value);
     }
   }
-  return { declared, unsafe };
+  return { declared, unsafe, limited };
 };
 
 function filterStyle(style: string, tag = ''): FilteredStyle {

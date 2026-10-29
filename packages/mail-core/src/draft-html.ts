@@ -33,15 +33,16 @@ type Span = Block['spans'][number];
 type Format = Readonly<{
   marks: readonly Mark[];
   link?: string;
-  color?: string;
-  background?: string;
-  font?: string;
-  size?: number;
+  color?: string | undefined;
+  background?: string | undefined;
+  font?: string | undefined;
+  size?: number | undefined;
 }>;
 type Context = Readonly<{
   kind: BlockKind;
   list?: 'bulleted' | 'numbered';
   align?: Block['align'];
+  linkColor?: string;
   format: Format;
 }>;
 
@@ -71,7 +72,7 @@ const hiddenTags = new Set([
   'wbr',
 ]);
 // Text-level elements that only carry the formatting of their attributes and style.
-const transparentTags = new Set(['span', 'font', 'a', 'o:p']);
+const transparentTags = new Set(['span', 'font', 'a', 'o:p', 'br']);
 const blockTags = new Set(['html', 'body', 'div', 'p']);
 // Headings, quotes, code and lists hold only paragraphs; list items belong in lists.
 const topLevel = (next: (context: Context) => Context) => (context: Context) =>
@@ -100,7 +101,7 @@ const structureTags: ReadonlyMap<
 const isBlock = (tag: string) =>
   !transparentTags.has(tag) && !markTags.has(tag);
 // Each of these holds at least one block, so an empty heading or list item reads back.
-const lineTags = new Set(['p', 'li', 'h1', 'h2', 'h3']);
+const lineTags = new Set(['p', 'li', 'h1', 'h2', 'h3', 'pre']);
 // Spacing and wrapping that browsers and mail clients add; the document has none of its own.
 const ignoredProperties =
   /^(?:margin|padding|line-height|word-wrap|overflow-wrap|line-break|caret-color|-webkit-nbsp-mode|mso-)/u;
@@ -167,12 +168,16 @@ const sizeOf = (value: string) => {
   if (keyword !== undefined) {
     return keyword;
   }
-  const length = /^(?<amount>\d+(?:\.\d+)?|\.\d+)(?<unit>px|pt)$/iu.exec(value);
+  const length =
+    /^(?<amount>\+?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>px|pt)$/iu.exec(
+      value,
+    );
   const amount = Number(length?.[1]);
-  if (length === null || amount <= 0) {
+  if (length === null || !Number.isFinite(amount) || amount <= 0) {
     return undefined;
   }
-  return length[2]?.toLowerCase() === 'pt' ? (amount * 4) / 3 : amount;
+  const size = length[2]?.toLowerCase() === 'pt' ? amount * (4 / 3) : amount;
+  return Number.isFinite(size) ? size : undefined;
 };
 
 const withMark = (format: Format, mark: Mark, on = true): Format => ({
@@ -239,8 +244,8 @@ const propertyRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
     (context, value) => {
       const lower = value.toLowerCase();
       const weight = Number(lower);
-      const bold = lower === 'bold' || lower === 'bolder' || weight >= 600;
-      return bold || lower === 'normal' || lower === 'lighter' || weight > 0
+      const bold = lower === 'bold' || weight === 700;
+      return bold || lower === 'normal' || weight === 400
         ? { ...context, format: withMark(context.format, 'bold', bold) }
         : undefined;
     },
@@ -249,7 +254,7 @@ const propertyRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
     'font-style',
     (context, value) => {
       const lower = value.toLowerCase();
-      return ['italic', 'oblique', 'normal'].includes(lower)
+      return ['italic', 'normal'].includes(lower)
         ? {
             ...context,
             format: withMark(context.format, 'italic', lower !== 'normal'),
@@ -293,14 +298,34 @@ const otherProperty =
 
 const attributeRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
   // Numbers and markers come from the block kind alone.
-  ...['ol start', 'ol type', 'ul type', 'li value', 'li type'].map(
-    (attribute): [string, Rule] => [attribute, () => undefined],
-  ),
+  ...[
+    'ol start',
+    'ol type',
+    'ol reversed',
+    'ul type',
+    'li value',
+    'li type',
+    'body bgcolor',
+    'body background',
+    'br clear',
+    'hidden',
+  ].map((attribute): [string, Rule] => [attribute, () => undefined]),
   ['font color', colorRule],
+  ['body text', colorRule],
+  [
+    'body link',
+    (context, value) => {
+      const linkColor = colorOf(value);
+      return linkColor === undefined ? undefined : { ...context, linkColor };
+    },
+  ],
   ['font face', fontRule],
   [
     'font size',
     (context, value) => {
+      if (!/^[1-7]$/u.test(value)) {
+        return undefined;
+      }
       const size = fontSizeAttribute[Number(value) - 1];
       return size === undefined ? undefined : formatted(context, { size });
     },
@@ -309,7 +334,14 @@ const attributeRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
     'a href',
     (context, value) => {
       const link = vettedHref(value);
-      return link === undefined ? undefined : formatted(context, { link });
+      return link === undefined
+        ? undefined
+        : formatted(context, {
+            link,
+            ...(context.linkColor === undefined
+              ? {}
+              : { color: context.linkColor }),
+          });
     },
   ],
 ]);
@@ -344,11 +376,80 @@ const applied = (
   return next ?? context;
 };
 
-const styled = (applying: Applying, style: string): Context => {
-  const { declared, unsafe } = parseDeclarations(style);
+const inheritedRules: ReadonlyMap<
+  string,
+  (context: Context, parent: Context) => Context
+> = new Map([
+  [
+    'color',
+    (context, parent) => formatted(context, { color: parent.format.color }),
+  ],
+  [
+    'background',
+    (context, parent) =>
+      formatted(context, { background: parent.format.background }),
+  ],
+  [
+    'background-color',
+    (context, parent) =>
+      formatted(context, { background: parent.format.background }),
+  ],
+  [
+    'font-family',
+    (context, parent) => formatted(context, { font: parent.format.font }),
+  ],
+  [
+    'font-size',
+    (context, parent) => formatted(context, { size: parent.format.size }),
+  ],
+  ['text-align', (context, parent) => ({ ...context, align: parent.align })],
+  [
+    'font-weight',
+    (context, parent) => ({
+      ...context,
+      format: withMark(
+        context.format,
+        'bold',
+        parent.format.marks.includes('bold'),
+      ),
+    }),
+  ],
+  [
+    'font-style',
+    (context, parent) => ({
+      ...context,
+      format: withMark(
+        context.format,
+        'italic',
+        parent.format.marks.includes('italic'),
+      ),
+    }),
+  ],
+]);
+
+const styled = (
+  applying: Applying,
+  style: string,
+  parent: Context,
+): Context => {
+  // The reader parser discards some valid escaped CSS. Drafts must refuse it instead.
+  if (style.includes('\\')) {
+    applying.unsupported.add('style');
+    return applying.context;
+  }
+  const { declared, unsafe, limited } = parseDeclarations(style);
+  if (limited) {
+    applying.unsupported.add('style');
+  }
   return [...declared].reduce((context, [property, value]) => {
     if (/^\s*inherit\s*$/iu.test(value) && !unsafe.has(property)) {
-      return context;
+      const inherit = inheritedRules.get(property);
+      if (inherit !== undefined) {
+        return inherit(context, parent);
+      }
+      if (ignoredProperties.test(property)) {
+        return context;
+      }
     }
     const rule = unsafe.has(property)
       ? () => undefined
@@ -401,6 +502,7 @@ const contextOf = (
         { context: next, block, unsupported },
         [name, value],
         attributeRules.get(`${tag} ${name}`) ??
+          attributeRules.get(name) ??
           (name === 'align' && block ? alignRule : genericRules.get(name)),
       ),
     tagged,
@@ -408,7 +510,7 @@ const contextOf = (
   const style = element.attrs.find(({ name }) => name === 'style')?.value;
   return style === undefined
     ? attributed
-    : styled({ context: attributed, block, unsupported }, style);
+    : styled({ context: attributed, block, unsupported }, style, context);
 };
 
 const spanOf = (text: string, format: Format): Span => {
@@ -436,6 +538,21 @@ const sameFormat = (one: Format, other: Format) =>
 
 const isDocument = Schema.is(SemanticDocumentSchema);
 
+const hiddenElement = (element: DefaultTreeAdapterTypes.Element) => {
+  const hidden = element.attrs.find(({ name }) => name === 'hidden');
+  if (hidden === undefined) {
+    return false;
+  }
+  const style = element.attrs.find(({ name }) => name === 'style')?.value ?? '';
+  const { declared, limited } = parseDeclarations(style);
+  return (
+    !/^until-found$/iu.test(hidden.value) &&
+    !style.includes('\\') &&
+    !limited &&
+    !declared.has('display')
+  );
+};
+
 export function documentFromHtml(html: string): DraftHtml {
   const unsupported = new Set<string>();
   const blocks: Block[] = [];
@@ -450,8 +567,7 @@ export function documentFromHtml(html: string): DraftHtml {
       // A collapsed space at the end of a line is not shown; at most one remains.
       last.text = last.text.replace(/ $/u, '');
     }
-    const shown =
-      kind === 'code' || runs.some(({ text }) => text.trim() !== '');
+    const shown = kind === 'code' || runs.some(({ text }) => text !== '');
     const spans = shown
       ? runs
           .filter(({ text }) => text !== '')
@@ -494,43 +610,82 @@ export function documentFromHtml(html: string): DraftHtml {
     append(atSpace ? collapsed.replace(/^ /u, '') : collapsed, context);
   };
 
-  const visit = (
-    element: DefaultTreeAdapterTypes.Element,
-    context: Context,
-  ) => {
-    const inner = contextOf(element, context, unsupported);
-    if (inner === undefined) {
-      return;
-    }
-    const block = isBlock(element.tagName);
-    if (block && line !== undefined) {
-      endLine(context);
-    }
-    const before = blocks.length;
-    // oxlint-disable-next-line typescript/no-use-before-define -- Elements and their children recurse.
-    walk(element.childNodes, inner);
-    const empty = lineTags.has(element.tagName) && blocks.length === before;
-    if (block && (line !== undefined || empty)) {
-      endLine(inner);
-    }
-  };
-
-  const walk = (
+  type Step =
+    | Readonly<{
+        kind: 'node';
+        node: DefaultTreeAdapterTypes.ChildNode;
+        context: Context;
+      }>
+    | Readonly<{ kind: 'end'; tag: string; context: Context; before: number }>;
+  const context: Context = { kind: 'paragraph', format: { marks: [] } };
+  const steps: Step[] = [];
+  const pushChildren = (
     nodes: readonly DefaultTreeAdapterTypes.ChildNode[],
-    context: Context,
+    inner: Context,
   ) => {
-    for (const node of nodes) {
-      if (node.nodeName === '#text' && 'value' in node) {
-        addText(node.value, context);
-      } else if ('tagName' in node && node.tagName === 'br') {
-        endLine(context);
-      } else if ('tagName' in node && !hiddenTags.has(node.tagName)) {
-        visit(node, context);
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const node = nodes[index];
+      if (node !== undefined) {
+        steps.push({ kind: 'node', node, context: inner });
       }
     }
   };
-
-  walk(parse(html).childNodes, { kind: 'paragraph', format: { marks: [] } });
+  const visitElement = (
+    node: DefaultTreeAdapterTypes.Element,
+    outer: Context,
+  ) => {
+    if (hiddenTags.has(node.tagName) || hiddenElement(node)) {
+      return;
+    }
+    const inner = contextOf(node, outer, unsupported);
+    if (inner === undefined) {
+      return;
+    }
+    if (node.tagName === 'br') {
+      endLine(inner);
+      return;
+    }
+    if (isBlock(node.tagName)) {
+      if (line !== undefined) {
+        endLine(outer);
+      }
+      steps.push({
+        kind: 'end',
+        tag: node.tagName,
+        context: inner,
+        before: blocks.length,
+      });
+    }
+    pushChildren(node.childNodes, inner);
+  };
+  const endElement = (step: Extract<Step, { kind: 'end' }>) => {
+    const empty = lineTags.has(step.tag) && blocks.length === step.before;
+    if (line !== undefined || empty) {
+      endLine(step.context);
+    }
+    if (step.tag === 'li' && blocks.length - step.before > 1) {
+      unsupported.add('li');
+    }
+  };
+  const visit = (step: Step) => {
+    if (step.kind === 'end') {
+      endElement(step);
+      return;
+    }
+    const { node, context: outer } = step;
+    if (node.nodeName === '#text' && 'value' in node) {
+      addText(node.value, outer);
+    } else if ('tagName' in node) {
+      visitElement(node, outer);
+    }
+  };
+  pushChildren(parse(html).childNodes, context);
+  while (steps.length > 0) {
+    const step = steps.pop();
+    if (step !== undefined) {
+      visit(step);
+    }
+  }
   if (unsupported.size > 0) {
     return { unsupported: [...unsupported] };
   }

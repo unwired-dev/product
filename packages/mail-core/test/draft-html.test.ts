@@ -1,10 +1,9 @@
+import type { Draft } from '@private-email/mail-core/drafts';
+import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
+
+import { documentFromHtml } from '@private-email/mail-core/draft-html';
+import { outgoingMessage } from '@private-email/mail-core/outgoing-message';
 import PostalMime from 'postal-mime';
-
-import type { Draft } from '../src/drafts.ts';
-import type { SemanticDocument } from '../src/semantic-document.ts';
-
-import { documentFromHtml } from '../src/draft-html.ts';
-import { outgoingMessage } from '../src/outgoing-message.ts';
 
 const sentHtml = async (body: SemanticDocument) => {
   const draft: Draft = {
@@ -145,6 +144,108 @@ describe('a Semantic Message Document from Draft HTML', () => {
     });
   });
 
+  it('keeps noncollapsing whitespace, empty code blocks and exponential font sizes through outgoing mail', async () => {
+    expect.hasAssertions();
+    const document: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: '\u00A0\u2003' }] },
+      { kind: 'code', spans: [] },
+      { kind: 'paragraph', spans: [{ text: 'small', size: 1e-7 }] },
+    ];
+    expect(documentFromHtml(await sentHtml(document))).toStrictEqual({
+      document,
+    });
+  });
+
+  it('reports rendering attributes and styles on line breaks instead of silently changing them', () => {
+    expect.hasAssertions();
+    for (const [html, unsupported] of [
+      ['<ol reversed><li>one</li><li>two</li></ol>', ['reversed']],
+      ['<ul><li>one<br>continuation</li></ul>', ['li']],
+      ['<ol><li><p>one</p><p>continuation</p></li></ol>', ['li']],
+      ['<body bgcolor="#000000"><p>dark</p></body>', ['bgcolor']],
+      ['<p>a<br style="display:none">b</p>', ['display']],
+      ['<p>a<br clear="all">b</p>', ['clear']],
+      ['<font size="+1">relative</font>', ['size']],
+      ['<p style="font-weight:500">medium</p>', ['font-weight']],
+      ['<p style="font-weight:800">heavy</p>', ['font-weight']],
+      ['<p style="font-style:oblique">slanted</p>', ['font-style']],
+      [String.raw`<p style="font-family:foo\ bar">font</p>`, ['style']],
+    ] as const) {
+      expect(documentFromHtml(html)).toStrictEqual({ unsupported });
+    }
+  });
+
+  it('refuses styles the declaration parser cannot inspect within its nesting budget', () => {
+    expect.hasAssertions();
+    const nested = `${'calc('.repeat(513)}1${')'.repeat(513)}`;
+    expect(
+      documentFromHtml(`<p style="font-size:${nested}">text</p>`),
+    ).toStrictEqual({ unsupported: ['style'] });
+  });
+
+  it('ignores HTML hidden content and traverses deeply nested wrappers without throwing', () => {
+    expect.hasAssertions();
+    const document: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'visible' }] },
+    ];
+    expect(
+      documentFromHtml('<p hidden>hidden</p><p>visible</p>'),
+    ).toStrictEqual({ document });
+    expect(
+      documentFromHtml('<p hidden style="display:block">visible</p>'),
+    ).toStrictEqual({ unsupported: ['hidden', 'display'] });
+    expect(
+      documentFromHtml(
+        `${'<span>'.repeat(4000)}visible${'</span>'.repeat(4000)}`,
+      ),
+    ).toStrictEqual({ document });
+  });
+
+  it('keeps body text and unvisited-link colors while allowing inline overrides', () => {
+    expect.hasAssertions();
+    expect(
+      documentFromHtml(
+        '<body text="#123456" link="#abcdef"><p>plain <a href="https://example.invalid">link</a> <a href="https://example.invalid" style="color:#000000">overridden</a></p></body>',
+      ),
+    ).toStrictEqual({
+      document: [
+        {
+          kind: 'paragraph',
+          spans: [
+            { text: 'plain ', color: '#123456' },
+            { text: 'link', link: 'https://example.invalid', color: '#abcdef' },
+            { text: ' ', color: '#123456' },
+            {
+              text: 'overridden',
+              link: 'https://example.invalid',
+              color: '#000000',
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('takes inherited styles from the parent rather than the element default or attribute', () => {
+    expect.hasAssertions();
+    expect(
+      documentFromHtml(
+        '<p><b style="font-weight:inherit">plain</b> <font color="#ff0000" style="color:inherit">default</font></p>',
+      ),
+    ).toStrictEqual({
+      document: [{ kind: 'paragraph', spans: [{ text: 'plain default' }] }],
+    });
+    expect(
+      documentFromHtml(
+        '<div align="right"><p align="center" style="text-align:inherit">right</p></div>',
+      ),
+    ).toStrictEqual({
+      document: [
+        { kind: 'paragraph', spans: [{ text: 'right' }], align: 'right' },
+      ],
+    });
+  });
+
   it('keeps quoted font-family commas in styles and font attributes', () => {
     expect.hasAssertions();
 
@@ -262,7 +363,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
             },
           ],
         },
-        { kind: 'paragraph', spans: [] },
+        { kind: 'paragraph', spans: [{ text: '\u00A0' }] },
         {
           kind: 'paragraph',
           spans: [
