@@ -773,6 +773,96 @@ export function toggleMark(
   );
 }
 
+// Linked text in one block, from editor offset `start` to `end`.
+export type Link = Readonly<{
+  start: number;
+  end: number;
+  text: string;
+  href: string;
+}>;
+
+// The link holding the whole selection, or beside a caret: the one before it, else after it.
+export function linkAt(
+  document: SemanticDocument,
+  selection: Selection,
+): Link | undefined {
+  const start = Math.min(selection.start, selection.end);
+  const { line, column, marker } = locate(document, start);
+  const from = column - marker;
+  const to = from + Math.abs(selection.end - selection.start);
+  const runs: Array<{ from: number; to: number; text: string; href: string }> =
+    [];
+  let offset = 0;
+  for (const span of document[line]?.spans ?? []) {
+    const href = linkOf(span);
+    const last = runs.at(-1);
+    if (href !== undefined && last?.href === href && last.to === offset) {
+      last.to += span.text.length;
+      last.text += span.text;
+    } else if (href !== undefined) {
+      runs.push({
+        from: offset,
+        to: offset + span.text.length,
+        text: span.text,
+        href,
+      });
+    }
+    offset += span.text.length;
+  }
+  const run =
+    runs.find((each) => each.from < to && each.from <= from && to <= each.to) ??
+    runs.find((each) => each.from <= from && to < each.to);
+  return run === undefined
+    ? undefined
+    : {
+        start: offsetOf(document, line, run.from),
+        end: offsetOf(document, line, run.to),
+        text: run.text,
+        href: run.href,
+      };
+}
+
+// Replaces a link's text and destination as one edit, or with no destination removes the link
+// and keeps its text. Unchanged text keeps its marks; new text takes those of the link's start.
+export function setLink(
+  document: SemanticDocument,
+  link: Link,
+  { text, href }: Readonly<{ text: string; href?: string | undefined }>,
+): Edit {
+  const { line, column, marker } = locate(document, link.start);
+  const from = column - marker;
+  const to = from + link.end - link.start;
+  const spans = document[line]?.spans ?? [];
+  const linked =
+    text === link.text
+      ? sliceSpans(spans, from, to).map((span) =>
+          spanOf(span.text, marksOf(span), { link: href }),
+        )
+      : [
+          spanOf(text, marksOf(sliceSpans(spans, from, from + 1)[0]), {
+            link: href,
+          }),
+        ];
+  const caret = link.start + text.length;
+  return {
+    document: documentOf(
+      document.map((each, index) =>
+        index === line
+          ? {
+              kind: each.kind,
+              spans: joinSpans(
+                sliceSpans(spans, 0, from),
+                linked,
+                sliceSpans(spans, to),
+              ),
+            }
+          : each,
+      ),
+    ),
+    selection: { start: caret, end: caret },
+  };
+}
+
 // The marks typed text takes after toggling one at a caret.
 export const toggled = (marks: readonly Mark[], mark: Mark) =>
   markOrder.filter((each) => (each === mark) !== marks.includes(each));

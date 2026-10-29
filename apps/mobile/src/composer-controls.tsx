@@ -1,11 +1,26 @@
 import type {
   BlockKind,
+  Link,
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 
-import { radius, spacing } from '@private-email/mail-core/theme';
+import {
+  BottomSheet,
+  Group,
+  Host,
+  Popover,
+  RNHostView,
+} from '@expo/ui/swift-ui';
+import { presentationDetents } from '@expo/ui/swift-ui/modifiers';
+import { vettedHref } from '@private-email/mail-core/link-inspection';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import {
   Animated,
@@ -13,14 +28,73 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
-import { Glass, SFSymbol, ToolbarButton, useMenuMotion } from './design.tsx';
+import {
+  Button,
+  Glass,
+  SFSymbol,
+  ToolbarButton,
+  useMenuMotion,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
+  // iPad draws the Mac Link Editor popover at the iPad list scale.
+  linkPopover: {
+    width: 340 * ipadListScale,
+    gap: 10 * ipadListScale,
+    padding: 14 * ipadListScale,
+  },
+  linkField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s * ipadListScale,
+  },
+  linkLabel: { ...typography.ipadList.body, width: 36 * ipadListScale },
+  linkInput: {
+    ...typography.ipadList.body,
+    flex: 1,
+    height: 26 * ipadListScale,
+    paddingHorizontal: spacing.s * ipadListScale,
+    borderRadius: radius.control * ipadListScale,
+    borderCurve: 'continuous',
+  },
+  linkPopoverHint: typography.ipadList.subheadline,
+  linkActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.s,
+  },
+  linkSheet: { gap: 14, padding: spacing.l, paddingTop: 10 },
+  linkSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  linkSheetButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  linkSheetTitle: { ...textStyles.headline, flex: 1, textAlign: 'center' },
+  linkGroup: { borderRadius: radius.insetGroup, borderCurve: 'continuous' },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    minHeight: 48,
+    paddingHorizontal: spacing.l,
+  },
+  linkRowLabel: { ...textStyles.body, width: 48 },
+  linkRowInput: { ...textStyles.body, flex: 1, padding: 0 },
+  linkSeparator: { height: StyleSheet.hairlineWidth, marginLeft: spacing.l },
+  linkSheetHint: { ...textStyles.footnote, paddingHorizontal: spacing.l },
   formatBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -409,6 +483,283 @@ export function FormatBar({
         />
         {children}
       </ScrollView>
+    </View>
+  );
+}
+
+// The format bar's Link control and the Link Editor it opens for the link at the caret: a
+// popover below the control on iPad, a sheet on iPhone. It is unavailable away from a link.
+export function LinkEditor({
+  link,
+  disabled,
+  popover,
+  onChange,
+}: {
+  readonly link: Link | undefined;
+  readonly disabled: boolean;
+  readonly popover: boolean;
+  readonly onChange: (link: Link, text: string, href?: string) => void;
+}) {
+  const { t } = useLocalization();
+  const [editing, setEditing] = useState<Link>();
+  const [shown, setShown] = useState(false);
+  const [text, setText] = useState('');
+  const [destination, setDestination] = useState('');
+  const href = vettedHref(destination);
+  const finish = (next: string, nextHref?: string) => {
+    setShown(false);
+    if (editing !== undefined) {
+      onChange(editing, next, nextHref);
+    }
+  };
+  const apply = () => {
+    if (href !== undefined && text !== '') {
+      finish(text, href);
+    }
+  };
+  const remove = () => {
+    if (editing !== undefined) {
+      finish(editing.text);
+    }
+  };
+  const trigger = (
+    <ToolbarButton
+      disabled={disabled || link === undefined}
+      icon="link"
+      label={t('drafts.link.edit')}
+      onPress={() => {
+        if (link !== undefined) {
+          setEditing(link);
+          setText(link.text);
+          setDestination(link.href);
+          setShown(true);
+        }
+      }}
+    />
+  );
+  const fields = {
+    text,
+    destination,
+    applicable: href !== undefined && text !== '',
+    onText: setText,
+    onDestination: setDestination,
+    onApply: apply,
+    onRemove: remove,
+  };
+  return popover ? (
+    <Host matchContents>
+      <Popover
+        arrowEdge="top"
+        isPresented={shown}
+        onIsPresentedChange={setShown}>
+        <Popover.Trigger>
+          <RNHostView matchContents>{trigger}</RNHostView>
+        </Popover.Trigger>
+        <Popover.Content>
+          <RNHostView matchContents>
+            <LinkPopover {...fields} />
+          </RNHostView>
+        </Popover.Content>
+      </Popover>
+    </Host>
+  ) : (
+    <>
+      {trigger}
+      <Host matchContents>
+        <BottomSheet
+          isPresented={shown}
+          onIsPresentedChange={setShown}>
+          <Group modifiers={[presentationDetents(['medium'])]}>
+            <RNHostView>
+              <LinkSheet
+                {...fields}
+                onClose={() => {
+                  setShown(false);
+                }}
+              />
+            </RNHostView>
+          </Group>
+        </BottomSheet>
+      </Host>
+    </>
+  );
+}
+
+type LinkFields = Readonly<{
+  text: string;
+  destination: string;
+  applicable: boolean;
+  onText: (text: string) => void;
+  onDestination: (destination: string) => void;
+  onApply: () => void;
+  onRemove: () => void;
+}>;
+
+// iPad "Link Editor" frame.
+function LinkPopover({
+  text,
+  destination,
+  applicable,
+  onText,
+  onDestination,
+  onApply,
+  onRemove,
+}: LinkFields) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const field = (url: boolean) => {
+    const label = t(url ? 'drafts.link.destination' : 'drafts.link.text');
+    return (
+      <View style={styles.linkField}>
+        <Text style={[styles.linkLabel, { color: colors.textSecondary }]}>
+          {label}
+        </Text>
+        <TextInput
+          accessibilityLabel={label}
+          autoCapitalize={url ? 'none' : 'sentences'}
+          autoCorrect={!url}
+          keyboardType={url ? 'url' : 'default'}
+          onChangeText={url ? onDestination : onText}
+          onSubmitEditing={onApply}
+          style={[
+            styles.linkInput,
+            { backgroundColor: colors.fillQuiet, color: colors.textPrimary },
+          ]}
+          value={url ? destination : text}
+        />
+      </View>
+    );
+  };
+  return (
+    <View style={styles.linkPopover}>
+      {field(false)}
+      {field(true)}
+      <Text style={[styles.linkPopoverHint, { color: colors.textSecondary }]}>
+        {t('drafts.link.hint')}
+      </Text>
+      <View style={styles.linkActions}>
+        <Button
+          destructive
+          label={t('drafts.link.remove')}
+          size="compact"
+          onPress={onRemove}
+        />
+        <Button
+          disabled={!applicable}
+          fill="accent"
+          label={t('drafts.link.apply')}
+          size="compact"
+          onPress={onApply}
+        />
+      </View>
+    </View>
+  );
+}
+
+// iPhone "Sheet · Edit Link" frame.
+function LinkSheet({
+  text,
+  destination,
+  applicable,
+  onText,
+  onDestination,
+  onApply,
+  onRemove,
+  onClose,
+}: LinkFields & { readonly onClose: () => void }) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const row = (url: boolean) => {
+    const label = t(url ? 'drafts.link.destination' : 'drafts.link.text');
+    return (
+      <View style={styles.linkRow}>
+        <Text style={[styles.linkRowLabel, { color: colors.textPrimary }]}>
+          {label}
+        </Text>
+        <TextInput
+          accessibilityLabel={label}
+          autoCapitalize={url ? 'none' : 'sentences'}
+          autoCorrect={!url}
+          keyboardType={url ? 'url' : 'default'}
+          onChangeText={url ? onDestination : onText}
+          onSubmitEditing={onApply}
+          style={[styles.linkRowInput, { color: colors.textPrimary }]}
+          value={url ? destination : text}
+        />
+      </View>
+    );
+  };
+  return (
+    <View style={styles.linkSheet}>
+      <View style={styles.linkSheetHeader}>
+        <Pressable
+          accessibilityLabel={t('drafts.close')}
+          accessibilityRole="button"
+          onPress={onClose}
+          style={({ pressed }) => [
+            styles.linkSheetButton,
+            {
+              backgroundColor: pressed
+                ? colors.accentSelectionSubtle
+                : colors.fillQuiet,
+            },
+          ]}>
+          <SFSymbol
+            name="xmark"
+            color={colors.textPrimary}
+          />
+        </Pressable>
+        <Text
+          accessibilityRole="header"
+          style={[styles.linkSheetTitle, { color: colors.textPrimary }]}>
+          {t('drafts.link.edit')}
+        </Text>
+        <Pressable
+          accessibilityLabel={t('drafts.link.apply')}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !applicable }}
+          disabled={!applicable}
+          onPress={onApply}
+          style={[
+            styles.linkSheetButton,
+            {
+              backgroundColor: colors.accentFill,
+              opacity: applicable ? 1 : 0.4,
+            },
+          ]}>
+          <SFSymbol
+            name="checkmark"
+            color={colors.accentOnFill}
+          />
+        </Pressable>
+      </View>
+      <View
+        style={[styles.linkGroup, { backgroundColor: colors.surfaceContent }]}>
+        {row(false)}
+        <View
+          style={[styles.linkSeparator, { backgroundColor: colors.separator }]}
+        />
+        {row(true)}
+      </View>
+      <Text style={[styles.linkSheetHint, { color: colors.textSecondary }]}>
+        {t('drafts.link.hint')}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onRemove}
+        style={({ pressed }) => [
+          styles.linkGroup,
+          styles.linkRow,
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : colors.surfaceContent,
+          },
+        ]}>
+        <Text style={[textStyles.body, { color: colors.statusDestructive }]}>
+          {t('drafts.link.remove')}
+        </Text>
+      </Pressable>
     </View>
   );
 }

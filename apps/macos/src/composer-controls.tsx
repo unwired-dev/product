@@ -1,25 +1,44 @@
 import type {
   BlockKind,
+  Link,
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
 import type { NativeSyntheticEvent, ViewProps } from 'react-native';
 
-import { spacing } from '@private-email/mail-core/theme';
-import { useLayoutEffect, useRef } from 'react';
+import { vettedHref } from '@private-email/mail-core/link-inspection';
+import { radius, spacing } from '@private-email/mail-core/theme';
+import { useLayoutEffect, useRef, useState } from 'react';
 import {
   processColor,
   requireNativeComponent,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
-import { ToolbarButton } from './design.tsx';
+import { Button, Popover, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
+  // The "Link Editor" popover frame.
+  linkPopover: { width: 340, gap: 10, padding: 14 },
+  linkField: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  linkLabel: { ...textStyles.body, width: 36 },
+  linkInput: {
+    ...textStyles.body,
+    flex: 1,
+    height: 26,
+    paddingHorizontal: spacing.s,
+    borderRadius: radius.control,
+  },
+  linkActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.s,
+  },
   formatBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -307,6 +326,108 @@ export function FormatBar({
         }}
       />
       {children}
+    </View>
+  );
+}
+
+// The format bar's Link control and the Link Editor popover it opens below itself for the link
+// at the caret. It is unavailable away from a link.
+export function LinkEditor({
+  link,
+  disabled,
+  onChange,
+}: {
+  readonly link: Link | undefined;
+  readonly disabled: boolean;
+  readonly onChange: (link: Link, text: string, href?: string) => void;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const [editing, setEditing] = useState<Link>();
+  const [shown, setShown] = useState(false);
+  const [text, setText] = useState('');
+  const [destination, setDestination] = useState('');
+  const href = vettedHref(destination);
+  const applicable = href !== undefined && text !== '';
+  const finish = (next: string, nextHref?: string) => {
+    setShown(false);
+    if (editing !== undefined) {
+      onChange(editing, next, nextHref);
+    }
+  };
+  const apply = () => {
+    if (applicable) {
+      finish(text, href);
+    }
+  };
+  const field = (url: boolean) => {
+    const label = t(url ? 'drafts.link.destination' : 'drafts.link.text');
+    return (
+      <View style={styles.linkField}>
+        <Text style={[styles.linkLabel, { color: colors.textSecondary }]}>
+          {label}
+        </Text>
+        <TextInput
+          accessibilityLabel={label}
+          autoCorrect={!url}
+          onChangeText={url ? setDestination : setText}
+          onSubmitEditing={apply}
+          style={[
+            styles.linkInput,
+            { backgroundColor: colors.fillQuiet, color: colors.textPrimary },
+          ]}
+          value={url ? destination : text}
+        />
+      </View>
+    );
+  };
+  return (
+    <View>
+      <ToolbarButton
+        disabled={disabled || link === undefined}
+        icon="link"
+        label={t('drafts.link.edit')}
+        onPress={() => {
+          if (link !== undefined) {
+            setEditing(link);
+            setText(link.text);
+            setDestination(link.href);
+            setShown(true);
+          }
+        }}
+      />
+      <Popover
+        below
+        shown={shown}
+        onClose={() => {
+          setShown(false);
+        }}>
+        <View style={styles.linkPopover}>
+          {field(false)}
+          {field(true)}
+          <Text
+            style={[textStyles.subheadline, { color: colors.textSecondary }]}>
+            {t('drafts.link.hint')}
+          </Text>
+          <View style={styles.linkActions}>
+            <Button
+              destructive
+              label={t('drafts.link.remove')}
+              onPress={() => {
+                if (editing !== undefined) {
+                  finish(editing.text);
+                }
+              }}
+            />
+            <Button
+              disabled={!applicable}
+              fill="accent"
+              label={t('drafts.link.apply')}
+              onPress={apply}
+            />
+          </View>
+        </View>
+      </Popover>
     </View>
   );
 }
