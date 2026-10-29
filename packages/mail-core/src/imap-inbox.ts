@@ -2052,7 +2052,12 @@ export function createImapInbox(
         const download = explicitLoad(bodyOf(message));
         const body = yield* kept === undefined
           ? download
-          : download.pipe(Effect.orElseSucceed(() => kept));
+          : download.pipe(
+              Effect.catchIf(
+                (failure) => !changesAccess(failure.kind),
+                () => Effect.succeed(kept),
+              ),
+            );
         const cache = opened;
         // Bodies are stored only for listed messages of the open cache; a full cache keeps none.
         if (

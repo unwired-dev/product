@@ -197,6 +197,7 @@ async function reopenOlder(failure?: string) {
       server.failure = failure;
       await relaunched.readMessage(id);
       return {
+        inbox: relaunched.getSnapshot(),
         body: relaunched.messageBody(id),
         answered: relaunched.responseSource(id)?.headers,
         saved: headersOf(bodies.get(id)),
@@ -391,6 +392,25 @@ describe('answering IMAP mail', () => {
     expect(reopened.answered).toBeUndefined();
     expect(reopened.saved).toBeUndefined();
   });
+
+  it.each([
+    { failure: 'locked', expected: { kind: 'locked' } },
+    { failure: 'mailbox-revoked', expected: { kind: 'failed' } },
+    { failure: 'mailbox-invalidated', expected: { kind: 'failed' } },
+    {
+      failure: 'imap-refused',
+      expected: { kind: 'ready', status: 'authentication' },
+    },
+  ])(
+    'preserves access recovery after $failure while completing an older body',
+    async ({ failure, expected }) => {
+      expect.hasAssertions();
+      const reopened = await reopenOlder(failure);
+      expect(reopened.inbox).toMatchObject(expected);
+      expect(reopened.body?.kind).not.toBe('ready');
+      expect(reopened.answered).toBeUndefined();
+    },
+  );
 
   it('answers nothing once a new UIDVALIDITY supersedes the opened message', async () => {
     expect.hasAssertions();
