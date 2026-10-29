@@ -162,6 +162,38 @@ describe('imap historical metadata backfill', () => {
     expect(saved).not.toContain(expunged[1]);
   });
 
+  it('keeps the checkpoint and pauses when a saved segment is unavailable during expunge reconciliation', async () => {
+    expect.hasAssertions();
+    const imap = createImap();
+    const kept = fill(imap, 'INBOX', 1099);
+    const expunged = imap.deliver('INBOX', {
+      subject: 'Expunged after saving',
+    });
+    beforeHistoryRead(imap, 2, () => imap.expunge('INBOX', expunged));
+    let checkpoint: string | null = null;
+    vi.spyOn(imap.native, 'openMailboxSegment').mockImplementationOnce(() => {
+      checkpoint = imap.cache.document;
+      return Promise.resolve({ document: null });
+    });
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+
+    await vi.waitFor(() => {
+      expect(historyOf(inbox)).toMatchObject({ complete: false, paused: true });
+    });
+    expect(imap.cache.document).toBe(checkpoint);
+    expect(savedUids(imap, 'INBOX')).toContain(expunged);
+
+    await inbox.load();
+    await expect(completed(inbox)).resolves.toStrictEqual({
+      downloaded: 1099,
+      total: 1099,
+      complete: true,
+    });
+    expect(new Set(savedUids(imap, 'INBOX'))).toStrictEqual(new Set(kept));
+  });
+
   it.each([
     {
       mode: 'reload',

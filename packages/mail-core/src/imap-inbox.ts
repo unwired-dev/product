@@ -2466,14 +2466,19 @@ export function createImapInbox(
     );
   }
 
-  // A segment's messages, none once a later commit removed it.
+  // A checkpoint's segment must be readable before an expunge check can replace it.
   const readSegment = Effect.fnUntraced(function* (scope: Scope, name: string) {
     const { document: text } = yield* decodeCachedBody(
       yield* call(() => native.openMailboxSegment(scope, name)),
     ).pipe(Effect.mapError(malformed));
-    return text === null
-      ? []
-      : yield* decodeSegment(text).pipe(Effect.mapError(malformed));
+    if (text === null) {
+      return yield* new ImapFailure({
+        kind: 'failed',
+        cause: 'segment',
+        diagnostic: 'history segment missing',
+      });
+    }
+    return yield* decodeSegment(text).pipe(Effect.mapError(malformed));
   });
   // The segment an expunge check compares with the server next; none unless one is under way.
   const checkedSegment = Effect.fnUntraced(function* (

@@ -263,6 +263,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `imap-inbox.ts.readSegment` treating a checkpoint's missing saved segment as
+  an empty message list. An expunge check may remove messages only after reading
+  that segment and checking its UIDs with the provider. Pause on a missing
+  segment without committing a replacement checkpoint; exercise refusal and
+  recovery through the public store. Otherwise local storage absence discards
+  downloaded metadata and falsely completes an incomplete history.
+
 - `html-sanitizer.ts.readDeclarations` passing sender CSS to a recursive parser
   before bounding block and function nesting, including a new dependency's own
   throw limit and recursive token serialization. Check the installed parser's
