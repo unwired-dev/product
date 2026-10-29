@@ -14,7 +14,8 @@ import type { Node, ResolvedPos } from '@tiptap/pm/model';
 // outgoing mail, and split back into one block each. Each code line is a textblock of its own.
 // An Inline Image is an inline node naming its Draft Asset, and the Draft's Attachments are an
 // attribute of the editor document naming theirs, so one edit and one Undo step can change both.
-// The page keeps the assets it was given by identifier.
+// The page keeps the assets it was given by identifier. Linked text carries a `link` mark naming
+// its destination.
 
 // The character an Inline Image occupies; typed or pasted text never stores it.
 const imageCharacter = '￼';
@@ -59,14 +60,20 @@ const headingKind: Readonly<Record<number, BlockKind | undefined>> = {
 
 type Span = Block['spans'][number];
 
-const inlineOf = (span: Span): JSONContent => ({
-  ...('image' in span
-    ? { type: 'inlineImage', attrs: { id: span.image.id } }
-    : { type: 'text', text: span.text }),
-  ...(span.marks === undefined
-    ? {}
-    : { marks: span.marks.map((mark) => ({ type: tiptapMarks[mark] })) }),
-});
+const inlineOf = (span: Span): JSONContent => {
+  const marks: Array<{ type: string; attrs?: { href: string } }> = (
+    span.marks ?? []
+  ).map((mark) => ({ type: tiptapMarks[mark] }));
+  if ('link' in span && span.link !== undefined) {
+    marks.push({ type: 'link', attrs: { href: span.link } });
+  }
+  return {
+    ...('image' in span
+      ? { type: 'inlineImage', attrs: { id: span.image.id } }
+      : { type: 'text', text: span.text }),
+    ...(marks.length === 0 ? {} : { marks }),
+  };
+};
 
 const textblock = (type: string, { spans }: Block): JSONContent =>
   spans.length === 0 ? { type } : { type, content: spans.map(inlineOf) };
@@ -128,14 +135,24 @@ const marksOf = (node: JSONContent) => {
   return first === undefined ? {} : { marks: [first, ...rest] as const };
 };
 
-// Whether text `span` continues the `last` span: both text, with the same marks.
+// A text node's link destination, when it has one.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
+const linkOf = (node: JSONContent) => {
+  const href: unknown = node.marks?.find(({ type }) => type === 'link')?.attrs
+    ?.href;
+  return typeof href === 'string' ? { link: href } : {};
+};
+
+// Whether text `span` continues the `last` span: both text, with the same marks and link.
 const continues = (last: Span | undefined, span: Span): last is Span =>
   last !== undefined &&
   !('image' in last) &&
-  last.marks?.join(',') === span.marks?.join(',');
+  last.marks?.join(',') === span.marks?.join(',') &&
+  ('link' in last ? last.link : undefined) ===
+    ('link' in span ? span.link : undefined);
 
-// Text spans with their marks in document order; adjacent text spans with the same marks merge,
-// and each Inline Image is a span of its own.
+// Text spans with their marks in document order and their link; adjacent text spans with the same
+// marks and link merge, and each Inline Image is a span of its own.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
 const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
   const spans: Span[] = [];
@@ -146,7 +163,7 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
         ? assets.get(String(node.attrs?.id))
         : undefined;
     const text = (node.text ?? '').replaceAll(imageCharacter, '');
-    const span: Span = { text, ...marks };
+    const span: Span = { text, ...marks, ...linkOf(node) };
     const last = spans.at(-1);
     if (image !== undefined) {
       spans.push({ text: imageCharacter, image, ...marks });

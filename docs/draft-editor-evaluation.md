@@ -148,7 +148,9 @@ the current composer's:
   paragraphs, lists, quotes, code and the five marks. Smaller headings, tables and
   styled text become paragraphs; a heading or code inside a quote or list item
   becomes that quote line or item; nested lists become items of their own; a pasted
-  numbered list counts from one; links keep their text without the destination;
+  numbered list counts from one; a link keeps its destination only when the Draft
+  admits it as written (a web, mail or telephone address), and otherwise keeps only
+  its text, so one **Undo** removes a pasted link with the rest of the paste;
   images, except an Inline Image copied or cut within the page, styles, colors and
   sizes are dropped; and multi-line code becomes one code
   line per line. Plain text becomes one paragraph per line. Nothing else reaches
@@ -156,11 +158,14 @@ the current composer's:
 
 ### Semantic mismatches
 
-The Semantic Message Document stores link destinations, but this editor neither
-shows nor authors them: pasted links retain only their text, and editing a body
-here drops its links.
-[#878](https://github.com/unwired-dev/product/issues/878) owns link support for both
-composers and blocks the adoption decision in #823.
+The page keeps a Draft's links through editing, saving and reopening, and shows
+linked text in the link color; it never opens a link, because the host refuses
+every navigation. Text typed inside a link joins it, and text typed at either
+edge, including after Return splits it, stays unlinked. Replacing selected text
+keeps the first replaced character's link. The page cannot yet create, edit or
+remove a link:
+[#878](https://github.com/unwired-dev/product/issues/878) owns link authoring for
+both composers and blocks the adoption decision in #823.
 
 Return in code always starts another code line; use **Code block** to return the
 selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E
