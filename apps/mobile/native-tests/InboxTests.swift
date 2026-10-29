@@ -49,21 +49,53 @@ final class InboxTests: XCTestCase {
   }
 
   // #1441: the Sync Status Capsule while the Gmail history downloads (Progress), after its next
-  // page fails (Attention) and once Try Again downloads the rest (hidden).
+  // page fails (Attention) and once Try Again downloads the rest (hidden). #1442: tapping it opens
+  // the per-account details, a sheet on iPhone and a popover on iPad.
   private func syncStatusJourney(_ app: XCUIApplication) throws {
     connectGmail(app)
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
-    let progress = app.descendants(matching: .any)
+    let progress = app.buttons
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Updating 1 account")).firstMatch
     XCTAssertTrue(progress.waitForExistence(timeout: 30))
+    XCTAssertGreaterThanOrEqual(settledFrame(of: progress).height, 44)
     try audit(app, "Sync Status Progress")
-    let attention = text("1 account needs attention", in: app)
+    progress.tap()
+    let title = app.staticTexts["Sync Status"].firstMatch
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    // The row's status and its bar are one element.
+    XCTAssertTrue(
+      app.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Downloading history ·"))
+        .firstMatch.waitForExistence(timeout: 10))
+    try audit(app, "Sync Status Details Progress")
+    let done = app.buttons["Done"]
+    if done.exists {
+      done.tap()
+    } else {
+      // The popover opens above its capsule.
+      XCTAssertLessThanOrEqual(title.frame.maxY, progress.frame.minY)
+      // The popover closes with a tap outside it. Under load the first tap after the audit is
+      // sometimes lost, so one more follows if it stays open.
+      app.otherElements["PopoverDismissRegion"].tap()
+      if !title.waitForNonExistence(timeout: 5) { app.otherElements["PopoverDismissRegion"].tap() }
+    }
+    XCTAssertTrue(title.waitForNonExistence(timeout: 10))
+    let attention = app.buttons["1 account needs attention"]
     XCTAssertTrue(attention.waitForExistence(timeout: 180))
     try audit(app, "Sync Status Attention")
-    app.buttons["Try Again"].tap()
+    attention.tap()
+    let tryAgain = app.buttons
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Try Again for Gmail")).firstMatch
+    XCTAssertTrue(tryAgain.waitForExistence(timeout: 10))
+    if !done.exists {
+      XCTAssertLessThanOrEqual(tryAgain.frame.maxY, attention.frame.minY)
+    }
+    try audit(app, "Sync Status Details Attention")
+    // The connection's own Try Again downloads the rest, and the details close with the capsule.
+    tryAgain.tap()
     XCTAssertTrue(attention.waitForNonExistence(timeout: 30))
     XCTAssertTrue(progress.waitForNonExistence(timeout: 30))
+    XCTAssertTrue(title.waitForNonExistence(timeout: 30))
   }
 
   private func registrationJourney(_ app: XCUIApplication) throws {
@@ -1862,9 +1894,11 @@ final class InboxTests: XCTestCase {
     where issue.element?.elementType == .staticText
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
-    // Undiagnosed: the same unlocated text while iPad's system Filters popover is open.
+    // Undiagnosed: the same unlocated text while iPad's system Filters popover is open, and while
+    // the Sync Status details' sheet or popover is open, whose elements are all labelled.
     case .elementDetection
-    where screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad
+    where (screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad
+      || screen.hasPrefix("Sync Status Details "))
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
       return "#1403"

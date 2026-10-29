@@ -52,6 +52,7 @@
     "retry": "Try again",
     "cancel": "Cancel",
     "ok": "OK",
+    "done": "Done",
     "allowAccess": "Allow {{provider}} access"
   },
   "storage": {
@@ -424,7 +425,9 @@
     "upToDate": "Up to date",
     "upToDateUpdated": "Up to date · {{updated}}",
     "updatedAt": "Last updated {{time}} · View › Refresh (⌘R)",
-    "refresh": "View › Refresh (⌘R)"
+    "refresh": "View › Refresh (⌘R)",
+    "updatedAtPull": "Last updated {{time}} · Pull down to refresh",
+    "pullToRefresh": "Pull down to refresh"
   },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",

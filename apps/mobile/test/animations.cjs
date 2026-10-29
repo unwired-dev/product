@@ -253,6 +253,10 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
     style,
   }),
   presentationDetents: (detents) => ({ $type: 'presentationDetents', detents }),
+  presentationDragIndicator: (visibility) => ({
+    $type: 'presentationDragIndicator',
+    visibility,
+  }),
 }));
 
 // Component journeys substitute the native animation driver with its completed frame.

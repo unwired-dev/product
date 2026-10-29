@@ -306,9 +306,8 @@ and the state marks it paused. While the pass runs, All Mail's subtitle shows th
 row naming the month the list has reached, in place of the note that older mail
 stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
 The [Sync Status Capsule](#sync-status-capsule) includes the pass in its progress.
-On Mac, its popover shows each connection's history status; the iPhone and iPad
-per-connection status remains in
-[#1442](https://github.com/unwired-dev/product/issues/1442). Scrolling to the end
+On Mac, its popover shows each connection's history status; on iPhone and iPad,
+its [details](#sync-status-capsule) do. Scrolling to the end
 of the Inbox, a Gmail view or a unified mailbox reveals older downloaded messages in batches from
 the segments, without asking Gmail, so they stay available offline. Opening one of
 those messages downloads its body once and saves it in the
@@ -363,8 +362,17 @@ up to date with its last update, or its problem with a warning and its own
 gives the time the shown mailboxes were last all up to date and points to
 **View › Refresh** (⌘R), which synchronizes the key window's shown mailboxes and
 their listed view. Clicking elsewhere or pressing Escape closes the popover, and it
-closes with the capsule. Per-account details on iPhone and iPad follow in
-[#1442](https://github.com/unwired-dev/product/issues/1442).
+closes with the capsule.
+
+On iPhone and iPad, tapping the capsule opens the same **Sync Status** details
+([#1442](https://github.com/unwired-dev/product/issues/1442)): in a medium-detent
+sheet with **Done** on iPhone, and in a popover on the capsule on iPad. A connection
+whose grant or password was refused offers its authorization in place of
+**Try Again**: **Allow Gmail access**, named for its provider, asks for access again
+and then synchronizes that connection, and **Enter the Password…** opens Email
+Accounts in Settings. Authorizing closes the details first. The footer points to
+pulling the list down instead of ⌘R. On iPhone, whose Inbox heading has no room for
+the last update, this footer is where it appears.
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache
