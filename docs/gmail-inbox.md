@@ -136,7 +136,8 @@ prefetch in any mailbox yields to an explicit open in any other.
 ## Searching saved mail
 
 [#608](https://github.com/unwired-dev/product/issues/608) searches the Inbox mail
-saved on this device. The field in the floating bar, **Search senders and subjects**,
+saved on this device. The field in the floating bar, **Search senders and subjects** (on iPhone, the system
+toolbar's integrated search field, [#1534](https://github.com/unwired-dev/product/issues/1534)),
 matches the **Durable Message Metadata** already in each mailbox's encrypted cache:
 the sender's name and address and the subject. Every word of the query must appear
 in one of them, ignoring case and accents, so `cafe oliver` finds Oliver's

@@ -119,8 +119,8 @@ const styles = StyleSheet.create({
   },
 });
 
-// The New Message control of the floating search bar.
-export function NewMessageButton({
+// New Message's state and its command, or nothing while no Draft can start.
+export function useNewMessage({
   onCompose,
   scope,
   registerCommand = true,
@@ -131,7 +131,6 @@ export function NewMessageButton({
   // The mounted Inbox owns the shared command; another column can reuse only its button.
   readonly registerCommand?: boolean;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const account = use(AccountContext);
   const store = useDraftStore();
@@ -141,7 +140,7 @@ export function NewMessageButton({
   const creating = useRef(false);
   const [creatingShown, setCreatingShown] = useState(false);
   if (account === undefined || state.kind === 'closed') {
-    return null;
+    return undefined;
   }
   // The unified Inbox sends from the window's Profile.
   const senders = sendingMailboxes(
@@ -172,9 +171,13 @@ export function NewMessageButton({
       onCompose(id);
     }
   };
-  return (
-    <>
-      {disabled || !registerCommand ? null : (
+  return {
+    disabled,
+    compose: () => {
+      void compose();
+    },
+    command:
+      disabled || !registerCommand ? null : (
         <RegisterCommands
           offer={() => [
             composeCommand(t, () => {
@@ -182,16 +185,29 @@ export function NewMessageButton({
             }),
           ]}
         />
-      )}
+      ),
+  };
+}
+
+// The New Message control of the floating search bar.
+export function NewMessageButton(props: Parameters<typeof useNewMessage>[0]) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const message = useNewMessage(props);
+  if (message === undefined) {
+    return null;
+  }
+  const { disabled, compose, command } = message;
+  return (
+    <>
+      {command}
       <GlassGroup style={styles.round}>
         <Pressable
           accessibilityLabel={t('drafts.newMessage')}
           accessibilityRole="button"
           accessibilityState={{ disabled }}
           disabled={disabled}
-          onPress={() => {
-            void compose();
-          }}
+          onPress={compose}
           style={styles.newMessage}>
           <SFSymbol
             name="square.and.pencil"
@@ -574,19 +590,38 @@ export function FloatingBar({
           {trailing}
         </View>
       ) : null}
-      <View
-        pointerEvents="box-none"
-        testID="list-notice"
-        style={[
-          styles.notice,
-          {
-            bottom: noticeBottom + barHeight + spacing.m,
-            display: hidden ? 'none' : 'flex',
-          },
-        ]}>
+      <BarNotices
+        bottom={noticeBottom}
+        hidden={hidden}>
         {listNotice}
         {windowBar === undefined ? notice : null}
-      </View>
+      </BarNotices>
     </>
+  );
+}
+
+// Toasts and status centered 12pt above a bar whose bottom edge sits at `bottom`.
+export function BarNotices({
+  bottom,
+  hidden = false,
+  children,
+}: {
+  readonly bottom: number;
+  readonly hidden?: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <View
+      pointerEvents="box-none"
+      testID="list-notice"
+      style={[
+        styles.notice,
+        {
+          bottom: bottom + barHeight + spacing.m,
+          display: hidden ? 'none' : 'flex',
+        },
+      ]}>
+      {children}
+    </View>
   );
 }

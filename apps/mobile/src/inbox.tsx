@@ -69,6 +69,7 @@ import {
 } from './inbox-rows.tsx';
 import {
   InboxBar,
+  InboxToolbar,
   OnlineResults,
   SearchHeading,
   useInboxSearch,
@@ -1173,30 +1174,56 @@ export function Inbox({
               );
             }}
           />
-          {/* The floating bar rides on the software keyboard while its search field is in use, moving
-              with it frame by frame. It sits 4pt above the home indicator's safe area and 12pt above
-              the keyboard, as the frames show. The window bar already lifts the regular layout's
-              capsule. */}
-          <KeyboardStickyView
-            enabled={!inWindow}
-            offset={{ opened: insets.bottom + spacing.xs - spacing.m }}
-            pointerEvents="box-none"
-            style={StyleSheet.absoluteFill}
-            testID="keyboard-bar">
-            <InboxBar
-              listNotice={syncCapsule}
-              field={search}
-              filter={filtering}
-              hidden={composing !== undefined}
-              notice={outboxActions.toast}
-              onCompose={onCompose}
-              ready={ready}
-              scope={scope}
-              search={searchState}
-            />
-          </KeyboardStickyView>
+          <InboxControls
+            toolbar={bar === true}
+            sticky={!inWindow}
+            stickyOffset={insets.bottom + spacing.xs - spacing.m}
+            listNotice={syncCapsule}
+            field={search}
+            filter={filtering}
+            hidden={composing !== undefined}
+            notice={outboxActions.toast}
+            onCompose={onCompose}
+            ready={ready}
+            scope={scope}
+            search={searchState}
+          />
         </View>
       </SafeAreaView>
     </View>
+  );
+}
+
+// iPhone's single column uses the system toolbar and its search (#1534). Elsewhere the floating bar
+// rides on the software keyboard while its search field is in use, moving with it frame by frame.
+// It sits 4pt above the home indicator's safe area and 12pt above the keyboard, as the frames show.
+// The window bar already lifts the regular layout's capsule, so it doesn't follow the keyboard.
+function InboxControls({
+  toolbar,
+  sticky,
+  stickyOffset,
+  ...props
+}: Parameters<typeof InboxBar>[0] & {
+  readonly toolbar: boolean;
+  readonly sticky: boolean;
+  readonly stickyOffset: number;
+}) {
+  if (toolbar && props.onCompose !== undefined) {
+    return (
+      <InboxToolbar
+        {...props}
+        onCompose={props.onCompose}
+      />
+    );
+  }
+  return (
+    <KeyboardStickyView
+      enabled={sticky}
+      offset={{ opened: stickyOffset }}
+      pointerEvents="box-none"
+      style={StyleSheet.absoluteFill}
+      testID="keyboard-bar">
+      <InboxBar {...props} />
+    </KeyboardStickyView>
   );
 }

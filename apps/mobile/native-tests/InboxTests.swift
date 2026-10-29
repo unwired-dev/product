@@ -1310,7 +1310,7 @@ final class InboxTests: XCTestCase {
         .completed)
     }
     let searching = {
-      XCTAssertTrue(app.buttons["Close Search"].exists)
+      XCTAssertTrue(self.closeSearch(app).exists)
       XCTAssertTrue(keyboard.exists)
       XCTAssertEqual(search.value(forKey: "hasKeyboardFocus") as? Bool, true)
       XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
@@ -1904,13 +1904,33 @@ final class InboxTests: XCTestCase {
     search.typeText("\n")
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     verifyCompactSwipeBackToResults(app, search: search, row: maya)
-    app.buttons["Close Search"].tap()
+    closeSearch(app).tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     // React Native resets the indicator inset as the keyboard leaves.
     verifyCompactIndicator(app, bar: search)
     verifyCompactInboxHeader(app)
     // Close also empties the field, which is not controlled by the query (#970).
     XCTAssertEqual(search.value as? String, "Search")
+    // #1534: on iPhone, the Command Palette's Search Mail focuses the toolbar's native search field.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let query = app.textFields["Type a command"]
+      openPalette(app, header: app.navigationBars.staticTexts[title].firstMatch)
+      waitForFocus(query)
+      app.typeText("Search Mail\n")
+      XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+      waitForFocus(search)
+      // Search hides the title, so a downward swipe on the field opens the palette instead.
+      let start = search.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      start.press(
+        forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)), withVelocity: .fast,
+        thenHoldForDuration: 0)
+      waitForFocus(query)
+      app.typeText("Search Mail\n")
+      XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+      waitForFocus(search)
+      closeSearch(app).tap()
+      XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
+    }
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCUIDevice.shared.orientation = .portrait
       waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
@@ -2388,6 +2408,12 @@ final class InboxTests: XCTestCase {
     waitUntil { abs(track.frame.maxY - bar.frame.minY) <= 1 }
   }
 
+  // iPhone's native search closes with the system's close button; the floating bar labels its own.
+  private func closeSearch(_ app: XCUIApplication) -> XCUIElement {
+    UIDevice.current.userInterfaceIdiom == .phone
+      ? app.toolbars.buttons["close"].firstMatch : app.buttons["Close Search"]
+  }
+
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
   // entry the end of the list scrolls clear of the floating bar. The runner starts the simulator in
   // Dark unless UNWIRED_APPEARANCE is light; Dark shows a surface that stops short against the
@@ -2412,16 +2438,11 @@ final class InboxTests: XCTestCase {
       waitUntil { footer.frame.maxY <= search.frame.minY }
       verifyCompactIndicator(app, bar: search)
     }
-    // #1364: the floating bar sits 4pt above the bottom safe area, as the frames show. The runner's own
-    // window shares the device's safe area.
-    guard
-      let runnerWindow = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first
-    else {
-      return XCTFail("The runner has no window to read the bottom safe area from")
-    }
-    let safeArea = runnerWindow.safeAreaInsets.bottom
-    let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
-    XCTAssertEqual(window.maxY - filter.frame.maxY, safeArea + 4, accuracy: 1)
+    // #1534: iPhone's Filter, search and New Message are the system toolbar's items, which UIKit
+    // places above the home indicator.
+    XCTAssertTrue(app.toolbars.buttons["Filter"].exists)
+    XCTAssertTrue(app.toolbars.searchFields.firstMatch.exists)
+    XCTAssertTrue(app.toolbars.buttons["New Message"].exists)
     // #1506: the rows run under the floating bar and the home indicator to the screen's bottom edge.
     XCTAssertEqual(app.otherElements["Inbox messages"].firstMatch.frame.maxY, window.maxY)
     let colors = pixels(app, at: [surface, edge])
