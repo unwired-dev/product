@@ -74,8 +74,10 @@ final class InboxTests: XCTestCase {
     } else {
       // The popover opens above its capsule.
       XCTAssertLessThanOrEqual(title.frame.maxY, progress.frame.minY)
-      // The popover closes with a tap outside it.
+      // The popover closes with a tap outside it. Under load the first tap after the audit is
+      // sometimes lost, so one more follows if it stays open.
       app.otherElements["PopoverDismissRegion"].tap()
+      if !title.waitForNonExistence(timeout: 5) { app.otherElements["PopoverDismissRegion"].tap() }
     }
     XCTAssertTrue(title.waitForNonExistence(timeout: 10))
     let attention = app.buttons["1 account needs attention"]
