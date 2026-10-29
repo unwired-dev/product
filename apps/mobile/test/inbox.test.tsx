@@ -1378,13 +1378,15 @@ describe('connected Gmail Inbox', () => {
       await Promise.resolve();
     });
     expect(screen.queryByRole('button', { name: /^Updating/u })).toBeNull();
-    await expect(
-      screen.findByRole(
-        'button',
-        { name: 'Updating 1 account' },
-        { timeout: 3000 },
-      ),
-    ).resolves.toBeVisible();
+    // The capsule mounts transparent and fades in once its motion starts.
+    await waitFor(
+      () => {
+        expect(
+          screen.getByRole('button', { name: 'Updating 1 account' }),
+        ).toBeVisible();
+      },
+      { timeout: 3000 },
+    );
     gmail.native.gmailRequest = request;
     await act(async () => {
       release();
