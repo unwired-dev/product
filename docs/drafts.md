@@ -350,7 +350,7 @@ reopening, **Undo** and **Discard** work as for any Draft.
   sender while the response's first save is pending.
 - **Recipients.** **Reply** goes to Reply-To, or else to From. A message this mailbox
   sent is answered to its original To recipients. **Reply All** adds the original
-  To recipients in To and keeps Cc in Cc, which the composer shows. All known Gmail
+  To recipients in To and keeps Cc in Cc, which the composer shows. All known
   addresses of the sending Mail Profile are left out, unless the message was
   sent to the active sender alone. An excluded address can be added manually. Each address appears
   once, compared without case, and a group keeps its members without its display
