@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import type { NativeSyntheticEvent, ViewProps } from 'react-native';
 
 import { vettedHref } from '@private-email/mail-core/link-inspection';
+import { isLinkText } from '@private-email/mail-core/semantic-document';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
@@ -348,7 +349,7 @@ export function LinkEditor({
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
   const href = vettedHref(destination);
-  const applicable = href !== undefined && text !== '';
+  const applicable = href !== undefined && isLinkText(text);
   const finish = (next: string, nextHref?: string) => {
     setShown(false);
     if (editing !== undefined) {

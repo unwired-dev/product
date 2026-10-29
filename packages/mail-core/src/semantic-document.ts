@@ -59,13 +59,18 @@ export const AssetSchema = Schema.Union([
 ]);
 export type Asset = typeof AssetSchema.Type;
 
+const SpanTextSchema = Schema.NonEmptyString.check(
+  Schema.makeFilter(
+    (text) => !text.includes('\n') && !text.includes(imageCharacter),
+  ),
+);
+
+// A Link Editor label must fit one text span, including when pasted into its field.
+export const isLinkText = Schema.is(SpanTextSchema);
+
 const SpanSchema = Schema.Union([
   Schema.Struct({
-    text: Schema.NonEmptyString.check(
-      Schema.makeFilter(
-        (text) => !text.includes('\n') && !text.includes(imageCharacter),
-      ),
-    ),
+    text: SpanTextSchema,
     marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
     // Linked text: web, mail and telephone destinations only, as received links allow.
     link: Schema.optionalKey(
@@ -829,6 +834,9 @@ export function setLink(
   link: Link,
   { text, href }: Readonly<{ text: string; href?: string | undefined }>,
 ): Edit {
+  if (!isLinkText(text)) {
+    return { document };
+  }
   const { line, column, marker } = locate(document, link.start);
   const from = column - marker;
   const to = from + link.end - link.start;

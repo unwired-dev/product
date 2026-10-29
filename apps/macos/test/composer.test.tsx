@@ -1485,6 +1485,13 @@ describe('composing Drafts', () => {
     await fireEvent.changeText(destination, 'ftp://docs.example.invalid/lease');
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
     await fireEvent.changeText(destination, ` ${lease}-v3 `);
+    // Pasted block separators and image placeholders cannot become a text span.
+    for (const invalid of ['line\nbreak', 'image\uFFFCplaceholder']) {
+      await fireEvent.changeText(text, invalid);
+      expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+      await fireEvent(text, 'submitEditing');
+      expect(bodyNow()?.[1]).toHaveProperty('text', 'the lease');
+    }
     await fireEvent.changeText(text, 'revised lease');
     await press('Apply');
     expect(bodyNow()).toStrictEqual([
@@ -1517,6 +1524,15 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
     await press('Undo');
     expect(bodyNow()?.[1]).toHaveProperty('link', `${lease}-v3`);
+    await press('Redo');
+    expect(bodyNow()?.[1]).not.toHaveProperty('link');
+    await savedQuietly(drafts);
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(
+      draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body[0]
+        ?.spans,
+    ).toStrictEqual(bodyNow());
   });
 
   it('keeps a stale editor on its own conflicting copy', async () => {

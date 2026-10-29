@@ -167,7 +167,8 @@ The composer underlines linked text. With the caret in a link or a selection
 inside one, the format bar's **Edit Link** control opens the Link Editor, a
 popover on Mac and iPad and an **Edit Link** sheet on iPhone, with the link's
 text and destination. **Apply** replaces both and is available only while the
-text is not empty and the destination is one a Draft may keep; **Remove Link**
+text is not empty, contains no line break or inline-image placeholder, and the
+destination is one a Draft may keep; **Remove Link**
 keeps the text without the link, and closing the editor changes nothing. Each
 change is one Undo step. The control is unavailable away from a link: composers
 cannot yet link unlinked text

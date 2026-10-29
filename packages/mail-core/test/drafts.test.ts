@@ -394,6 +394,16 @@ describe('editing a Semantic Message Document', () => {
     expect(linkAt(document, { start: 12, end: 18 })).toBeUndefined();
     expect(linkAt(document, { start: 3, end: 3 })).toBeUndefined();
 
+    for (const text of [
+      '',
+      'line\nbreak',
+      `image${imageCharacter}placeholder`,
+    ]) {
+      expect(setLink(document, found, { text, href: link }).document).toBe(
+        document,
+      );
+    }
+
     // Changing only the destination keeps the text's marks.
     const moved = setLink(document, found, {
       text: 'the lease',

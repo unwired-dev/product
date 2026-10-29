@@ -33,6 +33,7 @@ import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import {
@@ -1813,107 +1814,135 @@ describe('composing Drafts', () => {
     );
   });
 
-  it('edits and removes a Draft link with the Link Editor, each as one Undo step', async () => {
-    expect.hasAssertions();
-    const registration = account(connected(['alex@example.invalid']));
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
-    await drafts.load();
-    const created = await drafts.create({
-      id: alex,
-      address: 'alex@example.invalid',
-    });
-    ok(created);
-    const id: string = created;
-    const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
-    ok(draft);
-    const lease = 'https://docs.example.invalid/lease';
-    await drafts.update(
-      {
-        ...draft,
-        body: [
-          {
-            kind: 'paragraph',
-            spans: [
-              { text: 'Read ' },
-              { text: 'the lease', marks: ['bold'], link: lease },
-              { text: ' today' },
-            ],
-          },
-        ],
-      },
-      draft,
-    );
-    await render(
-      <App
-        drafts={drafts}
-        registration={registration}
-        initialDraft={id}
-      />,
-    );
-    const body = await screen.findByLabelText('Message body');
-    const bodyNow = () =>
-      draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
-        ?.spans;
-    const caret = async (at: number) => {
-      await fireEvent(body, 'selectionChange', {
-        nativeEvent: { selection: { start: at, end: at } },
+  it.each([
+    ['compact', 'bottom-sheet'],
+    ['regular', 'popover'],
+  ] as const)(
+    'edits and removes a Draft link with the Link Editor on %s, each as one Undo step',
+    async (size, presenter) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await drafts.load();
+      const created = await drafts.create({
+        id: alex,
+        address: 'alex@example.invalid',
       });
-    };
-    // Away from a link there is nothing to edit.
-    await caret(2);
-    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
-    await caret(8);
-    await press('Edit Link');
-    const text = screen.getByLabelText('Text');
-    const destination = screen.getByLabelText('Link');
-    expect(text).toHaveProp('value', 'the lease');
-    expect(destination).toHaveProp('value', lease);
-    // Only a destination a person may open can be applied.
-    await fireEvent.changeText(destination, 'ftp://docs.example.invalid/lease');
-    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
-    await fireEvent.changeText(destination, ` ${lease}-v3 `);
-    await fireEvent.changeText(text, 'revised lease');
-    await press('Apply');
-    expect(bodyNow()).toStrictEqual([
-      { text: 'Read ' },
-      { text: 'revised lease', marks: ['bold'], link: `${lease}-v3` },
-      { text: ' today' },
-    ]);
-    expect(screen.queryByLabelText('Text')).toBeNull();
-    await press('Undo');
-    expect(bodyNow()?.[1]).toStrictEqual({
-      text: 'the lease',
-      marks: ['bold'],
-      link: lease,
-    });
-    await press('Redo');
-    expect(bodyNow()?.[1]).toHaveProperty('text', 'revised lease');
-
-    // Closing the editor changes nothing, and reopening it shows the link as it is.
-    await caret(10);
-    await press('Edit Link');
-    await fireEvent.changeText(screen.getByLabelText('Text'), 'other');
-    await act(async () => {
-      await fireEvent.press(
-        within(screen.getByTestId('bottom-sheet')).getByRole('button', {
-          name: 'Close',
-        }),
+      ok(created);
+      const id: string = created;
+      const draft = draftsOf(drafts.getSnapshot()).find(
+        (each) => each.id === id,
       );
-    });
-    expect(bodyNow()?.[1]).toHaveProperty('text', 'revised lease');
-    await press('Edit Link');
-    expect(screen.getByLabelText('Text')).toHaveProp('value', 'revised lease');
-    await press('Remove Link');
-    expect(bodyNow()).toStrictEqual([
-      { text: 'Read ' },
-      { text: 'revised lease', marks: ['bold'] },
-      { text: ' today' },
-    ]);
-    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
-    await press('Undo');
-    expect(bodyNow()?.[1]).toHaveProperty('link', `${lease}-v3`);
-  });
+      ok(draft);
+      const lease = 'https://docs.example.invalid/lease';
+      await drafts.update(
+        {
+          ...draft,
+          body: [
+            {
+              kind: 'paragraph',
+              spans: [
+                { text: 'Read ' },
+                { text: 'the lease', marks: ['bold'], link: lease },
+                { text: ' today' },
+              ],
+            },
+          ],
+        },
+        draft,
+      );
+      await render(
+        <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            registration={registration}
+            initialDraft={id}
+          />
+        </ComposerLayoutContext>,
+      );
+      const body = await screen.findByLabelText('Message body');
+      const bodyNow = () =>
+        draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
+          ?.spans;
+      const caret = async (at: number) => {
+        await fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection: { start: at, end: at } },
+        });
+      };
+      // Away from a link there is nothing to edit.
+      await caret(2);
+      expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
+      await caret(8);
+      await press('Edit Link');
+      const text = screen.getByLabelText('Text');
+      const destination = screen.getByLabelText('Link');
+      expect(text).toHaveProp('value', 'the lease');
+      expect(destination).toHaveProp('value', lease);
+      // Only a destination a person may open can be applied.
+      await fireEvent.changeText(
+        destination,
+        'ftp://docs.example.invalid/lease',
+      );
+      expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+      await fireEvent.changeText(destination, ` ${lease}-v3 `);
+      // Pasted block separators and image placeholders cannot become a text span.
+      for (const invalid of ['line\nbreak', 'image\uFFFCplaceholder']) {
+        await fireEvent.changeText(text, invalid);
+        expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+        await fireEvent(text, 'submitEditing');
+        expect(bodyNow()?.[1]).toHaveProperty('text', 'the lease');
+      }
+      await fireEvent.changeText(text, 'revised lease');
+      await press('Apply');
+      expect(bodyNow()).toStrictEqual([
+        { text: 'Read ' },
+        { text: 'revised lease', marks: ['bold'], link: `${lease}-v3` },
+        { text: ' today' },
+      ]);
+      expect(screen.queryByLabelText('Text')).toBeNull();
+      await press('Undo');
+      expect(bodyNow()?.[1]).toStrictEqual({
+        text: 'the lease',
+        marks: ['bold'],
+        link: lease,
+      });
+      await press('Redo');
+      expect(bodyNow()?.[1]).toHaveProperty('text', 'revised lease');
+
+      // Closing the editor changes nothing, and reopening it shows the link as it is.
+      await caret(10);
+      await press('Edit Link');
+      await fireEvent.changeText(screen.getByLabelText('Text'), 'other');
+      await act(async () => {
+        await fireEvent(screen.getByTestId(presenter), 'accessibilityEscape');
+      });
+      expect(bodyNow()?.[1]).toHaveProperty('text', 'revised lease');
+      await press('Edit Link');
+      expect(screen.getByLabelText('Text')).toHaveProp(
+        'value',
+        'revised lease',
+      );
+      await press('Remove Link');
+      expect(bodyNow()).toStrictEqual([
+        { text: 'Read ' },
+        { text: 'revised lease', marks: ['bold'] },
+        { text: ' today' },
+      ]);
+      expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
+      await press('Undo');
+      expect(bodyNow()?.[1]).toHaveProperty('link', `${lease}-v3`);
+      await press('Redo');
+      expect(bodyNow()?.[1]).not.toHaveProperty('link');
+      await savedQuietly(drafts);
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(
+        draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body[0]
+          ?.spans,
+      ).toStrictEqual(bodyNow());
+    },
+  );
 
   // #980: the native field drops a render that reaches it after further typing, so each keystroke
   // arrives on the literal marker and the previous line instead of the shown bullets.

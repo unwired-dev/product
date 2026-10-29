@@ -27,6 +27,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { vettedHref } from '@private-email/mail-core/link-inspection';
+import { isLinkText } from '@private-email/mail-core/semantic-document';
 import {
   ipadListScale,
   radius,
@@ -505,6 +506,7 @@ export function LinkEditor({
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
   const href = vettedHref(destination);
+  const applicable = href !== undefined && isLinkText(text);
   const finish = (next: string, nextHref?: string) => {
     setShown(false);
     if (editing !== undefined) {
@@ -512,7 +514,7 @@ export function LinkEditor({
     }
   };
   const apply = () => {
-    if (href !== undefined && text !== '') {
+    if (applicable) {
       finish(text, href);
     }
   };
@@ -547,7 +549,7 @@ export function LinkEditor({
   const fields = {
     text,
     destination,
-    applicable: href !== undefined && text !== '',
+    applicable,
     onText: setText,
     onDestination: setDestination,
     onApply: apply,
