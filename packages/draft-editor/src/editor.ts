@@ -203,11 +203,11 @@ const imageCharacter = '\uFFFC';
 
 // The first replaced character owns the replacement's link, including for Select All.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's state is a class; this only reads it.
-const replacedLink = ({ doc, selection }: EditorState) => {
-  if (selection.empty) {
+const replacedLink = ({ doc }: EditorState, from: number, to: number) => {
+  if (from === to) {
     return undefined;
   }
-  let node = doc.nodeAt(selection.from);
+  let node = doc.nodeAt(from);
   while (node !== null && !node.isInline) {
     node = node.firstChild;
   }
@@ -346,14 +346,11 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
               from === to && [...text].length === 1 && !/\s/u.test(text);
             // Unlike marksAcross, the document keeps the first replaced character's link
             // even when the selection crosses its end.
-            const link = replacedLink(view.state);
+            const link = replacedLink(view.state, from, to);
             const tr = deflt();
             if (link !== undefined) {
-              tr.addMark(
-                tr.selection.from - text.length,
-                tr.selection.from,
-                link,
-              );
+              // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ProseMirror Mapping.map takes an association, not an array thisArg.
+              tr.addMark(tr.mapping.map(from, -1), tr.mapping.map(to), link);
             }
             view.dispatch(word ? tr.setMeta(typing, true) : tr);
             if (kind !== undefined) {

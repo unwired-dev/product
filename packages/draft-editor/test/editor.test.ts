@@ -722,6 +722,35 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('keeps replacement links when DOM text input reports a range apart from the caret', async () => {
+    expect.hasAssertions();
+    const link = 'https://example.com/plan';
+    const opened: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'abcd', link }, { text: ' tail' }] },
+    ];
+    for (const caret of [5, 10]) {
+      const page = await open(opened);
+      page.editor.commands.setTextSelection(caret);
+      // ProseMirror's DOM-change path supplies the changed range independently of selection.
+      page.editor.view.someProp('handleTextInput', (handle) =>
+        handle(page.editor.view, 1, 5, 'ABCD', () =>
+          page.editor.state.tr.insertText('ABCD', 1, 5),
+        ),
+      );
+      const edited: SemanticDocument = [
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'ABCD', link }, { text: ' tail' }],
+        },
+      ];
+      expect(bodyOf(page)).toStrictEqual(edited);
+      page.command({ type: 'undo' });
+      expect(bodyOf(page)).toStrictEqual(opened);
+      page.command({ type: 'redo' });
+      expect(bodyOf(page)).toStrictEqual(edited);
+    }
+  });
+
   it('replaces the body revision it was computed from as one undoable edit', async () => {
     expect.hasAssertions();
     const opened: SemanticDocument = [

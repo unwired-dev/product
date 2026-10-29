@@ -7,9 +7,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   followed by typing at the new link edge, and replacement selections that start
   linked and end outside that link, against `semantic-document.ts`'s `splice`.
   Tiptap can carry a split link into stored typing marks, while ProseMirror's
-  `marksAcross` can discard the first replaced character's link. Exercise the
-  real key and text-input handlers with Undo/Redo, or the editor can silently
-  extend a link at its edge or drop it from replacement text.
+  `marksAcross` can discard the first replaced character's link. DOM-change
+  text input can report a replacement range apart from the current selection;
+  use its `from`/`to` and mapped edit range for link recovery and application,
+  rather than the caret. Exercise the real key and text-input handlers with
+  Undo/Redo, or the editor can silently extend a link at its edge, drop it from
+  replacement text or apply it to untouched text near the caret.
 
 - An `editable: false` acknowledgement in `packages/draft-editor/src/editor.ts`
   that stops typing but still permits mutating `draftCommand` calls. Native
