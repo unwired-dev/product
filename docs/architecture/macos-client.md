@@ -40,6 +40,12 @@ The Edit menu omits native Undo and Redo because AppKit's undo stack for a text
 field goes stale once JavaScript sets the field's text, so undoing would corrupt
 it. The composer body keeps its own Command-Z and Shift-Command-Z history.
 
+The New Message window uses a full-size content view, hides AppKit's title and
+makes its title bar transparent. An empty unified `NSToolbar` gives the title bar
+the height of the toolbar row that React Native draws beside the window controls.
+The [Mac window guide](../macos-client.md#window-behavior) owns its visible control
+placement and minimum width; AppKit retains window lifetime and close routing.
+
 ## Build and run
 
 The checked-in Objective-C++ host, Podfile and Ruby project generator own the

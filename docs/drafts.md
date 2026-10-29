@@ -110,12 +110,15 @@ transport and known native exit gaps.
   retain bounded previews. Sender/subject search lists received mail alone; clearing the search
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
 - The composer shows the body first, then attachments, then the **Subject**,
-  **To**, **Cc** and **Bcc** fields with right-aligned labels; its header holds
+  **To**, **Cc** and **Bcc** fields with right-aligned labels. Except in the Mac
+  New Message window described above, its header holds
   Close, the title and a Compose actions menu with Discard, and the format bar (text style, bold, italic,
   underline, strikethrough, inline code, lists, Undo, Redo, Translate, Rewrite
   and the file and image controls) sits under the header on Mac and iPad and
   above the keyboard on iPhone. On touch layouts, Text style stays at the leading
-  edge while the remaining controls scroll horizontally at their full touch size. On Mac, **From** and **Send** share the bottom row;
+  edge while the remaining controls scroll horizontally at their full touch size.
+  In the Mac overlay, **From** and **Send** share the bottom row; in its New
+  Message window they share the toolbar row above the format bar;
   on iPhone and iPad, **From** sits under the header and **Send** in it.
   These platform control rows stay fixed. Save status, errors and confirmations
   scroll with the body, assets and fields in one outer scroll view; stacked

@@ -133,10 +133,10 @@ A window's one composer overlays the reader as described in
 [composing](drafts.md#composing); opening a Draft keeps the selected message
 behind it, whose toolbar stays usable above the overlay, selecting another
 message updates that reader without closing the Draft, and Expand saves the Draft and moves it into its own New Message window,
-closing the overlay. The New Message window hides AppKit's title and gives its
-title bar an empty unified toolbar, so the composer draws the toolbar row with
-the window's title, Command Input, From, Compose actions and Send beside the
-window controls. The window is at least 640pt wide, so the row keeps all of
+closing the overlay. The New Message window's toolbar row holds its title,
+Command Input, From, Compose actions and Send beside the window controls.
+AppKit owns the window controls; React Native lays out the title and application
+controls. The window is at least 640pt wide, so the row keeps all of
 them; the title and From truncate first. AppKit does not restore New Message
 windows; closing one or quitting asks its composer first, as an Inbox window
 does.
