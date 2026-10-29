@@ -236,6 +236,10 @@ jest.mock('@expo/ui/swift-ui', () => {
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
+  buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
+  controlSize: (size) => ({ $type: 'controlSize', size }),
+  labelStyle: (style) => ({ $type: 'labelStyle', style }),
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
   foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
   frame: (params) => ({ $type: 'frame', ...params }),

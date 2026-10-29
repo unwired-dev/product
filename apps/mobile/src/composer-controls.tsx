@@ -12,8 +12,17 @@ import {
   Host,
   Popover,
   RNHostView,
+  Button as SwiftUIButton,
 } from '@expo/ui/swift-ui';
-import { presentationDetents } from '@expo/ui/swift-ui/modifiers';
+import {
+  buttonBorderShape,
+  buttonStyle,
+  controlSize,
+  disabled as inactive,
+  labelStyle,
+  presentationDetents,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
 import { vettedHref } from '@private-email/mail-core/link-inspection';
 import {
   ipadListScale,
@@ -74,13 +83,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-  },
-  linkSheetButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   linkSheetTitle: { ...textStyles.headline, flex: 1, textAlign: 'center' },
   linkGroup: { borderRadius: radius.insetGroup, borderCurve: 'continuous' },
@@ -692,46 +694,39 @@ function LinkSheet({
   return (
     <View style={styles.linkSheet}>
       <View style={styles.linkSheetHeader}>
-        <Pressable
-          accessibilityLabel={t('drafts.close')}
-          accessibilityRole="button"
-          onPress={onClose}
-          style={({ pressed }) => [
-            styles.linkSheetButton,
-            {
-              backgroundColor: pressed
-                ? colors.accentSelectionSubtle
-                : colors.fillQuiet,
-            },
-          ]}>
-          <SFSymbol
-            name="xmark"
-            color={colors.textPrimary}
+        <Host matchContents>
+          <SwiftUIButton
+            label={t('drafts.close')}
+            systemImage="xmark"
+            onPress={onClose}
+            modifiers={[
+              labelStyle('iconOnly'),
+              buttonStyle('glass'),
+              buttonBorderShape('circle'),
+              controlSize('large'),
+            ]}
           />
-        </Pressable>
+        </Host>
         <Text
           accessibilityRole="header"
           style={[styles.linkSheetTitle, { color: colors.textPrimary }]}>
           {t('drafts.link.edit')}
         </Text>
-        <Pressable
-          accessibilityLabel={t('drafts.link.apply')}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !applicable }}
-          disabled={!applicable}
-          onPress={onApply}
-          style={[
-            styles.linkSheetButton,
-            {
-              backgroundColor: colors.accentFill,
-              opacity: applicable ? 1 : 0.4,
-            },
-          ]}>
-          <SFSymbol
-            name="checkmark"
-            color={colors.accentOnFill}
+        <Host matchContents>
+          <SwiftUIButton
+            label={t('drafts.link.apply')}
+            systemImage="checkmark"
+            onPress={onApply}
+            modifiers={[
+              labelStyle('iconOnly'),
+              buttonStyle('glassProminent'),
+              buttonBorderShape('circle'),
+              controlSize('large'),
+              tint(colors.accentFill),
+              inactive(!applicable),
+            ]}
           />
-        </Pressable>
+        </Host>
       </View>
       <View
         style={[styles.linkGroup, { backgroundColor: colors.surfaceContent }]}>
@@ -744,22 +739,21 @@ function LinkSheet({
       <Text style={[styles.linkSheetHint, { color: colors.textSecondary }]}>
         {t('drafts.link.hint')}
       </Text>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onRemove}
-        style={({ pressed }) => [
+      <View
+        style={[
           styles.linkGroup,
           styles.linkRow,
-          {
-            backgroundColor: pressed
-              ? colors.accentSelectionSubtle
-              : colors.surfaceContent,
-          },
+          { backgroundColor: colors.surfaceContent },
         ]}>
-        <Text style={[textStyles.body, { color: colors.statusDestructive }]}>
-          {t('drafts.link.remove')}
-        </Text>
-      </Pressable>
+        <Host matchContents>
+          <SwiftUIButton
+            // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+            role="destructive"
+            label={t('drafts.link.remove')}
+            onPress={onRemove}
+          />
+        </Host>
+      </View>
     </View>
   );
 }
