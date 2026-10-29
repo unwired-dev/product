@@ -218,6 +218,7 @@ function App({
   initialDraft,
   profile,
   composeFrom = 'inbox',
+  nativeToolbar = false,
 }: {
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
@@ -228,6 +229,7 @@ function App({
   readonly initialDraft?: string;
   readonly profile?: string;
   readonly composeFrom?: 'inbox' | 'mailboxes' | 'both';
+  readonly nativeToolbar?: boolean;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -278,6 +280,7 @@ function App({
               onProfile={() => undefined}
             />
             <Inbox
+              bar={nativeToolbar}
               composing={composing}
               onCompose={composeFrom === 'mailboxes' ? undefined : compose}
               onSelect={setSelected}
@@ -1069,6 +1072,43 @@ describe('composing Drafts', () => {
     });
     await expect(screen.findByText('No Mail')).resolves.toBeOnTheScreen();
     expect(screen.getByRole('button', { name })).toBeOnTheScreen();
+  });
+
+  it('offers New Message only outside native toolbar search', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+        nativeToolbar
+      />,
+    );
+    await screen.findByRole('button', { name: /Synthetic message 0/u });
+    // Substitute UIKit's events only; the Inbox, Draft store and palette remain real.
+    const toolbar = () => {
+      const [control] = screen.container.queryAll(
+        ({ type }) => type === 'UnwiredSearchToolbar',
+      );
+      ok(control);
+      return control;
+    };
+    const palette = async () => {
+      await fireEvent(toolbar(), 'palette');
+      return within(screen.getByTestId('command-palette'));
+    };
+    const initial = await palette();
+    expect(initial.getByRole('button', { name: 'New Message' })).toBeEnabled();
+    await press('Cancel');
+    await fireEvent(toolbar(), 'searchFocus');
+    const searching = await palette();
+    expect(searching.queryByRole('button', { name: 'New Message' })).toBeNull();
+    await press('Cancel');
+    await fireEvent(toolbar(), 'searchClose');
+    const closed = await palette();
+    expect(closed.getByRole('button', { name: 'New Message' })).toBeEnabled();
   });
 
   it('hides Drafts and New Message during local and online search and saves before selecting a message', async () => {

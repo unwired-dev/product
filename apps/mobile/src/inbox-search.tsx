@@ -243,7 +243,11 @@ export function InboxToolbar({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const message = useNewMessage({ onCompose, scope });
+  const message = useNewMessage({
+    onCompose,
+    scope,
+    registerCommand: !searching,
+  });
   const { open: openPalette } = useCommandPalette();
   const bottomInset = useBarBottomInset();
   return (
