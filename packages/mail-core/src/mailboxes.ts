@@ -1,4 +1,5 @@
 import { messageDay } from '@private-email/localization';
+import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
@@ -30,6 +31,7 @@ import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
 import { newestFirst } from './mailbox-views.ts';
+import { notificationsOff, notPosted } from './notifications.ts';
 import {
   defaultProfile,
   mailboxesOf,
@@ -569,6 +571,7 @@ export function createMailboxes(
                   eligible,
                 );
               }
+              return Effect.runPromise(notPosted(notificationsOff));
             };
       const opened =
         provider === 'imap'

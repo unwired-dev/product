@@ -1,6 +1,7 @@
 import Foundation
 import React
 import UserNotifications
+import os
 
 #if os(iOS)
   import UIKit
@@ -14,6 +15,9 @@ import UserNotifications
 @objc(UnwiredNotifications)
 final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Sendable {
   static let shared = UnwiredNotifications()
+  // Why a New Mail Notification was or was not shown, never its content or identifiers.
+  static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "notifications")
 
   @MainActor @objc static func start() {
     UNUserNotificationCenter.current().delegate = shared
@@ -43,7 +47,8 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
-    [.banner, .list, .sound]
+    Self.logger.info("New mail notification presented while the application is in use")
+    return [.banner, .list, .sound]
   }
 
   // A tap or Reply opens the message; Archive and Mark as Read act without opening a window.
@@ -273,6 +278,8 @@ extension UnwiredRegistration {
       UNUserNotificationCenter.current().setNotificationCategories([
         UnwiredNotifications.newMail(actions)
       ])
+      var skipped: [String: Int] = [:]
+      var added = 0
       for notification in notifications {
         guard let id = notification["id"] as? String, !id.isEmpty,
           let title = notification["title"] as? String,
@@ -282,13 +289,23 @@ extension UnwiredRegistration {
           id.hasPrefix(connection + "."),
           let message = notification["message"] as? String,
           let previews = notification["previews"] as? Bool,
-          !previews || UserDefaults.standard.bool(forKey: Self.notificationPreviewsKey),
           let account = notification["account"] as? String,
-          let epoch = notification["epoch"] as? String,
-          (try? store.mailboxAccount(connection).productAccountId) == account,
+          let epoch = notification["epoch"] as? String
+        else {
+          skipped["malformed", default: 0] += 1
+          continue
+        }
+        guard !previews || UserDefaults.standard.bool(forKey: Self.notificationPreviewsKey) else {
+          skipped["previews turned off", default: 0] += 1
+          continue
+        }
+        guard (try? store.mailboxAccount(connection).productAccountId) == account,
           let held = try? store.saved().connection(connection),
           (held.epoch ?? "legacy") == epoch
-        else { continue }
+        else {
+          skipped["connection no longer held", default: 0] += 1
+          continue
+        }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -296,9 +313,22 @@ extension UnwiredRegistration {
         content.categoryIdentifier = "new-mail"
         content.threadIdentifier = profile
         content.userInfo = ["account": account, "epoch": epoch, "connection": connection, "message": message]
-        try? await UNUserNotificationCenter.current().add(
-          UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        do {
+          try await UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: id, content: content, trigger: nil))
+          added += 1
+        } catch {
+          let error = error as NSError
+          UnwiredNotifications.logger.error(
+            "New mail notification not added: \(error.domain, privacy: .public) \(error.code, privacy: .public)"
+          )
+        }
       }
+      // What the system will do with them: an alert style or Lock Screen choice can hide one.
+      let settings = await UNUserNotificationCenter.current().notificationSettings()
+      UnwiredNotifications.logger.info(
+        "New mail notifications added: \(added, privacy: .public), skipped: \(skipped.description, privacy: .public); authorization \(settings.authorizationStatus.rawValue, privacy: .public), alerts \(settings.alertSetting.rawValue, privacy: .public), Notification Center \(settings.notificationCenterSetting.rawValue, privacy: .public), Lock Screen \(settings.lockScreenSetting.rawValue, privacy: .public)"
+      )
     }
   }
 

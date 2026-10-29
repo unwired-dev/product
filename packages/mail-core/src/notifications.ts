@@ -13,7 +13,7 @@ import type {
   RegistrationSnapshot,
 } from './registration-snapshot.ts';
 
-import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
+import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { listedMessage } from './gmail-inbox.ts';
 import { imapRoleFolder } from './imap-actions.ts';
@@ -153,9 +153,14 @@ export const notificationContent = (
       }
     : { title: '', body: t('notifications.newMail') };
 
+// Why New Mail Notifications were not posted, without the mail or its connection.
+export const notPosted = (reason: string) =>
+  logNote('New mail notifications not posted:', reason);
+export const notificationsOff = 'connection closed or its notifications off';
+
 // This device's notification settings for Settings, and the New Mail Notifications it posts once
-// a connection's synchronization commits new Inbox mail. The caller has already checked that the
-// connection's policy is on; content is decided here, on the device.
+// a connection's synchronization commits new Inbox mail, while the connection's policy is on.
+// Content is decided here, on the device.
 export function createNotifications(
   native: Omit<
     NativeNotifications,
@@ -210,8 +215,8 @@ export function createNotifications(
           call(() => native.openNotificationSettings()),
         ),
       ),
-    // `eligible` is checked again after reading the settings, just before posting: the
-    // connection may have been removed or turned off meanwhile.
+    // `eligible` is checked after reading the settings, just before posting: the connection may
+    // have been removed or turned off meanwhile.
     arrived: (
       { profile: currentProfile, ...mailbox }: Arrival,
       messages: readonly ArrivedMessage[],
@@ -226,12 +231,14 @@ export function createNotifications(
               native.notificationSettings(),
             );
             const profile = currentProfile();
-            if (
-              current.authorization !== 'authorized' ||
-              !eligible() ||
-              profile === undefined
-            ) {
-              return;
+            if (current.authorization !== 'authorized') {
+              return yield* notPosted(`authorization ${current.authorization}`);
+            }
+            if (!eligible()) {
+              return yield* notPosted(notificationsOff);
+            }
+            if (profile === undefined) {
+              return yield* notPosted('Mail Profile unknown');
             }
             const t = translate();
             yield* call(() =>
@@ -250,6 +257,10 @@ export function createNotifications(
                   read: t('contextMenu.read'),
                 },
               ),
+            );
+            yield* logNote(
+              'New mail notifications handed to the host:',
+              messages.length,
             );
           }),
         ),
