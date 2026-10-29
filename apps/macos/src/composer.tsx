@@ -1988,6 +1988,8 @@ function Editor({
         setRefused(refusal);
         setSending(false);
       }
+    } else if (refusal === undefined) {
+      onClosedAfterRemoval(authored.current.id);
     }
   };
   const title = clip(draft.subject) || t('drafts.newMessage');
