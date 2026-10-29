@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.m,
     paddingBottom: spacing.s,
     paddingLeft: windowControlsWidth + 10,
-    paddingRight: 14,
+    paddingRight: spacing.l,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   windowTitle: { ...textStyles.bodyEmphasized, width: 120, flexShrink: 1 },
