@@ -7,21 +7,33 @@ import {
   inboxMessages,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
+import { spacing } from '@private-email/mail-core/theme';
 import { use, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Keyboard, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Keyboard,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 
 import type { useInboxFilter } from './inbox-filters.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 
 import { Action } from './action.tsx';
-import { usePaletteHeader } from './command-palette.tsx';
+import { useCommandPalette, usePaletteHeader } from './command-palette.tsx';
+import { SearchToolbar } from './design.tsx';
 import {
   BarButton,
+  BarNotices,
+  barHeight,
   BarSpacer,
   FloatingBar,
   NewMessageButton,
   SearchField,
   useBarBottomInset,
+  useNewMessage,
   WindowBarContext,
 } from './inbox-bar.tsx';
 import { InboxFilterButton } from './inbox-filters.tsx';
@@ -30,6 +42,9 @@ import { ipad, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { useGmailSearch } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
+
+// How far UIKit floats the toolbar's open search field above the keyboard.
+const fieldLift = 10;
 
 /**
  * Search's state and results. Search stays open from focusing its field until
@@ -63,6 +78,8 @@ export function useInboxSearch(
   const [query, setQuery] = useState('');
   const [opened, setOpened] = useState(false);
   const [all, setAll] = useState(false);
+  // Counts Search Mail's requests to focus a field that React Native doesn't own.
+  const [focusRequest, setFocusRequest] = useState(0);
   // A filtered Inbox shows a Search button, so its field appears only once search opens.
   useEffect(() => {
     if (opened) {
@@ -105,8 +122,10 @@ export function useInboxSearch(
     focused: () => {
       setOpened(true);
     },
+    focusRequest,
     open: () => {
       setOpened(true);
+      setFocusRequest((count) => count + 1);
       field.current?.focus();
     },
     close: () => {
@@ -202,6 +221,94 @@ export function InboxBar({
         </View>
       )}
     </FloatingBar>
+  );
+}
+
+// The compact Inbox's system toolbar in place of the floating bar: Filter, the system search field
+// and New Message, which UIKit arranges for each state.
+export function InboxToolbar({
+  hidden,
+  ready,
+  search: { searching, focusRequest, setQuery, focused, close },
+  filter,
+  onCompose,
+  scope,
+  notice,
+  listNotice,
+}: {
+  readonly hidden: boolean;
+  readonly ready: boolean;
+  readonly search: ReturnType<typeof useInboxSearch>;
+  readonly filter: ReturnType<typeof useInboxFilter>;
+  readonly onCompose: (id: string) => void;
+  readonly scope: string | undefined;
+  readonly notice: ReactNode;
+  readonly listNotice?: ReactNode;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const message = useNewMessage({
+    onCompose,
+    scope,
+    registerCommand: !searching,
+  });
+  const { open: openPalette } = useCommandPalette();
+  const bottomInset = useBarBottomInset();
+  return (
+    <>
+      {message?.command}
+      {/* The safe area ends a spacing above the toolbar's glass, so notices sit on it. Above the
+          keyboard, search's field takes the bar's place, floated above the keyboard by UIKit. */}
+      <KeyboardStickyView
+        offset={{ opened: bottomInset - barHeight - spacing.m - fieldLift }}
+        pointerEvents="box-none"
+        style={StyleSheet.absoluteFill}>
+        <BarNotices
+          bottom={bottomInset}
+          hidden={hidden}>
+          {listNotice}
+          {notice}
+        </BarNotices>
+      </KeyboardStickyView>
+      <InboxFilterButton
+        state={filter}
+        renderControl={({ label, onToggle, onOpen }) => (
+          <SearchToolbar
+            accent={colors.accentFill}
+            accentInk={colors.accentInk}
+            accentOnFill={colors.accentOnFill}
+            composeEnabled={message !== undefined && !message.disabled}
+            composeLabel={t('drafts.newMessage')}
+            covered={hidden}
+            filterHint={t('filters.openHint')}
+            filterLabel={t('filters.filter')}
+            filterSummary={label}
+            filterSummaryLabel={
+              label === undefined
+                ? undefined
+                : t('filters.filteredByLabel', { label })
+            }
+            filteredBy={t('filters.filteredBy')}
+            filtered={label !== undefined}
+            focusRequest={focusRequest}
+            onCompose={() => message?.compose()}
+            onFilterOpen={onOpen}
+            onFilterToggle={onToggle}
+            onPalette={openPalette}
+            onSearchClose={close}
+            onSearchFocus={focused}
+            onSearchText={({ nativeEvent: { text } }) => {
+              setQuery(text);
+            }}
+            paletteLabel={t('commands.openPalette')}
+            placeholder={t('search.placeholder')}
+            ready={ready}
+            searchLabel={t('search.label')}
+            searching={searching}
+          />
+        )}
+      />
+    </>
   );
 }
 

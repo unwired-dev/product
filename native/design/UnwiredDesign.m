@@ -487,6 +487,328 @@ RCT_EXPORT_VIEW_PROPERTY(backCount, NSString)
 RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 - (UIView *)view { return [UnwiredNavigationChromeView new]; }
 @end
+
+// The compact Inbox's bottom toolbar: Filter, the system search field and New Message, as Mail
+// places them on iPhone. UIKit integrates the screen's search controller into its column's toolbar,
+// shows a filtered Inbox's search as a button and gives active search its Close.
+// react-native-screens 4.26.2's split columns offer no header or toolbar options, so this view sets
+// them on the column's screen; remove it when Split.Column takes header search and toolbar options.
+@interface UnwiredSearchToolbarView : UIView <UISearchControllerDelegate, UISearchResultsUpdating>
+// What the toolbar last showed, since the legacy interop sets every prop on each update.
+@property (nonatomic, copy) NSArray *itemsKey;
+@property (nonatomic) BOOL shownCovered;
+@property (nonatomic) BOOL shownSearching;
+@property (nonatomic) NSInteger shownFocusRequest;
+// The column's navigation, which shows the toolbar and moves it with the column.
+@property (nonatomic, weak) UINavigationController *navigation;
+@property (nonatomic, weak) UIViewController *screen;
+@property (nonatomic, strong) UISearchController *search;
+@property (nonatomic, strong) UISwipeGestureRecognizer *swipe;
+@property (nonatomic, copy) NSString *text;
+@property (nonatomic, copy) NSString *placeholder;
+@property (nonatomic, copy) NSString *searchLabel;
+@property (nonatomic, copy) NSString *paletteLabel;
+@property (nonatomic) BOOL searching;
+@property (nonatomic) NSInteger focusRequest;
+@property (nonatomic) BOOL covered;
+@property (nonatomic) BOOL ready;
+@property (nonatomic) BOOL filtered;
+@property (nonatomic, copy) NSString *filterLabel;
+@property (nonatomic, copy) NSString *filteredBy;
+@property (nonatomic, copy) NSString *filterSummary;
+@property (nonatomic, copy) NSString *filterSummaryLabel;
+@property (nonatomic, copy) NSString *filterHint;
+@property (nonatomic, copy) NSString *composeLabel;
+@property (nonatomic) BOOL composeEnabled;
+@property (nonatomic, strong) UIColor *accent;
+@property (nonatomic, strong) UIColor *accentOnFill;
+@property (nonatomic, strong) UIColor *accentInk;
+@property (nonatomic, copy) RCTDirectEventBlock onSearchFocus;
+@property (nonatomic, copy) RCTDirectEventBlock onSearchText;
+@property (nonatomic, copy) RCTDirectEventBlock onSearchClose;
+@property (nonatomic, copy) RCTDirectEventBlock onPalette;
+@property (nonatomic, copy) RCTDirectEventBlock onFilterToggle;
+@property (nonatomic, copy) RCTDirectEventBlock onFilterOpen;
+@property (nonatomic, copy) RCTDirectEventBlock onCompose;
+@end
+
+@implementation UnwiredSearchToolbarView
+- (instancetype)initWithFrame:(CGRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _search = [[UISearchController alloc] initWithSearchResultsController:nil];
+    _search.delegate = self;
+    _search.searchResultsUpdater = self;
+    // The Inbox shows the results itself.
+    _search.obscuresBackgroundDuringPresentation = NO;
+    _search.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _search.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
+    _text = @"";
+    _composeEnabled = YES;
+    // Search hides the navigation bar's title, so the field takes its downward swipe to the Command
+    // Palette.
+    _swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swipePalette)];
+    _swipe.direction = UISwipeGestureRecognizerDirectionDown;
+  }
+  return self;
+}
+
+- (void)swipePalette
+{
+  if (self.search.active && self.onPalette) self.onPalette(@{});
+}
+
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  if (self.window == nil) return;
+  UIResponder *responder = self;
+  while (responder != nil && ![responder isKindOfClass:[UIViewController class]]) {
+    responder = responder.nextResponder;
+  }
+  UIViewController *screen = (UIViewController *)responder;
+  if (screen != self.screen) {
+    [self detach];
+    self.screen = screen;
+    self.navigation = screen.navigationController;
+    screen.navigationItem.searchController = self.search;
+    screen.navigationItem.hidesSearchBarWhenScrolling = NO;
+    [self updateItems];
+    [self updateField];
+    [self.navigation setToolbarHidden:self.covered animated:NO];
+  }
+  // The toolbar hosts the field anew on the next turn, after attaching and after a pushed screen
+  // returns, dropping its label and actions.
+  __weak UnwiredSearchToolbarView *weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [weakSelf updateField];
+  });
+}
+
+- (void)didMoveToSuperview
+{
+  [super didMoveToSuperview];
+  if (self.superview == nil) [self detach];
+}
+
+- (void)detach
+{
+  if (self.screen.navigationItem.searchController == self.search) {
+    self.screen.navigationItem.searchController = nil;
+  }
+  self.screen.toolbarItems = nil;
+  [self.navigation setToolbarHidden:YES animated:NO];
+  self.screen = nil;
+  self.navigation = nil;
+}
+
+- (void)updateField
+{
+  UISearchTextField *field = self.search.searchBar.searchTextField;
+  self.search.searchBar.placeholder = self.placeholder;
+  field.accessibilityLabel = self.searchLabel;
+  __weak UnwiredSearchToolbarView *weakSelf = self;
+  field.accessibilityCustomActions = self.paletteLabel == nil ? nil : @[
+    [[UIAccessibilityCustomAction alloc] initWithName:self.paletteLabel
+                                        actionHandler:^BOOL(UIAccessibilityCustomAction *action) {
+                                          if (weakSelf.onPalette) weakSelf.onPalette(@{});
+                                          return YES;
+                                        }],
+  ];
+}
+
+- (void)didSetProps:(NSArray<NSString *> *)changedProps
+{
+  [self updateField];
+  // The legacy interop sets every prop on each update, so these act on changed values only.
+  NSArray *itemsKey = @[
+    @(self.ready), @(self.filtered), self.filterLabel ?: @"", self.filteredBy ?: @"", self.filterSummary ?: @"",
+    self.filterSummaryLabel ?: @"", self.filterHint ?: @"", self.composeLabel ?: @"", @(self.composeEnabled),
+    self.accent ?: NSNull.null, self.accentOnFill ?: NSNull.null, self.accentInk ?: NSNull.null
+  ];
+  BOOL mounting = self.itemsKey == nil;
+  if (![itemsKey isEqualToArray:self.itemsKey]) {
+    self.itemsKey = itemsKey;
+    [self updateItems];
+  }
+  if (self.covered != self.shownCovered) {
+    self.shownCovered = self.covered;
+    [self.navigation setToolbarHidden:self.covered animated:YES];
+  }
+  if (self.focusRequest != self.shownFocusRequest) {
+    self.shownFocusRequest = self.focusRequest;
+    // The Command Palette's Search Mail focuses the field, which opens search as a tap on it does.
+    if (!mounting) [self.search.searchBar becomeFirstResponder];
+  }
+  if (self.searching == self.shownSearching) return;
+  self.shownSearching = self.searching;
+  if (!self.searching) {
+    // Closing search empties the field, as Close does in the Inbox's own bar.
+    self.text = @"";
+    self.search.searchBar.text = @"";
+    self.search.active = NO;
+  }
+}
+
+- (void)updateItems
+{
+  UINavigationItem *item = self.screen.navigationItem;
+  if (item == nil) return;
+  // A filtered Inbox gives its toolbar to the filter, so search waits behind its button.
+  item.preferredSearchBarPlacement = self.filtered ? UINavigationItemSearchBarPlacementIntegratedButton
+                                                   : UINavigationItemSearchBarPlacementIntegrated;
+  NSMutableArray<UIBarButtonItem *> *items = [NSMutableArray array];
+  if (self.ready) {
+    // On, the filter fills its circle and shares one glass with the summary, as the frames draw.
+    UIImage *image = self.filtered
+                         ? [UIImage systemImageNamed:@"line.3.horizontal.decrease.circle.fill"
+                                   withConfiguration:[[UIImageSymbolConfiguration configurationWithPointSize:34]
+                                                         configurationByApplyingConfiguration:
+                                                             [UIImageSymbolConfiguration
+                                                                 configurationWithPaletteColors:@[
+                                                                   self.accentOnFill ?: UIColor.whiteColor,
+                                                                   self.accent ?: UIColor.labelColor
+                                                                 ]]]]
+                         : [UIImage systemImageNamed:@"line.3.horizontal.decrease"];
+    UIBarButtonItem *filter = [[UIBarButtonItem alloc] initWithImage:image
+                                                                style:UIBarButtonItemStylePlain
+                                                               target:self
+                                                               action:@selector(toggleFilter)];
+    filter.accessibilityLabel = self.filterLabel;
+    // A toggle, as UIKit marks its own: selected while on.
+    filter.accessibilityTraits = UIAccessibilityTraitButton | UIAccessibilityTraitToggleButton |
+                                 (self.filtered ? UIAccessibilityTraitSelected : 0);
+    [items addObject:filter];
+    if (self.filtered) {
+      [items addObject:[self summaryItem]];
+      [items addObject:[UIBarButtonItem flexibleSpaceItem]];
+    }
+    // Fixed spaces part the filter, search and New Message into the separate glass the frames draw.
+    [items addObject:[UIBarButtonItem fixedSpaceItemOfWidth:0]];
+  }
+  [items addObject:item.searchBarPlacementBarButtonItem];
+  [items addObject:[UIBarButtonItem fixedSpaceItemOfWidth:0]];
+  UIBarButtonItem *compose = [[UIBarButtonItem alloc]
+      initWithImage:[UIImage systemImageNamed:@"square.and.pencil"]
+              style:UIBarButtonItemStylePlain
+             target:self
+             action:@selector(compose)];
+  compose.accessibilityLabel = self.composeLabel;
+  compose.enabled = self.composeEnabled;
+  [items addObject:compose];
+  self.screen.toolbarItems = items;
+}
+
+// What the Inbox is filtered by, which opens Filters.
+- (UIBarButtonItem *)summaryItem
+{
+  UIButtonConfiguration *configuration = [UIButtonConfiguration plainButtonConfiguration];
+  // Caption 1 on two lines: the caption semibold in the label colour, the value in accent ink. One
+  // title keeps the value out of the accessibility value, which the label already names.
+  UIFontMetrics *caption = [UIFontMetrics metricsForTextStyle:UIFontTextStyleCaption1];
+  NSMutableAttributedString *title = [[NSMutableAttributedString alloc]
+      initWithString:[NSString stringWithFormat:@"%@\n", self.filteredBy ?: @""]
+          attributes:@{
+            NSFontAttributeName : [caption scaledFontForFont:[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold]],
+            NSForegroundColorAttributeName : UIColor.labelColor,
+          }];
+  [title appendAttributedString:[[NSAttributedString alloc]
+                                    initWithString:self.filterSummary ?: @""
+                                        attributes:@{
+                                          NSFontAttributeName : [caption scaledFontForFont:[UIFont systemFontOfSize:12]],
+                                          NSForegroundColorAttributeName : self.accentInk ?: UIColor.labelColor,
+                                        }]];
+  configuration.attributedTitle = title;
+  configuration.image = [UIImage systemImageNamed:@"chevron.down"
+                                withConfiguration:[UIImageSymbolConfiguration
+                                                      configurationWithPointSize:10
+                                                                          weight:UIImageSymbolWeightSemibold]];
+  configuration.imagePlacement = NSDirectionalRectEdgeTrailing;
+  configuration.imagePadding = 4;
+  configuration.titleAlignment = UIButtonConfigurationTitleAlignmentLeading;
+  // The summary starts beside the filter's circle, as the frames draw.
+  NSDirectionalEdgeInsets insets = configuration.contentInsets;
+  insets.leading = 0;
+  configuration.contentInsets = insets;
+  configuration.baseForegroundColor = self.accentInk;
+  __weak UnwiredSearchToolbarView *weakSelf = self;
+  UIButton *button = [UIButton buttonWithConfiguration:configuration
+                                         primaryAction:[UIAction actionWithHandler:^(__kindof UIAction *action) {
+                                           if (weakSelf.onFilterOpen) weakSelf.onFilterOpen(@{});
+                                         }]];
+  button.accessibilityLabel = self.filterSummaryLabel;
+  button.accessibilityHint = self.filterHint;
+  return [[UIBarButtonItem alloc] initWithCustomView:button];
+}
+
+- (void)toggleFilter
+{
+  if (self.onFilterToggle) self.onFilterToggle(@{});
+}
+
+- (void)compose
+{
+  if (self.onCompose) self.onCompose(@{});
+}
+
+- (void)willPresentSearchController:(UISearchController *)searchController
+{
+  if (self.onSearchFocus) self.onSearchFocus(@{});
+}
+
+- (void)didPresentSearchController:(UISearchController *)searchController
+{
+  // The toolbar hosts the field anew when search opens, dropping recognizers added before.
+  UITextField *field = searchController.searchBar.searchTextField;
+  if (![field.gestureRecognizers containsObject:self.swipe]) [field addGestureRecognizer:self.swipe];
+}
+
+- (void)didDismissSearchController:(UISearchController *)searchController
+{
+  if (self.searching && self.onSearchClose) self.onSearchClose(@{});
+}
+
+- (void)updateSearchResultsForSearchController:(UISearchController *)searchController
+{
+  NSString *text = searchController.searchBar.text ?: @"";
+  if ([text isEqualToString:self.text]) return;
+  self.text = text;
+  if (self.onSearchText) self.onSearchText(@{@"text" : text});
+}
+@end
+
+@interface UnwiredSearchToolbarManager : RCTViewManager
+@end
+
+@implementation UnwiredSearchToolbarManager
+RCT_EXPORT_MODULE(UnwiredSearchToolbar)
+RCT_EXPORT_VIEW_PROPERTY(placeholder, NSString)
+RCT_EXPORT_VIEW_PROPERTY(searchLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(paletteLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(searching, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(focusRequest, NSInteger)
+RCT_EXPORT_VIEW_PROPERTY(covered, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(ready, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(filtered, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(filterLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(filteredBy, NSString)
+RCT_EXPORT_VIEW_PROPERTY(filterSummary, NSString)
+RCT_EXPORT_VIEW_PROPERTY(filterSummaryLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(filterHint, NSString)
+RCT_EXPORT_VIEW_PROPERTY(composeLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(composeEnabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(accent, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(accentOnFill, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(accentInk, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(onSearchFocus, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onSearchText, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onSearchClose, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onPalette, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onFilterToggle, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onFilterOpen, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
+- (UIView *)view { return [UnwiredSearchToolbarView new]; }
+@end
 #endif
 
 // The system context menu for its content: long-press or pointer secondary click on iPhone and

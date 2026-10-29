@@ -1463,6 +1463,12 @@ still applies. See `docs/architecture/macos-client.md`.
   heading. Keep both entries when mailbox readiness changes during open search;
   otherwise search removes command entry until Close, despite ordinary Inbox,
   initial loading and accessibility-only search tests passing.
+- `inbox-search.tsx.InboxToolbar` retaining New Message command registration
+  while search is open. Compare the native toolbar's command lifetime with
+  `InboxBar` and the mobile contract in `docs/command-palette.md`, including
+  search focus and Close through the real palette. UIKit hiding a toolbar item
+  does not retire its React command; otherwise the palette can create a Draft
+  in a state where mobile search must not offer New Message.
 - A cross-cutting entry point such as `usePaletteHeader`, `CommandInput` or
   `RegisterCommands` added to `message-detail.tsx.MessageDetail` but not to
   every other screen the host mounts for the same state, such as
