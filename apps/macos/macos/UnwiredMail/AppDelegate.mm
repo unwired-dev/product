@@ -228,8 +228,9 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   window.identifier = [@"composer-window-" stringByAppendingString:windowID];
   window.restorable = NO;
   window.accessibilityIdentifier = window.identifier;
-  // As short as the in-window composer's 420pt minimum.
-  window.minSize = NSMakeSize(480, 420);
+  // As short as the in-window composer's 420pt minimum, and wide enough that the toolbar row keeps
+  // its Command input, From and Send.
+  window.minSize = NSMakeSize(640, 420);
   window.releasedWhenClosed = NO;
   window.delegate = self;
   window.autorecalculatesKeyViewLoop = YES;

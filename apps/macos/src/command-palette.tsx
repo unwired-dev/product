@@ -130,6 +130,8 @@ const inputWidth = 320;
 // A New Message window draws its toolbar row beneath the window controls, which end 88pt in.
 const toolbarHeight = 52;
 const toolbarInputHeight = 32;
+// Fits the open query's placeholder beside its esc key; the title and From give way first.
+const toolbarInputWidth = 192;
 const windowControlsWidth = 88;
 const panelWidth = 460;
 // The focus ring sits 3pt outside the input.
@@ -154,9 +156,9 @@ const styles = StyleSheet.create({
     paddingRight: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  windowTitle: { ...textStyles.bodyEmphasized, width: 120 },
+  windowTitle: { ...textStyles.bodyEmphasized, width: 120, flexShrink: 1 },
   field: { width: inputWidth },
-  toolbarField: { flex: 1, maxWidth: inputWidth },
+  toolbarField: { flex: 1, minWidth: toolbarInputWidth, maxWidth: inputWidth },
   trailing: {
     flexDirection: 'row',
     alignItems: 'center',
