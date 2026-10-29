@@ -699,17 +699,16 @@ const actionOf = (
   if (!canAuthorize) {
     return undefined;
   }
+  const address = mailbox.address ?? mailbox.id;
+  const provider = t(`mailProviders.${mailbox.provider ?? 'gmail'}`);
   return mailbox.provider === 'imap'
     ? {
         label: t('settings.enterPassword'),
-        name: t('mailboxes.enterPassword', {
-          address: mailbox.address ?? mailbox.id,
-        }),
+        name: t('mailboxes.enterPassword', { address }),
       }
     : {
-        label: t('common.allowAccess', {
-          provider: t(`mailProviders.${mailbox.provider ?? 'gmail'}`),
-        }),
+        label: t('common.allowAccess', { provider }),
+        name: t('mailboxes.allow', { address, provider }),
       };
 };
 

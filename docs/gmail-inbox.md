@@ -306,9 +306,8 @@ and the state marks it paused. While the pass runs, All Mail's subtitle shows th
 row naming the month the list has reached, in place of the note that older mail
 stays in Gmail ([#1369](https://github.com/unwired-dev/product/issues/1369)).
 The [Sync Status Capsule](#sync-status-capsule) includes the pass in its progress.
-On Mac, its popover shows each connection's history status; the iPhone and iPad
-per-connection status remains in
-[#1442](https://github.com/unwired-dev/product/issues/1442). Scrolling to the end
+On Mac, its popover shows each connection's history status; on iPhone and iPad,
+its [details](#sync-status-capsule) do. Scrolling to the end
 of the Inbox, a Gmail view or a unified mailbox reveals older downloaded messages in batches from
 the segments, without asking Gmail, so they stay available offline. Opening one of
 those messages downloads its body once and saves it in the

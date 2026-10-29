@@ -1440,7 +1440,9 @@ describe('connected Gmail Inbox', () => {
     // A refused connection offers the Inbox's authorization, which closes the sheet first.
     await act(async () => {
       await fireEvent.press(
-        details.getByRole('button', { name: 'Allow Gmail access' }),
+        details.getByRole('button', {
+          name: 'Allow Gmail access for alex@example.invalid',
+        }),
       );
     });
     expect(connected.authorized).toContain(alex);
