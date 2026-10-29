@@ -567,16 +567,18 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
     responder = responder.nextResponder;
   }
   UIViewController *screen = (UIViewController *)responder;
-  if (screen == self.screen) return;
-  [self detach];
-  self.screen = screen;
-  self.navigation = screen.navigationController;
-  screen.navigationItem.searchController = self.search;
-  screen.navigationItem.hidesSearchBarWhenScrolling = NO;
-  [self updateItems];
-  [self updateField];
-  [self.navigation setToolbarHidden:self.covered animated:NO];
-  // The toolbar hosts the field anew on the next turn, dropping its label and actions.
+  if (screen != self.screen) {
+    [self detach];
+    self.screen = screen;
+    self.navigation = screen.navigationController;
+    screen.navigationItem.searchController = self.search;
+    screen.navigationItem.hidesSearchBarWhenScrolling = NO;
+    [self updateItems];
+    [self updateField];
+    [self.navigation setToolbarHidden:self.covered animated:NO];
+  }
+  // The toolbar hosts the field anew on the next turn, after attaching and after a pushed screen
+  // returns, dropping its label and actions.
   __weak UnwiredSearchToolbarView *weakSelf = self;
   dispatch_async(dispatch_get_main_queue(), ^{
     [weakSelf updateField];
@@ -660,7 +662,7 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
     // On, the filter fills its circle and shares one glass with the summary, as the frames draw.
     UIImage *image = self.filtered
                          ? [UIImage systemImageNamed:@"line.3.horizontal.decrease.circle.fill"
-                                   withConfiguration:[[UIImageSymbolConfiguration configurationWithPointSize:30]
+                                   withConfiguration:[[UIImageSymbolConfiguration configurationWithPointSize:34]
                                                          configurationByApplyingConfiguration:
                                                              [UIImageSymbolConfiguration
                                                                  configurationWithPaletteColors:@[
@@ -724,6 +726,10 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
   configuration.imagePlacement = NSDirectionalRectEdgeTrailing;
   configuration.imagePadding = 4;
   configuration.titleAlignment = UIButtonConfigurationTitleAlignmentLeading;
+  // The summary starts beside the filter's circle, as the frames draw.
+  NSDirectionalEdgeInsets insets = configuration.contentInsets;
+  insets.leading = 0;
+  configuration.contentInsets = insets;
   configuration.baseForegroundColor = self.accentInk;
   __weak UnwiredSearchToolbarView *weakSelf = self;
   UIButton *button = [UIButton buttonWithConfiguration:configuration

@@ -43,6 +43,9 @@ import { useLocalization } from './localization.ts';
 import { useGmailSearch } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
+// How far UIKit floats the toolbar's open search field above the keyboard.
+const fieldLift = 10;
+
 /**
  * Search's state and results. Search stays open from focusing its field until
  * Close, so editing the query never shows the Inbox in its place. It searches
@@ -255,9 +258,9 @@ export function InboxToolbar({
     <>
       {message?.command}
       {/* The safe area ends a spacing above the toolbar's glass, so notices sit on it. Above the
-          keyboard, search's field takes the bar's place. */}
+          keyboard, search's field takes the bar's place, floated above the keyboard by UIKit. */}
       <KeyboardStickyView
-        offset={{ opened: bottomInset - barHeight - spacing.m }}
+        offset={{ opened: bottomInset - barHeight - spacing.m - fieldLift }}
         pointerEvents="box-none"
         style={StyleSheet.absoluteFill}>
         <BarNotices
