@@ -149,7 +149,7 @@ async function open(
         const { from, to } = editor.state.selection;
         editor.view.someProp('handleTextInput', (handle) =>
           handle(editor.view, from, to, character, () =>
-            editor.state.tr.insertText(character, from, to),
+            editor.state.tr.insertText(character),
           ),
         );
       }
@@ -652,6 +652,74 @@ describe('the Tiptap evaluation page', () => {
     // One Undo removes the paste, links included.
     pasted.command({ type: 'undo' });
     expect(bodyOf(pasted)).toStrictEqual(paragraphs(''));
+  });
+
+  it('keeps typing at the new link edge unlinked after Return', async () => {
+    expect.hasAssertions();
+    const link = 'https://example.com/plan';
+    for (const kind of kinds) {
+      const page = await open([{ kind, spans: [{ text: 'abcd', link }] }]);
+      const [line] = textblocks(page.editor);
+      ok(line, 'Expected a linked line');
+      page.editor.commands.setTextSelection(line.from + 2);
+      press(page, 'Enter');
+      page.type('X');
+      expect(bodyOf(page)).toStrictEqual([
+        { kind, spans: [{ text: 'ab', link }] },
+        { kind, spans: [{ text: 'X' }, { text: 'cd', link }] },
+      ]);
+      page.command({ type: 'undo' });
+      expect(bodyOf(page)).toStrictEqual([
+        { kind, spans: [{ text: 'ab', link }] },
+        { kind, spans: [{ text: 'cd', link }] },
+      ]);
+      page.command({ type: 'redo' });
+      expect(bodyOf(page)).toStrictEqual([
+        { kind, spans: [{ text: 'ab', link }] },
+        { kind, spans: [{ text: 'X' }, { text: 'cd', link }] },
+      ]);
+    }
+  });
+
+  it('keeps the link of the first replaced character when typing across its end', async () => {
+    expect.hasAssertions();
+    const link = 'https://example.com/plan';
+    const other = 'https://example.com/docs';
+    const opened: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'abcd', link },
+          { text: 'efgh' },
+          { text: 'ijkl', link: other },
+        ],
+      },
+    ];
+    const page = await open(opened);
+    page.editor.commands.setTextSelection({ from: 2, to: 7 });
+    page.type('X');
+    const edited: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'aX', link },
+          { text: 'gh' },
+          { text: 'ijkl', link: other },
+        ],
+      },
+    ];
+    expect(bodyOf(page)).toStrictEqual(edited);
+    page.command({ type: 'undo' });
+    expect(bodyOf(page)).toStrictEqual(opened);
+    page.command({ type: 'redo' });
+    expect(bodyOf(page)).toStrictEqual(edited);
+    // Select All uses an AllSelection starting outside the first paragraph.
+    const all = await open(opened);
+    all.editor.commands.selectAll();
+    all.type('Y');
+    expect(bodyOf(all)).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Y', link }] },
+    ]);
   });
 
   it('replaces the body revision it was computed from as one undoable edit', async () => {

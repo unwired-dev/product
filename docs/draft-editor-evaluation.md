@@ -161,7 +161,9 @@ the current composer's:
 The page keeps a Draft's links through editing, saving and reopening, and shows
 linked text in the link color; it never opens a link, because the host refuses
 every navigation. Text typed inside a link joins it, and text typed at either
-edge stays unlinked. The page cannot yet create, edit or remove a link:
+edge, including after Return splits it, stays unlinked. Replacing selected text
+keeps the first replaced character's link. The page cannot yet create, edit or
+remove a link:
 [#878](https://github.com/unwired-dev/product/issues/878) owns link authoring for
 both composers and blocks the adoption decision in #823.
 

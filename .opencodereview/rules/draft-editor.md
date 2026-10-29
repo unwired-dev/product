@@ -2,6 +2,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Editor-library behavior matches the composer contract
 
+- A link mark in `packages/draft-editor/src/editor.ts` relying only on
+  `inclusive: false` to match the shared document's editing rules. Check Return
+  followed by typing at the new link edge, and replacement selections that start
+  linked and end outside that link, against `semantic-document.ts`'s `splice`.
+  Tiptap can carry a split link into stored typing marks, while ProseMirror's
+  `marksAcross` can discard the first replaced character's link. Exercise the
+  real key and text-input handlers with Undo/Redo, or the editor can silently
+  extend a link at its edge or drop it from replacement text.
+
 - An `editable: false` acknowledgement in `packages/draft-editor/src/editor.ts`
   that stops typing but still permits mutating `draftCommand` calls. Native
   toolbar or context-menu callbacks may already be queued; keep the acknowledged

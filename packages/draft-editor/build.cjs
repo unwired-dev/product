@@ -2,6 +2,7 @@ const { mkdirSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
 
 const { buildSync } = require('esbuild');
+const { palette } = require('@private-email/mail-core/theme');
 
 // Bundles the editor into one HTML page that loads nothing: its script and styles are inline, its
 // images are the `data:` thumbnails the host sends, and its Content Security Policy refuses every
@@ -27,8 +28,8 @@ body { font: -apple-system-body; -webkit-text-size-adjust: 100%; }
 .ProseMirror blockquote { margin: 0 0 0.75em; padding-left: 12px; border-left: 3px solid rgba(128, 128, 128, 0.5); }
 .ProseMirror pre { margin: 0; padding: 0 8px; background: rgba(128, 128, 128, 0.12); white-space: pre-wrap; }
 .ProseMirror pre + :not(pre) { margin-top: 0.75em; }
-.ProseMirror a { color: #3A3D44; }
-@media (prefers-color-scheme: dark) { .ProseMirror a { color: #C8CBD2; } }
+.ProseMirror a { color: ${palette.light.accentInk}; }
+@media (prefers-color-scheme: dark) { .ProseMirror a { color: ${palette.dark.accentInk}; } }
 .ProseMirror code, .ProseMirror pre { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
 .ProseMirror img { max-width: 100%; max-height: 256px; vertical-align: bottom; border-radius: 6px; }
 .ProseMirror img:not([src]) { box-sizing: border-box; width: 44px; height: 44px; border: 1px dashed rgba(128, 128, 128, 0.6); }

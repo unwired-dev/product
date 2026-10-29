@@ -120,6 +120,7 @@ const InlineImage = Node.create({
 const Link = Mark.create({
   name: 'link',
   inclusive: false,
+  keepOnSplit: false,
   addAttributes: () => ({ href: { default: null } }),
   parseHTML: () => [
     {
@@ -199,6 +200,19 @@ const shortcuts = new Map<string, BlockKind>([
 
 const typing = 'draftTyping';
 const imageCharacter = '\uFFFC';
+
+// The first replaced character owns the replacement's link, including for Select All.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProseMirror's state is a class; this only reads it.
+const replacedLink = ({ doc, selection }: EditorState) => {
+  if (selection.empty) {
+    return undefined;
+  }
+  let node = doc.nodeAt(selection.from);
+  while (node !== null && !node.isInline) {
+    node = node.firstChild;
+  }
+  return node?.marks.find((mark) => mark.type.name === 'link');
+};
 
 // Whether a paste or drop carries files or image data, which only native code may read.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The DOM's DataTransfer is mutable by design; this only reads it.
@@ -330,7 +344,18 @@ const DraftBehavior = Extension.create<unknown, { typing: boolean }>({
             const kind = shortcuts.get(marker);
             const word =
               from === to && [...text].length === 1 && !/\s/u.test(text);
-            view.dispatch(word ? deflt().setMeta(typing, true) : deflt());
+            // Unlike marksAcross, the document keeps the first replaced character's link
+            // even when the selection crosses its end.
+            const link = replacedLink(view.state);
+            const tr = deflt();
+            if (link !== undefined) {
+              tr.addMark(
+                tr.selection.from - text.length,
+                tr.selection.from,
+                link,
+              );
+            }
+            view.dispatch(word ? tr.setMeta(typing, true) : tr);
             if (kind !== undefined) {
               setKind(
                 editor.chain().deleteRange({
