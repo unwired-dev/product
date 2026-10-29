@@ -1,4 +1,5 @@
 import { messageDay } from '@private-email/localization';
+import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
@@ -26,6 +27,7 @@ import type {
 } from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
 
+import { logNote } from './diagnostics.ts';
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { createImapInbox } from './imap-inbox.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
@@ -569,6 +571,11 @@ export function createMailboxes(
                   eligible,
                 );
               }
+              return Effect.runPromise(
+                logNote(
+                  'New mail notifications not posted: connection closed or its notifications off',
+                ),
+              );
             };
       const opened =
         provider === 'imap'

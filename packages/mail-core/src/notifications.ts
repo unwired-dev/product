@@ -13,7 +13,7 @@ import type {
   RegistrationSnapshot,
 } from './registration-snapshot.ts';
 
-import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
+import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { listedMessage } from './gmail-inbox.ts';
 import { imapRoleFolder } from './imap-actions.ts';
@@ -153,6 +153,10 @@ export const notificationContent = (
       }
     : { title: '', body: t('notifications.newMail') };
 
+// Why New Mail Notifications were not posted, without the mail or its connection.
+const notPosted = (reason: string) =>
+  logNote('New mail notifications not posted:', reason);
+
 // This device's notification settings for Settings, and the New Mail Notifications it posts once
 // a connection's synchronization commits new Inbox mail. The caller has already checked that the
 // connection's policy is on; content is decided here, on the device.
@@ -226,12 +230,16 @@ export function createNotifications(
               native.notificationSettings(),
             );
             const profile = currentProfile();
-            if (
-              current.authorization !== 'authorized' ||
-              !eligible() ||
-              profile === undefined
-            ) {
-              return;
+            if (current.authorization !== 'authorized') {
+              return yield* notPosted(`authorization ${current.authorization}`);
+            }
+            if (!eligible()) {
+              return yield* notPosted(
+                'connection closed or turned off meanwhile',
+              );
+            }
+            if (profile === undefined) {
+              return yield* notPosted('Mail Profile unknown');
             }
             const t = translate();
             yield* call(() =>
@@ -250,6 +258,10 @@ export function createNotifications(
                   read: t('contextMenu.read'),
                 },
               ),
+            );
+            yield* logNote(
+              'New mail notifications handed to the host:',
+              messages.length,
             );
           }),
         ),

@@ -45,6 +45,7 @@ import {
   sameAttachment,
 } from './attachment-downloads.ts';
 import {
+  logNote,
   rejectionCode,
   rejectionDiagnostic,
   runLogged,
@@ -1566,6 +1567,7 @@ export function createGmailInbox(
     if (Option.isNone(history)) {
       // An expired or invalid history ID lists the Inbox again; cached messages stay visible.
       // Changes since then are unknown, so Historical Metadata Backfill lists All Mail again too.
+      yield* logNote('Gmail history expired: listing the Inbox again');
       return Option.some(
         yield* startListing(
           scope,
@@ -1602,6 +1604,19 @@ export function createGmailInbox(
         ? [message]
         : [],
     );
+    const announced = records.flatMap(
+      (record) => record.messagesAdded ?? [],
+    ).length;
+    if (announced > 0) {
+      yield* logNote(
+        'Gmail history added messages:',
+        announced,
+        'after the notification boundary:',
+        added.size,
+        'unread in the Inbox:',
+        arrivals.length,
+      );
+    }
     // History cannot name the unchanged older message that now fits after an entry leaves, so
     // a full view that lost one is listed again.
     const refilled = new Set<string>();

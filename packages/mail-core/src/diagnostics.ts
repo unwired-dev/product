@@ -92,6 +92,13 @@ export function decodeDiagnostic(error: Schema.SchemaError): string {
   return `invalid at ${[...new Set(paths)].join(', ')}`;
 }
 
+// A content-free progress note, such as why New Mail Notifications did not post. It stays on
+// console.log, which hosts do not surface as a failure; React Native forwards it to the unified log.
+export const logNote = (...message: ReadonlyArray<string | number>) =>
+  Effect.logInfo(...message).pipe(
+    Effect.provideService(References.LogToStderr, false),
+  );
+
 // Hosts surface console.error as failures (React Native LogBox, Xcode); Effect's
 // default logger writes through console.log.
 export async function runLogged<A>(

@@ -274,6 +274,48 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(2);
   });
 
+  it('logs why New Mail Notifications were or were not posted, never what or whose', async () => {
+    expect.hasAssertions();
+    const notes = vi.spyOn(console, 'log').mockReturnValue(undefined);
+    const { host, gmail, notified } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    gmail.deliver({ subject: 'Before permission' });
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setPreviews(true);
+    const previewed = gmail.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Studio review',
+    });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(1);
+    });
+    await host.registration.notifyMailbox(connection, false);
+    gmail.deliver({ subject: 'After notifications' });
+    await host.gmailMailboxes.load();
+
+    const logged = notes.mock.calls.map((call) => call.join(' ')).join('\n');
+    expect(
+      [
+        'not posted: authorization undetermined',
+        'not posted: connection closed or its notifications off',
+        'unread in the Inbox: 1',
+        'handed to the host: 1',
+      ].filter((note) => !logged.includes(note)),
+    ).toStrictEqual([]);
+    expect(logged).not.toMatch(
+      new RegExp(
+        `Maya|example\\.invalid|Studio|permission|${connection}|${previewed}`,
+        'u',
+      ),
+    );
+  });
+
   it('archives or marks as read the message a notification names after a cold launch, only while its connection is the one it named', async () => {
     expect.hasAssertions();
     const { host, native, gmail, notificationActions } = syntheticHost(

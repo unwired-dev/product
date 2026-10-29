@@ -127,13 +127,35 @@ ownership changes, or when a later Reply in the same window replaces it. A Mac l
 from a notification starts without a window: Archive and Mark as Read act without one,
 and a tap or Reply opens one. Every other launch opens an Inbox window as before.
 
+## Diagnostics
+
+When a notification does not appear, the device's unified log says why without naming the
+mail, its sender, an address, a token or an account. JavaScript notes reach the
+`com.facebook.react.log` subsystem, category `javascript`, in every build:
+
+- `Gmail history added messages: N after the notification boundary: N unread in the
+Inbox: N` classifies Gmail history pages with added messages; `Gmail history expired` marks a relisting,
+  which notifies nothing.
+- `New mail notifications not posted:` names the reason: a connection closed or its
+  notifications off, the system authorization, a connection closed or turned off while
+  posting waited, or an unknown Mail Profile.
+- `New mail notifications handed to the host: N` counts what reached native posting.
+
+Native posting logs under the app's bundle identifier, category `notifications`: how many
+were added, how many it skipped and why (a connection no longer held, previews turned off),
+any error from adding one, the system's authorization, alert, Notification Center and Lock
+Screen settings as raw values, and a notification presented while the app is in use.
+On a connected device, Console.app filtered to those subsystems shows them; on a Mac,
+`log stream --info --predicate 'subsystem == "com.facebook.react.log" OR category ==
+"notifications"'` does too.
+
 ## Validate
 
 `packages/mail-core/test/gmail-inbox.test.ts`, `imap.test.ts` and
 `microsoft-notifications.test.ts` cover each provider's arrival classification and commit
 ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
 `host.test.ts` covers gating, background completion, permission and generic and preview
-content. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
+content, and that its diagnostics name no message or connection. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
 as Read, for Gmail and IMAP, and `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
