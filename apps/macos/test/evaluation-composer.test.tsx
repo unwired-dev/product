@@ -650,6 +650,21 @@ describe('the Tiptap evaluation composer', () => {
         selection: { start: 14, end: 14 },
       }),
     );
+
+    // A link the page has moved since the editor opened stays as it is.
+    await press('Edit Link');
+    await fireEvent.changeText(screen.getByLabelText('Text'), 'revised lease');
+    await report({
+      document: body(
+        { text: 'New Read ' },
+        { text: 'the lease', marks: ['bold'], link: lease },
+        { text: ' today' },
+      ),
+      selection: { start: 12, end: 12 },
+    });
+    const moved = injectedScripts.length;
+    await fireEvent(screen.getByLabelText('Link'), 'submitEditing');
+    expect(injectedScripts).toHaveLength(moved);
   });
 
   it.each(['onError', 'onContentProcessDidTerminate'])(

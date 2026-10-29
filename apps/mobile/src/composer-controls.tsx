@@ -494,21 +494,28 @@ export function LinkEditor({
   disabled,
   popover,
   onChange,
+  onShown,
 }: {
   readonly link: Link | undefined;
   readonly disabled: boolean;
   readonly popover: boolean;
   readonly onChange: (link: Link, text: string, href?: string) => void;
+  // Reports when the editor opens and closes, for a parent that must stay while it is shown.
+  readonly onShown?: (shown: boolean) => void;
 }) {
   const { t } = useLocalization();
   const [editing, setEditing] = useState<Link>();
   const [shown, setShown] = useState(false);
+  const show = (next: boolean) => {
+    setShown(next);
+    onShown?.(next);
+  };
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
   const href = vettedHref(destination);
   const applicable = href !== undefined && isLinkText(text);
   const finish = (next: string, nextHref?: string) => {
-    setShown(false);
+    show(false);
     if (editing !== undefined) {
       onChange(editing, next, nextHref);
     }
@@ -541,7 +548,7 @@ export function LinkEditor({
           setEditing(link);
           setText(link.text);
           setDestination(link.href);
-          setShown(true);
+          show(true);
         }
       }}
     />
@@ -560,7 +567,7 @@ export function LinkEditor({
       <Popover
         arrowEdge="top"
         isPresented={shown}
-        onIsPresentedChange={setShown}>
+        onIsPresentedChange={show}>
         <Popover.Trigger>{trigger}</Popover.Trigger>
         <Popover.Content>
           <RNHostView matchContents>
@@ -575,13 +582,13 @@ export function LinkEditor({
       <Host matchContents>
         <BottomSheet
           isPresented={shown}
-          onIsPresentedChange={setShown}>
+          onIsPresentedChange={show}>
           <Group modifiers={[presentationDetents(['medium'])]}>
             <RNHostView>
               <LinkSheet
                 {...fields}
                 onClose={() => {
-                  setShown(false);
+                  show(false);
                 }}
               />
             </RNHostView>

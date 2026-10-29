@@ -167,7 +167,9 @@ keeps the first replaced character's link. **Edit Link** opens the current
 composer's Link Editor for the link at the caret or selection, and is unavailable
 where no link is. **Apply** and **Remove Link** each reach the page as one
 replacement of the body revision it reported, so each is one **Undo** step and a
-page that has moved on refuses it. The page cannot yet link unlinked text:
+page that has moved on refuses it. A link that the page has moved or changed since
+the editor opened stays as it is. On iPhone the Format panel stays open while the
+Link Editor is shown. The page cannot yet link unlinked text:
 [#878](https://github.com/unwired-dev/product/issues/878) owns link creation for
 both composers and blocks the adoption decision in #823.
 

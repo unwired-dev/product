@@ -22,7 +22,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { Keyboard } from 'react-native';
+import { DeviceEventEmitter, Keyboard } from 'react-native';
 
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { MailAssistanceProfileContext } from '../src/mail-assistance-lifetime.ts';
@@ -533,6 +533,16 @@ describe('the Tiptap evaluation composer', () => {
       expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
       await report({ selection: { start: 8, end: 8 } });
       await press('Edit Link');
+      // Typing in the editor shows the keyboard, which leaves the editor open.
+      await act(async () => {
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          isEventFromThisApp: true,
+          startCoordinates: { screenX: 0, screenY: 874, width: 402, height: 0 },
+          endCoordinates: { screenX: 0, screenY: 542, width: 402, height: 332 },
+        });
+      });
       const text = screen.getByLabelText('Text');
       const destination = screen.getByLabelText('Link');
       expect(text).toHaveProp('value', 'the lease');
@@ -588,6 +598,20 @@ describe('the Tiptap evaluation composer', () => {
           selection: { start: 14, end: 14 },
         }),
       );
+
+      // A link the page has moved since the editor opened stays as it is.
+      await press('Edit Link');
+      await fireEvent.changeText(
+        screen.getByLabelText('Text'),
+        'revised lease',
+      );
+      await report({
+        document: [{ kind: 'paragraph', spans: [{ text: 'New ' }, ...spans] }],
+        selection: { start: 12, end: 12 },
+      });
+      const moved = injectedScripts.length;
+      await press('Apply');
+      expect(injectedScripts).toHaveLength(moved);
     },
   );
 

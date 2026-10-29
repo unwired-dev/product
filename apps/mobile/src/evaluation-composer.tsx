@@ -26,6 +26,7 @@ import {
 } from '@private-email/mail-core/drafts';
 import {
   imagesOf,
+  linkAt,
   replaceSelection,
   setLink,
 } from '@private-email/mail-core/semantic-document';
@@ -381,18 +382,24 @@ function EvaluationEditor({
     });
   };
   // Applies a Link Editor change to the body revision the page reported, as one undoable edit in
-  // the page.
+  // the page. A link the page has moved or changed since the editor opened stays as it is.
   const editLink = (link: Link, text: string, href?: string) => {
     const reported = pageNow.current;
+    const { body } = authored.current;
+    const current = linkAt(body, link);
     if (
       !mounted.current ||
       busy.current ||
       reported === undefined ||
-      reported.revision !== bodyRevision.current
+      reported.revision !== bodyRevision.current ||
+      current?.start !== link.start ||
+      current.end !== link.end ||
+      current.text !== link.text ||
+      current.href !== link.href
     ) {
       return;
     }
-    const result = setLink(authored.current.body, link, { text, href });
+    const result = setLink(body, link, { text, href });
     run({
       type: 'replace',
       revision: reported.revision,

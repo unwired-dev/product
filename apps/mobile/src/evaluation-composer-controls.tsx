@@ -18,7 +18,7 @@ import {
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
-import { use, useEffect } from 'react';
+import { use, useEffect, useState } from 'react';
 import {
   Keyboard,
   Pressable,
@@ -274,16 +274,18 @@ export function FormatPanel({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  // Typing in the Link Editor shows the keyboard too, and its sheet lives in this panel.
+  const [linking, setLinking] = useState(false);
   // Tapping into the body again brings the keyboard back in place of the panel.
   useEffect(() => {
-    if (!open) {
+    if (!open || linking) {
       return;
     }
     const shown = Keyboard.addListener('keyboardWillShow', onHide);
     return () => {
       shown.remove();
     };
-  }, [onHide, open]);
+  }, [linking, onHide, open]);
   const rowFill = { backgroundColor: colors.fillQuiet };
   return (
     <GlassPanel
@@ -382,6 +384,7 @@ export function FormatPanel({
                     link={linkAt(draft.body, page.selection)}
                     popover={false}
                     onChange={onLink}
+                    onShown={setLinking}
                   />
                 </View>
               ) : null}
