@@ -278,11 +278,11 @@ describe('a Semantic Message Document from Draft HTML', () => {
     ).toStrictEqual({ document });
   });
 
-  it('keeps body text and unvisited-link colors while allowing inline overrides', () => {
+  it('keeps body text and colors set inside links', () => {
     expect.hasAssertions();
     expect(
       documentFromHtml(
-        '<body text="#123456" link="#abcdef"><p>plain <a href="https://example.invalid">link</a> <a href="https://example.invalid" style="color:#000000">overridden</a></p></body>',
+        '<body text="#123456"><p>plain <a href="https://example.invalid"><span style="color:#abcdef">link</span></a> <a href="https://example.invalid"><span style="color:#000000">overridden</span></a></p></body>',
       ),
     ).toStrictEqual({
       document: [
@@ -713,14 +713,10 @@ describe('a Semantic Message Document from Draft HTML', () => {
     expect.hasAssertions();
     const link = 'https://example.invalid';
     const cases: ReadonlyArray<readonly [string, Block]> = [
-      // A link shows the link color, not the color it inherits; its own color is its text's.
+      // A link shows the default link color, not the text color it inherits.
       [
         `<p style="color:#ff0000"><a href="${link}">x</a></p>`,
         { kind: 'paragraph', spans: [{ text: 'x', link }] },
-      ],
-      [
-        `<p><a href="${link}" style="color:#ff0000">x</a></p>`,
-        { kind: 'paragraph', spans: [{ text: 'x', link, color: '#ff0000' }] },
       ],
       // A link is underlined, and its descendants cannot remove that.
       [
@@ -740,17 +736,6 @@ describe('a Semantic Message Document from Draft HTML', () => {
           kind: 'paragraph',
           spans: [{ text: 'x', link, marks: ['underline'] }],
         },
-      ],
-      [
-        `<p style="text-decoration:underline;color:#123456"><a href="${link}" style="text-decoration:none;color:#123456">x</a></p>`,
-        {
-          kind: 'paragraph',
-          spans: [{ text: 'x', link, marks: ['underline'], color: '#123456' }],
-        },
-      ],
-      [
-        `<p style="color:#123456"><a href="${link}" style="color:inherit">x</a></p>`,
-        { kind: 'paragraph', spans: [{ text: 'x', link, color: '#123456' }] },
       ],
       // <code> shows its own monospace font, which outgoing mail sets inside any font.
       [
@@ -832,6 +817,44 @@ describe('a Semantic Message Document from Draft HTML', () => {
         unsupported: [unsupported],
       });
     }
+  });
+
+  it('refuses link underline colors that flattening would replace with the outgoing default', () => {
+    expect.hasAssertions();
+    const link = 'https://example.invalid';
+    for (const html of [
+      `<p><a href="${link}" style="color:#ff0000">x</a></p>`,
+      `<p><a href="${link}" style="color:#ff0000"><span style="color:#0000ff">x</span></a></p>`,
+      `<body link="#ff0000"><a href="${link}">x</a></body>`,
+      `<p style="text-decoration:underline;color:#123456"><a href="${link}" style="text-decoration:none;color:#123456">x</a></p>`,
+      `<p style="color:#ff0000"><a href="${link}" style="color:inherit">x</a></p>`,
+    ]) {
+      expect(documentFromHtml(html)).toStrictEqual({ unsupported: ['color'] });
+    }
+  });
+
+  it('refuses list marker formatting that outgoing span styles cannot preserve', () => {
+    expect.hasAssertions();
+    for (const tag of ['ul', 'ol']) {
+      for (const style of [
+        'color:#ff0000',
+        'font-family:Arial',
+        'font-size:30px',
+        'font-weight:bold',
+        'font-style:italic',
+      ]) {
+        for (const html of [
+          `<${tag}><li style="${style}">x</li></${tag}>`,
+          `<div style="${style}"><${tag}><li>x</li></${tag}></div>`,
+          `<${tag} style="${style}"><li>x</li></${tag}>`,
+        ]) {
+          expect(documentFromHtml(html)).toStrictEqual({ unsupported: ['li'] });
+        }
+      }
+    }
+    expect(documentFromHtml('<code><ul><li>x</li></ul></code>')).toStrictEqual({
+      unsupported: ['li'],
+    });
   });
 
   it('refuses an ancestor decoration whose color the outgoing marks would change', () => {

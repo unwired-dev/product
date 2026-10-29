@@ -263,7 +263,8 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   quoted family names and legacy attributes through conversion and outgoing
   encoding. Check CSS-only color functions against legacy HTML attribute parsing,
   invalid shorthand/longhand values, and ancestor decoration colors when text
-  colors change. Verify code-mark/font combinations through the encoder as well
+  colors change, including the anchor's own underline. Check list-item and inherited
+  fonts/colors against outgoing marker styling, not only the text spans. Verify code-mark/font combinations through the encoder as well
   as conversion. Refuse formatting the document cannot hold; otherwise conversion
   claims fidelity while changing visible fonts, marks or backgrounds.
 - `draft-html.ts.endElement` flattening separate ordered lists into adjacent

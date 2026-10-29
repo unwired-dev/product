@@ -220,8 +220,9 @@ use it once they open. It lays out text as a browser does, collapsing spaces
 and treating each `<br>` as a line break, and reads block kinds, marks, links,
 alignment, `#rrggbb`, `#rgb` and opaque `rgb()`/`rgba()` colors, families and
 sizes in `px`, `pt`, keywords or absolute `<font size="1">` through `<font size="7">`,
-whether set on a block or on text. Body `text` and unvisited `link` colors are
-preserved. Legacy HTML color attributes accept hex colors; functional CSS colors
+whether set on a block or on text. Body `text` colors are preserved. A body `link` color or a color set on an
+anchor is reported when used by a link: outgoing HTML cannot preserve that
+anchor's underline color. Colors set on text inside a link are preserved. Legacy HTML color attributes accept hex colors; functional CSS colors
 in those attributes are reported because HTML reads them differently. CSS weights
 `normal`/`400` and `bold`/`700` become the corresponding
 mark; other weights, oblique fonts and resets of a heading's intrinsic weight
@@ -229,13 +230,13 @@ or size that the document cannot hold are reported rather than approximated.
 Decoration and background overrides replace the element's own values while
 retaining ancestor decorations and visible backgrounds; `!important` wins
 across their shorthand and longhand declarations.
-Elements keep the presentation outgoing mail gives them: a link takes the link
+Elements keep the presentation outgoing mail gives them: a link takes its default
 color rather than the color around it and stays underlined, inline code and code
 blocks take their monospace font unless they set their own, and a heading
 takes its own size rather than one relative to the size around it. A link that
 removes its underline and a heading inside text with a size but without a size
-of its own are reported. Explicitly inherited link colors or inline-code fonts
-are reported when their surrounding default cannot be preserved. Fonts set on
+of its own are reported. Explicitly inherited link colors are reported, as are inline-code fonts
+when their surrounding default cannot be preserved. Fonts set on
 code text override the code element's monospace default when sent. A text-color
 change inside an ancestor underline or strike is reported when outgoing marks
 would also change the line's color.
@@ -245,7 +246,8 @@ content without a display override, spacing (margins, padding, line height),
 Outlook `mso-` properties and quote borders. Browser-dependent active/visited
 link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
 Anything else, such as a table, an image, headings four to six, a nested list
-or quote, a color name, a relative size, a block background, a popover, custom or reversed
+or quote, a color name, a relative size, a block background, a popover, list
+markers with colors or fonts (including bold and italic), custom or reversed
 list numbering, adjacent ordered lists that restart numbering without a
 separating document block, a multiline list item, right-to-left text or a CSS-wide keyword
 other than `inherit` (`initial`, `unset`, `revert`), makes it report the

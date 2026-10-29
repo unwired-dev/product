@@ -609,14 +609,32 @@ const tagContext = (
       });
 };
 
+// Outgoing links put colors on their text spans, leaving the anchor underline at its default.
+const linkColorChanged = (tag: string, context: Context) =>
+  tag === 'a' &&
+  context.format.link !== undefined &&
+  context.format.color !== undefined;
 // Ancestor lines keep their original color; outgoing marks take the text's color.
-const decorationColorChanged = (context: Context, parent: Context) =>
-  parent.format.marks.some(
+const decorationColorChanged = (
+  tag: string,
+  context: Context,
+  parent: Context,
+) =>
+  linkColorChanged(tag, context) ||
+  (parent.format.marks.some(
     (mark) => mark === 'underline' || mark === 'strikethrough',
   ) &&
-  (context.format.color !== parent.format.color ||
-    (context.format.link !== parent.format.link &&
-      context.format.color === undefined));
+    (context.format.color !== parent.format.color ||
+      (context.format.link !== parent.format.link &&
+        context.format.color === undefined)));
+
+// List markers inherit from the item, but outgoing formatting is inside the item.
+const markerStyled = (tag: string, format: Format) =>
+  tag === 'li' &&
+  (format.color !== undefined ||
+    format.font !== undefined ||
+    format.size !== undefined ||
+    format.marks.some((mark) => ['bold', 'italic', 'code'].includes(mark)));
 
 // The context an element's children take, or undefined when the document cannot hold it.
 // Attributes apply first, then the style that overrides them.
@@ -648,8 +666,11 @@ const contextOf = (
     style === undefined
       ? attributed
       : styled({ context: attributed, block, unsupported }, style, context);
-  if (decorationColorChanged(inner, context)) {
+  if (decorationColorChanged(tag, inner, context)) {
     unsupported.add('color');
+  }
+  if (markerStyled(tag, inner.format)) {
+    unsupported.add(tag);
   }
   // Outgoing mail sends a heading's size from its own style alone.
   if (
