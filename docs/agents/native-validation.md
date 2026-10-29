@@ -191,6 +191,8 @@ mise exec -- pnpm --filter @private-email/macos test:native \
   testKeyboardAndAccessibility
 ```
 
+Pass `testKeyboardAndAccessibilityDark` instead to run it in Dark appearance.
+
 By keyboard, it runs Search Mail from the Command Palette and types a query. It
 then cuts and pastes that query through the Edit menu. It closes the palette with
 Escape and checks that focus returns to the search field. It moves through the
@@ -238,14 +240,15 @@ It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
 Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
 `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are secondary-text
-contrast ([#1195](https://github.com/unwired-dev/product/issues/1195)),
+contrast ([#1550](https://github.com/unwired-dev/product/issues/1550)),
 AppKit's text Touch Bar, and email or web addresses used as labels. The contrast gap lists
-the labels it covers. Any other issue fails
+the labels it covers in either appearance. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
 composer audits observed on the Mac host, while a text input has keyboard focus. Retain each run's xcresult captures
-with its log when investigating that exception. The audits run in the host's
-current appearance only. They do not replace VoiceOver,
+with its log when investigating that exception. The journey launches the app in Light
+appearance whatever the desktop's; `testKeyboardAndAccessibilityDark` runs the same
+journey in Dark. Increase Contrast is not audited. The audits do not replace VoiceOver,
 Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
 
 ### iPhone and iPad keyboard and accessibility journey

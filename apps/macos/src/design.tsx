@@ -65,11 +65,12 @@ export const ModalBackground = requireNativeComponent<ViewProps>(
 );
 
 // An AppKit popover showing this view's React children, pointing up from the top edge of the view
-// that holds it. AppKit presents it, closes it when the person clicks elsewhere or presses Escape,
+// that holds it, or down from its bottom edge when `below`. AppKit presents it, closes it when the person clicks elsewhere or presses Escape,
 // and then reports `onClose`.
 const NativePopover = requireNativeComponent<
   ViewProps & {
     readonly shown: boolean;
+    readonly below?: boolean;
     readonly contentWidth: number;
     readonly contentHeight: number;
     readonly onClose: () => void;
@@ -97,6 +98,7 @@ const styles = StyleSheet.create({
   menuContent: { flexGrow: 1 },
   // The popover points at the holder's top edge; the host itself takes no space.
   popoverHost: { position: 'absolute', top: 0, left: 0, right: 0, height: 0 },
+  popoverHostBelow: { top: undefined, bottom: 0 },
   // Laid out at its own size, which the popover takes.
   popoverContent: { position: 'absolute', top: 0, left: 0 },
   group: {
@@ -797,10 +799,12 @@ export function AnnouncedAlert({
 
 export function Popover({
   shown,
+  below = false,
   onClose,
   children,
 }: {
   readonly shown: boolean;
+  readonly below?: boolean;
   readonly onClose: () => void;
   readonly children: ReactNode;
 }) {
@@ -812,6 +816,7 @@ export function Popover({
   }
   return (
     <NativePopover
+      below={below}
       contentHeight={size.height}
       contentWidth={size.width}
       onClose={() => {
@@ -819,7 +824,7 @@ export function Popover({
         onClose();
       }}
       shown={shown && size.height > 0}
-      style={styles.popoverHost}>
+      style={[styles.popoverHost, below && styles.popoverHostBelow]}>
       {presented ? (
         // The popover takes this one view as its content, so Fabric must not flatten it.
         <View

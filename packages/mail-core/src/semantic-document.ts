@@ -2,6 +2,9 @@ import * as Schema from 'effect/Schema';
 
 import { vettedHref } from './link-inspection.ts';
 
+export type { History } from './editor-history.ts';
+export { historyOf, record, redo, undo } from './editor-history.ts';
+
 // The Semantic Message Document: ordered body blocks, each a run of marked text. It is the stored
 // and edited form of a Draft body; Markdown is only an input shortcut over it.
 
@@ -59,13 +62,18 @@ export const AssetSchema = Schema.Union([
 ]);
 export type Asset = typeof AssetSchema.Type;
 
+const SpanTextSchema = Schema.NonEmptyString.check(
+  Schema.makeFilter(
+    (text) => !text.includes('\n') && !text.includes(imageCharacter),
+  ),
+);
+
+// A Link Editor label must fit one text span, including when pasted into its field.
+export const isLinkText = Schema.is(SpanTextSchema);
+
 const SpanSchema = Schema.Union([
   Schema.Struct({
-    text: Schema.NonEmptyString.check(
-      Schema.makeFilter(
-        (text) => !text.includes('\n') && !text.includes(imageCharacter),
-      ),
-    ),
+    text: SpanTextSchema,
     marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
     // Linked text: web, mail and telephone destinations only, as received links allow.
     link: Schema.optionalKey(
@@ -773,6 +781,99 @@ export function toggleMark(
   );
 }
 
+// Linked text in one block, from editor offset `start` to `end`.
+export type Link = Readonly<{
+  start: number;
+  end: number;
+  text: string;
+  href: string;
+}>;
+
+// The link holding the whole selection, or beside a caret: the one before it, else after it.
+export function linkAt(
+  document: SemanticDocument,
+  selection: Selection,
+): Link | undefined {
+  const start = Math.min(selection.start, selection.end);
+  const { line, column, marker } = locate(document, start);
+  const from = column - marker;
+  const to = from + Math.abs(selection.end - selection.start);
+  const runs: Array<{ from: number; to: number; text: string; href: string }> =
+    [];
+  let offset = 0;
+  for (const span of document[line]?.spans ?? []) {
+    const href = linkOf(span);
+    const last = runs.at(-1);
+    if (href !== undefined && last?.href === href && last.to === offset) {
+      last.to += span.text.length;
+      last.text += span.text;
+    } else if (href !== undefined) {
+      runs.push({
+        from: offset,
+        to: offset + span.text.length,
+        text: span.text,
+        href,
+      });
+    }
+    offset += span.text.length;
+  }
+  const run =
+    runs.find((each) => each.from < to && each.from <= from && to <= each.to) ??
+    runs.find((each) => each.from <= from && to < each.to);
+  return run === undefined
+    ? undefined
+    : {
+        start: offsetOf(document, line, run.from),
+        end: offsetOf(document, line, run.to),
+        text: run.text,
+        href: run.href,
+      };
+}
+
+// Replaces a link's text and destination as one edit, or with no destination removes the link
+// and keeps its text. Unchanged text keeps its marks; new text takes those of the link's start.
+export function setLink(
+  document: SemanticDocument,
+  link: Link,
+  { text, href }: Readonly<{ text: string; href?: string | undefined }>,
+): Edit {
+  if (!isLinkText(text)) {
+    return { document };
+  }
+  const { line, column, marker } = locate(document, link.start);
+  const from = column - marker;
+  const to = from + link.end - link.start;
+  const spans = document[line]?.spans ?? [];
+  const linked =
+    text === link.text
+      ? sliceSpans(spans, from, to).map((span) =>
+          spanOf(span.text, marksOf(span), { link: href }),
+        )
+      : [
+          spanOf(text, marksOf(sliceSpans(spans, from, from + 1)[0]), {
+            link: href,
+          }),
+        ];
+  const caret = link.start + text.length;
+  return {
+    document: documentOf(
+      document.map((each, index) =>
+        index === line
+          ? {
+              kind: each.kind,
+              spans: joinSpans(
+                sliceSpans(spans, 0, from),
+                linked,
+                sliceSpans(spans, to),
+              ),
+            }
+          : each,
+      ),
+    ),
+    selection: { start: caret, end: caret },
+  };
+}
+
 // The marks typed text takes after toggling one at a caret.
 export const toggled = (marks: readonly Mark[], mark: Mark) =>
   markOrder.filter((each) => (each === mark) !== marks.includes(each));
@@ -879,62 +980,4 @@ export function setBlockKind(
       end: offsetOf(result, to.line, column(to)),
     },
   };
-}
-
-// Undo and redo over whole editor states. Typing extends the current step until a word ends;
-// every other change is its own step.
-export type History<T> = Readonly<{
-  past: readonly T[];
-  present: T;
-  future: readonly T[];
-  typing: boolean;
-}>;
-
-const historyLimit = 100;
-
-export const historyOf = <T>(present: T): History<T> => ({
-  past: [],
-  present,
-  future: [],
-  typing: false,
-});
-
-export function record<T>(
-  history: History<T>,
-  next: T,
-  typing = false,
-): History<T> {
-  return {
-    past:
-      typing && history.typing
-        ? history.past
-        : [...history.past, history.present].slice(-historyLimit),
-    present: next,
-    future: [],
-    typing,
-  };
-}
-
-export function undo<T>(history: History<T>): History<T> {
-  const previous = history.past.at(-1);
-  return previous === undefined
-    ? history
-    : {
-        past: history.past.slice(0, -1),
-        present: previous,
-        future: [history.present, ...history.future],
-        typing: false,
-      };
-}
-
-export function redo<T>(history: History<T>): History<T> {
-  const [next, ...future] = history.future;
-  return next === undefined
-    ? history
-    : {
-        past: [...history.past, history.present],
-        present: next,
-        future,
-        typing: false,
-      };
 }
