@@ -22,7 +22,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { Keyboard } from 'react-native';
+import { DeviceEventEmitter, Keyboard } from 'react-native';
 
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { MailAssistanceProfileContext } from '../src/mail-assistance-lifetime.ts';
@@ -497,6 +497,123 @@ describe('the Tiptap evaluation composer', () => {
     await press('Rewrite the message body');
     expect(lastCommand()).toBe(commandScript({ type: 'blur' }));
   });
+
+  // iPhone keeps Edit Link in the Format panel; iPad keeps it in the format bar.
+  it.each([
+    ['compact', 'bottom-sheet', ['Format']],
+    ['regular', 'popover', []],
+  ] as const)(
+    'edits and removes a link through the Link Editor on %s as one page edit each',
+    async (size, presenter, controls) => {
+      expect.hasAssertions();
+      injectedScripts.length = 0;
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <ComposerLayoutContext
+          value={{ size, avoidKeyboard: size === 'compact', top: 0 }}>
+          <App drafts={createDrafts(storage.native, registration)} />
+        </ComposerLayoutContext>,
+      );
+      await press('New Message');
+      const { report, revision } = simulatedPage();
+      const lease = 'https://docs.example.invalid/lease';
+      const spans: SemanticDocument[number]['spans'] = [
+        { text: 'Read ' },
+        { text: 'the lease', marks: ['bold'], link: lease },
+        { text: ' today' },
+      ];
+      await report({
+        document: [{ kind: 'paragraph', spans }],
+        selection: { start: 2, end: 2 },
+      });
+      for (const control of controls) {
+        await press(control);
+      }
+      // Away from a link there is nothing to edit.
+      expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
+      await report({ selection: { start: 8, end: 8 } });
+      await press('Edit Link');
+      // Typing in the editor shows the keyboard, which leaves the editor open.
+      await act(async () => {
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          isEventFromThisApp: true,
+          startCoordinates: { screenX: 0, screenY: 874, width: 402, height: 0 },
+          endCoordinates: { screenX: 0, screenY: 542, width: 402, height: 332 },
+        });
+      });
+      const text = screen.getByLabelText('Text');
+      const destination = screen.getByLabelText('Link');
+      expect(text).toHaveProp('value', 'the lease');
+      expect(destination).toHaveProp('value', lease);
+      // Only a destination a person may open can be applied.
+      await fireEvent.changeText(destination, 'ftp://docs.example.invalid');
+      expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+      await fireEvent.changeText(destination, `${lease}-v3`);
+      await fireEvent.changeText(text, 'revised lease');
+      const before = injectedScripts.length;
+      await press('Apply');
+      expect(injectedScripts.slice(before)).toStrictEqual([
+        commandScript({
+          type: 'replace',
+          revision: revision(),
+          document: [
+            {
+              kind: 'paragraph',
+              spans: [
+                { text: 'Read ' },
+                { text: 'revised lease', marks: ['bold'], link: `${lease}-v3` },
+                { text: ' today' },
+              ],
+            },
+          ],
+          selection: { start: 18, end: 18 },
+        }),
+      ]);
+
+      // Closing the editor sends nothing; Remove Link keeps the text without its link.
+      await press('Edit Link');
+      const closed = injectedScripts.length;
+      await act(async () => {
+        await fireEvent(screen.getByTestId(presenter), 'accessibilityEscape');
+      });
+      expect(injectedScripts).toHaveLength(closed);
+      await press('Edit Link');
+      await press('Remove Link');
+      expect(lastCommand()).toBe(
+        commandScript({
+          type: 'replace',
+          revision: revision(),
+          document: [
+            {
+              kind: 'paragraph',
+              spans: [
+                { text: 'Read ' },
+                { text: 'the lease', marks: ['bold'] },
+                { text: ' today' },
+              ],
+            },
+          ],
+          selection: { start: 14, end: 14 },
+        }),
+      );
+
+      // A link the page has moved since the editor opened stays as it is.
+      await press('Edit Link');
+      await fireEvent.changeText(
+        screen.getByLabelText('Text'),
+        'revised lease',
+      );
+      await report({
+        document: [{ kind: 'paragraph', spans: [{ text: 'New ' }, ...spans] }],
+        selection: { start: 12, end: 12 },
+      });
+      const moved = injectedScripts.length;
+      await press('Apply');
+      expect(injectedScripts).toHaveLength(moved);
+    },
+  );
 
   it.each(['onError', 'onContentProcessDidTerminate'])(
     'retires captures and queued page input when the page reports %s',

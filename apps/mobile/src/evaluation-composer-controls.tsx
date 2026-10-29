@@ -1,19 +1,24 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
 import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
+import type { Link } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
 
 import {
   canRewrite,
   canSuggestReply,
 } from '@private-email/mail-core/assistance';
-import { clip, selectedText } from '@private-email/mail-core/semantic-document';
+import {
+  clip,
+  linkAt,
+  selectedText,
+} from '@private-email/mail-core/semantic-document';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
-import { use, useEffect } from 'react';
+import { use, useEffect, useState } from 'react';
 import {
   Keyboard,
   Pressable,
@@ -28,6 +33,7 @@ import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
   blockControls,
   FormatBar,
+  LinkEditor,
   markControls,
   MenuItem,
 } from './composer-controls.tsx';
@@ -131,6 +137,7 @@ export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
 export type Open = 'close' | 'attach' | 'tools' | 'format';
 type Add = (source: PickSource, inline: boolean) => void;
 type Capture = (purpose: CapturedDraftText['purpose']) => void;
+type EditLink = (link: Link, text: string, href?: string) => void;
 
 // The current composer's file controls: the system pickers, and images on the pasteboard placed
 // inline. Native code reads the chosen files.
@@ -245,34 +252,40 @@ function FormatChoice({
   );
 }
 
-// The iPhone Format panel, which replaces the keyboard: Undo and Redo, text styles, marks and the
-// remaining block kinds, each one page command.
+// The iPhone Format panel, which replaces the keyboard: Undo and Redo, text styles, marks, the
+// Link Editor and the remaining block kinds, each one page command.
 export function FormatPanel({
+  draft,
   open,
   page,
   run,
+  onLink,
   onClose,
   onHide,
 }: {
+  readonly draft: Draft;
   readonly open: boolean;
   readonly page: PageState;
   readonly run: (command: Command) => void;
+  readonly onLink: EditLink;
   // Closes the panel and resumes typing; `onHide` only closes it.
   readonly onClose: () => void;
   readonly onHide: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  // Typing in the Link Editor shows the keyboard too, and its sheet lives in this panel.
+  const [linking, setLinking] = useState(false);
   // Tapping into the body again brings the keyboard back in place of the panel.
   useEffect(() => {
-    if (!open) {
+    if (!open || linking) {
       return;
     }
     const shown = Keyboard.addListener('keyboardWillShow', onHide);
     return () => {
       shown.remove();
     };
-  }, [onHide, open]);
+  }, [linking, onHide, open]);
   const rowFill = { backgroundColor: colors.fillQuiet };
   return (
     <GlassPanel
@@ -341,7 +354,7 @@ export function FormatPanel({
               style={[
                 styles.formatGroup,
                 rowFill,
-                { minWidth: group.length * 44 },
+                { minWidth: (key === 'code' ? 2 : group.length) * 44 },
               ]}>
               {group.map(([mark, , name]) => (
                 <FormatChoice
@@ -363,6 +376,18 @@ export function FormatPanel({
                   )}
                 </FormatChoice>
               ))}
+              {/* The Link control follows Code, as in the iPhone Format frame. */}
+              {key === 'code' ? (
+                <View style={styles.formatChoice}>
+                  <LinkEditor
+                    disabled={false}
+                    link={linkAt(draft.body, page.selection)}
+                    popover={false}
+                    onChange={onLink}
+                    onShown={setLinking}
+                  />
+                </View>
+              ) : null}
             </View>
           ))}
         </View>
@@ -548,6 +573,7 @@ export function PadFormatBar({
   onOpen,
   onAdd,
   onCapture,
+  onLink,
 }: {
   readonly draft: Draft;
   readonly page: PageState;
@@ -556,6 +582,7 @@ export function PadFormatBar({
   readonly onOpen: (open: Open | undefined) => void;
   readonly onAdd: Add;
   readonly onCapture: Capture;
+  readonly onLink: EditLink;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -572,6 +599,12 @@ export function PadFormatBar({
         onMark={(mark) => {
           run({ type: 'mark', mark });
         }}>
+        <LinkEditor
+          disabled={false}
+          link={linkAt(draft.body, page.selection)}
+          popover
+          onChange={onLink}
+        />
         <View style={[s.divider, { backgroundColor: colors.separator }]} />
         <ToolbarButton
           disabled={!page.undo}
