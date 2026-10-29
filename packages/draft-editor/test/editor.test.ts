@@ -713,6 +713,20 @@ describe('the Tiptap evaluation page', () => {
     expect(bodyOf(page)).toStrictEqual(opened);
     page.command({ type: 'redo' });
     expect(bodyOf(page)).toStrictEqual(edited);
+    // Starting in unlinked text, the replacement stays unlinked and the rest of the link keeps it.
+    const unlinked = await open(opened);
+    unlinked.editor.commands.setTextSelection({ from: 7, to: 11 });
+    unlinked.type('Z');
+    expect(bodyOf(unlinked)).toStrictEqual([
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'abcd', link },
+          { text: 'efZ' },
+          { text: 'kl', link: other },
+        ],
+      },
+    ]);
     // Select All uses an AllSelection starting outside the first paragraph.
     const all = await open(opened);
     all.editor.commands.selectAll();
