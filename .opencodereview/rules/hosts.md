@@ -1421,6 +1421,12 @@ still applies. See `docs/architecture/macos-client.md`.
   Preserve native dismissal ordering for sheet-to-sheet choices, and keep native
   focus-return evidence distinct from rendered open-state assertions.
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
+- A connection-specific action in `sync-status.tsx.actionOf`, or another list of
+  Mailbox Connections, whose accessible name identifies only the operation or
+  provider. Trace retry and authorization names through the rendered control for
+  Gmail, Microsoft and IMAP, including the missing-address fallback. Keep the
+  visible action words and the target connection in the name; otherwise several
+  connections expose indistinguishable actions to VoiceOver and Voice Control.
 - A new action in `sync-status.tsx` or another compact control counting its
   non-interactive parent's padding toward the required 44pt iPhone target.
   Trace the actual pressable bounds and any hit slop in the native tree, including
