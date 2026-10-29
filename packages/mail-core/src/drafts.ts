@@ -340,14 +340,16 @@ export const withSender = (
   mailbox: Pick<MailboxConnection, 'id' | 'address'>,
 ): Draft => ({ ...draft, connection: mailbox.id, from: mailbox.address });
 
-// The Gmail thread a reply joins: only while it sends from the mailbox that received the message,
-// as a thread belongs to that mailbox. From any other sender it keeps only its threading headers.
-export const threadOf = ({ connection, response }: Draft) =>
-  response !== undefined &&
-  'thread' in response &&
-  response.thread.connection === connection
-    ? response.thread.id
-    : undefined;
+// The provider thread a reply joins: only while it sends from the mailbox that received the
+// message, as a thread belongs to that mailbox. From any other sender, or for IMAP, which has no
+// thread, it keeps only its threading headers.
+export const threadOf = ({ connection, response }: Draft) => {
+  const thread =
+    response !== undefined && 'thread' in response
+      ? response.thread
+      : undefined;
+  return thread?.connection === connection ? thread.id : undefined;
+};
 
 // The Mail Profile owning `connection`, and so every Draft and Outbox entry sending from it.
 // shortcut: Draft records and the unified Inbox carry no Profile, so no connection, or one no
