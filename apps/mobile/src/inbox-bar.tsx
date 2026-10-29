@@ -420,14 +420,18 @@ export function useBarBottomInset() {
 
 // The compact list's scroll indicator stops at its floating bar: 4pt above the bottom safe area,
 // which UIKit adds itself, or 12pt above the keyboard. React Native replaces the indicator inset
-// whenever the keyboard moves, so the inset follows the keyboard's state.
-export function useBarIndicatorInsets() {
+// whenever the keyboard moves, so the inset follows the keyboard's state. iPhone's system toolbar
+// already extends the safe area at rest (#1534).
+export function useBarIndicatorInsets(toolbar = false) {
   const bottomInset = useBarBottomInset();
   const keyboard = useKeyboardState(({ isVisible, height }) =>
     isVisible ? height : 0,
   );
   if (use(WindowBarContext) !== undefined) {
     return undefined;
+  }
+  if (toolbar && keyboard === 0) {
+    return { bottom: 0 };
   }
   const lift = keyboard > 0 ? keyboard - bottomInset + spacing.m : spacing.xs;
   return { bottom: lift + barHeight };

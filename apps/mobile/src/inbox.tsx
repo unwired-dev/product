@@ -658,7 +658,7 @@ export function Inbox({
   const insets = useSafeAreaInsets();
   const inWindow = use(WindowBarContext) !== undefined;
   const bottomInset = useBarBottomInset();
-  const indicatorInsets = useBarIndicatorInsets();
+  const indicatorInsets = useBarIndicatorInsets(bar === true);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({

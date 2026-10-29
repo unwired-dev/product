@@ -2398,14 +2398,15 @@ final class InboxTests: XCTestCase {
     waitUntil { abs(footer.frame.minY - placed.minY) <= 2 }
   }
 
-  // #1506: the list's scroll indicator track stops at the floating bar the rows run under, at rest
-  // and above the keyboard.
+  // #1506: the list's scroll indicator track stops at the bar the rows run under, at rest and above
+  // the keyboard. #1534: on iPhone that is the system toolbar: the track ends at its top, 20pt above
+  // the search field at rest, and 12pt above the field over the keyboard.
   private func verifyCompactIndicator(_ app: XCUIApplication, bar: XCUIElement) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let track = app.otherElements["Inbox messages"].firstMatch.otherElements
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Vertical scroll bar")).firstMatch
     XCTAssertTrue(track.waitForExistence(timeout: 10))
-    waitUntil { abs(track.frame.maxY - bar.frame.minY) <= 1 }
+    waitUntil { (11...21).contains(bar.frame.minY - track.frame.maxY) }
   }
 
   // iPhone's native search closes with the system's close button; the floating bar labels its own.
