@@ -61,7 +61,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Native validation and resource ownership](agents/native-validation.md)
 - [GitHub issue workflow and triage labels](agents/issue-tracker.md)
 - [Automated reviews and PR babysitting](agents/pull-request-babysitting.md)
-- [Protected Gmail test tenant](gmail-provider-test-tenant.md)
+- [Dedicated Gmail test accounts and protected qualification](gmail-provider-test-tenant.md)
 
 The implementer uses this index to find requirements and operational guidance.
 Only the review agent opens architecture docs and decision records under the

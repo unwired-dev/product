@@ -642,7 +642,7 @@ deferred. These are synthetic-backend checks, not live Convex or provider eviden
 ## Protected real qualification
 
 Use signed hosts, a configured Convex development deployment and the
-[protected Gmail test tenant](gmail-provider-test-tenant.md). Register a new
+[dedicated Gmail test accounts](gmail-provider-test-tenant.md). Register a new
 account with Google and with Apple on iPhone, iPad and Mac. Confirm the Recovery
 Key, connect Gmail and relaunch. Then confirm in the Convex dashboard that the
 account has one recovery envelope and opaque `mailbox.` records only. Reopen the

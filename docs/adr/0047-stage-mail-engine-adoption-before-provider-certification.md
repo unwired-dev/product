@@ -15,6 +15,11 @@ SwiftMail and its adapter run in the Apple/on-device Mail Engine boundary. The T
 
 Live-provider validation moved from a dependency-adoption gate to a release-certification gate. The iCloud Mail and Fastmail scenario, performance, cleanup, and manual-soak requirements passed for SwiftMail 1.11.0. A failed provider spike for a future candidate or pin keeps that capability disabled while the product fixes the adapter, waits for upstream, or replaces the engine.
 
+The Gmail provisioning paragraph below records the original decision. The
+[2026-10-29 amendment to ADR 0038](0038-use-a-dedicated-google-workspace-test-tenant.md#consumer-gmail-amendment-2026-10-29)
+supersedes its Workspace and internal-audience requirements; the provider
+certification gates elsewhere in this record are unchanged.
+
 The Google Workspace Provider Test Tenant and Provider Test Project serve the separate Gmail API compatibility lane. Their paid provisioning is deferred until Gmail release compatibility is scheduled and does not block the approved SwiftMail dependency, generic IMAP/SMTP implementation, or deterministic Local Mail Test Environment work. When that lane starts, ADR 0038 and ADR 0039 still require isolated, synthetic-only infrastructure rather than a personal account, production tenant, or temporary external OAuth workaround.
 
 ## Implementation status

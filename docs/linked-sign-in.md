@@ -133,7 +133,7 @@ These checks are deterministic, not real Apple, Google or Convex evidence.
 ## Protected real qualification
 
 Use signed hosts, a configured Convex development deployment, a test Apple ID and
-Google accounts from the [protected Gmail test tenant](gmail-provider-test-tenant.md).
+the [dedicated Gmail test accounts](gmail-provider-test-tenant.md).
 Do not record identity tokens, link tickets or relay addresses in artifacts.
 
 On iPhone, iPad and Mac, register with Apple, link Google, then sign in with

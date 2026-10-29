@@ -68,6 +68,10 @@ The TypeScript harness provisions the Mail Test Device and passes its run-scoped
 
 ### 4. Gmail compatibility (deferred release gate)
 
+The steps below are historical. Current account provisioning follows the
+[dedicated Gmail test-account runbook](../gmail-provider-test-tenant.md) and the
+[2026-10-29 amendment to ADR 0038](../adr/0038-use-a-dedicated-google-workspace-test-tenant.md#consumer-gmail-amendment-2026-10-29).
+
 - Provision the Provider Test Tenant, Provider Test Project, protected secrets, and isolated Convex resources.
 - Implement the shared-scenario Gmail backend and serialized workflow.
 - Add relay-output verification, device payload injection, and the physical-device checklist.
