@@ -6,6 +6,10 @@ import type {
 
 import { documentFromHtml } from '@private-email/mail-core/draft-html';
 import { outgoingMessage } from '@private-email/mail-core/outgoing-message';
+import {
+  BlockKindSchema,
+  MarkSchema,
+} from '@private-email/mail-core/semantic-document';
 import PostalMime from 'postal-mime';
 
 const sentHtml = async (body: SemanticDocument) => {
@@ -27,6 +31,43 @@ const sentHtml = async (body: SemanticDocument) => {
   const parsed = await PostalMime.parse(raw);
   return parsed.html ?? '';
 };
+
+const formats = [
+  {},
+  { link: 'https://example.invalid' },
+  { color: '#d1242f' },
+  { background: '#fff8c5' },
+  { font: '"Times New Roman", serif' },
+  { size: 20 },
+  {
+    link: 'mailto:sam@example.invalid',
+    color: '#0969da',
+    background: '#fff8c5',
+    font: 'Arial',
+    size: 14.5,
+  },
+];
+const markSets = Array.from(
+  { length: 2 ** MarkSchema.literals.length },
+  (_, bits) =>
+    MarkSchema.literals.filter(
+      (_mark, index) => Math.floor(bits / 2 ** index) % 2 === 1,
+    ),
+);
+// Each span differs from its neighbours, so none merge on the way back.
+const spans: Block['spans'] = formats.flatMap((format, index) =>
+  markSets.map(([first, ...rest], set) => ({
+    text: `f${index}m${set}`,
+    ...(first === undefined ? {} : { marks: [first, ...rest] }),
+    ...format,
+  })),
+);
+// Code alignment is not sent.
+const combinations: readonly SemanticDocument[] = BlockKindSchema.literals.map(
+  (kind) => [
+    kind === 'code' ? { kind, spans } : { kind, spans, align: 'center' },
+  ],
+);
 
 describe('a Semantic Message Document from Draft HTML', () => {
   it('reads back every block kind, mark, link, alignment, color and font that outgoing mail writes', async () => {
@@ -86,6 +127,15 @@ describe('a Semantic Message Document from Draft HTML', () => {
     expect(documentFromHtml(await sentHtml(document))).toStrictEqual({
       document,
     });
+  });
+
+  it('reads back every combination of marks, link, colors and font in every block kind', async () => {
+    expect.hasAssertions();
+    for (const document of combinations) {
+      expect(documentFromHtml(await sentHtml(document))).toStrictEqual({
+        document,
+      });
+    }
   });
 
   it('reads a Gmail Draft', () => {
@@ -183,7 +233,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
         ['text-decoration'],
       ],
       [
-        '<p style="text-decoration:underline\u00a0line-through">invalid</p>',
+        '<p style="text-decoration:underline\u00A0line-through">invalid</p>',
         ['text-decoration'],
       ],
       [
