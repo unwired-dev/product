@@ -616,7 +616,8 @@ export function FloatingBar({
   );
 }
 
-// Toasts and status centered 12pt above a bar whose bottom edge sits at `bottom`.
+// Toasts and status centered with their bottom edge at `bottom`, which callers place 12pt above
+// their bar.
 export function BarNotices({
   bottom,
   hidden = false,
