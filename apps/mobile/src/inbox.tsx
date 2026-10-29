@@ -658,7 +658,8 @@ export function Inbox({
   const insets = useSafeAreaInsets();
   const inWindow = use(WindowBarContext) !== undefined;
   const listInset = useListBottomInset(visible !== false);
-  const indicatorInsets = useBarIndicatorInsets(bar === true);
+  const toolbar = usesToolbar(bar, onCompose);
+  const indicatorInsets = useBarIndicatorInsets(toolbar);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -1175,7 +1176,7 @@ export function Inbox({
             }}
           />
           <InboxControls
-            toolbar={bar === true}
+            toolbar={toolbar}
             sticky={!inWindow}
             stickyOffset={insets.bottom + spacing.xs - spacing.m}
             listNotice={syncCapsule}
@@ -1192,6 +1193,11 @@ export function Inbox({
       </SafeAreaView>
     </View>
   );
+}
+
+// The system toolbar holds New Message, so it needs onCompose (#1534).
+function usesToolbar(bar: boolean | undefined, onCompose: unknown) {
+  return bar === true && onCompose !== undefined;
 }
 
 // iPhone's single column uses the system toolbar and its search (#1534). Elsewhere the floating bar

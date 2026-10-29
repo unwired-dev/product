@@ -151,10 +151,12 @@ the newest 200 and the older ones scrolling has revealed from
 - **Search mode.** On iPhone and iPad, focusing the field opens search: the Inbox's
   heading and rows give way to an empty list until a query is typed, and **Close Search**
   beside the field replaces Filter and New Message, which return with the Inbox when
-  Close clears the query. Editing or clearing the query keeps search open, so the list
+  Close clears the query. On iPhone the system's close button takes that place and
+  the navigation bar hides while search is open. Editing or clearing the query keeps search open, so the list
   never flashes back to the Inbox. When the Inbox is [filtered](#filtering-the-inbox),
-  iPhone's bar shows a Search button that opens the field.
-- **The bar.** On iPhone, and on iPad in a compact-width window, the bar spans the
+  iPhone's toolbar shows a Search button that opens the field.
+- **The bar.** On iPhone, Filter, the field and New Message sit in the system
+  toolbar instead. On iPad in a compact-width window, the floating bar spans the
   bottom of the list. In a regular-width iPad window it floats across the bottom of
   the whole window instead: the field is 400pt wide and centered, Filter or what the
   Inbox is filtered by leads it, and New Message or Close Search sits at the
