@@ -457,17 +457,19 @@ describe('editing a Semantic Message Document', () => {
     expect(redo(undo(history)).present).toBe(typedAligned);
   });
 
-  it('keeps text colors and backgrounds through typing, line breaks, marks, block kinds, images, links and replacements', () => {
+  it('keeps text colors, backgrounds and fonts through typing, line breaks, marks, block kinds, images, links and replacements', () => {
     expect.hasAssertions();
     const blue = '#1f6feb';
     const red = '#d1242f';
     const yellow = '#fff8c5';
+    const font = '"Helvetica Neue", Arial, sans-serif';
+    const samStyle = { color: red, background: yellow, font, size: 13.5 };
     const colored: SemanticDocument = [
       {
         kind: 'paragraph',
         spans: [
           { text: 'Dear ', color: blue },
-          { text: 'Sam', marks: ['bold'], color: red, background: yellow },
+          { text: 'Sam', marks: ['bold'], ...samStyle },
         ],
       },
       { kind: 'paragraph', spans: [{ text: 'Thanks' }] },
@@ -485,6 +487,23 @@ describe('editing a Semantic Message Document', () => {
         ]),
       ).toBe(false);
     }
+    // A family is a CSS family list and a size a positive number of pixels.
+    for (const paint of [
+      { font: 'Arial,sans-serif' },
+      { font: 'Arial;color:red' },
+      { font: '"Helvetica\\"Neue"' },
+      { font: '"Helvetica\nNeue"' },
+      { font: '' },
+      { size: 0 },
+      { size: Number.POSITIVE_INFINITY },
+      { size: Number.NaN },
+    ]) {
+      expect(
+        Schema.is(SemanticDocumentSchema)([
+          { kind: 'paragraph', spans: [{ text: 'Sam', ...paint }] },
+        ]),
+      ).toBe(false);
+    }
     // Typed text takes the color of the text before it, at a block's start the text after it,
     // whichever marks it takes.
     const typed = applyText(colored, 'Dear Sam!\nThanks', {
@@ -493,8 +512,8 @@ describe('editing a Semantic Message Document', () => {
     }).document;
     expect(typed[0].spans).toStrictEqual([
       { text: 'Dear ', color: blue },
-      { text: 'Sam', marks: ['bold'], color: red, background: yellow },
-      { text: '!', marks: ['italic'], color: red, background: yellow },
+      { text: 'Sam', marks: ['bold'], ...samStyle },
+      { text: '!', marks: ['italic'], ...samStyle },
     ]);
     expect(
       applyText(colored, 'Oh Dear Sam\nThanks', {
@@ -510,7 +529,7 @@ describe('editing a Semantic Message Document', () => {
       [{ text: 'Dear', color: blue }],
       [
         { text: ' ', color: blue },
-        { text: 'Sam', marks: ['bold'], color: red, background: yellow },
+        { text: 'Sam', marks: ['bold'], ...samStyle },
       ],
       [{ text: 'Thanks' }],
     ]);
@@ -524,7 +543,7 @@ describe('editing a Semantic Message Document', () => {
         kind: 'paragraph',
         spans: [
           { text: 'Dear ', color: blue },
-          { text: 'Sam', marks: ['bold'], color: red, background: yellow },
+          { text: 'Sam', marks: ['bold'], ...samStyle },
           { text: 'Thanks' },
         ],
       },
@@ -539,13 +558,12 @@ describe('editing a Semantic Message Document', () => {
         {
           text: 'Sam',
           marks: ['bold', 'italic'],
-          color: red,
-          background: yellow,
+          ...samStyle,
         },
       ],
       [{ text: 'Thanks', marks: ['italic'] }],
     ]);
-    // Text of one color on another background stays apart.
+    // Text of one color on another background, or in another font family or size, stays apart.
     expect(
       toggleMark(
         [
@@ -564,6 +582,19 @@ describe('editing a Semantic Message Document', () => {
       { text: 'Dear ', color: blue },
       { text: 'Sam', color: blue, background: yellow },
     ]);
+    for (const other of [{ font: 'Georgia' }, { size: 16 }]) {
+      const spans = [
+        { text: 'Dear ', font, size: 13.5 },
+        { text: 'Sam', marks: ['bold'], font, size: 13.5, ...other },
+      ] as const;
+      expect(
+        toggleMark(
+          [{ kind: 'paragraph', spans }],
+          { start: 5, end: 8 },
+          'bold',
+        )[0].spans,
+      ).toStrictEqual([spans[0], { text: 'Sam', font, size: 13.5, ...other }]);
+    }
     expect(
       setBlockKind(colored, { start: 0, end: 0 }, 'heading1').document[0],
     ).toStrictEqual({ ...colored[0], kind: 'heading1' });
@@ -609,8 +640,7 @@ describe('editing a Semantic Message Document', () => {
       text: 'Sam',
       marks: ['bold'],
       link: sam.href,
-      color: red,
-      background: yellow,
+      ...samStyle,
     });
     expect(
       setLink(linked, sam, { text: 'Samuel', href: sam.href }).document[0]
@@ -619,8 +649,7 @@ describe('editing a Semantic Message Document', () => {
       text: 'Samuel',
       marks: ['bold'],
       link: sam.href,
-      color: red,
-      background: yellow,
+      ...samStyle,
     });
     expect(setLink(linked, sam, { text: 'Sam' }).document).toStrictEqual(
       colored,
@@ -1257,7 +1286,14 @@ describe('storing Drafts', () => {
       {
         kind: 'paragraph',
         spans: [
-          { text: 'Notes', link, color: '#1f6feb', background: '#fff8c5' },
+          {
+            text: 'Notes',
+            link,
+            color: '#1f6feb',
+            background: '#fff8c5',
+            font: '"Helvetica Neue", Arial',
+            size: 13.5,
+          },
         ],
         align: 'center',
       },
@@ -1291,8 +1327,14 @@ describe('storing Drafts', () => {
         ],
       }),
     ).resolves.toBe(false);
-    // Nor is a color or background outside lowercase hexadecimal red, green and blue.
-    for (const paint of [{ color: 'blue' }, { background: 'yellow' }]) {
+    // Nor is a color or background outside lowercase hexadecimal red, green and blue, a font
+    // family outside a CSS family list or a size that is not a positive number of pixels.
+    for (const paint of [
+      { color: 'blue' },
+      { background: 'yellow' },
+      { font: 'Arial;color:red' },
+      { size: -1 },
+    ]) {
       await expect(
         drafts.update({
           ...created,
@@ -1319,6 +1361,8 @@ describe('storing Drafts', () => {
             link: 'https://example.invalid/notes',
             color: '#1f6feb',
             background: '#fff8c5',
+            font: '"Helvetica Neue", Arial',
+            size: 13.5,
           },
         ],
         align: 'center',
