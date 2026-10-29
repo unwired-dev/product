@@ -260,6 +260,7 @@ final class WindowTests: XCTestCase {
       XCTAssertTrue(
         text("Your Gmail mailbox changes are still waiting", in: relaunched).waitForExistence(
           timeout: 20))
+      waitUntil { relaunched.buttons["Open Inbox"].isEnabled }
       relaunched.buttons["Open Inbox"].click()
     }
     XCTAssertTrue(relaunched.buttons[starred].waitForExistence(timeout: 20))
