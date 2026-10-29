@@ -206,10 +206,14 @@ const htmlSpan = (span: Span) => {
     (html, mark) => `<${tags[mark]}>${html}</${tags[mark]}>`,
     inner,
   );
-  // Inside a link, so linked text shows its own color.
-  return 'color' in span
-    ? `<span style="color:${span.color}">${marked}</span>`
-    : marked;
+  // Inside a link, so linked text shows its own color and background.
+  const style = [
+    'color' in span ? `color:${span.color}` : '',
+    'background' in span ? `background-color:${span.background}` : '',
+  ]
+    .filter((each) => each !== '')
+    .join(';');
+  return style === '' ? marked : `<span style="${style}">${marked}</span>`;
 };
 const htmlSpans = (spans: Block['spans']) =>
   linkRuns(spans)

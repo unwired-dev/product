@@ -33,7 +33,7 @@ export type BlockKind = typeof BlockKindSchema.Type;
 // A block without an alignment is start-aligned.
 export const AlignmentSchema = Schema.Literals(['center', 'right', 'justify']);
 
-// Text without a color shows in the default text color.
+// Text without a color shows in the default text color, and without a background on none.
 export const ColorSchema = Schema.String.check(
   Schema.isPattern(/^#[\da-f]{6}$/u),
 );
@@ -90,6 +90,7 @@ const SpanSchema = Schema.Union([
       ),
     ),
     color: Schema.optionalKey(ColorSchema),
+    background: Schema.optionalKey(ColorSchema),
   }),
   // An inline image: one character of the text, carrying the image it shows.
   Schema.Struct({
@@ -124,19 +125,31 @@ const marksOf = (span: Span | undefined): readonly Mark[] => span?.marks ?? [];
 const linkOf = (span: Span | undefined) =>
   span !== undefined && 'link' in span ? span.link : undefined;
 
-const colorOf = (span: Span | undefined) =>
-  span !== undefined && 'color' in span ? span.color : undefined;
+// The text color and background of a span, as `spanOf` keeps them.
+const paintOf = (span: Span | undefined) =>
+  span === undefined || 'image' in span
+    ? {}
+    : { color: span.color, background: span.background };
+
+const samePaint = (left: Span, right: Span) => {
+  const [one, other] = [paintOf(left), paintOf(right)];
+  return one.color === other.color && one.background === other.background;
+};
 
 const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
-// A span of `text` with `marks`, keeping the image, or the link and color, of `from`.
+// A span of `text` with `marks`, keeping the image, or the link, color and background, of `from`.
 const spanOf = (
   text: string,
   marks: readonly Mark[],
   from:
     | Readonly<{ image: Asset }>
-    | Readonly<{ link?: string | undefined; color?: string | undefined }> = {},
+    | Readonly<{
+        link?: string | undefined;
+        color?: string | undefined;
+        background?: string | undefined;
+      }> = {},
 ): Span => {
   const [first, ...rest] = marks;
   const marked =
@@ -149,6 +162,7 @@ const spanOf = (
     ...marked,
     ...(from.link === undefined ? {} : { link: from.link }),
     ...(from.color === undefined ? {} : { color: from.color }),
+    ...(from.background === undefined ? {} : { background: from.background }),
   };
 };
 
@@ -177,7 +191,7 @@ const sliceSpans = (spans: readonly Span[], from: number, to = Infinity) => {
   return sliced;
 };
 
-// Adjacent text spans with the same marks, link and color merge; an image is a span of its own.
+// Adjacent text spans with the same marks, link, color and background merge; an image is a span of its own.
 const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
   const spans: Span[] = [];
   for (const span of parts.flat().filter(({ text }) => text !== '')) {
@@ -188,7 +202,7 @@ const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
       !('image' in span) &&
       sameMarks(marksOf(last), marksOf(span)) &&
       linkOf(last) === linkOf(span) &&
-      colorOf(last) === colorOf(span)
+      samePaint(last, span)
     ) {
       spans[spans.length - 1] = { ...last, text: last.text + span.text };
     } else {
@@ -514,7 +528,7 @@ const splice = (
 ) => {
   const { from, to, first, kind, head, tail } = edgesOf(lines, change);
   const typed = marks ?? marksOf(head.at(-1) ?? tail[0]);
-  const color = colorOf(head.at(-1) ?? tail[0]);
+  const paint = paintOf(head.at(-1) ?? tail[0]);
   // Replacing text keeps the link of its first replaced character; text inserted inside a link
   // joins it, and at the link's edges stays unlinked.
   const column = Math.max(0, from.column - from.marker);
@@ -536,7 +550,7 @@ const splice = (
     kind: createdKind(kind, { index, count: parts.length, above }),
     spans: joinSpans(
       index === 0 ? head : [],
-      [spanOf(text, typed, { link, color })],
+      [spanOf(text, typed, { link, ...paint })],
       index === last ? tail : [],
     ),
   }));
@@ -568,7 +582,7 @@ const shortcutAt = (
 
 // Applies the editor's new text to the document. The change is the span between the unchanged
 // start and end of the text; inserted characters take `marks`, or those of the text before them,
-// and that text's color.
+// and that text's color and background.
 // Deleting into a list marker turns that item into a paragraph. `shown` is the text the editor
 // reported last, which it may still show instead of the document's display.
 export function applyText(
@@ -706,7 +720,8 @@ export function selectedText(
 }
 
 // Replaces the text a selection covers with `text` as one edit. List markers inside the
-// selection stay, and the inserted text takes the marks and color of the text before it.
+// selection stay, and the inserted text takes the marks, color and background of the text before
+// it.
 export function replaceSelection(
   document: SemanticDocument,
   selection: Selection,
@@ -862,8 +877,8 @@ export function linkAt(
 }
 
 // Replaces a link's text and destination as one edit, or with no destination removes the link
-// and keeps its text. Unchanged text keeps its marks and colors; new text takes those of the
-// link's start.
+// and keeps its text. Unchanged text keeps its marks, colors and backgrounds; new text takes those
+// of the link's start.
 export function setLink(
   document: SemanticDocument,
   link: Link,
@@ -880,12 +895,9 @@ export function setLink(
   const linked =
     text === link.text
       ? sliceSpans(spans, from, to).map((span) =>
-          spanOf(span.text, marksOf(span), {
-            link: href,
-            color: colorOf(span),
-          }),
+          spanOf(span.text, marksOf(span), { link: href, ...paintOf(span) }),
         )
-      : [spanOf(text, marksOf(first), { link: href, color: colorOf(first) })];
+      : [spanOf(text, marksOf(first), { link: href, ...paintOf(first) })];
   const caret = link.start + text.length;
   return {
     document: documentOf(

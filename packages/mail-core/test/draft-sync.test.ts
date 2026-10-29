@@ -68,6 +68,7 @@ describe('synchronizing Drafts through Product Sync', () => {
                   text: 'attached',
                   link: 'https://example.invalid/numbers',
                   color: '#d1242f',
+                  background: '#fff8c5',
                 },
               ],
               align: 'center',
@@ -120,6 +121,7 @@ describe('synchronizing Drafts through Product Sync', () => {
       text: 'attached',
       link: 'https://example.invalid/numbers',
       color: '#d1242f',
+      background: '#fff8c5',
     });
     const [, slowAsset] = assetsOf(continued);
     // The import running on the phone stays incomplete, and is never sent.
