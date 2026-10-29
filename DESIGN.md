@@ -363,7 +363,10 @@ styles) so the file stays editable.
   specify. The search field is 400pt wide and centered, with New Message pinned
   to the trailing edge. On compact layouts it spans the screen width and sits 4pt
   above the bottom safe area, or 12pt above the software keyboard. Rows scroll
-  under it behind a 72pt scroll edge fade. It hides while the composer is open;
+  under it behind a 72pt scroll edge fade. On iPhone, Filter, the system search
+  field and New Message are items of the system toolbar instead, which UIKit
+  places and lifts above the software keyboard; its glass sits lower and further
+  inset than the frames draw (#1534). It hides while the composer is open;
   on Mac, explicitly invoking Search Mail reveals it while keeping the overlay
   Draft open.
 - **Command Palette:** on the Mac a 36pt glass command input (command
