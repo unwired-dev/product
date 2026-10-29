@@ -2055,7 +2055,13 @@ export function createImapInbox(
           : download.pipe(
               Effect.catchIf(
                 (failure) => !changesAccess(failure.kind),
-                () => Effect.succeed(kept),
+                ({ kind, diagnostic }) =>
+                  expected(kind)
+                    ? Effect.succeed(kept)
+                    : Effect.logError(
+                        'IMAP saved body refresh failed:',
+                        diagnostic,
+                      ).pipe(Effect.as(kept)),
               ),
             );
         const cache = opened;

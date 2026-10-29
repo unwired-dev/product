@@ -1,23 +1,26 @@
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type { ResponseKind } from '@private-email/mail-core/responses';
+
 import { english } from '@private-email/localization';
+import { createComposerNavigation } from '@private-email/mail-core/composer-navigation';
+import { assetsOf, sendingMailboxes } from '@private-email/mail-core/drafts';
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createMailboxes } from '@private-email/mail-core/mailboxes';
+import { decodeBodyDocument } from '@private-email/mail-core/message-body';
+import { createOutbox, undoSendWindow } from '@private-email/mail-core/outbox';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import { startResponse } from '@private-email/mail-core/responses';
+import { plainText } from '@private-email/mail-core/semantic-document';
+import { createSyntheticProductSync } from '@private-email/mail-core/testing/drafts';
+import { syntheticConnections } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import * as Base64 from 'effect/encoding/Base64';
 import * as Option from 'effect/Option';
 import PostalMime from 'postal-mime';
 
-import type { RegistrationSnapshot } from '../src/registration.ts';
-import type { ResponseKind } from '../src/responses.ts';
-
-import { createComposerNavigation } from '../src/composer-navigation.ts';
-import { assetsOf, sendingMailboxes } from '../src/drafts.ts';
-import { createImapInbox } from '../src/imap-inbox.ts';
-import { createMailboxes } from '../src/mailboxes.ts';
-import { decodeBodyDocument } from '../src/message-body.ts';
-import { createOutbox, undoSendWindow } from '../src/outbox.ts';
-import { defaultProfile, mailboxesOf } from '../src/registration.ts';
-import { startResponse } from '../src/responses.ts';
-import { plainText } from '../src/semantic-document.ts';
-import { createSyntheticProductSync } from '../src/testing/drafts.ts';
-import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
-import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 import { device, present } from './draft-sync-fixture.ts';
 import { account, write } from './outbox-fixture.ts';
 
@@ -387,10 +390,26 @@ describe('answering IMAP mail', () => {
 
   it('opens a body saved before its headers were kept while offline, without a response', async () => {
     expect.hasAssertions();
+    const logs = vi.spyOn(console, 'error').mockReturnValue(undefined);
     const reopened = await reopenOlder('offline');
     expect(reopened.body).toMatchObject({ kind: 'ready' });
     expect(reopened.answered).toBeUndefined();
     expect(reopened.saved).toBeUndefined();
+    expect(logs).not.toHaveBeenCalled();
+  });
+
+  it('logs a safe diagnostic when an unexpected refresh failure leaves an older body readable', async () => {
+    expect.hasAssertions();
+    const logs = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const reopened = await reopenOlder('private-provider-detail');
+    expect(reopened.body).toMatchObject({ kind: 'ready' });
+    expect(reopened.answered).toBeUndefined();
+    expect(reopened.saved).toBeUndefined();
+    expect(logs).toHaveBeenCalledWith(
+      expect.any(String),
+      'IMAP saved body refresh failed:',
+      'unrecognized code',
+    );
   });
 
   it.each([
