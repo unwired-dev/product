@@ -116,10 +116,10 @@ const discoverNamespaces = (socket, tag, failed) => {
     );
   }
 };
-// Floods LIST without ever answering it, far past what fits in the socket buffers: only a client
-// that stops at its bound and closes the session ends the flood early.
-const floodFolders = (socket) => {
-  const total = 100_000;
+// Sends LIST responses without ever answering the command. A flood far past what fits in the socket
+// buffers ends early only when the client stops at its bound and closes the session; exactly 1,001
+// responses fail only a client whose bound is 1,000 or lower.
+const floodFolders = (socket, total) => {
   let index = 0;
   const flood = () => {
     while (!socket.destroyed && index < total) {
@@ -140,7 +140,7 @@ const floodFolders = (socket) => {
 const listFolders = (socket, command, overflowing) => {
   operations.add('list');
   if (overflowing) {
-    floodFolders(socket);
+    floodFolders(socket, overflowing);
   } else if (command.includes('Shared/')) {
     operations.add('shared-list');
     socket.write('* LIST (\\HasNoChildren) "/" "Shared/Team"\r\n');
@@ -397,7 +397,7 @@ const server = tls.createServer(
     });
     socket.write('* OK [CAPABILITY IMAP4rev1] Controlled server ready\r\n');
     let input = '';
-    let overflowing = false;
+    let overflowing = 0;
     let namespaces = false;
     let namespaceFailure = false;
     let user = '';
@@ -451,7 +451,12 @@ const server = tls.createServer(
           assert.match(command, /synthetic-password/u);
           user = userOf(command);
           session.user = user;
-          overflowing = command.includes('many-folders');
+          overflowing = 0;
+          if (command.includes('many-folders')) {
+            overflowing = 100_000;
+          } else if (command.includes('folder-limit')) {
+            overflowing = 1001;
+          }
           namespaceFailure = command.includes('namespace-failure');
           namespaces = ['namespace-failure', 'namespaced'].some((name) =>
             command.includes(name),
@@ -462,7 +467,7 @@ const server = tls.createServer(
         discoverNamespaces(socket, tag, namespaceFailure);
       } else if (command.startsWith('LIST ')) {
         listFolders(socket, command, overflowing);
-        if (!overflowing) {
+        if (overflowing === 0) {
           ok();
         }
       } else if (/^(?:UID )?FETCH /u.test(command)) {
