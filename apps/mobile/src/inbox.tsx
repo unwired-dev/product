@@ -55,8 +55,8 @@ import {
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import {
-  useBarBottomInset,
   useBarIndicatorInsets,
+  useListBottomInset,
   WindowBarContext,
 } from './inbox-bar.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
@@ -69,6 +69,7 @@ import {
 } from './inbox-rows.tsx';
 import {
   InboxBar,
+  InboxToolbar,
   OnlineResults,
   SearchHeading,
   useInboxSearch,
@@ -669,8 +670,9 @@ export function Inbox({
   const search = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
   const inWindow = use(WindowBarContext) !== undefined;
-  const bottomInset = useBarBottomInset();
-  const indicatorInsets = useBarIndicatorInsets();
+  const listInset = useListBottomInset(visible !== false);
+  const toolbar = usesToolbar(bar, onCompose);
+  const indicatorInsets = useBarIndicatorInsets(toolbar);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
@@ -1032,7 +1034,7 @@ export function Inbox({
             }}
             contentContainerStyle={[
               styles.list,
-              { paddingBottom: styles.list.paddingBottom + bottomInset },
+              { paddingBottom: styles.list.paddingBottom + listInset },
             ]}
             scrollIndicatorInsets={indicatorInsets}
             refreshing={refreshing}
@@ -1187,30 +1189,61 @@ export function Inbox({
               );
             }}
           />
-          {/* The floating bar rides on the software keyboard while its search field is in use, moving
-              with it frame by frame. It sits 4pt above the home indicator's safe area and 12pt above
-              the keyboard, as the frames show. The window bar already lifts the regular layout's
-              capsule. */}
-          <KeyboardStickyView
-            enabled={!inWindow}
-            offset={{ opened: insets.bottom + spacing.xs - spacing.m }}
-            pointerEvents="box-none"
-            style={StyleSheet.absoluteFill}
-            testID="keyboard-bar">
-            <InboxBar
-              listNotice={syncCapsule}
-              field={search}
-              filter={filtering}
-              hidden={composing !== undefined}
-              notice={outboxActions.toast}
-              onCompose={onCompose}
-              ready={ready}
-              scope={scope}
-              search={searchState}
-            />
-          </KeyboardStickyView>
+          <InboxControls
+            toolbar={toolbar}
+            sticky={!inWindow}
+            stickyOffset={insets.bottom + spacing.xs - spacing.m}
+            listNotice={syncCapsule}
+            field={search}
+            filter={filtering}
+            hidden={composing !== undefined}
+            notice={outboxActions.toast}
+            onCompose={onCompose}
+            ready={ready}
+            scope={scope}
+            search={searchState}
+          />
         </View>
       </SafeAreaView>
     </View>
+  );
+}
+
+// The system toolbar holds New Message, so it needs onCompose (#1534).
+function usesToolbar(bar: boolean | undefined, onCompose: unknown) {
+  return bar === true && onCompose !== undefined;
+}
+
+// iPhone's single column uses the system toolbar and its search (#1534). Elsewhere the floating bar
+// rides on the software keyboard while its search field is in use, moving with it frame by frame.
+// It sits 4pt above the home indicator's safe area and 12pt above the keyboard, as the frames show.
+// The window bar already lifts the regular layout's capsule, so it doesn't follow the keyboard.
+function InboxControls({
+  toolbar,
+  sticky,
+  stickyOffset,
+  ...props
+}: Parameters<typeof InboxBar>[0] & {
+  readonly toolbar: boolean;
+  readonly sticky: boolean;
+  readonly stickyOffset: number;
+}) {
+  if (toolbar && props.onCompose !== undefined) {
+    return (
+      <InboxToolbar
+        {...props}
+        onCompose={props.onCompose}
+      />
+    );
+  }
+  return (
+    <KeyboardStickyView
+      enabled={sticky}
+      offset={{ opened: stickyOffset }}
+      pointerEvents="box-none"
+      style={StyleSheet.absoluteFill}
+      testID="keyboard-bar">
+      <InboxBar {...props} />
+    </KeyboardStickyView>
   );
 }

@@ -1,6 +1,6 @@
 import type { Translate } from '@private-email/localization';
 import type { InboxFilter } from '@private-email/mail-core/mailboxes';
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import type { Dispatch, ReactElement, ReactNode, SetStateAction } from 'react';
 
 import { BottomSheet, Host, Popover, RNHostView } from '@expo/ui/swift-ui';
 import { filterMessages } from '@private-email/mail-core/mailboxes';
@@ -407,32 +407,41 @@ export function useInboxFilter<M extends Filtered>({
 // discards the edits.
 export function InboxFilterButton({
   state: { filter, setFilter, on, setOn, connections },
+  renderControl,
 }: {
   readonly state: Pick<
     ReturnType<typeof useInboxFilter>,
     'filter' | 'setFilter' | 'on' | 'setOn' | 'connections'
   >;
+  // Draws the switch and summary, as the iPhone's native toolbar does with its own items.
+  readonly renderControl?: (
+    props: Parameters<typeof FilterControl>[0],
+  ) => ReactElement;
 }) {
   const { t } = useLocalization();
   const popover = use(WindowBarContext) !== undefined;
   const [open, setOpen] = useState(false);
   const [edited, setEdited] = useState(filter);
-  const control = (
-    <FilterControl
-      label={on ? filterLabel(t, filter, connections) : undefined}
-      onOpen={() => {
-        setEdited(filter);
-        setOpen(true);
-      }}
-      onToggle={() => {
-        // A filter left with nothing to narrow starts again from Unread.
-        if (!on && !narrows(filter, connections)) {
-          setFilter(defaultFilter);
-        }
-        setOn(!on);
-      }}
-    />
-  );
+  const controlProps = {
+    label: on ? filterLabel(t, filter, connections) : undefined,
+    onOpen: () => {
+      setEdited(filter);
+      setOpen(true);
+    },
+    onToggle: () => {
+      // A filter left with nothing to narrow starts again from Unread.
+      if (!on && !narrows(filter, connections)) {
+        setFilter(defaultFilter);
+      }
+      setOn(!on);
+    },
+  };
+  const control =
+    renderControl === undefined ? (
+      <FilterControl {...controlProps} />
+    ) : (
+      renderControl(controlProps)
+    );
   const filters = (
     <Filters
       connections={connections}

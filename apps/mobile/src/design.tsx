@@ -97,6 +97,53 @@ export function NavigationChrome(props: NavigationChromeProps) {
   );
 }
 
+interface SearchToolbarProps {
+  readonly placeholder: string;
+  readonly searchLabel: string;
+  // The search field's accessibility action that opens the Command Palette.
+  readonly paletteLabel: string;
+  // Closes the system search when it turns false.
+  readonly searching: boolean;
+  // Each increase focuses the system search field, opening search.
+  readonly focusRequest: number;
+  // Hides the toolbar while a screen such as the composer covers the Inbox.
+  readonly covered: boolean;
+  // Shows Filter once the Inbox has mail to narrow.
+  readonly ready: boolean;
+  readonly filtered: boolean;
+  readonly filterLabel: string;
+  readonly filteredBy: string;
+  readonly filterSummary: string | undefined;
+  readonly filterSummaryLabel: string | undefined;
+  readonly filterHint: string;
+  readonly composeLabel: string;
+  readonly composeEnabled: boolean;
+  readonly accent: ColorValue;
+  readonly accentOnFill: ColorValue;
+  readonly accentInk: ColorValue;
+  readonly onSearchFocus: () => void;
+  readonly onSearchText: (event: { nativeEvent: { text: string } }) => void;
+  readonly onSearchClose: () => void;
+  readonly onPalette: () => void;
+  readonly onFilterToggle: () => void;
+  readonly onFilterOpen: () => void;
+  readonly onCompose: () => void;
+}
+
+const NativeSearchToolbar = requireNativeComponent<
+  ViewProps & SearchToolbarProps
+>('UnwiredSearchToolbar');
+
+// The compact Inbox's system toolbar: Filter, the system search field and New Message.
+export function SearchToolbar(props: SearchToolbarProps) {
+  return (
+    <NativeSearchToolbar
+      {...props}
+      style={{ position: 'absolute', width: 0, height: 0 }}
+    />
+  );
+}
+
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
 

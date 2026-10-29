@@ -1389,7 +1389,7 @@ final class InboxTests: XCTestCase {
         .completed)
     }
     let searching = {
-      XCTAssertTrue(app.buttons["Close Search"].exists)
+      XCTAssertTrue(self.closeSearch(app).exists)
       XCTAssertTrue(keyboard.exists)
       XCTAssertEqual(search.value(forKey: "hasKeyboardFocus") as? Bool, true)
       XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
@@ -1985,7 +1985,7 @@ final class InboxTests: XCTestCase {
     search.typeText("\n")
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     verifyCompactSwipeBackToResults(app, search: search, row: maya)
-    app.buttons["Close Search"].tap()
+    closeSearch(app).tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     // React Native resets the indicator inset as the keyboard leaves.
     verifyCompactIndicator(app, bar: search)
@@ -2199,6 +2199,24 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(query.waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    // #1534: Search Mail focuses the toolbar's native search field. Search hides the title, so a
+    // downward swipe on the field opens the palette instead.
+    let search = app.searchFields.firstMatch
+    openPalette(app, header: app.navigationBars.staticTexts["Inbox"].firstMatch)
+    waitForFocus(query)
+    app.typeText("Search Mail\n")
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    waitForFocus(search)
+    let start = search.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    start.press(
+      forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)), withVelocity: .fast,
+      thenHoldForDuration: 0)
+    waitForFocus(query)
+    app.typeText("Search Mail\n")
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    waitForFocus(search)
+    closeSearch(app).tap()
+    XCTAssertTrue(app.navigationBars.staticTexts["Inbox"].waitForExistence(timeout: 10))
   }
 
   // #968: releasing a held Back returns to usable Mailboxes every time, and the Inbox reopens with
@@ -2459,14 +2477,21 @@ final class InboxTests: XCTestCase {
     waitUntil { abs(footer.frame.minY - placed.minY) <= 2 }
   }
 
-  // #1506: the list's scroll indicator track stops at the floating bar the rows run under, at rest
-  // and above the keyboard.
+  // #1506: the list's scroll indicator track stops at the bar the rows run under, at rest and above
+  // the keyboard. #1534: on iPhone that is the system toolbar: the track ends at its top, 20pt above
+  // the search field at rest, and 12pt above the field over the keyboard.
   private func verifyCompactIndicator(_ app: XCUIApplication, bar: XCUIElement) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let track = app.otherElements["Inbox messages"].firstMatch.otherElements
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Vertical scroll bar")).firstMatch
     XCTAssertTrue(track.waitForExistence(timeout: 10))
-    waitUntil { abs(track.frame.maxY - bar.frame.minY) <= 1 }
+    waitUntil { (11...21).contains(bar.frame.minY - track.frame.maxY) }
+  }
+
+  // iPhone's native search closes with the system's close button; the floating bar labels its own.
+  private func closeSearch(_ app: XCUIApplication) -> XCUIElement {
+    UIDevice.current.userInterfaceIdiom == .phone
+      ? app.toolbars.buttons["close"].firstMatch : app.buttons["Close Search"]
   }
 
   // #964: on iPhone the Inbox surface reaches the bottom edge behind the home indicator, and at
@@ -2493,16 +2518,11 @@ final class InboxTests: XCTestCase {
       waitUntil { footer.frame.maxY <= search.frame.minY }
       verifyCompactIndicator(app, bar: search)
     }
-    // #1364: the floating bar sits 4pt above the bottom safe area, as the frames show. The runner's own
-    // window shares the device's safe area.
-    guard
-      let runnerWindow = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first
-    else {
-      return XCTFail("The runner has no window to read the bottom safe area from")
-    }
-    let safeArea = runnerWindow.safeAreaInsets.bottom
-    let filter = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Filter")).firstMatch
-    XCTAssertEqual(window.maxY - filter.frame.maxY, safeArea + 4, accuracy: 1)
+    // #1534: iPhone's Filter, search and New Message are the system toolbar's items, which UIKit
+    // places above the home indicator.
+    XCTAssertTrue(app.toolbars.switches["Filter"].exists)
+    XCTAssertTrue(app.toolbars.searchFields.firstMatch.exists)
+    XCTAssertTrue(app.toolbars.buttons["New Message"].exists)
     // #1506: the rows run under the floating bar and the home indicator to the screen's bottom edge.
     XCTAssertEqual(app.otherElements["Inbox messages"].firstMatch.frame.maxY, window.maxY)
     let colors = pixels(app, at: [surface, edge])
