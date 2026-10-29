@@ -191,7 +191,7 @@ describe('building an outgoing message', () => {
     expect(parsed.text).toBe('Menu\n\n- Soup\n> Yum\nx');
   });
 
-  it('colors text in paragraphs, links, list items, quotes and code in HTML and leaves plain text as written', async () => {
+  it('colors text and backgrounds in paragraphs, links, list items, quotes and code in HTML and leaves plain text as written', async () => {
     expect.hasAssertions();
     const parsed = await PostalMime.parse(
       assemble(
@@ -207,11 +207,15 @@ describe('building an outgoing message', () => {
                     marks: ['bold'],
                     link: 'https://example.invalid/plan',
                     color: '#1f6feb',
+                    background: '#fff8c5',
                   },
                 ],
               },
               { kind: 'bulleted', spans: [{ text: 'Soup', color: '#1a7f37' }] },
-              { kind: 'quote', spans: [{ text: 'Yum', color: '#8250df' }] },
+              {
+                kind: 'quote',
+                spans: [{ text: 'Yum', background: '#ddf4ff' }],
+              },
               { kind: 'code', spans: [{ text: 'x', color: '#9a6700' }] },
             ],
           }),
@@ -221,9 +225,9 @@ describe('building an outgoing message', () => {
 
     expect(parsed.html).toBe(
       '<!DOCTYPE html><html><body><p><span style="color:#d1242f">See </span>' +
-        '<a href="https://example.invalid/plan"><span style="color:#1f6feb"><strong>plan</strong></span></a></p>' +
+        '<a href="https://example.invalid/plan"><span style="color:#1f6feb;background-color:#fff8c5"><strong>plan</strong></span></a></p>' +
         '<ul><li><span style="color:#1a7f37">Soup</span></li></ul>' +
-        '<blockquote><p><span style="color:#8250df">Yum</span></p></blockquote>' +
+        '<blockquote><p><span style="background-color:#ddf4ff">Yum</span></p></blockquote>' +
         '<pre><code><span style="color:#9a6700">x</span></code></pre></body></html>',
     );
     expect(parsed.text).toBe(

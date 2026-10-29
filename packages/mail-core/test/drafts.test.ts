@@ -457,16 +457,17 @@ describe('editing a Semantic Message Document', () => {
     expect(redo(undo(history)).present).toBe(typedAligned);
   });
 
-  it('keeps text colors through typing, line breaks, marks, block kinds, images, links and replacements', () => {
+  it('keeps text colors and backgrounds through typing, line breaks, marks, block kinds, images, links and replacements', () => {
     expect.hasAssertions();
     const blue = '#1f6feb';
     const red = '#d1242f';
+    const yellow = '#fff8c5';
     const colored: SemanticDocument = [
       {
         kind: 'paragraph',
         spans: [
           { text: 'Dear ', color: blue },
-          { text: 'Sam', marks: ['bold'], color: red },
+          { text: 'Sam', marks: ['bold'], color: red, background: yellow },
         ],
       },
       { kind: 'paragraph', spans: [{ text: 'Thanks' }] },
@@ -478,6 +479,11 @@ describe('editing a Semantic Message Document', () => {
           { kind: 'paragraph', spans: [{ text: 'Sam', color }] },
         ]),
       ).toBe(false);
+      expect(
+        Schema.is(SemanticDocumentSchema)([
+          { kind: 'paragraph', spans: [{ text: 'Sam', background: color }] },
+        ]),
+      ).toBe(false);
     }
     // Typed text takes the color of the text before it, at a block's start the text after it,
     // whichever marks it takes.
@@ -487,8 +493,8 @@ describe('editing a Semantic Message Document', () => {
     }).document;
     expect(typed[0].spans).toStrictEqual([
       { text: 'Dear ', color: blue },
-      { text: 'Sam', marks: ['bold'], color: red },
-      { text: '!', marks: ['italic'], color: red },
+      { text: 'Sam', marks: ['bold'], color: red, background: yellow },
+      { text: '!', marks: ['italic'], color: red, background: yellow },
     ]);
     expect(
       applyText(colored, 'Oh Dear Sam\nThanks', {
@@ -504,7 +510,7 @@ describe('editing a Semantic Message Document', () => {
       [{ text: 'Dear', color: blue }],
       [
         { text: ' ', color: blue },
-        { text: 'Sam', marks: ['bold'], color: red },
+        { text: 'Sam', marks: ['bold'], color: red, background: yellow },
       ],
       [{ text: 'Thanks' }],
     ]);
@@ -518,7 +524,7 @@ describe('editing a Semantic Message Document', () => {
         kind: 'paragraph',
         spans: [
           { text: 'Dear ', color: blue },
-          { text: 'Sam', marks: ['bold'], color: red },
+          { text: 'Sam', marks: ['bold'], color: red, background: yellow },
           { text: 'Thanks' },
         ],
       },
@@ -530,9 +536,33 @@ describe('editing a Semantic Message Document', () => {
     ).toStrictEqual([
       [
         { text: 'Dear ', marks: ['italic'], color: blue },
-        { text: 'Sam', marks: ['bold', 'italic'], color: red },
+        {
+          text: 'Sam',
+          marks: ['bold', 'italic'],
+          color: red,
+          background: yellow,
+        },
       ],
       [{ text: 'Thanks', marks: ['italic'] }],
+    ]);
+    // Text of one color on another background stays apart.
+    expect(
+      toggleMark(
+        [
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Dear ', color: blue },
+              { text: 'Sam', marks: ['bold'], color: blue, background: yellow },
+            ],
+          },
+        ],
+        { start: 5, end: 8 },
+        'bold',
+      )[0].spans,
+    ).toStrictEqual([
+      { text: 'Dear ', color: blue },
+      { text: 'Sam', color: blue, background: yellow },
     ]);
     expect(
       setBlockKind(colored, { start: 0, end: 0 }, 'heading1').document[0],
@@ -580,6 +610,7 @@ describe('editing a Semantic Message Document', () => {
       marks: ['bold'],
       link: sam.href,
       color: red,
+      background: yellow,
     });
     expect(
       setLink(linked, sam, { text: 'Samuel', href: sam.href }).document[0]
@@ -589,6 +620,7 @@ describe('editing a Semantic Message Document', () => {
       marks: ['bold'],
       link: sam.href,
       color: red,
+      background: yellow,
     });
     expect(setLink(linked, sam, { text: 'Sam' }).document).toStrictEqual(
       colored,
@@ -1224,7 +1256,9 @@ describe('storing Drafts', () => {
     const linked = (link: string): SemanticDocument => [
       {
         kind: 'paragraph',
-        spans: [{ text: 'Notes', link, color: '#1f6feb' }],
+        spans: [
+          { text: 'Notes', link, color: '#1f6feb', background: '#fff8c5' },
+        ],
         align: 'center',
       },
     ];
@@ -1257,16 +1291,16 @@ describe('storing Drafts', () => {
         ],
       }),
     ).resolves.toBe(false);
-    // Nor is a color outside lowercase hexadecimal red, green and blue.
-    await expect(
-      drafts.update({
-        ...created,
-        subject: 'Studio review on Thursday',
-        body: [
-          { kind: 'paragraph', spans: [{ text: 'Notes', color: 'blue' }] },
-        ],
-      }),
-    ).resolves.toBe(false);
+    // Nor is a color or background outside lowercase hexadecimal red, green and blue.
+    for (const paint of [{ color: 'blue' }, { background: 'yellow' }]) {
+      await expect(
+        drafts.update({
+          ...created,
+          subject: 'Studio review on Thursday',
+          body: [{ kind: 'paragraph', spans: [{ text: 'Notes', ...paint }] }],
+        }),
+      ).resolves.toBe(false);
+    }
 
     // A new store, as after relaunch, reopens the same Draft without sending it.
     const relaunched = createDrafts(storage.native, session.registration);
@@ -1284,6 +1318,7 @@ describe('storing Drafts', () => {
             text: 'Notes',
             link: 'https://example.invalid/notes',
             color: '#1f6feb',
+            background: '#fff8c5',
           },
         ],
         align: 'center',
