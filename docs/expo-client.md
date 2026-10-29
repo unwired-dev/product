@@ -149,9 +149,10 @@ fill the remaining gaps. Delete each when its condition holds:
 
 The adapters' Back items show no menu, which would show an empty capsule
 ([#968](https://github.com/unwired-dev/product/issues/968)).
-The remaining custom chrome is the regular layout's window bar, the floating Inbox bar
-and its search field outside the iPhone toolbar, the iPhone Mailboxes header with
-**Account** and its floating **New Message**
+The remaining custom chrome includes iPad's floating Inbox bar and search field,
+hosted by the window bar in the regular layout, and the Mailboxes header on iPad and
+iPhone. iPad also keeps its **Account** footer; iPhone's Mailboxes header holds
+**Account** and its floating bar holds **New Message**
 ([#1055](https://github.com/unwired-dev/product/issues/1055)).
 
 ## Install and run
