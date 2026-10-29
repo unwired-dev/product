@@ -177,6 +177,16 @@ cannot yet link unlinked text
 ([#878](https://github.com/unwired-dev/product/issues/878)), and the Slash
 Command Menu and recipient suggestions are later slices.
 
+Each block can also be centered, right-aligned or justified; a block without an
+alignment is start-aligned, and a Draft holding any other alignment is not saved
+or synchronized. A line break keeps the alignment of the block it splits, joining
+two blocks keeps the first block's, and typing, formatting, block kinds, inline
+images, replacements and Undo keep it. Sent mail aligns headings, paragraphs, list
+items and quotes; code lines share one `<pre>` and are sent without their alignment.
+Composers do not yet show or set alignment, and no Draft holds one until Drafts
+from other mail clients open
+([#1267](https://github.com/unwired-dev/product/issues/1267)).
+
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
 

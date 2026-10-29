@@ -227,16 +227,20 @@ const headings: Partial<Record<Block['kind'], string>> = {
   heading2: 'h2',
   heading3: 'h3',
 };
-const htmlBlock = ({ kind, spans }: Block) => {
+// Code lines share one <pre>, so they render without their alignment.
+const htmlBlock = ({ kind, spans, align }: Block) => {
   const inner = htmlSpans(spans);
+  const style = align === undefined ? '' : ` style="text-align:${align}"`;
   const heading = headings[kind];
   if (heading !== undefined) {
-    return `<${heading}>${inner}</${heading}>`;
+    return `<${heading}${style}>${inner}</${heading}>`;
   }
   if (kind === 'bulleted' || kind === 'numbered') {
-    return `<li>${inner}</li>`;
+    return `<li${style}>${inner}</li>`;
   }
-  return kind === 'code' ? inner : `<p>${inner === '' ? '<br>' : inner}</p>`;
+  return kind === 'code'
+    ? inner
+    : `<p${style}>${inner === '' ? '<br>' : inner}</p>`;
 };
 // Consecutive list items, quotes and code lines share one container.
 // fallow-ignore-next-line complexity -- One pass opens and closes each run of blocks in reading order.
