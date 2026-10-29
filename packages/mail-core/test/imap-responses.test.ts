@@ -410,6 +410,9 @@ describe('answering IMAP mail', () => {
       'IMAP saved body refresh failed:',
       'unrecognized code',
     );
+    expect(JSON.stringify(logs.mock.calls)).not.toContain(
+      'private-provider-detail',
+    );
   });
 
   it.each([
