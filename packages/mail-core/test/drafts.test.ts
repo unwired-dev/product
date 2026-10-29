@@ -457,6 +457,151 @@ describe('editing a Semantic Message Document', () => {
     expect(redo(undo(history)).present).toBe(typedAligned);
   });
 
+  it('keeps text colors through typing, line breaks, marks, block kinds, images, links and replacements', () => {
+    expect.hasAssertions();
+    const blue = '#1f6feb';
+    const red = '#d1242f';
+    const colored: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Dear ', color: blue },
+          { text: 'Sam', marks: ['bold'], color: red },
+        ],
+      },
+      { kind: 'paragraph', spans: [{ text: 'Thanks' }] },
+    ];
+    expect(Schema.is(SemanticDocumentSchema)(colored)).toBe(true);
+    for (const color of ['red', '#D1242F', '#d12']) {
+      expect(
+        Schema.is(SemanticDocumentSchema)([
+          { kind: 'paragraph', spans: [{ text: 'Sam', color }] },
+        ]),
+      ).toBe(false);
+    }
+    // Typed text takes the color of the text before it, at a block's start the text after it,
+    // whichever marks it takes.
+    const typed = applyText(colored, 'Dear Sam!\nThanks', {
+      selection: { start: 8, end: 8 },
+      marks: ['italic'],
+    }).document;
+    expect(typed[0].spans).toStrictEqual([
+      { text: 'Dear ', color: blue },
+      { text: 'Sam', marks: ['bold'], color: red },
+      { text: '!', marks: ['italic'], color: red },
+    ]);
+    expect(
+      applyText(colored, 'Oh Dear Sam\nThanks', {
+        selection: { start: 0, end: 0 },
+      }).document[0].spans[0],
+    ).toStrictEqual({ text: 'Oh Dear ', color: blue });
+    // A line break splits colored text; joining blocks keeps each color separate.
+    expect(
+      applyText(colored, 'Dear\n Sam\nThanks', {
+        selection: { start: 4, end: 4 },
+      }).document.map(({ spans }) => spans),
+    ).toStrictEqual([
+      [{ text: 'Dear', color: blue }],
+      [
+        { text: ' ', color: blue },
+        { text: 'Sam', marks: ['bold'], color: red },
+      ],
+      [{ text: 'Thanks' }],
+    ]);
+    expect(
+      applyText(colored, 'Dear SamThanks', {
+        selection: { start: 9, end: 9 },
+        deletion: 'backward',
+      }).document,
+    ).toStrictEqual([
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Dear ', color: blue },
+          { text: 'Sam', marks: ['bold'], color: red },
+          { text: 'Thanks' },
+        ],
+      },
+    ]);
+    expect(
+      toggleMark(colored, { start: 0, end: 15 }, 'italic').map(
+        ({ spans }) => spans,
+      ),
+    ).toStrictEqual([
+      [
+        { text: 'Dear ', marks: ['italic'], color: blue },
+        { text: 'Sam', marks: ['bold', 'italic'], color: red },
+      ],
+      [{ text: 'Thanks', marks: ['italic'] }],
+    ]);
+    expect(
+      setBlockKind(colored, { start: 0, end: 0 }, 'heading1').document[0],
+    ).toStrictEqual({ ...colored[0], kind: 'heading1' });
+    // A Markdown shortcut keeps the color of the text it turns into a list item.
+    const note: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Note', color: blue }] },
+    ];
+    const dash = applyText(note, '-Note', { selection: { start: 0, end: 0 } });
+    expect(
+      applyText(dash.document, '- Note', { selection: { start: 1, end: 1 } })
+        .document,
+    ).toStrictEqual([
+      { kind: 'bulleted', spans: [{ text: 'Note', color: blue }] },
+    ]);
+    const image = {
+      id: 'image0003',
+      name: 'logo.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const withPicture = insertImage(
+      colored,
+      { start: 4, end: 4 },
+      image,
+    ).document;
+    expect(withPicture[0].spans[1]).toStrictEqual({
+      text: imageCharacter,
+      image,
+    });
+    expect(withoutImage(withPicture, image.id)).toStrictEqual(colored);
+    // Linking, relabelling and unlinking keep the linked text's colors.
+    const sam = {
+      start: 5,
+      end: 8,
+      text: 'Sam',
+      href: 'mailto:sam@example.invalid',
+    };
+    const linked = setLink(colored, sam, {
+      text: 'Sam',
+      href: sam.href,
+    }).document;
+    expect(linked[0].spans[1]).toStrictEqual({
+      text: 'Sam',
+      marks: ['bold'],
+      link: sam.href,
+      color: red,
+    });
+    expect(
+      setLink(linked, sam, { text: 'Samuel', href: sam.href }).document[0]
+        .spans[1],
+    ).toStrictEqual({
+      text: 'Samuel',
+      marks: ['bold'],
+      link: sam.href,
+      color: red,
+    });
+    expect(setLink(linked, sam, { text: 'Sam' }).document).toStrictEqual(
+      colored,
+    );
+    // A replacement takes the color of the text before it.
+    expect(
+      replaceSelection(colored, { start: 5, end: 8 }, 'Alex').document[0].spans,
+    ).toStrictEqual([{ text: 'Dear Alex', color: blue }]);
+    const history = record(historyOf(colored), typed);
+    expect(undo(history).present).toBe(colored);
+    expect(redo(undo(history)).present).toBe(typed);
+  });
+
   it('finds the link at a caret or selection and edits or removes it as one step', () => {
     expect.hasAssertions();
     const link = 'https://example.invalid/lease';
@@ -1077,7 +1222,11 @@ describe('storing Drafts', () => {
 
     // A link destination outside the safe schemes is never stored; a safe one is.
     const linked = (link: string): SemanticDocument => [
-      { kind: 'paragraph', spans: [{ text: 'Notes', link }], align: 'center' },
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'Notes', link, color: '#1f6feb' }],
+        align: 'center',
+      },
     ];
     await expect(
       drafts.update({
@@ -1108,6 +1257,16 @@ describe('storing Drafts', () => {
         ],
       }),
     ).resolves.toBe(false);
+    // Nor is a color outside lowercase hexadecimal red, green and blue.
+    await expect(
+      drafts.update({
+        ...created,
+        subject: 'Studio review on Thursday',
+        body: [
+          { kind: 'paragraph', spans: [{ text: 'Notes', color: 'blue' }] },
+        ],
+      }),
+    ).resolves.toBe(false);
 
     // A new store, as after relaunch, reopens the same Draft without sending it.
     const relaunched = createDrafts(storage.native, session.registration);
@@ -1120,7 +1279,13 @@ describe('storing Drafts', () => {
     expect(reopened.body).toStrictEqual([
       {
         kind: 'paragraph',
-        spans: [{ text: 'Notes', link: 'https://example.invalid/notes' }],
+        spans: [
+          {
+            text: 'Notes',
+            link: 'https://example.invalid/notes',
+            color: '#1f6feb',
+          },
+        ],
         align: 'center',
       },
     ]);
