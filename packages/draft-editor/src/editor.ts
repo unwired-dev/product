@@ -1,5 +1,5 @@
-// The page's script: Tiptap over the Semantic Message Document's blocks, marks and Inline Images,
-// and the Draft's Attachments, posting each edit and selection change to the host. The host
+// The page's script: Tiptap over the Semantic Message Document's blocks, marks, links and Inline
+// Images, and the Draft's Attachments, posting each edit and selection change to the host. The host
 // injects `draftEditor` before this script runs and sends commands through `draftCommand`.
 import type {
   Asset,
@@ -9,7 +9,8 @@ import type {
 import type { ChainedCommands, Editor as TiptapEditor } from '@tiptap/core';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 
-import { Editor, Extension, Node } from '@tiptap/core';
+import { vettedHref } from '@private-email/mail-core/link-inspection';
+import { Editor, Extension, Mark, Node } from '@tiptap/core';
 import Blockquote from '@tiptap/extension-blockquote';
 import Bold from '@tiptap/extension-bold';
 import Code from '@tiptap/extension-code';
@@ -111,6 +112,25 @@ const InlineImage = Node.create({
       show(dom);
       return { dom };
     },
+});
+
+// Linked text. Text typed inside a link joins it, and at its edges stays unlinked. A pasted link
+// keeps its destination only when it is one the Draft admits as written; otherwise only its text
+// is pasted. The host refuses every navigation, so selecting linked text never opens it.
+const Link = Mark.create({
+  name: 'link',
+  inclusive: false,
+  addAttributes: () => ({ href: { default: null } }),
+  parseHTML: () => [
+    {
+      tag: 'a[href]',
+      getAttrs: (element) => {
+        const href = element.getAttribute('href') ?? '';
+        return vettedHref(href) === href ? { href } : false;
+      },
+    },
+  ],
+  renderHTML: ({ HTMLAttributes }) => ['a', HTMLAttributes, 0],
 });
 
 // One code line per textblock, as the Semantic Message Document stores code; consecutive lines
@@ -443,6 +463,7 @@ if (draftEditor !== undefined && element !== null) {
       Strike,
       // The Semantic Message Document admits inline code with other marks.
       Code.extend({ excludes: '' }),
+      Link,
       UndoRedo.configure({ newGroupDelay: Number.MAX_SAFE_INTEGER }),
       DraftBehavior,
     ],

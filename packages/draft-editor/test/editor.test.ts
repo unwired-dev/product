@@ -552,7 +552,8 @@ describe('the Tiptap evaluation page', () => {
           { text: 's', marks: ['strikethrough'] },
           { text: ' ' },
           { text: 'c', marks: ['code'] },
-          { text: ' link text' },
+          { text: ' ' },
+          { text: 'link text', link: 'https://example.com' },
         ],
       },
       paragraph('Image here'),
@@ -572,6 +573,85 @@ describe('the Tiptap evaluation page', () => {
     expect(bodyOf(page)?.slice(-2)).toStrictEqual(
       paragraphs('styledfirst', 'second'),
     );
+  });
+
+  it('keeps links through typing, saving and reopening, and pastes only admitted destinations', async () => {
+    expect.hasAssertions();
+    const plan = 'https://example.com/plan';
+    const docs = 'https://example.com/docs';
+    const mail = 'mailto:team@example.com';
+    const opened: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Read ' },
+          { text: 'the plan', link: plan },
+          { text: 'docs', link: docs },
+          { text: ' or ' },
+          { text: 'mail', marks: ['bold'], link: mail },
+          { text: ' us', marks: ['bold'] },
+        ],
+      },
+    ];
+    const page = await open(opened);
+    // From the end, so earlier positions stay valid: after the last text, at the end of a link,
+    // inside a link and at the start of one.
+    for (const [at, text] of [
+      [29, '!'],
+      [18, 'y'],
+      [10, 'x'],
+      [6, 'z'],
+    ] as const) {
+      page.editor.commands.setTextSelection(at);
+      page.type(text);
+    }
+    const edited: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Read z' },
+          { text: 'the xplan', link: plan },
+          { text: 'docs', link: docs },
+          { text: 'y or ' },
+          { text: 'mail', marks: ['bold'], link: mail },
+          { text: ' us!', marks: ['bold'] },
+        ],
+      },
+    ];
+    expect(bodyOf(page)).toStrictEqual(edited);
+    // The body the host saves before sending reopens with the same links.
+    const reopened = await open(edited);
+    reopened.command({ type: 'editable', editable: false });
+    expect(bodyOf(reopened)).toStrictEqual(edited);
+
+    const pasted = await open(paragraphs(''));
+    pasted.editor.view.pasteHTML(
+      [
+        '<a href="https://example.com/a">web</a> ',
+        '<a href="mailto:a@example.com">mail</a> ',
+        '<a href="tel:+420123456789">call</a> ',
+        '<a href="javascript:alert(1)">script</a> ',
+        '<a href=" https://example.com/b">spaced</a> ',
+        '<a href="ftp://example.com">ftp</a> ',
+        '<a href="#top">anchor</a>',
+      ].join(''),
+    );
+    expect(bodyOf(pasted)).toStrictEqual([
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'web', link: 'https://example.com/a' },
+          { text: ' ' },
+          { text: 'mail', link: 'mailto:a@example.com' },
+          { text: ' ' },
+          { text: 'call', link: 'tel:+420123456789' },
+          { text: ' script spaced ftp anchor' },
+        ],
+      },
+    ]);
+    // One Undo removes the paste, links included.
+    pasted.command({ type: 'undo' });
+    expect(bodyOf(pasted)).toStrictEqual(paragraphs(''));
   });
 
   it('replaces the body revision it was computed from as one undoable edit', async () => {
