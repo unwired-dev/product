@@ -418,6 +418,18 @@ export function useBarBottomInset() {
   return use(WindowBarContext) === undefined ? bottom : 0;
 }
 
+// A screen pushed over the iPhone Inbox takes the system toolbar out of the Inbox's safe area. The
+// list keeps the inset it had in view, so its end padding does not shrink and clamp the scroll
+// position it returns to (#1534).
+export function useListBottomInset(visible: boolean) {
+  const bottomInset = useBarBottomInset();
+  const [kept, setKept] = useState(bottomInset);
+  if (visible && kept !== bottomInset) {
+    setKept(bottomInset);
+  }
+  return visible ? bottomInset : kept;
+}
+
 // The compact list's scroll indicator stops at its floating bar: 4pt above the bottom safe area,
 // which UIKit adds itself, or 12pt above the keyboard. React Native replaces the indicator inset
 // whenever the keyboard moves, so the inset follows the keyboard's state. iPhone's system toolbar

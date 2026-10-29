@@ -55,8 +55,8 @@ import {
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import {
-  useBarBottomInset,
   useBarIndicatorInsets,
+  useListBottomInset,
   WindowBarContext,
 } from './inbox-bar.tsx';
 import { useInboxFilter } from './inbox-filters.tsx';
@@ -657,7 +657,7 @@ export function Inbox({
   const search = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
   const inWindow = use(WindowBarContext) !== undefined;
-  const bottomInset = useBarBottomInset();
+  const listInset = useListBottomInset(visible !== false);
   const indicatorInsets = useBarIndicatorInsets(bar === true);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
@@ -1019,7 +1019,7 @@ export function Inbox({
             }}
             contentContainerStyle={[
               styles.list,
-              { paddingBottom: styles.list.paddingBottom + bottomInset },
+              { paddingBottom: styles.list.paddingBottom + listInset },
             ]}
             scrollIndicatorInsets={indicatorInsets}
             refreshing={refreshing}
