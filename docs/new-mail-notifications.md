@@ -134,7 +134,7 @@ mail, its sender, an address, a token or an account. JavaScript notes reach the
 `com.facebook.react.log` subsystem, category `javascript`, in every build:
 
 - `Gmail history added messages: N after the notification boundary: N unread in the
-Inbox: N` classifies each Gmail history page; `Gmail history expired` marks a relisting,
+Inbox: N` classifies Gmail history pages with added messages; `Gmail history expired` marks a relisting,
   which notifies nothing.
 - `New mail notifications not posted:` names the reason: a connection closed or its
   notifications off, the system authorization, a connection closed or turned off while
