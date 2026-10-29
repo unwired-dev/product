@@ -1214,6 +1214,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Otherwise assistance, translation or typing over a selection silently removes
   a link even though ordinary interior typing preserves it.
 
+- `semantic-document.ts.setLink` or its Link Editor accepting a label that cannot
+  satisfy the stored text-span schema. Check pasted line breaks, empty text and
+  the reserved U+FFFC image character through Apply and keyboard submission on
+  both hosts. Keep invalid input out of the authored Draft instead of silently
+  stripping it; otherwise the editor publishes content that saving cannot retain.
+
 - `createFreshness.wake` allowing registration verification to auto-load newly
   revealed connections before its route is rechecked. Trace `Registration.refreshInbox`
   publications and `createMailboxes` subscriptions, not just the selected load callback.
