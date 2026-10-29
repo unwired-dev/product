@@ -241,6 +241,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   controlSize: (size) => ({ $type: 'controlSize', size }),
   labelStyle: (style) => ({ $type: 'labelStyle', style }),
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
+  font: (params) => ({ $type: 'font', ...params }),
   foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
   frame: (params) => ({ $type: 'frame', ...params }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),

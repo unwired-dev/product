@@ -19,6 +19,9 @@ import {
   buttonStyle,
   controlSize,
   disabled as inactive,
+  font,
+  foregroundStyle,
+  frame,
   labelStyle,
   presentationDetents,
   tint,
@@ -518,11 +521,19 @@ export function LinkEditor({
       finish(editing.text);
     }
   };
+  const colors = usePalette();
   const trigger = (
-    <ToolbarButton
-      disabled={disabled || link === undefined}
-      icon="link"
+    <SwiftUIButton
       label={t('drafts.link.edit')}
+      modifiers={[
+        labelStyle('iconOnly'),
+        buttonStyle('plain'),
+        font({ size: 20 }),
+        foregroundStyle(colors.textPrimary),
+        frame({ minWidth: 44, minHeight: 44 }),
+        inactive(disabled || link === undefined),
+      ]}
+      systemImage="link"
       onPress={() => {
         if (link !== undefined) {
           setEditing(link);
@@ -548,9 +559,7 @@ export function LinkEditor({
         arrowEdge="top"
         isPresented={shown}
         onIsPresentedChange={setShown}>
-        <Popover.Trigger>
-          <RNHostView matchContents>{trigger}</RNHostView>
-        </Popover.Trigger>
+        <Popover.Trigger>{trigger}</Popover.Trigger>
         <Popover.Content>
           <RNHostView matchContents>
             <LinkPopover {...fields} />
@@ -560,7 +569,7 @@ export function LinkEditor({
     </Host>
   ) : (
     <>
-      {trigger}
+      <Host matchContents>{trigger}</Host>
       <Host matchContents>
         <BottomSheet
           isPresented={shown}
