@@ -50,7 +50,8 @@
     "./outgoing-message": "./src/outgoing-message.ts",
     "./commands": "./src/commands.ts",
     "./context-menu": "./src/context-menu.ts",
-    "./inline-style": "./src/inline-style.ts"
+    "./inline-style": "./src/inline-style.ts",
+    "./draft-html": "./src/draft-html.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

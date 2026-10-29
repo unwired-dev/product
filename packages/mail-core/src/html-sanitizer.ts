@@ -483,7 +483,7 @@ const defaultFontSizes = new Map([
   ['sup', 'smaller'],
 ]);
 
-const fontKeywordPixels = new Map([
+export const fontKeywordPixels = new Map([
   ['xx-small', 9],
   ['x-small', 10],
   ['small', 13],

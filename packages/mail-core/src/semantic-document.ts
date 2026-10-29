@@ -41,7 +41,7 @@ export const ColorSchema = Schema.String.check(
 // Text without a font family or size shows in the default font. A family is a CSS family list:
 // bare names, or double-quoted names without quotes, backslashes or control characters.
 const familyName = String.raw`(?:[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*|"[^"\\\p{Cc}]+")`;
-const FontSchema = Schema.String.check(
+export const FontSchema = Schema.String.check(
   Schema.isPattern(new RegExp(`^${familyName}(?:, ${familyName})*$`, 'u')),
 );
 // In CSS pixels.

@@ -213,6 +213,22 @@ included; plain text is unchanged. Composers do not yet show or set fonts, and n
 Draft holds one until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
+Shared code reads a Draft body written as HTML, by Gmail, Apple Mail, Outlook or
+outgoing mail, into a Semantic Message Document
+([#1567](https://github.com/unwired-dev/product/issues/1567)); provider Drafts
+use it once they open. It lays out text as a browser does, collapsing spaces
+and treating each `<br>` as a line break, and reads block kinds, marks, links,
+alignment, `#rrggbb`, `#rgb` and opaque `rgb()` colors, families and sizes in
+`px`, `pt`, keywords or `<font size>`, whether set on a block or on text. It
+ignores hidden content, spacing (margins, padding, line height), Outlook `mso-`
+properties and quote borders. Anything else, such as a table, an image,
+headings four to six, a nested list or quote, a color name, a relative size, a
+block background, list numbering or right-to-left text, makes it report the
+element, attribute or CSS property instead of a document, so the Draft is never
+silently changed. Outgoing HTML reads back to the same document, apart from the
+spaces HTML collapses, a trailing empty code line and code alignment, which is
+not sent.
+
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
 
