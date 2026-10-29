@@ -24,8 +24,8 @@ const historyFolders = (document: ImapDocument) => [
 ];
 
 // The first folder with history left to read. `settled` folders were read up to date, or are gone,
-// since this connection opened; one is read again once its cached UIDNEXT passes its last pass. Any
-// other folder reads on: it begins, continues a pass or expunge check, or learns what changed.
+// since this connection opened. A cached UIDVALIDITY change or a later UIDNEXT makes one eligible
+// again. Other folders begin or continue a pass or expunge check, or learn what changed.
 export function nextHistoryFolder(
   document: ImapDocument,
   settled: ReadonlySet<string>,
@@ -42,8 +42,9 @@ export function nextHistoryFolder(
     return (
       !settled.has(name) ||
       (history !== undefined &&
-        cache?.uidValidity === history.uidValidity &&
-        cache.uidNext > history.top)
+        cache !== undefined &&
+        (cache.uidValidity !== history.uidValidity ||
+          cache.uidNext > history.top))
     );
   });
 }

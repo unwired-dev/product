@@ -162,39 +162,53 @@ describe('imap historical metadata backfill', () => {
     expect(saved).not.toContain(expunged[1]);
   });
 
-  it('restarts only the folder whose UIDVALIDITY changed', async () => {
-    expect.hasAssertions();
-    const imap = createImap();
-    imap.addFolder('Archive', ['archive']);
-    fill(imap, 'INBOX', 300);
-    fill(imap, 'Archive', 300);
-    const inbox = createImapInbox(imap.native);
-    await inbox.load();
-    await completed(inbox);
-    const segments = new Set(imap.segments.keys());
-    const inboxSegments = [...imap.segments].filter(([, segment]) =>
-      segment.includes('"folder":"INBOX"'),
-    );
-
-    imap.renumber('Archive');
-    const relaunched = createImapInbox(imap.native);
-    await relaunched.load();
-
-    // The renumbered folder's old UIDs are gone; its new ones follow them.
-    await vi.waitFor(() => {
-      expect(new Set(savedUids(imap, 'Archive'))).toStrictEqual(
-        new Set(Array.from({ length: 300 }, (_, index) => 301 + index)),
+  it.each([
+    {
+      mode: 'reload',
+      resume: (_imap: Imap, inbox: ReturnType<typeof createImapInbox>) => inbox,
+    },
+    {
+      mode: 'relaunch',
+      resume: (imap: Imap) => createImapInbox(imap.native),
+    },
+  ])(
+    'restarts only the folder whose UIDVALIDITY changed after $mode',
+    async ({ resume }) => {
+      expect.hasAssertions();
+      const imap = createImap();
+      imap.addFolder('Archive', ['archive']);
+      fill(imap, 'INBOX', 300);
+      fill(imap, 'Archive', 300);
+      const inbox = createImapInbox(imap.native);
+      await inbox.load();
+      await completed(inbox);
+      const segments = new Set(imap.segments.keys());
+      const inboxSegments = [...imap.segments].filter(([, segment]) =>
+        segment.includes('"folder":"INBOX"'),
       );
-    });
-    await expect(completed(relaunched)).resolves.toStrictEqual({
-      downloaded: 600,
-      total: 600,
-      complete: true,
-    });
-    expect(
-      new Map([...imap.segments].filter(([name]) => segments.has(name))),
-    ).toStrictEqual(new Map(inboxSegments));
-  });
+
+      imap.renumber('Archive');
+      // An opened folder observes the new identity before the next Inbox synchronization.
+      await inbox.openFolder('Archive');
+      const resumed = resume(imap, inbox);
+      await resumed.load();
+
+      // The renumbered folder's old UIDs are gone; its new ones follow them.
+      await vi.waitFor(() => {
+        expect(new Set(savedUids(imap, 'Archive'))).toStrictEqual(
+          new Set(Array.from({ length: 300 }, (_, index) => 301 + index)),
+        );
+      });
+      await expect(completed(resumed)).resolves.toStrictEqual({
+        downloaded: 600,
+        total: 600,
+        complete: true,
+      });
+      expect(
+        new Map([...imap.segments].filter(([name]) => segments.has(name))),
+      ).toStrictEqual(new Map(inboxSegments));
+    },
+  );
 
   it('keeps a folder history while it is listed, after its opened view leaves the bounded cache', async () => {
     expect.hasAssertions();
