@@ -375,6 +375,28 @@ describe('mail profiles', () => {
     expect(google.hints).toHaveLength(hints);
   });
 
+  it('renames a Profile on this device while a Google relaunch stays offline, and publishes it after renewal', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, backend, sync } = await connected();
+    const { id } = profileNamed(await flow.createProfile('Work'), 'Work');
+    backend.offline = true;
+    const process = relaunch();
+    await process.restore();
+
+    expect(listed(await process.renameProfile(id, 'Office'))).toStrictEqual([
+      { id, name: 'Office', pending: true },
+    ]);
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 1, name: 'Work' },
+    ]);
+
+    backend.offline = false;
+    await process.renameProfile(id, 'Office');
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 2, name: 'Office' },
+    ]);
+  });
+
   it('applies only its own pending name over another device’s edits, and a removal elsewhere wins', async () => {
     expect.hasAssertions();
     const { flow, sync } = await connected();

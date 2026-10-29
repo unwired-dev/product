@@ -199,7 +199,10 @@ asks to try again. Creating, renaming, moving, removing and notification changes
 need a Product Sign-In verified since the app launched. After a relaunch, Google
 renews it silently and Apple asks to sign in again before the change; cancelling
 that sign-in changes nothing and shows no failure
-([#1188](https://github.com/unwired-dev/product/issues/1188)).
+([#1188](https://github.com/unwired-dev/product/issues/1188)). A relaunch that
+restored Google offline cannot create a Profile until the renewal connects, and
+asks to try again; a rename is still saved on this device and publishes after
+the renewal.
 
 A window opens a targeted link's Profile first, then the Profile it restores, then
 the device-local Startup Profile, then the Default Profile. A restored or Startup

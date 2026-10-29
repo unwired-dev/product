@@ -931,6 +931,11 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     renameProfile: (id: string, name: string) =>
       program(
         session.pipe(
+          // A rename is saved on this device first; offline, it publishes after a later renewal.
+          Effect.catchIf(
+            (error) => error.code === 'offline',
+            () => Effect.void,
+          ),
           Effect.andThen(productSyncFlow.renameProfile(id, name)),
           Effect.andThen(synchronize),
           Effect.andThen(current),
