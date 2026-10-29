@@ -94,6 +94,7 @@ import {
   presentation,
   receivedAttachments,
   recentWorkingSet,
+  responseHeadersOf,
   singleReadablePart,
 } from './message-body.ts';
 import { parseMime } from './mime.ts';
@@ -637,8 +638,9 @@ const describesReadablePart = (fields: HeaderFields) => {
   return described !== undefined && singleReadablePart(described);
 };
 
-// The body the reader presents: the readable alternatives, received attachments' metadata, and the
-// inline images the HTML names within the per-message bounds. Remote content is never fetched.
+// The body the reader presents: the readable alternatives, received attachments' metadata, the
+// headers Reply, Reply All and Forward read, and the inline images the HTML names within the
+// per-message bounds. Remote content is never fetched.
 const bodyDocument = Effect.fnUntraced(function* (
   id: string,
   payload: GmailPart,
@@ -655,6 +657,7 @@ const bodyDocument = Effect.fnUntraced(function* (
         size,
       }),
     ),
+    headers: responseHeadersOf(payload),
     ...(text === undefined ? {} : { text: yield* textOf(text) }),
     ...(html === undefined ? {} : { html: yield* textOf(html) }),
   };
@@ -2040,13 +2043,35 @@ export function createImapInbox(
           Option.flatMap(decodeBodyDocument),
           Option.filter((body) => body.id === id && body.excluded !== true),
         );
-        if (Option.isSome(saved)) {
-          return saved.value;
+        const kept = Option.getOrUndefined(saved);
+        if (kept?.headers !== undefined) {
+          return kept;
         }
-        const body = yield* explicitLoad(bodyOf(message));
+        // A body saved before its headers were kept is read again, so the message can be answered;
+        // without the server it still opens as saved.
+        const download = explicitLoad(bodyOf(message));
+        const body = yield* kept === undefined
+          ? download
+          : download.pipe(
+              Effect.catchIf(
+                (failure) => !changesAccess(failure.kind),
+                ({ kind, diagnostic }) =>
+                  expected(kind)
+                    ? Effect.succeed(kept)
+                    : Effect.logError(
+                        'IMAP saved body refresh failed:',
+                        diagnostic,
+                      ).pipe(Effect.as(kept)),
+              ),
+            );
         const cache = opened;
         // Bodies are stored only for listed messages of the open cache; a full cache keeps none.
-        if (cache !== undefined && listed(id) && current(scope)) {
+        if (
+          body !== kept &&
+          cache !== undefined &&
+          listed(id) &&
+          current(scope)
+        ) {
           const text = yield* encodeBodyDocument(body).pipe(
             Effect.mapError(malformed),
           );
@@ -2651,6 +2676,14 @@ export function createImapInbox(
     watch,
     // A cached message from any folder, for the reader.
     message: messageOf,
+    // An opened message's body and headers, which Reply, Reply All and Forward start from;
+    // undefined until both are read, or once a new UIDVALIDITY supersedes it.
+    responseSource: (id: string) => {
+      const body = documents.get(id);
+      return visibleRow(id) && !superseded(id) && body?.headers !== undefined
+        ? body
+        : undefined;
+    },
     savedBodies,
     readMessage,
     messageBody: (id: string, reader?: symbol) => {

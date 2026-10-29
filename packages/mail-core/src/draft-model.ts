@@ -15,16 +15,18 @@ const RecipientSchema = Schema.Struct({
 export type Recipient = typeof RecipientSchema.Type;
 
 // What a reply or forward answers: the received message and, for a reply, the RFC 5322 threading
-// headers the sent reply carries and the Gmail thread of the mailbox that received it. A forward
-// starts a conversation of its own.
+// headers the sent reply carries and the provider thread of the mailbox that received it; IMAP has
+// no thread to join. A forward starts a conversation of its own.
 const ResponseSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literals(['reply', 'replyAll']),
     message: Schema.NonEmptyString,
-    thread: Schema.Struct({
-      connection: Schema.NonEmptyString,
-      id: Schema.NonEmptyString,
-    }),
+    thread: Schema.optionalKey(
+      Schema.Struct({
+        connection: Schema.NonEmptyString,
+        id: Schema.NonEmptyString,
+      }),
+    ),
     inReplyTo: Schema.optionalKey(Schema.NonEmptyString),
     references: Schema.Array(Schema.NonEmptyString),
   }),
