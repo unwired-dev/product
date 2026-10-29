@@ -440,12 +440,12 @@ const styled = (
     applying.unsupported.add('style');
     return applying.context;
   }
-  const { declared, unsafe, limited } = parseDeclarations(style);
+  const { declared, limited } = parseDeclarations(style);
   if (limited) {
     applying.unsupported.add('style');
   }
   return [...declared].reduce((context, [property, value]) => {
-    if (/^\s*inherit\s*$/iu.test(value) && !unsafe.has(property)) {
+    if (/^\s*inherit\s*$/iu.test(value)) {
       const inherit = inheritedRules.get(property);
       if (inherit !== undefined) {
         return inherit(context, parent);
@@ -456,10 +456,9 @@ const styled = (
     if (keyword && ignoredProperties.test(property)) {
       return context;
     }
-    const rule =
-      unsafe.has(property) || keyword
-        ? () => undefined
-        : (propertyRules.get(property) ?? otherProperty(property));
+    const rule = keyword
+      ? () => undefined
+      : (propertyRules.get(property) ?? otherProperty(property));
     return applied({ ...applying, context }, [property, value], rule);
   }, applying.context);
 };
