@@ -13,7 +13,10 @@ import {
   profileRemoval,
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
-import { defaultProfile } from '@private-email/mail-core/registration';
+import {
+  defaultProfile,
+  profilesOf,
+} from '@private-email/mail-core/registration';
 import { spacing, typography } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
@@ -203,7 +206,7 @@ function ProfileName({
 type Pending = Readonly<{ control: string; progress?: string }>;
 
 // Settings › Mail Profiles: every Profile with its connections, Add Mail Profile…, the selected
-// Profile's name, and this device's Startup Profile.
+// Profile's name, mailboxes and Duplicate, and this device's Startup Profile.
 export function MailProfilesSettings({
   account,
   profiles,
@@ -260,6 +263,22 @@ export function MailProfilesSettings({
     );
     if (failure !== undefined) {
       refused(t, 'move', failure);
+    }
+  };
+  // Duplicate copies only the name into a new Profile, then opens it for renaming.
+  const duplicate = async () => {
+    const failure = await change({ control: 'duplicate' }, () =>
+      store.createProfile(t('profiles.copyName', { name: nameOf(selected) })),
+    );
+    if (failure !== undefined) {
+      refused(t, 'new', failure);
+      return;
+    }
+    const created = profilesOf(store.getSnapshot().snapshot).find(
+      ({ id }) => !ids.includes(id),
+    );
+    if (created !== undefined) {
+      setChosen(created.id);
     }
   };
   const remove = async (profile: string, confirmed: readonly string[]) => {
@@ -367,10 +386,16 @@ export function MailProfilesSettings({
           />
         </SettingsRow>
       </SettingsGroup>
-      {owned.length === 0 ? null : (
+      {mailboxes.length === 0 ? null : (
         <SettingsGroup
           title={t('profiles.settings.mailboxes')}
           footer={t('profiles.settings.moveFooter')}>
+          {owned.length === 0 ? (
+            <SettingsRow
+              title={t('profiles.settings.emptyMailboxes')}
+              subtitle={t('profiles.settings.emptyMailboxesDetail')}
+            />
+          ) : null}
           {owned.map((mailbox) => (
             <SettingsRow
               key={mailbox.id}
@@ -399,6 +424,26 @@ export function MailProfilesSettings({
           ))}
         </SettingsGroup>
       )}
+      <SettingsGroup footer={t('profiles.settings.duplicateFooter')}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('profiles.duplicate')}
+          disabled={busy}
+          onPress={() => {
+            void duplicate();
+          }}
+          style={({ pressed }) =>
+            pressed && {
+              backgroundColor: colors.accentSelectionSubtle,
+            }
+          }>
+          <SettingsRow
+            title={t('profiles.duplicate')}
+            disabled={busy}>
+            {progress('duplicate')}
+          </SettingsRow>
+        </Pressable>
+      </SettingsGroup>
       {selected === defaultProfile ? null : (
         <SettingsGroup footer={t('profiles.settings.removeFooter')}>
           <Pressable

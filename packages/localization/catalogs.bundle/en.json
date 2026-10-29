@@ -1219,6 +1219,8 @@
     "moveTitle": "Mailbox Not Moved",
     "moveFailed": "The mailbox could not be moved. Try again.",
     "moving": "Moving to {{name}}…",
+    "duplicate": "Duplicate Mail Profile",
+    "copyName": "{{name}} Copy",
     "remove": "Remove Mail Profile…",
     "removeAction": "Remove",
     "removeQuestion": "Remove “{{name}}”?",
@@ -1236,6 +1238,9 @@
       "deviceFooter": "Window restoration and the Startup Profile stay only on this device.",
       "mailboxes": "Mailboxes",
       "moveFooter": "Moving a mailbox keeps its mail, Drafts and sign-in. Moving needs Private Sync.",
+      "emptyMailboxes": "No mailboxes in this Mail Profile",
+      "emptyMailboxesDetail": "Move a mailbox here from its current Mail Profile.",
+      "duplicateFooter": "Copies the name into a new Mail Profile. Mailboxes, sign-ins, mail and Drafts are not copied.",
       "removeFooter": "Removing a Mail Profile also removes its mailboxes from Unwired Mail on all your devices, after you confirm. Their mail stays with the provider."
     }
   }
