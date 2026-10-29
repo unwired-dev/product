@@ -185,6 +185,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   adoption, preserve INBOX and still-selectable evicted views, and verify failed
   LIST and CAS recovery. Otherwise retired bodies stay indefinitely or a storage
   refusal leaves a selected folder loading with unreadable rows.
+- `imap-history.ts.nextHistoryFolder` letting the process-local settled set
+  suppress a cached UIDVALIDITY change, or `imap-inbox.ts.acceptListing` keeping
+  a retired folder's settled name after its history is removed. Reconcile that
+  eligibility only after the listing commits. Exercise renumbering a completed
+  folder and retiring then recreating its name without relaunch; otherwise old
+  history survives a known identity change or a new folder never backfills.
 - `imap-inbox.ts.open` recreating a cached folder view as `current` without
   reading that folder, or discarding a failed first read because no cache entry
   exists. Preserve failed uncached views and previous ready status, including
@@ -392,7 +398,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
-- `gmail-inbox.ts` scheduling recent-body prefetch and history backfill through
+- `gmail-inbox.ts` or `imap-inbox.ts` scheduling recent-body prefetch and history backfill through
   independent speculative owners. Share one connection-owned permit between a
   prefetch pass and each history step, while explicit reads remain outside it.
   Exercise current-timestamp mail with held prefetch metadata and queued history;

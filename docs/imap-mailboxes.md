@@ -194,6 +194,8 @@ Once the Inbox is current, each connection downloads the metadata of every selec
 folder in the background, Inbox first and then the folders in listed order, as the
 [Gmail backfill](gmail-inbox.md#historical-metadata-backfill) does for All Mail. It
 reads no message bodies and yields to synchronization and message opens.
+Recent-body prefetch and history share one speculative lane per connection. A
+failure pauses both kinds of work until the next Inbox synchronization.
 
 - Each read examines one folder and searches bounded UID windows below its cursor,
   newest first, keeping at most 500 messages. A window starts at the page size and

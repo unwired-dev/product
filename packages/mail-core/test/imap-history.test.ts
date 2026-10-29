@@ -243,7 +243,21 @@ describe('imap historical metadata backfill', () => {
     imap.removeFolder('Archive');
     await inbox.load();
     expect(savedUids(imap, 'Archive')).toStrictEqual([]);
-    expect(imap.cache.document).not.toContain('"folder":"Archive"');
+
+    // A new selectable folder with the retired name starts its own backfill in this process.
+    imap.addFolder('Archive', ['archive']);
+    const recreated = fill(imap, 'Archive', 2);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(new Set(savedUids(imap, 'Archive'))).toStrictEqual(
+        new Set(recreated),
+      );
+    });
+    await expect(completed(inbox)).resolves.toStrictEqual({
+      downloaded: 10,
+      total: 10,
+      complete: true,
+    });
   });
 
   it('asks for the password again when a history read is refused', async () => {

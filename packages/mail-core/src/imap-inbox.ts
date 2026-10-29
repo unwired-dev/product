@@ -726,6 +726,7 @@ export function createImapInbox(
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  const speculativeLane = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
   // Runs `use` in one authenticated server session and always closes it, also when `use` fails
   // or is interrupted; closing cancels a command still in flight.
@@ -788,7 +789,7 @@ export function createImapInbox(
   let authenticationRejected = false;
   // Folders whose history was read up to date, or that are gone, since the connection opened.
   const settled = new Set<string>();
-  // A failed history read pauses the backfill until the next Inbox synchronization.
+  // A failed speculative read pauses prefetch and backfill until the next Inbox synchronization.
   let backfillPaused = false;
   const renderedHistory = (current: ImapDocument) => {
     const history = historyProgress(current);
@@ -1270,6 +1271,11 @@ export function createImapInbox(
         ? undefined
         : { segments: {}, keep: historySegmentNames(next) },
     );
+    for (const name of settled) {
+      if (!kept(name)) {
+        settled.delete(name);
+      }
+    }
     for (const name of folderViews.keys()) {
       if (!kept(name)) {
         folderViews.delete(name);
@@ -1767,6 +1773,7 @@ export function createImapInbox(
         Effect.suspend(() => {
           // Internal retries must preserve a refusal raised during this load.
           authenticationRejected = false;
+          backfillPaused = false;
           return Effect.gen(function* () {
             if (forgotten) {
               return;
@@ -2256,6 +2263,7 @@ export function createImapInbox(
     );
   const prefetchPaused = (scope: Scope) =>
     !current(scope) ||
+    backfillPaused ||
     shownStatus === 'authentication' ||
     shownStatus === 'retry';
   // Only a single plain-text or HTML part is saved; any other message, or one too large or
@@ -2415,14 +2423,16 @@ export function createImapInbox(
   const prefetchFailed =
     (scope: Scope) =>
     ({ kind, diagnostic }: Failure) => {
-      if (current(scope) && changesAccess(kind)) {
+      if (!current(scope)) {
+        return Effect.void;
+      }
+      if (changesAccess(kind)) {
         authenticationRejected ||= kind === 'authentication';
         return loadFailed({ kind, diagnostic });
       }
-      return expected(kind) ||
-        kind === 'changed' ||
-        kind === 'invalidated' ||
-        kind === 'conflict'
+      backfillPaused = true;
+      render();
+      return expected(kind) || kind === 'changed' || kind === 'conflict'
         ? Effect.void
         : Effect.logError('IMAP body prefetch failed:', diagnostic);
     };
@@ -2440,8 +2450,11 @@ export function createImapInbox(
           prefetchAgain = false;
           const scope = opened;
           if (scope !== undefined) {
-            yield* prefetch(scope).pipe(Effect.catch(prefetchFailed(scope)));
+            yield* speculativeLane.withPermit(
+              prefetch(scope).pipe(Effect.catch(prefetchFailed(scope))),
+            );
           }
+          yield* Effect.yieldNow;
         } while (prefetchAgain);
       }).pipe(
         Effect.ensuring(
@@ -2578,11 +2591,10 @@ export function createImapInbox(
   };
   let backfilling = false;
   let backfillAgain = false;
-  // Starts the backfill lane after an Inbox synchronization, clearing a pause. Each step waits
+  // Starts the backfill lane after an Inbox synchronization. Each step waits
   // while an explicit read waits or runs anywhere on the device, and holds the connection's
   // synchronization permit; the lane stops once every folder settled or a step fails.
   function scheduleBackfill() {
-    backfillPaused = false;
     if (backfilling) {
       backfillAgain = true;
       return;
@@ -2598,13 +2610,21 @@ export function createImapInbox(
         for (;;) {
           yield* shared.idle.await;
           if (
-            !(yield* semaphore.withPermit(
-              // A read may have begun while the permit was queued.
-              Effect.suspend(() =>
-                shared.idle.isOpen()
-                  ? backfillStep(scope)
-                  : Effect.succeed(true),
-              ),
+            !(yield* speculativeLane.withPermit(
+              semaphore
+                .withPermit(
+                  // A read may have begun while either permit was queued.
+                  Effect.suspend(() =>
+                    shared.idle.isOpen()
+                      ? backfillStep(scope)
+                      : Effect.succeed(true),
+                  ),
+                )
+                .pipe(
+                  Effect.catch((error) =>
+                    backfillFailed(scope)(error).pipe(Effect.as(false)),
+                  ),
+                ),
             ))
           ) {
             return;
@@ -2613,8 +2633,6 @@ export function createImapInbox(
           yield* Effect.yieldNow;
         }
       }).pipe(
-        // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
-        Effect.catch(backfillFailed(scope)),
         Effect.ensuring(
           Effect.suspend(() => {
             backfilling = false;
