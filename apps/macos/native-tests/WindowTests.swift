@@ -1564,9 +1564,10 @@ final class WindowTests: XCTestCase {
       && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
         .contains(label):
       return "email address"
-    // A message link whose text is a web address reads as that address.
+    // A message link whose text is a web address reads as that address, in its title or label.
     case .sufficientElementDescription
-    where type == .link && issue.element?.title.hasPrefix("https://") == true:
+    where type == .link
+      && [issue.element?.title, label].contains { $0?.hasPrefix("https://") == true }:
       return "web address"
     default:
       return nil
