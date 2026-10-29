@@ -587,7 +587,11 @@ export function createSyntheticImap({
           }
         }
       }
-      return Promise.resolve({ revision: cache.revision });
+      return Promise.resolve({
+        revision: cache.revision,
+        address,
+        generation: cache.generation,
+      });
     },
     openMailboxSegment: (_mailbox, name) =>
       Promise.resolve({ document: segments.get(name) ?? null }),
