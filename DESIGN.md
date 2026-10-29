@@ -297,9 +297,11 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | White on monogram                  | 17.94 | 5.10  |
 | Unread dot (non-text) on content   | 10.88 | 3.27  |
 
-`text/secondary` is solid, not the translucent macOS Labels/Secondary, so sidebar glass
-and the desktop behind it cannot lower its contrast. The macOS 50% black reaches only
-3.95:1 on white and fails AA for text (#1195).
+`text/secondary` uses the solid colours approved for #1195. The ratios above use
+the opaque surface tokens; contrast over sidebar glass still depends on the
+background. Remaining Mac contrast-audit failures, including the Dark sidebar,
+are tracked in [#1550](https://github.com/unwired-dev/product/issues/1550).
+The macOS Labels/Secondary 50% black reaches only 3.95:1 on white and fails AA for text.
 
 ## Typography
 
