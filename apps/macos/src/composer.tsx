@@ -1397,7 +1397,7 @@ function Editor({
   onClosedAfterRemoval,
   onRebind,
   onExpand,
-  toolbar,
+  renderToolbar,
 }: {
   readonly initial: Draft;
   readonly onClose: () => void;
@@ -1406,7 +1406,7 @@ function Editor({
   readonly onRebind: (id: string) => void;
   // Moves the saved Draft into its own window, when offered.
   readonly onExpand?: ((id: string) => void) | undefined;
-  readonly toolbar?: Toolbar | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
@@ -2087,7 +2087,7 @@ function Editor({
         );
       }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      {toolbar === undefined ? (
+      {renderToolbar === undefined ? (
         <View style={styles.header}>
           <ToolbarButton
             disabled={closing === 'saving'}
@@ -2121,7 +2121,7 @@ function Editor({
           {actions}
         </View>
       ) : (
-        toolbar(
+        renderToolbar(
           sender,
           <>
             {actions}
@@ -2428,7 +2428,7 @@ function Editor({
           ) : null}
         </View>
       </ScrollView>
-      {toolbar === undefined ? (
+      {renderToolbar === undefined ? (
         <View style={[styles.actions, { borderTopColor: colors.separator }]}>
           {sender}
           <View style={styles.grow} />
@@ -2445,14 +2445,14 @@ export function Composer({
   onClose,
   onRebind,
   onExpand,
-  toolbar,
+  renderToolbar,
 }: {
   readonly id: string;
   readonly onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
-  readonly toolbar?: Toolbar | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const state = useDrafts();
   const store = useDraftStore();
@@ -2496,14 +2496,14 @@ export function Composer({
         onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}
         onRebind={rebind}
-        toolbar={toolbar}
+        renderToolbar={renderToolbar}
       />
     );
   }
   const waiting = state.kind === 'loading';
   return (
     <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      {toolbar === undefined ? (
+      {renderToolbar === undefined ? (
         <View style={styles.header}>
           <ToolbarButton
             icon="xmark"
@@ -2512,7 +2512,7 @@ export function Composer({
           />
         </View>
       ) : (
-        toolbar(null, null)
+        renderToolbar(null, null)
       )}
       <View style={styles.alerts}>
         {waiting ? (

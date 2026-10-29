@@ -90,14 +90,14 @@ function EvaluationEditor({
   onClose,
   onRebind,
   onExpand,
-  toolbar,
+  renderToolbar,
 }: {
   readonly page: string;
   readonly initial: Draft;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
-  readonly toolbar?: Toolbar | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
@@ -629,7 +629,7 @@ function EvaluationEditor({
       ref={root}
       collapsable={false}
       style={[s.fill, { backgroundColor: colors.surfaceContent }]}>
-      {toolbar === undefined ? (
+      {renderToolbar === undefined ? (
         <View style={s.header}>
           <ToolbarButton
             disabled={closing === 'saving'}
@@ -662,7 +662,7 @@ function EvaluationEditor({
           )}
         </View>
       ) : (
-        toolbar(sender, sendButton)
+        renderToolbar(sender, sendButton)
       )}
       <MenuPresence
         open={shown !== undefined}
@@ -815,7 +815,7 @@ function EvaluationEditor({
           }}
         />
       </ScrollView>
-      {toolbar === undefined ? (
+      {renderToolbar === undefined ? (
         <View style={[s.actions, { borderTopColor: colors.separator }]}>
           {sender}
           <View style={s.grow} />
@@ -835,14 +835,14 @@ function EvaluationComposer({
   onClose,
   onRebind,
   onExpand,
-  toolbar,
+  renderToolbar,
 }: {
   readonly page: string;
   readonly id: string;
   readonly onClose: () => void;
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
-  readonly toolbar?: Toolbar | undefined;
+  readonly renderToolbar?: Toolbar | undefined;
 }) {
   const state = useDrafts();
   const draft = draftOf(state, id);
@@ -872,7 +872,7 @@ function EvaluationComposer({
         onClose={onClose}
         onExpand={onExpand}
         onRebind={onRebind}
-        toolbar={toolbar}
+        renderToolbar={renderToolbar}
       />
     );
   }
@@ -884,7 +884,7 @@ function EvaluationComposer({
       onClose={onClose}
       onExpand={onExpand}
       onRebind={rebind}
-      toolbar={toolbar}
+      renderToolbar={renderToolbar}
     />
   );
 }
@@ -896,7 +896,7 @@ type ComposerProps = Readonly<{
   onRebind: (id: string) => void;
   // Moves the saved Draft into its own window, when offered.
   onExpand?: ((id: string) => void) | undefined;
-  toolbar?: Toolbar | undefined;
+  renderToolbar?: Toolbar | undefined;
 }>;
 
 // `registration-draft-editor` builds open Drafts in the Tiptap evaluation editor; every other

@@ -509,7 +509,7 @@ export function ComposerWindow({
                 windowHost()?.finishClose(identifier, true);
               }}
               onRebind={setId}
-              toolbar={(from, actions) => (
+              renderToolbar={(from, actions) => (
                 <CommandBar
                   title={t('drafts.newMessage')}
                   from={from}

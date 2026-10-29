@@ -701,11 +701,11 @@ function Palette({
     if (row === undefined) {
       return;
     }
-    const { offset, height } = visible.current;
+    const { offset, height: shown } = visible.current;
     if (row.y < offset) {
       scroll(row.y);
-    } else if (row.y + row.height > offset + height) {
-      scroll(row.y + row.height - height);
+    } else if (row.y + row.height > offset + shown) {
+      scroll(row.y + row.height - shown);
     }
   };
   const keyDown = ({ nativeEvent }: KeyEvent) => {
