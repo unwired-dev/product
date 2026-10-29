@@ -59,7 +59,15 @@ describe('synchronizing Drafts through Product Sync', () => {
         subject: 'Plan',
         attachments: [plan, slow],
         body: insertImage(
-          write(created, 'Numbers attached').body,
+          [
+            {
+              kind: 'paragraph',
+              spans: [
+                { text: 'Numbers ' },
+                { text: 'attached', link: 'https://example.invalid/numbers' },
+              ],
+            },
+          ],
           { start: 0, end: 0 },
           chart,
         ).document,
@@ -101,6 +109,10 @@ describe('synchronizing Drafts through Product Sync', () => {
       connection: alex.id,
       from: alex.address,
       subject: 'Plan',
+    });
+    expect(continued.body[0].spans.at(-1)).toStrictEqual({
+      text: 'attached',
+      link: 'https://example.invalid/numbers',
     });
     const [, slowAsset] = assetsOf(continued);
     // The import running on the phone stays incomplete, and is never sent.

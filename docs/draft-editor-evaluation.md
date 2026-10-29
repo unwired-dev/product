@@ -156,8 +156,9 @@ the current composer's:
 
 ### Semantic mismatches
 
-The current Semantic Message Document cannot store link destinations, so this
-editor offers no link authoring and pasted links retain only their text.
+The Semantic Message Document stores link destinations, but this editor neither
+shows nor authors them: pasted links retain only their text, and editing a body
+here drops its links.
 [#878](https://github.com/unwired-dev/product/issues/878) owns link support for both
 composers and blocks the adoption decision in #823.
 
