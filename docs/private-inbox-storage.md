@@ -217,11 +217,17 @@ its connections' providers, and marks the Startup Profile
 creates one as New Mail Profile… does. Selecting a Profile shows its name, which
 can be edited for every Profile except the Primary Profile; an empty or unchanged
 name changes nothing, and a refused rename restores the listed name and asks to
-try again. Creation, renaming, moving and removal wait for active registration
+try again. Creation, duplication, renaming, moving and removal wait for active registration
 work; a queued change is retired if that Product Account leaves before it can run.
 Beneath the selected Profile, **Mailboxes** lists the connections it owns, each
 with a system pop-up naming its Mail Profile; choosing another Profile moves the
-connection. Every Profile except the Primary Profile offers **Remove Mail
+connection. A Profile that owns none says so and points to moving one from its
+current Profile. **Duplicate Mail Profile**, on every Profile, creates
+`<name> Copy` without asking, selects it and shows its page for renaming
+([#1533](https://github.com/unwired-dev/product/issues/1533)). It copies only the
+name, the one reviewed Profile-scoped setting so far, and never a connection,
+sign-in, cached mail, Drafts, Outbox attempt, history, notification policy or pin.
+Every Profile except the Primary Profile offers **Remove Mail
 Profile…**, which asks first in a system alert. For a Profile that owns
 connections, the question names them, and confirming removes them from Unwired
 Mail on every Trusted Device before the Profile; their mail stays with the

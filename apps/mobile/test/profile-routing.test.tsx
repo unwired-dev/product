@@ -27,6 +27,7 @@ import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import {
   defaultProfile,
   mailboxesOf,
+  profilesOf,
 } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
@@ -1298,6 +1299,98 @@ describe('the mobile Profile Switcher', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('duplicates a Mail Profile into a selected copy without its mailboxes', async () => {
+    expect.hasAssertions();
+    const { registration, vault, work } = await createTwoProfileRegistration();
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      savedPreferences(new Map());
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(<RootLayout />);
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Work' }),
+      );
+      const { recordProfiles } = vault;
+      let release: () => void = () => undefined;
+      let started: () => void = () => undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // oxlint-disable-next-line promise/avoid-new -- Controlled native persistence and its admission signal.
+      const admitted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      jest
+        .spyOn(vault, 'recordProfiles')
+        .mockImplementationOnce(async (next) => {
+          started();
+          await held;
+          return recordProfiles(next);
+        });
+      // Another New Mail Profile… finishes ahead of Duplicate.
+      const family = registration.createProfile('Family');
+      await admitted;
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Duplicate Mail Profile' }),
+      );
+      release();
+      await family;
+      // The copy, not the Profile created elsewhere, is selected and opens for renaming.
+      await expect(
+        screen.findByRole('header', { name: 'Work Copy' }),
+      ).resolves.toBeVisible();
+      expect(screen.getByDisplayValue('Work Copy')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Work Copy' })).toHaveProp(
+        'accessibilityHint',
+        'No mailboxes',
+      );
+      expect(
+        screen.getByText('No mailboxes in this Mail Profile'),
+      ).toBeVisible();
+      const { snapshot } = registration.getSnapshot();
+      const [created, copy] = profilesOf(snapshot).filter(
+        ({ id }) => id !== work,
+      );
+      // Published through Private Sync; the mailbox stays with Work.
+      expect({
+        created: created?.name,
+        copy,
+        owners: mailboxesOf(snapshot).map(({ address, profile }) => [
+          address,
+          profile,
+        ]),
+      }).toStrictEqual({
+        created: 'Family',
+        copy: { id: copy?.id, name: 'Work Copy' },
+        owners: [
+          ['alex@example.invalid', defaultProfile],
+          ['other@example.invalid', work],
+        ],
+      });
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
   it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
     expect.hasAssertions();
@@ -1362,7 +1455,11 @@ describe('the mobile Profile Switcher', () => {
       // Only the indicator replaces the pop-up; the other Profile changes wait for the move.
       expect(screen.getByLabelText('Moving to Primary Profile…')).toBeVisible();
       expect(screen.queryByLabelText(moving)).toBeNull();
-      for (const name of ['Add Mail Profile…', 'Remove Mail Profile…']) {
+      for (const name of [
+        'Add Mail Profile…',
+        'Duplicate Mail Profile',
+        'Remove Mail Profile…',
+      ]) {
         expect(screen.getByRole('button', { name })).toBeDisabled();
       }
       expect(screen.getByDisplayValue('Office')).toHaveProp('editable', false);

@@ -908,11 +908,17 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
         ),
       ),
     // A Profile is named on this device first and published when Product Sync is reachable.
+    // The snapshot carries the new Profile's identifier for the host that asked.
     createProfile: (name: string) =>
       program(
-        productSyncFlow
-          .createProfile(name)
-          .pipe(Effect.andThen(synchronize), Effect.andThen(current)),
+        productSyncFlow.createProfile(name).pipe(
+          Effect.flatMap((profileCreated) =>
+            synchronize.pipe(
+              Effect.andThen(current),
+              Effect.map((snapshot) => ({ ...snapshot, profileCreated })),
+            ),
+          ),
+        ),
       ),
     renameProfile: (id: string, name: string) =>
       program(

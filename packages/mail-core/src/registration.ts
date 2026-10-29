@@ -428,7 +428,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
             if (snapshot.kind === 'signed-out') {
               return settled(snapshot);
             }
-            const { imapConnected, ...shown } = snapshot;
+            // oxlint-disable-next-line no-unused-vars -- Dropped from the published snapshot.
+            const { imapConnected, profileCreated, ...shown } = snapshot;
             if (imapSetup !== undefined) {
               repairedImap = mailboxesOf(snapshot).find(
                 (mailbox) =>
@@ -690,8 +691,23 @@ export function createRegistration(vault: NativeRegistrationVault) {
           mailboxRemovalFailure: 'unconfirmed',
         }),
       ),
-    createProfile: (name: string) =>
-      changeProfile(request(native.createProfile(name))),
+    // Resolves with the new Profile's identifier, or nothing when refused or retired.
+    createProfile: async (name: string): Promise<string | undefined> => {
+      let created: string | undefined = undefined;
+      await changeProfile(
+        request(native.createProfile(name)).pipe(
+          Effect.tap((snapshot) =>
+            Effect.sync(() => {
+              created =
+                snapshot.kind === 'signed-out'
+                  ? undefined
+                  : snapshot.profileCreated;
+            }),
+          ),
+        ),
+      );
+      return created;
+    },
     renameProfile: (profile: string, name: string) =>
       changeProfile(request(native.renameProfile(profile, name))),
     // Removes the mailboxes the person confirmed removing with the Profile, each as Email Accounts
