@@ -1,7 +1,19 @@
 diff --git a/apple/RNCWebView.mm b/apple/RNCWebView.mm
 --- a/apple/RNCWebView.mm
 +++ b/apple/RNCWebView.mm
-@@ -202,6 +202,28 @@
+@@ -78,7 +78,11 @@
+     [super prepareForRecycle];
+     [_view destroyWebView];
+ }
++#else
++// Product patch: the Mac view has no recycling teardown, so a reused view would keep the previous
++// page and never load the next page with the same source. Each mount gets a new view instead.
+++ (BOOL)shouldBeRecycled { return NO; }
+ #endif // !TARGET_OS_OSX
+ 
+ // Needed because of this: https://github.com/facebook/react-native/pull/37274
+ + (void)load
+@@ -202,6 +206,28 @@
                      .loading = static_cast<bool>([[dictionary valueForKey:@"loading"] boolValue])
                  };
                  webViewEventEmitter->onContentProcessDidTerminate(data);
@@ -30,7 +42,7 @@ diff --git a/apple/RNCWebView.mm b/apple/RNCWebView.mm
              }
          };
          _view.onCustomMenuSelection = [self](NSDictionary* dictionary) {
-@@ -291,6 +313,7 @@
+@@ -291,6 +317,7 @@
  
      REMAP_WEBVIEW_PROP(scrollEnabled)
      REMAP_WEBVIEW_STRING_PROP(injectedJavaScript)
