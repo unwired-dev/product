@@ -66,8 +66,9 @@ belongs to, so its saved changes survive. Removing the legacy connection before
 opening its Inbox also removes its earlier cache and bodies, without needing their
 key. Removing another connection preserves that legacy connection's pending changes.
 
-The Gmail mailbox document keeps recent messages and checkpoints. Downloaded
-[Historical Metadata Backfill](gmail-inbox.md#historical-metadata-backfill) pages are
+The Gmail and Microsoft mailbox documents keep recent messages and checkpoints.
+Downloaded [Historical Metadata Backfill](gmail-inbox.md#historical-metadata-backfill)
+pages, [Microsoft's](microsoft-mail.md#historical-metadata-backfill) per folder, are
 separate encrypted segment files in the connection's `history` directory, each sealed
 with its own name as associated data so one cannot be read as another. A commit that
 writes segments writes them before the mailbox document, then attempts to remove
@@ -76,7 +77,7 @@ document is stored: failure leaves unreferenced files for a later history commit
 to retry without rejecting the stored revision. An interrupted commit preserves
 the previously committed history.
 A segment name is 1–32 lowercase letters or
-digits, and opening one checks the same connection, address, Google account and
+digits, and opening one checks the same connection, address, account and
 generation as opening the mailbox. Removing the connection removes its segments with
 its directory.
 

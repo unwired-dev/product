@@ -61,8 +61,9 @@ the newest delta link Graph returns even when nothing changed. An
 interrupted delta round resumes after relaunch. Losing a message from a full cache
 admits the next older one. Expired delta state restarts synchronization while
 saved mail stays visible; repeated expiry offers retry. A long or repeated delta
-continuation pauses with its saved progress available for the next retry. This slice does not claim
-complete historical metadata backfill.
+continuation pauses with its saved progress available for the next retry. Older
+mail downloads separately through the
+[Historical Metadata Backfill](#historical-metadata-backfill).
 
 Opening a message reads its decoded HTML or text body, reply headers and paginated
 attachment metadata. Only visible, sanitized Content-ID references fetch inline
@@ -105,6 +106,42 @@ until a later synchronization reads it, while the Inbox stays current. A folder
 removed in Outlook leaves the sidebar with its saved messages, and a window that
 showed it returns to the Inbox. Restoring a window's chosen folder after relaunch
 remains with [#1010](https://github.com/unwired-dev/product/issues/1010).
+
+## Historical Metadata Backfill
+
+Once a synchronization has made the Inbox current, the device downloads the
+metadata of every message in the Inbox, Sent Items, Archive and the mailbox's own
+folders in the background, a folder at a time, newest first, 50 messages per page
+([#1519](https://github.com/unwired-dev/product/issues/1519), part of
+[#1009](https://github.com/unwired-dev/product/issues/1009)). Junk Email, Deleted
+Items, Drafts and Outbox stay out, as Gmail's Spam and Trash do. It shares
+[Gmail's](gmail-inbox.md#historical-metadata-backfill) background lane, so it yields
+to body loads and to every synchronization and never blocks using the Inbox. Each
+page is saved as its own encrypted history segment beside the mailbox document,
+with the receipt time the next page lists below and the messages already listed at
+that time, so relaunching or an interrupted page continues where the last saved
+page ended without listing earlier pages again. Messages that share one receipt
+time are listed once each across pages. The opened-folder bounds never evict
+downloaded history.
+
+Before a folder's first page, the device starts a Graph delta round for the folder
+and saves its link, so changes made while the pass runs are not lost. After each
+synchronization it reads every folder's delta link and applies new, moved, deleted
+and read mail to the downloaded history: a message moved to another folder leaves
+the first folder's history and joins the second's. When Graph expires a folder's
+delta link, the device lists that folder again while its earlier history stays
+counted, and replaces it once the new pass completes. A folder removed in Outlook
+leaves the history.
+
+The Inbox state reports the progress per mailbox, like Gmail's: downloaded messages,
+the total from each folder's item count, and whether every folder's pass is complete.
+The [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) includes the pass, with
+each connection's history status on Mac and in the capsule's details on iPhone and
+iPad. A failed read, including Graph throttling, pauses the pass until the next
+synchronization, and the state marks it paused. A refused grant asks for
+authorization again; the pass keeps its place. Downloaded history is not shown in
+folder lists or searched yet, so every folder still says that older mail stays in
+Microsoft.
 
 The [organizing actions](#organizing-and-searching) apply in every folder: Move to
 Trash, Report spam and Move to take a message out of the folder it is listed in, and
@@ -252,6 +289,16 @@ the connection that showed the message. Registration-flow tests connect Microsof
 account's first mailbox without asking Google for mail, and cover cancellation, refused
 consent, a missing mail scope, an unavailable mailbox and reauthorization. Both
 hosts' rendered tests connect Microsoft mail first and show its Inbox.
+
+History tests in `packages/mail-core/test/microsoft-history.test.ts` download the
+Inbox, Sent Items, Archive and a folder of the mailbox's own while leaving out Deleted
+Items, list messages sharing one receipt across pages once each, resume after an
+interrupted page and relaunch without listing a page twice, keep new, moved, deleted
+and read mail current during and after the pass, list a folder again after an
+expired delta link without lowering progress, pause on throttling and keep their place
+through a refused grant, and download 5,000 messages in bounded pages. The macOS
+`native/private-inbox/integration/history.zsh` runner repeats them with the signed
+native store holding the mailbox document and its history segments.
 
 Sending tests in `packages/mail-core/test/microsoft-send.test.ts` send a threaded
 reply with an inline image, an attachment and Bcc once after the Undo Send Window and
