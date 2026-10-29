@@ -426,7 +426,8 @@ styles) so the file stays editable.
   One composer per window keeps Expand visible in the Mac overlay and
   expand/collapse visible on regular-width iPad; the Mac New Message window
   omits both. Close stays directly accessible and destructive Discard in overflow. The sidebar and list
-  remain interactive beneath the overlay; save failures appear inline.
+  remain interactive beside the overlay, and on the Mac so do the reader's
+  toolbar and the uncovered reader above it; save failures appear inline.
   In the approved compose design ([iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140),
   [iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=295-50811),
   [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=297-46535)),

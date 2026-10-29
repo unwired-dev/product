@@ -409,9 +409,7 @@ function WindowContents({
               />
             </View>
             <View
-              // The covered reader waits; the sidebar and list stay interactive beneath the overlay.
-              pointerEvents={composing === undefined ? 'auto' : 'none'}
-              accessibilityElementsHidden={composing !== undefined}
+              // The reader's toolbar and the rest left uncovered stay interactive above the overlay.
               style={[
                 styles.detail,
                 { backgroundColor: colors.surfaceContent },
