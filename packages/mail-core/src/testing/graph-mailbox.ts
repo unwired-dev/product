@@ -400,8 +400,8 @@ export function createSyntheticGraph({
         .map(([id, folder]) => ({ id, displayName: folder.name })),
     ].map((folder) => ({ ...folder, childFolderCount: own(folder.id) }));
   };
-  // A well-known folder's ID, a folder's own folders, or every top-level folder; a removed folder
-  // is gone from each.
+  // A folder's ID and message count, a folder's own folders, or every top-level folder; a removed
+  // folder is gone from each.
   const folderRead = (url: URL) => {
     const path =
       /^\/v1\.0\/me\/mail[Ff]olders(?:\/(?<name>[^/]+)(?<nested>\/childFolders)?)?$/u.exec(
@@ -414,9 +414,13 @@ export function createSyntheticGraph({
     if (name === undefined || nested !== undefined) {
       return respond({ value: children(name) });
     }
-    return name in wellKnown && !missingFolders.has(name)
-      ? respond({ id: folderId(name) })
-      : notFound();
+    const folder = pathFolder(name);
+    return folder === undefined
+      ? notFound()
+      : respond({
+          id: folderId(folder),
+          totalItemCount: newest(folder).length,
+        });
   };
   // A well-known folder's name or a folder's ID as a path names it, or undefined when it is gone.
   const pathFolder = (segment: string) => {

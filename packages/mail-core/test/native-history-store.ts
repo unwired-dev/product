@@ -50,9 +50,11 @@ const storedBodiesOf = Schema.decodeUnknownSync(
 );
 
 // The ordinary suite stays credential-free. The explicit Mac runner supplies a signed native
-// process, substituting only persistence while Gmail responses remain controlled.
+// process, substituting only persistence while Gmail or Graph responses remain controlled.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The controlled provider is a live mutable test service.
-export const withNativeHistory = (gmail: Readonly<Gmail>): Gmail => {
+export const withNativeHistory = <T extends Readonly<{ native: Gmail['native'] }>>(
+  gmail: T,
+): T => {
   const executable = Effect.runSync(
     Config.String('UNWIRED_HISTORY_STORE_EXECUTABLE').pipe(
       Config.withDefault(''),

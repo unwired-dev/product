@@ -46,6 +46,10 @@ export const graphPlacement = (id: string) =>
 export const graphWellKnownFolder = (name: WellKnownFolder) =>
   `${graphRoot}/me/mailFolders/${name}?$select=id`;
 
+// How many messages a folder holds, for history progress.
+export const graphFolderTotal = (view: string) =>
+  `${graphRoot}/me/mailFolders/${graphFolder(view)}?$select=totalItemCount`;
+
 // The mailbox's top-level folders and each folder's own, which Move to offers apart from the
 // well-known ones; a page names whether a folder has folders of its own.
 const folderFields = '$select=id,displayName,childFolderCount&$top=100';
@@ -260,6 +264,11 @@ const GraphPlacementSchema = Schema.Struct({
 // A message after a change, or as organizing reads it back.
 export const decodeGraphPlacement = json(GraphPlacementSchema);
 export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
+export const decodeGraphTotal = json(
+  Schema.Struct({
+    totalItemCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+);
 export const decodeGraphFolders = json(
   Schema.Struct({
     value: Schema.Array(

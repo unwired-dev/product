@@ -4,10 +4,12 @@ import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
+import * as Struct from 'effect/Struct';
 
 import type { GmailLabel } from './gmail-actions.ts';
 import type {
   GmailMessage,
+  GraphFolderHistory,
   MailboxDocument,
   MailboxScope,
   PendingAction,
@@ -16,6 +18,14 @@ import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
 import type { FolderRoles, GraphAttachmentInfo } from './microsoft-graph.ts';
 
+import { foldDue, foldStep, recorded } from './gmail-history.ts';
+import {
+  historyFolders,
+  historyPage as historyPageSize,
+  listedFolder,
+  newFolder,
+  restartedFolder,
+} from './graph-history.ts';
 import {
   cacheLimit,
   merge,
@@ -41,6 +51,7 @@ import {
   decodeGraphListed,
   decodeGraphPlacement,
   decodeGraphSearch,
+  decodeGraphTotal,
   deltaIds,
   fileAttachments,
   fileData,
@@ -51,6 +62,7 @@ import {
   graphFolders,
   graphDelta,
   graphFolderMessage,
+  graphFolderTotal,
   graphMessages,
   graphLabels,
   graphMessage,
@@ -70,6 +82,15 @@ export type ProviderPayload = GmailPart &
     attachmentsPending?: boolean;
     authentication?: boolean;
   }>;
+
+const folderMessage = (
+  message: Parameters<typeof listedMessage>[0],
+  view: string,
+) =>
+  listedMessage(message, [
+    view,
+    ...(message.isRead === false ? ['UNREAD'] : []),
+  ]);
 
 // Every delta page links to the next page or, at the round's end, to the changes after it.
 const pageLink = ({
@@ -190,13 +211,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
     for (let pages = 0; pages < cacheLimit; pages += 1) {
       const page = yield* graphGet(scope)(url, decodeGraphInbox);
       for (const message of page.value) {
-        messages.set(
-          message.id,
-          listedMessage(message, [
-            view,
-            ...(message.isRead === false ? ['UNREAD'] : []),
-          ]),
-        );
+        messages.set(message.id, folderMessage(message, view));
       }
       const next = page['@odata.nextLink'];
       if (next === undefined || messages.size >= cacheLimit) {
@@ -219,6 +234,22 @@ export function createGraphReader(native: NativeGraphMailbox) {
     });
   });
 
+  // Each message a delta page names as it now is in `view`, or undefined once it left the folder.
+  const readChanged = (scope: MailboxScope, view: string, items: DeltaItems) =>
+    Effect.forEach(
+      deltaIds(items),
+      (id) =>
+        graphGet(scope)(graphFolderMessage(view, id), decodeGraphListed).pipe(
+          Effect.map(
+            (message) => [id, folderMessage(message, view)] as const,
+          ),
+          Effect.catchTag('GmailNotFound', () =>
+            Effect.succeed([id, undefined] as const),
+          ),
+        ),
+      { concurrency: 4 },
+    );
+
   // Applies one page of later changes. Graph cannot name the unchanged older message that now
   // fits after a full cache loses one, so the Inbox is listed again then for messages no newer than
   // the oldest previously kept; newer listed mail is left to the delta page that classifies it.
@@ -231,26 +262,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
       view,
     }: Readonly<{ items: DeltaItems; link: string; view: string }>,
   ) {
-    const changed = yield* Effect.forEach(
-      deltaIds(items),
-      (id) =>
-        graphGet(scope)(graphFolderMessage(view, id), decodeGraphListed).pipe(
-          Effect.map(
-            (message) =>
-              [
-                id,
-                listedMessage(message, [
-                  view,
-                  ...(message.isRead === false ? ['UNREAD'] : []),
-                ]),
-              ] as const,
-          ),
-          Effect.catchTag('GmailNotFound', () =>
-            Effect.succeed([id, undefined] as const),
-          ),
-        ),
-      { concurrency: 4 },
-    );
+    const changed = yield* readChanged(scope, view, items);
     const merged = merge(document.messages, changed);
     const current = { kind: 'graph-current', link } as const;
     let messages = merged.slice(0, cacheLimit);
@@ -681,9 +693,188 @@ export function createGraphReader(native: NativeGraphMailbox) {
       : { kind: 'unknown' as const };
   });
 
+  // How many messages a folder holds, or none once it is gone, as a mailbox without Archive lacks it.
+  const folderTotal = (scope: MailboxScope, folder: string) =>
+    graphGet(scope)(graphFolderTotal(folder), decodeGraphTotal).pipe(
+      Effect.map(({ totalItemCount }) => Option.some(totalItemCount)),
+      Effect.catchTag('GmailNotFound', () => Effect.succeedNone),
+    );
+
+  // One delta page of a folder's history: the round before its pass, whose changes the pass
+  // lists, or a later round, whose changed messages are recorded. An expired link lists the
+  // folder again; a folder that is gone leaves the history. `done` names the folders whose round
+  // ended in this run.
+  const historyRound = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    entry: GraphFolderHistory,
+    done: Set<string>,
+  ) {
+    const before = entry.link === undefined;
+    const page = yield* graphRead(scope)(
+      (before ? entry.round : entry.link) ?? graphDelta(entry.folder),
+      decodeGraphDelta,
+    ).pipe(
+      Effect.asSome,
+      Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
+      Effect.catchTag('GmailNotFound', () =>
+        Effect.succeed(Option.some(undefined)),
+      ),
+    );
+    if (Option.isNone(page)) {
+      return Option.some(restartedFolder(entry));
+    }
+    if (page.value === undefined) {
+      return Option.none();
+    }
+    const next = page.value['@odata.nextLink'];
+    const link = yield* pageLink(page.value);
+    if (next === undefined) {
+      done.add(entry.folder);
+    }
+    if (before) {
+      return Option.some(
+        next === undefined
+          ? { ...Struct.omit(entry, ['round']), link }
+          : { ...entry, round: link },
+      );
+    }
+    const changed = yield* readChanged(scope, entry.folder, page.value.value);
+    return Option.some({
+      ...entry,
+      link,
+      history: recorded(entry.history, changed),
+    });
+  });
+
+  // The pass's next page below its oldest listed receipt, without the messages already listed
+  // there. A page of only those follows its continuation.
+  const historyPage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    entry: GraphFolderHistory,
+    name: string,
+  ) {
+    const edge = new Set(entry.edge ?? []);
+    let url = graphMessages(
+      entry.folder,
+      historyPageSize,
+      entry.history.current.pageToken,
+    );
+    for (let pages = 0; pages < historyPageSize; pages += 1) {
+      const page = yield* graphGet(scope)(url, decodeGraphInbox);
+      const messages = page.value
+        .filter(({ id }) => !edge.has(id))
+        .map((message) => folderMessage(message, entry.folder));
+      const next = page['@odata.nextLink'];
+      if (messages.length > 0 || next === undefined) {
+        return {
+          entry: listedFolder(entry, messages, { name, end: next === undefined }),
+          messages,
+        };
+      }
+      url = next;
+    }
+    return yield* new SyncFailure({
+      kind: 'retry',
+      cause: 'listing',
+      diagnostic: 'history page limit',
+    });
+  });
+
+  // The next step of a Microsoft mailbox's Historical Metadata Backfill, or none once each folder's
+  // pass is complete and its round in this run ended. Each new folder first reads its total; a
+  // folder with enough recorded changes folds them into its segments; each folder's round then
+  // records its changes; and the first incomplete pass lists its next page, one segment each.
+  const history = Effect.fnUntraced(function* <E>(
+    scope: MailboxScope,
+    document: MailboxDocument,
+    {
+      done,
+      read,
+      newName,
+    }: Readonly<{
+      done: Set<string>;
+      read: (name: string) => Effect.Effect<readonly GmailMessage[], E>;
+      newName: Effect.Effect<string>;
+    }>,
+  ): Effect.fn.Return<
+    Option.Option<
+      Readonly<{
+        folders: readonly GraphFolderHistory[];
+        written: ReadonlyArray<readonly [string, readonly GmailMessage[]]>;
+      }>
+    >,
+    E | SyncFailure | GmailNotFound
+  > {
+    const wanted = historyFolders(document);
+    const folders = (document.graphHistory ?? []).filter(({ folder }) =>
+      wanted.includes(folder),
+    );
+    const replace = (
+      entry: GraphFolderHistory,
+      next: Option.Option<GraphFolderHistory>,
+    ) =>
+      Option.some({
+        folders: Option.match(next, {
+          onNone: () => folders.filter((other) => other !== entry),
+          onSome: (value) =>
+            folders.map((other) => (other === entry ? value : other)),
+        }),
+        written: [],
+      });
+    const known = new Set(folders.map(({ folder }) => folder));
+    for (const folder of wanted) {
+      if (known.has(folder) || done.has(folder)) {
+        continue;
+      }
+      const total = yield* folderTotal(scope, folder);
+      if (Option.isNone(total)) {
+        done.add(folder);
+        continue;
+      }
+      return Option.some({
+        folders: [...folders, newFolder(folder, total.value)],
+        written: [],
+      });
+    }
+    const folding = folders.find(({ history }) => foldDue(history));
+    if (folding !== undefined) {
+      const step = yield* foldStep(folding.history, read, newName);
+      return Option.some({
+        folders: folders.map((entry) =>
+          entry === folding ? { ...entry, history: step.history } : entry,
+        ),
+        written: step.written,
+      });
+    }
+    const changing = folders.find(
+      ({ folder, link }) => link !== undefined && !done.has(folder),
+    );
+    if (changing !== undefined) {
+      return replace(changing, yield* historyRound(scope, changing, done));
+    }
+    const listing = folders.find(
+      ({ history }) => history.current.complete !== true,
+    );
+    if (listing === undefined) {
+      return folders.length === (document.graphHistory ?? []).length
+        ? Option.none()
+        : Option.some({ folders, written: [] });
+    }
+    if (listing.link === undefined) {
+      return replace(listing, yield* historyRound(scope, listing, done));
+    }
+    const name = yield* newName;
+    const { entry, messages } = yield* historyPage(scope, listing, name);
+    return Option.some({
+      folders: folders.map((other) => (other === listing ? entry : other)),
+      written: messages.length === 0 ? [] : [[name, messages] as const],
+    });
+  });
+
   return {
     advance,
     advanceView,
+    history,
     // The new Inbox mail the delta page that produced `document` brought; listings bring none.
     arrivals: (document: MailboxDocument) => arrivals.get(document) ?? [],
     partData,
