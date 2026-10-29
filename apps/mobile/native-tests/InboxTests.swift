@@ -1911,26 +1911,6 @@ final class InboxTests: XCTestCase {
     verifyCompactInboxHeader(app)
     // Close also empties the field, which is not controlled by the query (#970).
     XCTAssertEqual(search.value as? String, "Search")
-    // #1534: on iPhone, the Command Palette's Search Mail focuses the toolbar's native search field.
-    if UIDevice.current.userInterfaceIdiom == .phone {
-      let query = app.textFields["Type a command"]
-      openPalette(app, header: app.navigationBars.staticTexts[title].firstMatch)
-      waitForFocus(query)
-      app.typeText("Search Mail\n")
-      XCTAssertTrue(query.waitForNonExistence(timeout: 10))
-      waitForFocus(search)
-      // Search hides the title, so a downward swipe on the field opens the palette instead.
-      let start = search.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-      start.press(
-        forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)), withVelocity: .fast,
-        thenHoldForDuration: 0)
-      waitForFocus(query)
-      app.typeText("Search Mail\n")
-      XCTAssertTrue(query.waitForNonExistence(timeout: 10))
-      waitForFocus(search)
-      closeSearch(app).tap()
-      XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
-    }
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCUIDevice.shared.orientation = .portrait
       waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
@@ -2138,6 +2118,24 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(query.waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    // #1534: Search Mail focuses the toolbar's native search field. Search hides the title, so a
+    // downward swipe on the field opens the palette instead.
+    let search = app.searchFields.firstMatch
+    openPalette(app, header: app.navigationBars.staticTexts["Inbox"].firstMatch)
+    waitForFocus(query)
+    app.typeText("Search Mail\n")
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    waitForFocus(search)
+    let start = search.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    start.press(
+      forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)), withVelocity: .fast,
+      thenHoldForDuration: 0)
+    waitForFocus(query)
+    app.typeText("Search Mail\n")
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    waitForFocus(search)
+    closeSearch(app).tap()
+    XCTAssertTrue(app.navigationBars.staticTexts["Inbox"].waitForExistence(timeout: 10))
   }
 
   // #968: releasing a held Back returns to usable Mailboxes every time, and the Inbox reopens with
@@ -2441,7 +2439,7 @@ final class InboxTests: XCTestCase {
     }
     // #1534: iPhone's Filter, search and New Message are the system toolbar's items, which UIKit
     // places above the home indicator.
-    XCTAssertTrue(app.toolbars.buttons["Filter"].exists)
+    XCTAssertTrue(app.toolbars.switches["Filter"].exists)
     XCTAssertTrue(app.toolbars.searchFields.firstMatch.exists)
     XCTAssertTrue(app.toolbars.buttons["New Message"].exists)
     // #1506: the rows run under the floating bar and the home indicator to the screen's bottom edge.

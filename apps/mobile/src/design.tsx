@@ -114,10 +114,13 @@ interface SearchToolbarProps {
   readonly filterLabel: string;
   readonly filteredBy: string;
   readonly filterSummary: string | undefined;
+  readonly filterSummaryLabel: string | undefined;
   readonly filterHint: string;
   readonly composeLabel: string;
   readonly composeEnabled: boolean;
   readonly accent: ColorValue;
+  readonly accentOnFill: ColorValue;
+  readonly accentInk: ColorValue;
   readonly onSearchFocus: () => void;
   readonly onSearchText: (event: { nativeEvent: { text: string } }) => void;
   readonly onSearchClose: () => void;

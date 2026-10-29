@@ -516,10 +516,13 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 @property (nonatomic, copy) NSString *filterLabel;
 @property (nonatomic, copy) NSString *filteredBy;
 @property (nonatomic, copy) NSString *filterSummary;
+@property (nonatomic, copy) NSString *filterSummaryLabel;
 @property (nonatomic, copy) NSString *filterHint;
 @property (nonatomic, copy) NSString *composeLabel;
 @property (nonatomic) BOOL composeEnabled;
 @property (nonatomic, strong) UIColor *accent;
+@property (nonatomic, strong) UIColor *accentOnFill;
+@property (nonatomic, strong) UIColor *accentInk;
 @property (nonatomic, copy) RCTDirectEventBlock onSearchFocus;
 @property (nonatomic, copy) RCTDirectEventBlock onSearchText;
 @property (nonatomic, copy) RCTDirectEventBlock onSearchClose;
@@ -571,7 +574,13 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
   screen.navigationItem.searchController = self.search;
   screen.navigationItem.hidesSearchBarWhenScrolling = NO;
   [self updateItems];
+  [self updateField];
   [self.navigation setToolbarHidden:self.covered animated:NO];
+  // The toolbar hosts the field anew on the next turn, dropping its label and actions.
+  __weak UnwiredSearchToolbarView *weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [weakSelf updateField];
+  });
 }
 
 - (void)didMoveToSuperview
@@ -591,7 +600,7 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
   self.navigation = nil;
 }
 
-- (void)didSetProps:(NSArray<NSString *> *)changedProps
+- (void)updateField
 {
   UISearchTextField *field = self.search.searchBar.searchTextField;
   self.search.searchBar.placeholder = self.placeholder;
@@ -604,10 +613,16 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
                                           return YES;
                                         }],
   ];
+}
+
+- (void)didSetProps:(NSArray<NSString *> *)changedProps
+{
+  [self updateField];
   // The legacy interop sets every prop on each update, so these act on changed values only.
   NSArray *itemsKey = @[
     @(self.ready), @(self.filtered), self.filterLabel ?: @"", self.filteredBy ?: @"", self.filterSummary ?: @"",
-    self.filterHint ?: @"", self.composeLabel ?: @"", @(self.composeEnabled), self.accent ?: NSNull.null
+    self.filterSummaryLabel ?: @"", self.filterHint ?: @"", self.composeLabel ?: @"", @(self.composeEnabled),
+    self.accent ?: NSNull.null, self.accentOnFill ?: NSNull.null, self.accentInk ?: NSNull.null
   ];
   BOOL mounting = self.itemsKey == nil;
   if (![itemsKey isEqualToArray:self.itemsKey]) {
@@ -642,16 +657,25 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
                                                    : UINavigationItemSearchBarPlacementIntegrated;
   NSMutableArray<UIBarButtonItem *> *items = [NSMutableArray array];
   if (self.ready) {
-    UIBarButtonItem *filter = [[UIBarButtonItem alloc]
-        initWithImage:[UIImage systemImageNamed:@"line.3.horizontal.decrease"]
-                style:self.filtered ? UIBarButtonItemStyleProminent : UIBarButtonItemStylePlain
-               target:self
-               action:@selector(toggleFilter)];
+    // On, the filter fills its circle and shares one glass with the summary, as the frames draw.
+    UIImage *image = self.filtered
+                         ? [UIImage systemImageNamed:@"line.3.horizontal.decrease.circle.fill"
+                                   withConfiguration:[[UIImageSymbolConfiguration configurationWithPointSize:30]
+                                                         configurationByApplyingConfiguration:
+                                                             [UIImageSymbolConfiguration
+                                                                 configurationWithPaletteColors:@[
+                                                                   self.accentOnFill ?: UIColor.whiteColor,
+                                                                   self.accent ?: UIColor.labelColor
+                                                                 ]]]]
+                         : [UIImage systemImageNamed:@"line.3.horizontal.decrease"];
+    UIBarButtonItem *filter = [[UIBarButtonItem alloc] initWithImage:image
+                                                                style:UIBarButtonItemStylePlain
+                                                               target:self
+                                                               action:@selector(toggleFilter)];
     filter.accessibilityLabel = self.filterLabel;
-    if (self.filtered) {
-      filter.tintColor = self.accent;
-      filter.accessibilityTraits = UIAccessibilityTraitButton | UIAccessibilityTraitSelected;
-    }
+    // A toggle, as UIKit marks its own: selected while on.
+    filter.accessibilityTraits = UIAccessibilityTraitButton | UIAccessibilityTraitToggleButton |
+                                 (self.filtered ? UIAccessibilityTraitSelected : 0);
     [items addObject:filter];
     if (self.filtered) {
       [items addObject:[self summaryItem]];
@@ -677,25 +701,36 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 - (UIBarButtonItem *)summaryItem
 {
   UIButtonConfiguration *configuration = [UIButtonConfiguration plainButtonConfiguration];
-  configuration.title = self.filteredBy;
-  configuration.subtitle = self.filterSummary;
+  // Caption 1 on two lines: the caption semibold in the label colour, the value in accent ink. One
+  // title keeps the value out of the accessibility value, which the label already names.
+  UIFontMetrics *caption = [UIFontMetrics metricsForTextStyle:UIFontTextStyleCaption1];
+  NSMutableAttributedString *title = [[NSMutableAttributedString alloc]
+      initWithString:[NSString stringWithFormat:@"%@\n", self.filteredBy ?: @""]
+          attributes:@{
+            NSFontAttributeName : [caption scaledFontForFont:[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold]],
+            NSForegroundColorAttributeName : UIColor.labelColor,
+          }];
+  [title appendAttributedString:[[NSAttributedString alloc]
+                                    initWithString:self.filterSummary ?: @""
+                                        attributes:@{
+                                          NSFontAttributeName : [caption scaledFontForFont:[UIFont systemFontOfSize:12]],
+                                          NSForegroundColorAttributeName : self.accentInk ?: UIColor.labelColor,
+                                        }]];
+  configuration.attributedTitle = title;
   configuration.image = [UIImage systemImageNamed:@"chevron.down"
                                 withConfiguration:[UIImageSymbolConfiguration
                                                       configurationWithPointSize:10
                                                                           weight:UIImageSymbolWeightSemibold]];
   configuration.imagePlacement = NSDirectionalRectEdgeTrailing;
   configuration.imagePadding = 4;
-  configuration.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *attributes) {
-    NSMutableDictionary *styled = [attributes mutableCopy];
-    styled[NSFontAttributeName] = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
-    return styled;
-  };
+  configuration.titleAlignment = UIButtonConfigurationTitleAlignmentLeading;
+  configuration.baseForegroundColor = self.accentInk;
   __weak UnwiredSearchToolbarView *weakSelf = self;
   UIButton *button = [UIButton buttonWithConfiguration:configuration
                                          primaryAction:[UIAction actionWithHandler:^(__kindof UIAction *action) {
                                            if (weakSelf.onFilterOpen) weakSelf.onFilterOpen(@{});
                                          }]];
-  button.accessibilityLabel = [NSString stringWithFormat:@"%@ %@", self.filteredBy, self.filterSummary];
+  button.accessibilityLabel = self.filterSummaryLabel;
   button.accessibilityHint = self.filterHint;
   return [[UIBarButtonItem alloc] initWithCustomView:button];
 }
@@ -752,10 +787,13 @@ RCT_EXPORT_VIEW_PROPERTY(filtered, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(filterLabel, NSString)
 RCT_EXPORT_VIEW_PROPERTY(filteredBy, NSString)
 RCT_EXPORT_VIEW_PROPERTY(filterSummary, NSString)
+RCT_EXPORT_VIEW_PROPERTY(filterSummaryLabel, NSString)
 RCT_EXPORT_VIEW_PROPERTY(filterHint, NSString)
 RCT_EXPORT_VIEW_PROPERTY(composeLabel, NSString)
 RCT_EXPORT_VIEW_PROPERTY(composeEnabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(accent, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(accentOnFill, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(accentInk, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(onSearchFocus, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onSearchText, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onSearchClose, RCTDirectEventBlock)

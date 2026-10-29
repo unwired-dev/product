@@ -27,6 +27,7 @@ import { SearchToolbar } from './design.tsx';
 import {
   BarButton,
   BarNotices,
+  barHeight,
   BarSpacer,
   FloatingBar,
   NewMessageButton,
@@ -253,13 +254,14 @@ export function InboxToolbar({
   return (
     <>
       {message?.command}
-      {/* Notices ride above the toolbar, and above the keyboard while search uses it. */}
+      {/* The safe area ends a spacing above the toolbar's glass, so notices sit on it. Above the
+          keyboard, search's field takes the bar's place. */}
       <KeyboardStickyView
-        offset={{ opened: bottomInset + spacing.xs - spacing.m }}
+        offset={{ opened: bottomInset - barHeight - spacing.m }}
         pointerEvents="box-none"
         style={StyleSheet.absoluteFill}>
         <BarNotices
-          bottom={bottomInset + spacing.xs}
+          bottom={bottomInset}
           hidden={hidden}>
           {listNotice}
           {notice}
@@ -270,12 +272,19 @@ export function InboxToolbar({
         renderControl={({ label, onToggle, onOpen }) => (
           <SearchToolbar
             accent={colors.accentFill}
+            accentInk={colors.accentInk}
+            accentOnFill={colors.accentOnFill}
             composeEnabled={message !== undefined && !message.disabled}
             composeLabel={t('drafts.newMessage')}
             covered={hidden}
             filterHint={t('filters.openHint')}
             filterLabel={t('filters.filter')}
             filterSummary={label}
+            filterSummaryLabel={
+              label === undefined
+                ? undefined
+                : t('filters.filteredByLabel', { label })
+            }
             filteredBy={t('filters.filteredBy')}
             filtered={label !== undefined}
             focusRequest={focusRequest}

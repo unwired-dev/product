@@ -28,7 +28,7 @@ import {
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-const barHeight = 48;
+export const barHeight = 48;
 
 const styles = StyleSheet.create({
   newMessage: {
@@ -595,7 +595,7 @@ export function FloatingBar({
         </View>
       ) : null}
       <BarNotices
-        bottom={noticeBottom}
+        bottom={noticeBottom + barHeight + spacing.m}
         hidden={hidden}>
         {listNotice}
         {windowBar === undefined ? notice : null}
@@ -621,7 +621,7 @@ export function BarNotices({
       style={[
         styles.notice,
         {
-          bottom: bottom + barHeight + spacing.m,
+          bottom,
           display: hidden ? 'none' : 'flex',
         },
       ]}>
