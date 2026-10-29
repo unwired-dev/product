@@ -1,6 +1,7 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- parse5 tree nodes are mutable library types; the conversion only reads them. */
 import type { DefaultTreeAdapterTypes } from 'parse5';
 
+import { isTokenComma, tokenize } from '@csstools/css-tokenizer';
 import * as Schema from 'effect/Schema';
 import { parse } from 'parse5';
 
@@ -119,7 +120,7 @@ const rgb =
 
 // #rrggbb, #rgb and opaque rgb(); any other form, including color names, is undefined.
 const colorOf = (value: string) => {
-  const digits = hex.exec(value)?.groups?.digits;
+  const digits = hex.exec(value)?.[1];
   if (digits !== undefined) {
     const full =
       digits.length === 3
@@ -127,28 +128,35 @@ const colorOf = (value: string) => {
         : digits;
     return `#${full.toLowerCase()}`;
   }
-  const channels = rgb.exec(value)?.groups;
-  if (channels === undefined) {
+  const channels = rgb.exec(value);
+  if (channels === null) {
     return undefined;
   }
-  const values = [channels.r, channels.g, channels.b].map(Number);
+  const values = channels.slice(1, 4).map(Number);
   return values.every((each) => each <= 255)
     ? `#${values.map((each) => each.toString(16).padStart(2, '0')).join('')}`
     : undefined;
 };
 
 const isFont = Schema.is(FontSchema);
-// shortcut: a quoted family name containing a comma is unsupported; parse CSS strings if mail
-// clients write one.
 const familyOf = (value: string) => {
-  const family = value
-    .split(',')
+  const names: string[] = [];
+  let current = '';
+  for (const token of tokenize({ css: value })) {
+    if (isTokenComma(token)) {
+      names.push(current);
+      current = '';
+    } else {
+      current += token[1];
+    }
+  }
+  const family = [...names, current]
     .map((name) => {
       const trimmed = name.trim();
       const quoted = /^(?<quote>["'])(?<name>.*)\k<quote>$/u.exec(trimmed);
-      return quoted?.groups === undefined
+      return quoted?.[2] === undefined
         ? trimmed.replaceAll(/\s+/gu, ' ')
-        : `"${quoted.groups.name}"`;
+        : `"${quoted[2]}"`;
     })
     .join(', ');
   return isFont(family) ? family : undefined;
@@ -159,14 +167,12 @@ const sizeOf = (value: string) => {
   if (keyword !== undefined) {
     return keyword;
   }
-  const length = /^(?<amount>\d+(?:\.\d+)?|\.\d+)(?<unit>px|pt)$/iu.exec(
-    value,
-  )?.groups;
-  const amount = Number(length?.amount);
-  if (length === undefined || amount <= 0) {
+  const length = /^(?<amount>\d+(?:\.\d+)?|\.\d+)(?<unit>px|pt)$/iu.exec(value);
+  const amount = Number(length?.[1]);
+  if (length === null || amount <= 0) {
     return undefined;
   }
-  return length.unit?.toLowerCase() === 'pt' ? (amount * 4) / 3 : amount;
+  return length[2]?.toLowerCase() === 'pt' ? (amount * 4) / 3 : amount;
 };
 
 const withMark = (format: Format, mark: Mark, on = true): Format => ({

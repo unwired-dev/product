@@ -56,6 +56,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
             font: '"Times New Roman", serif',
             size: 14.5,
           },
+          { text: 'named', font: '"Family,Inc.", serif' },
         ],
         align: 'justify',
       },
@@ -142,6 +143,61 @@ describe('a Semantic Message Document from Draft HTML', () => {
         },
       ],
     });
+  });
+
+  it('keeps quoted font-family commas in styles and font attributes', () => {
+    expect.hasAssertions();
+
+    for (const html of [
+      '<p style="font-family:\'Family,Inc.\', serif">named</p>',
+      '<font face="\'Family,Inc.\', serif">named</font>',
+    ]) {
+      expect(documentFromHtml(html)).toStrictEqual({
+        document: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'named', font: '"Family,Inc.", serif' }],
+          },
+        ],
+      });
+    }
+  });
+
+  it('reads formatting when the host transform omits named capture groups', () => {
+    expect.hasAssertions();
+
+    const original = RegExp.prototype.exec;
+    const exec = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(function (this: RegExp, value: string) {
+        const match = original.call(this, value);
+        delete match?.groups;
+        return match;
+      });
+    try {
+      expect(
+        documentFromHtml(
+          '<p style="color:#abc;font-size:12pt"><span style="background:rgb(1,2,3);font-family:\'Family,Inc.\'">named</span></p>',
+        ),
+      ).toStrictEqual({
+        document: [
+          {
+            kind: 'paragraph',
+            spans: [
+              {
+                text: 'named',
+                color: '#aabbcc',
+                background: '#010203',
+                font: '"Family,Inc."',
+                size: 16,
+              },
+            ],
+          },
+        ],
+      });
+    } finally {
+      exec.mockRestore();
+    }
   });
 
   it('reads an Apple Mail Draft', () => {
@@ -275,7 +331,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
       documentFromHtml(
         '<a href="javascript:alert(1)">x</a><font size="9" color="rgba(0,0,0,0.5)">y</font>' +
           '<blockquote style="margin:0 0 0 40px;border:none;padding:0px">indent</blockquote>' +
-          '<span style="font-family:\'A, B\'">z</span>￼',
+          '<span style="font-family:var(--font)">z</span>￼',
       ),
     ).toStrictEqual({
       unsupported: ['href', 'size', 'color', 'border', 'font-family', 'U+FFFC'],
