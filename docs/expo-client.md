@@ -33,9 +33,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 - Mobile framework and test versions belong to `catalogs.mobile` in
   [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). Shared tooling uses the default catalog.
-- Route parameters identify the selected message. UIKit owns the reader's Back and
-  edge swipe, including cancellation. The shell keeps route selection aligned with
-  completed navigation and preserves an open Draft.
+- Use the provided [navigation](#navigation); route parameters identify the selected message.
 - The message reader's Copy link action uses `expo-clipboard`, with the native
   module included in the reviewed Expo autolinking scope. Regenerate and rebuild
   development clients after adding or updating it.
@@ -116,6 +114,45 @@ replace the exact `minimumReleaseAgeExclude` entries in
 exceptions for the same packages, then verify a frozen install and
 `expo install --check`. Node and pnpm versions belong to
 [the root toolchain](../README.md#local-development).
+
+### Navigation
+
+The shell uses the navigation React Native Screens 4.26.2 and Expo Router 57.0.29
+provide on Expo 57.0.31 and React Native 0.86.3:
+
+- `Split.Host` with Mailboxes, Inbox and reader `Split.Column`s in
+  [`app/_layout.tsx`](../apps/mobile/app/_layout.tsx). The split API is experimental
+  in React Native Screens. The regular layout tiles the columns; the compact layout
+  collapses them into one navigation stack, which opens on the reader when a message
+  is selected and on the Inbox otherwise.
+- Expo Router routes in the reader column: `message/[id]`, `thread/[id]` and
+  `compose/[draft]` select a message, a Thread and a Draft.
+- `ScreenStack` for iPhone Settings
+  ([`registration-gate.tsx`](../apps/mobile/src/registration-gate.tsx),
+  [`settings.tsx`](../apps/mobile/src/settings.tsx)) and the Welcome screen's Privacy
+  page ([`error-reporting.tsx`](../apps/mobile/src/error-reporting.tsx)). Each pushed
+  page shows the stack's system navigation bar. iPad shows Settings in columns.
+
+UIKit owns Back, the leading-edge swipe and its cancellation, column collapse and
+expansion, and the Settings navigation bars. The app owns route selection: a completed
+compact Back or swipe from the reader closes its route, a cancelled swipe changes
+nothing, and Draft exit guards preserve an open Draft. The app also owns the Command
+Palette entry points on its titles: a downward swipe, an accessibility action and its hint.
+
+Two native adapters in [`UnwiredDesign.m`](../native/design/UnwiredDesign.m)
+fill the remaining gaps. Delete each when its condition holds:
+
+| Adapter                                        | Gap                                                                                                                                                                                                                                                                                                                                                  | Delete when                                                                                                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `UnwiredNavigationChrome` (`NavigationChrome`) | `Split.Column` takes no header configuration. `headerConfig` and `ScreenStackHeaderCenterView` work only inside a `ScreenStack`, and one nested in a column adds a second bar without the split view's Back. The adapter hides a compact column's bar while it shows its own header, or keeps it with the screen's Back label, count and title view. | Split columns accept header configuration, including a title view and Back item.                                      |
+| `UnwiredSearchToolbar` (`SearchToolbar`)       | Expo Router's `Stack.SearchBar` and `Stack.Toolbar` work only in a stack, React Native 0.86.3 has no toolbar or search controller, and items on the outer collapsed stack never render. The adapter gives the iPhone Inbox column its toolbar and integrated search field ([#1534](https://github.com/unwired-dev/product/issues/1534)).             | Split columns, or Expo Router over them, accept toolbar items and `headerSearchBarOptions` with integrated placement. |
+
+The adapters' Back items show no menu, which would show an empty capsule
+([#968](https://github.com/unwired-dev/product/issues/968)).
+The remaining custom chrome is the regular layout's window bar, the floating Inbox bar
+and its search field outside the iPhone toolbar, the iPhone Mailboxes header with
+**Account** and its floating **New Message**
+([#1055](https://github.com/unwired-dev/product/issues/1055)).
 
 ## Install and run
 
