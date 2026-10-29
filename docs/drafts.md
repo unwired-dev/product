@@ -163,9 +163,17 @@ not saved or synchronized. Text typed inside a link joins it, text typed at eith
 end of it does not, and formatting, block kinds, inline images, replacements and
 Undo keep it. Sent mail links the text and, in the plain-text alternative, follows
 it with the destination in angle brackets unless the text is the destination.
-Composers cannot yet add, edit or remove links
-([#878](https://github.com/unwired-dev/product/issues/878)); the Slash Command
-Menu and recipient suggestions are later slices.
+The composer underlines linked text. With the caret in a link or a selection
+inside one, the format bar's **Edit Link** control opens the Link Editor, a
+popover on Mac and iPad and an **Edit Link** sheet on iPhone, with the link's
+text and destination. **Apply** replaces both and is available only while the
+text is not empty, contains no line break or inline-image placeholder, and the
+destination is one a Draft may keep; **Remove Link**
+keeps the text without the link, and closing the editor changes nothing. Each
+change is one Undo step. The control is unavailable away from a link: composers
+cannot yet link unlinked text
+([#878](https://github.com/unwired-dev/product/issues/878)), and the Slash
+Command Menu and recipient suggestions are later slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.

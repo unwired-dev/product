@@ -848,6 +848,14 @@
       "quote": "Quote",
       "code": "Code block"
     },
+    "link": {
+      "edit": "Edit Link",
+      "text": "Text",
+      "destination": "Link",
+      "hint": "Enter an HTTP, HTTPS, email, or telephone link for the selected text.",
+      "remove": "Remove Link",
+      "apply": "Apply"
+    },
     "conflictBadge": "DRAFT · CONFLICT",
     "conflictRowLabel": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}",
     "conflictRowLabelShortened": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened.",
