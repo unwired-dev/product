@@ -75,19 +75,37 @@ const hiddenTags = new Set([
 const transparentTags = new Set(['span', 'font', 'a', 'o:p', 'br']);
 const blockTags = new Set(['html', 'body', 'div', 'p']);
 // Headings, quotes, code and lists hold only paragraphs; list items belong in lists.
+const withMark = (format: Format, mark: Mark, on = true): Format => ({
+  ...format,
+  marks: markOrder.filter((each) =>
+    each === mark ? on : format.marks.includes(each),
+  ),
+});
+const formatted = (context: Context, format: Partial<Format>): Context => ({
+  ...context,
+  format: { ...context.format, ...format },
+});
 const topLevel = (next: (context: Context) => Context) => (context: Context) =>
   context.kind === 'paragraph' && context.list === undefined
     ? next(context)
     : undefined;
+// A heading's own size is relative to the size it inherits.
+const heading = (context: Context, kind: BlockKind) =>
+  formatted({ ...context, kind }, { size: undefined });
 const structureTags: ReadonlyMap<
   string,
   (context: Context) => Context | undefined
 > = new Map([
-  ['h1', topLevel((context) => ({ ...context, kind: 'heading1' }))],
-  ['h2', topLevel((context) => ({ ...context, kind: 'heading2' }))],
-  ['h3', topLevel((context) => ({ ...context, kind: 'heading3' }))],
+  ['h1', topLevel((context) => heading(context, 'heading1'))],
+  ['h2', topLevel((context) => heading(context, 'heading2'))],
+  ['h3', topLevel((context) => heading(context, 'heading3'))],
   ['blockquote', topLevel((context) => ({ ...context, kind: 'quote' }))],
-  ['pre', topLevel((context) => ({ ...context, kind: 'code' }))],
+  [
+    'pre',
+    topLevel((context) =>
+      formatted({ ...context, kind: 'code' }, { font: undefined }),
+    ),
+  ],
   ['ul', topLevel((context) => ({ ...context, list: 'bulleted' }))],
   ['ol', topLevel((context) => ({ ...context, list: 'numbered' }))],
   [
@@ -203,17 +221,6 @@ const sizeOf = (value: string) => {
   return Number.isFinite(size) ? size : undefined;
 };
 
-const withMark = (format: Format, mark: Mark, on = true): Format => ({
-  ...format,
-  marks: markOrder.filter((each) =>
-    each === mark ? on : format.marks.includes(each),
-  ),
-});
-const formatted = (context: Context, format: Partial<Format>): Context => ({
-  ...context,
-  format: { ...context.format, ...format },
-});
-
 // An attribute or CSS property applied to the context, or undefined when the document cannot
 // hold its value. Values arrive trimmed, in their written case.
 type Rule = (
@@ -226,9 +233,12 @@ const colorRule: Rule = (context, value) => {
   const color = colorOf(value);
   return color === undefined ? undefined : formatted(context, { color });
 };
+// Outgoing mail sets a font outside <code>, whose own monospace font would win.
 const fontRule: Rule = (context, value) => {
   const font = familyOf(value);
-  return font === undefined ? undefined : formatted(context, { font });
+  return font === undefined || context.format.marks.includes('code')
+    ? undefined
+    : formatted(context, { font });
 };
 const alignRule: Rule = (context, value) => {
   const lower = value.toLowerCase();
@@ -365,12 +375,8 @@ const attributeRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
       const link = vettedHref(value);
       return link === undefined
         ? undefined
-        : formatted(context, {
-            link,
-            ...(context.linkColor === undefined
-              ? {}
-              : { color: context.linkColor }),
-          });
+        : // A link shows the link color instead of the color it inherits.
+          formatted(context, { link, color: context.linkColor });
     },
   ],
 ]);
@@ -514,6 +520,20 @@ const styled = (
     ...entries.filter(([property]) => !important.has(property)),
     ...entries.filter(([property]) => important.has(property)),
   ];
+  // A link is underlined. The document cannot hold one whose own style removes that.
+  if (
+    applying.context.format.link !== undefined &&
+    parent.format.link === undefined
+  ) {
+    for (const [property, value] of ordered) {
+      if (
+        property.startsWith('text-decoration') &&
+        !/(?:^|\s)underline(?:\s|$)/iu.test(value)
+      ) {
+        applying.unsupported.add(property);
+      }
+    }
+  }
   return ordered.reduce((context, [property, value]) => {
     if (/^inherit$/iu.test(trimValue(value))) {
       const inherit = inheritedRules.get(property);
@@ -555,9 +575,13 @@ const tagContext = (
   if (plain) {
     return context;
   }
+  // <code> shows its own monospace font instead of the one it inherits.
   return mark === undefined
     ? undefined
-    : { ...context, format: withMark(context.format, mark) };
+    : formatted(context, {
+        ...withMark(context.format, mark),
+        ...(mark === 'code' ? { font: undefined } : {}),
+      });
 };
 
 // The context an element's children take, or undefined when the document cannot hold it.
@@ -586,9 +610,19 @@ const contextOf = (
     tagged,
   );
   const style = element.attrs.find(({ name }) => name === 'style')?.value;
-  return style === undefined
-    ? attributed
-    : styled({ context: attributed, block, unsupported }, style, context);
+  const inner =
+    style === undefined
+      ? attributed
+      : styled({ context: attributed, block, unsupported }, style, context);
+  // Outgoing mail sends a heading's size from its own style alone.
+  if (
+    headingStarts(inner, context) &&
+    context.format.size !== undefined &&
+    inner.format.size === undefined
+  ) {
+    unsupported.add('font-size');
+  }
+  return inner;
 };
 
 const spanOf = (text: string, format: Format): Span => {

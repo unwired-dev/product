@@ -1,5 +1,8 @@
 import type { Draft } from '@private-email/mail-core/drafts';
-import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
+import type {
+  Block,
+  SemanticDocument,
+} from '@private-email/mail-core/semantic-document';
 
 import { documentFromHtml } from '@private-email/mail-core/draft-html';
 import { outgoingMessage } from '@private-email/mail-core/outgoing-message';
@@ -634,5 +637,87 @@ describe('a Semantic Message Document from Draft HTML', () => {
     expect(
       documentFromHtml('<h1 style="font-size:inherit">text</h1>'),
     ).toStrictEqual({ unsupported: ['font-size'] });
+  });
+
+  it('takes the intrinsic presentation of links, code and headings as outgoing mail sends them', async () => {
+    expect.hasAssertions();
+    const link = 'https://example.invalid';
+    const cases: ReadonlyArray<readonly [string, Block]> = [
+      // A link shows the link color, not the color it inherits; its own color is its text's.
+      [
+        `<p style="color:#ff0000"><a href="${link}">x</a></p>`,
+        { kind: 'paragraph', spans: [{ text: 'x', link }] },
+      ],
+      [
+        `<p><a href="${link}" style="color:#ff0000">x</a></p>`,
+        { kind: 'paragraph', spans: [{ text: 'x', link, color: '#ff0000' }] },
+      ],
+      // A link is underlined, and its descendants cannot remove that.
+      [
+        `<p><a href="${link}"><span style="text-decoration:none">x</span></a></p>`,
+        { kind: 'paragraph', spans: [{ text: 'x', link }] },
+      ],
+      [
+        `<p><a href="${link}" style="text-decoration:underline line-through">x</a></p>`,
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'x', link, marks: ['underline', 'strikethrough'] }],
+        },
+      ],
+      // <code> shows its own monospace font, which outgoing mail sets inside any font.
+      [
+        '<p><span style="font-family:Arial"><code>x</code></span></p>',
+        { kind: 'paragraph', spans: [{ text: 'x', marks: ['code'] }] },
+      ],
+      // A code block shows its monospace font unless it sets its own.
+      [
+        '<div style="font-family:Arial"><pre>x</pre></div>',
+        { kind: 'code', spans: [{ text: 'x' }] },
+      ],
+      [
+        '<pre style="font-family:Menlo">x</pre>',
+        { kind: 'code', spans: [{ text: 'x', font: 'Menlo' }] },
+      ],
+      // Only a heading's own size is sent, so a size around it does not apply.
+      [
+        '<div style="font-size:12px"><h1 style="font-size:20px">x</h1></div>',
+        { kind: 'heading1', spans: [{ text: 'x', size: 20 }] },
+      ],
+      [
+        '<h2><span style="font-size:20px">x</span></h2>',
+        { kind: 'heading2', spans: [{ text: 'x', size: 20 }] },
+      ],
+    ];
+
+    for (const [html, block] of cases) {
+      const document: SemanticDocument = [block];
+      expect(documentFromHtml(html)).toStrictEqual({ document });
+      // Outgoing mail sends what the document holds, so it reads back unchanged.
+      expect(documentFromHtml(await sentHtml(document))).toStrictEqual({
+        document,
+      });
+    }
+  });
+
+  it('refuses presentation that outgoing mail would restore to the element default', () => {
+    expect.hasAssertions();
+    const link = 'https://example.invalid';
+    for (const [html, unsupported] of [
+      [
+        `<p><a href="${link}" style="text-decoration:none">x</a></p>`,
+        'text-decoration',
+      ],
+      [
+        `<p style="text-decoration:none"><a href="${link}" style="text-decoration-line:inherit">x</a></p>`,
+        'text-decoration-line',
+      ],
+      ['<p><code style="font-family:Arial">x</code></p>', 'font-family'],
+      ['<p><code><font face="Arial">x</font></code></p>', 'face'],
+      ['<div style="font-size:12px"><h1>x</h1></div>', 'font-size'],
+    ] as const) {
+      expect(documentFromHtml(html)).toStrictEqual({
+        unsupported: [unsupported],
+      });
+    }
   });
 });

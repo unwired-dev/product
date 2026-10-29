@@ -227,6 +227,12 @@ or size that the document cannot hold are reported rather than approximated.
 Decoration and background overrides replace the element's own values while
 retaining ancestor decorations and visible backgrounds; `!important` wins
 across their shorthand and longhand declarations.
+Elements keep the presentation outgoing mail gives them: a link takes the link
+color rather than the color around it and stays underlined, inline code and code
+blocks take their monospace font rather than the surrounding font, and a heading
+takes its own size rather than one relative to the size around it. A link that
+removes its underline, a font set on inline code and a heading inside text with
+a size but without a size of its own are reported.
 It ignores the head, style sheets, comments, wrapper classes, identifiers,
 language and namespace attributes, left-to-right or automatic `dir`, HTML-hidden
 content without a display override, spacing (margins, padding, line height),
