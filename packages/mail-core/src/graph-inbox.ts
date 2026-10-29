@@ -779,6 +779,45 @@ export function createGraphReader(native: NativeGraphMailbox) {
     });
   });
 
+  // The first of the folders the history lacks, with its total; a folder Graph no longer has is
+  // passed over for this run.
+  const addedFolder = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    missing: readonly string[],
+    done: Set<string>,
+  ) {
+    for (const folder of missing) {
+      const total = yield* folderTotal(scope, folder);
+      if (Option.isSome(total)) {
+        return Option.some(newFolder(folder, total.value));
+      }
+      done.add(folder);
+    }
+    return Option.none();
+  });
+
+  // A folder's round while it has no link or its round has not ended in this run, else its pass's
+  // next page as one new segment.
+  const folderStep = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    entry: GraphFolderHistory,
+    {
+      done,
+      newName,
+    }: Readonly<{ done: Set<string>; newName: Effect.Effect<string> }>,
+  ) {
+    if (entry.link === undefined || !done.has(entry.folder)) {
+      return { next: yield* historyRound(scope, entry, done), written: [] };
+    }
+    const name = yield* newName;
+    const page = yield* historyPage(scope, entry, name);
+    return {
+      next: page.entry,
+      written:
+        page.messages.length === 0 ? [] : [[name, page.messages] as const],
+    };
+  });
+
   // The next step of a Microsoft mailbox's Historical Metadata Backfill, or none once each folder's
   // pass is complete and its round in this run ended. Each new folder first reads its total; a
   // folder with enough recorded changes folds them into its segments; each folder's round then
@@ -808,63 +847,45 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const folders = (document.graphHistory ?? []).filter(({ folder }) =>
       wanted.includes(folder),
     );
-    const replace = (
+    const listed = new Set(folders.map(({ folder }) => folder));
+    const added = yield* addedFolder(
+      scope,
+      wanted.filter((folder) => !listed.has(folder) && !done.has(folder)),
+      done,
+    );
+    if (Option.isSome(added)) {
+      return Option.some({ folders: [...folders, added.value], written: [] });
+    }
+    // A folder Graph removed leaves the history.
+    const replaced = (
       entry: GraphFolderHistory,
       next: GraphFolderHistory | undefined,
     ) =>
-      Option.some({
-        folders:
-          next === undefined
-            ? folders.filter((other) => other !== entry)
-            : folders.map((other) => (other === entry ? next : other)),
-        written: [],
-      });
-    const listed = new Set(folders.map(({ folder }) => folder));
-    for (const folder of wanted.filter(
-      (each) => !listed.has(each) && !done.has(each),
-    )) {
-      const total = yield* folderTotal(scope, folder);
-      if (Option.isSome(total)) {
-        return Option.some({
-          folders: [...folders, newFolder(folder, total.value)],
-          written: [],
-        });
-      }
-      done.add(folder);
-    }
+      next === undefined
+        ? folders.filter((other) => other !== entry)
+        : folders.map((other) => (other === entry ? next : other));
     const folding = folders.find((entry) => foldDue(entry.history));
     if (folding !== undefined) {
       const step = yield* foldStep(folding.history, read, newName);
       return Option.some({
-        folders: folders.map((entry) =>
-          entry === folding ? { ...entry, history: step.history } : entry,
-        ),
+        folders: replaced(folding, { ...folding, history: step.history }),
         written: step.written,
       });
     }
-    const changing = folders.find(
-      ({ folder, link }) => link !== undefined && !done.has(folder),
-    );
-    if (changing !== undefined) {
-      return replace(changing, yield* historyRound(scope, changing, done));
-    }
-    const listing = folders.find(
-      (entry) => entry.history.current.complete !== true,
-    );
-    if (listing === undefined) {
+    const target =
+      folders.find(
+        ({ folder, link }) => link !== undefined && !done.has(folder),
+      ) ?? folders.find((entry) => entry.history.current.complete !== true);
+    if (target === undefined) {
       return folders.length === (document.graphHistory ?? []).length
         ? Option.none()
         : Option.some({ folders, written: [] });
     }
-    if (listing.link === undefined) {
-      return replace(listing, yield* historyRound(scope, listing, done));
-    }
-    const name = yield* newName;
-    const { entry, messages } = yield* historyPage(scope, listing, name);
-    return Option.some({
-      folders: folders.map((other) => (other === listing ? entry : other)),
-      written: messages.length === 0 ? [] : [[name, messages] as const],
+    const { next, written } = yield* folderStep(scope, target, {
+      done,
+      newName,
     });
+    return Option.some({ folders: replaced(target, next), written });
   });
 
   return {
