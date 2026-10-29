@@ -403,7 +403,7 @@ function Presenter({
   return usePopover() ? (
     <Host matchContents>
       <Popover
-        arrowEdge="top"
+        arrowEdge="bottom"
         isPresented={isPresented}
         onIsPresentedChange={onIsPresentedChange}>
         <Popover.Trigger>
