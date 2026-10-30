@@ -1110,6 +1110,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Mac `design.tsx.useMenuMotion` or another overlay relying on native-driven
+  opacity across Fabric layout changes without tracing the installed renderer's
+  committed props and layer invalidation. Check the palette, `MenuPresence` and
+  Sync Status Capsule callers, and require a capture or row hit test after layout;
+  accessibility-tree existence alone cannot establish drawing. Otherwise
+  `RCTViewComponentView.invalidateLayer` can restore the initial opacity and
+  leave an open panel invisible despite reachable accessibility elements.
+
 - Composer keyboard avoidance in `composer.tsx` and `evaluation-composer.tsx`
   disabled while the keyboard is open without clearing its animated padding.
   Trace the installed library's disabled branch and Reanimated's prop retention

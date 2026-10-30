@@ -301,10 +301,9 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 the opaque surface tokens; contrast over sidebar glass still depends on the
 background: in Dark, secondary text on sidebar glass can fall below 4.5:1, and
 its treatment awaits a design decision in
-[#1574](https://github.com/unwired-dev/product/issues/1574). The Command
-Palette labels the Mac contrast audit flags are tracked in
-[#1573](https://github.com/unwired-dev/product/issues/1573), and its other
-flagged labels in [#1550](https://github.com/unwired-dev/product/issues/1550).
+[#1574](https://github.com/unwired-dev/product/issues/1574). Other labels the
+Mac contrast audit flags are tracked in
+[#1550](https://github.com/unwired-dev/product/issues/1550).
 The macOS Labels/Secondary 50% black reaches only 3.95:1 on white and fails AA for text.
 
 ## Typography

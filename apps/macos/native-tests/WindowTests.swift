@@ -1288,9 +1288,11 @@ final class WindowTests: XCTestCase {
     waitUntil { search.value as? String == "Outlook update 003" }
     XCTAssertTrue(row("Outlook update 003").waitForExistence(timeout: 15))
     // Escape closes the palette and hands focus back to the control that had it.
+    let closed = window.screenshot()
     app.typeKey("p", modifierFlags: .command)
     let command = window.textFields["Type a command"]
     waitForFocus(command)
+    assertPaletteDrawn(in: window, beneath: command, over: closed)
     try audit(app, "Command Palette")
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(command.waitForNonExistence(timeout: 10))
@@ -1478,10 +1480,12 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(send.waitForExistence(timeout: 10))
     XCTAssertEqual(
       send.frame.midY, composer.buttons[XCUIIdentifierCloseWindow].frame.midY, accuracy: 3)
+    let composerClosed = composer.screenshot()
     composer.buttons["Open Command Palette"].click()
     let query = composer.textFields.matching(NSPredicate(format: "label == %@", "Type a command"))
       .firstMatch
     XCTAssertTrue(query.waitForExistence(timeout: 10))
+    assertPaletteDrawn(in: composer, beneath: query, over: composerClosed)
     composer.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     // Both native exits must reach the regular editor's recipient/save guard.
@@ -1530,6 +1534,55 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(input.waitForNonExistence(timeout: 10))
   }
 
+  // #1573: the open palette's panel draws beneath its query field over what the window showed
+  // before it opened, so most points sampled there change colour.
+  private func assertPaletteDrawn(
+    in window: XCUIElement, beneath query: XCUIElement, over closed: XCUIScreenshot,
+    file: StaticString = #filePath, line: UInt = #line
+  ) {
+    // The panel eases in over 200 ms.
+    Thread.sleep(forTimeInterval: 0.5)
+    let open = window.screenshot()
+    let capture = XCTAttachment(screenshot: open)
+    capture.name = "Command Palette open"
+    capture.lifetime = .keepAlways
+    add(capture)
+    func bitmap(_ shot: XCUIScreenshot) -> NSBitmapImageRep? {
+      shot.image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        .map(NSBitmapImageRep.init(cgImage:))
+    }
+    guard let before = bitmap(closed), let after = bitmap(open),
+      before.pixelsWide == after.pixelsWide, before.pixelsHigh == after.pixelsHigh
+    else {
+      return XCTFail("the window's captures differ in size", file: file, line: line)
+    }
+    // The 460pt panel's first rows, inside the window.
+    let field = query.frame.offsetBy(dx: -window.frame.minX, dy: -window.frame.minY)
+    let panel = CGRect(x: field.minX + 12, y: field.maxY + 18, width: 436, height: 240)
+      .intersection(CGRect(origin: .zero, size: window.frame.size))
+    let scale = CGFloat(after.pixelsWide) / window.frame.width
+    var sampled = 0
+    var changed = 0
+    for column in 0..<19 {
+      for row in 0..<9 {
+        let x = Int((panel.minX + panel.width * (CGFloat(column) + 0.5) / 19) * scale)
+        let y = Int((panel.minY + panel.height * (CGFloat(row) + 0.5) / 9) * scale)
+        guard let old = before.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+          let new = after.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+        else { continue }
+        sampled += 1
+        let distance =
+          abs(old.redComponent - new.redComponent) + abs(old.greenComponent - new.greenComponent)
+          + abs(old.blueComponent - new.blueComponent)
+        if distance > 0.03 { changed += 1 }
+      }
+    }
+    print("PALETTE DRAWN " + json(["changed": changed, "sampled": sampled]))
+    // Undrawn, no point changes; over white, the translucent glass changes few besides its rows.
+    XCTAssertGreaterThan(
+      changed * 10, sampled, "the open palette's panel is not drawn", file: file, line: line)
+  }
+
   private func waitForFocus(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
     let focused = NSPredicate(format: "hasKeyboardFocus == true")
     XCTAssertEqual(
@@ -1568,18 +1621,18 @@ final class WindowTests: XCTestCase {
   private let contrastGaps: [String: Set<String>] = [
     // Dark secondary text on sidebar glass, lightened by whatever is behind the window.
     "#1574": ["Accounts", "Application", "Automation", "Gmail · other@example.invalid"],
-    // The Command Palette's panel is not drawn, so the audit measures the content beneath it.
-    "#1573": ["Go To", "Selected Message"],
     // Their captured pixels pass, yet the audit flags them: the Inbox window's labels while
-    // Settings or a sheet is in front, and small text, including AppKit's own.
+    // Settings or a sheet is in front, small text, including AppKit's own, and the Command
+    // Palette's headers on its glass panel.
     "#1550": [
-      "", "16 September 2025 at 00:20 UTC", "30 September 2025 at 08:00 UTC",
+      "", "16 September 2025 at 00:20 UTC", "30 September 2025 at 08:00 UTC", "App",
       "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
       "Colleague 003, colleague003@example.invalid", "Favorites",
-      "Known Tracking Pixels stay blocked for every remote-content policy.",
+      "Go To", "Known Tracking Pixels stay blocked for every remote-content policy.",
       "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
       "Mailboxes", "Microsoft · casey@example.invalid", "On-device assistance is off.",
-      "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes", "September 2025",
+      "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes", "Selected Message",
+      "September 2025",
       "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
       "casey@example.invalid, other@example.invalid are connected on this device.",
     ],

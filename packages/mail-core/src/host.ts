@@ -322,6 +322,7 @@ export function createHost(
         observe('sync', 'sync-failed', () =>
           native().imapSynchronize(mailbox, request),
         ),
+      imapHistory: (mailbox, request) => native().imapHistory(mailbox, request),
       imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),
       imapHeaders: (mailbox, request) => native().imapHeaders(mailbox, request),
       imapModify: (mailbox, change) => native().imapModify(mailbox, change),

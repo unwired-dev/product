@@ -157,11 +157,85 @@ const prefetched = async () => {
 };
 
 describe('imap recent-body prefetch', () => {
+  it('keeps history queued while recent-body prefetch owns the speculative lane', async () => {
+    expect.hasAssertions();
+    const { imap } = recentInbox();
+    vi.useFakeTimers();
+    const release = Promise.withResolvers<undefined>();
+    const requested = Promise.withResolvers<undefined>();
+    const read = imap.native.imapHeaders;
+    vi.spyOn(imap.native, 'imapHeaders').mockImplementationOnce(
+      async (...args) => {
+        requested.resolve(undefined);
+        await release.promise;
+        return read(...args);
+      },
+    );
+    const inbox = createImapInbox(imap.native);
+    try {
+      const loading = inbox.load();
+      await vi.runAllTimersAsync();
+      await loading;
+      await requested.promise;
+      expect(
+        imap.server.reads.filter((value) => value.startsWith('history ')),
+      ).toStrictEqual([]);
+
+      release.resolve(undefined);
+      await vi.runAllTimersAsync();
+      expect(ready(inbox.getSnapshot()).history?.complete).toBe(true);
+    } finally {
+      release.resolve(undefined);
+      inbox.forget();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['offline', 'imap-refused'])(
+    'pauses queued history after prefetch fails with %s until the next synchronization',
+    async (code) => {
+      expect.hasAssertions();
+      const { imap } = recentInbox();
+      vi.useFakeTimers();
+      const release = Promise.withResolvers<undefined>();
+      const requested = Promise.withResolvers<undefined>();
+      vi.spyOn(imap.native, 'imapHeaders').mockImplementationOnce(async () => {
+        requested.resolve(undefined);
+        await release.promise;
+        throw rejection(code);
+      });
+      const inbox = createImapInbox(imap.native);
+      try {
+        const loading = inbox.load();
+        await vi.runAllTimersAsync();
+        await loading;
+        await requested.promise;
+        release.resolve(undefined);
+        await vi.runAllTimersAsync();
+        expect(
+          imap.server.reads.filter((value) => value.startsWith('history ')),
+        ).toStrictEqual([]);
+
+        const refreshing = inbox.load();
+        await vi.runAllTimersAsync();
+        await refreshing;
+        expect(ready(inbox.getSnapshot()).history?.complete).toBe(true);
+      } finally {
+        release.resolve(undefined);
+        inbox.forget();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('saves recent single-part bodies after synchronization without reading the source of a message with an attachment', async () => {
     expect.hasAssertions();
     const { imap, inbox, uids, ids } = await prefetched();
-    // One body-free read chooses the sources; mail outside the 30 days is not read.
-    expect(imap.server.reads).toStrictEqual([
+    // One body-free read chooses the sources; mail outside the 30 days is not read. Historical
+    // Metadata Backfill reads only envelopes.
+    expect(
+      imap.server.reads.filter((read) => !read.startsWith('history ')),
+    ).toStrictEqual([
       'login',
       'folders',
       'synchronize INBOX',
