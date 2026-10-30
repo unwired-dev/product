@@ -505,39 +505,30 @@ export function createSyntheticImap({
             uid: change.uid,
           });
     },
-    imapSearch: (_mailbox, request) => {
-      server.reads.push(`search ${request.folders.join(',')}`);
-      const failed = reach();
-      if (failed !== undefined) {
-        return failed;
+    imapSearch: (_mailbox, { session, folder: name, query, newest }) => {
+      server.reads.push(`search ${name}`);
+      const current = folders.get(name);
+      if (current === undefined) {
+        return inSession(session) ?? rejection('imap-missing');
       }
-      const query = request.query.toLowerCase();
-      const searched = request.folders.flatMap((name) => {
-        const current = folders.get(name);
-        if (current === undefined) {
-          return [];
-        }
-        const matches = Arr.sort(
-          current.messages.filter(
-            ({ subject, raw }) =>
-              subject.toLowerCase().includes(query) ||
-              raw.toLowerCase().includes(query),
-          ),
-          newestUid,
-        );
-        return [
-          {
-            folder: name,
-            uidValidity: current.uidValidity,
-            messages: matches.slice(0, 50).map(envelope),
-            more: matches.length > 50,
-          },
-        ];
-      });
-      return Promise.resolve({
-        folders: searched.filter(({ messages }) => messages.length > 0),
-        skipped: request.folders.length - searched.length,
-      });
+      examining.set(session, current);
+      const text = query.toLowerCase();
+      const matches = Arr.sort(
+        current.messages.filter(
+          ({ subject, raw }) =>
+            subject.toLowerCase().includes(text) ||
+            raw.toLowerCase().includes(text),
+        ),
+        newestUid,
+      );
+      return (
+        inSession(session) ??
+        Promise.resolve({
+          uidValidity: current.uidValidity,
+          uids: matches.slice(0, newest).map(({ uid }) => uid),
+          total: matches.length,
+        })
+      );
     },
     imapIdle: (_mailbox, request) => {
       server.reads.push(`idle ${request.folder}`);

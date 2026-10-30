@@ -89,12 +89,12 @@ enum ImapOutcome: Sendable, Equatable {
   case absent
 }
 
-// A folder's newest search matches, read under its UIDVALIDITY; `more` when older ones were left out.
-struct ImapFound: Sendable, Equatable {
-  let folder: String
+// A folder's search matches under its UIDVALIDITY: the newest UIDs asked for, newest first, and how
+// many matched in all.
+struct ImapMatches: Sendable, Equatable {
   let uidValidity: UInt32
-  let messages: [ImapEnvelope]
-  let more: Bool
+  let uids: [UInt32]
+  let total: Int
 }
 
 struct ImapEnvelope: Sendable, Equatable {
@@ -175,11 +175,6 @@ protocol ImapProvider: Sendable {
   // Applies one change; a UIDVALIDITY that no longer matches changes nothing.
   func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
     -> ImapOutcome
-  // The server's text search of each folder in order, newest `limit` matches per folder. Folders the
-  // server no longer selects are skipped and counted.
-  func search(
-    _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
-  ) async throws -> (found: [ImapFound], skipped: Int)
   // Waits in IDLE on the folder for up to `seconds`; true once the server reports a change.
   func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
     -> Bool
@@ -488,45 +483,6 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
-  func search(
-    _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
-  ) async throws -> (found: [ImapFound], skipped: Int) {
-    try await session(account, password) { server in
-      var found: [ImapFound] = []
-      var skipped = 0
-      for folder in folders {
-        let selection: Mailbox.Selection
-        do {
-          selection = try await Self.examine(server, folder: folder)
-        } catch ImapFailure.changed {
-          skipped += 1
-          continue
-        } catch IMAPError.selectFailed {
-          skipped += 1
-          continue
-        }
-        let result: ExtendedSearchResult<UID>
-        do {
-          result = try await server.extendedSearch(criteria: [.text(query)])
-        } catch IMAPError.searchCharsetNotSupported {
-          throw ImapFailure.unsupported
-        }
-        let matches = result.all ?? UIDSet()
-        let newest = Array(
-          matches.ranges.reversed().lazy.flatMap { $0.reversed() }.prefix(limit)
-        ).map { UID(UInt32($0)) }
-        guard !newest.isEmpty else { continue }
-        let infos = try await server.fetchMessageInfosBulk(
-          using: UIDSet(Array(newest)), options: .slim)
-        found.append(
-          ImapFound(
-            folder: folder, uidValidity: selection.uidValidity.value,
-            messages: infos.compactMap(Self.envelope), more: matches.count > limit))
-      }
-      return (found, skipped)
-    }
-  }
-
   func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
     -> Bool
   {
@@ -649,11 +605,6 @@ struct SwiftMailImap: ImapProvider {
     func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
       -> ImapOutcome
     {
-      throw ImapFailure.offline
-    }
-    func search(
-      _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
-    ) async throws -> (found: [ImapFound], skipped: Int) {
       throw ImapFailure.offline
     }
     func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int)
@@ -791,28 +742,6 @@ extension RegistrationStore {
     case .moved(let uidValidity, let uid):
       return ["outcome": "moved", "uidValidity": Double(uidValidity), "uid": Double(uid)]
     }
-  }
-
-  // The server's search of up to 50 folders, newest 50 matches each.
-  func imapSearch(
-    connection: String, address: String, generation: String, query: String, folders: [String]
-  ) async throws -> [String: Any] {
-    guard !query.isEmpty, query.count <= 200,
-      query.rangeOfCharacter(from: .controlCharacters) == nil, (1...50).contains(folders.count),
-      folders.allSatisfy(Self.imapFolderName)
-    else { throw RegistrationError.unavailable }
-    let result = try await imapWork(connection: connection, address: address, generation: generation) {
-      try await imap.search($0, password: $1, query: query, folders: folders, limit: 50)
-    }
-    return [
-      "folders": result.found.map { found in
-        [
-          "folder": found.folder, "uidValidity": Double(found.uidValidity),
-          "messages": found.messages.map(Self.envelopeReply), "more": found.more,
-        ] as [String: Any]
-      },
-      "skipped": Double(result.skipped),
-    ]
   }
 
   // Waits for a change in the folder for up to `seconds`; rejects `imap-unsupported` without IDLE.

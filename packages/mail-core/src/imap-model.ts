@@ -245,19 +245,12 @@ const EnvelopeSchema = Schema.Struct({
   subject: Schema.String,
 });
 export type Envelope = typeof EnvelopeSchema.Type;
-// Each searched folder's newest matches, and how many folders the server no longer selects.
+// A searched folder's newest matches under its UIDVALIDITY, and how many matched in all.
 export const decodeSearch = Schema.decodeUnknownEffect(
   Schema.Struct({
-    folders: Schema.Array(
-      Schema.Struct({
-        folder: Schema.NonEmptyString,
-        uidValidity: Validity,
-        messages: Schema.Array(EnvelopeSchema),
-        // Older matches were left out.
-        more: Schema.Boolean,
-      }),
-    ),
-    skipped: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    uidValidity: Validity,
+    uids: Schema.Array(Uid),
+    total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   }),
 );
 // What EXAMINE reported: the folder's UIDVALIDITY, its UIDNEXT (0 when the server names none) and

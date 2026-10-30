@@ -456,22 +456,24 @@ both hosts' `scripts/verify-native.ts`. The synthetic metadata check compiles th
 sources without Swift packages and gets an engine stub instead.
 
 SwiftMail parses the IMAP wire protocol inside native sessions; TypeScript decides
-what to do with the results. The folder listing and folder synchronization run in
-TypeScript over short-lived native sessions: native code logs in for a verified
+what to do with the results. The folder listing, folder synchronization and online
+search run in TypeScript over short-lived native sessions: native code logs in for a verified
 connection at its current generation and returns an opaque handle. It answers one
 command at a time: the capabilities, the folders with their LIST attributes, a
 read-only EXAMINE of a folder (its UIDVALIDITY, UIDNEXT and message count, refusing a
 folder without UIDVALIDITY), and envelopes or flags of that folder's messages by UID,
-from a UID onward or by the newest sequence numbers. UID-set and newest-message requests
-name at most 200 messages; a UID-range request reads from its starting UID onward.
+from a UID onward or by the newest sequence numbers. A search examines one folder and
+returns its newest matching UIDs and how many matched in all, refusing a folder the
+server no longer selects, one without UIDVALIDITY and a query in a charset the server
+cannot search. UID-set and newest-message requests name at most 200 messages; a UID-range request reads from its starting UID onward.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
 connection's generation changes, as on removal, sign-out or a new password.
 Closing a session answers a command still in flight at once, and native code
-delivers no later result. A connection may hold four open sessions. Search, organizing, IDLE and Sent filing still run as
-single native operations until
-[#1179](https://github.com/unwired-dev/product/issues/1179)–[#1182](https://github.com/unwired-dev/product/issues/1182)
+delivers no later result. A connection may hold four open sessions. Organizing, IDLE
+and Sent filing still run as single native operations until
+[#1180](https://github.com/unwired-dev/product/issues/1180)–[#1182](https://github.com/unwired-dev/product/issues/1182)
 move them to the same sessions.
 
 The connection of a closed session ends only when its active command answers or
