@@ -7,14 +7,18 @@ Official sources were read on 2026-10-30.
 
 ## Result
 
-No supported path exists. Gmail delegation stays unavailable, and delegated-mail
-delivery begins with Microsoft 365 and qualified IMAP servers
+No supported path was identified for the hosts' existing grant
+([what the hosts request](google-registration.md#what-the-hosts-request)), so its
+supported delegated-mailbox operations are none. Gmail delegation stays
+unavailable, and delegated-mail delivery begins with Microsoft 365 and qualified
+IMAP servers
 ([mail capability expansion](product/mail-capability-expansion.md#languages-and-individual-delegation)).
 
-Google documents two API routes to another person's mailbox, and both require a
-Google Workspace service account with domain-wide authority. The
-[credential model](google-registration.md#what-the-hosts-request) excludes that
-authority, so the supported operations for the hosts' grant are none.
+The Gmail API documentation reviewed here describes no way for a user's token to
+address a mailbox delegated to that user. The only API mechanisms that reach
+beyond the signed-in user, delegate management and IMAP access with
+`gmail.imap_admin`, require a Google Workspace service account with domain-wide
+authority, which the credential model excludes.
 
 ## Managing delegates
 
@@ -30,16 +34,16 @@ organization. Managing delegates therefore stays in Gmail's own settings.
 - **Gmail's own clients.** A delegate opens the owner's mailbox from the account
   switcher entry marked "Delegated" in Gmail on the web or the Gmail app for
   iPhone and iPad
-  ([Gmail Help](https://support.google.com/mail/answer/138350)). Google
-  documents no other client for delegated access.
+  or Android ([Gmail Help](https://support.google.com/mail/answer/138350)).
+  The reviewed sources identify no third-party client path.
 - **Gmail API.** The `userId` path parameter is "The user's email address. The
   special value `me` can be used to indicate the authenticated user"
   ([`users.messages.list`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)).
   No scope or parameter addresses a mailbox delegated to that user.
 - **IMAP.** [XOAUTH2](https://developers.google.com/workspace/gmail/imap/xoauth2-protocol)
-  needs `https://mail.google.com/`, which the hosts do not request. Its only
-  route to other users' mailboxes is `gmail.imap_admin`, which "can only be used
-  for Google Workspace domain-wide delegation."
+  needs `https://mail.google.com/`, which the hosts do not request. Its
+  alternative scope, `gmail.imap_admin`, "can only be used for Google Workspace
+  domain-wide delegation."
 
 Separately authorizing another owner's account, by having the owner sign in on
 the device, creates an ordinary Gmail connection for that owner. It is not
@@ -58,16 +62,25 @@ These apply in Gmail itself and would constrain any future path:
 
 ## Live proof
 
-Not run. No attested Gmail test account is available to agents
-([#1528](https://github.com/unwired-dev/product/issues/1528)), and the proof
-needs two accounts with an accepted delegation. Once they exist:
+Not run. No attested Gmail test account is available
+([#1528](https://github.com/unwired-dev/product/issues/1528)), and no protected
+workflow runs a delegation probe. The proof needs two
+[Provider Test Accounts](gmail-provider-test-tenant.md) with a ready attestation,
+an accepted delegation between them, and a protected native probe added to the
+operator-run workflow. Gmail tokens stay inside the native device boundary, and
+the probe requests no new scope. The authorized operator then:
 
-1. In Gmail on the web, owner account B adds delegate A. A accepts the invitation
-   and, after up to 24 hours, sees B marked "Delegated" in the account switcher.
-2. A grants the hosts' existing Gmail consent. Request no new scope.
-3. With A's access token, call
-   `GET https://gmail.googleapis.com/gmail/v1/users/<B>/profile`. Record the
-   status code and error reason only, never mailbox content.
+1. In Gmail on the web, has owner account B add delegate A. A accepts the
+   invitation and, after up to 24 hours, sees B marked "Delegated" in the
+   account switcher.
+2. Signs A in through the hosts' existing Gmail consent.
+3. With A's token, calls `GET https://gmail.googleapis.com/gmail/v1/users/me/profile`
+   as a control, then `GET https://gmail.googleapis.com/gmail/v1/users/<B>/profile`.
 
-A `403` confirms this result. A `200` contradicts it and reopens the evaluation
-as a separately scoped slice.
+Record only redacted run metadata, status codes and Google's error reason, never
+addresses, tokens, response bodies or mailbox content. A failed control, or an
+error reason about quota, rate limits or domain policy
+([Gmail API errors](https://developers.google.com/workspace/gmail/api/guides/handle-errors)),
+makes the run inconclusive. A permission denial on B with a passing control
+confirms this result. A `200` shows only profile access to B and reopens the
+evaluation as a separately scoped slice.
