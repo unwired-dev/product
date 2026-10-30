@@ -1558,7 +1558,7 @@ final class WindowTests: XCTestCase {
   // audits cover every open window, so these list labels rather than screens.
   private let contrastGaps: [String: Set<String>] = [
     // Dark secondary text on sidebar glass, lightened by whatever is behind the window.
-    "#1574": ["Accounts", "Application", "Automation", "Gmail · other@example.invalid", "Language"],
+    "#1574": ["Accounts", "Application", "Automation", "Gmail · other@example.invalid"],
     // The Command Palette's panel is not drawn, so the audit measures the content beneath it.
     "#1573": ["Go To", "Selected Message"],
     // Their captured pixels pass, yet the audit flags them: the Inbox window's labels while

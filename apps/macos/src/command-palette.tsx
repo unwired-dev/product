@@ -1001,17 +1001,16 @@ function CommandList({
     return (
       <View
         key={command.id}
-        onLayout={onPlace(command.id)}>
+        onLayout={onPlace(command.id)}
+        style={
+          first && index !== 0
+            ? [styles.divider, { borderTopColor: colors.separator }]
+            : undefined
+        }>
         {first ? (
           <Label
             accessibilityRole="header"
-            style={[
-              styles.section,
-              index === 0
-                ? null
-                : [styles.divider, { borderTopColor: colors.separator }],
-              { color: colors.textSecondary },
-            ]}>
+            style={[styles.section, { color: colors.textSecondary }]}>
             {sectionTitle(t, command.section, subject)}
           </Label>
         ) : null}
