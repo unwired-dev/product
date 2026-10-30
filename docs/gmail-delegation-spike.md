@@ -35,10 +35,7 @@ organization. Managing delegates therefore stays in Gmail's own settings.
 - **Gmail API.** The `userId` path parameter is "The user's email address. The
   special value `me` can be used to indicate the authenticated user"
   ([`users.messages.list`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)).
-  No scope or parameter addresses a mailbox delegated to that user. Developer
-  reports, which are not official evidence, describe `403 PERMISSION_DENIED`
-  with "Delegation denied for _address_" when `userId` names another account
-  ([example](https://github.com/googleworkspace/python-samples/issues/80)).
+  No scope or parameter addresses a mailbox delegated to that user.
 - **IMAP.** [XOAUTH2](https://developers.google.com/workspace/gmail/imap/xoauth2-protocol)
   needs `https://mail.google.com/`, which the hosts do not request. Its only
   route to other users' mailboxes is `gmail.imap_admin`, which "can only be used
@@ -52,14 +49,12 @@ delegation.
 
 These apply in Gmail itself and would constrain any future path:
 
-- A personal Gmail account allows up to 10 delegates. A work or school account
-  allows up to 1,000, all in the same organization
-  ([Gmail Help](https://support.google.com/mail/answer/138350)).
-- In Workspace, an administrator must enable **Let users delegate access to their
-  mailbox to other users in the domain**
+- In Workspace, delegator and delegate must be in the same organization, and an
+  administrator must enable **Let users delegate access to their mailbox to other
+  users in the domain**
   ([Workspace Admin Help](https://knowledge.workspace.google.com/admin/gmail/let-users-delegate-access-to-a-gmail-account)).
 - The delegate accepts an emailed invitation within a week. Access can take up to
-  24 hours to start.
+  24 hours to start ([Gmail Help](https://support.google.com/mail/answer/138350)).
 
 ## Live proof
 
