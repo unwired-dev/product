@@ -83,7 +83,9 @@ export function syntheticConnections(
         history ?? undefined,
       ) ?? missing(),
     openMailboxSegment: (mailbox, name) =>
-      of(mailbox.connection)?.openMailboxSegment(mailbox, name) ?? missing(),
+      (
+        server(mailbox.connection) ?? of(mailbox.connection)
+      )?.openMailboxSegment(mailbox, name) ?? missing(),
     openMessageBody: (mailbox, id) =>
       (server(mailbox.connection) ?? of(mailbox.connection))?.openMessageBody(
         mailbox,

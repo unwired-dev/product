@@ -305,6 +305,56 @@ describe('connecting IMAP mailboxes', () => {
     ]);
   });
 
+  it('reconciles expunged history through the connection-bound IMAP store', async () => {
+    expect.hasAssertions();
+    const device = createSyntheticDevice();
+    const store = createRegistration(createSyntheticVault(device).vault);
+    await store.register('apple');
+    await store.connectImap(setup(device.imap.password));
+    const [connection] = mailboxesOf(store.getSnapshot().snapshot);
+    Vitest.assert.isDefined(connection);
+    const imap = createSyntheticImap();
+    const expunged = imap.deliver('INBOX', {
+      subject: 'Expunged after saving',
+    });
+    for (let index = 0; index < 2; index += 1) {
+      imap.deliver('INBOX', { subject: `Kept ${index}` });
+    }
+    const mailboxes = createMailboxes(
+      syntheticConnections({}, { [connection.id]: imap.native }),
+      store,
+    );
+    const inbox = imapInbox(mailboxes);
+    onTestFinished(() => inbox.forget());
+    await mailboxes.load();
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).history?.complete).toBe(true);
+    });
+
+    imap.expunge('INBOX', expunged);
+    // Relaunch verifies the saved history and reads its segment before reconciling expunges.
+    inbox.forget();
+    const relaunched = createMailboxes(
+      syntheticConnections({}, { [connection.id]: imap.native }),
+      store,
+    );
+    const resumed = imapInbox(relaunched);
+    onTestFinished(() => resumed.forget());
+    await relaunched.load();
+    await vi.waitFor(() => {
+      expect([...imap.segments.values()].join('')).not.toContain(
+        'Expunged after saving',
+      );
+    });
+    await vi.waitFor(() => {
+      expect(ready(resumed.getSnapshot()).history).toStrictEqual({
+        downloaded: 2,
+        total: 2,
+        complete: true,
+      });
+    });
+  });
+
   it('synchronizes the Inbox by UID, resumes from its checkpoint and relists after a UIDVALIDITY change', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

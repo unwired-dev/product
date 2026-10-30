@@ -8,6 +8,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A production module that imports from `src/testing/`. Metro substitutes those modules only for a named Mock Mail Session scenario (`scripts/mock-mail-build.cjs`); a static import carries synthetic providers into release bundles.
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
+- `testing/mailbox-connections.ts` forwarding shared storage operations only to
+  one provider. Exercise IMAP history reconciliation through `createMailboxes`,
+  including `openMailboxSegment`; otherwise direct-store journeys pass while
+  connection-bound stores cannot read saved history and pause or ask for authorization.
 
 #### Organizing row continuity
 
