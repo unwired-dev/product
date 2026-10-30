@@ -637,6 +637,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `graph-inbox.ts.history` fetching a discovered folder's total before saving
+  that folder as pending. Refuse its first total request after other folders
+  completed, then relaunch and retry. The saved progress must remain incomplete
+  and paused with no total until every folder's count is known; otherwise the
+  missing folder is hidden behind a completed history status.
 - `graph-inbox.ts.folderWork` folding arrivals into an unfinished history pass
   without including their identities in its listing edge and pending continuation
   check. Exercise arrivals at the boundary receipt that reach the fold threshold

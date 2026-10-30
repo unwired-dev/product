@@ -78,8 +78,8 @@ until the newest 200 messages or all available messages are retained, with a
 connection's encrypted document. Its final delta link is retained after relisting
 to cover changes during initialization. Later rounds preserve that checkpoint
 and restart boundedly on expired delta state. This is the bounded whole-document
-cache already used by Gmail, not complete indexed Historical Metadata Backfill.
-Each synchronization admits at most 200 Graph advancement steps, including empty
+cache already used by Gmail; the separate backfill below retains older metadata.
+Each foreground synchronization admits at most 200 Graph advancement steps, including empty
 or repeated delta continuations. The last admitted checkpoint remains durable for
 retry; a quiet round's final-link commit ends the pass without another request.
 
@@ -97,6 +97,40 @@ records stay unchanged. Descriptors carry the encrypted provider/address/epoch,
 not tokens or the subject. Body storage and generation, removal, revocation and
 compare-and-swap fences remain shared with
 [the native cache](private-inbox-storage.md#gmail-mailbox-cache).
+
+## Historical Metadata Backfill
+
+The operational [backfill contract](../microsoft-mail.md#historical-metadata-backfill)
+owns folder scope, progress, recovery and remaining qualification. `graphHistory`
+is separate from Gmail's All Mail history and holds one folder history per entry.
+The shared store commits each listed page as an immutable encrypted segment with
+its folder checkpoint, through the existing native history-write boundary.
+
+Each folder starts a full delta round before listing. Its resulting link covers
+changes the listing can miss. The listing is newest first and uses the oldest
+saved receipt as a keyset boundary, with saved edge identities to deduplicate mail
+sharing that receipt. For large groups with one receipt, a saved Graph continuation
+avoids rereading an expanding prefix. After a continued page, a durable check
+tracks its starting receipt and listed identities. A delta change to one of those
+identities can indicate a shifted continuation, so reconciliation rewinds to that
+receipt while excluding the identities already stored. Completion waits for the
+check to clear. Folds add their stored identities to the edge and pending check so
+replay does not duplicate folded arrivals.
+
+When the bounded Move to inventory is incomplete, a separate breadth-first walk
+saves folder-list continuations and child-list URLs. Its previous complete
+inventory stays retained during a new walk, but cannot establish current
+completion or a total. Discovered folders are persisted as incomplete entries
+before requesting their totals; otherwise a failed first count request could
+leave progress derived only from already-complete folders. Counts are read before
+folder listing begins, and a 404 removes the absent folder for that run.
+
+Later runs reconcile each folder's delta state. An expired link starts a new pass
+while the preceding pass stays counted until replacement completes. The existing
+Gmail history fold writes recorded changes into segments. Graph history changes
+also block stale whole-document CAS rebases, preserving independently committed
+checkpoints and referenced segments. These device-local metadata segments do not
+change provider-token custody, key custody or Private Sync payloads.
 
 ## Bodies, images and attachments
 

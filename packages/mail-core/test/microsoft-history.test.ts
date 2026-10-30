@@ -244,6 +244,18 @@ const refusingDelta = (
   },
 });
 
+// Refuses newly discovered folders' item counts while allowing folder discovery to finish.
+const refusingTotals = (
+  graph: Graph,
+  refusal: () => boolean,
+): Graph['native'] => ({
+  ...graph.native,
+  graphRequest: (url, owner) =>
+    refusal() && url.includes('$select=totalItemCount')
+      ? Promise.resolve({ status: 429, body: '{}' })
+      : graph.native.graphRequest(url, owner),
+});
+
 describe('microsoft historical metadata backfill', () => {
   it('downloads each folder after the Inbox is usable and reports progress', async () => {
     expect.hasAssertions();
@@ -462,6 +474,33 @@ describe('microsoft historical metadata backfill', () => {
     refusal = undefined;
     await inbox.load();
     await backfilled(inbox);
+    const folders = await downloaded(graph);
+    expect(folders.get(projects)).toStrictEqual(ids);
+  });
+
+  it('stays incomplete when a newly discovered folder cannot read its total', async () => {
+    expect.hasAssertions();
+    const graph = createGraph();
+    let refusal = false;
+    const inbox = createInbox(refusingTotals(graph, () => refusal));
+    await inbox.load();
+    await backfilled(inbox);
+    const projects = graph.createFolder('Projects');
+    const ids = delivered(graph, 1, projects);
+    refusal = true;
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(progress(inbox)).toStrictEqual({
+        downloaded: 0,
+        complete: false,
+        paused: true,
+      });
+    });
+    inbox.forget();
+    refusal = false;
+    const relaunched = createInbox(graph.native);
+    await relaunched.load();
+    await backfilled(relaunched);
     const folders = await downloaded(graph);
     expect(folders.get(projects)).toStrictEqual(ids);
   });

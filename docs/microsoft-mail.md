@@ -117,16 +117,10 @@ folders in the background, a folder at a time, newest first, 50 messages per pag
 Items, Drafts and Outbox stay out, as Gmail's Spam and Trash do. It shares
 [Gmail's](gmail-inbox.md#historical-metadata-backfill) background lane, so it yields
 to body loads and to every synchronization and never blocks using the Inbox. Each
-page is saved as its own encrypted history segment beside the mailbox document,
-with the receipt time the next page lists below and the messages already listed at
-that time, so relaunching or an interrupted page continues where the last saved
-page ended without listing earlier pages again. Messages that share one receipt
-time are listed once each across pages; within thousands of them, the pass also
-saves Graph's continuation of the listing, so each step reads one new page. A
-message that leaves the folder can shift that continuation past another, so after
-each page read through it the folder's delta round runs before the pass lists
-further; when the round reports a change to a message listed there, the pass lists
-that receipt time again without the messages it already has. The opened-folder
+saved page survives relaunch and interrupted requests. Resuming continues from
+the last saved page; messages sharing a receipt time remain unique across pages,
+including when mail moves or is deleted during the download. Downloaded metadata
+uses encrypted device-local storage independently of opened-folder caches, whose
 bounds never evict downloaded history.
 
 When Move to lists only part of the mailbox's folders, each backfill run first
@@ -134,18 +128,18 @@ walks every folder list page, nested folders included, saving its place after
 each page. Until that walk completes, including on later runs, the progress
 names no total and is not complete, and no folder leaves the history.
 
-Before a folder's first page, the device starts a Graph delta round for the folder
-and saves its link, so changes made while the pass runs are not lost. After each
-synchronization it reads every folder's delta link and applies new, moved, deleted
-and read mail to the downloaded history: a message moved to another folder leaves
-the first folder's history and joins the second's. When Graph expires a folder's
-delta link, the device lists that folder again while its earlier history stays
-counted, and replaces it once the new pass completes. A folder removed in Outlook
-leaves the history.
+Changes made while the download runs are retained. Each synchronization keeps
+new, moved, deleted and read mail current in the downloaded history: a message
+moved to another folder leaves the first folder's history and joins the second's.
+When Graph expires a folder's delta state, that folder downloads again while its
+earlier history stays counted, and replaces it once the new pass completes. A
+folder removed in Outlook leaves the history.
 
 The Inbox state reports the progress per mailbox, like Gmail's: downloaded messages,
 the total from each folder's item count, and whether every folder's download
 and final reconciliation are complete.
+Newly discovered folders remain pending, including when reading their item counts
+fails; progress names no total until every folder's count is known.
 The [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) includes the pass, with
 each connection's history status on Mac and in the capsule's details on iPhone and
 iPad. A failed read, including Graph throttling, pauses the pass until the next
@@ -309,7 +303,8 @@ resume after an interrupted page and relaunch without listing a page twice, keep
 and read mail current during and after the pass, list a folder again after an
 expired delta link without lowering progress, stay incomplete when the last continued
 page's check is refused, pause on throttling and keep their place
-through a refused grant, and download 5,000 messages in bounded pages. The macOS
+through a refused grant, remain incomplete when a new folder's first count request
+is throttled and recover after relaunch, and download 5,000 messages in bounded pages. The macOS
 `native/private-inbox/integration/history.zsh` runner repeats them with the signed
 native store holding the mailbox document and its history segments.
 

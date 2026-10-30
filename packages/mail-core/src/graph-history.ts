@@ -67,9 +67,13 @@ export const withFolders = (
   ...(history?.inventory === undefined ? {} : { inventory: history.inventory }),
 });
 
-export const newFolder = (folder: string, total: number) => ({
+export const newFolder = (folder: string, total?: number) => ({
   folder,
-  history: { total, current: { segments: [] }, changes: [] },
+  history: {
+    ...(total === undefined ? {} : { total }),
+    current: { segments: [] },
+    changes: [],
+  },
 });
 
 // After Graph expired the folder's delta link, a new round and pass list it again; the last pass

@@ -847,25 +847,8 @@ export function createGraphReader(native: NativeGraphMailbox) {
     return { ...inventory, walk: { pending: lists, seen } };
   });
 
-  // The first of the folders the history lacks, with its total; a folder Graph no longer has is
-  // passed over for this run.
-  const addedFolder = Effect.fnUntraced(function* (
-    scope: MailboxScope,
-    missing: readonly string[],
-    done: Set<string>,
-  ) {
-    for (const folder of missing) {
-      const total = yield* folderTotal(scope, folder);
-      if (Option.isSome(total)) {
-        return Option.some(newFolder(folder, total.value));
-      }
-      done.add(folder);
-    }
-    return Option.none();
-  });
-
-  // A folder's round while it has no link or its round has not ended in this run, else its pass's
-  // next page as one new segment.
+  // A new folder's total, then its round while it has no link or the round has not ended in this
+  // run, else its pass's next page as one new segment.
   const folderStep = Effect.fnUntraced(function* (
     scope: MailboxScope,
     entry: GraphFolderHistory,
@@ -874,6 +857,18 @@ export function createGraphReader(native: NativeGraphMailbox) {
       newName,
     }: Readonly<{ done: Set<string>; newName: Effect.Effect<string> }>,
   ) {
+    if (entry.history.total === undefined) {
+      const total = yield* folderTotal(scope, entry.folder);
+      if (Option.isNone(total)) {
+        done.add(entry.folder);
+      }
+      return {
+        next: Option.isSome(total)
+          ? newFolder(entry.folder, total.value)
+          : undefined,
+        written: [],
+      };
+    }
     if (entry.link === undefined || !done.has(entry.folder)) {
       return { next: yield* historyRound(scope, entry, done), written: [] };
     }
@@ -945,9 +940,11 @@ export function createGraphReader(native: NativeGraphMailbox) {
       });
     }
     const target =
+      folders.find(({ history }) => history.total === undefined) ??
       folders.find(
         ({ folder, link }) => link !== undefined && !done.has(folder),
-      ) ?? folders.find((entry) => entry.history.current.complete !== true);
+      ) ??
+      folders.find((entry) => entry.history.current.complete !== true);
     if (target === undefined) {
       return Option.none();
     }
@@ -960,7 +957,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
 
   // The next step of a Microsoft mailbox's Historical Metadata Backfill, or none once it has
   // nothing left to do in this run. When Move to lists only part of the folders, the walk of every
-  // folder comes first; then each new folder reads its total before the folders' own work.
+  // folder comes first; new folders are saved as pending before reading their totals.
   const history = Effect.fnUntraced(function* <E>(
     scope: MailboxScope,
     document: MailboxDocument,
@@ -994,16 +991,15 @@ export function createGraphReader(native: NativeGraphMailbox) {
       });
     }
     const listed = new Set(folders.map(({ folder }) => folder));
-    const added = yield* addedFolder(
-      scope,
-      historyFolders(document).wanted.filter(
-        (folder) => !listed.has(folder) && !done.has(folder),
-      ),
-      done,
+    const missing = historyFolders(document).wanted.filter(
+      (folder) => !listed.has(folder) && !done.has(folder),
     );
-    if (Option.isSome(added)) {
+    if (missing.length > 0) {
       return Option.some({
-        history: updated([...folders, added.value]),
+        history: updated([
+          ...folders,
+          ...missing.map((folder) => newFolder(folder)),
+        ]),
         written: [],
       });
     }
