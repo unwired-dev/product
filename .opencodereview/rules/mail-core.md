@@ -8,6 +8,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A production module that imports from `src/testing/`. Metro substitutes those modules only for a named Mock Mail Session scenario (`scripts/mock-mail-build.cjs`); a static import carries synthetic providers into release bundles.
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
+- `testing/mailbox-connections.ts` forwarding shared storage operations only to
+  one provider. Exercise IMAP history reconciliation through `createMailboxes`,
+  including `openMailboxSegment`; otherwise direct-store journeys pass while
+  connection-bound stores cannot read saved history and pause or ask for authorization.
 
 #### Organizing row continuity
 
@@ -185,6 +189,29 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   adoption, preserve INBOX and still-selectable evicted views, and verify failed
   LIST and CAS recovery. Otherwise retired bodies stay indefinitely or a storage
   refusal leaves a selected folder loading with unreadable rows.
+- `imap-history.ts.nextHistoryFolder` letting the process-local settled set
+  suppress a cached UIDVALIDITY change, or `imap-inbox.ts.acceptListing` keeping
+  a retired folder's settled name after its history is removed. Reconcile that
+  eligibility only after the listing commits. Exercise renumbering a completed
+  folder and retiring then recreating its name without relaunch; otherwise old
+  history survives a known identity change or a new folder never backfills.
+  Distinguish a newly observed cached identity from the same stale cached
+  identity left after history rebuilds. Exercise a cached non-Inbox folder
+  renumbered before relaunch, with a later folder waiting to backfill; otherwise
+  the persistent cache/history mismatch overrides settlement forever and
+  repeated reads starve the later folder. Compare UIDNEXT only within a shared
+  UIDVALIDITY.
+- `imap-history.ts.nextHistoryFolder` allowing cached UIDNEXT or UIDVALIDITY
+  observations to reselect a folder whose history read was refused as missing
+  or changed. Keep refusal exclusions distinct from folders merely read up to
+  date, clear them at the owning access reset, and retire them only after a
+  complete listing commits. Exercise a refused folder with a newer cached view
+  and a later selectable folder; otherwise repeated refusals starve other history.
+- `imap-history.ts.decided` carrying a finished expunge check's `checking`
+  cursor into a catch-up pass. Clear phase-local state on every successor
+  branch and exercise an arrival during the final segment check through the
+  public store and saved UIDs. Otherwise catch-up replies are reconciled as
+  old segments, their arrivals are dropped and progress falsely completes.
 - `imap-inbox.ts.open` recreating a cached folder view as `current` without
   reading that folder, or discarding a failed first read because no cache entry
   exists. Preserve failed uncached views and previous ready status, including
@@ -256,6 +283,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   authority rules; an advisory panel cannot change the accepted requirement.
 
 #### Untrusted boundaries fail closed
+
+- `imap-inbox.ts.readSegment` treating a checkpoint's missing saved segment as
+  an empty message list. An expunge check may remove messages only after reading
+  that segment and checking its UIDs with the provider. Pause on a missing
+  segment without committing a replacement checkpoint; exercise refusal and
+  recovery through the public store. Otherwise local storage absence discards
+  downloaded metadata and falsely completes an incomplete history.
 
 - `html-sanitizer.ts.readDeclarations` passing sender CSS to a recursive parser
   before bounding block and function nesting, including a new dependency's own
@@ -392,7 +426,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
-- `gmail-inbox.ts` scheduling recent-body prefetch and history backfill through
+- `gmail-inbox.ts` or `imap-inbox.ts` scheduling recent-body prefetch and history backfill through
   independent speculative owners. Share one connection-owned permit between a
   prefetch pass and each history step, while explicit reads remain outside it.
   Exercise current-timestamp mail with held prefetch metadata and queued history;

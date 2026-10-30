@@ -9,7 +9,8 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import { onTestFinished } from 'vitest';
 
-type Stored = Pick<
+// The persistence a controlled Gmail or IMAP provider shares with the native store.
+type Storage = Pick<
   NativeGmailMailbox,
   | 'openMailbox'
   | 'commitMailbox'
@@ -28,7 +29,7 @@ const scopeOf = Schema.decodeUnknownSync(
   Schema.Struct({
     address: Schema.String,
     generation: Schema.String,
-    owner: Schema.String,
+    owner: Schema.optionalKey(Schema.String),
   }),
 );
 const storedOf = Schema.decodeUnknownSync(
@@ -59,17 +60,19 @@ const storedBodiesOf = Schema.decodeUnknownSync(
 );
 
 // The ordinary suite stays credential-free. The explicit Mac runner supplies a signed native
-// process, substituting only persistence while Gmail or Graph responses remain controlled.
-export const withNativeHistory = <T extends Readonly<{ native: Stored }>>(
-  gmail: T,
-): T => {
+// process, substituting only persistence while provider responses remain controlled.
+export const withNativeHistory = <
+  Provider extends Readonly<{ native: Storage }>,
+>(
+  provider: Provider,
+): Provider => {
   const executable = Effect.runSync(
     Config.String('UNWIRED_HISTORY_STORE_EXECUTABLE').pipe(
       Config.withDefault(''),
     ),
   );
   if (executable === '') {
-    return gmail;
+    return provider;
   }
   const child = spawn(executable, [], { stdio: ['pipe', 'pipe', 'inherit'] });
   const pending: Array<ReturnType<typeof Promise.withResolvers<unknown>>> = [];
@@ -126,9 +129,11 @@ export const withNativeHistory = <T extends Readonly<{ native: Stored }>>(
     child.stdin.write(`${encode(command)}\n`);
     return result.promise;
   };
-  const persistence: Stored = {
+  const storage = provider.native;
+  const native: Provider['native'] = {
+    ...storage,
     openMailbox: async () => {
-      const scope = scopeOf(await gmail.native.openMailbox());
+      const scope = scopeOf(await storage.openMailbox());
       return {
         ...storedOf(await call({ operation: 'open', address: scope.address })),
         ...scope,
@@ -147,7 +152,7 @@ export const withNativeHistory = <T extends Readonly<{ native: Stored }>>(
       // Keep the synthetic body's revision fence aligned with the real metadata commit. All
       // metadata/segment reads above and below use the native vault's durable answer.
       const mirrored = scopeOf(
-        await gmail.native.commitMailbox(scope, revision, document, history),
+        await storage.commitMailbox(scope, revision, document, history),
       );
       return { ...saved, ...mirrored };
     },
@@ -158,14 +163,14 @@ export const withNativeHistory = <T extends Readonly<{ native: Stored }>>(
     // Body calls pass through the synthetic store first, keeping its injected failures and
     // ownership checks, then answer from the native Bounded Encrypted Body Cache.
     openMessageBody: async (scope, id) => {
-      await gmail.native.openMessageBody(scope, id);
+      await storage.openMessageBody(scope, id);
       return segmentOf(
         await call({ operation: 'body', address: scope.address, id }),
       );
     },
     commitMessageBody: async (scope, id, admission) => {
       if (
-        !admittedOf(await gmail.native.commitMessageBody(scope, id, admission))
+        !admittedOf(await storage.commitMessageBody(scope, id, admission))
           .admitted
       ) {
         return { admitted: false };
@@ -183,14 +188,14 @@ export const withNativeHistory = <T extends Readonly<{ native: Stored }>>(
       );
     },
     listMessageBodies: async (scope, ids) => {
-      await gmail.native.listMessageBodies(scope, ids);
+      await storage.listMessageBodies(scope, ids);
       const { stored, excluded } = storedBodiesOf(
         await call({ operation: 'list-bodies', address: scope.address, ids }),
       );
       return { stored: [...stored], excluded: [...excluded] };
     },
     retainMessageBodies: async (scope, ids, protectedIds) => {
-      await gmail.native.retainMessageBodies(scope, ids, protectedIds);
+      await storage.retainMessageBodies(scope, ids, protectedIds);
       await call({
         operation: 'retain-bodies',
         address: scope.address,
@@ -201,5 +206,5 @@ export const withNativeHistory = <T extends Readonly<{ native: Stored }>>(
       return null;
     },
   };
-  return { ...gmail, native: { ...gmail.native, ...persistence } };
+  return { ...provider, native };
 };

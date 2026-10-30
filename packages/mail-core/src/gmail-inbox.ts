@@ -73,6 +73,7 @@ import {
   progress,
   recorded,
   restarted,
+  segmentName,
   segmentNames,
   storedBodies,
 } from './gmail-history.ts';
@@ -3378,13 +3379,6 @@ export function createGmailInbox(
 
   // Historical Metadata Backfill: All Mail's stored segments, revealed below a view's cached
   // messages as it scrolls.
-  const segmentName = Effect.map(
-    Effect.all([
-      Random.nextIntBetween(0, 2 ** 31 - 1),
-      Random.nextIntBetween(0, 2 ** 31 - 1),
-    ]),
-    ([high, low]) => `${high.toString(36)}${low.toString(36)}`,
-  );
   // A segment's messages, none once a later commit removed it.
   function readSegment(scope: MailboxScope, name: string) {
     return Effect.tryPromise({

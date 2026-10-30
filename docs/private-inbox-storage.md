@@ -66,9 +66,10 @@ belongs to, so its saved changes survive. Removing the legacy connection before
 opening its Inbox also removes its earlier cache and bodies, without needing their
 key. Removing another connection preserves that legacy connection's pending changes.
 
-The Gmail and Microsoft mailbox documents keep recent messages and checkpoints.
-Downloaded [Historical Metadata Backfill](gmail-inbox.md#historical-metadata-backfill)
-pages, [Microsoft's](microsoft-mail.md#historical-metadata-backfill) per folder, are
+The Gmail, Microsoft and IMAP mailbox documents keep recent messages and checkpoints.
+Downloaded [Gmail](gmail-inbox.md#historical-metadata-backfill),
+[Microsoft](microsoft-mail.md#historical-metadata-backfill) (per folder) and
+[IMAP](imap-mailboxes.md#historical-metadata-backfill) Historical Metadata Backfill pages are
 separate encrypted segment files in the connection's `history` directory, each sealed
 with its own name as associated data so one cannot be read as another. A commit that
 writes segments writes them before the mailbox document, then attempts to remove

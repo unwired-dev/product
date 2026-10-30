@@ -128,6 +128,25 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   server. Otherwise repeated default identities can reuse a different message's
   encrypted cached body.
 
+- `SwiftMailImap.history` leaving a folder selection refusal as an upstream
+  error. Trace the pinned EXAMINE handler through `session`, the bridge rejection
+  mapper and `readHistory`: translate selection refusal to the existing missing
+  folder code so backfill can skip it and continue with later folders. Keep
+  authentication, transport and post-selection read failures distinct; otherwise
+  a folder removed after LIST pauses the entire connection, or a broad catch
+  hides a recoverable connection failure. Exercise the refusal over controlled TLS,
+  as a synthetic missing-folder reply alone cannot prove native translation.
+
+- `UnwiredRegistration.imapHistory` or another speculative multi-request IMAP
+  read holding `RegistrationOperationGate` throughout network waits. Compare
+  `ungatedMailbox` and the search/IDLE precedent: acquire the store under the gate,
+  then retain `imapWork`'s connection, verification and generation fences around
+  the network work. Keep storage commits under their existing gate and revision
+  checks. Otherwise a background page stalls foreground mailbox reads and
+  registration changes; dropping the fences instead can return stale mail after
+  removal or re-verification. Native foreground-read-during-history evidence is
+  distinct from shared-store tests and Swift syntax parsing.
+
 - `SwiftMailImap` trusting RFC822.SIZE or checking a fetched body only after the
   upstream parser buffered it. Bound body literals and response attributes in the
   real engine parser before accepting payload bytes, with a controlled TLS server

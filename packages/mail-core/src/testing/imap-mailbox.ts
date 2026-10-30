@@ -59,6 +59,39 @@ const mimeHeaders = (raw: string) =>
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error(`Synthetic ${code}`), { code }));
 
+// The newest `limit` messages of [above, below) a history read reports, the cursor below them and
+// which of the `known` UIDs remain.
+const historyPageOf = (
+  folder: Readonly<ServerFolder>,
+  request: Readonly<{
+    above: number;
+    below?: number;
+    limit: number;
+    known: readonly number[];
+  }>,
+) => {
+  const below = request.below ?? folder.uidNext;
+  const range = Arr.sort(
+    folder.messages.filter(({ uid }) => uid >= request.above && uid < below),
+    newestUid,
+  );
+  const page = range.slice(0, request.limit);
+  const known = new Set(request.known);
+  return {
+    uidValidity: folder.uidValidity,
+    uidNext: folder.uidNext,
+    total: folder.messages.length,
+    messages: page.map(envelope),
+    below:
+      range.length > request.limit
+        ? (page.at(-1)?.uid ?? request.above)
+        : Math.min(below, request.above),
+    present: folder.messages
+      .filter(({ uid }) => known.has(uid))
+      .map(({ uid }) => uid),
+  };
+};
+
 // A plain-text message with the headers its envelope reports.
 export const syntheticRaw = (subject: string, body: string) =>
   [
@@ -115,6 +148,8 @@ export function createSyntheticImap({
     changes: [] as string[],
     // Sessions opened and not yet closed.
     sessions: new Set<string>(),
+    // The code history reads alone reject with, as a server failing mid-backfill would.
+    historyFailure: undefined as string | undefined,
   };
   let sessionCount = 0;
   // The connection's SMTP server: what it accepted, and the code its next submission rejects
@@ -136,6 +171,8 @@ export function createSyntheticImap({
     availability: undefined as 'retry' | undefined,
     commits: 0,
   };
+  // History segments saved beside the document, by name.
+  const segments = new Map<string, string>();
   const bodies = new Map<string, string>();
   // Each saved body's eviction tier: opened, prefetched, or an exclusion marker.
   const tiers = new Map<string, string>();
@@ -153,6 +190,11 @@ export function createSyntheticImap({
   };
   const reach = () =>
     server.failure === undefined ? undefined : rejection(server.failure);
+  const historyRefusal = () =>
+    reach() ??
+    (server.historyFailure === undefined
+      ? undefined
+      : rejection(server.historyFailure));
   // A command on a session that is not open is refused, as native code refuses a closed handle.
   const inSession = (session: string) =>
     server.sessions.has(session) ? reach() : rejection('mailbox-invalidated');
@@ -485,6 +527,19 @@ export function createSyntheticImap({
           .map(({ uid, flags }) => ({ uid, flags })),
       });
     },
+    // The newest messages of the requested UID range, as native code's bounded UID searches find
+    // them, and the known UIDs still present.
+    imapHistory: (_mailbox, request) => {
+      server.reads.push(`history ${request.folder} ${request.below ?? 'next'}`);
+      const current = folders.get(request.folder);
+      return (
+        historyRefusal() ??
+        (current === undefined
+          ? rejection('imap-missing')
+          : Promise.resolve(historyPageOf(current, request)))
+      );
+    },
+
     imapMessage: (_mailbox, request) => {
       server.reads.push(`message ${request.folder} ${request.uid}`);
       const current = examined(request);
@@ -521,18 +576,37 @@ export function createSyntheticImap({
           ? {}
           : { availability: cache.availability }),
       }),
-    commitMailbox: (mailbox, expectedRevision, document) => {
+    // Writes history segments before the document, then removes those `keep` leaves out.
+    // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
+    commitMailbox: (mailbox, expectedRevision, document, history) => {
       if (mailbox.generation !== cache.generation) {
         return rejection('mailbox-invalidated');
       }
       if (expectedRevision !== cache.revision) {
         return rejection('conflict');
       }
+      for (const [name, segment] of Object.entries(history?.segments ?? {})) {
+        segments.set(name, segment);
+      }
       cache.revision += 1;
       cache.commits += 1;
       cache.document = document;
-      return Promise.resolve({ revision: cache.revision });
+      if (history !== undefined) {
+        const kept = new Set(history.keep);
+        for (const name of segments.keys()) {
+          if (!kept.has(name)) {
+            segments.delete(name);
+          }
+        }
+      }
+      return Promise.resolve({
+        revision: cache.revision,
+        address,
+        generation: cache.generation,
+      });
     },
+    openMailboxSegment: (_mailbox, name) =>
+      Promise.resolve({ document: segments.get(name) ?? null }),
     openMessageBody: (_mailbox, id) =>
       Promise.resolve({ document: bodies.get(id) ?? null }),
     commitMessageBody: (_mailbox, id, admission) => {
@@ -574,6 +648,7 @@ export function createSyntheticImap({
     server,
     smtp,
     cache,
+    segments,
     bodies,
     tiers,
     files,
