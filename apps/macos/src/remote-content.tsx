@@ -120,7 +120,7 @@ export function useRemoteImages({
 }
 
 const styles = StyleSheet.create({
-  label: { ...textStyles.body },
+  label: { ...textStyles.body, alignSelf: 'center' },
   text: { ...textStyles.body },
   // The approved warning row has the same inset on every platform.
   notSaved: {

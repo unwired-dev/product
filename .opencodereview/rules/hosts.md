@@ -1345,6 +1345,16 @@ still applies. See `docs/architecture/macos-client.md`.
   parent and verify the retry control's native name independently. Otherwise
   immediate speech can hide a message or retry that VoiceOver cannot revisit.
 
+- A shared layout or accessibility-frame change in `label.tsx.Label`,
+  `message-detail.tsx`'s empty styles or another reused StyleSheet entry checked
+  only in its primary state. Trace every consumer and conditional branch before
+  moving or removing flex, alignment, spacing or width-dependent decoration.
+  Keep pane filling and centering on the outer layout while narrowing the
+  accessible text group; otherwise locked, failed or unavailable readers lose
+  their layout, or a text-sized label shrinks a full-width separator. Audit
+  sibling style consumers after a fix and distinguish native geometry evidence
+  from component prop assertions.
+
 - `imap-setup.tsx.ManualSending` explaining optional SMTP credential defaults only
   in single-line placeholders. Keep "same as incoming if blank" in visible,
   wrapping text beside each field, including after entry, and retain the field's

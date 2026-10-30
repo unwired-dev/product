@@ -1616,21 +1616,26 @@ final class WindowTests: XCTestCase {
     }
   }
 
-  // Secondary text the contrast audit still flags in Light or Dark after #1195's solid colours,
-  // mostly where a label's frame is wider than its text or it sits on glass (#1550). The
-  // audits cover every open window, so this lists labels rather than screens.
-  private let contrastGaps: Set<String> = [
-    "", "16 September 2025 at 00:20 UTC", "30 September 2025 at 08:00 UTC", "Accounts", "App",
-    "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
-    "Application", "Automation", "Colleague 003, colleague003@example.invalid", "Favorites",
-    "Gmail · other@example.invalid", "Go To",
-    "Known Tracking Pixels stay blocked for every remote-content policy.", "Language",
-    "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
-    "Mailboxes", "Microsoft · casey@example.invalid", "October 2025", "On-device assistance is off.",
-    "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
-    "Select a message to start reading.", "Selected Message", "September 2025",
-    "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
-    "casey@example.invalid, other@example.invalid are connected on this device.",
+  // Text the contrast audit still flags after #1195's solid colours, by the issue that owns it. The
+  // audits cover every open window, so these list labels rather than screens.
+  private let contrastGaps: [String: Set<String>] = [
+    // Dark secondary text on sidebar glass, lightened by whatever is behind the window.
+    "#1574": ["Accounts", "Application", "Automation", "Gmail · other@example.invalid"],
+    // Their captured pixels pass, yet the audit flags them: the Inbox window's labels while
+    // Settings or a sheet is in front, small text, including AppKit's own, and the Command
+    // Palette's headers on its glass panel.
+    "#1550": [
+      "", "16 September 2025 at 00:20 UTC", "30 September 2025 at 08:00 UTC", "App",
+      "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
+      "Colleague 003, colleague003@example.invalid", "Favorites",
+      "Go To", "Known Tracking Pixels stay blocked for every remote-content policy.",
+      "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
+      "Mailboxes", "Microsoft · casey@example.invalid", "On-device assistance is off.",
+      "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes", "Selected Message",
+      "September 2025",
+      "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
+      "casey@example.invalid, other@example.invalid are connected on this device.",
+    ],
   ]
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
@@ -1643,8 +1648,8 @@ final class WindowTests: XCTestCase {
     let touchBar =
       type == .touchBar || (type == .popUpButton && ["list style", "text alignment"].contains(label))
     switch issue.auditType {
-    case .contrast where type == .staticText && contrastGaps.contains(label):
-      return "#1550"
+    case .contrast where type == .staticText:
+      return contrastGaps.first { $0.value.contains(label) }?.key
     case .action where touchBar, .sufficientElementDescription where touchBar:
       return "AppKit Touch Bar"
     // The candidate bar's suggestion buttons report a parent that does not list them on these

@@ -9,6 +9,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
+import { Label } from './label.tsx';
 import {
   useLocalization,
   useMessageDateFormat,
@@ -229,17 +230,15 @@ export function DateDivider({
       : t(`inbox.${day}`);
   const colors = usePalette();
   return (
-    <View
-      accessible
-      accessibilityRole="header"
-      accessibilityLabel={label}
-      style={styles.divider}>
+    <View style={styles.divider}>
       <View
         style={[styles.dividerLine, { backgroundColor: colors.separator }]}
       />
-      <Text style={[styles.dividerLabel, { color: colors.textSecondary }]}>
+      <Label
+        accessibilityRole="header"
+        style={[styles.dividerLabel, { color: colors.textSecondary }]}>
         {label}
-      </Text>
+      </Label>
       <View
         style={[styles.dividerLine, { backgroundColor: colors.separator }]}
       />

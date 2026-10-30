@@ -34,7 +34,11 @@ function Authorization({
   const { t } = useLocalization();
   const colors = usePalette();
   const value = (text: string) => (
-    <Label style={[textStyles.body, { color: colors.textSecondary }]}>
+    <Label
+      style={[
+        textStyles.body,
+        { alignSelf: 'center', color: colors.textSecondary },
+      ]}>
       {text}
     </Label>
   );

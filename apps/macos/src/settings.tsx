@@ -382,7 +382,7 @@ export function SettingsWindow({
             accessibilityRole="header"
             style={[
               textStyles.title3Emphasized,
-              { color: colors.textPrimary },
+              { alignSelf: 'center', color: colors.textPrimary },
             ]}>
             {t(
               `settings.destinations.${onWelcome === undefined ? destination : 'privacy'}`,
@@ -449,7 +449,11 @@ export function SettingsGroup({
             accessibilityRole="header"
             style={[
               textStyles.subheadline,
-              { fontWeight: '600', color: colors.textSecondary },
+              {
+                alignSelf: 'center',
+                fontWeight: '600',
+                color: colors.textSecondary,
+              },
             ]}>
             {title}
           </Label>

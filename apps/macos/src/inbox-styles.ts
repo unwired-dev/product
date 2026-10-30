@@ -65,7 +65,11 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  dividerLabel: { ...textStyles.subheadline, fontWeight: '600' },
+  dividerLabel: {
+    ...textStyles.subheadline,
+    fontWeight: '600',
+    alignSelf: 'center',
+  },
   skeleton: {
     gap: spacing.s,
     paddingTop: spacing.m,
@@ -83,7 +87,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   emptyIcon: { marginBottom: spacing.m },
-  emptyTitle: { ...textStyles.title3Emphasized },
+  emptyTitle: { ...textStyles.title3Emphasized, alignSelf: 'center' },
   emptyText: { ...textStyles.body, textAlign: 'center' },
   notices: { gap: spacing.s, paddingHorizontal: 14 },
   footer: { ...textStyles.subheadline, padding: spacing.xl },

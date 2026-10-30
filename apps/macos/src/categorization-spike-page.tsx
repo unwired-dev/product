@@ -623,7 +623,11 @@ function Measurements({ result }: { readonly result: ResultValue }) {
         <SettingsRow
           key={title}
           title={title}>
-          <Label style={[textStyles.body, { color: colors.textSecondary }]}>
+          <Label
+            style={[
+              textStyles.body,
+              { alignSelf: 'center', color: colors.textSecondary },
+            ]}>
             {value}
           </Label>
         </SettingsRow>

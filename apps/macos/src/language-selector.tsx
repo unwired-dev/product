@@ -17,7 +17,7 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     marginTop: spacing.xl,
   },
-  caption: { ...textStyles.subheadline },
+  caption: { ...textStyles.subheadline, alignSelf: 'center' },
   text: { ...textStyles.body },
 });
 
