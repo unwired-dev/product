@@ -215,8 +215,9 @@ Draft holds one until Drafts from other mail clients open
 
 Shared code reads a Draft body written as HTML, by Gmail, Apple Mail, Outlook or
 outgoing mail, into a Semantic Message Document
-([#1567](https://github.com/unwired-dev/product/issues/1567)); provider Drafts
-use it once they open. It lays out text as a browser does, collapsing spaces
+([#1567](https://github.com/unwired-dev/product/issues/1567)). Nothing calls it
+yet; opening provider Drafts
+([#1269](https://github.com/unwired-dev/product/issues/1269) and later) will. It lays out text as a browser does, collapsing spaces
 and treating each `<br>` as a line break, and reads block kinds, marks, links,
 alignment, `#rrggbb`, `#rgb` and opaque `rgb()`/`rgba()` colors, families and
 sizes in `px`, `pt`, keywords or absolute `<font size="1">` through `<font size="7">`,

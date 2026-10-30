@@ -338,13 +338,16 @@ const propertyRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
   ],
 ]);
 // A bordered blockquote is a quote; without a border, it only indents.
+const noBorder =
+  /^(?:none|hidden|transparent|[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z]+|%)?)$/iu;
 const otherProperty =
   (property: string): Rule =>
   (context, value) => {
     if (property.startsWith('border')) {
-      return context.kind === 'quote' && !/^(?:none|0)\b/iu.test(value)
-        ? context
-        : undefined;
+      const shown =
+        property === 'border-radius' ||
+        !value.split(/[\t\n\f\r ]+/u).some((part) => noBorder.test(part));
+      return context.kind === 'quote' && shown ? context : undefined;
     }
     return ignoredProperties.test(property) ? context : undefined;
   };

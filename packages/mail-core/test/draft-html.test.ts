@@ -504,6 +504,33 @@ describe('a Semantic Message Document from Draft HTML', () => {
     });
   });
 
+  it('refuses a quote border that draws nothing, since outgoing mail would add a quote bar', () => {
+    expect.hasAssertions();
+    expect(
+      [
+        'border:0px solid #000',
+        'border-left:0pt',
+        'border:hidden',
+        'border:solid 0',
+        'border-left:.0em solid #ccc',
+        'border-left:1px solid transparent',
+        'border-left-width:0',
+      ].map((style) =>
+        documentFromHtml(`<blockquote style="${style}">indent</blockquote>`),
+      ),
+    ).toStrictEqual(
+      [
+        'border',
+        'border-left',
+        'border',
+        'border',
+        'border-left',
+        'border-left',
+        'border-left-width',
+      ].map((property) => ({ unsupported: [property] })),
+    );
+  });
+
   it('names what the document cannot hold instead of approximating it', () => {
     expect.hasAssertions();
 
