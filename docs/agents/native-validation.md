@@ -244,7 +244,8 @@ Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader 
 audits still report. These are secondary-text
 contrast on Dark sidebar glass ([#1574](https://github.com/unwired-dev/product/issues/1574)),
 the undrawn Command Palette panel ([#1573](https://github.com/unwired-dev/product/issues/1573)),
-labels the contrast audit flags although their captured pixels pass
+labels the contrast audit flags although their captured pixels pass, or that
+fail only while another window or an AppKit sheet dims their window
 ([#1550](https://github.com/unwired-dev/product/issues/1550)),
 AppKit's text Touch Bar, and email or web addresses used as labels. The contrast gaps list
 the labels each owner covers in either appearance. Any other issue fails

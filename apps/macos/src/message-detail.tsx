@@ -86,9 +86,11 @@ const styles = StyleSheet.create({
   secondary: { ...textStyles.subheadline },
   body: { ...textStyles.reading.body },
   empty: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
+    gap: spacing.s,
   },
   // The prompt's frame hugs its text: the macOS contrast audit measures every pixel in it.
   emptyPrompt: { alignItems: 'center', gap: spacing.s },
@@ -101,12 +103,7 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
   const { t } = useLocalization();
   return (
-    <View
-      style={[
-        styles.fill,
-        styles.empty,
-        { backgroundColor: colors.surfaceContent },
-      ]}>
+    <View style={[styles.empty, { backgroundColor: colors.surfaceContent }]}>
       <View
         accessible
         accessibilityRole="text"
@@ -598,23 +595,25 @@ function MailboxMessage({
     <ResponseStatusContext value={setResponseStatus}>
       <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
         {message === undefined ? (
-          <View
-            accessible
-            accessibilityRole="text"
-            accessibilityLabel={t('message.unavailableLabel')}
-            style={styles.empty}>
-            <Text
-              accessibilityRole="header"
-              style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-              {t('message.unavailable')}
-            </Text>
-            <Text
-              style={[
-                styles.emptyDescription,
-                { color: colors.textSecondary },
-              ]}>
-              {t('message.chooseAnother')}
-            </Text>
+          <View style={styles.empty}>
+            <View
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={t('message.unavailableLabel')}
+              style={styles.emptyPrompt}>
+              <Text
+                accessibilityRole="header"
+                style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+                {t('message.unavailable')}
+              </Text>
+              <Text
+                style={[
+                  styles.emptyDescription,
+                  { color: colors.textSecondary },
+                ]}>
+                {t('message.chooseAnother')}
+              </Text>
+            </View>
           </View>
         ) : (
           <>
