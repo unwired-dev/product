@@ -116,9 +116,11 @@ authorized operator:
    `UID SEARCH HEADER Message-ID "<fixture-id>"` and reads each candidate with
    `UID FETCH <uid> (FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[])`
    ([RFC 3501 §6.4.8](https://www.rfc-editor.org/rfc/rfc3501#section-6.4.8)).
-   If the search finds nothing, it fetches `BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]`
-   for every message in the run folder and compares those values instead, so a
-   search gap is not mistaken for a missing message. Verifies the exact `Message-ID`, decoded headers, MIME parts and attachment
+   If the search finds nothing, it fetches every message in the run folder and
+   matches the fixture by its stored `Message-ID` or, failing that, by its
+   decoded body text and attachment hashes, so a search gap or a rewritten
+   `Message-ID` is not mistaken for a missing message. Only a single match counts.
+   Verifies the exact `Message-ID`, recording any rewrite, decoded headers, MIME parts and attachment
    hashes. Through the existing Graph grant, it locates the same message by
    `internetMessageId` in the corresponding folder and reads `isDraft`,
    `receivedDateTime` and `$value`, recording date differences explicitly.
