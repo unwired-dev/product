@@ -169,12 +169,14 @@ No provided API places search there:
 - `@expo/ui` 57.0.26's `searchable` placements (`automatic`, `toolbar`, `sidebar`,
   `navigationBarDrawer`) belong to a SwiftUI navigation container's bars.
 
-[`inbox-bar.tsx`](../apps/mobile/src/inbox-bar.tsx) keeps only `createWindowBar`
-and `WindowBarHost`. They show the Inbox's floating bar over the split view's bottom
+[`inbox-bar.tsx`](../apps/mobile/src/inbox-bar.tsx) retains `createWindowBar`,
+`WindowBarHost` and the `FloatingBar`/`SearchField` composition for this gap.
+They show the Inbox's floating bar over the split view's bottom
 edge and lift it above a docked keyboard; `expo-glass-effect` draws its glass and a
 React Native `TextInput` is its field. The compact layout keeps the bar in the list.
-Delete them when a provided split view or search API places one field across all
-columns at the window's bottom edge, or an approved design moves Search into a column.
+Replace this window-wide composition when a provided split view or search API places
+one field across all columns at the window's bottom edge, or an approved design
+moves Search into a column. Keep any parts still used by the compact layout.
 
 The other custom chrome is the Mailboxes header on iPad and iPhone. iPad also keeps
 its **Account** footer; iPhone's Mailboxes header holds **Account** and its floating
