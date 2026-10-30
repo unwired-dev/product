@@ -86,12 +86,12 @@ const styles = StyleSheet.create({
   secondary: { ...textStyles.subheadline },
   body: { ...textStyles.reading.body },
   empty: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
-    gap: spacing.s,
   },
+  // The prompt's frame hugs its text: the macOS contrast audit measures every pixel in it.
+  emptyPrompt: { alignItems: 'center', gap: spacing.s },
   emptyTitle: { ...textStyles.title3Emphasized, textAlign: 'center' },
   emptyDescription: { ...textStyles.body, textAlign: 'center' },
 });
@@ -101,14 +101,19 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
   const { t } = useLocalization();
   return (
-    <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+    <View
+      style={[
+        styles.fill,
+        styles.empty,
+        { backgroundColor: colors.surfaceContent },
+      ]}>
       <View
         accessible
         accessibilityRole="text"
         accessibilityLabel={
           id ? t('message.unavailableLabel') : t('message.select')
         }
-        style={styles.empty}>
+        style={styles.emptyPrompt}>
         <Text
           accessibilityRole="header"
           style={[styles.emptyTitle, { color: colors.textPrimary }]}>

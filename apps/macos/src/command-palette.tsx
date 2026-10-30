@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
   },
   backText: { ...textStyles.body },
-  choosing: { ...textStyles.bodyEmphasized, flex: 1 },
+  choosing: { ...textStyles.bodyEmphasized, alignSelf: 'center', flex: 1 },
   choosingSubject: { ...textStyles.subheadline, flexShrink: 1 },
   section: {
     ...textStyles.subheadline,
