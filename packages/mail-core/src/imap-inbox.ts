@@ -257,8 +257,8 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<
       { session: string; folder: string; newest: number } & (
-        | { query: string }
-        | { boundary: string }
+        | { query: string; boundary?: never }
+        | { boundary: string; query?: never }
       )
     >,
   ) => Promise<unknown>;

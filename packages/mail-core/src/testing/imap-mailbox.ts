@@ -506,11 +506,11 @@ export function createSyntheticImap({
       examining.set(session, current);
       // A text matches the subject or the message case-insensitively; a boundary, as it appears.
       const matching =
-        'boundary' in request
-          ? ({ raw }: ServerMessage) => raw.includes(request.boundary)
-          : ({ subject, raw }: ServerMessage) =>
+        request.boundary === undefined
+          ? ({ subject, raw }: ServerMessage) =>
               subject.toLowerCase().includes(request.query.toLowerCase()) ||
-              raw.toLowerCase().includes(request.query.toLowerCase());
+              raw.toLowerCase().includes(request.query.toLowerCase())
+          : ({ raw }: ServerMessage) => raw.includes(request.boundary);
       const matches = Arr.sort(current.messages.filter(matching), newestUid);
       return (
         inSession(session) ??
