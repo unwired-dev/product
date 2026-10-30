@@ -1453,40 +1453,92 @@ extension UnwiredRegistration {
     }
   }
 
-  // `change` names `{ folder, uidValidity, uid }` and exactly one of `read`, `flagged` or
-  // `destination`.
-  @objc(imapModify:change:resolver:rejecter:)
-  func imapModify(
-    _ scope: [String: Any], change: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+  // `request` names the open `session` and the `folder` to select.
+  @objc(imapSelect:request:resolver:rejecter:)
+  func imapSelect(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    mailbox("imapModify", resolve, reject: reject) {
+    mailbox("imapSelect", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
-      guard let folder = change["folder"] as? String,
-        let validity = (change["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
-        let uid = (change["uid"] as? Double).flatMap({ UInt32(exactly: $0) }),
-        change["read"] == nil || change["read"] is Bool,
-        change["flagged"] == nil || change["flagged"] is Bool,
-        change["destination"] == nil || change["destination"] is String
-      else { throw RegistrationError.unavailable }
-      let copied: ImapCopy?
-      if let value = change["copied"] {
-        guard let receipt = value as? [String: Any],
-          let copiedValidity = (receipt["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
-          let copiedUID = (receipt["uid"] as? Double).flatMap({ UInt32(exactly: $0) }),
-          copiedValidity > 0, copiedUID > 0
-        else { throw RegistrationError.unavailable }
-        copied = ImapCopy(uidValidity: copiedValidity, uid: copiedUID)
-      } else {
-        copied = nil
-      }
-      return try await $0.imapModify(
+      return try await $0.imapSelect(
         connection: connection, address: address, generation: generation,
-        change: ImapChange(
-          folder: folder, uidValidity: validity, uid: uid, read: change["read"] as? Bool,
-          flagged: change["flagged"] as? Bool, destination: change["destination"] as? String,
-          copied: copied))
+        session: try Self.imapSession(request), folder: try Self.imapText(request, "folder"))
     }
+  }
+
+  // `request` names the open `session`, the `uid`, the `flag` (`seen`, `flagged` or `deleted`) and
+  // whether to `set` or clear it.
+  @objc(imapStore:request:resolver:rejecter:)
+  func imapStore(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapStore", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let flag = (request["flag"] as? String).flatMap(ImapStoredFlag.init(rawValue:)),
+        let set = request["set"] as? Bool
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapStore(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), uid: try Self.imapUid(request), flag: flag, set: set)
+    }
+  }
+
+  // `request` names the open `session`, the `uid` and its `destination` folder.
+  @objc(imapMove:request:resolver:rejecter:)
+  func imapMove(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapMove", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.imapMove(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), uid: try Self.imapUid(request),
+        destination: try Self.imapText(request, "destination"))
+    }
+  }
+
+  // `request` names the open `session`, the `uid` and its `destination` folder.
+  @objc(imapCopy:request:resolver:rejecter:)
+  func imapCopy(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapCopy", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.imapCopy(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), uid: try Self.imapUid(request),
+        destination: try Self.imapText(request, "destination"))
+    }
+  }
+
+  // `request` names the open `session` and the `uid` to expunge.
+  @objc(imapExpunge:request:resolver:rejecter:)
+  func imapExpunge(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapExpunge", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.imapExpunge(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), uid: try Self.imapUid(request))
+    }
+  }
+
+  private static func imapUid(_ request: [String: Any]) throws -> UInt32 {
+    guard let uid = (request["uid"] as? Double).flatMap({ UInt32(exactly: $0) }) else {
+      throw RegistrationError.unavailable
+    }
+    return uid
+  }
+
+  private static func imapText(_ request: [String: Any], _ key: String) throws -> String {
+    guard let text = request[key] as? String else { throw RegistrationError.unavailable }
+    return text
   }
 
   // `request` names the open `session`, the `folder` to search, the `query` and how many of the

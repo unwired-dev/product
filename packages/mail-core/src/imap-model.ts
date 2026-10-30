@@ -209,22 +209,16 @@ export const folderListing = (
     idle: advertised.has('IDLE'),
   };
 };
-// A change's outcome: applied, moved (to a known UID when the server reported it), or the folder
-// no longer holds the UID.
-export const decodeModify = Schema.decodeUnknownEffect(
-  Schema.Union([
-    Schema.Struct({ outcome: Schema.Literals(['stored', 'absent']) }),
-    Schema.Struct({
-      outcome: Schema.Literal('copied'),
-      uidValidity: Validity,
-      uid: Uid,
-    }),
-    Schema.Struct({
-      outcome: Schema.Literal('moved'),
-      uidValidity: Schema.optionalKey(Validity),
-      uid: Schema.optionalKey(Uid),
-    }),
-  ]),
+// A folder selected for changes, by its UIDVALIDITY.
+export const decodeSelected = Schema.decodeUnknownEffect(
+  Schema.Struct({ uidValidity: Validity }),
+);
+// Where COPYUID says a moved or copied message went, when the server reported it.
+export const decodeReceipt = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    uidValidity: Schema.optionalKey(Validity),
+    uid: Schema.optionalKey(Uid),
+  }),
 );
 // The kinds of event the server sent before an IDLE wait ended; none when it stayed quiet.
 const IdleEventSchema = Schema.Literals([

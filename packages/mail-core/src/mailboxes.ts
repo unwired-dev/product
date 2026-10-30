@@ -212,9 +212,25 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
     request: Parameters<NativeImapMailbox['imapHeaders']>[1],
   ) => Promise<unknown>;
-  readonly imapModify: (
+  readonly imapSelect: (
     mailbox: Scope,
-    change: Parameters<NativeImapMailbox['imapModify']>[1],
+    request: Parameters<NativeImapMailbox['imapSelect']>[1],
+  ) => Promise<unknown>;
+  readonly imapStore: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapStore']>[1],
+  ) => Promise<unknown>;
+  readonly imapMove: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapMove']>[1],
+  ) => Promise<unknown>;
+  readonly imapCopy: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapCopy']>[1],
+  ) => Promise<unknown>;
+  readonly imapExpunge: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapExpunge']>[1],
   ) => Promise<unknown>;
   readonly imapSearch: (
     mailbox: Scope,
@@ -344,7 +360,13 @@ const boundImap = (
       native.imapMessage(scope(mailbox), message),
     imapHeaders: (mailbox, request) =>
       native.imapHeaders(scope(mailbox), request),
-    imapModify: (mailbox, change) => native.imapModify(scope(mailbox), change),
+    imapSelect: (mailbox, request) =>
+      native.imapSelect(scope(mailbox), request),
+    imapStore: (mailbox, request) => native.imapStore(scope(mailbox), request),
+    imapMove: (mailbox, request) => native.imapMove(scope(mailbox), request),
+    imapCopy: (mailbox, request) => native.imapCopy(scope(mailbox), request),
+    imapExpunge: (mailbox, request) =>
+      native.imapExpunge(scope(mailbox), request),
     imapSearch: (mailbox, request) =>
       native.imapSearch(scope(mailbox), request),
     imapIdle: (mailbox, request) => native.imapIdle(scope(mailbox), request),
