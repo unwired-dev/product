@@ -124,8 +124,8 @@ the current composer's:
   Each press is one command to the page. A mark applies to the selection, or to the
   next typed text at the caret until the caret moves. A block kind applies to every
   selected block, and returns them to paragraphs when they all have it. The page
-  reports the marks and block kind at the selection, which the toolbar shows as
-  selected.
+  reports the marks at the selection and the block kind of its first block, Select
+  All included, which the toolbar shows as selected.
 - **Markdown shortcuts.** `# `, `## `, `### `, `- `, `* `, `1. `, `> ` and three
   backticks at the start of a paragraph apply that block kind and remove the marker;
   one **Undo** restores the literal marker. Return continues a list, quote or code
