@@ -282,6 +282,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   fonts/colors against outgoing marker styling, not only the text spans. Verify code-mark/font combinations through the encoder as well
   as conversion. Refuse formatting the document cannot hold; otherwise conversion
   claims fidelity while changing visible fonts, marks or backgrounds.
+- `draft-html.ts.styled` accepting explicit background inheritance on a block
+  through a separate path from ordinary background admission. Check both
+  shorthand and longhand inheritance against the element's painted area;
+  otherwise a whole-block background is silently reduced to text-span shading.
 - `draft-html.ts.endElement` flattening separate ordered lists into adjacent
   numbered blocks. Compare source list boundaries with the document's
   consecutive-block numbering, including transparent wrappers and empty lists;
