@@ -332,7 +332,7 @@ describe('organizing row continuity', () => {
         destination: 'Archive',
       });
       motion.settle();
-      vi.spyOn(imap.native, 'imapModify').mockRejectedValueOnce({
+      vi.spyOn(imap.native, 'imapMove').mockRejectedValueOnce({
         code: 'imap-rejected',
       });
       await inbox.undo();

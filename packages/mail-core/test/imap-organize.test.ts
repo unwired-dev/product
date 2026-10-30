@@ -105,15 +105,12 @@ const lossyCommit = (native: NativeImapMailbox) => {
 };
 const interruptDeletion = (native: NativeImapMailbox) => {
   let interrupted = false;
-  return async (
-    scope: Parameters<NativeImapMailbox['imapModify']>[0],
-    change: Parameters<NativeImapMailbox['imapModify']>[1],
-  ) => {
-    if (change.copied !== undefined && !interrupted) {
+  return async (...args: Parameters<NativeImapMailbox['imapExpunge']>) => {
+    if (!interrupted) {
       interrupted = true;
       throw interruption();
     }
-    return native.imapModify(scope, change);
+    return native.imapExpunge(...args);
   };
 };
 const interruptIdle = (native: NativeImapMailbox) => {
@@ -566,7 +563,7 @@ describe('organizing IMAP mail', () => {
     imap.deliver('INBOX', { subject: 'Hello' });
     const inbox = createImapInbox({
       ...imap.native,
-      imapModify: interruptDeletion(imap.native),
+      imapExpunge: interruptDeletion(imap.native),
     });
     await inbox.load();
     const message = inboxMessage(inbox.getSnapshot(), 'Hello');
@@ -592,7 +589,7 @@ describe('organizing IMAP mail', () => {
     const uid = imap.deliver('INBOX', { subject: 'Hello' });
     const inbox = createImapInbox({
       ...imap.native,
-      imapModify: () => Promise.reject(interruption()),
+      imapMove: () => Promise.reject(interruption()),
     });
     await inbox.load();
     await inbox.organize(inboxMessage(inbox.getSnapshot(), 'Hello'), {

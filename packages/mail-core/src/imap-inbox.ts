@@ -78,7 +78,9 @@ import {
   decodeHeaders,
   decodeIdle,
   decodeListedFolders,
-  decodeModify,
+  decodeFlags,
+  decodeReceipt,
+  decodeSelected,
   decodeRaw,
   decodeSearch,
   decodeSegment,
@@ -213,22 +215,46 @@ export interface NativeImapMailbox
       uids: readonly number[];
     }>,
   ) => Promise<unknown>;
-  // Marks the message read or unread, sets or clears its \Flagged flag (`flagged`), or moves it
-  // to `destination`. Resolves `{ outcome }`: `stored`, `moved` with the new `uidValidity` and
-  // `uid` when the server reported them, or `absent` when the folder no longer holds the UID.
-  // Rejects with `imap-changed` for another UIDVALIDITY, `imap-rejected` when the server refuses
-  // the change, and `imap-unsupported` without MOVE or UIDPLUS.
-  readonly imapModify: (
+  // Selects `folder` read-write for the session's changes that follow and resolves its
+  // `{ uidValidity }`. Rejects with `imap-missing` when the server does not select it,
+  // `imap-changed` without UIDVALIDITY and `imap-unsupported` for a read-only selection.
+  readonly imapSelect: (
     mailbox: Readonly<{ address: string; generation: string }>,
-    change: Readonly<{
-      folder: string;
-      uidValidity: number;
+    request: Readonly<{ session: string; folder: string }>,
+  ) => Promise<unknown>;
+  // Resolves `{ flags: [{ uid, flags }] }` for each of at most 200 `uids` still in the selected
+  // folder.
+  readonly imapFlags: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ session: string; uids: readonly number[] }>,
+  ) => Promise<unknown>;
+  // Each change sends one command for message `uid` of the selected folder and rejects with
+  // `imap-rejected` when the server refuses it, `imap-unsupported` when the server lacks the
+  // command and `imap-interrupted` when the server may have applied it.
+  // Sets or clears one flag; resolves `{}`.
+  readonly imapStore: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{
+      session: string;
       uid: number;
-      read?: boolean;
-      flagged?: boolean;
-      destination?: string;
-      copied?: Readonly<{ uidValidity: number; uid: number }>;
+      flag: 'seen' | 'flagged' | 'deleted';
+      set: boolean;
     }>,
+  ) => Promise<unknown>;
+  // MOVE and COPY resolve `{ uidValidity, uid }` where COPYUID says the message went, or `{}`
+  // without a receipt.
+  readonly imapMove: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ session: string; uid: number; destination: string }>,
+  ) => Promise<unknown>;
+  readonly imapCopy: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ session: string; uid: number; destination: string }>,
+  ) => Promise<unknown>;
+  // UID EXPUNGE of this message alone; resolves `{}`.
+  readonly imapExpunge: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ session: string; uid: number }>,
   ) => Promise<unknown>;
   // Resolves `{ folders: [{ folder, uidValidity, messages }], skipped }`: each folder's newest
   // matches, in the order asked.
@@ -457,6 +483,21 @@ const malformed = (error: Schema.SchemaError) =>
     diagnostic: decodeDiagnostic(error),
   });
 
+// A native reply decoded with `decode`; a reply that does not decode is a failure.
+const decoded = <A>(
+  run: () => Promise<unknown>,
+  decode: (reply: unknown) => Effect.Effect<A, Schema.SchemaError>,
+) =>
+  call(run).pipe(
+    Effect.flatMap((reply) => decode(reply).pipe(Effect.mapError(malformed))),
+  );
+
+// Refuses a change TypeScript decided not to send, or whose result is uncertain.
+const refusal = (
+  kind: 'changed' | 'missing' | 'unsupported' | 'interrupted',
+  diagnostic: string,
+) => new ImapFailure({ kind, cause: kind, diagnostic });
+
 type Scope = Readonly<{
   address: string;
   generation: string;
@@ -474,11 +515,12 @@ const moves = (
   'destination' in action;
 
 // What native code stores for each flag change: \Seen for read state, \Flagged for the star.
-const flagChanges = {
-  read: { read: true },
-  unread: { read: false },
-  star: { flagged: true },
-  unstar: { flagged: false },
+// The flag each read-state or star change stores.
+const flagStores = {
+  read: { flag: 'seen', set: true },
+  unread: { flag: 'seen', set: false },
+  star: { flag: 'flagged', set: true },
+  unstar: { flag: 'flagged', set: false },
 } as const;
 
 const roleChanged = (change: ImapPending, folders: readonly ImapFolder[]) => {
@@ -1453,10 +1495,123 @@ export function createImapInbox(
     noticed = undefined;
   };
 
+  // Applies one saved change in a session of its own. A change command is sent only once SELECT
+  // confirms the folder's UIDVALIDITY and the message is still there; a saved copy receipt
+  // finishes its move by deleting only the source.
+  const apply = (scope: Scope, head: ImapPending) =>
+    withSession(scope, (session) =>
+      Effect.gen(function* () {
+        const { message, action, copied } = head;
+        const select = Effect.fnUntraced(function* (
+          folder: string,
+          uidValidity: number,
+        ) {
+          const selected = yield* decoded(
+            () => native.imapSelect(scope, { ...session, folder }),
+            decodeSelected,
+          );
+          if (selected.uidValidity !== uidValidity) {
+            return yield* refusal('changed', 'Folder UIDVALIDITY changed');
+          }
+        });
+        const holds = Effect.fnUntraced(function* (uid: number) {
+          const { flags } = yield* decoded(
+            () => native.imapFlags(scope, { ...session, uids: [uid] }),
+            decodeFlags,
+          );
+          return flags.some((entry) => entry.uid === uid);
+        });
+        const store = (flag: 'seen' | 'flagged' | 'deleted', set: boolean) =>
+          decoded(
+            () =>
+              native.imapStore(scope, {
+                ...session,
+                uid: message.uid,
+                flag,
+                set,
+              }),
+            decodeEmpty,
+          );
+
+        // Moves the message, or copies it and later deletes the source, as the server allows.
+        const relocate = Effect.fnUntraced(function* (destination: string) {
+          const { capabilities } = yield* decoded(
+            () => native.imapCapabilities(scope, session),
+            decodeCapabilities,
+          );
+          const advertised = new Set(
+            capabilities.map((name) => name.toUpperCase()),
+          );
+          // Without MOVE, only UIDPLUS can delete the source alone after its copy.
+          if (
+            !advertised.has('UIDPLUS') &&
+            (copied !== undefined || !advertised.has('MOVE'))
+          ) {
+            return yield* refusal(
+              'unsupported',
+              'Server lacks MOVE and UIDPLUS',
+            );
+          }
+          if (copied !== undefined) {
+            yield* store('deleted', true);
+            yield* decoded(
+              () => native.imapExpunge(scope, { ...session, uid: message.uid }),
+              decodeEmpty,
+            );
+            return { outcome: 'moved', ...copied } as const;
+          }
+          const request = {
+            ...session,
+            uid: message.uid,
+            destination,
+          };
+          if (advertised.has('MOVE')) {
+            const receipt = yield* decoded(
+              () => native.imapMove(scope, request),
+              decodeReceipt,
+            );
+            return { outcome: 'moved', ...receipt } as const;
+          }
+          // The caller saves this receipt before requesting the source's deletion.
+          const receipt = yield* decoded(
+            () => native.imapCopy(scope, request),
+            decodeReceipt,
+          );
+          if (receipt.uidValidity === undefined || receipt.uid === undefined) {
+            return yield* refusal('interrupted', 'COPY reported no COPYUID');
+          }
+          return {
+            outcome: 'copied',
+            uidValidity: receipt.uidValidity,
+            uid: receipt.uid,
+          } as const;
+        });
+
+        if (moves(action) && copied !== undefined) {
+          yield* select(action.destination, copied.uidValidity);
+          if (!(yield* holds(copied.uid))) {
+            return yield* refusal('missing', 'Copied message is gone');
+          }
+        }
+        yield* select(message.folder, message.uidValidity);
+        if (!(yield* holds(message.uid))) {
+          return copied === undefined
+            ? ({ outcome: 'absent' } as const)
+            : ({ outcome: 'moved', ...copied } as const);
+        }
+        if (!moves(action)) {
+          const { flag, set } = flagStores[action.kind];
+          yield* store(flag, set);
+          return { outcome: 'stored' } as const;
+        }
+        return yield* relocate(action.destination);
+      }),
+    );
+
   // Sends one saved change; an unmapped move remains recorded if its result is uncertain.
   const send = Effect.fnUntraced(
     function* (scope: Scope, head: ImapPending, rest: readonly ImapPending[]) {
-      const { message, action } = head;
+      const { action } = head;
       sending = head.id;
       render();
       // Persist dispatch before the network call so a crash cannot replay an unmapped move.
@@ -1470,22 +1625,7 @@ export function createImapInbox(
           pending: [{ ...head, attempts: 1 }, ...rest],
         });
       }
-      return yield* call(() =>
-        native.imapModify(scope, {
-          folder: message.folder,
-          uidValidity: message.uidValidity,
-          uid: message.uid,
-          ...(moves(action)
-            ? {
-                destination: action.destination,
-                ...(head.copied === undefined ? {} : { copied: head.copied }),
-              }
-            : flagChanges[action.kind]),
-        }),
-      ).pipe(
-        Effect.flatMap((reply) =>
-          decodeModify(reply).pipe(Effect.mapError(malformed)),
-        ),
+      return yield* apply(scope, head).pipe(
         Effect.catchIf(
           ({ kind }) => refused(kind),
           ({ kind, diagnostic }): Effect.Effect<Answer> =>

@@ -49,44 +49,10 @@ enum ImapFailure: Error, Equatable {
   case interrupted
 }
 
-// One change to one identified message: its read state, its \Flagged flag, or a move to
-// `destination`.
-struct ImapChange: Sendable, Equatable {
-  let folder: String
-  let uidValidity: UInt32
-  let uid: UInt32
-  let read: Bool?
-  let flagged: Bool?
-  let destination: String?
-  let copied: ImapCopy?
-
-  init(
-    folder: String, uidValidity: UInt32, uid: UInt32, read: Bool?, flagged: Bool? = nil,
-    destination: String?, copied: ImapCopy? = nil
-  ) {
-    self.folder = folder
-    self.uidValidity = uidValidity
-    self.uid = uid
-    self.read = read
-    self.flagged = flagged
-    self.destination = destination
-    self.copied = copied
-  }
-}
-
+// Where COPYUID says a moved or copied message went: its destination UIDVALIDITY and UID.
 struct ImapCopy: Sendable, Equatable {
   let uidValidity: UInt32
   let uid: UInt32
-}
-
-// A copy receipt must be saved before its source deletion is resumed. A move reports the new UID
-// when the server says (COPYUID); `absent` means the same source generation no longer holds the UID.
-enum ImapOutcome: Sendable, Equatable {
-  case stored
-  case copied(uidValidity: UInt32, uid: UInt32)
-  case moved(uidValidity: UInt32, uid: UInt32)
-  case movedUnmapped
-  case absent
 }
 
 // A folder's newest search matches, read under its UIDVALIDITY; `more` when older ones were left out.
@@ -176,9 +142,6 @@ protocol ImapProvider: Sendable {
   func headers(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
   ) async throws -> [ImapHeaders]
-  // Applies one change; a UIDVALIDITY that no longer matches changes nothing.
-  func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
-    -> ImapOutcome
   // The server's text search of each folder in order, newest `limit` matches per folder. Folders the
   // server no longer selects are skipped and counted.
   func search(
@@ -450,100 +413,6 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
-  func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
-    -> ImapOutcome
-  {
-    try await session(account, password) { server in
-      let advertised = try await server.fetchCapabilities().map { String($0).uppercased() }
-      if let copied = change.copied, let destination = change.destination {
-        let destinationSelection = try await Self.examine(server, folder: destination)
-        guard destinationSelection.uidValidity.value == copied.uidValidity else {
-          throw ImapFailure.changed
-        }
-        let destinationMessages = try await server.fetchMessageInfosBulk(
-          using: UIDSet(UID(copied.uid)), options: .uidFlagsOnly)
-        guard destinationMessages.contains(where: { $0.uid?.value == copied.uid }) else {
-          throw ImapFailure.missing
-        }
-      }
-      let selection: Mailbox.Selection
-      do {
-        selection = try await server.selectMailbox(change.folder)
-      } catch IMAPError.selectFailed {
-        throw ImapFailure.missing
-      }
-      guard selection.uidValidity.value > 0, selection.uidValidity.value == change.uidValidity
-      else { throw ImapFailure.changed }
-      guard !selection.isReadOnly else { throw ImapFailure.unsupported }
-      let message = UIDSet(UID(change.uid))
-      let present = try await server.fetchMessageInfosBulk(using: message, options: .uidFlagsOnly)
-      guard present.contains(where: { $0.uid?.value == change.uid }) else {
-        if let copied = change.copied {
-          return .moved(uidValidity: copied.uidValidity, uid: copied.uid)
-        }
-        return .absent
-      }
-      // Failures before the change command are retried as unsent; after it, the caller reconciles.
-      var issued = false
-      do {
-        if let read = change.read {
-          issued = true
-          try await server.store(flags: [.seen], on: message, operation: read ? .add : .remove)
-          return .stored
-        }
-        if let flagged = change.flagged {
-          issued = true
-          try await server.store(
-            flags: [.flagged], on: message, operation: flagged ? .add : .remove)
-          return .stored
-        }
-        guard let destination = change.destination else { throw RegistrationError.unavailable }
-        guard advertised.contains("MOVE") || advertised.contains("UIDPLUS") else {
-          throw ImapFailure.unsupported
-        }
-        issued = true
-        if let copied = change.copied {
-          guard advertised.contains("UIDPLUS") else { throw ImapFailure.unsupported }
-          try await server.store(flags: [.deleted], on: message, operation: .add)
-          try await server.expunge(messages: message)
-          return .moved(uidValidity: copied.uidValidity, uid: copied.uid)
-        }
-        let copied: CopyUID?
-        if advertised.contains("MOVE") {
-          copied = try await server.move(messages: message, to: destination, fallback: .disabled)
-        } else {
-          // The caller saves this receipt before requesting targeted source deletion.
-          copied = try await server.copy(messages: message, to: destination)
-          guard let receipt = copied, receipt.destinationUIDValidity.value > 0,
-            let mapped = receipt.mapping.first(where: { $0.source.value == change.uid }),
-            mapped.destination.value > 0
-          else { throw ImapFailure.interrupted }
-          return .copied(
-            uidValidity: receipt.destinationUIDValidity.value, uid: mapped.destination.value)
-        }
-        guard let mapped = copied?.mapping.first(where: { $0.source.value == change.uid }) else {
-          return .movedUnmapped
-        }
-        return .moved(
-          uidValidity: copied?.destinationUIDValidity.value ?? 0, uid: mapped.destination.value)
-      } catch let error as IMAPError {
-        switch error {
-        // Partial completion is uncertain; a definite refusal does not authorize another copy.
-        case .moveFailedAfterPossiblePartialCompletion, .moveFailedAfterPartialCompletion,
-          .moveFallbackFailedAfterCopy:
-          throw ImapFailure.interrupted
-        case .storeFailed, .copyFailed, .moveFailed, .expungeFailed, .commandFailed:
-          throw ImapFailure.rejected
-        default: throw issued ? ImapFailure.interrupted : error
-        }
-      } catch let error as ImapFailure {
-        throw error
-      } catch {
-        throw issued && !(error is CancellationError) ? ImapFailure.interrupted : error
-      }
-    }
-  }
-
   func search(
     _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
   ) async throws -> (found: [ImapFound], skipped: Int) {
@@ -650,7 +519,7 @@ struct SwiftMailImap: ImapProvider {
     return found.all?.count ?? 0
   }
 
-  private static func flag(_ flag: Flag) -> String {
+  static func flag(_ flag: Flag) -> String {
     switch flag {
     case .seen: "\\Seen"
     case .answered: "\\Answered"
@@ -706,11 +575,6 @@ struct SwiftMailImap: ImapProvider {
       _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32,
       uids: [UInt32]
     ) async throws -> [ImapHeaders] {
-      throw ImapFailure.offline
-    }
-    func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
-      -> ImapOutcome
-    {
       throw ImapFailure.offline
     }
     func search(
@@ -849,30 +713,6 @@ extension RegistrationStore {
     ]
   }
 
-  // A UIDPLUS copy returns `copied`; only a saved receipt may resume its source deletion.
-  func imapModify(
-    connection: String, address: String, generation: String, change: ImapChange
-  ) async throws -> [String: Any] {
-    guard [change.read != nil, change.flagged != nil, change.destination != nil].count(where: { $0 }) == 1,
-      Self.imapFolderName(change.folder),
-      change.destination.map(Self.imapFolderName) ?? true, change.destination != change.folder,
-      change.uidValidity > 0, change.uid > 0,
-      change.copied.map({ $0.uidValidity > 0 && $0.uid > 0 && change.destination != nil }) ?? true
-    else { throw RegistrationError.unavailable }
-    let outcome = try await imapWork(connection: connection, address: address, generation: generation) {
-      try await imap.modify($0, password: $1, change: change)
-    }
-    switch outcome {
-    case .stored: return ["outcome": "stored"]
-    case .copied(let uidValidity, let uid):
-      return ["outcome": "copied", "uidValidity": Double(uidValidity), "uid": Double(uid)]
-    case .absent: return ["outcome": "absent"]
-    case .movedUnmapped: return ["outcome": "moved"]
-    case .moved(let uidValidity, let uid):
-      return ["outcome": "moved", "uidValidity": Double(uidValidity), "uid": Double(uid)]
-    }
-  }
-
   // The server's search of up to 50 folders, newest 50 matches each.
   func imapSearch(
     connection: String, address: String, generation: String, query: String, folders: [String]
@@ -908,7 +748,7 @@ extension RegistrationStore {
     return ["changed": changed]
   }
 
-  private nonisolated static func imapFolderName(_ name: String) -> Bool {
+  nonisolated static func imapFolderName(_ name: String) -> Bool {
     !name.isEmpty && name.count <= 1_000
   }
 
