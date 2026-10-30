@@ -346,9 +346,15 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
   const heading = 'Reviewer-only paths (names only; do not open):';
   for (const [args, from, shown] of [
     [['HEAD'], '.', readable],
+    [
+      ['--pickaxe-all', '-S', 'fix', 'HEAD', '--', 'docs'],
+      '.',
+      ['docs/guide.md'],
+    ],
     [['-s', 'HEAD'], '.', []],
     [['HEAD~..HEAD', '--', 'docs', '.patterns'], '.', ['docs/guide.md']],
     [['--diff', 'HEAD~', 'HEAD'], '.', readable],
+    [['--diff', '--pickaxe-all', '-S', 'fix', 'HEAD~', 'HEAD'], '.', readable],
     [['--diff', 'HEAD~..HEAD', '--', '.'], 'docs', ['docs/guide.md']],
   ]) {
     const result = run(args, from);
@@ -379,7 +385,6 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
     [blob],
     ['--diff', `${blob}..HEAD`],
     ['--full-diff', 'HEAD', '--', 'docs/guide.md'],
-    ['--pickaxe-all', '-S', 'fix', 'HEAD'],
     ['--diff', '--no-index', 'docs/architecture/README.md', 'docs/guide.md'],
     ['--textconv', 'HEAD'],
   ]) {

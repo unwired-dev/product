@@ -23,8 +23,8 @@ separated=false
 for argument do
   case "$argument" in
     --) separated=true; break ;;
-    --full-diff|--pickaxe-all|--no-index)
-      reject '--full-diff, --pickaxe-all and --no-index print files outside the pathspecs.' ;;
+    --full-diff|--no-index)
+      reject '--full-diff and --no-index print files outside the pathspecs.' ;;
     --ext-diff|--textconv) reject 'external diff and textconv helpers can read excluded files.' ;;
     --name-status|--check) reject 'use --name-only or --stat; --name-status and --check cannot list reviewer-only names.' ;;
     -*) ;;
