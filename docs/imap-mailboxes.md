@@ -462,7 +462,8 @@ connection at its current generation and returns an opaque handle. It answers on
 command at a time: the capabilities, the folders with their LIST attributes, a
 read-only EXAMINE of a folder (its UIDVALIDITY, UIDNEXT and message count, refusing a
 folder without UIDVALIDITY), and envelopes or flags of that folder's messages by UID,
-from a UID onward or by the newest sequence numbers, at most 200 at a time.
+from a UID onward or by the newest sequence numbers. UID-set and newest-message requests
+name at most 200 messages; a UID-range request reads from its starting UID onward.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
