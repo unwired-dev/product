@@ -1,5 +1,3 @@
-import { setTimeout as sleep } from 'node:timers/promises';
-
 import type { ImapInboxState } from '@private-email/mail-core/imap-inbox';
 
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
@@ -54,7 +52,6 @@ const savedUids = (imap: Imap, folder: string) =>
       .map(({ uid }) => uid),
   );
 
-// Runs `before` ahead of the history read numbered `at`, as the server changes mid-backfill.
 // Runs each callback just before the history read with its number, counting from 1.
 const beforeHistoryReads = (
   imap: Imap,
@@ -221,18 +218,24 @@ describe('imap historical metadata backfill', () => {
     fill(imap, 'INBOX', 3);
     fill(imap, 'Archive', 3);
     const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
     await inbox.load();
     await completed(inbox);
     fill(imap, 'Archive', 2);
     await inbox.openFolder('Archive');
+    imap.addFolder('Later');
+    const later = fill(imap, 'Later', 1);
     const refused = refusingFolder(imap, 'Archive');
     await inbox.load();
 
+    // Repeatedly selecting Archive would prevent the next folder from downloading.
     await vi.waitFor(() => {
-      expect(refused.count).toBe(1);
+      expect(savedUids(imap, 'Later')).toStrictEqual(later);
     });
-    // A reselected folder would read again at once.
-    await sleep(100);
+    await expect(completed(inbox)).resolves.toMatchObject({
+      downloaded: 7,
+      total: 7,
+    });
     expect(refused.count).toBe(1);
   });
 
