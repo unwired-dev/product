@@ -407,7 +407,7 @@ final class WindowTests: XCTestCase {
     let before = first.webViews.firstMatch.frame
     let corner = first.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
       .withOffset(CGVector(dx: -2, dy: -2))
-    corner.press(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: -160, dy: 0)))
+    corner.click(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: -160, dy: 0)))
     let resized = NSPredicate { _, _ in first.webViews.firstMatch.frame.width != before.width }
     XCTAssertEqual(
       XCTWaiter.wait(
@@ -522,7 +522,8 @@ final class WindowTests: XCTestCase {
     let save = window.sheets.firstMatch.buttons["Save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.click()
-    waitUntil { window.webViews.count == 0 }
+    // A reader beside a reply keeps its own web view, so wait for the editor's body to go.
+    XCTAssertTrue(window.webViews.textViews["Message body"].waitForNonExistence(timeout: 20))
   }
 
   // #819: Command-B formats the selection in the page, Command-Z and Shift-Command-Z step the
@@ -535,21 +536,25 @@ final class WindowTests: XCTestCase {
     window.typeKey("b", modifierFlags: .command)
     let numbered = window.buttons["Numbered list"]
     numbered.click()
-    let paragraph = window.webViews.staticTexts.matching(
-      NSPredicate(format: "value == %@", "Evaluation paragraph")
-    ).firstMatch
-    XCTAssertTrue(paragraph.waitForNonExistence(timeout: 10))
+    // The paragraph's text stays in the list item, beside the item's number marker.
+    let marker = window.webViews.otherElements.matching(NSPredicate(format: "value == %@", "1"))
+      .firstMatch
+    XCTAssertTrue(marker.waitForExistence(timeout: 10))
     window.typeKey("z", modifierFlags: .command)
     window.typeKey("z", modifierFlags: .command)
-    XCTAssertTrue(paragraph.waitForExistence(timeout: 10))
+    XCTAssertTrue(marker.waitForNonExistence(timeout: 10))
     window.typeKey("z", modifierFlags: [.command, .shift])
     window.typeKey("z", modifierFlags: [.command, .shift])
-    XCTAssertTrue(paragraph.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(marker.waitForExistence(timeout: 10))
     reopenDraft(app)
     webText("Evaluation paragraph", in: window).doubleClick()
     waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered list"].isSelected }
+    // The text's centre falls on the space between its words, which selects no text.
+    let firstWord = {
+      window.webViews.staticTexts.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+    }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
-      window.webViews.staticTexts.firstMatch.doubleClick()
+      firstWord().doubleClick()
       self.writingTool("Rewrite the selected text", in: window, of: app).click()
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: false) {
@@ -557,7 +562,7 @@ final class WindowTests: XCTestCase {
       self.writingTool("Rewrite the message body", in: window, of: app).click()
     }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
-      window.webViews.staticTexts.firstMatch.doubleClick()
+      firstWord().doubleClick()
       // Translate To opens its submenu of the device's languages.
       self.writingTool("Translate the selected text", in: window, of: app).hover()
       let german = app.menuItems["Translate into German"]
@@ -615,35 +620,39 @@ final class WindowTests: XCTestCase {
     numbered: Bool = true, boldAfterApply: Bool, start: () -> Void
   ) {
     let window = app.windows["Inbox 1"]
+    // The editor's text alone: a reader beside a reply shows its message in a web view too.
+    let body = {
+      window.webViews.textViews["Message body"].staticTexts.allElementsBoundByIndex
+        .map { $0.value as? String ?? "" }
+    }
     for leaveUndone in [true, false] {
-      let original = window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
+      let original = body()
       let originalBold = window.buttons["Bold"].isSelected
       start()
-      XCTAssertTrue(text(result, in: window).waitForExistence(timeout: 15))
+      // The selectable result is a native text view holding it as its value.
+      let shown = window.textViews.matching(NSPredicate(format: "value == %@", result)).firstMatch
+      XCTAssertTrue(shown.waitForExistence(timeout: 15))
       let accept = window.buttons[apply]
       XCTAssertTrue(accept.waitForExistence(timeout: 15))
       accept.click()
-      waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } != original }
-      waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }.joined(separator: " ").contains(result) }
-      let accepted = window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
+      waitUntil { body() != original }
+      waitUntil { body().joined(separator: " ").contains(result) }
+      let accepted = body()
       waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
       waitUntil { window.buttons["Undo"].isEnabled }
       window.buttons["Undo"].click()
-      waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } == original }
+      waitUntil { body() == original }
       waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == originalBold }
       if !leaveUndone {
         waitUntil { window.buttons["Redo"].isEnabled }
         window.buttons["Redo"].click()
-        waitUntil { window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" } == accepted }
+        waitUntil { body() == accepted }
         waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
       }
       reopenDraft(app, titled: title)
       // The reopened page replaces any editor shown at launch once it has loaded.
       let expected = leaveUndone ? original : accepted
-      waitUntil {
-        window.webViews.staticTexts.allElementsBoundByIndex.map { $0.value as? String ?? "" }
-          == expected
-      }
+      waitUntil { body() == expected }
       let expectedBold = leaveUndone ? originalBold : boldAfterApply
       waitUntil {
         window.buttons["Numbered list"].isSelected == numbered

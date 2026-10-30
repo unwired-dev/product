@@ -1,6 +1,22 @@
 diff --git a/apple/RNCWebView.mm b/apple/RNCWebView.mm
 --- a/apple/RNCWebView.mm
 +++ b/apple/RNCWebView.mm
+@@ -72,13 +72,13 @@
+     return concreteComponentDescriptorProvider<RNCWebViewComponentDescriptor>();
+ }
+ 
+-#if !TARGET_OS_OSX
++// Product patch: recycling also tears down the Mac view, so a reused view loads its next page
++// rather than keeping the previous one when the source is the same.
+ // Reproduce the idea from here: https://github.com/facebook/react-native/blob/8bd3edec88148d0ab1f225d2119435681fbbba33/React/Fabric/Mounting/ComponentViews/InputAccessory/RCTInputAccessoryComponentView.mm#L142
+ - (void)prepareForRecycle {
+     [super prepareForRecycle];
+     [_view destroyWebView];
+ }
+-#endif // !TARGET_OS_OSX
+ 
+ // Needed because of this: https://github.com/facebook/react-native/pull/37274
+ + (void)load
 @@ -202,6 +202,28 @@
                      .loading = static_cast<bool>([[dictionary valueForKey:@"loading"] boolValue])
                  };
