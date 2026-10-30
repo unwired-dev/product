@@ -83,6 +83,23 @@ export const restartedFolder = (
 // Messages listed at the page's oldest receipt are skipped by the next page, which lists from that
 // receipt again so equal receipts across pages are neither lost nor repeated. While a page stays at
 // the receipt it listed from, the next one follows Graph's continuation `next` instead.
+// The check a listed page leaves for the folder's next round: a page read through a continuation
+// starts one, and a pending check also covers each page listed before its round.
+const checked = (
+  { check, edge = [], history }: GraphFolderHistory,
+  page: readonly GmailMessage[],
+  continued: boolean,
+) => {
+  const until =
+    check?.until ?? (continued ? history.current.pageToken : undefined);
+  return until === undefined
+    ? undefined
+    : {
+        until,
+        edge: [...(check?.edge ?? edge), ...page.map(({ id }) => id)],
+      };
+};
+
 export const listedFolder = (
   entry: GraphFolderHistory,
   page: readonly GmailMessage[],
@@ -110,18 +127,7 @@ export const listedFolder = (
       ids: messages.map(({ id }) => id),
     },
   );
-  // A pending check also covers each page listed before its round.
-  const from = entry.check?.until ?? (continued ? until : undefined);
-  const check =
-    from === undefined
-      ? undefined
-      : {
-          until: from,
-          edge: [
-            ...(entry.check?.edge ?? entry.edge ?? []),
-            ...messages.map(({ id }) => id),
-          ],
-        };
+  const check = checked(entry, messages, continued);
   return {
     ...Struct.omit(entry, ['edge', 'scan', 'check']),
     ...(check === undefined ? {} : { check }),
