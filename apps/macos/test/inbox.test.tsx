@@ -311,7 +311,7 @@ describe('message list', () => {
       });
       await waitFor(() => {
         expect(imap.server.reads.slice(readsBefore)).toStrictEqual(
-          expect.arrayContaining(['synchronize INBOX', 'synchronize Folder 0']),
+          expect.arrayContaining(['examine INBOX', 'examine Folder 0']),
         );
         expect(inbox.folder('Folder 0')).toMatchObject({ status: 'current' });
       });

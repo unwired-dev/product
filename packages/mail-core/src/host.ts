@@ -318,9 +318,17 @@ export function createHost(
       imapListFolders: (mailbox, session) =>
         native().imapListFolders(mailbox, session),
       imapClose: (mailbox, session) => native().imapClose(mailbox, session),
-      imapSynchronize: (mailbox, request) =>
+      imapExamine: (mailbox, request) =>
         observe('sync', 'sync-failed', () =>
-          native().imapSynchronize(mailbox, request),
+          native().imapExamine(mailbox, request),
+        ),
+      imapEnvelopes: (mailbox, request) =>
+        observe('sync', 'sync-failed', () =>
+          native().imapEnvelopes(mailbox, request),
+        ),
+      imapFlags: (mailbox, request) =>
+        observe('sync', 'sync-failed', () =>
+          native().imapFlags(mailbox, request),
         ),
       imapHistory: (mailbox, request) => native().imapHistory(mailbox, request),
       imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),

@@ -1329,32 +1329,64 @@ extension UnwiredRegistration {
     return session
   }
 
-  // `request` names the folder, how many of its newest messages to keep, and optionally the
-  // checkpoint `{ uidValidity, uidNext, known }` the last committed synchronization reached.
-  @objc(imapSynchronize:request:resolver:rejecter:)
-  func imapSynchronize(
+  // `request` names the open `session` and the `folder` to examine.
+  @objc(imapExamine:request:resolver:rejecter:)
+  func imapExamine(
     _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    mailbox("imapSynchronize", resolve, reject: reject) {
+    mailbox("imapExamine", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
-      guard let folder = request["folder"] as? String,
-        let window = (request["window"] as? Double).flatMap({ Int(exactly: $0) })
-      else { throw RegistrationError.unavailable }
-      var from: ImapCheckpoint?
-      if let checkpoint = request["from"] as? [String: Any] {
-        guard let validity = (checkpoint["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
-          let next = (checkpoint["uidNext"] as? Double).flatMap({ UInt32(exactly: $0) }),
-          let known = checkpoint["known"] as? [Double]
-        else { throw RegistrationError.unavailable }
-        let uids = known.compactMap { UInt32(exactly: $0) }
-        guard uids.count == known.count else { throw RegistrationError.unavailable }
-        from = ImapCheckpoint(uidValidity: validity, uidNext: next, known: uids)
-      }
-      return try await $0.imapSynchronize(
-        connection: connection, address: address, generation: generation, folder: folder,
-        from: from, window: window)
+      guard let folder = request["folder"] as? String else { throw RegistrationError.unavailable }
+      return try await $0.imapExamine(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), folder: folder)
     }
+  }
+
+  // `request` names the open `session` and exactly one read of the examined folder: the `uids`,
+  // every message `from` a UID, or the `newest` count of its `total` messages.
+  @objc(imapEnvelopes:request:resolver:rejecter:)
+  func imapEnvelopes(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapEnvelopes", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      let number = { (key: String) in (request[key] as? Double).flatMap { UInt32(exactly: $0) } }
+      let read: ImapEnvelopeRead
+      switch (request["uids"], number("from"), number("newest"), number("total")) {
+      case (.some, nil, nil, nil): read = .uids(try Self.imapUids(request))
+      case (nil, .some(let uid), nil, nil): read = .from(uid)
+      case (nil, nil, .some(let count), .some(let total)):
+        read = .newest(count: Int(count), total: Int(total))
+      default: throw RegistrationError.unavailable
+      }
+      return try await $0.imapEnvelopes(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), read: read)
+    }
+  }
+
+  // `request` names the open `session` and the `uids` whose flags to read.
+  @objc(imapFlags:request:resolver:rejecter:)
+  func imapFlags(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapFlags", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.imapFlags(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), uids: try Self.imapUids(request))
+    }
+  }
+
+  private static func imapUids(_ request: [String: Any]) throws -> [UInt32] {
+    guard let values = request["uids"] as? [Double] else { throw RegistrationError.unavailable }
+    let uids = values.compactMap { UInt32(exactly: $0) }
+    guard uids.count == values.count else { throw RegistrationError.unavailable }
+    return uids
   }
 
   // `request` names the `folder`, the UID range `above` and optional `below`, the `limit` and the

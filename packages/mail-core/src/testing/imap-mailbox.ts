@@ -117,6 +117,26 @@ const rawOf = (
 const subjectOf = (raw: string) =>
   /^Subject: (?<subject>.*)$/mu.exec(raw)?.groups?.subject ?? '';
 
+// The messages, by ascending UID, an envelope read names.
+const envelopeRead = <A extends Readonly<{ uid: number }>>(
+  listed: readonly A[],
+  request: Parameters<NativeImapMailbox['imapEnvelopes']>[1],
+) => {
+  if ('uids' in request) {
+    return listed.filter(({ uid }) => request.uids.includes(uid));
+  }
+  if ('from' in request) {
+    // `UID n:*` always names the newest message, even one below n.
+    return listed.filter(
+      ({ uid }, index) => uid >= request.from || index === listed.length - 1,
+    );
+  }
+  return listed.slice(
+    Math.max(0, request.total - request.newest),
+    request.total,
+  );
+};
+
 export function createSyntheticImap({
   address = 'alex@example.invalid',
 }: Readonly<{ address?: string }> = {}) {
@@ -152,6 +172,8 @@ export function createSyntheticImap({
     historyFailure: undefined as string | undefined,
   };
   let sessionCount = 0;
+  // The folder each open session last examined.
+  const examining = new Map<string, ServerFolder>();
   // The connection's SMTP server: what it accepted, and the code its next submission rejects
   // with, such as `smtp-refused`, `smtp-rejected`, `offline` or `delivery-unknown`. `lost`
   // accepts the next submission and loses its reply, as a dropped connection would; `stopped`
@@ -417,7 +439,50 @@ export function createSyntheticImap({
       server.sessions.delete(session);
       idles.get(session)?.close();
       idles.delete(session);
+      examining.delete(session);
       return Promise.resolve({});
+    },
+    imapExamine: (_mailbox, { session, folder: name }) => {
+      server.reads.push(`examine ${name}`);
+      const current = folder(name);
+      examining.set(session, current);
+      return (
+        inSession(session) ??
+        Promise.resolve({
+          uidValidity: current.uidValidity,
+          uidNext: current.uidNext,
+          messages: current.messages.length,
+        })
+      );
+    },
+    imapEnvelopes: (_mailbox, request) => {
+      const current = examining.get(request.session);
+      if (current === undefined) {
+        throw new Error('Envelopes read before EXAMINE');
+      }
+      const read = envelopeRead(
+        // Sequence numbers follow ascending UIDs.
+        Arr.reverse(Arr.sort(current.messages, newestUid)),
+        request,
+      );
+      return (
+        inSession(request.session) ??
+        Promise.resolve({ messages: read.map(envelope) })
+      );
+    },
+    imapFlags: (_mailbox, { session, uids }) => {
+      const current = examining.get(session);
+      if (current === undefined) {
+        throw new Error('Flags read before EXAMINE');
+      }
+      return (
+        inSession(session) ??
+        Promise.resolve({
+          flags: current.messages
+            .filter(({ uid }) => uids.includes(uid))
+            .map(({ uid, flags }) => ({ uid, flags })),
+        })
+      );
     },
     imapModify: (_mailbox, change) => {
       server.reads.push(`modify ${change.folder} ${change.uid}`);
@@ -502,43 +567,6 @@ export function createSyntheticImap({
           });
         })
       );
-    },
-    imapSynchronize: (_mailbox, request) => {
-      server.reads.push(`synchronize ${request.folder}`);
-      const failed = reach();
-      if (failed !== undefined) {
-        return failed;
-      }
-      const current = folder(request.folder);
-      const newest = Arr.sort(current.messages, newestUid).slice(
-        0,
-        request.window,
-      );
-      if (
-        request.from === undefined ||
-        request.from.uidValidity !== current.uidValidity
-      ) {
-        return Promise.resolve({
-          uidValidity: current.uidValidity,
-          uidNext: current.uidNext,
-          reset: true,
-          messages: newest.map(envelope),
-          flags: [],
-        });
-      }
-      const { from } = request;
-      const known = new Set(from.known);
-      return Promise.resolve({
-        uidValidity: current.uidValidity,
-        uidNext: current.uidNext,
-        reset: false,
-        messages: current.messages
-          .filter(({ uid }) => uid >= from.uidNext)
-          .map(envelope),
-        flags: current.messages
-          .filter(({ uid }) => known.has(uid))
-          .map(({ uid, flags }) => ({ uid, flags })),
-      });
     },
     // The newest messages of the requested UID range, as native code's bounded UID searches find
     // them, and the known UIDs still present.
