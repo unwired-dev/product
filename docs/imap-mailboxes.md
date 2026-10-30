@@ -459,8 +459,8 @@ both hosts' `scripts/verify-native.ts`. The synthetic metadata check compiles th
 sources without Swift packages and gets an engine stub instead.
 
 SwiftMail parses the IMAP wire protocol inside native sessions; TypeScript decides
-what to do with the results. The folder listing, folder synchronization and online
-search run in TypeScript over short-lived native sessions: native code logs in for a verified
+what to do with the results. The folder listing, folder synchronization, online
+search and Sent filing run in TypeScript over short-lived native sessions: native code logs in for a verified
 connection at its current generation and returns an opaque handle. It answers one
 command at a time: the capabilities, the folders with their LIST attributes, a
 read-only EXAMINE of a folder (its UIDVALIDITY, UIDNEXT and message count, refusing a
@@ -468,7 +468,9 @@ folder without UIDVALIDITY), and envelopes or flags of that folder's messages by
 from a UID onward or by the newest sequence numbers. A search examines one folder and
 returns its newest matching UIDs and how many matched in all, refusing a folder the
 server no longer selects, one without UIDVALIDITY and a query in a charset the server
-cannot search. UID-set and newest-message requests name at most 200 messages; a UID-range request reads from its starting UID onward.
+cannot search; it matches either text or a Sent copy's MIME boundary in the
+Content-Type header. An append stores an outgoing message, read, in a folder: native
+code reads the message from the Outbox and appends it only for a trusted device. UID-set and newest-message requests name at most 200 messages; a UID-range request reads from its starting UID onward.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. IDLE runs the
 same way: TypeScript checks the capability, then asks the session to wait on a folder
@@ -487,8 +489,8 @@ deletes the source with `UID EXPUNGE`. Native code offers only select, flags,
 store, move, copy and expunge. Each answers with a fixed failure code and refuses
 a folder the server opens read-only. A command that fails after it was sent is
 reported as interrupted, so TypeScript never resends an uncertain move.
-Sent filing still runs as a single native operation until
-[#1182](https://github.com/unwired-dev/product/issues/1182) moves it to the same sessions.
+Filing a Sent copy runs the same way: TypeScript searches the Sent folder for the copy's
+boundary and appends the message in the same session only when no copy is there.
 
 The connection of a closed session ends only when its active command answers or
 times out. Aborting it on the wire is
@@ -578,7 +580,8 @@ a refused password, a temporary refusal, a refused recipient without partial del
 a permanent refusal after the message, and interruptions at MAIL FROM, RCPT TO, DATA,
 during content, and after the message's end. Content-phase interruptions remain unknown;
 earlier interruptions remain safe to retry. The IMAP fixture checks
-the Sent copy's header search and a single APPEND that filing again finds. Its certificate
+a session's boundary search of the Sent folder and a single APPEND that the search
+then finds. Its certificate
 never changes production validation or trust on the host Mac.
 
 Real iCloud Mail and Fastmail read, organizing, search, IDLE, SMTP submission and Sent

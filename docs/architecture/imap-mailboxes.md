@@ -27,11 +27,13 @@ existing URL pins and restores app product and Frameworks references idempotentl
 
 ## Ownership and transport
 
-Folder listing (#1177), folder synchronization (#1178), online search (#1179) and
-IDLE waits (#1181) run in TypeScript over short-lived native session handles. Native
+Folder listing (#1177), folder synchronization (#1178), online search (#1179),
+IDLE waits (#1181) and Sent filing (#1182) run in TypeScript over short-lived native
+session handles. Native
 `SwiftMailImapSession` exposes capabilities, complete LIST results with attributes,
 read-only EXAMINE, envelope reads by UID set, UID range or newest sequence numbers,
-flag reads by UID set, folder text search and bounded IDLE event kinds. TypeScript
+flag reads by UID set, folder text or MIME-boundary header search, APPEND and
+bounded IDLE event kinds. TypeScript
 assigns roles, normalizes ASCII INBOX names, derives MOVE, UIDPLUS and IDLE support,
 owns the checkpoint and arrival arithmetic, and classifies IDLE events. Search
 examines one folder and returns a bounded newest-UID window and the total match count
@@ -244,12 +246,14 @@ SwiftMail's submission-phase retry disposition distinguishes definite refusal
 from possible acceptance; unsafe-to-retry errors remain delivery unknown.
 
 SMTP acceptance advances the durable Outbox to `filing` before APPEND. Only
-filing retries thereafter. Native Sent filing checks current Trusted Device
-revocation proof and connection generation, searches the selected folder's
-Content-Type for the frozen MIME boundary, and appends with Seen only when no
-copy is found. A lost APPEND reply retries the lookup without SMTP resubmission.
+filing retries thereafter. TypeScript searches the selected folder's Content-Type
+for the frozen MIME boundary and requests APPEND in the same session only when no
+copy is found. Native APPEND checks current Trusted Device revocation proof and
+connection generation, assembles the original Outbox segments with verified asset
+bytes, and appends with Seen. A lost APPEND reply retries the lookup without SMTP
+resubmission.
 Unknown SMTP outcomes use the same boundary lookup, confirming only exactly one
-copy and never inferring non-delivery from absence. Native lookup uses IMAP HEADER
+copy and never inferring non-delivery from absence. The native search uses IMAP HEADER
 substring matching; live preservation and server-created Sent copies still need
 provider qualification. Access-changing lookup/filing failures close or refresh
 the owning shared mailbox presentation, with late replies fenced by its lifetime.

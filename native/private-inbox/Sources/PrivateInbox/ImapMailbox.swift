@@ -138,13 +138,6 @@ protocol ImapProvider: Sendable {
   func headers(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
   ) async throws -> [ImapHeaders]
-  // How many messages in the folder carry the MIME boundary in their Content-Type.
-  func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
-    async throws -> Int
-  // Appends the message, read, to the folder unless a message with its boundary is already there.
-  func fileSent(
-    _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
-  ) async throws
 }
 
 #if canImport(SwiftMail)
@@ -348,41 +341,6 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
-  func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
-    async throws -> Int
-  {
-    try await session(account, password) { server in
-      try await Self.sentCopies(server, folder: folder, boundary: boundary)
-    }
-  }
-
-  func fileSent(
-    _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
-  ) async throws {
-    try await session(account, password) { server in
-      // An earlier filing whose answer was lost may have stored the copy already.
-      guard try await Self.sentCopies(server, folder: folder, boundary: boundary) == 0 else {
-        return
-      }
-      try await server.append(
-        rawMessage: String(decoding: message, as: UTF8.self), to: folder, flags: [.seen],
-        internalDate: nil)
-    }
-  }
-
-  private static func sentCopies(_ server: IMAPServer, folder: String, boundary: String)
-    async throws -> Int
-  {
-    do {
-      _ = try await examine(server, folder: folder)
-    } catch IMAPError.selectFailed {
-      throw ImapFailure.missing
-    }
-    let found: ExtendedSearchResult<UID> = try await server.extendedSearch(
-      criteria: [.header("Content-Type", boundary)])
-    return found.all?.count ?? 0
-  }
-
   static func flag(_ flag: Flag) -> String {
     switch flag {
     case .seen: "\\Seen"
@@ -433,16 +391,6 @@ struct SwiftMailImap: ImapProvider {
       _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32,
       uids: [UInt32]
     ) async throws -> [ImapHeaders] {
-      throw ImapFailure.offline
-    }
-    func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
-      async throws -> Int
-    {
-      throw ImapFailure.offline
-    }
-    func fileSent(
-      _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
-    ) async throws {
       throw ImapFailure.offline
     }
   }

@@ -244,13 +244,9 @@ export interface NativeGmailMailboxes {
     message: Parameters<NativeImapMailbox['imapSend']>[0],
     mailbox: Scope,
   ) => Promise<unknown>;
-  readonly imapFileSent: (
+  readonly imapAppend: (
     mailbox: Scope,
-    request: Parameters<NativeImapMailbox['imapFileSent']>[1],
-  ) => Promise<unknown>;
-  readonly imapFindSent: (
-    mailbox: Scope,
-    request: Parameters<NativeImapMailbox['imapFindSent']>[1],
+    request: Parameters<NativeImapMailbox['imapAppend']>[1],
   ) => Promise<unknown>;
 }
 
@@ -371,10 +367,8 @@ const boundImap = (
       native.imapSearch(scope(mailbox), request),
     imapIdle: (mailbox, request) => native.imapIdle(scope(mailbox), request),
     imapSend: (message, mailbox) => native.imapSend(message, scope(mailbox)),
-    imapFileSent: (mailbox, request) =>
-      native.imapFileSent(scope(mailbox), request),
-    imapFindSent: (mailbox, request) =>
-      native.imapFindSent(scope(mailbox), request),
+    imapAppend: (mailbox, request) =>
+      native.imapAppend(scope(mailbox), request),
     openMailbox: cache.openMailbox,
     commitMailbox: cache.commitMailbox,
     openMailboxSegment: cache.openMailboxSegment,

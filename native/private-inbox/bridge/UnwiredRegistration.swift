@@ -1178,40 +1178,6 @@ extension UnwiredRegistration {
     }
   }
 
-  // `request` names the Sent `folder`, the message's MIME `boundary` and, to file it, `segments`.
-  @objc(imapFileSent:request:resolver:rejecter:)
-  func imapFileSent(
-    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    mailbox("imapFileSent", resolve, reject: reject) {
-      let (connection, address, generation) = try Self.scope(scope)
-      guard let folder = request["folder"] as? String,
-        let boundary = request["boundary"] as? String,
-        let segments = request["segments"] as? [Any]
-      else { throw RegistrationError.unavailable }
-      return try await $0.imapFileSent(
-        segments: segments, folder: folder, boundary: boundary, connection: connection,
-        address: address, generation: generation)
-    }
-  }
-
-  @objc(imapFindSent:request:resolver:rejecter:)
-  func imapFindSent(
-    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    ungatedMailbox("imapFindSent", resolve, reject: reject) {
-      let (connection, address, generation) = try Self.scope(scope)
-      guard let folder = request["folder"] as? String,
-        let boundary = request["boundary"] as? String
-      else { throw RegistrationError.unavailable }
-      return try await $0.imapFindSent(
-        folder: folder, boundary: boundary, connection: connection, address: address,
-        generation: generation)
-    }
-  }
-
   // `message` carries `segments`, each `{ text }` or `{ asset: { id, digest } }`, or the
   // `draft` graphPrepare kept. Not cancellable: once started, its outcome may only be unknown.
   @objc(graphSend:mailbox:resolver:rejecter:)
@@ -1541,8 +1507,8 @@ extension UnwiredRegistration {
     return text
   }
 
-  // `request` names the open `session`, the `folder` to search, the `query` and how many of the
-  // `newest` matches to return.
+  // `request` names the open `session`, the `folder` to search, the text `query` or the Sent
+  // copy's MIME `boundary`, and how many of the `newest` matches to return.
   @objc(imapSearch:request:resolver:rejecter:)
   func imapSearch(
     _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
@@ -1550,12 +1516,34 @@ extension UnwiredRegistration {
   ) {
     ungatedMailbox("imapSearch", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
-      guard let folder = request["folder"] as? String, let query = request["query"] as? String,
+      let criterion: ImapSearchCriterion
+      switch (request["query"], request["boundary"]) {
+      case (let query as String, nil): criterion = .text(query)
+      case (nil, let boundary as String): criterion = .boundary(boundary)
+      default: throw RegistrationError.unavailable
+      }
+      guard let folder = request["folder"] as? String,
         let newest = (request["newest"] as? Double).flatMap({ Int(exactly: $0) })
       else { throw RegistrationError.unavailable }
       return try await $0.imapSearch(
         connection: connection, address: address, generation: generation,
-        session: try Self.imapSession(request), folder: folder, query: query, newest: newest)
+        session: try Self.imapSession(request), folder: folder, for: criterion, newest: newest)
+    }
+  }
+
+  // `request` names the open `session`, the Sent `folder` and the message's `segments`.
+  @objc(imapAppend:request:resolver:rejecter:)
+  func imapAppend(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("imapAppend", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String, let segments = request["segments"] as? [Any]
+      else { throw RegistrationError.unavailable }
+      return try await $0.imapAppend(
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), folder: folder, segments: segments)
     }
   }
 
