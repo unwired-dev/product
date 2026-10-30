@@ -27,15 +27,21 @@ existing URL pins and restores app product and Frameworks references idempotentl
 
 ## Ownership and transport
 
-Folder listing (#1177) and folder synchronization (#1178) run in TypeScript over
-short-lived native session handles. Native `SwiftMailImapSession` exposes capabilities,
-complete LIST results with attributes, read-only EXAMINE, envelope reads by UID set,
-UID range or newest sequence numbers, and flag reads by UID set. TypeScript assigns
-roles, normalizes ASCII INBOX names, derives MOVE, UIDPLUS and IDLE support, and owns
-the checkpoint and arrival arithmetic. `RegistrationStore` binds each handle
+Folder listing (#1177), folder synchronization (#1178) and IDLE waits (#1181)
+run in TypeScript over short-lived native session handles. Native
+`SwiftMailImapSession` exposes capabilities, complete LIST results with attributes,
+read-only EXAMINE, envelope reads by UID set, UID range or newest sequence numbers,
+flag reads by UID set, and bounded IDLE event kinds. TypeScript assigns roles,
+normalizes ASCII INBOX names, derives MOVE, UIDPLUS and IDLE support, owns the
+checkpoint and arrival arithmetic, and classifies IDLE events. Native ends IDLE
+with DONE after the first event or the requested bound and drains the stream so
+queued change events are retained. TypeScript keeps waiting through non-change
+events within the original deadline and treats BYE as offline. `RegistrationStore`
+binds each handle
 to its connection, address, generation and receipt subject, admits one command
 at a time, and owns expiry, limits and invalidation cleanup. TypeScript's
-`acquireUseRelease` closes the handle on success and failure. The operational
+`acquireUseRelease` closes the handle on success, failure and interruption;
+stopping a watch interrupts its wait. The operational
 [IMAP guide](../imap-mailboxes.md#engine-and-dependencies) owns the limits and
 observable close contract.
 
@@ -43,9 +49,11 @@ Closing removes the handle and answers its in-flight caller once with
 `mailbox-invalidated`; the command's later result cannot resume that caller.
 SwiftMail 1.16.0 queues `disconnect()` behind an active command, whose NIO response
 wait does not observe task cancellation. The connection therefore closes only
-when that command answers or times out. Wire-level abort remains #1184, and the
-TypeScript interruption test remains with the first interruptible caller, IDLE
-(#1181).
+when that command answers or times out. Wire-level abort remains #1184. The
+TypeScript IDLE interruption test verifies handle cleanup when a watch stops;
+the controlled native session test verifies that closing during IDLE answers
+the caller at once. The hosted TLS test covers the real primitive's change,
+quiet-bound and close paths, but its run on the #1181 snapshot remains deferred.
 
 The remaining operations still open one authenticated session each through
 `SwiftMailImap`, perform `EXAMINE` for reads and `SELECT` for explicit mutations,
@@ -198,7 +206,7 @@ and returns the newest 50 matches per folder with truncation disclosure.
 Each watched connection uses IDLE only when advertised. Its failed waits reconnect
 with a five-second-to-five-minute backoff, alongside the active-app five-minute
 poll and foreground catch-up. The Mac application owns its watchers; mobile
-foreground ownership stops future waits outside active state. Search and bounded
+foreground ownership stops the current wait and future waits outside active state. Search and bounded
 IDLE release the global registration gate during network waits, retaining native
 credential and generation checks before and after the operation.
 
