@@ -116,7 +116,9 @@ authorized operator:
    `UID SEARCH HEADER Message-ID "<fixture-id>"` and reads each candidate with
    `UID FETCH <uid> (FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[])`
    ([RFC 3501 §6.4.8](https://www.rfc-editor.org/rfc/rfc3501#section-6.4.8)).
-   Verifies the exact `Message-ID`, decoded headers, MIME parts and attachment
+   If the search finds nothing, it fetches `BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]`
+   for every message in the run folder and compares those values instead, so a
+   search gap is not mistaken for a missing message. Verifies the exact `Message-ID`, decoded headers, MIME parts and attachment
    hashes. Through the existing Graph grant, it locates the same message by
    `internetMessageId` in the corresponding folder and reads `isDraft`,
    `receivedDateTime` and `$value`, recording date differences explicitly.
@@ -125,7 +127,7 @@ authorized operator:
 6. Uses a fresh fixture and `Message-ID` for the lost-response case. Drops the
    connection after sending its complete `APPEND` literal but before reading the
    tagged response, reconnects, selects the target folder and verifies matches
-   without retrying the insertion.
+   as in step 4 without retrying the insertion.
 7. Appends synthetic MIME fixtures of 10, 25, 35 and 40 MB, recording exact literal
    byte counts, acceptance or rejection and readback for accepted items. Deletes
    only the run's folders, children first, after recording verdicts; leaves the
