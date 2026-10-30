@@ -1494,24 +1494,8 @@ export const registerGmailConnectionForIdentity = internalMutation({
         updatedAt: now,
       });
     }
-    let connectedAt = now;
-    if (currentConnection !== null) {
-      const { _id: connectionId, connectedAt: existingConnectedAt } =
-        currentConnection;
-      connectedAt = existingConnectedAt;
-      await ctx.db.patch('mailProviderConnections', connectionId, {
-        emailAddress: undefined,
-        gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
-        gmailRoutingDigest: args.gmailRoutingDigest,
-        gmailRoutingKeyVersion: args.gmailRoutingKeyVersion,
-        lastVerifiedAt: now,
-        providerAccountIdentifier: undefined,
-        updatedAt: now,
-      });
-      if (legacyConnection !== null && legacyConnection._id !== connectionId) {
-        await ctx.db.delete('mailProviderConnections', legacyConnection._id);
-      }
-    } else if (legacyConnection === null) {
+    const existingConnection = currentConnection ?? legacyConnection;
+    if (existingConnection === null) {
       const deviceConnections = await gmailConnectionsForDevice(
         ctx,
         account.productAccountId,
@@ -1533,10 +1517,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
         updatedAt: now,
       });
     } else {
-      const { _id: connectionId, connectedAt: existingConnectedAt } =
-        legacyConnection;
-      connectedAt = existingConnectedAt;
-      await ctx.db.patch('mailProviderConnections', connectionId, {
+      await ctx.db.patch('mailProviderConnections', existingConnection._id, {
         emailAddress: undefined,
         gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
@@ -1546,10 +1527,16 @@ export const registerGmailConnectionForIdentity = internalMutation({
         providerAccountIdentifier: undefined,
         updatedAt: now,
       });
+      if (
+        legacyConnection !== null &&
+        legacyConnection._id !== existingConnection._id
+      ) {
+        await ctx.db.delete('mailProviderConnections', legacyConnection._id);
+      }
     }
 
     return {
-      connectedAt,
+      connectedAt: existingConnection?.connectedAt ?? now,
       lastVerifiedAt: now,
       opaqueConnectionId: args.opaqueConnectionId,
       trustedDeviceId: args.trustedDeviceId,
