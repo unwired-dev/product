@@ -514,6 +514,37 @@ describe('connecting IMAP mailboxes', () => {
     expect(subjects()).not.toContain('Kept');
   });
 
+  it('keeps the newest window when a UID range grows after EXAMINE', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept' });
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    imap.deliver('INBOX', { subject: 'Trigger' });
+    const examine = imap.native.imapExamine;
+    vi.spyOn(imap.native, 'imapExamine').mockImplementationOnce(
+      async (...args) => {
+        const selection = await examine(...args);
+        // EXAMINE does not freeze `UID n:*`: a bulk arrival before FETCH can exceed its count
+        // and the JavaScript engine's function-argument limit.
+        for (let index = 0; index < 150_000; index += 1) {
+          imap.deliver('INBOX', { subject: `Arrival ${index}`, raw: '' });
+        }
+        return selection;
+      },
+    );
+    await inbox.load();
+    const state = ready(inbox.getSnapshot());
+    expect(state.status).toBe('current');
+    expect(state.messages).toHaveLength(200);
+    expect(state.messages[0]?.subject).toBe('Arrival 149999');
+    expect(imap.server.sessions.size).toBe(0);
+    const envelopes = vi.spyOn(imap.native, 'imapEnvelopes');
+    await inbox.load();
+    expect(envelopes).not.toHaveBeenCalled();
+  });
+
   it('reports only unread mail newly arriving in the Inbox, once each, after its commit', async () => {
     expect.hasAssertions();
     const at = (hour: number, minute = 0) => Date.UTC(2026, 9, 1, hour, minute);

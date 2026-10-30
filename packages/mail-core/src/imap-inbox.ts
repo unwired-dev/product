@@ -469,7 +469,7 @@ const decodeStoredBodies = Schema.decodeUnknownEffect(
 
 // The UID after the newest of `messages`.
 const uidAfter = (messages: ReadonlyArray<Readonly<{ uid: number }>>) =>
-  Math.max(0, ...messages.map(({ uid }) => uid + 1));
+  messages.reduce((next, { uid }) => Math.max(next, uid + 1), 0);
 
 const malformed = (error: Schema.SchemaError) =>
   new ImapFailure({
