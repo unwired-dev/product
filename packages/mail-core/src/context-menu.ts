@@ -17,6 +17,9 @@ export type MenuItem = Readonly<{
   // A second line beneath the title, and a checkmark for the chosen item.
   subtitle?: string;
   checked?: boolean;
+  // An action shown but unavailable now, and a spoken name fuller than its title.
+  disabled?: boolean;
+  accessibilityLabel?: string;
 }> &
   (
     | Readonly<{ key: string; run: MenuAction }>
@@ -37,6 +40,8 @@ export type NativeMenuItem = Readonly<{
   destructive?: boolean | undefined;
   subtitle?: string | undefined;
   checked?: boolean | undefined;
+  disabled?: boolean | undefined;
+  accessibilityLabel?: string | undefined;
   items?: readonly NativeMenuItem[];
   sections?: ReadonlyArray<Readonly<{ items: readonly NativeMenuItem[] }>>;
 }>;
@@ -48,8 +53,17 @@ export const menuState = (sections: readonly MenuSection[]) => {
     const { title, symbol, destructive } = item;
     if ('run' in item) {
       runs.set(item.key, item.run);
-      const { subtitle, checked } = item;
-      return { id: item.key, title, symbol, destructive, subtitle, checked };
+      const { subtitle, checked, disabled, accessibilityLabel } = item;
+      return {
+        id: item.key,
+        title,
+        symbol,
+        destructive,
+        subtitle,
+        checked,
+        disabled,
+        accessibilityLabel,
+      };
     }
     return 'items' in item
       ? { id: '', title, symbol, items: item.items.map(native) }

@@ -120,6 +120,7 @@ import {
   Button,
   ContextMenu,
   Glass,
+  MenuButton,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -164,6 +165,8 @@ const fieldLabelWidth = 80;
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1 },
+  // The same 44-point target as the format bar's icon buttons.
+  writingTools: { minWidth: 44, minHeight: 44, alignItems: 'center' },
   // Open menus stack header over From over the format bar, whose layout-only rows Fabric
   // flattens into this column, so each menu opens over the rows that follow it.
   header: {
@@ -2021,62 +2024,103 @@ function Editor({
         }}
       />
       <View style={styles.grow} />
-      {translation === undefined ? null : (
-        <Button
-          size="compact"
-          disabled={lockedUnless(
-            hasTranslatableText(
-              selectedText(draft.body, selection, translationInputLimit + 1),
-            ),
-          )}
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateSelectionLabel')}
-          onPress={() => {
-            const at = selectionNow.current;
-            const { body } = authored.current;
-            const text = selectedText(body, at, translationInputLimit + 1);
-            if (
-              sendingNow.current ||
-              !lifetime.current.mounted ||
-              !hasTranslatableText(text)
-            ) {
-              return;
-            }
-            capture('translate', at);
-          }}
-        />
-      )}
-      {assistance === undefined ? null : (
-        <>
-          <Button
-            size="compact"
-            disabled={lockedUnless(canRewrite(draft.body, selection))}
-            label={t('assistance.rewrite')}
-            accessibilityLabel={t(rewriteLabel(selection))}
-            onPress={() => {
-              const at = selectionNow.current;
-              if (
-                lifetime.current.mounted &&
-                canRewrite(authored.current.body, at)
-              ) {
-                capture('rewrite', at);
-              }
-            }}
+      {translation === undefined && assistance === undefined ? null : (
+        // Writing tools: one system menu of Rewrite, Translate and, on replies, Suggest reply.
+        <MenuButton
+          accessibilityLabel={t('drafts.writingTools')}
+          disabled={sending}
+          sections={[
+            ...(assistance === undefined
+              ? []
+              : [
+                  {
+                    items: [
+                      {
+                        key: 'rewrite',
+                        title: t('assistance.rewrite'),
+                        accessibilityLabel: t(rewriteLabel(selection)),
+                        symbol: 'pencil',
+                        disabled: !canRewrite(draft.body, selection),
+                        run: () => {
+                          const at = selectionNow.current;
+                          if (
+                            lifetime.current.mounted &&
+                            canRewrite(authored.current.body, at)
+                          ) {
+                            capture('rewrite', at);
+                          }
+                        },
+                      },
+                    ],
+                  },
+                ]),
+            ...(translation === undefined
+              ? []
+              : [
+                  {
+                    items: [
+                      {
+                        key: 'translate',
+                        title: t('translation.translate'),
+                        accessibilityLabel: t(
+                          'translation.translateSelectionLabel',
+                        ),
+                        symbol: 'translate',
+                        disabled: !hasTranslatableText(
+                          selectedText(
+                            draft.body,
+                            selection,
+                            translationInputLimit + 1,
+                          ),
+                        ),
+                        run: () => {
+                          const at = selectionNow.current;
+                          const { body } = authored.current;
+                          const text = selectedText(
+                            body,
+                            at,
+                            translationInputLimit + 1,
+                          );
+                          if (
+                            sendingNow.current ||
+                            !lifetime.current.mounted ||
+                            !hasTranslatableText(text)
+                          ) {
+                            return;
+                          }
+                          capture('translate', at);
+                        },
+                      },
+                    ],
+                  },
+                ]),
+            ...(assistance !== undefined && canSuggestReply(draft)
+              ? [
+                  {
+                    items: [
+                      {
+                        key: 'reply',
+                        title: t('assistance.suggestReply'),
+                        accessibilityLabel: t('assistance.suggestReplyLabel'),
+                        symbol: '',
+                        run: () => {
+                          if (lifetime.current.mounted) {
+                            capture('reply', selectionNow.current);
+                          }
+                        },
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ]}
+          style={styles.writingTools}>
+          <SFSymbol
+            name="sparkles"
+            size={20}
+            color={colors.textPrimary}
           />
-          {canSuggestReply(draft) ? (
-            <Button
-              size="compact"
-              disabled={sending}
-              label={t('assistance.suggestReply')}
-              accessibilityLabel={t('assistance.suggestReplyLabel')}
-              onPress={() => {
-                if (lifetime.current.mounted) {
-                  capture('reply', selectionNow.current);
-                }
-              }}
-            />
-          ) : null}
-        </>
+        </MenuButton>
       )}
       <View style={[styles.divider, { backgroundColor: colors.separator }]} />
       <ToolbarButton

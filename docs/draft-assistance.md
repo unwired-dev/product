@@ -10,7 +10,9 @@ system language model. There is no cloud or product-backend model fallback.
 
 ## Behavior
 
-- **Rewrite** sits in the formatting toolbar next to **Translate**. With text
+- **Rewrite** sits in the formatting toolbar next to **Translate**; on iPhone and
+  iPad, **Rewrite**, **Translate** and **Suggest reply** share the format bar's
+  **Writing tools** (sparkles) menu, which is unavailable while sending. With text
   selected it rewrites the selection; with nothing selected it rewrites the whole
   authored body. It is disabled while that text is blank.
 - **Suggest reply** appears only in a Reply or Reply All Draft that has its quoted

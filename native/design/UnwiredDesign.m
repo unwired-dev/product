@@ -906,9 +906,12 @@ static UIMenuElement *UnwiredMenuElement(NSDictionary *item, void (^select)(NSSt
   NSString *identifier = item[@"id"];
   UIAction *action = [UIAction actionWithTitle:item[@"title"] image:image identifier:nil
       handler:^(__unused UIAction *action) { select(identifier); }];
-  if ([item[@"destructive"] boolValue]) action.attributes = UIMenuElementAttributesDestructive;
+  if ([item[@"destructive"] boolValue]) action.attributes |= UIMenuElementAttributesDestructive;
+  if ([item[@"disabled"] boolValue]) action.attributes |= UIMenuElementAttributesDisabled;
   NSString *subtitle = item[@"subtitle"];
   if (subtitle.length > 0) action.subtitle = subtitle;
+  NSString *accessibilityLabel = item[@"accessibilityLabel"];
+  if (accessibilityLabel.length > 0) action.accessibilityLabel = accessibilityLabel;
   if ([item[@"checked"] boolValue]) action.state = UIMenuElementStateOn;
   return action;
 }
@@ -1259,6 +1262,7 @@ RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
 @implementation UnwiredMenuButtonManager
 RCT_EXPORT_MODULE(UnwiredMenuButton)
 RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredMenuButtonView new]; }
 @end

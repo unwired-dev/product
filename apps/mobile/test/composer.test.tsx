@@ -47,6 +47,11 @@ import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { targetChoice, translateInto } from './translation-menu.tsx';
+import {
+  chooseWritingTool,
+  writingTool,
+  writingToolChoice,
+} from './writing-tools.ts';
 
 // Allow cold component rendering even when a focused run skips the first test.
 jest.setTimeout(10_000);
@@ -2645,9 +2650,7 @@ describe('composing Drafts', () => {
     const body = screen.getByLabelText('Message body');
     await fireEvent.changeText(body, 'Hola. Nos vemos el viernes.');
     // Only selected text can be translated.
-    expect(
-      screen.getByRole('button', { name: 'Translate the selected text' }),
-    ).toBeDisabled();
+    expect(writingTool('Translate the selected text')?.disabled).toBe(true);
     const select = async (start: number, end: number) => {
       await fireEvent(
         screen.getByLabelText('Message body'),
@@ -2658,7 +2661,7 @@ describe('composing Drafts', () => {
       );
     };
     const translateSelection = async () => {
-      await press('Translate the selected text');
+      await chooseWritingTool('Translate the selected text');
       await translateInto('English');
     };
     await select(6, 27);
@@ -2758,9 +2761,9 @@ describe('composing Drafts', () => {
     ).toBeNull();
     expect(cancelled).toStrictEqual([asked[4]?.request]);
     asked[4]?.answer.resolve({ source: 'es', text: 'Hello!' });
-    await expect(
-      screen.findByLabelText('Translate the selected text'),
-    ).resolves.toBeOnTheScreen();
+    await waitFor(() => {
+      expect(writingTool('Translate the selected text')).toBeDefined();
+    });
     expect(screen.queryByText('Hello!')).toBeNull();
     expect(screen.getByLabelText('Message body')).toHaveTextContent(
       'Hola! Nos vemos el viernes.',
@@ -2802,15 +2805,13 @@ describe('composing Drafts', () => {
       name: 'To: maya@example.com',
     });
     // Nothing to rewrite in an empty body.
-    expect(
-      screen.getByRole('button', { name: 'Rewrite the message body' }),
-    ).toBeDisabled();
+    expect(writingTool('Rewrite the message body')?.disabled).toBe(true);
     const original = 'lets meet friday. thanks';
     await fireEvent.changeText(screen.getByLabelText('Message body'), original);
     const body = () => screen.getByLabelText('Message body');
 
     // With nothing selected, the whole authored body is rewritten.
-    await press('Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     expect(asked[0]?.operation).toBe('rewrite');
     expect(parseJson(asked[0]!.input)).toStrictEqual({
       operation: 'rewrite',
@@ -2843,7 +2844,7 @@ describe('composing Drafts', () => {
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 0, end: 17 } },
     });
-    await press('Rewrite the selected text');
+    await chooseWritingTool('Rewrite the selected text');
     expect(parseJson(asked[1]!.input)).toStrictEqual({
       operation: 'rewrite',
       authoredText: 'lets meet friday.',
@@ -2860,7 +2861,7 @@ describe('composing Drafts', () => {
     expect(body()).toHaveTextContent(original, { exact: true });
 
     // A refusal leaves the text unchanged and offers no retry.
-    await press('Rewrite the selected text');
+    await chooseWritingTool('Rewrite the selected text');
     await act(async () => {
       asked[2]?.answer.reject(
         Object.assign(new Error('refused'), { code: 'refused' }),
@@ -2879,7 +2880,7 @@ describe('composing Drafts', () => {
     await press('Keep your text and close this suggestion');
 
     // Cancelling stops the native request; Try again asks once more.
-    await press('Rewrite the selected text');
+    await chooseWritingTool('Rewrite the selected text');
     await press('Cancel writing help');
     expect(cancelled).toStrictEqual([asked[3]?.request]);
     await screen.findByText('Cancelled. Your text is unchanged.');
@@ -2892,17 +2893,17 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
     expect(cancelled).toStrictEqual([asked[3]?.request, asked[4]?.request]);
     asked[4]?.answer.resolve('Too late.');
-    await expect(
-      screen.findByRole('button', { name: 'Rewrite the selected text' }),
-    ).resolves.toBeOnTheScreen();
+    await waitFor(() => {
+      expect(writingTool('Rewrite the selected text')).toBeDefined();
+    });
     expect(screen.queryByText('Too late.')).toBeNull();
     expect(body()).toHaveTextContent('lets meet saturday. thanks', {
       exact: true,
     });
 
     // Account replacement retires the composer and its pending assistance, even with the same mailbox.
-    await press('Rewrite the selected text');
-    const oldRewrite = queuedPress('Rewrite the selected text');
+    await chooseWritingTool('Rewrite the selected text');
+    const oldRewrite = writingToolChoice('Rewrite the selected text');
     await act(() => {
       registration.change({
         ...connected(['alex@example.invalid']),
@@ -2964,26 +2965,20 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Message body'),
       'lets meet friday. thanks',
     );
-    expect(
-      screen.queryByRole('button', { name: 'Rewrite the message body' }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Translate the selected text' }),
-    ).toBeNull();
+    // Without assistance or translation, the composer offers no Writing tools.
+    expect(screen.queryByLabelText('Writing tools')).toBeNull();
 
     await act(async () => {
       await enablement.setEnabled(owner, 'default', true);
     });
-    await press('Rewrite the message body');
+    await chooseWritingTool('Rewrite the message body');
     await screen.findByLabelText('Cancel writing help');
     // Turning it off cancels the request and closes its panel.
     await act(async () => {
       const off = enablement.setEnabled(owner, 'default', false);
       // Cancellation precedes both storage completion and React's hidden-panel commit.
       expect(cancelled).toStrictEqual([asked[0]?.request]);
-      fireEvent.press(
-        screen.getByRole('button', { name: 'Rewrite the message body' }),
-      );
+      writingToolChoice('Rewrite the message body')();
       await off;
     });
     expect(cancelled).toStrictEqual([asked[0]?.request]);
@@ -2992,9 +2987,7 @@ describe('composing Drafts', () => {
     await act(async () => {
       await enablement.setEnabled(owner, 'default', true);
     });
-    expect(
-      screen.getByRole('button', { name: 'Rewrite the message body' }),
-    ).toBeOnTheScreen();
+    expect(writingTool('Rewrite the message body')).toBeDefined();
     expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
     expect(asked).toHaveLength(1);
   });
@@ -3059,13 +3052,11 @@ describe('composing Drafts', () => {
         'lets meet friday. thanks',
       );
       // The Default Profile's consent does not reach a Draft sending from the Work Profile.
-      expect(
-        screen.queryByRole('button', { name: 'Rewrite the message body' }),
-      ).toBeNull();
+      expect(writingTool('Rewrite the message body')).toBeUndefined();
       await act(async () => {
         await enablement.setEnabled(owner, 'work', true);
       });
-      await press('Rewrite the message body');
+      await chooseWritingTool('Rewrite the message body');
       await screen.findByLabelText('Cancel writing help');
 
       // A move retires the request even when the destination Profile also permits assistance.
@@ -3076,8 +3067,7 @@ describe('composing Drafts', () => {
       expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
       expect(asked).toHaveLength(1);
       expect(
-        screen.queryByRole('button', { name: 'Rewrite the message body' }) !==
-          null,
+        writingTool('Rewrite the message body') !== undefined,
       ).toBe(offered);
     },
   );
@@ -3230,7 +3220,7 @@ describe('adding files and images to a Draft', () => {
       [5, 6],
     ] as const) {
       await select(start, end);
-      await press('Translate the selected text');
+      await chooseWritingTool('Translate the selected text');
       await screen.findByText(guidance);
       expect(screen.queryByLabelText('Translate into')).toBeNull();
       expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
@@ -3245,7 +3235,7 @@ describe('adding files and images to a Draft', () => {
       [7, 12],
     ] as const) {
       await select(start, end);
-      await press('Translate the selected text');
+      await chooseWritingTool('Translate the selected text');
       await translateInto('English');
       await screen.findByLabelText(
         'Replace the selected text with this translation',
@@ -4511,7 +4501,7 @@ describe('replying to and forwarding from the reader', () => {
       screen.getByLabelText('Message body'),
       oversized,
     );
-    await press('Suggest a reply to the quoted message');
+    await chooseWritingTool('Suggest a reply to the quoted message');
     await screen.findByText(
       'Your reply is too long for a suggestion. Up to 6,000 characters can be read.',
     );
@@ -4522,7 +4512,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(gmail.requests).toHaveLength(requests);
     await press('Keep your text and close this suggestion');
     await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes');
-    await press('Suggest a reply to the quoted message');
+    await chooseWritingTool('Suggest a reply to the quoted message');
     // Only display names, the authored text and the quoted message already in the Draft are read.
     expect(asked[0]?.operation).toBe('reply');
     expect(parseJson(asked[0]!.input)).toMatchObject({
@@ -4565,7 +4555,7 @@ describe('replying to and forwarding from the reader', () => {
     });
 
     // Recipient edits retire the captured reply input even when Undo restores it before commit.
-    await press('Suggest a reply to the quoted message');
+    await chooseWritingTool('Suggest a reply to the quoted message');
     asked[1]?.answer.resolve('Ready for the old recipients.');
     await screen.findByText('Ready for the old recipients.');
     const apply = queuedPress('Replace your reply with this suggestion');
@@ -4582,7 +4572,7 @@ describe('replying to and forwarding from the reader', () => {
     });
 
     // A pending request is also cancelled on recipient editing; its late result stays hidden.
-    await press('Suggest a reply to the quoted message');
+    await chooseWritingTool('Suggest a reply to the quoted message');
     await press('To: Bob <bob@example.invalid>');
     asked[2]?.answer.resolve('Late for the old recipients.');
     await act(async () => {
@@ -4594,7 +4584,7 @@ describe('replying to and forwarding from the reader', () => {
     await press('Undo');
 
     // Closing the Draft while a suggestion is pending cancels it.
-    await press('Suggest a reply to the quoted message');
+    await chooseWritingTool('Suggest a reply to the quoted message');
     await screen.findByLabelText('Cancel writing help');
     await press('Close');
     await waitFor(() => {
