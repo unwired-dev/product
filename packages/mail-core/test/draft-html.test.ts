@@ -504,6 +504,28 @@ describe('a Semantic Message Document from Draft HTML', () => {
     });
   });
 
+  it('refuses inline alignment that blocks inside it would inherit', () => {
+    expect.hasAssertions();
+    expect(
+      [
+        '<a href="https://example.invalid" style="text-align:center"><div>text</div></a>',
+        '<p><span style="text-align:right">text</span></p>',
+        '<div align="center"><span style="text-align:left"><p>text</p></span></div>',
+      ].map((html) => documentFromHtml(html)),
+    ).toStrictEqual(
+      Array.from({ length: 3 }, () => ({ unsupported: ['text-align'] })),
+    );
+    expect(
+      documentFromHtml(
+        '<div style="text-align:center"><span style="text-align:center">text</span></div>',
+      ),
+    ).toStrictEqual({
+      document: [
+        { kind: 'paragraph', spans: [{ text: 'text' }], align: 'center' },
+      ],
+    });
+  });
+
   it('refuses a quote border that draws nothing, since outgoing mail would add a quote bar', () => {
     expect.hasAssertions();
     expect(

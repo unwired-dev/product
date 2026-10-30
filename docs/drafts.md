@@ -240,7 +240,9 @@ of its own are reported. Explicitly inherited link colors are reported, as are i
 when their surrounding default cannot be preserved. Fonts set on
 code text override the code element's monospace default when sent. A text-color
 change inside an ancestor underline or strike is reported when outgoing marks
-would also change the line's color.
+would also change the line's color. Alignment set on an inline element is
+reported unless it matches the alignment around it, because blocks inside the
+element would inherit it.
 It ignores the head, style sheets, comments, wrapper classes, identifiers,
 language and namespace attributes, left-to-right or automatic `dir`, HTML-hidden
 content without a display override, spacing (margins, padding, line height),

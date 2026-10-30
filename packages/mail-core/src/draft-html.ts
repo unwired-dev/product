@@ -330,11 +330,14 @@ const propertyRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
         : formatted(context, { background });
     },
   ]),
-  // Alignment belongs to blocks; inline text ignores it, as browsers do.
+  // Alignment belongs to blocks, yet blocks inside an inline element inherit it. The document
+  // cannot hold that, so inline alignment must match the alignment it would replace.
   [
     'text-align',
-    (context, value, block) =>
-      block ? alignRule(context, value, block) : context,
+    (context, value, block) => {
+      const aligned = alignRule(context, value, block);
+      return block || aligned?.align === context.align ? aligned : undefined;
+    },
   ],
 ]);
 // A bordered blockquote is a quote; without a border, it only indents.
