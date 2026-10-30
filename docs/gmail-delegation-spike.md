@@ -14,11 +14,13 @@ unavailable, and delegated-mail delivery begins with Microsoft 365 and qualified
 IMAP servers
 ([mail capability expansion](product/mail-capability-expansion.md#languages-and-individual-delegation)).
 
-The Gmail API documentation reviewed here describes no way for a user's token to
-address a mailbox delegated to that user. The only API mechanisms that reach
-beyond the signed-in user, delegate management and IMAP access with
-`gmail.imap_admin`, require a Google Workspace service account with domain-wide
-authority, which the credential model excludes.
+This is an inference from the reviewed documentation, pending the blocked
+[live proof](#live-proof). Google documents delegated-mailbox use only in Gmail's
+own clients, and the reviewed Gmail API and IMAP references describe no way for a
+user's token to address a mailbox delegated to that user. Delegate management
+and IMAP access with `gmail.imap_admin` are separate mechanisms; both require a
+Google Workspace service account with domain-wide authority, which the
+credential model excludes.
 
 ## Managing delegates
 
@@ -39,7 +41,8 @@ organization. Managing delegates therefore stays in Gmail's own settings.
 - **Gmail API.** The `userId` path parameter is "The user's email address. The
   special value `me` can be used to indicate the authenticated user"
   ([`users.messages.list`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)).
-  No scope or parameter addresses a mailbox delegated to that user.
+  The reviewed references describe no scope or parameter for a mailbox
+  delegated to that user.
 - **IMAP.** [XOAUTH2](https://developers.google.com/workspace/gmail/imap/xoauth2-protocol)
   needs `https://mail.google.com/`, which the hosts do not request. Its
   alternative scope, `gmail.imap_admin`, "can only be used for Google Workspace
@@ -73,14 +76,18 @@ the probe requests no new scope. The authorized operator then:
 1. In Gmail on the web, has owner account B add delegate A. A accepts the
    invitation and, after up to 24 hours, sees B marked "Delegated" in the
    account switcher.
-2. Signs A in through the hosts' existing Gmail consent.
+2. Signs A in through the hosts' existing Gmail consent, and the probe verifies
+   inside the native boundary that the token belongs to A and that its granted
+   scopes are exactly the hosts' current set.
 3. With A's token, calls `GET https://gmail.googleapis.com/gmail/v1/users/me/profile`
-   as a control, then `GET https://gmail.googleapis.com/gmail/v1/users/<B>/profile`.
+   as a control whose address must match A, then
+   `GET https://gmail.googleapis.com/gmail/v1/users/<B>/profile`.
 
 Record only redacted run metadata, status codes and Google's error reason, never
 addresses, tokens, response bodies or mailbox content. A failed control, or an
 error reason about quota, rate limits or domain policy
 ([Gmail API errors](https://developers.google.com/workspace/gmail/api/guides/handle-errors)),
 makes the run inconclusive. A permission denial on B with a passing control
-confirms this result. A `200` shows only profile access to B and reopens the
-evaluation as a separately scoped slice.
+shows only that this request fails for this setup; it supports this result
+without proving every operation unsupported. A `200` shows only profile access
+to B and reopens the evaluation as a separately scoped slice.
