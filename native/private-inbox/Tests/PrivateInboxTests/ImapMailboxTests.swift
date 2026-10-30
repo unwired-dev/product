@@ -82,12 +82,6 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
     try record("search \(folders.joined(separator: ",")) \(limit)", password)
     return ([ImapFound(folder: "INBOX", uidValidity: 7, messages: state.messages, more: true)], 1)
   }
-  func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
-    -> Bool
-  {
-    try record("idle \(folder) \(seconds)", password)
-    return true
-  }
   // Sent copies filed by boundary, as the server would hold them.
   private var filed: [String: Data] = [:]
   func copy(_ boundary: String) -> Data? { lock.withLock { filed[boundary] } }
@@ -107,14 +101,16 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
 
 // A controlled session: it lists the Inbox and records its close. With `hold`, a listing waits for
 // `release()`, as SwiftMail's command waits for the server's reply even after the session closes.
+// IDLE on the Inbox reports new mail; on any other folder it waits until the session closes.
 final class ControlledImapSession: ImapSession, @unchecked Sendable {
   private let lock = NSLock()
   private let hold: Bool
   private var held: CheckedContinuation<Void, Never>?
+  private var idling: CheckedContinuation<Void, Never>?
   private var ended = false
   init(hold: Bool) { self.hold = hold }
 
-  var waiting: Bool { lock.withLock { held != nil } }
+  var waiting: Bool { lock.withLock { held != nil || idling != nil } }
   var closed: Bool { lock.withLock { ended } }
   func release() {
     lock.withLock {
@@ -129,7 +125,22 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
     }
     return [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")]
   }
-  func close() async { lock.withLock { ended = true } }
+  func idle(folder: String, seconds: Int) async throws -> [String] {
+    guard folder != "INBOX" else { return ["exists"] }
+    await withCheckedContinuation { continuation in
+      lock.withLock {
+        if ended { continuation.resume() } else { idling = continuation }
+      }
+    }
+    throw ImapFailure.offline
+  }
+  func close() async {
+    lock.withLock {
+      ended = true
+      idling?.resume()
+      idling = nil
+    }
+  }
 }
 
 // A controlled SMTP server: logins and submissions answer as configured, and each names the
@@ -348,15 +359,20 @@ extension PrivateInboxTests {
           folders: folders)
       }
     }
+    let watching = try #require(
+      try await store.imapOpen(
+        connection: id, address: "alex@example.invalid", generation: generation)["session"]
+        as? String)
     let idle = try await store.imapIdle(
-      connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
-      seconds: 300)
-    #expect(idle["changed"] as? Bool == true)
+      connection: id, address: "alex@example.invalid", generation: generation, session: watching,
+      folder: "INBOX", seconds: 300)
+    #expect(idle["events"] as? [String] == ["exists"])
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.imapIdle(
-        connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
-        seconds: 601)
+        connection: id, address: "alex@example.invalid", generation: generation, session: watching,
+        folder: "INBOX", seconds: 601)
     }
+    store.imapClose(connection: id, session: watching)
     #expect(imap.requests().map(\.0).contains("search INBOX,Archive 50"))
     #expect(imap.requests().allSatisfy { $0.1 == "app-password" })
     await #expect(throws: RegistrationError.unavailable) {
@@ -475,6 +491,21 @@ extension PrivateInboxTests {
     waiting.release()
     try await settled([waiting])
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list(held) }
+
+    // Closing a session in IDLE answers the wait at once and ends it.
+    let watching = try await open()
+    let wait = Task {
+      _ = try await store.imapIdle(
+        connection: id, address: address, generation: generation, session: watching,
+        folder: "Archive", seconds: 600)
+    }
+    let idling = try #require(imap.sessions().last)
+    for _ in 0..<100 where !idling.waiting { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(idling.waiting)
+    store.imapClose(connection: id, session: watching)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await wait.value }
+    try await settled([idling])
+    #expect(!idling.waiting)
 
     // A session open too long closes too, even with a command waiting; so does `session`.
     (held, listing, waiting) = try await holding()
@@ -688,7 +719,7 @@ extension PrivateInboxTests {
 
 extension PrivateInboxTests {
   // Organizing, server search and IDLE through the unchanged engine over verified TLS, including
-  // servers without MOVE, without MOVE and UIDPLUS, and without IDLE.
+  // servers without MOVE, and without MOVE and UIDPLUS.
   @Test(.enabled(if: ProcessInfo.processInfo.environment["UNWIRED_IMAP_TLS_TEST_PORT"] != nil))
   func swiftMailOrganizesSearchesAndWaitsOverVerifiedTLS() async throws {
     let port = try #require(Int(ProcessInfo.processInfo.environment["UNWIRED_IMAP_TLS_TEST_PORT"] ?? ""))
@@ -796,11 +827,17 @@ extension PrivateInboxTests {
         request: ImapHistoryRequest(folder: "Gone", above: 1, below: nil, limit: 2, known: []))
     }
 
-    #expect(try await provider.idle(synthetic, password: password, folder: "INBOX", seconds: 30))
-    #expect(try await provider.idle(synthetic, password: password, folder: "Quiet", seconds: 1) == false)
-    await #expect(throws: ImapFailure.unsupported) {
-      _ = try await provider.idle(try account("namespaced"), password: password, folder: "INBOX", seconds: 1)
-    }
+    // IDLE reports the Inbox's new mail at once and ends quietly at its bound in the same session;
+    // closing the session ends a wait in progress.
+    let watching = try await provider.open(synthetic, password: password)
+    #expect(try await watching.idle(folder: "INBOX", seconds: 30) == ["exists"])
+    #expect(try await watching.idle(folder: "Quiet", seconds: 1) == [])
+    let wait = Task { try await watching.idle(folder: "Quiet", seconds: 30) }
+    try await Task.sleep(for: .milliseconds(500))
+    let closing = ContinuousClock.now
+    await watching.close()
+    await #expect(throws: ImapFailure.offline) { _ = try await wait.value }
+    #expect(ContinuousClock.now - closing < .seconds(5))
   }
 }
 

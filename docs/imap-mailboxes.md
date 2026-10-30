@@ -175,7 +175,10 @@ the application, including after its last window closes; iPhone and iPad wait on
 the app is active. An interrupted wait tries again after a pause that grows to five
 minutes, so a refused password or a repaired connection resumes waiting; a server
 without IDLE leaves the mailbox to polling. Waiting for IDLE does not block reading
-or organizing mail.
+or organizing mail. New, removed or changed messages read the Inbox again; the
+server closing the connection pauses before the next wait; other events, such as an
+alert or a changed flag list, keep the wait going until its bound. Stopping a wait
+closes its session at once.
 
 The unified Inbox lists each IMAP connection's Inbox folder. The Mailboxes sidebar
 lists the connection's selectable folders under it; choosing one shows that folder, and
@@ -460,11 +463,15 @@ what to do with the results. The folder listing runs in TypeScript over a short-
 native session: native code logs in for a verified connection at its current
 generation and returns an opaque handle. It answers one command at a time, the
 capabilities and the folders with their LIST attributes, and TypeScript closes the
-session when the listing ends, whether it succeeded or failed. Native code also
+session when the listing ends, whether it succeeded or failed. IDLE runs the same
+way: TypeScript checks the capability, then asks the session to wait on a folder
+for a bounded time. Native code sends IDLE, ends it with DONE after the first
+event or the bound, and reports the kinds of events the server sent; TypeScript
+decides which of them are a change. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
 connection's generation changes, as on removal, sign-out or a new password.
 Closing a session answers a command still in flight at once, and native code
-delivers no later result. A connection may hold four open sessions. Synchronization, search, organizing, IDLE and Sent filing still run as
+delivers no later result. A connection may hold four open sessions. Synchronization, search, organizing and Sent filing still run as
 single native operations until
 [#1178](https://github.com/unwired-dev/product/issues/1178)–[#1182](https://github.com/unwired-dev/product/issues/1182)
 move them to the same sessions.
@@ -472,7 +479,8 @@ move them to the same sessions.
 The connection of a closed session ends only when its active command answers or
 times out. Aborting it on the wire is
 [#1184](https://github.com/unwired-dev/product/issues/1184). The hosted
-close-answers-at-once case uses a controlled `ImapSession`.
+close-answers-at-once cases, including a session closed during IDLE, use a
+controlled `ImapSession`.
 
 ## Validate
 
@@ -547,7 +555,8 @@ UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also chec
 `\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,
 refusal without MOVE or UIDPLUS, a refused destination, a connection dropped after MOVE,
 a removed folder, cross-folder search, a history read that clamps an oversized UID range
-reply to its bounded window, and IDLE waking on a change and timing out. A
+reply to its bounded window, and IDLE over a session waking on a change, timing out, and ending when its
+session closes. A
 TLS SMTP fixture beside it, with the same certificate, checks real SwiftMail submission
 over implicit TLS and STARTTLS, leaving a server without STARTTLS before any password,
 a refused password, a temporary refusal, a refused recipient without partial delivery,

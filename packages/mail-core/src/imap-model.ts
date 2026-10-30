@@ -226,9 +226,38 @@ export const decodeModify = Schema.decodeUnknownEffect(
     }),
   ]),
 );
+// The kinds of event the server sent before an IDLE wait ended; none when it stayed quiet.
+const IdleEventSchema = Schema.Literals([
+  'exists',
+  'expunge',
+  'vanished',
+  'recent',
+  'flags',
+  'fetch',
+  'alert',
+  'capability',
+  'bye',
+]);
 export const decodeIdle = Schema.decodeUnknownEffect(
-  Schema.Struct({ changed: Schema.Boolean }),
+  Schema.Struct({ events: Schema.Array(IdleEventSchema) }),
 );
+// New, removed or changed messages are a change; BYE closes the connection; anything else, such as
+// an alert or a changed flag list, is neither, so the wait goes on.
+export const idleOutcome = (
+  events: ReadonlyArray<typeof IdleEventSchema.Type>,
+): 'changed' | 'closing' | 'neither' | 'quiet' => {
+  if (
+    events.some((event) =>
+      ['exists', 'expunge', 'vanished', 'fetch'].includes(event),
+    )
+  ) {
+    return 'changed';
+  }
+  if (events.includes('bye')) {
+    return 'closing';
+  }
+  return events.length === 0 ? 'quiet' : 'neither';
+};
 // How many Sent messages carry a MIME boundary.
 export const decodeCount = Schema.decodeUnknownEffect(
   Schema.Struct({
