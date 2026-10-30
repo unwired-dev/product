@@ -27,7 +27,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 20,
   },
-  search: { ...textStyles.body, flex: 1, minHeight: 40 },
+  // A taller field draws its text at its top, so the bar owns the height.
+  search: { ...textStyles.body, flex: 1 },
   scrollEdge: {
     position: 'absolute',
     left: 0,
@@ -57,6 +58,7 @@ const styles = StyleSheet.create({
   searchBar: {
     flex: 1,
     alignSelf: 'stretch',
+    minHeight: 40,
     flexWrap: 'nowrap',
     alignItems: 'center',
     gap: spacing.s,
