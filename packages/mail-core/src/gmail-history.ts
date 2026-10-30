@@ -225,7 +225,8 @@ export const foldDue = (history: MailboxHistory) =>
     (history.current.segments.length > 0 || history.current.complete === true));
 
 // Changed messages no segment held whose receipt falls within a segment's range, as mail restored
-// from Spam or Trash is; mail newer than the pass waits for the first segment.
+// from Spam or Trash is; mail newer than the pass waits for the first segment. A receipt equal to
+// the segment's oldest may belong to a later segment that has not been read yet, so it waits too.
 const restoredInto = (
   changes: ReadonlyMap<string, GmailMessage | undefined>,
   held: ReadonlySet<string>,
@@ -243,12 +244,12 @@ const restoredInto = (
       !held.has(message.id) &&
       oldest !== undefined &&
       newest !== undefined &&
-      message.receivedAt >= oldest &&
+      message.receivedAt > oldest &&
       message.receivedAt < newest,
   );
 
 // Writes the recorded changes into the next segments, keeping them newest first: a changed message
-// no earlier segment held joins the first one whose oldest receipt is not newer, as mail restored
+// no earlier segment held joins the first one whose oldest receipt is older, as mail restored
 // from Spam or Trash does. When the last segment is written, mail that arrived after the pass
 // began joins a new first segment and, once the pass is complete, older mail a new last one; a
 // later page lists the others.
@@ -281,7 +282,7 @@ export const foldStep = Effect.fnUntraced(function* <E>(
     const stored = yield* read(segment.name);
     newest ??= stored[0]?.receivedAt;
     const oldest = stored.at(-1)?.receivedAt;
-    // Equal receipts can place a changed message before the segment that already held it.
+    // Removes the duplicates an earlier fold placed before the segment that already held them.
     const messages = stored.filter(({ id }) => !found.has(id));
     const changed = messages.filter(({ id }) => changes.has(id));
     for (const { id } of changed) {

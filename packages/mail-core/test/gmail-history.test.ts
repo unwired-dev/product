@@ -97,6 +97,15 @@ const historyPages = (gmail: Gmail) =>
 // The mailbox document the device saved last.
 const saved = (gmail: Gmail) => gmail.commits.at(-1) ?? '';
 
+// How many messages a saved mailbox document's current history pass holds.
+const downloadedIn = (document: string) =>
+  [
+    ...(
+      /"current":\{"segments":\[(?<segments>[^\]]*)\]/u.exec(document)?.groups
+        ?.segments ?? ''
+    ).matchAll(/"count":(?<count>\d+)/gu),
+  ].reduce((sum, { groups }) => sum + Number(groups?.count), 0);
+
 // Every message ID the saved mailbox document names outside its history segments.
 const savedIds = (gmail: Gmail) =>
   [...saved(gmail).matchAll(/"id":"(?<id>[0-9a-f]+)"/gu)].map(
@@ -463,14 +472,19 @@ describe('gmail history backfill', () => {
     await backfilled(inbox);
     await scrolled(inbox, 'INBOX', everything.length);
     expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
-    // These originals lie beyond the fold's first 20 segments, so deduplication must resume too.
+    // These originals lie beyond the fold's first 20 segments, which share their receipt.
     for (const id of older.slice(-250)) {
       gmail.markRead(id);
     }
+    const folded = gmail.commits.length;
     await inbox.load();
     await vi.waitFor(() => {
       expect(saved(gmail)).toContain('"changes":[]');
     });
+    // No fold step, the unfinished first included, may hold a changed message twice.
+    expect(
+      new Set(gmail.commits.slice(folded).map(downloadedIn)),
+    ).toStrictEqual(new Set([everything.length]));
     expect(ready(inbox.getSnapshot()).history?.downloaded).toBe(
       everything.length,
     );
