@@ -97,6 +97,15 @@ const historyPages = (gmail: Gmail) =>
 // The mailbox document the device saved last.
 const saved = (gmail: Gmail) => gmail.commits.at(-1) ?? '';
 
+// How many messages a saved mailbox document's current history pass holds.
+const downloadedIn = (document: string) =>
+  [
+    ...(
+      /"current":\{"segments":\[(?<segments>[^\]]*)\]/u.exec(document)?.groups
+        ?.segments ?? ''
+    ).matchAll(/"count":(?<count>\d+)/gu),
+  ].reduce((sum, { groups }) => sum + Number(groups?.count), 0);
+
 // Every message ID the saved mailbox document names outside its history segments.
 const savedIds = (gmail: Gmail) =>
   [...saved(gmail).matchAll(/"id":"(?<id>[0-9a-f]+)"/gu)].map(
@@ -463,14 +472,19 @@ describe('gmail history backfill', () => {
     await backfilled(inbox);
     await scrolled(inbox, 'INBOX', everything.length);
     expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
-    // These originals lie beyond the fold's first 20 segments, so deduplication must resume too.
+    // These originals lie beyond the fold's first 20 segments, which share their receipt.
     for (const id of older.slice(-250)) {
       gmail.markRead(id);
     }
+    const folded = gmail.commits.length;
     await inbox.load();
     await vi.waitFor(() => {
       expect(saved(gmail)).toContain('"changes":[]');
     });
+    // No fold step, the unfinished first included, may hold a changed message twice.
+    expect(
+      new Set(gmail.commits.slice(folded).map(downloadedIn)),
+    ).toStrictEqual(new Set([everything.length]));
     expect(ready(inbox.getSnapshot()).history?.downloaded).toBe(
       everything.length,
     );
@@ -478,6 +492,51 @@ describe('gmail history backfill', () => {
     expect(ids(shown(inbox, 'INBOX'))).toStrictEqual(everything);
     // 2,300 messages are downloaded, folded and scrolled twice; shared CI runners need longer.
   }, 30_000);
+
+  it("keeps restored mail at an incomplete pass's equal-receipt boundary after folding and offline relaunch", async () => {
+    expect.hasAssertions();
+    const gmail = createGmail();
+    const older = Array.from({ length: 650 }, () =>
+      gmail.deliver({ at: 1_700_000_000_000 }),
+    );
+    const newer = Array.from({ length: 150 }, () =>
+      gmail.deliver({ at: 1_700_000_001_000 }),
+    );
+    const restored = older.slice(0, 200);
+    for (const id of restored) {
+      gmail.setLabel(id, 'TRASH', true);
+    }
+    gmail.failPage('300', { code: 'unavailable' });
+    const inbox = createInbox(gmail.native);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).history?.paused).toBe(true);
+    });
+    for (const id of restored) {
+      gmail.setLabel(id, 'TRASH', false);
+    }
+    gmail.failPage('300', { code: 'unavailable' });
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).history).toStrictEqual({
+        downloaded: 500,
+        total: 800,
+        complete: false,
+        paused: true,
+      });
+    });
+    inbox.forget();
+    const cache = await gmail.native.openMailbox();
+    const relaunched = createInbox({
+      ...gmail.native,
+      openMailbox: () => Promise.resolve({ ...cache, availability: 'retry' }),
+    });
+    await relaunched.load();
+    await scrolled(relaunched, 'INBOX', 500);
+    expect(new Set(ids(shown(relaunched, 'INBOX')))).toStrictEqual(
+      new Set([...newer, ...older.slice(0, 350)]),
+    );
+  });
 
   it('recovers from a failed history read when scrolling again', async () => {
     expect.hasAssertions();

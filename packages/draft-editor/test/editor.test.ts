@@ -414,6 +414,17 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('reports the first selected block kind after Select All', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      { kind: 'numbered', spans: [{ text: 'one' }] },
+      { kind: 'numbered', spans: [{ text: 'two' }] },
+    ]);
+    // Select All uses an AllSelection starting outside the first list item.
+    page.editor.commands.selectAll();
+    expect(page.posted.at(-1)?.kind).toBe('numbered');
+  });
+
   it.each([
     ['# ', 'heading1'],
     ['## ', 'heading2'],

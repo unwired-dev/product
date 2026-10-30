@@ -831,6 +831,44 @@ describe('searching IMAP mail at the server', () => {
     });
   });
 
+  it('searches each folder in one session, skips a folder the server no longer selects, and fails a query the server cannot search', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    imap.deliver('INBOX', {
+      subject: 'Invoice in Inbox',
+      received: Date.UTC(2020, 0, 2),
+    });
+    imap.deliver('Projects', {
+      subject: 'Project invoice',
+      received: Date.UTC(2020, 0, 3),
+    });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    imap.removeFolder('Archive');
+    const opened = vi.spyOn(imap.native, 'imapOpen');
+    const page = await inbox.searchGmail('invoice');
+    expect(page).toMatchObject({ kind: 'found', limited: true });
+    expect(foundMessages(page).map(({ subject }) => subject)).toStrictEqual([
+      'Project invoice',
+      'Invoice in Inbox',
+    ]);
+    expect(
+      imap.server.reads.filter((read) => read.startsWith('search ')),
+    ).toStrictEqual(['search INBOX', 'search Archive', 'search Projects']);
+
+    vi.spyOn(imap.native, 'imapSearch').mockRejectedValueOnce({
+      code: 'imap-unsupported',
+    });
+    await expect(inbox.searchGmail('invoice')).resolves.toStrictEqual({
+      kind: 'unavailable',
+      reason: 'failed',
+    });
+    // Each search opened one session and closed it, even after a failure.
+    expect([opened.mock.calls.length, imap.server.sessions.size]).toStrictEqual(
+      [2, 0],
+    );
+  });
+
   it('joins the unified online search beside other mailboxes and reports a limited IMAP search', async () => {
     expect.hasAssertions();
     const imap = organizedServer();

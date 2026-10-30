@@ -40,6 +40,9 @@ protocol ImapSession: Sendable {
   func envelopes(_ read: ImapEnvelopeRead) async throws -> [ImapEnvelope]
   // The flags of each named message still in the selected or examined folder.
   func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]]
+  // Examines the folder and searches its text; refuses a folder the server no longer selects, one
+  // without UIDVALIDITY, and a query in a charset the server cannot search.
+  func search(_ folder: String, query: String, newest: Int) async throws -> ImapMatches
   func close() async
 }
 
@@ -211,6 +214,28 @@ enum ImapStoredFlag: String, Sendable {
         mapped.destination.value > 0
       else { return nil }
       return ImapCopy(uidValidity: copied.destinationUIDValidity.value, uid: mapped.destination.value)
+    }
+
+    func search(_ folder: String, query: String, newest: Int) async throws -> ImapMatches {
+      try await run { server in
+        let selection: Mailbox.Selection
+        do {
+          selection = try await SwiftMailImap.examine(server, folder: folder)
+        } catch IMAPError.selectFailed {
+          throw ImapFailure.missing
+        }
+        let matches: UIDSet
+        do {
+          matches = try await server.extendedSearch(criteria: [.text(query)]).all ?? UIDSet()
+        } catch IMAPError.searchCharsetNotSupported {
+          throw ImapFailure.unsupported
+        }
+        // The newest, without expanding ranges an untrusted server may report billions wide.
+        let uids = matches.ranges.reversed().lazy.flatMap { $0.reversed() }.prefix(newest)
+          .map { UInt32($0) }
+        return ImapMatches(
+          uidValidity: selection.uidValidity.value, uids: Array(uids), total: matches.count)
+      }
     }
 
     func idle(folder: String, seconds: Int) async throws -> [String] {
@@ -428,6 +453,24 @@ extension RegistrationStore {
 
   private nonisolated static func receiptReply(_ receipt: ImapCopy?) -> [String: Any] {
     receipt.map { ["uidValidity": Double($0.uidValidity), "uid": Double($0.uid)] } ?? [:]
+  }
+
+  // The server's search of one folder for a short text: its newest matches, at most 200, and how
+  // many matched in all.
+  func imapSearch(
+    connection: String, address: String, generation: String, session: String, folder: String,
+    query: String, newest: Int
+  ) async throws -> [String: Any] {
+    guard Self.imapFolderName(folder), !query.isEmpty, query.count <= 200,
+      query.rangeOfCharacter(from: .controlCharacters) == nil, (1...200).contains(newest)
+    else { throw RegistrationError.unavailable }
+    let matches = try await imapCommand(
+      session, connection: connection, address: address, generation: generation
+    ) { try await $0.search(folder, query: query, newest: newest) }
+    return [
+      "uidValidity": Double(matches.uidValidity), "uids": matches.uids.map(Double.init),
+      "total": Double(matches.total),
+    ]
   }
 
   private nonisolated static func imapUids(_ uids: [UInt32]) -> Bool {

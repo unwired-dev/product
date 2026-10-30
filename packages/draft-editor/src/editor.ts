@@ -431,7 +431,8 @@ if (draftEditor !== undefined && element !== null) {
         end: displayOffset(lines, to),
       },
       marks: markOrder.filter((mark) => editor.isActive(tiptapMarks[mark])),
-      kind: kindAt(editor.state.selection.$from),
+      // The first selected textblock's; Select All's selection starts outside every textblock.
+      kind: [...kindsIn(editor)][0] ?? 'paragraph',
       undo: editor.can().undo(),
       redo: editor.can().redo(),
     };

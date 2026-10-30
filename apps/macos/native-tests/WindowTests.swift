@@ -551,6 +551,12 @@ final class WindowTests: XCTestCase {
     reopenDraft(app)
     webText("Evaluation paragraph", in: window).doubleClick()
     waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered list"].isSelected }
+    // #1568: Select All starts outside the list item, and the bar still shows the list selected.
+    window.typeKey("a", modifierFlags: .command)
+    for _ in 0..<3 {
+      RunLoop.current.run(until: Date().addingTimeInterval(1))
+      XCTAssertTrue(window.buttons["Numbered list"].isSelected)
+    }
     // The text's centre falls on the space between its words, which selects no text.
     let firstWord = {
       window.webViews.staticTexts.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))

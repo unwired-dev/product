@@ -863,7 +863,7 @@ extension UnwiredRegistration {
     }
   }
 
-  // Long server work, an IDLE wait, a search across folders or a history page, that must not stall
+  // Long server work, an IDLE wait, a folder search or a history page, that must not stall
   // other mailbox work behind the registration gate. Only the store is obtained under the gate; the
   // IMAP work checks the connection and its generation synchronously before and after its network
   // wait.
@@ -1541,7 +1541,8 @@ extension UnwiredRegistration {
     return text
   }
 
-  // `request` names the `query` and the `folders` to search, in order.
+  // `request` names the open `session`, the `folder` to search, the `query` and how many of the
+  // `newest` matches to return.
   @objc(imapSearch:request:resolver:rejecter:)
   func imapSearch(
     _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
@@ -1549,11 +1550,12 @@ extension UnwiredRegistration {
   ) {
     ungatedMailbox("imapSearch", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
-      guard let query = request["query"] as? String, let folders = request["folders"] as? [String]
+      guard let folder = request["folder"] as? String, let query = request["query"] as? String,
+        let newest = (request["newest"] as? Double).flatMap({ Int(exactly: $0) })
       else { throw RegistrationError.unavailable }
       return try await $0.imapSearch(
-        connection: connection, address: address, generation: generation, query: query,
-        folders: folders)
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), folder: folder, query: query, newest: newest)
     }
   }
 
