@@ -39,8 +39,8 @@ xcrun swiftc -swift-version 6 -parse-as-library -target arm64-apple-macos27.0 \
 codesign --force --sign "$UNWIRED_SIGNING_IDENTITY" --entitlements "$probe/entitlements.plist" "$app"
 # Every mailbox, segment and body call crosses into the signed process, so journeys take longer.
 UNWIRED_HISTORY_STORE_EXECUTABLE="$app/Contents/MacOS/HistoryStore" \
-  pnpm --dir "$root" --filter @private-email/mail-core exec vitest run test/gmail-history.test.ts test/imap-history.test.ts \
-  --testTimeout=15000 \
+  pnpm --dir "$root" --filter @private-email/mail-core exec vitest run test/gmail-history.test.ts test/microsoft-history.test.ts \
+  test/imap-history.test.ts --testTimeout=15000 \
   > "$probe/journeys.log" 2>&1 || { cat "$probe/journeys.log"; exit 1; }
 cat "$probe/journeys.log"
-print "Gmail and IMAP history with native storage evidence: $probe"
+print "Gmail, Microsoft and IMAP history with native storage evidence: $probe"

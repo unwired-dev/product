@@ -345,9 +345,11 @@ under it and never moves. On iPad, when a docked keyboard raises the window's ba
 during search, the capsule rises with it and stays 12pt above it.
 
 - **Progress.** An activity indicator and **Updating 2 accounts** count the shown
-  mailboxes still checking their server or downloading All Mail's history. While
-  a history pass knows Gmail's total, the message adds the combined percentage and
-  a progress bar shows it. Automatic synchronization appears only after a second;
+  mailboxes still checking their server or downloading their history: All Mail's
+  for Gmail, or the
+  [folders Microsoft's backfill covers](microsoft-mail.md#historical-metadata-backfill).
+  While a history pass knows its provider's total, the message adds the combined
+  percentage and a progress bar shows it. Automatic synchronization appears only after a second;
   a pull-down refresh, or **View › Refresh** (⌘R) on Mac, shows it at once.
 - **Attention.** A failure replaces the progress with a warning,
   **1 account needs attention** and **Try Again**, which synchronizes only the

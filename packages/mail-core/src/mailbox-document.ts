@@ -6,8 +6,16 @@ import * as Struct from 'effect/Struct';
 import type { GmailMessage } from './mailbox-message.ts';
 
 import { GmailActionSchema, GmailLabelSchema } from './gmail-actions.ts';
-import { GmailMessageSchema, SynchronizationTime } from './mailbox-message.ts';
-import { GraphDeltaLink } from './microsoft-graph.ts';
+import {
+  GmailMessageSchema,
+  GraphId,
+  SynchronizationTime,
+} from './mailbox-message.ts';
+import {
+  GraphDeltaLink,
+  GraphFoldersLink,
+  GraphInboxLink,
+} from './microsoft-graph.ts';
 
 export type { GmailMessage } from './mailbox-message.ts';
 
@@ -53,7 +61,7 @@ const HistoryPassSchema = Schema.Struct({
 export type HistoryPass = typeof HistoryPassSchema.Type;
 
 const MailboxHistorySchema = Schema.Struct({
-  // Gmail's message count when the pass began, for progress.
+  // The provider's message count when the pass began, for progress.
   total: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   current: HistoryPassSchema,
   // The last pass, still shown while a pass after an expired history ID lists everything again.
@@ -62,11 +70,11 @@ const MailboxHistorySchema = Schema.Struct({
   reconcilingThrough: Schema.optionalKey(
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   ),
-  // Messages Gmail changed since their segment was written, newest last; an absent message left
-  // All Mail. Reads apply them over the segments until a fold writes them in.
+  // Messages the provider changed since their segment was written, newest last; an absent message
+  // left All Mail, or a Microsoft folder. Reads apply them over the segments until a fold writes them in.
   changes: Schema.Array(
     Schema.Struct({
-      id: GmailId,
+      id: GraphId,
       message: Schema.optionalKey(GmailMessageSchema),
     }),
   ),
@@ -76,16 +84,58 @@ const MailboxHistorySchema = Schema.Struct({
     Schema.Struct({
       segment: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
       through: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-      found: Schema.Array(GmailId),
+      found: Schema.Array(GraphId),
       newest: Schema.optionalKey(Schema.String),
     }),
   ),
   // Messages outside every cached view whose bodies this device keeps until they leave All Mail.
-  bodies: Schema.optionalKey(Schema.Array(GmailId)),
+  bodies: Schema.optionalKey(Schema.Array(GraphId)),
   // Kept bodies a pass after an expired history ID has not listed yet; it drops those it never lists.
-  reconciling: Schema.optionalKey(Schema.Array(GmailId)),
+  reconciling: Schema.optionalKey(Schema.Array(GraphId)),
 });
 export type MailboxHistory = typeof MailboxHistorySchema.Type;
+
+// One Microsoft folder's Historical Metadata Backfill. A delta round from the folder's first page
+// runs before its pass, so the link that round ends with names every change the pass may miss. The
+// pass lists the folder newest first, each page below `pageToken`, the oldest receipt listed so
+// far, skipping the `edge` messages already listed at that receipt. While more messages share
+// that receipt than one step lists, `scan` continues the listing where the last step stopped.
+const GraphFolderHistorySchema = Schema.Struct({
+  // A well-known folder's role label, such as INBOX, or a folder ID.
+  folder: GraphId,
+  // The delta round's next page while it runs.
+  round: Schema.optionalKey(GraphDeltaLink),
+  // Graph's link for the folder's later changes, once the round ended.
+  link: Schema.optionalKey(GraphDeltaLink),
+  edge: Schema.optionalKey(Schema.Array(GraphId)),
+  scan: Schema.optionalKey(GraphInboxLink),
+  // After a page read through a continuation, which a change to a message listed before it may have
+  // shifted: the receipt the pass listed from, and the messages it had listed there since. The
+  // folder's next round checks them before the pass lists further.
+  check: Schema.optionalKey(
+    Schema.Struct({ until: Schema.String, edge: Schema.Array(GraphId) }),
+  ),
+  history: MailboxHistorySchema,
+});
+export type GraphFolderHistory = typeof GraphFolderHistorySchema.Type;
+// The folders of a mailbox with more than Move to lists, walked once per backfill run a folder
+// list page at a time: `found` names those the last complete walk found, and `walk` the lists the
+// current walk has still to read and the folders it found so far.
+const GraphInventorySchema = Schema.Struct({
+  found: Schema.optionalKey(Schema.Array(GraphId)),
+  walk: Schema.optionalKey(
+    Schema.Struct({
+      pending: Schema.Array(GraphFoldersLink),
+      seen: Schema.Array(GraphId),
+    }),
+  ),
+});
+export type GraphInventory = typeof GraphInventorySchema.Type;
+const GraphHistorySchema = Schema.Struct({
+  folders: Schema.Array(GraphFolderHistorySchema),
+  inventory: Schema.optionalKey(GraphInventorySchema),
+});
+export type GraphHistory = typeof GraphHistorySchema.Type;
 
 // A history segment's messages, in listing order.
 const SegmentSchema = Schema.fromJsonString(Schema.Array(GmailMessageSchema));
@@ -145,6 +195,9 @@ const MailboxDocumentSchema = Schema.Struct({
   ),
   // Gmail's Historical Metadata Backfill, absent until the Inbox is current.
   history: Schema.optionalKey(MailboxHistorySchema),
+  // A Microsoft mailbox's, one entry per folder, absent until the Inbox is current. Its segments
+  // are not shown in views yet.
+  graphHistory: Schema.optionalKey(GraphHistorySchema),
   // When this device began the last synchronization that completed, as an ISO instant; absent
   // until one completes.
   synchronizedAt: Schema.optionalKey(SynchronizationTime),
@@ -177,6 +230,9 @@ export const sameHistory = (
   a: MailboxHistory | undefined,
   b: MailboxHistory | undefined,
 ) => historyEquivalence(withoutBodies(a), withoutBodies(b));
+export const sameGraphHistory = Schema.toEquivalence(
+  Schema.UndefinedOr(GraphHistorySchema),
+);
 // Graph folders advance independently of the Inbox, including opening or retiring a saved view.
 export const sameGraphViews = Schema.toEquivalence(
   Schema.Array(

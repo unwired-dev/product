@@ -46,6 +46,10 @@ export const graphPlacement = (id: string) =>
 export const graphWellKnownFolder = (name: WellKnownFolder) =>
   `${graphRoot}/me/mailFolders/${name}?$select=id`;
 
+// How many messages a folder holds, for history progress.
+export const graphFolderTotal = (view: string) =>
+  `${graphRoot}/me/mailFolders/${graphFolder(view)}?$select=totalItemCount`;
+
 // The mailbox's top-level folders and each folder's own, which Move to offers apart from the
 // well-known ones; a page names whether a folder has folders of its own.
 const folderFields = '$select=id,displayName,childFolderCount&$top=100';
@@ -81,9 +85,16 @@ export const GraphDeltaLink = Schema.String.check(
   ),
 );
 
-const GraphInboxLink = Schema.String.check(
+// A continuation of a folder's listing, as Graph returns it.
+export const GraphInboxLink = Schema.String.check(
   Schema.isPattern(
     /^https:\/\/graph\.microsoft\.com\/v1\.0\/me\/mail[Ff]olders(?:\/[\w=-]+|\('[\w=-]+'\))\/messages\?[^#\s]+$/u,
+  ),
+);
+// A folder list, the mailbox's or a folder's own, or its continuation.
+export const GraphFoldersLink = Schema.String.check(
+  Schema.isPattern(
+    /^https:\/\/graph\.microsoft\.com\/v1\.0\/me\/mail[Ff]olders(?:(?:\/[\w=-]+|\('[\w=-]+'\))\/childFolders)?\?[^#\s]+$/u,
   ),
 );
 const GraphSearchLink = Schema.String.check(
@@ -260,6 +271,11 @@ const GraphPlacementSchema = Schema.Struct({
 // A message after a change, or as organizing reads it back.
 export const decodeGraphPlacement = json(GraphPlacementSchema);
 export const decodeGraphFolder = json(Schema.Struct({ id: GraphId }));
+export const decodeGraphTotal = json(
+  Schema.Struct({
+    totalItemCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+);
 export const decodeGraphFolders = json(
   Schema.Struct({
     value: Schema.Array(

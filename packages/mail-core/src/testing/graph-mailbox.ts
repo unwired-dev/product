@@ -98,6 +98,7 @@ export function createSyntheticGraph({
   address = 'casey@example.invalid',
   messages: count = 0,
   pageSize = 2,
+  folderPageSize = Number.POSITIVE_INFINITY,
   inboxName = 'Inbox',
   assets,
 }: {
@@ -105,6 +106,8 @@ export function createSyntheticGraph({
   readonly messages?: number;
   // Items per list and delta page, as Graph's odata.maxpagesize preference allows.
   readonly pageSize?: number;
+  // Folders per folder list page, every folder in one unless given.
+  readonly folderPageSize?: number;
   // The provider's localized display name, independent of the app's language.
   readonly inboxName?: string;
   // A Draft Asset's verified bytes as native code reads them; undefined when they no longer verify.
@@ -400,8 +403,17 @@ export function createSyntheticGraph({
         .map(([id, folder]) => ({ id, displayName: folder.name })),
     ].map((folder) => ({ ...folder, childFolderCount: own(folder.id) }));
   };
-  // A well-known folder's ID, a folder's own folders, or every top-level folder; a removed folder
-  // is gone from each.
+  // A well-known folder's name or a folder's ID as a path names it, or undefined when it is gone.
+  const pathFolder = (segment: string) => {
+    const name = decodeURIComponent(segment);
+    const known = name.toLowerCase();
+    if (known in wellKnown) {
+      return missingFolders.has(known) ? undefined : known;
+    }
+    return folders.has(name) ? name : undefined;
+  };
+  // A folder's ID and message count, a folder's own folders, or every top-level folder; a removed
+  // folder is gone from each.
   const folderRead = (url: URL) => {
     const path =
       /^\/v1\.0\/me\/mail[Ff]olders(?:\/(?<name>[^/]+)(?<nested>\/childFolders)?)?$/u.exec(
@@ -412,20 +424,24 @@ export function createSyntheticGraph({
     }
     const { name, nested } = path.groups ?? {};
     if (name === undefined || nested !== undefined) {
-      return respond({ value: children(name) });
+      const listing = children(name);
+      const offset = Number(url.searchParams.get('$skip') ?? 0);
+      const next = new URL(url);
+      next.searchParams.set('$skip', String(offset + folderPageSize));
+      return respond({
+        value: listing.slice(offset, offset + folderPageSize),
+        ...(offset + folderPageSize < listing.length
+          ? { '@odata.nextLink': next.toString() }
+          : {}),
+      });
     }
-    return name in wellKnown && !missingFolders.has(name)
-      ? respond({ id: folderId(name) })
-      : notFound();
-  };
-  // A well-known folder's name or a folder's ID as a path names it, or undefined when it is gone.
-  const pathFolder = (segment: string) => {
-    const name = decodeURIComponent(segment);
-    const known = name.toLowerCase();
-    if (known in wellKnown) {
-      return missingFolders.has(known) ? undefined : known;
-    }
-    return folders.has(name) ? name : undefined;
+    const folder = pathFolder(name);
+    return folder === undefined
+      ? notFound()
+      : respond({
+          id: folderId(folder),
+          totalItemCount: newest(folder).length,
+        });
   };
   // A folder's newest messages, its delta, or one of its messages, as a delta change is read; a
   // message that left the folder, and a folder that is gone, are not found.

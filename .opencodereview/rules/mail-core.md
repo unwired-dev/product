@@ -714,6 +714,24 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `graph-inbox.ts.history` fetching a discovered folder's total before saving
+  that folder as pending. Refuse its first total request after other folders
+  completed, then relaunch and retry. The saved progress must remain incomplete
+  and paused with no total until every folder's count is known; otherwise the
+  missing folder is hidden behind a completed history status.
+- `graph-inbox.ts.folderWork` folding arrivals into an unfinished history pass
+  without including their identities in its listing edge and pending continuation
+  check. Exercise arrivals at the boundary receipt that reach the fold threshold
+  before a retry and while a check awaits later delta pages. Keep exact persisted
+  IDs and downloaded counts unique after the pass resumes or rewinds; otherwise
+  listing downloads mail that folding already saved and inflates progress.
+- `graph-history.ts.graphProgress` treating a listed final page as complete while
+  its continuation check still waits for reconciliation. Refuse that final delta
+  read after the other folders complete, then retry it. Keep progress incomplete
+  and paused until it succeeds, or a possibly skipped message is hidden behind
+  a completed history status. Also pause a later inventory walk after a previous
+  one completed; the old inventory must not make the pending walk complete or
+  supply a total before every folder is known again.
 - `gmail-history.ts.foldStep` prepending every changed message absent from the
   stored segments after a completed pass. Mail restored from Spam or Trash keeps
   its original receipt date. Place it among the downloaded segments in receipt

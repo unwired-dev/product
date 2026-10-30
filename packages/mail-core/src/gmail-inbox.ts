@@ -77,6 +77,7 @@ import {
   segmentNames,
   storedBodies,
 } from './gmail-history.ts';
+import { graphProgress, graphSegmentNames } from './graph-history.ts';
 import { createGraphReader } from './graph-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { decodedSize, inlineImageLimits } from './inline-images.ts';
@@ -94,6 +95,7 @@ import {
   newestFirst,
   sameCheckpoint,
   sameHistory,
+  sameGraphHistory,
   sameGraphViews,
   sameMailbox,
 } from './mailbox-document.ts';
@@ -2069,6 +2071,25 @@ export function createGmailInbox(
         ? [label]
         : [],
     );
+  // Backfill progress across Gmail's All Mail or a Microsoft mailbox's folders; a failed step
+  // pauses an unfinished backfill until the next synchronization.
+  const shownHistory = (document: MailboxDocument | undefined) => {
+    const downloaded =
+      document?.graphHistory === undefined
+        ? document?.history && progress(document.history)
+        : graphProgress(document);
+    return downloaded === undefined
+      ? {}
+      : {
+          history: {
+            ...downloaded,
+            ...(speculativeFailure && !downloaded.complete
+              ? { paused: true as const }
+              : {}),
+          },
+        };
+  };
+
   // fallow-ignore-next-line complexity -- Each optional part of the shown document maps to one field of the ready state.
   function render(): Extract<GmailInboxState, { kind: 'ready' }> {
     const document = shown?.document;
@@ -2089,17 +2110,7 @@ export function createGmailInbox(
       messages,
       ...(found.size === 0 ? {} : { found: [...found.values()] }),
       ...renderedViews(document, changes),
-      ...(document?.history === undefined
-        ? {}
-        : {
-            history: {
-              ...progress(document.history),
-              ...(speculativeFailure &&
-              document.history.current.complete !== true
-                ? { paused: true as const }
-                : {}),
-            },
-          }),
+      ...shownHistory(document),
       ...(document?.synchronizedAt === undefined
         ? {}
         : { synchronizedAt: document.synchronizedAt }),
@@ -3484,7 +3495,8 @@ export function createGmailInbox(
       !sameCheckpoint(base.checkpoint, saved.checkpoint) ||
       !sameHistory(base.history, saved.history) ||
       (graph !== undefined &&
-        !sameGraphViews(base.views ?? [], saved.views ?? []))
+        (!sameGraphViews(base.views ?? [], saved.views ?? []) ||
+          !sameGraphHistory(base.graphHistory, saved.graphHistory)))
     ) {
       return yield* new SyncFailure({
         kind: 'conflict',
@@ -3534,10 +3546,26 @@ export function createGmailInbox(
     }
   }, publication.withPermit);
 
-  // One backfill step for the open Inbox, after its synchronization reached Gmail's current
-  // history: folds recorded changes, or lists the next page. False once nothing is left.
+  const encodedSegments = Effect.fnUntraced(function* (
+    written: ReadonlyArray<readonly [string, readonly GmailMessage[]]>,
+  ) {
+    const segments: Record<string, string> = {};
+    for (const [name, messages] of written) {
+      segments[name] = yield* encodeSegment(messages).pipe(
+        Effect.mapError((error) => malformed(error, 'failed')),
+      );
+    }
+    return segments;
+  });
+
+  // One backfill step for the open Inbox, after its synchronization reached the provider's
+  // current changes: folds recorded changes, reconciles a Microsoft folder, or lists the next
+  // page. False once nothing is left; `reconciled` names the Microsoft folders this run reconciled.
   // fallow-ignore-next-line complexity -- Each guard keeps a step to the open, current mailbox it was scheduled for.
-  const backfillStep = Effect.fnUntraced(function* (reading: number) {
+  const backfillStep = Effect.fnUntraced(function* (
+    reading: number,
+    reconciled: Set<string>,
+  ) {
     const scope = opened;
     if (scope === undefined || speculationPaused(reading)) {
       return false;
@@ -3545,11 +3573,36 @@ export function createGmailInbox(
     const cache = yield* storage(native.openMailbox);
     const document = Option.getOrUndefined(yield* documentOf(cache));
     if (
-      document?.checkpoint?.kind !== 'current' ||
+      document === undefined ||
+      document.checkpoint.kind !==
+        (graph === undefined ? 'current' : 'graph-current') ||
       cache.availability !== undefined ||
       !sameMailbox(cache, scope)
     ) {
       return false;
+    }
+    if (graph !== undefined) {
+      const step = yield* graph.history(scope, document, {
+        done: reconciled,
+        read: storedSegment(scope),
+        newName: segmentName,
+      });
+      if (Option.isNone(step)) {
+        return false;
+      }
+      const { history, written } = step.value;
+      yield* commitOver(
+        cache,
+        document,
+        { ...document, graphHistory: history },
+        {
+          history: {
+            segments: yield* encodedSegments(written),
+            keep: graphSegmentNames(history),
+          },
+        },
+      );
+      return true;
     }
     let { history } = document;
     if (history === undefined) {
@@ -3571,17 +3624,16 @@ export function createGmailInbox(
     const step = folding
       ? yield* foldStep(history, storedSegment(scope), segmentName)
       : yield* listHistory(scope, history);
-    const segments: Record<string, string> = {};
-    for (const [name, messages] of step.written) {
-      segments[name] = yield* encodeSegment(messages).pipe(
-        Effect.mapError((error) => malformed(error, 'failed')),
-      );
-    }
     yield* commitOver(
       cache,
       document,
       { ...document, history: step.history },
-      { history: { segments, keep: segmentNames(step.history) } },
+      {
+        history: {
+          segments: yield* encodedSegments(step.written),
+          keep: segmentNames(step.history),
+        },
+      },
     );
     return true;
   });
@@ -3597,6 +3649,7 @@ export function createGmailInbox(
     }
     backfilling = true;
     const reading = owner;
+    const reconciled = new Set<string>();
     void runLogged(
       Effect.gen(function* () {
         for (;;) {
@@ -3607,7 +3660,7 @@ export function createGmailInbox(
                 // A read may have begun while either permit was queued. Release both before waiting.
                 Effect.suspend(() =>
                   shared.idle.isOpen()
-                    ? backfillStep(reading)
+                    ? backfillStep(reading, reconciled)
                     : Effect.succeed(true),
                 ),
               ),
