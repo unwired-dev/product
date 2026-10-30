@@ -59,6 +59,7 @@ while [ "$remaining" -gt 0 ]; do
         option=${options%"${options#?}"}
         options=${options#?}
         case "$option" in
+          z) reject 'NUL-delimited output cannot preserve the reviewer-only names inventory.' ;;
           S|G|O|I|l|n)
             [ -n "$options" ] || value=$argument
             break ;;
@@ -92,9 +93,17 @@ names=$(
       shift "$remaining"
       break
     fi
+    case "$argument" in
+      (--log-size|--graph|--no-graph|--show-linear-break|--show-linear-break=*) continue ;;
+      (-*) ;;
+      (*)
+        # show prints annotated tags outside --format, so peel them for this pass only.
+        type=$(git cat-file -t "$argument" 2>/dev/null) || type=
+        [ "$type" != tag ] || argument="$argument^{}" ;;
+    esac
     set -- "$@" "$argument"
   done
-  set -- "$@" --no-ext-diff --no-textconv --no-relative --no-exit-code --format= --patch --name-only --
+  set -- "$@" --no-ext-diff --no-textconv --no-relative --no-exit-code --no-show-signature --no-notes --color=never --line-prefix= --format= --patch --name-only --
   for path in $paths; do
     set -- "$@" ":(top)$path"
   done

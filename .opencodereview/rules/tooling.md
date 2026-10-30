@@ -40,7 +40,11 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   their separate and attached forms without skipping the following revision.
   Git's earlier log-option pass must not reinterpret an operand such as
   `--source` and leave a skipped blob as a revision. Optional values must not
-  hide a positional tree/blob selector.
+  hide a positional tree/blob selector. Verify the names pass independently of
+  the readable-content pass: annotated tags and presentation options such as
+  `--log-size`, graph/prefix formatting and NUL delimiters must not add metadata
+  or corrupt the reviewer-only path inventory. `--format=` alone does not
+  suppress every kind of `git show` output.
 
 - Both hosts' `scripts/verify-native.ts` accepting a pinned revision found under
   another package in `Package.resolved`. Decode the pins and require the URL and

@@ -488,3 +488,59 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
     assert.equal(result.stdout, '');
   }
 });
+
+test('implementer-show keeps tag and presentation output outside its names inventory', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.invalid',
+      '-c',
+      'tag.gpgsign=false',
+      'tag',
+      '-am',
+      'tag description',
+      'reviewed',
+    ],
+    { cwd },
+  );
+  const annotated = spawnSync(show, ['reviewed'], { cwd, encoding: 'utf8' });
+  assert.equal(annotated.stdout.split('tag description').length - 1, 1);
+  const heading = 'Reviewer-only paths (names only; do not open):\n';
+  for (const file of reviewerOnly) {
+    writeFileSync(path.join(cwd, file), 'changed\n');
+  }
+  execFileSync('git', ['add', '.'], { cwd });
+  for (const args of [
+    ['reviewed'],
+    ['reviewed^{tag}'],
+    ['--line-prefix=prefix:', 'HEAD'],
+    ['--log-size', 'HEAD'],
+    ['--graph', '--do-walk', 'HEAD'],
+    ['--diff', '--line-prefix=prefix:', '--cached'],
+  ]) {
+    const result = spawnSync(show, args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const [, names] = result.stdout.split(heading);
+    assert.ok(names, result.stdout);
+    assert.deepEqual(
+      names.trim().split('\n').toSorted(),
+      [...reviewerOnly].toSorted(),
+      args.join(' '),
+    );
+  }
+  for (const args of [
+    ['-z', 'HEAD'],
+    ['-pz', 'HEAD'],
+    ['-wzG', 'needle', 'HEAD'],
+  ]) {
+    const result = spawnSync(show, args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 2, result.stdout);
+    assert.match(result.stderr, /NUL-delimited/u);
+    assert.equal(result.stdout, '');
+  }
+});

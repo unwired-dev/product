@@ -111,7 +111,9 @@ Use explicit commit revisions with `implementer-show`; indirect object inputs
 such as `--default`, `--stdin`, `--all`, `--tags` and `--indexed-objects` are rejected because
 they can select trees or blobs outside the path exclusions.
 Required option operands, such as `-G 'old:public'`, are forwarded as attached
-values. Use `--` before pathspecs; `--end-of-options` is unsupported.
+values. Use `--` before pathspecs; `--end-of-options` and NUL-delimited output
+(`-z`, including short-option clusters) are unsupported. The reviewer-only names
+inventory omits tag annotations and presentation formatting.
 Operational guides, coding conventions, vocabulary and product requirements are
 separate files that the implementer can read in full. Keep architecture and design rationale in
 `docs/architecture/` or ADRs rather than embedding them in implementer-facing
