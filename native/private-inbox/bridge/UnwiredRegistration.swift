@@ -863,9 +863,10 @@ extension UnwiredRegistration {
     }
   }
 
-  // Long server work, an IDLE wait or a search across folders, that must not stall other mailbox
-  // work behind the registration gate. Only the store is obtained under the gate; the IMAP work
-  // checks the connection and its generation synchronously before and after its network wait.
+  // Long server work, an IDLE wait, a search across folders or a history page, that must not stall
+  // other mailbox work behind the registration gate. Only the store is obtained under the gate; the
+  // IMAP work checks the connection and its generation synchronously before and after its network
+  // wait.
   private func ungatedMailbox(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
@@ -1363,7 +1364,7 @@ extension UnwiredRegistration {
     _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    mailbox("imapHistory", resolve, reject: reject) {
+    ungatedMailbox("imapHistory", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
       guard let folder = request["folder"] as? String,
         let above = (request["above"] as? Double).flatMap({ UInt32(exactly: $0) }),
