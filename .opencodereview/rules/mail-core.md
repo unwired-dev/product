@@ -191,6 +191,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   eligibility only after the listing commits. Exercise renumbering a completed
   folder and retiring then recreating its name without relaunch; otherwise old
   history survives a known identity change or a new folder never backfills.
+  Distinguish a newly observed cached identity from the same stale cached
+  identity left after history rebuilds. Exercise a cached non-Inbox folder
+  renumbered before relaunch, with a later folder waiting to backfill; otherwise
+  the persistent cache/history mismatch overrides settlement forever and
+  repeated reads starve the later folder. Compare UIDNEXT only within a shared
+  UIDVALIDITY.
 - `imap-history.ts.nextHistoryFolder` allowing cached UIDNEXT or UIDVALIDITY
   observations to reselect a folder whose history read was refused as missing
   or changed. Keep refusal exclusions distinct from folders merely read up to
