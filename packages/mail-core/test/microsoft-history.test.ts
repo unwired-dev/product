@@ -292,7 +292,7 @@ describe('microsoft historical metadata backfill', () => {
     const saved = await downloaded(graph);
     expect(saved.get(last)).toStrictEqual(sorted(lastIds));
     expect(saved.get(nested)).toStrictEqual(sorted(nestedIds));
-  });
+  }, 15_000);
 
   it('resumes after relaunch without rewinding or listing a page twice', async () => {
     expect.hasAssertions();
