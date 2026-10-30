@@ -829,6 +829,30 @@ describe('a Semantic Message Document from Draft HTML', () => {
     ).toStrictEqual({ unsupported: ['font-size'] });
   });
 
+  it('refuses quoted CSS values that browsers close at the end of the style attribute', () => {
+    expect.hasAssertions();
+    for (const style of ['font-family:"Arial', "font-family:'Arial"]) {
+      expect(
+        documentFromHtml(`<p style="${style.replaceAll('"', '&quot;')}">x</p>`),
+      ).toStrictEqual({ unsupported: ['font-family'] });
+    }
+  });
+
+  it('refuses hidden content when an unvetted display value can make it visible', () => {
+    expect.hasAssertions();
+    for (const style of [
+      'display:var(--missing, block)',
+      'display:var(--missing, block)!important',
+    ]) {
+      expect(
+        documentFromHtml(`<p hidden style="${style}">x</p>`),
+      ).toStrictEqual({ unsupported: ['hidden', 'display'] });
+    }
+    expect(
+      documentFromHtml('<p hidden style="font-family:&quot;Arial">x</p>'),
+    ).toStrictEqual({ document: [{ kind: 'paragraph', spans: [] }] });
+  });
+
   it('refuses link underline colors that flattening would replace with the outgoing default', () => {
     expect.hasAssertions();
     const link = 'https://example.invalid';

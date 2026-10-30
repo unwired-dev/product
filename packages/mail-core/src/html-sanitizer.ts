@@ -1011,8 +1011,11 @@ const readDeclaration = (
 ) => {
   const declaration = trimNodes(nodes);
   const parts = nameAndValue(declaration);
-  if (parts === undefined || broken(declaration, unterminated)) {
+  if (parts === undefined) {
     return undefined;
+  }
+  if (broken(declaration, unterminated)) {
+    return { rejected: parts.name };
   }
   const { value, important } = withoutImportance(parts.value);
   const decoded = decodedValue(parts.name, value);

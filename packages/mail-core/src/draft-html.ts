@@ -735,12 +735,13 @@ const hiddenElement = (element: DefaultTreeAdapterTypes.Element) => {
     return false;
   }
   const style = element.attrs.find(({ name }) => name === 'style')?.value ?? '';
-  const { declared, limited } = parseDeclarations(style);
+  const { declared, limited, rejected } = parseDeclarations(style);
   return (
     !/^until-found$/iu.test(hidden.value) &&
     !style.includes('\\') &&
     !limited &&
-    !declared.has('display')
+    !declared.has('display') &&
+    !rejected.has('display')
   );
 };
 

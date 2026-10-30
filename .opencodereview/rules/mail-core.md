@@ -257,6 +257,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `draft-html.ts.styled` or `hiddenElement` trusting only the declarations a
+  shared reader parser retains. Audit every parser omission, including values
+  it cannot vet and strings browsers close at the attribute's end. Preserve a
+  property's rejection for Draft refusal, and consider unvetted display overrides
+  before skipping hidden elements; otherwise conversion silently loses visible
+  formatting or body text while returning an editable document. Reader sanitization
+  may still discard those values under its separate contract.
 - `draft-html.ts.styled` treating CSS controls as ordinary font names, retaining
   an element's replaced decoration/background, or discarding importance across
   shorthand and longhand properties. Audit inherited and intrinsic tag defaults,

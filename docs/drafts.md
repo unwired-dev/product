@@ -235,7 +235,7 @@ color rather than the color around it and stays underlined, inline code and code
 blocks take their monospace font unless they set their own, and a heading
 takes its own size rather than one relative to the size around it. A link that
 removes its underline and a heading inside text with a size but without a size
-of its own are reported. Explicitly inherited link colors are reported, as are inline-code fonts
+of its own are reported. Explicitly inherited link colors are reported, as are inline-code and code-block fonts
 when their surrounding default cannot be preserved. Fonts set on
 code text override the code element's monospace default when sent. A text-color
 change inside an ancestor underline or strike is reported when outgoing marks
@@ -253,7 +253,10 @@ separating document block, a multiline list item, right-to-left text or a CSS-wi
 other than `inherit` (`initial`, `unset`, `revert`), makes it report the
 element, attribute or CSS property instead of a document, so the Draft is never
 silently changed. Escaped CSS and declarations beyond the CSS parser's nesting
-budget report the `style` attribute. Outgoing HTML reads back to the same
+budget report the `style` attribute. Other declarations the style parser cannot
+vet, including quoted values left open at the end of the attribute, report their
+property unless it is ignored above. An unvetted display override on hidden
+content is reported rather than discarding potentially visible text. Outgoing HTML reads back to the same
 document, apart from the spaces HTML collapses, a trailing empty code line and
 code alignment, which is not sent.
 
