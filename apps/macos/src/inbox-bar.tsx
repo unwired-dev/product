@@ -27,8 +27,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 20,
   },
-  // A taller field draws its text at its top, so the bar owns the height.
-  search: { ...textStyles.body, flex: 1 },
+  // Native padding centres text without shrinking the field's click target.
+  search: { ...textStyles.body, flex: 1, paddingVertical: spacing.m },
   scrollEdge: {
     position: 'absolute',
     left: 0,
