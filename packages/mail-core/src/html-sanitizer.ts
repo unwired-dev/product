@@ -483,7 +483,7 @@ const defaultFontSizes = new Map([
   ['sup', 'smaller'],
 ]);
 
-const fontKeywordPixels = new Map([
+export const fontKeywordPixels = new Map([
   ['xx-small', 9],
   ['x-small', 10],
   ['small', 13],
@@ -1011,13 +1011,16 @@ const readDeclaration = (
 ) => {
   const declaration = trimNodes(nodes);
   const parts = nameAndValue(declaration);
-  if (parts === undefined || broken(declaration, unterminated)) {
+  if (parts === undefined) {
     return undefined;
+  }
+  if (broken(declaration, unterminated)) {
+    return { rejected: parts.name };
   }
   const { value, important } = withoutImportance(parts.value);
   const decoded = decodedValue(parts.name, value);
   return decoded === undefined
-    ? undefined
+    ? { rejected: parts.name }
     : {
         name: parts.name,
         value: decoded,
@@ -1061,7 +1064,9 @@ const readDeclarations = (style: string) => {
       (isTokenSemicolon(token) && open.length === 0) ||
       type === TokenType.EOF
     ) {
-      if (!tooDeep) {
+      if (tooDeep) {
+        declarations.push(null);
+      } else {
         declarations.push(
           readDeclaration(
             parseListOfComponentValues(tokens.slice(from, index)),
@@ -1086,14 +1091,20 @@ const readDeclarations = (style: string) => {
 
 // Names and values are decoded before classification, so an escaped name hides what it names.
 // Duplicates resolve as the cascade does: an important declaration wins over later normal ones,
-// and a rejected one changes nothing.
+// and a rejected one changes nothing beyond naming it in rejected.
 export const parseDeclarations = (style: string) => {
   const declared = new Map<string, string>();
   const important = new Set<string>();
   const unsafe = new Set<string>();
+  const rejected = new Set<string>();
+  let limited = false;
   for (const declaration of readDeclarations(style)) {
-    if (
+    limited ||= declaration === null;
+    if (declaration?.rejected !== undefined) {
+      rejected.add(declaration.rejected);
+    } else if (
       declaration !== undefined &&
+      declaration !== null &&
       (declaration.important || !important.has(declaration.name))
     ) {
       const { name, value } = declaration;
@@ -1110,7 +1121,7 @@ export const parseDeclarations = (style: string) => {
       declared.set(name, value);
     }
   }
-  return { declared, unsafe };
+  return { declared, unsafe, limited, important, rejected };
 };
 
 function filterStyle(style: string, tag = ''): FilteredStyle {

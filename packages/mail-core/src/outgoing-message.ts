@@ -202,10 +202,11 @@ const htmlSpan = (span: Span) => {
     'image' in span
       ? `<img src="cid:${contentIdOf(span.image)}" alt="${escapeHtml(span.image.name)}">`
       : escapeHtml(span.text);
-  const marked = (span.marks ?? []).reduceRight(
-    (html, mark) => `<${tags[mark]}>${html}</${tags[mark]}>`,
-    inner,
-  );
+  const marked = (span.marks ?? []).reduceRight((html, mark) => {
+    const style =
+      mark === 'code' && 'font' in span ? ' style="font-family:inherit"' : '';
+    return `<${tags[mark]}${style}>${html}</${tags[mark]}>`;
+  }, inner);
   // Inside a link, so linked text shows its own colors and font.
   const style = [
     'color' in span ? `color:${span.color}` : '',

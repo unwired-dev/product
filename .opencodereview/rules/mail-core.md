@@ -284,6 +284,49 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `draft-html.ts.otherProperty` accepting a quote border without checking whether
+  it draws a line. Audit shorthand defaults, every width spelling including
+  exponent notation, transparent colors and unvetted functions. Preserve token
+  boundaries where a color function touches a width without whitespace;
+  refusing only a leading `0` or `none` misses equivalent invisible borders.
+  Keep a zero border radius distinct from a zero border width, and preserve the
+  representative visible Gmail quote. Otherwise indentation is silently promoted
+  to a semantic quote instead of reporting the border property.
+- `draft-html.ts.styled` or `hiddenElement` trusting only the declarations a
+  shared reader parser retains. Audit every parser omission, including values
+  it cannot vet and strings browsers close at the attribute's end. Preserve a
+  property's rejection for Draft refusal, and consider unvetted display overrides
+  before skipping hidden elements; otherwise conversion silently loses visible
+  formatting or body text while returning an editable document. Reader sanitization
+  may still discard those values under its separate contract.
+- `draft-html.ts.styled` treating CSS controls as ordinary font names, retaining
+  an element's replaced decoration/background, or discarding importance across
+  shorthand and longhand properties. Audit inherited and intrinsic tag defaults,
+  quoted family names and legacy attributes through conversion and outgoing
+  encoding. Check CSS-only color functions against legacy HTML attribute parsing,
+  invalid shorthand/longhand values, and ancestor decoration colors when text
+  colors change, including the anchor's own underline. Check list-item and inherited
+  fonts/colors against outgoing marker styling, not only the text spans. Verify code-mark/font combinations through the encoder as well
+  as conversion. Refuse formatting the document cannot hold; otherwise conversion
+  claims fidelity while changing visible fonts, marks or backgrounds.
+- `draft-html.ts.styled` accepting explicit background inheritance on a block
+  through a separate path from ordinary background admission. Check both
+  shorthand and longhand inheritance against the element's painted area;
+  otherwise a whole-block background is silently reduced to text-span shading.
+- `draft-html.ts.endElement` flattening separate ordered lists into adjacent
+  numbered blocks. Compare source list boundaries with the document's
+  consecutive-block numbering, including transparent wrappers and empty lists;
+  otherwise a restarted list silently continues the preceding list's numbers.
+- `draft-html.ts.endElement` forcing a document line for an empty paragraph
+  whose contents collapse away. Compare empty and whitespace-only blocks with
+  explicit line breaks and noncollapsing spaces, including between list runs;
+  otherwise outgoing `<p><br></p>` introduces a visible blank line or a phantom
+  block hides an unrepresentable ordered-list restart.
+- `draft-html.ts.propertyRules` ignoring an inherited property on an inline
+  element because it does not affect that element's own text. Check block
+  descendants too: inline `text-align` can change their alignment. Refuse an
+  inline alignment that differs from its parent rather than returning blocks
+  with the parent's alignment or aligning plain inline text as a whole block.
 - `imap-inbox.ts.readSegment` treating a checkpoint's missing saved segment as
   an empty message list. An expunge check may remove messages only after reading
   that segment and checking its UIDs with the provider. Pause on a missing

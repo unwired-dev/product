@@ -213,6 +213,60 @@ included; plain text is unchanged. Composers do not yet show or set fonts, and n
 Draft holds one until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
+Shared code reads a Draft body written as HTML, by Gmail, Apple Mail, Outlook or
+outgoing mail, into a Semantic Message Document
+([#1567](https://github.com/unwired-dev/product/issues/1567)). Nothing calls it
+yet; opening provider Drafts
+([#1269](https://github.com/unwired-dev/product/issues/1269) and later) will. It lays out text as a browser does, collapsing spaces
+and treating each `<br>` as a line break, and reads block kinds, marks, links,
+alignment, `#rrggbb`, `#rgb` and opaque `rgb()`/`rgba()` colors, families and
+sizes in `px`, `pt`, keywords or absolute `<font size="1">` through `<font size="7">`,
+whether set on a block or on text. Body `text` colors are preserved. A body `link` color or a color set on an
+anchor is reported when used by a link: outgoing HTML cannot preserve that
+anchor's underline color. Colors set on text inside a link are preserved. Legacy HTML color attributes accept hex colors; functional CSS colors
+in those attributes are reported because HTML reads them differently. CSS weights
+`normal`/`400` and `bold`/`700` become the corresponding
+mark; other weights, oblique fonts and resets of a heading's intrinsic weight
+or size that the document cannot hold are reported rather than approximated.
+Decoration and background overrides replace the element's own values while
+retaining ancestor decorations and visible backgrounds; `!important` wins
+across their shorthand and longhand declarations.
+Elements keep the presentation outgoing mail gives them: a link takes its default
+color rather than the color around it and stays underlined, inline code and code
+blocks take their monospace font unless they set their own, and a heading
+takes its own size rather than one relative to the size around it. A link that
+removes its underline and a heading inside text with a size but without a size
+of its own are reported. Explicitly inherited link colors are reported, as are inline-code and code-block fonts
+when their surrounding default cannot be preserved. Fonts set on
+code text override the code element's monospace default when sent. A text-color
+change inside an ancestor underline or strike is reported when outgoing marks
+would also change the line's color. Alignment set on an inline element is
+reported unless it matches the alignment around it, because blocks inside the
+element would inherit it.
+It ignores the head, style sheets, comments, wrapper classes, identifiers,
+language and namespace attributes, left-to-right or automatic `dir`, HTML-hidden
+content without a display override, spacing (margins, padding, line height),
+Outlook `mso-` properties and visible quote borders. A quote border with zero
+width, a transparent color, an omitted line style in a shorthand or an unvetted
+function is reported rather than turning an indentation into a quote.
+Browser-dependent active/visited
+link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
+Anything else, such as a table, an image, headings four to six, a nested list
+or quote, a color name, a relative size, a block background (including an inherited one), a popover, list
+markers with colors or fonts (including bold and italic), custom or reversed
+list numbering, adjacent ordered lists that restart numbering without a
+separating document block, a multiline list item, right-to-left text or a CSS-wide keyword
+other than `inherit` (`initial`, `unset`, `revert`), makes it report the
+element, attribute or CSS property instead of a document, so the Draft is never
+silently changed. Escaped CSS and declarations beyond the CSS parser's nesting
+budget report the `style` attribute. Other declarations the style parser cannot
+vet, including quoted values left open at the end of the attribute, report their
+property unless it is ignored above. An unvetted display override on hidden
+content is reported rather than discarding potentially visible text. An empty
+paragraph shows nothing and adds no line; a blank line is `<p><br></p>`. Outgoing HTML reads back to the same
+document, apart from the spaces HTML collapses, a trailing empty code line and
+code alignment, which is not sent.
+
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
 
