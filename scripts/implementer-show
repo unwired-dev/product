@@ -42,9 +42,10 @@ while [ "$remaining" -gt 0 ]; do
     --decorate-refs|--decorate-refs-exclude|\
     --stat-width|--stat-name-width|--stat-graph-width|--stat-count|--ws-error-highlight|--src-prefix|--dst-prefix|--line-prefix|--inter-hunk-context|\
     --output-indicator-new|--output-indicator-old|--output-indicator-context|--ignore-matching-lines|--diff-algorithm|--anchored|--word-diff-regex|--color-moved-ws|\
-    --rotate-to|--skip-to|--find-object|--diff-filter|--max-depth|--output)
+    --rotate-to|--skip-to|--find-object|--diff-filter|--max-depth)
       value="$argument="
       continue ;;
+    --output|--output=*) reject '--output writes outside stdout and drops the reviewer-only names.' ;;
     --end-of-options) reject 'use -- before pathspecs; --end-of-options disables the name-only output controls.' ;;
     --default|--stdin|--all|--branches|--branches=*|--tags|--tags=*|--remotes|--remotes=*|--glob|--glob=*|--reflog|--alternate-refs|--indexed-objects|--bisect)
       reject 'indirect object inputs can print trees and blobs outside the pathspecs; pass explicit commit revisions.' ;;

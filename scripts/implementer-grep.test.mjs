@@ -481,6 +481,8 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
     ['-wM', blob],
     ['--default', blob],
     ['--end-of-options', 'HEAD'],
+    ['--output', 'out.txt', 'HEAD'],
+    ['--output=out.txt', 'HEAD'],
     ['-G'],
   ]) {
     const result = run(args);

@@ -1,7 +1,6 @@
 #!/bin/sh
-# git grep for implementers. Every reviewer-only source listed in
-# docs/agents/implementation-review.md, kept in scripts/reviewer-only-paths, is excluded,
-# whatever pathspecs the caller adds after `--`.
+# git grep for implementers. Every path in scripts/reviewer-only-paths (see
+# docs/agents/implementation-review.md) is excluded, whatever pathspecs the caller adds after `--`.
 # Usage: scripts/implementer-grep [git grep options] <pattern> [-- <pathspec>...]
 # Whole commits are supported; tree/blob selectors cannot preserve root exclusions.
 set -eu
