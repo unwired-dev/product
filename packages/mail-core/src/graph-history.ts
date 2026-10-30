@@ -21,7 +21,7 @@ export const historyPage = 50;
 // Inbox, Sent Items and Archive, then the mailbox's own folders. Deleted Items, Junk Email, Drafts
 // and Outbox stay out, as Trash and Spam stay out of Gmail's All Mail. Move to lists every own
 // folder unless the mailbox has more than it lists; then the walked inventory names them too, and
-// they are `known` once a walk completed.
+// they are `known` once the current walk completed.
 export const historyFolders = (document: MailboxDocument) => {
   const limited = document.labelsLimited === true;
   const inventory = document.graphHistory?.inventory;
@@ -37,7 +37,9 @@ export const historyFolders = (document: MailboxDocument) => {
           : []),
       ]),
     ],
-    known: !limited || inventory?.found !== undefined,
+    known:
+      !limited ||
+      (inventory?.found !== undefined && inventory.walk === undefined),
   };
 };
 
@@ -189,7 +191,10 @@ export const graphProgress = (document: MailboxDocument) => {
       : {}),
     complete:
       known &&
-      folders.every(({ history }) => history.current.complete === true),
+      folders.every(
+        ({ history, check }) =>
+          history.current.complete === true && check === undefined,
+      ),
   };
 };
 

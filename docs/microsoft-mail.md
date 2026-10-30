@@ -129,10 +129,10 @@ further; when the round reports a change to a message listed there, the pass lis
 that receipt time again without the messages it already has. The opened-folder
 bounds never evict downloaded history.
 
-When Move to lists only part of the mailbox's folders, the pass first walks every
-folder list page, nested folders included, saving its place after each page. Until
-that walk completes, the progress names no total and is not complete, and no
-folder leaves the history.
+When Move to lists only part of the mailbox's folders, each backfill run first
+walks every folder list page, nested folders included, saving its place after
+each page. Until that walk completes, including on later runs, the progress
+names no total and is not complete, and no folder leaves the history.
 
 Before a folder's first page, the device starts a Graph delta round for the folder
 and saves its link, so changes made while the pass runs are not lost. After each
@@ -144,7 +144,8 @@ counted, and replaces it once the new pass completes. A folder removed in Outloo
 leaves the history.
 
 The Inbox state reports the progress per mailbox, like Gmail's: downloaded messages,
-the total from each folder's item count, and whether every folder's pass is complete.
+the total from each folder's item count, and whether every folder's download
+and final reconciliation are complete.
 The [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) includes the pass, with
 each connection's history status on Mac and in the capsule's details on iPhone and
 iPad. A failed read, including Graph throttling, pauses the pass until the next
@@ -303,10 +304,11 @@ hosts' rendered tests connect Microsoft mail first and show its Inbox.
 History tests in `packages/mail-core/test/microsoft-history.test.ts` download the
 Inbox, Sent Items, Archive and a folder of the mailbox's own while leaving out Deleted
 Items, list messages sharing one receipt across pages once each, also when messages
-listed before go during the pass, resume after an
-interrupted page and relaunch without listing a page twice, keep new, moved, deleted
+listed before go during the pass or newly arrived mail shares that receipt,
+resume after an interrupted page and relaunch without listing a page twice, keep new, moved, deleted
 and read mail current during and after the pass, list a folder again after an
-expired delta link without lowering progress, pause on throttling and keep their place
+expired delta link without lowering progress, stay incomplete when the last continued
+page's check is refused, pause on throttling and keep their place
 through a refused grant, and download 5,000 messages in bounded pages. The macOS
 `native/private-inbox/integration/history.zsh` runner repeats them with the signed
 native store holding the mailbox document and its history segments.

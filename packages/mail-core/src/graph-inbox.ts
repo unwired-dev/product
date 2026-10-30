@@ -918,8 +918,29 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const folding = folders.find((entry) => foldDue(entry.history));
     if (folding !== undefined) {
       const step = yield* foldStep(folding.history, read, newName);
+      // A fold can add mail the unfinished pass or its pending check would otherwise list again.
+      const stored = step.written.flatMap(([, messages]) => messages);
+      const skipped = (until: string, edge: readonly string[] = []) => [
+        ...new Set([
+          ...edge,
+          ...stored.flatMap(({ id, receivedAt }) =>
+            receivedAt <= until ? [id] : [],
+          ),
+        ]),
+      ];
+      const until = folding.history.current.pageToken;
+      const { check } = folding;
       return Option.some({
-        folders: replaced(folding, { ...folding, history: step.history }),
+        folders: replaced(folding, {
+          ...folding,
+          ...(until === undefined
+            ? {}
+            : { edge: skipped(until, folding.edge) }),
+          ...(check === undefined
+            ? {}
+            : { check: { ...check, edge: skipped(check.until, check.edge) } }),
+          history: step.history,
+        }),
         written: step.written,
       });
     }

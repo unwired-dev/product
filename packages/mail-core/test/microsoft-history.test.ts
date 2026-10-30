@@ -141,24 +141,47 @@ const historyListings = (graph: Graph) =>
         `${pathname.split('/').at(-2)} ${searchParams.get('$filter') ?? ''}`,
     );
 
-// Purges each message just before the history listing that continues from its offset, once.
-const purgingBefore = (
+// Applies each provider change just before the history listing that continues from its offset, once.
+const changingBefore = (
   graph: Graph,
-  going: Map<number, string>,
+  changes: Map<number, () => void>,
 ): Graph['native'] => ({
   ...graph.native,
   graphRequest: (url, owner) => {
     const skip = Number(
       /(?:\$|%24)top=50&.*(?:\$|%24)skip=(?<skip>\d+)/u.exec(url)?.groups?.skip,
     );
-    const gone = going.get(skip);
-    if (gone !== undefined) {
-      going.delete(skip);
-      graph.purge(gone);
+    const change = changes.get(skip);
+    if (change !== undefined) {
+      changes.delete(skip);
+      change();
     }
     return graph.native.graphRequest(url, owner);
   },
 });
+
+// Enough same-receipt arrivals to fold into an unfinished pass, followed by a removal that can
+// rewind a pending continuation check after that fold.
+const foldingArrivals = (graph: Graph) => {
+  const at = Date.UTC(2026, 8, 1);
+  const ids = Array.from({ length: 300 }, (_, index) =>
+    graph.deliver({ subject: `Before ${index}`, at }),
+  );
+  const [gone = '', ...kept] = ids;
+  const arrivals: string[] = [];
+  return {
+    kept,
+    arrivals,
+    change: () => {
+      arrivals.push(
+        ...Array.from({ length: 200 }, (_, index) =>
+          graph.deliver({ subject: `Arrived ${index}`, at }),
+        ),
+      );
+      graph.purge(gone);
+    },
+  };
+};
 
 // How many Inbox pages of 50 Graph was asked for, including continuations.
 const inboxPages = (graph: Graph) =>
@@ -204,6 +227,20 @@ const refusingFolderPages = (
     return status !== undefined && /mailFolders\?.*(?:\$|%24)skip=/u.test(url)
       ? Promise.resolve({ status, body: '{}' })
       : graph.native.graphRequest(url, owner);
+  },
+});
+
+// A refused reconciliation after a continued listing must keep its pending check visible.
+const refusingDelta = (
+  native: Graph['native'],
+  refusal: () => number | undefined,
+): Graph['native'] => ({
+  ...native,
+  graphRequest: (url, owner) => {
+    const status = refusal();
+    return status !== undefined && url.includes('/messages/delta?')
+      ? Promise.resolve({ status, body: '{}' })
+      : native.graphRequest(url, owner);
   },
 });
 
@@ -259,10 +296,10 @@ describe('microsoft historical metadata backfill', () => {
     // Messages listed already go just before the history's third page and just before the page
     // that ends its pass, each shifting Graph's continuation by one.
     const going = new Map([
-      [100, first],
-      [300, second],
+      [100, () => graph.purge(first)],
+      [300, () => graph.purge(second)],
     ]);
-    const inbox = createInbox(purgingBefore(graph, going));
+    const inbox = createInbox(changingBefore(graph, going));
     await inbox.load();
     await backfilled(inbox);
     // The folder's round after each page reports the change, so the pass lists the receipt again.
@@ -298,6 +335,72 @@ describe('microsoft historical metadata backfill', () => {
     expect(inboxPages(graph) - listedBefore).toBeLessThan(30);
     const folders = await downloaded(graph);
     expect(folders.get('INBOX')).toStrictEqual(sorted(ids));
+  });
+
+  it('keeps folded arrivals unique when they share the listing receipt before retry', async () => {
+    expect.hasAssertions();
+    const graph = createGraph();
+    const { kept, arrivals, change } = foldingArrivals(graph);
+    let refusal: number | undefined = 503;
+    const inbox = createInbox(refusingAfter(graph, 1, () => refusal));
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(progress(inbox)?.paused).toBe(true);
+    });
+    change();
+    refusal = undefined;
+    await inbox.load();
+    await backfilled(inbox);
+    const folders = await downloaded(graph);
+    expect(folders.get('INBOX')).toStrictEqual(sorted([...kept, ...arrivals]));
+    expect(progress(inbox)?.downloaded).toBe(499);
+  });
+
+  it('keeps folded arrivals unique when a pending continuation check rewinds the pass', async () => {
+    expect.hasAssertions();
+    const graph = createGraph();
+    const { kept, arrivals, change } = foldingArrivals(graph);
+    const inbox = createInbox(changingBefore(graph, new Map([[100, change]])));
+    await inbox.load();
+    await backfilled(inbox);
+    expect(arrivals).toHaveLength(200);
+    const folders = await downloaded(graph);
+    expect(folders.get('INBOX')).toStrictEqual(sorted([...kept, ...arrivals]));
+    expect(progress(inbox)?.downloaded).toBe(499);
+  });
+
+  it('stays incomplete and paused until the last continued page is reconciled', async () => {
+    expect.hasAssertions();
+    const graph = createGraph();
+    let refusal: number | undefined = undefined;
+    const changes = new Map<number, () => void>();
+    const inbox = createInbox(
+      refusingDelta(changingBefore(graph, changes), () => refusal),
+    );
+    await inbox.load();
+    await backfilled(inbox);
+    const projects = graph.createFolder('Projects');
+    const ids = Array.from({ length: 351 }, (_, index) =>
+      graph.deliver({
+        subject: `Project ${index}`,
+        folder: projects,
+        at: Date.UTC(2026, 8, 1),
+      }),
+    );
+    const [gone = '', ...kept] = ids;
+    changes.set(300, () => {
+      graph.purge(gone);
+      refusal = 429;
+    });
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(progress(inbox)).toMatchObject({ complete: false, paused: true });
+    });
+    refusal = undefined;
+    await inbox.load();
+    await backfilled(inbox);
+    const folders = await downloaded(graph);
+    expect(folders.get(projects)).toStrictEqual(sorted(kept));
   });
 
   it('downloads folders beyond those Move to lists, across a relaunch', async () => {
@@ -337,6 +440,31 @@ describe('microsoft historical metadata backfill', () => {
     expect(saved.get(last)).toStrictEqual(sorted(lastIds));
     expect(saved.get(nested)).toStrictEqual(sorted(nestedIds));
   }, 15_000);
+
+  it('stays incomplete when refreshing a known folder inventory is paused', async () => {
+    expect.hasAssertions();
+    const graph = createGraph(2);
+    let refusal: number | undefined = undefined;
+    const inbox = createInbox(refusingFolderPages(graph, () => refusal));
+    await inbox.load();
+    await backfilled(inbox);
+    const projects = graph.createFolder('Projects');
+    const ids = delivered(graph, 1, projects);
+    refusal = 429;
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(progress(inbox)).toStrictEqual({
+        downloaded: 0,
+        complete: false,
+        paused: true,
+      });
+    });
+    refusal = undefined;
+    await inbox.load();
+    await backfilled(inbox);
+    const folders = await downloaded(graph);
+    expect(folders.get(projects)).toStrictEqual(ids);
+  });
 
   it('resumes after relaunch without rewinding or listing a page twice', async () => {
     expect.hasAssertions();
