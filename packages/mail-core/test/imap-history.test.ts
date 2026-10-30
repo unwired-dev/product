@@ -319,6 +319,42 @@ describe('imap historical metadata backfill', () => {
     },
   );
 
+  it('settles a rebuilt history while its cached view keeps the old UIDVALIDITY', async () => {
+    expect.hasAssertions();
+    const imap = createImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.addFolder('Later');
+    fill(imap, 'Archive', 300);
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Archive');
+    await completed(inbox);
+
+    // Only the Inbox synchronizes on relaunch, so the cached Archive view keeps its old identity.
+    imap.renumber('Archive');
+    const later = fill(imap, 'Later', 2);
+    const reads = historyReads(imap).length;
+    const relaunched = createImapInbox(imap.native);
+    await relaunched.load();
+
+    await vi.waitFor(() => {
+      expect(new Set(savedUids(imap, 'Later'))).toStrictEqual(new Set(later));
+    });
+    await expect(completed(relaunched)).resolves.toStrictEqual({
+      downloaded: 302,
+      total: 302,
+      complete: true,
+    });
+    // Each folder verifies once; Archive then rebuilds in one read and Later reads its arrivals.
+    expect(historyReads(imap).slice(reads)).toStrictEqual([
+      'history INBOX 1',
+      'history Archive 1',
+      'history Archive next',
+      'history Later 1',
+      'history Later 3',
+    ]);
+  });
+
   it('keeps a folder history while it is listed, after its opened view leaves the bounded cache', async () => {
     expect.hasAssertions();
     const imap = createImap();

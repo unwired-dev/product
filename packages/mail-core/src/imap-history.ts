@@ -24,12 +24,13 @@ const historyFolders = (document: ImapDocument) => [
 ];
 
 // The first folder with history left to read. `settled` folders were read up to date since this
-// connection opened; a cached UIDVALIDITY change or a later UIDNEXT makes one eligible again.
-// `skipped` folders are gone or refused their UIDVALIDITY, and stay skipped. Other folders begin or
-// continue a pass or expunge check, or learn what changed.
+// connection opened, each with the UIDVALIDITY its cached view had then; a later UIDNEXT at the
+// history's UIDVALIDITY, or a cached UIDVALIDITY seen since, makes one eligible again. A cached view
+// left stale by a rebuilt history does not. `skipped` folders are gone or refused their UIDVALIDITY,
+// and stay skipped. Other folders begin or continue a pass or expunge check, or learn what changed.
 export function nextHistoryFolder(
   document: ImapDocument,
-  settled: ReadonlySet<string>,
+  settled: ReadonlyMap<string, number | undefined>,
   skipped: ReadonlySet<string>,
 ) {
   const histories = new Map(
@@ -46,8 +47,9 @@ export function nextHistoryFolder(
       (!settled.has(name) ||
         (history !== undefined &&
           cache !== undefined &&
-          (cache.uidValidity !== history.uidValidity ||
-            cache.uidNext > history.top)))
+          (cache.uidValidity === history.uidValidity
+            ? cache.uidNext > history.top
+            : cache.uidValidity !== settled.get(name))))
     );
   });
 }

@@ -789,7 +789,7 @@ export function createImapInbox(
   let authenticationRejected = false;
   // Folders whose history was read up to date since the connection opened, and folders it skips
   // until the next launch because they are gone or refused their UIDVALIDITY.
-  const settled = new Set<string>();
+  const settled = new Map<string, number | undefined>();
   const skipped = new Set<string>();
   // A failed speculative read pauses prefetch and backfill until the next Inbox synchronization.
   let backfillPaused = false;
@@ -1273,7 +1273,7 @@ export function createImapInbox(
         ? undefined
         : { segments: {}, keep: historySegmentNames(next) },
     );
-    for (const name of [...settled, ...skipped]) {
+    for (const name of [...settled.keys(), ...skipped]) {
       if (!kept(name)) {
         settled.delete(name);
         skipped.delete(name);
@@ -2580,7 +2580,7 @@ export function createImapInbox(
     if (step === undefined) {
       skipped.add(name);
     } else if (step.settled) {
-      settled.add(name);
+      settled.set(name, cacheOf(name)?.uidValidity);
     } else {
       settled.delete(name);
     }
