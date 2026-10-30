@@ -264,8 +264,10 @@ not Thread muting.
   requires service-account/domain-wide authority. It does not establish that an
   ordinary user's OAuth token can read or send from a mailbox delegated to them
   in Gmail's interface. No supported path for that use of the existing native
-  public-client grant was established by this research. Do not treat separately
-  authorizing another person's mailbox as verified delegation support.
+  public-client grant was established by this research, and the
+  [Gmail delegation spike](../gmail-delegation-spike.md) found none in Google's
+  current documentation. Do not treat separately authorizing another person's
+  mailbox as verified delegation support.
 - IMAP [namespaces](https://www.rfc-editor.org/rfc/rfc2342.html) and
   [ACL rights](https://www.rfc-editor.org/rfc/rfc4314.html) depend on server
   capabilities and granted rights. Discovering a shared folder does not establish
