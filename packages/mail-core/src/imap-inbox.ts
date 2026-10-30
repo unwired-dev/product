@@ -249,11 +249,18 @@ export interface NativeImapMailbox
       copied?: Readonly<{ uidValidity: number; uid: number }>;
     }>,
   ) => Promise<unknown>;
-  // Resolves `{ folders: [{ folder, uidValidity, messages }], skipped }`: each folder's newest
-  // matches, in the order asked.
+  // Examines the `folder` in the open `session` and searches its text. Resolves
+  // `{ uidValidity, uids, total }`: the `newest` matching UIDs, newest first, and how many matched.
+  // Rejects with `imap-missing` for a folder the server no longer selects, `imap-changed` for one
+  // without UIDVALIDITY and `imap-unsupported` for a query in a charset the server cannot search.
   readonly imapSearch: (
     mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{ query: string; folders: readonly string[] }>,
+    request: Readonly<{
+      session: string;
+      folder: string;
+      query: string;
+      newest: number;
+    }>,
   ) => Promise<unknown>;
   // Waits in IDLE on the folder until the server sends an event or `seconds` pass. Resolves
   // `{ events }`, the kinds of event sent before the wait ended (`exists`, `expunge`, `vanished`,
@@ -487,9 +494,10 @@ type Scope = Readonly<{
   lifetime: number;
 }>;
 
-// Folders one online search asks the server about, and the longest single IDLE wait, inside the
-// 29 minutes after which servers may drop an idle client.
+// Folders one online search asks the server about and the newest matches it reads from each, and
+// the longest single IDLE wait, inside the 29 minutes after which servers may drop an idle client.
 const searchFolderLimit = 50;
+const searchMatchLimit = 50;
 const idleSeconds = 300;
 
 const moves = (
@@ -2745,8 +2753,47 @@ export function createImapInbox(
     );
   }
 
-  // The server's own search of the Inbox and the connection's other folders, newest first. Results
-  // stay readable until the Inbox closes and are never saved.
+  // One folder's newest matches with their envelopes, and whether older ones were left out; none
+  // when the folder is gone or refuses its UIDVALIDITY.
+  const searchFolder = (
+    scope: Scope,
+    request: Readonly<{ session: string; folder: string; query: string }>,
+  ) =>
+    Effect.gen(function* () {
+      const { session, folder } = request;
+      const { uidValidity, uids, total } = yield* call(() =>
+        native.imapSearch(scope, { ...request, newest: searchMatchLimit }),
+      ).pipe(
+        Effect.flatMap((reply) =>
+          decodeSearch(reply).pipe(Effect.mapError(malformed)),
+        ),
+      );
+      const { messages } =
+        uids.length === 0
+          ? { messages: [] }
+          : yield* call(() =>
+              native.imapEnvelopes(scope, { session, uids }),
+            ).pipe(
+              Effect.flatMap((reply) =>
+                decodeEnvelopes(reply).pipe(Effect.mapError(malformed)),
+              ),
+            );
+      return {
+        messages: messages.map((match) =>
+          listedMessage(folder, uidValidity, match),
+        ),
+        more: total > uids.length,
+      };
+    }).pipe(
+      Effect.asSome,
+      Effect.catchIf(
+        ({ kind }) => kind === 'missing' || kind === 'changed',
+        () => Effect.succeedNone,
+      ),
+    );
+
+  // The server's own search of the Inbox and the connection's other folders, newest first, in one
+  // session. Results stay readable until the Inbox closes and are never saved.
   const search = (query: string) =>
     runLogged(
       Effect.gen(function* () {
@@ -2756,18 +2803,21 @@ export function createImapInbox(
         }
         const folders = searchedFolders(document.folders);
         const asked = folders.slice(0, searchFolderLimit);
-        const reply = yield* decodeSearch(
-          yield* call(() =>
-            native.imapSearch(scope, { query, folders: asked }),
+        const searched = Arr.getSomes(
+          // A session answers one command at a time.
+          yield* withSession(scope, (session) =>
+            Effect.forEach(
+              asked,
+              (folder) => searchFolder(scope, { ...session, folder, query }),
+              { concurrency: 1 },
+            ),
           ),
-        ).pipe(Effect.mapError(malformed));
+        );
         if (!current(scope)) {
           return { kind: 'found', messages: [], limited: false } as const;
         }
         const messages = newestFirst(
-          reply.folders.flatMap(({ folder, uidValidity, messages: matches }) =>
-            matches.map((match) => listedMessage(folder, uidValidity, match)),
-          ),
+          searched.flatMap(({ messages: matches }) => matches),
         );
         for (const message of messages) {
           found.set(message.id, message);
@@ -2777,8 +2827,8 @@ export function createImapInbox(
           messages,
           limited:
             asked.length < folders.length ||
-            reply.skipped > 0 ||
-            reply.folders.some(({ more }) => more),
+            searched.length < asked.length ||
+            searched.some(({ more }) => more),
         } as const;
       }).pipe(
         Effect.catchTag(

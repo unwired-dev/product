@@ -979,9 +979,14 @@ describe('product registration', () => {
         screen.getAllByRole('button', { name: /Filed invoice/u }),
       ).toHaveLength(1);
     });
-    expect(imap.server.reads).toContain(
-      'search INBOX,Archived Mail,Projects,Clients/Acme',
-    );
+    expect(
+      imap.server.reads.filter((read) => read.startsWith('search ')),
+    ).toStrictEqual([
+      'search INBOX',
+      'search Archived Mail',
+      'search Projects',
+      'search Clients/Acme',
+    ]);
   });
   /* oxlint-enable vitest/max-expects */
 
