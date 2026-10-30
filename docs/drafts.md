@@ -114,7 +114,8 @@ transport and known native exit gaps.
   New Message window described above, its header holds
   Close, the title and a Compose actions menu with Discard, and the format bar (text style, bold, italic,
   underline, strikethrough, inline code, lists, Undo, Redo, Translate, Rewrite
-  and the file and image controls) sits under the header on Mac and iPad and
+  and the file and image controls; on Mac a Writing tools menu holds Translate,
+  Rewrite and Suggest reply) sits under the header on Mac and iPad and
   above the keyboard on iPhone. On touch layouts, Text style stays at the leading
   edge while the remaining controls scroll horizontally at their full touch size.
   In the Mac overlay, **From** and **Send** share the bottom row; in its New
