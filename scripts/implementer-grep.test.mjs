@@ -391,6 +391,8 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
     ],
     [['-s', 'HEAD'], '.', []],
     [['HEAD~..HEAD', '--', 'docs', '.patterns'], '.', ['docs/guide.md']],
+    [['-G', 'reviewer:|fix', 'HEAD'], '.', readable],
+    [['--since', '2000-01-01 00:00', 'HEAD'], '.', readable],
     [['--diff', 'HEAD~', 'HEAD'], '.', readable],
     [['--diff', '--pickaxe-all', '-S', 'fix', 'HEAD~', 'HEAD'], '.', readable],
     [['--diff', 'HEAD~..HEAD', '--', '.'], 'docs', ['docs/guide.md']],

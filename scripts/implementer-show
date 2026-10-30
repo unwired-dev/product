@@ -20,9 +20,16 @@ set -f
 paths=$(cat "$(dirname "$0")/reviewer-only-paths")
 
 separated=false
+value=false
 for argument do
+  # The operand of a preceding option, such as a -S pattern, is not a revision.
+  if [ "$value" = true ]; then
+    value=false
+    continue
+  fi
   case "$argument" in
     --) separated=true; break ;;
+    -S|-G|-O|--grep|--author|--committer|--since|--until|--after|--before) value=true ;;
     --stdin|--all|--branches|--branches=*|--tags|--tags=*|--remotes|--remotes=*|--glob|--glob=*|--reflog|--alternate-refs|--indexed-objects|--bisect)
       reject 'indirect object inputs can print trees and blobs outside the pathspecs; pass explicit commit revisions.' ;;
     --full-diff|--no-index)
