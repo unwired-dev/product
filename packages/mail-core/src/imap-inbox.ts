@@ -1581,15 +1581,21 @@ export function createImapInbox(
     withSession(scope, (session) =>
       Effect.gen(function* () {
         const { message, action, copied } = head;
-        const select = Effect.fnUntraced(function* (
+        // The copied destination is only read, so it is examined; a read-only folder still
+        // proves the copy. The source is selected for the change.
+        const enter = Effect.fnUntraced(function* (
           folder: string,
           uidValidity: number,
+          read: boolean,
         ) {
-          const selected = yield* decoded(
-            () => native.imapSelect(scope, { ...session, folder }),
-            decodeSelected,
+          const entered = yield* decoded(
+            () =>
+              read
+                ? native.imapExamine(scope, { ...session, folder })
+                : native.imapSelect(scope, { ...session, folder }),
+            read ? decodeSelection : decodeSelected,
           );
-          if (selected.uidValidity !== uidValidity) {
+          if (entered.uidValidity !== uidValidity) {
             return yield* refusal('changed', 'Folder UIDVALIDITY changed');
           }
         });
@@ -1667,12 +1673,12 @@ export function createImapInbox(
         });
 
         if (moves(action) && copied !== undefined) {
-          yield* select(action.destination, copied.uidValidity);
+          yield* enter(action.destination, copied.uidValidity, true);
           if (!(yield* holds(copied.uid))) {
             return yield* refusal('missing', 'Copied message is gone');
           }
         }
-        yield* select(message.folder, message.uidValidity);
+        yield* enter(message.folder, message.uidValidity, false);
         if (!(yield* holds(message.uid))) {
           return copied === undefined
             ? ({ outcome: 'absent' } as const)

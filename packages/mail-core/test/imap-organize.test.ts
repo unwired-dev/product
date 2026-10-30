@@ -113,6 +113,15 @@ const interruptDeletion = (native: NativeImapMailbox) => {
     return native.imapExpunge(...args);
   };
 };
+// The server opens Archive only read-only, so SELECT there is refused.
+const readOnlyArchive =
+  (native: NativeImapMailbox) =>
+  async (...[scope, request]: Parameters<NativeImapMailbox['imapSelect']>) => {
+    if (request.folder === 'Archive') {
+      throw Object.assign(new Error('Read-only'), { code: 'imap-unsupported' });
+    }
+    return native.imapSelect(scope, request);
+  };
 const interruptIdle = (native: NativeImapMailbox) => {
   let interrupted = false;
   return async (
@@ -602,6 +611,33 @@ describe('organizing IMAP mail', () => {
       expect(ready(reopened.getSnapshot()).pending).toBe(0);
     },
   );
+
+  it('finishes a copied move into a destination the server opens only read-only', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    imap.server.copyOnly = true;
+    imap.deliver('INBOX', { subject: 'Hello' });
+    const inbox = createImapInbox({
+      ...imap.native,
+      imapExpunge: interruptDeletion(imap.native),
+    });
+    await inbox.load();
+    await inbox.organize(inboxMessage(inbox.getSnapshot(), 'Hello'), {
+      kind: 'archive',
+      destination: 'Archive',
+    });
+    inbox.forget();
+    const reopened = createImapInbox({
+      ...imap.native,
+      imapSelect: readOnlyArchive(imap.native),
+    });
+    await reopened.load();
+    expect(imap.server.changes).toStrictEqual([
+      'copy INBOX 1 Archive',
+      'delete INBOX 1',
+    ]);
+    expect(ready(reopened.getSnapshot()).pending).toBe(0);
+  });
 
   it.each([
     {
