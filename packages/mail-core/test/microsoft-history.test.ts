@@ -384,7 +384,7 @@ describe('microsoft historical metadata backfill', () => {
     const ids = delivered(graph, 150, 'inbox');
     delivered(graph, 1, 'sentitems');
     delivered(graph, 1, 'archive');
-    let refusal: number | undefined;
+    let refusal: number | undefined = undefined;
     const inbox = createInbox(refusingAfter(graph, 0, () => refusal));
     await inbox.load();
     await backfilled(inbox);
