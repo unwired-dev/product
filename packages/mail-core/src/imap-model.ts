@@ -91,6 +91,33 @@ const FolderCacheSchema = Schema.Struct({
 });
 type FolderCache = typeof FolderCacheSchema.Type;
 
+// One folder's Historical Metadata Backfill under its UIDVALIDITY. A pass downloads the UIDs from
+// `above` up to, not including, `below`, newest first, and ends once `below` reaches `above`; `top`
+// is the UIDNEXT the latest pass began at, so the next one reads only what arrived since.
+const FolderHistorySchema = Schema.Struct({
+  folder: Schema.NonEmptyString,
+  uidValidity: Validity,
+  top: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  above: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  below: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  // How many messages the folder held at its latest history read.
+  total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  // Each saved segment, holding one read's messages until expunges are reconciled.
+  segments: Schema.Array(
+    Schema.Struct({
+      name: Schema.NonEmptyString,
+      count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    }),
+  ),
+  // The next segment whose messages are checked against the server for expunges.
+  checking: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  // Every message below `top` was downloaded once.
+  complete: Schema.optionalKey(Schema.Literal(true)),
+});
+export type ImapFolderHistory = typeof FolderHistorySchema.Type;
+
 // Each folder's checkpoint is committed with the messages it produced, so an interrupted
 // synchronization repeats at most the step that did not commit.
 const DocumentSchema = Schema.Struct({
@@ -103,6 +130,9 @@ const DocumentSchema = Schema.Struct({
   // What the server advertised at the last listing; absent before it was first read.
   capabilities: Schema.optionalKey(Capabilities),
   pending: Schema.optionalKey(Schema.Array(PendingSchema)),
+  // Historical Metadata Backfill of each folder that began one; kept apart from the cached folders,
+  // so evicting a folder's newest messages never discards its downloaded history.
+  history: Schema.optionalKey(Schema.Array(FolderHistorySchema)),
 });
 export type ImapDocument = typeof DocumentSchema.Type;
 export const decodeDocument = Schema.decodeUnknownEffect(
@@ -241,6 +271,23 @@ const FolderReadSchema = Schema.Struct({
 });
 type FolderRead = typeof FolderReadSchema.Type;
 export const decodeFolderRead = Schema.decodeUnknownEffect(FolderReadSchema);
+// One history read: the folder's UIDVALIDITY, UIDNEXT and message count, the newest messages of the
+// requested UID range, the exclusive cursor its next read starts below, and which of the known UIDs
+// remain.
+const HistoryReadSchema = Schema.Struct({
+  uidValidity: Validity,
+  uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  messages: Schema.Array(EnvelopeSchema),
+  below: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  present: Schema.Array(Uid),
+});
+export type HistoryRead = typeof HistoryReadSchema.Type;
+export const decodeHistoryRead = Schema.decodeUnknownEffect(HistoryReadSchema);
+// A saved history segment: the messages of one read.
+const SegmentSchema = Schema.fromJsonString(Schema.Array(ImapMessageSchema));
+export const encodeSegment = Schema.encodeEffect(SegmentSchema);
+export const decodeSegment = Schema.decodeUnknownEffect(SegmentSchema);
 export const decodeRaw = Schema.decodeUnknownEffect(
   Schema.Struct({ data: Schema.String }),
 );

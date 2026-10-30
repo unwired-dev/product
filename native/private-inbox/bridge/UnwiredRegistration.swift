@@ -863,9 +863,10 @@ extension UnwiredRegistration {
     }
   }
 
-  // Long server work, an IDLE wait or a search across folders, that must not stall other mailbox
-  // work behind the registration gate. Only the store is obtained under the gate; the IMAP work
-  // checks the connection and its generation synchronously before and after its network wait.
+  // Long server work, an IDLE wait, a search across folders or a history page, that must not stall
+  // other mailbox work behind the registration gate. Only the store is obtained under the gate; the
+  // IMAP work checks the connection and its generation synchronously before and after its network
+  // wait.
   private func ungatedMailbox(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
@@ -1353,6 +1354,32 @@ extension UnwiredRegistration {
       return try await $0.imapSynchronize(
         connection: connection, address: address, generation: generation, folder: folder,
         from: from, window: window)
+    }
+  }
+
+  // `request` names the `folder`, the UID range `above` and optional `below`, the `limit` and the
+  // `known` UIDs to check.
+  @objc(imapHistory:request:resolver:rejecter:)
+  func imapHistory(
+    _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    ungatedMailbox("imapHistory", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let folder = request["folder"] as? String,
+        let above = (request["above"] as? Double).flatMap({ UInt32(exactly: $0) }),
+        let limit = (request["limit"] as? Double).flatMap({ Int(exactly: $0) }),
+        let known = request["known"] as? [Double]
+      else { throw RegistrationError.unavailable }
+      let below = (request["below"] as? Double).flatMap { UInt32(exactly: $0) }
+      let uids = known.compactMap { UInt32(exactly: $0) }
+      guard uids.count == known.count, (below == nil) == (request["below"] == nil) else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.imapHistory(
+        connection: connection, address: address, generation: generation,
+        request: ImapHistoryRequest(
+          folder: folder, above: above, below: below, limit: limit, known: uids))
     }
   }
 
