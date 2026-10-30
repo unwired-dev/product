@@ -351,7 +351,6 @@ export function LinkEditor({
   const [destination, setDestination] = useState('');
   // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
   const [checked, setChecked] = useState(false);
-  const destinationInput = useRef<TextInput>(null);
   const href = vettedHref(destination);
   const applicable = href !== undefined && isLinkText(text);
   const adding = editing?.href === '';
@@ -377,14 +376,8 @@ export function LinkEditor({
         <TextInput
           accessibilityLabel={label}
           autoCorrect={!url}
-          // A new link's Link field takes focus as soon as the editor appears.
-          onLayout={
-            url && adding
-              ? () => {
-                  destinationInput.current?.focus();
-                }
-              : undefined
-          }
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- User-opened Add Link must focus Link when the popover gains its native window, after layout.
+          autoFocus={url && adding}
           onBlur={
             url
               ? () => {
@@ -396,7 +389,6 @@ export function LinkEditor({
           onSubmitEditing={apply}
           placeholder={url ? t('drafts.link.placeholder') : undefined}
           placeholderTextColor={colors.textSecondary}
-          ref={url ? destinationInput : undefined}
           style={[
             styles.linkInput,
             { backgroundColor: colors.fillQuiet, color: colors.textPrimary },

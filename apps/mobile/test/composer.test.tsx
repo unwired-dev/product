@@ -26,7 +26,13 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, AppState, Dimensions, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  Dimensions,
+  TextInput,
+  View,
+} from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -1951,6 +1957,7 @@ describe('composing Drafts', () => {
     'adds a link to selected text with the Link Editor on %s as one Undo step',
     async (size, presenter) => {
       expect.hasAssertions();
+      const focus = jest.spyOn(TextInput.prototype, 'focus');
       const registration = account(connected(['alex@example.invalid']));
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
       const drafts = createDrafts(storage.native, registration);
@@ -2006,6 +2013,14 @@ describe('composing Drafts', () => {
       await select(5, 14);
       await press('Add Link');
       const destination = screen.getByLabelText('Link');
+      // Layout can precede native presentation. Only appearance requests focus.
+      focus.mockClear();
+      await fireEvent(destination, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 278, height: 22 } },
+      });
+      expect(focus).not.toHaveBeenCalled();
+      await fireEvent(destination, 'appear');
+      expect(focus).toHaveBeenCalledWith();
       expect(screen.getByLabelText('Text')).toHaveProp('value', 'the lease');
       expect(destination).toHaveProp('value', '');
       expect(destination).toHaveProp('placeholder', 'https://example.com');
@@ -2032,6 +2047,9 @@ describe('composing Drafts', () => {
         marks: ['bold'],
       });
       await press('Add Link');
+      focus.mockClear();
+      await fireEvent(screen.getByLabelText('Link'), 'appear');
+      expect(focus).toHaveBeenCalledWith();
       expect(screen.getByLabelText('Link')).toHaveProp('value', '');
       expect(
         screen.queryByText('Enter a valid web, email or phone link.'),

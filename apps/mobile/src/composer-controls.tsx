@@ -3,7 +3,7 @@ import type {
   Link,
   Mark,
 } from '@private-email/mail-core/semantic-document';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 
 import {
@@ -27,6 +27,7 @@ import {
   foregroundStyle,
   frame,
   labelStyle,
+  onAppear,
   padding,
   presentationDetents,
   shapes,
@@ -519,6 +520,7 @@ export function LinkEditor({
   };
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
+  const destinationInput = useRef<TextInput>(null);
   // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
   const [checked, setChecked] = useState(false);
   const href = vettedHref(destination);
@@ -541,6 +543,14 @@ export function LinkEditor({
     }
   };
   const colors = usePalette();
+  // Native presenters retain their content; layout is not a signal that it appeared again.
+  const focusDestination = () => {
+    if (shown && editing?.href === '') {
+      destinationInput.current?.focus();
+    }
+  };
+  // oxlint-disable-next-line react/refs, react-hooks-js/refs -- Expo onAppear only stores this callback; SwiftUI invokes it after presentation, never during render.
+  const appearance = onAppear(focusDestination);
   const trigger = (
     <SwiftUIButton
       label={t(link?.href === '' ? 'drafts.link.add' : 'drafts.link.edit')}
@@ -565,6 +575,7 @@ export function LinkEditor({
     />
   );
   const fields = {
+    destinationInput,
     text,
     destination,
     applicable,
@@ -586,9 +597,11 @@ export function LinkEditor({
         onIsPresentedChange={show}>
         <Popover.Trigger>{trigger}</Popover.Trigger>
         <Popover.Content>
-          <RNHostView matchContents>
-            <LinkPopover {...fields} />
-          </RNHostView>
+          <Group modifiers={[appearance]}>
+            <RNHostView matchContents>
+              <LinkPopover {...fields} />
+            </RNHostView>
+          </Group>
         </Popover.Content>
       </Popover>
     </Host>
@@ -599,7 +612,7 @@ export function LinkEditor({
         <BottomSheet
           isPresented={shown}
           onIsPresentedChange={show}>
-          <Group modifiers={[presentationDetents(['medium'])]}>
+          <Group modifiers={[presentationDetents(['medium']), appearance]}>
             <RNHostView>
               <LinkSheet
                 {...fields}
@@ -616,6 +629,7 @@ export function LinkEditor({
 }
 
 type LinkFields = Readonly<{
+  destinationInput: RefObject<TextInput | null>;
   text: string;
   destination: string;
   applicable: boolean;
@@ -632,6 +646,7 @@ type LinkFields = Readonly<{
 
 // iPad "Link Editor" frame.
 function LinkPopover({
+  destinationInput,
   text,
   destination,
   applicable,
@@ -643,7 +658,6 @@ function LinkPopover({
   onApply,
   onRemove,
 }: LinkFields) {
-  const destinationInput = useRef<TextInput>(null);
   const { t } = useLocalization();
   const colors = usePalette();
   const field = (url: boolean) => {
@@ -657,14 +671,6 @@ function LinkPopover({
           accessibilityLabel={label}
           autoCapitalize={url ? 'none' : 'sentences'}
           autoCorrect={!url}
-          // A new link's Link field takes focus as soon as the editor appears.
-          onLayout={
-            url && adding
-              ? () => {
-                  destinationInput.current?.focus();
-                }
-              : undefined
-          }
           keyboardType={url ? 'url' : 'default'}
           onBlur={url ? onCheck : undefined}
           onChangeText={url ? onDestination : onText}
@@ -722,6 +728,7 @@ function LinkPopover({
 
 // iPhone "Sheet · Edit Link" frame.
 function LinkSheet({
+  destinationInput,
   text,
   destination,
   applicable,
@@ -734,7 +741,6 @@ function LinkSheet({
   onRemove,
   onClose,
 }: LinkFields & { readonly onClose: () => void }) {
-  const destinationInput = useRef<TextInput>(null);
   const { t } = useLocalization();
   const colors = usePalette();
   const row = (url: boolean) => {
@@ -748,14 +754,6 @@ function LinkSheet({
           accessibilityLabel={label}
           autoCapitalize={url ? 'none' : 'sentences'}
           autoCorrect={!url}
-          // A new link's Link field takes focus as soon as the editor appears.
-          onLayout={
-            url && adding
-              ? () => {
-                  destinationInput.current?.focus();
-                }
-              : undefined
-          }
           keyboardType={url ? 'url' : 'default'}
           onBlur={url ? onCheck : undefined}
           onChangeText={url ? onDestination : onText}

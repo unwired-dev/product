@@ -1591,6 +1591,8 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Text')).toHaveProp('value', 'the lease');
     expect(destination).toHaveProp('value', '');
     expect(destination).toHaveProp('placeholder', 'https://example.com');
+    // Fabric applies this on gaining the popover's window, rather than during layout.
+    expect(destination).toHaveProp('autoFocus', true);
     expect(screen.queryByRole('button', { name: 'Remove Link' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
     // Leaving Link with a destination that cannot be applied says why.
