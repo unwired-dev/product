@@ -45,10 +45,11 @@ builtin cd -q "$probe_dir"
 "${RUBY:-ruby}" create-project.rb
 journey=${2:-testIndependentWindowsCloseReopenAndQuit}
 # The performance journey relaunches the app for each of its many samples; the keyboard journey
-# runs five accessibility audits.
+# runs five accessibility audits; the Draft editor journey relaunches for each assistance round trip.
 allowance=120
 [[ "$journey" == testWarmCachePerformance ]] && allowance=1200
 [[ "$journey" == testKeyboardAndAccessibility* ]] && allowance=600
+[[ "$UNWIRED_TEST_SCENARIO" == registration-draft-editor ]] && allowance=600
 "$repo_root/scripts/record-host-load.sh" "$UNWIRED_TEST_ARTIFACTS/host-load.txt" "before $journey"
 test_exit=0
 xcodebuild test "-only-testing:WindowProbe/WindowTests/$journey" -project WindowProbe.xcodeproj -scheme WindowProbe \
