@@ -149,11 +149,36 @@ fill the remaining gaps. Delete each when its condition holds:
 
 The adapters' Back items show no menu, which would show an empty capsule
 ([#968](https://github.com/unwired-dev/product/issues/968)).
-The remaining custom chrome includes iPad's floating Inbox bar and search field,
-hosted by the window bar in the regular layout, and the Mailboxes header on iPad and
-iPhone. iPad also keeps its **Account** footer; iPhone's Mailboxes header holds
-**Account** and its floating bar holds **New Message**
-([#1055](https://github.com/unwired-dev/product/issues/1055)).
+The regular layout's window bar fills a third gap. The approved iPad frames (Inbox
+70:10332 and 70:10711, Search Results 98:37916 and 98:38223, and keyboard frames
+622:78822–79705) centre one floating Search bar on the window's bottom edge, across
+the list and reader columns. The owner chose to keep that placement
+([#1055](https://github.com/unwired-dev/product/issues/1055#issuecomment-6531549529)).
+No provided API places search there:
+
+- React Native Screens 4.26.2 configures search only in a `ScreenStack` header
+  (`RNSScreenStackHeaderConfig`, `RNSSearchBar`). A `Split.Column` takes only
+  children and appearance events (`SplitScreen.types.ts`).
+- Expo Router's `Stack.SearchBar` and `Stack.Toolbar` need a stack, and React
+  Native 0.86.3 has no search controller.
+- UIKit's `searchController` belongs to one column's navigation item
+  (`UINavigationItem.h`, iOS 27.2 SDK). `UINavigationItemSearchBarPlacement` puts
+  it in that column's navigation bar, or centres it there (`IntegratedCentered`).
+  `searchBarPlacementAllowsToolbarIntegration` moves it into an iPhone toolbar, and
+  `searchBarPlacementAllowsExternalIntegration` into the trailing column's bar.
+- `@expo/ui` 57.0.26's `searchable` placements (`automatic`, `toolbar`, `sidebar`,
+  `navigationBarDrawer`) belong to a SwiftUI navigation container's bars.
+
+[`inbox-bar.tsx`](../apps/mobile/src/inbox-bar.tsx) keeps only `createWindowBar`
+and `WindowBarHost`. They show the Inbox's floating bar over the split view's bottom
+edge and lift it above a docked keyboard; `expo-glass-effect` draws its glass and a
+React Native `TextInput` is its field. The compact layout keeps the bar in the list.
+Delete them when a provided split view or search API places one field across all
+columns at the window's bottom edge, or an approved design moves Search into a column.
+
+The other custom chrome is the Mailboxes header on iPad and iPhone. iPad also keeps
+its **Account** footer; iPhone's Mailboxes header holds **Account** and its floating
+bar holds **New Message**.
 
 ## Install and run
 

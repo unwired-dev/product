@@ -149,5 +149,8 @@ and its child issues own current scope, claims and native blocking dependencies.
 Existing native
 menus, file/photo pickers, sharing and window integration can already satisfy
 this policy; preserve them unless a provided equivalent removes maintenance.
+The mobile [navigation](../expo-client.md#navigation) docs record the remaining
+navigation exceptions, including iPad's window-wide Search bar. Cleanup keeps
+each one until its deletion condition holds.
 The comparison with T3 Code is evidence for the migration, not a requirement to
 copy its custom navigator or vendored screens fork.
