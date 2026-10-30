@@ -317,6 +317,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   numbered blocks. Compare source list boundaries with the document's
   consecutive-block numbering, including transparent wrappers and empty lists;
   otherwise a restarted list silently continues the preceding list's numbers.
+- `draft-html.ts.endElement` forcing a document line for an empty paragraph
+  whose contents collapse away. Compare empty and whitespace-only blocks with
+  explicit line breaks and noncollapsing spaces, including between list runs;
+  otherwise outgoing `<p><br></p>` introduces a visible blank line or a phantom
+  block hides an unrepresentable ordered-list restart.
 - `draft-html.ts.propertyRules` ignoring an inherited property on an inline
   element because it does not affect that element's own text. Check block
   descendants too: inline `text-align` can change their alignment. Refuse an
