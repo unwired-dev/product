@@ -317,3 +317,74 @@ test('implementer-conflicts names reviewer-only conflicts without their content'
     readable.map((file) => `diff --cc ${file}`).toSorted(),
   );
 });
+
+test('implementer-show reads a reviewer fix commit and names its reviewer-only paths', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  for (const file of [...reviewerOnly, ...readable]) {
+    writeFileSync(path.join(cwd, file), 'reviewer fix\n');
+  }
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '-qam',
+      'reviewer fix',
+    ],
+    { cwd },
+  );
+  const run = (args, from = '.') =>
+    spawnSync(show, args, { cwd: path.join(cwd, from), encoding: 'utf8' });
+  const heading = 'Reviewer-only paths (names only; do not open):';
+  for (const [args, from, shown] of [
+    [['HEAD'], '.', readable],
+    [['-s', 'HEAD'], '.', []],
+    [['HEAD~..HEAD', '--', 'docs', '.patterns'], '.', ['docs/guide.md']],
+    [['--diff', 'HEAD~', 'HEAD'], '.', readable],
+    [['--diff', 'HEAD~..HEAD', '--', '.'], 'docs', ['docs/guide.md']],
+  ]) {
+    const result = run(args, from);
+    assert.equal(result.status, 0, result.stderr);
+    const [output, names] = result.stdout.split(`${heading}\n`);
+    assert.deepEqual(
+      output
+        .split('\n')
+        .filter((line) => line.startsWith('diff --git '))
+        .toSorted(),
+      shown.map((file) => `diff --git a/${file} b/${file}`).toSorted(),
+    );
+    assert.deepEqual(
+      names.trim().split('\n').toSorted(),
+      [...reviewerOnly].toSorted(),
+    );
+  }
+  const exitCode = run(['--diff', '--exit-code', 'HEAD~', 'HEAD']);
+  assert.equal(exitCode.status, 1, exitCode.stderr);
+  assert.ok(exitCode.stdout.includes(heading), exitCode.stdout);
+  const blob = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD:docs/architecture/README.md'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  for (const args of [
+    ['HEAD:docs/architecture/README.md'],
+    [blob],
+    ['--diff', `${blob}..HEAD`],
+    ['--full-diff', 'HEAD', '--', 'docs/guide.md'],
+    ['--pickaxe-all', '-S', 'fix', 'HEAD'],
+    ['--diff', '--no-index', 'docs/architecture/README.md', 'docs/guide.md'],
+    ['--textconv', 'HEAD'],
+  ]) {
+    const result = run(args);
+    assert.equal(result.status, 2, `${args.join(' ')}: ${result.stdout}`);
+    assert.equal(result.stdout, '');
+  }
+});

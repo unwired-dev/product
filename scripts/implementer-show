@@ -1,0 +1,75 @@
+#!/bin/sh
+# git show for implementers, or git diff with --diff first, to read reviewer fixes. Every path in
+# scripts/reviewer-only-paths is excluded, whatever pathspecs the caller adds after `--`; the
+# reviewer-only paths the same revisions change print afterwards by name only.
+# Usage: scripts/implementer-show [--diff] [options] [<revision>...] [-- <pathspec>...]
+set -eu
+
+reject() {
+  printf 'implementer-show: %s\n' "$1" >&2
+  exit 2
+}
+
+command=show
+if [ "${1-}" = --diff ]; then
+  command=diff
+  shift
+fi
+
+set -f
+paths=$(cat "$(dirname "$0")/reviewer-only-paths")
+
+separated=false
+for argument do
+  case "$argument" in
+    --) separated=true; break ;;
+    --full-diff|--pickaxe-all|--no-index)
+      reject '--full-diff, --pickaxe-all and --no-index print files outside the pathspecs.' ;;
+    --ext-diff|--textconv) reject 'external diff and textconv helpers can read excluded files.' ;;
+    --name-status|--check) reject 'use --name-only or --stat; --name-status and --check cannot list reviewer-only names.' ;;
+    -*) ;;
+    *:*) reject 'tree and blob selectors bypass root exclusions; use revisions and pathspecs after --.' ;;
+    *)
+      # Refs cannot contain `..`, so this splits ranges into their ends.
+      for end in $(printf '%s\n' "${argument#^}" | sed 's/\.\.\.*/ /g'); do
+        type=$(git cat-file -t "$end^{}" 2>/dev/null) || type=
+        case "$type" in
+          tree|blob) reject 'tree and blob selectors bypass root exclusions; use revisions and pathspecs after --.' ;;
+        esac
+      done ;;
+  esac
+done
+
+# The same revisions and options limited to reviewer-only paths, with the caller's pathspecs dropped.
+names=$(
+  remaining=$#
+  while [ "$remaining" -gt 0 ]; do
+    argument=$1
+    shift
+    remaining=$((remaining - 1))
+    if [ "$argument" = -- ]; then
+      shift "$remaining"
+      break
+    fi
+    set -- "$@" "$argument"
+  done
+  set -- "$@" --no-ext-diff --no-textconv --no-relative --no-exit-code --format= --patch --name-only --
+  for path in $paths; do
+    set -- "$@" ":(top)$path"
+  done
+  git --no-pager "$command" "$@"
+)
+
+if [ "$separated" = false ]; then
+  set -- "$@" --
+fi
+for path in $paths; do
+  set -- "$@" ":(top,exclude)$path"
+done
+status=0
+git --no-pager "$command" --no-ext-diff --no-textconv "$@" || status=$?
+if [ -n "$names" ]; then
+  printf '%s\n' 'Reviewer-only paths (names only; do not open):'
+  printf '%s\n' "$names" | awk 'NF && !seen[$0]++'
+fi
+exit "$status"
