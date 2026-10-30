@@ -28,11 +28,10 @@ const decodePubSubEnvelope = Schema.decodeUnknownOption(
 
 export function decodeGmailPushEnvelope(
   envelope: unknown,
-): GmailMinimalPushMetadata {
-  return Option.getOrThrowWith(
-    decodePubSubEnvelope(envelope),
-    () => new Error('Invalid Gmail push metadata'),
-  ).message.data;
+): GmailMinimalPushMetadata | null {
+  return Option.getOrNull(
+    Option.map(decodePubSubEnvelope(envelope), ({ message }) => message.data),
+  );
 }
 
 export function gmailWakeupPayload(

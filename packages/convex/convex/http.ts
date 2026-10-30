@@ -400,16 +400,6 @@ async function signInLinkResponse(
   }
 }
 
-function decodeRequestEnvelope(
-  envelope: unknown,
-): ReturnType<typeof decodeGmailPushEnvelope> | null {
-  try {
-    return decodeGmailPushEnvelope(envelope ?? {});
-  } catch {
-    return null;
-  }
-}
-
 function hasValidVerificationToken(request: Request): boolean {
   const verificationToken = env.GMAIL_PUSH_VERIFICATION_TOKEN;
   const requestToken = new URL(request.url).searchParams.get('token');
@@ -518,7 +508,7 @@ http.route({
     }
 
     const envelope: unknown = await request.json().catch(() => null);
-    const metadata = decodeRequestEnvelope(envelope);
+    const metadata = decodeGmailPushEnvelope(envelope);
     if (metadata === null) {
       return new Response('Invalid Gmail push', { status: 400 });
     }
