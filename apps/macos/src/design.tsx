@@ -475,6 +475,8 @@ export function useReducedMotion() {
 
 // Keeps a menu shown until its exit finishes: it eases in over 200 ms and fades away over 150 ms,
 // growing slightly out of its control or arriving 8pt from above. Reduce Motion keeps only the fade.
+// It runs on the JavaScript driver: in the packaged Mac host a native-driven fade never stepped,
+// leaving the Draft editor's format bar transparent.
 export function useMenuMotion(open: boolean, arrival: 'grow' | 'drop') {
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
@@ -487,7 +489,7 @@ export function useMenuMotion(open: boolean, arrival: 'grow' | 'drop') {
       toValue: open ? 1 : 0,
       duration: open ? 200 : 150,
       easing: easeOut,
-      useNativeDriver: true,
+      useNativeDriver: false,
     });
     animation.start(({ finished }) => {
       if (finished && !open) {
