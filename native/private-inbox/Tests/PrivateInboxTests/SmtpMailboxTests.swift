@@ -110,28 +110,30 @@ extension PrivateInboxTests {
     smtp.failure = nil
     #expect(smtp.submissions().count == 1)
 
-    // Filing the Sent copy again finds it.
-    _ = try await store.imapFileSent(
-      segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
-      address: "alex@example.invalid", generation: generation)
-    #expect(imap.copy("=_sentcopy1") == Data((head + body).utf8))
-    let found = try await store.imapFindSent(
-      folder: "Sent", boundary: "=_sentcopy1", connection: id, address: "alex@example.invalid",
-      generation: generation)
-    #expect(found["count"] as? Double == 1)
-    await #expect(throws: RegistrationError.unavailable) {
-      _ = try await store.imapFindSent(
-        folder: "Sent", boundary: "=_sent copy", connection: id, address: "alex@example.invalid",
-        generation: generation)
+    // A session appends the Sent copy TypeScript composed, and a boundary search finds it.
+    let session = try #require(
+      try await store.imapOpen(
+        connection: id, address: "alex@example.invalid", generation: generation)["session"]
+        as? String)
+    let opened = try #require(imap.sessions().last)
+    func copies() async throws -> Double? {
+      try await store.imapSearch(
+        connection: id, address: "alex@example.invalid", generation: generation, session: session,
+        folder: "Sent", for: .boundary("=_sentcopy1"), newest: 1)["total"] as? Double
     }
+    #expect(try await copies() == 0)
+    _ = try await store.imapAppend(
+      connection: id, address: "alex@example.invalid", generation: generation, session: session,
+      folder: "Sent", segments: [["text": head + body]])
+    #expect(opened.appended() == [Data((head + body).utf8)])
+    #expect(try await copies() == 1)
     #expect(imap.requests().allSatisfy { $0.1 == "app-password" })
     // Filing and submission are provider writes: no server access without a current device proof.
-    let requests = imap.requests().count
     proofAvailable = false
     await #expect(throws: RegistrationError.unavailable) {
-      _ = try await store.imapFileSent(
-        segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
-        address: "alex@example.invalid", generation: generation)
+      _ = try await store.imapAppend(
+        connection: id, address: "alex@example.invalid", generation: generation, session: session,
+        folder: "Sent", segments: [["text": head + body]])
     }
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.imapSend(
@@ -143,9 +145,9 @@ extension PrivateInboxTests {
     // A purge that fails is reported as itself, and the account stays for the next attempt.
     store.stopErrorReporting = { throw PrivateInboxError.locked }
     await #expect(throws: PrivateInboxError.locked) {
-      _ = try await store.imapFileSent(
-        segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
-        address: "alex@example.invalid", generation: generation)
+      _ = try await store.imapAppend(
+        connection: id, address: "alex@example.invalid", generation: generation, session: session,
+        folder: "Sent", segments: [["text": head + body]])
     }
     await #expect(throws: PrivateInboxError.locked) {
       _ = try await store.imapSend(
@@ -155,11 +157,11 @@ extension PrivateInboxTests {
     #expect(try store.load() != nil)
     store.stopErrorReporting = {}
     await #expect(throws: RegistrationError.revoked) {
-      _ = try await store.imapFileSent(
-        segments: [["text": head + body]], folder: "Sent", boundary: "=_sentcopy1", connection: id,
-        address: "alex@example.invalid", generation: generation)
+      _ = try await store.imapAppend(
+        connection: id, address: "alex@example.invalid", generation: generation, session: session,
+        folder: "Sent", segments: [["text": head + body]])
     }
-    #expect(imap.requests().count == requests)
+    #expect(opened.appended().count == 1)
     #expect(smtp.submissions().count == 1)
     #expect(try store.load() == nil)
   }
@@ -229,17 +231,16 @@ extension PrivateInboxTests {
     let copy = Data(
       ("From: alex@example.invalid\r\nBcc: jo@example.invalid\r\n"
         + "Content-Type: multipart/mixed; boundary=\"=_sentcopy1\"\r\n\r\n--=_sentcopy1--\r\n").utf8)
-    let engine = SwiftMailImap()
-    #expect(
-      try await engine.findSent(
-        imap, password: "synthetic-password", folder: "Sent", boundary: "=_sentcopy1") == 0)
-    try await engine.fileSent(
-      imap, password: "synthetic-password", folder: "Sent", boundary: "=_sentcopy1", message: copy)
-    // Filing again finds the copy; the fixture refuses a second append.
-    try await engine.fileSent(
-      imap, password: "synthetic-password", folder: "Sent", boundary: "=_sentcopy1", message: copy)
-    #expect(
-      try await engine.findSent(
-        imap, password: "synthetic-password", folder: "Sent", boundary: "=_sentcopy1") == 1)
+    // A session's boundary search finds no copy, the append stores one, and the search finds it.
+    let session = try await SwiftMailImap().open(imap, password: "synthetic-password")
+    do {
+      #expect(try await session.search("Sent", for: .boundary("=_sentcopy1"), newest: 1).total == 0)
+      try await session.append("Sent", message: copy)
+      #expect(try await session.search("Sent", for: .boundary("=_sentcopy1"), newest: 1).total == 1)
+      await session.close()
+    } catch {
+      await session.close()
+      throw error
+    }
   }
 }

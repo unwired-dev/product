@@ -78,7 +78,6 @@ import {
   decodeDocument,
   decodeEnvelopes,
   decodeFlags,
-  decodeCount,
   decodeHistoryRead,
   decodeHeaders,
   decodeIdle,
@@ -249,18 +248,19 @@ export interface NativeImapMailbox
       copied?: Readonly<{ uidValidity: number; uid: number }>;
     }>,
   ) => Promise<unknown>;
-  // Examines the `folder` in the open `session` and searches its text. Resolves
-  // `{ uidValidity, uids, total }`: the `newest` matching UIDs, newest first, and how many matched.
-  // Rejects with `imap-missing` for a folder the server no longer selects, `imap-changed` for one
-  // without UIDVALIDITY and `imap-unsupported` for a query in a charset the server cannot search.
+  // Examines the `folder` in the open `session` and searches its text for `query`, or its
+  // Content-Type headers for a Sent copy's MIME `boundary`. Resolves `{ uidValidity, uids, total }`:
+  // the `newest` matching UIDs, newest first, and how many matched. Rejects with `imap-missing` for
+  // a folder the server no longer selects, `imap-changed` for one without UIDVALIDITY and
+  // `imap-unsupported` for a query in a charset the server cannot search.
   readonly imapSearch: (
     mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{
-      session: string;
-      folder: string;
-      query: string;
-      newest: number;
-    }>,
+    request: Readonly<
+      { session: string; folder: string; newest: number } & (
+        | { query: string }
+        | { boundary: string }
+      )
+    >,
   ) => Promise<unknown>;
   // Waits in IDLE on the folder until the server sends an event or `seconds` pass. Resolves
   // `{ events }`, the kinds of event sent before the wait ended (`exists`, `expunge`, `vanished`,
@@ -278,19 +278,14 @@ export interface NativeImapMailbox
     }>,
     mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
-  // Appends the message to the Sent `folder` unless a copy with its MIME `boundary` is there.
-  readonly imapFileSent: (
+  // Appends the message, read, to the Sent `folder` in the open `session`.
+  readonly imapAppend: (
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<{
+      session: string;
       folder: string;
-      boundary: string;
       segments: OutgoingSend['segments'];
     }>,
-  ) => Promise<unknown>;
-  // Resolves `{ count }`, the messages in the Sent `folder` carrying the MIME `boundary`.
-  readonly imapFindSent: (
-    mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{ folder: string; boundary: string }>,
   ) => Promise<unknown>;
 }
 
@@ -2890,7 +2885,19 @@ export function createImapInbox(
       ),
     );
   };
-  // Files an accepted message's copy in the Sent folder the server declares. Resolves undefined
+  // How many messages in the Sent folder carry the MIME boundary, searched in the open session.
+  const sentCopies = (
+    scope: Scope,
+    request: Readonly<{ session: string; folder: string; boundary: string }>,
+  ) =>
+    call(() => native.imapSearch(scope, { ...request, newest: 1 })).pipe(
+      Effect.flatMap((reply) =>
+        decodeSearch(reply).pipe(Effect.mapError(malformed)),
+      ),
+      Effect.map(({ total }) => total),
+    );
+  // Files an accepted message's copy in the Sent folder the server declares, unless a copy with its
+  // MIME boundary is there already, as after a lost answer to an earlier filing. Resolves undefined
   // once the copy is there, or why it still waits.
   const fileSent = (
     message: OutgoingSend,
@@ -2905,16 +2912,23 @@ export function createImapInbox(
       return Promise.resolve('sent-folder');
     }
     return runLogged(
-      call(() =>
-        native.imapFileSent(scope, {
-          folder,
-          boundary,
-          segments: message.segments,
+      withSession(scope, (session) =>
+        Effect.gen(function* () {
+          if (
+            (yield* sentCopies(scope, { ...session, folder, boundary })) > 0
+          ) {
+            return;
+          }
+          const reply = yield* call(() =>
+            native.imapAppend(scope, {
+              ...session,
+              folder,
+              segments: message.segments,
+            }),
+          );
+          yield* decodeEmpty(reply).pipe(Effect.mapError(malformed));
         }),
       ).pipe(
-        Effect.flatMap((reply) =>
-          decodeEmpty(reply).pipe(Effect.mapError(malformed)),
-        ),
         Effect.tapError((failure) =>
           current(scope) && changesAccess(failure.kind)
             ? loadFailed(failure)
@@ -2945,17 +2959,16 @@ export function createImapInbox(
       return Promise.resolve<SendOutcome>({ kind: 'unknown' });
     }
     return runLogged(
-      call(() => native.imapFindSent(scope, { folder, boundary })).pipe(
-        Effect.flatMap((reply) =>
-          decodeCount(reply).pipe(Effect.mapError(malformed)),
-        ),
+      withSession(scope, (session) =>
+        sentCopies(scope, { ...session, folder, boundary }),
+      ).pipe(
         Effect.tapError((failure) =>
           current(scope) && changesAccess(failure.kind)
             ? loadFailed(failure)
             : Effect.void,
         ),
         Effect.match({
-          onSuccess: ({ count }): SendOutcome | undefined => {
+          onSuccess: (count): SendOutcome | undefined => {
             if (!current(scope)) {
               return undefined;
             }

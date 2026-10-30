@@ -67,21 +67,6 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
     try record("modify \(change.folder) \(change.uid) \(change.destination ?? "read")", password)
     return outcome
   }
-  // Sent copies filed by boundary, as the server would hold them.
-  private var filed: [String: Data] = [:]
-  func copy(_ boundary: String) -> Data? { lock.withLock { filed[boundary] } }
-  func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
-    async throws -> Int
-  {
-    try record("find \(folder) \(boundary)", password)
-    return lock.withLock { filed[boundary] == nil ? 0 : 1 }
-  }
-  func fileSent(
-    _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
-  ) async throws {
-    try record("file \(folder) \(boundary)", password)
-    lock.withLock { filed[boundary] = filed[boundary] ?? message }
-  }
 }
 
 // A controlled session: it lists the Inbox and records its close. With `hold`, a listing waits for
@@ -111,8 +96,20 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
     ControlledImap.messages
   }
   func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]] { [11: ["\\Seen"]] }
-  func search(_ folder: String, query: String, newest: Int) async throws -> ImapMatches {
-    ImapMatches(uidValidity: 7, uids: [11], total: 2)
+  // Messages appended, in order; a boundary search counts the appended copies that carry it.
+  private var stored: [Data] = []
+  func appended() -> [Data] { lock.withLock { stored } }
+  func search(_ folder: String, for criterion: ImapSearchCriterion, newest: Int) async throws
+    -> ImapMatches
+  {
+    guard case .boundary(let boundary) = criterion else {
+      return ImapMatches(uidValidity: 7, uids: [11], total: 2)
+    }
+    let copies = lock.withLock { stored.filter { $0.range(of: Data(boundary.utf8)) != nil } }
+    return ImapMatches(uidValidity: 7, uids: [], total: copies.count)
+  }
+  func append(_ folder: String, message: Data) async throws {
+    lock.withLock { stored.append(message) }
   }
   func folders() async throws -> [ImapListedFolder] {
     if hold {
@@ -284,7 +281,7 @@ extension PrivateInboxTests {
     #expect((flags["flags"] as? [[String: Any]])?.first?["flags"] as? [String] == ["\\Seen"])
     let matches = try await store.imapSearch(
       connection: id, address: "alex@example.invalid", generation: generation, session: session,
-      folder: "INBOX", query: "Synthetic", newest: 50)
+      folder: "INBOX", for: .text("Synthetic"), newest: 50)
     #expect(matches["uidValidity"] as? Double == 7 && matches["uids"] as? [Double] == [11])
     #expect(matches["total"] as? Double == 2)
     store.imapClose(connection: id, session: session)
@@ -375,15 +372,17 @@ extension PrivateInboxTests {
         connection: id, address: "alex@example.invalid", generation: generation,
         session: "session", uids: Array(1...201))
     }
-    for (folder, query, newest) in [
-      ("", "Synthetic", 50), ("INBOX", "", 50), ("INBOX", "a\r\nA1 LOGOUT", 50),
-      ("INBOX", String(repeating: "a", count: 201), 50), ("INBOX", "Synthetic", 0),
-      ("INBOX", "Synthetic", 201),
+    for (folder, criterion, newest): (String, ImapSearchCriterion, Int) in [
+      ("", .text("Synthetic"), 50), ("INBOX", .text(""), 50),
+      ("INBOX", .text("a\r\nA1 LOGOUT"), 50),
+      ("INBOX", .text(String(repeating: "a", count: 201)), 50), ("INBOX", .text("Synthetic"), 0),
+      ("INBOX", .text("Synthetic"), 201), ("Sent", .boundary("=_sent copy"), 1),
+      ("Sent", .boundary("=_short"), 1),
     ] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.imapSearch(
           connection: id, address: "alex@example.invalid", generation: generation,
-          session: "session", folder: folder, query: query, newest: newest)
+          session: "session", folder: folder, for: criterion, newest: newest)
       }
     }
 
@@ -811,10 +810,10 @@ extension PrivateInboxTests {
     let searching = try await provider.open(synthetic, password: password)
     do {
       #expect(
-        try await searching.search("INBOX", query: "Controlled", newest: 50)
+        try await searching.search("INBOX", for: .text("Controlled"), newest: 50)
           == ImapMatches(uidValidity: 7, uids: [11], total: 1))
       await #expect(throws: ImapFailure.missing) {
-        _ = try await searching.search("Gone", query: "Controlled", newest: 50)
+        _ = try await searching.search("Gone", for: .text("Controlled"), newest: 50)
       }
       await searching.close()
     } catch {
@@ -825,7 +824,7 @@ extension PrivateInboxTests {
     // billions of identifiers supplied by an untrusted server, and its envelopes alone are read.
     let largeSearch = try await provider.open(try account("large-search"), password: password)
     do {
-      let matches = try await largeSearch.search("INBOX", query: "Controlled", newest: 50)
+      let matches = try await largeSearch.search("INBOX", for: .text("Controlled"), newest: 50)
       #expect(matches.uids == Array((3_999_999_951...4_000_000_000).reversed()))
       #expect(matches.total == 4_000_000_000)
       #expect(try await largeSearch.envelopes(.uids(matches.uids)).map(\.uid) == [4_000_000_000])

@@ -53,10 +53,8 @@ export function syntheticConnections(
       server(mailbox.connection)?.imapIdle(mailbox, request) ?? missing(),
     imapSend: (message, mailbox) =>
       server(mailbox.connection)?.imapSend(message, mailbox) ?? missing(),
-    imapFileSent: (mailbox, request) =>
-      server(mailbox.connection)?.imapFileSent(mailbox, request) ?? missing(),
-    imapFindSent: (mailbox, request) =>
-      server(mailbox.connection)?.imapFindSent(mailbox, request) ?? missing(),
+    imapAppend: (mailbox, request) =>
+      server(mailbox.connection)?.imapAppend(mailbox, request) ?? missing(),
     gmailRequest: (path, query, mailbox) =>
       of(mailbox.connection)?.gmailRequest(path, query, mailbox) ?? missing(),
     graphRequest: (url, mailbox) =>

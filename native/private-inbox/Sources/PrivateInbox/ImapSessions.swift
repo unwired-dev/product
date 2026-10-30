@@ -12,6 +12,13 @@ struct ImapListedFolder: Sendable, Equatable {
   let delimiter: String?
 }
 
+// What a folder search looks for: a short text anywhere in the message, or a MIME boundary in its
+// Content-Type header, which marks a Sent copy Unwired filed.
+enum ImapSearchCriterion: Sendable, Equatable {
+  case text(String)
+  case boundary(String)
+}
+
 // One authenticated session that TypeScript drives through purpose-named primitives. Closing it
 // ends the connection, failing any command still in flight.
 protocol ImapSession: Sendable {
@@ -28,9 +35,12 @@ protocol ImapSession: Sendable {
   func envelopes(_ read: ImapEnvelopeRead) async throws -> [ImapEnvelope]
   // The flags of each named message still in the examined folder.
   func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]]
-  // Examines the folder and searches its text; refuses a folder the server no longer selects, one
-  // without UIDVALIDITY, and a query in a charset the server cannot search.
-  func search(_ folder: String, query: String, newest: Int) async throws -> ImapMatches
+  // Examines the folder and searches it; refuses a folder the server no longer selects, one
+  // without UIDVALIDITY, and a text in a charset the server cannot search.
+  func search(_ folder: String, for criterion: ImapSearchCriterion, newest: Int) async throws
+    -> ImapMatches
+  // Appends the message to the folder, marked read.
+  func append(_ folder: String, message: Data) async throws
   func close() async
 }
 
@@ -121,8 +131,15 @@ protocol ImapSession: Sendable {
       }
     }
 
-    func search(_ folder: String, query: String, newest: Int) async throws -> ImapMatches {
-      try await run { server in
+    func search(_ folder: String, for criterion: ImapSearchCriterion, newest: Int) async throws
+      -> ImapMatches
+    {
+      let search: SearchCriteria =
+        switch criterion {
+        case .text(let text): .text(text)
+        case .boundary(let boundary): .header("Content-Type", boundary)
+        }
+      return try await run { server in
         let selection: Mailbox.Selection
         do {
           selection = try await SwiftMailImap.examine(server, folder: folder)
@@ -131,7 +148,7 @@ protocol ImapSession: Sendable {
         }
         let matches: UIDSet
         do {
-          matches = try await server.extendedSearch(criteria: [.text(query)]).all ?? UIDSet()
+          matches = try await server.extendedSearch(criteria: [search]).all ?? UIDSet()
         } catch IMAPError.searchCharsetNotSupported {
           throw ImapFailure.unsupported
         }
@@ -140,6 +157,14 @@ protocol ImapSession: Sendable {
           .map { UInt32($0) }
         return ImapMatches(
           uidValidity: selection.uidValidity.value, uids: Array(uids), total: matches.count)
+      }
+    }
+
+    func append(_ folder: String, message: Data) async throws {
+      try await run { server in
+        _ = try await server.append(
+          rawMessage: String(decoding: message, as: UTF8.self), to: folder, flags: [.seen],
+          internalDate: nil)
       }
     }
 
@@ -302,22 +327,48 @@ extension RegistrationStore {
     return ["flags": flags.map { ["uid": Double($0.key), "flags": $0.value] as [String: Any] }]
   }
 
-  // The server's search of one folder for a short text: its newest matches, at most 200, and how
-  // many matched in all.
+  // The server's search of one folder for a short text or a Sent copy's boundary: its newest
+  // matches, at most 200, and how many matched in all.
   func imapSearch(
     connection: String, address: String, generation: String, session: String, folder: String,
-    query: String, newest: Int
+    for criterion: ImapSearchCriterion, newest: Int
   ) async throws -> [String: Any] {
-    guard Self.imapFolderName(folder), !query.isEmpty, query.count <= 200,
-      query.rangeOfCharacter(from: .controlCharacters) == nil, (1...200).contains(newest)
+    guard Self.imapFolderName(folder), Self.imapCriterion(criterion), (1...200).contains(newest)
     else { throw RegistrationError.unavailable }
     let matches = try await imapCommand(
       session, connection: connection, address: address, generation: generation
-    ) { try await $0.search(folder, query: query, newest: newest) }
+    ) { try await $0.search(folder, for: criterion, newest: newest) }
     return [
       "uidValidity": Double(matches.uidValidity), "uids": matches.uids.map(Double.init),
       "total": Double(matches.total),
     ]
+  }
+
+  // A text without control characters, or one of the boundaries TypeScript chooses, which a quoted
+  // IMAP search carries unchanged.
+  private nonisolated static func imapCriterion(_ criterion: ImapSearchCriterion) -> Bool {
+    switch criterion {
+    case .text(let text):
+      !text.isEmpty && text.count <= 200 && text.rangeOfCharacter(from: .controlCharacters) == nil
+    case .boundary(let boundary):
+      boundary.range(of: "^[0-9A-Za-z=_.-]{8,70}$", options: .regularExpression) != nil
+    }
+  }
+
+  // Appends a Sent copy TypeScript composed, read, to the folder. Filing is a provider write, so it
+  // needs a current device proof.
+  func imapAppend(
+    connection: String, address: String, generation: String, session: String, folder: String,
+    segments: [Any]
+  ) async throws -> [String: Any] {
+    guard Self.imapFolderName(folder) else { throw RegistrationError.unavailable }
+    let product = try mailboxAccount(connection)
+    let message = try await outgoingMessage(segments: segments, owner: product.productAccountId)
+    try await requireTrustedDevice(product)
+    try await imapCommand(
+      session, connection: connection, address: address, generation: generation
+    ) { try await $0.append(folder, message: message) }
+    return [:]
   }
 
   private nonisolated static func imapUids(_ uids: [UInt32]) -> Bool {

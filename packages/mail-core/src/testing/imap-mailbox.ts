@@ -355,18 +355,15 @@ export function createSyntheticImap({
       }
       return Promise.resolve({ accepted: true });
     },
-    imapFileSent: (_mailbox, request) => {
-      server.reads.push(`file ${request.folder}`);
-      const failed = reach();
+    imapAppend: (_mailbox, request) => {
+      server.reads.push(`append ${request.folder}`);
+      const failed = inSession(request.session);
       if (failed !== undefined) {
         return failed;
       }
       const sent = folders.get(request.folder);
       if (sent === undefined) {
         return rejection('imap-missing');
-      }
-      if (sent.messages.some(({ raw }) => raw.includes(request.boundary))) {
-        return Promise.resolve({});
       }
       const raw = rawOf(request.segments);
       sent.messages.push({
@@ -381,20 +378,6 @@ export function createSyntheticImap({
       sent.uidNext += 1;
       server.changes.push(`append ${request.folder}`);
       return answer({});
-    },
-    imapFindSent: (_mailbox, request) => {
-      server.reads.push(`find ${request.folder}`);
-      const failed = reach();
-      if (failed !== undefined) {
-        return failed;
-      }
-      return Promise.resolve({
-        count:
-          folders
-            .get(request.folder)
-            ?.messages.filter(({ raw }) => raw.includes(request.boundary))
-            .length ?? 0,
-      });
     },
     imapOpen: () => {
       server.reads.push('login');
@@ -513,22 +496,22 @@ export function createSyntheticImap({
             uid: change.uid,
           });
     },
-    imapSearch: (_mailbox, { session, folder: name, query, newest }) => {
+    imapSearch: (_mailbox, request) => {
+      const { session, folder: name, newest } = request;
       server.reads.push(`search ${name}`);
       const current = folders.get(name);
       if (current === undefined) {
         return inSession(session) ?? rejection('imap-missing');
       }
       examining.set(session, current);
-      const text = query.toLowerCase();
-      const matches = Arr.sort(
-        current.messages.filter(
-          ({ subject, raw }) =>
-            subject.toLowerCase().includes(text) ||
-            raw.toLowerCase().includes(text),
-        ),
-        newestUid,
-      );
+      // A text matches the subject or the message case-insensitively; a boundary, as it appears.
+      const matching =
+        'boundary' in request
+          ? ({ raw }: ServerMessage) => raw.includes(request.boundary)
+          : ({ subject, raw }: ServerMessage) =>
+              subject.toLowerCase().includes(request.query.toLowerCase()) ||
+              raw.toLowerCase().includes(request.query.toLowerCase());
+      const matches = Arr.sort(current.messages.filter(matching), newestUid);
       return (
         inSession(session) ??
         Promise.resolve({

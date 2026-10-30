@@ -340,10 +340,7 @@ export function createHost(
         observe('send', 'send-failed', () =>
           native().imapSend(message, mailbox),
         ),
-      imapFileSent: (mailbox, request) =>
-        native().imapFileSent(mailbox, request),
-      imapFindSent: (mailbox, request) =>
-        native().imapFindSent(mailbox, request),
+      imapAppend: (mailbox, request) => native().imapAppend(mailbox, request),
       // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
       commitMailbox: (mailbox, expectedRevision, document, history) =>
         native().commitMailbox(
