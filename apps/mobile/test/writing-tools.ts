@@ -9,7 +9,9 @@ interface WritingToolsMenu {
       readonly disabled?: boolean;
     }>;
   }>;
-  readonly onSelect: (event: { nativeEvent: { id: string } }) => void;
+  readonly onSelect: (event: {
+    readonly nativeEvent: { readonly id: string };
+  }) => void;
 }
 
 // Rendered host props are untyped; the native menu button always carries both.

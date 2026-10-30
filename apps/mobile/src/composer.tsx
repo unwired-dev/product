@@ -1390,6 +1390,78 @@ export function ComposerNotices({
   );
 }
 
+// The format bar's Writing tools: one system menu of Rewrite and Translate where they are
+// available, plus Suggest reply on replies. Hidden when neither is available.
+function WritingTools({
+  assistance,
+  translation,
+  reply,
+  body,
+  selection,
+  sending,
+  onRewrite,
+  onTranslate,
+  onReply,
+}: {
+  readonly assistance: boolean;
+  readonly translation: boolean;
+  readonly reply: boolean;
+  readonly body: Draft['body'];
+  readonly selection: Selection;
+  readonly sending: boolean;
+  readonly onRewrite: () => void;
+  readonly onTranslate: () => void;
+  readonly onReply: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  if (!assistance && !translation) {
+    return null;
+  }
+  const rewrite = {
+    key: 'rewrite',
+    title: t('assistance.rewrite'),
+    accessibilityLabel: t(rewriteLabel(selection)),
+    symbol: 'pencil',
+    disabled: !canRewrite(body, selection),
+    run: onRewrite,
+  };
+  const translate = {
+    key: 'translate',
+    title: t('translation.translate'),
+    accessibilityLabel: t('translation.translateSelectionLabel'),
+    symbol: 'translate',
+    disabled: !hasTranslatableText(
+      selectedText(body, selection, translationInputLimit + 1),
+    ),
+    run: onTranslate,
+  };
+  const suggestReply = {
+    key: 'reply',
+    title: t('assistance.suggestReply'),
+    accessibilityLabel: t('assistance.suggestReplyLabel'),
+    symbol: '',
+    run: onReply,
+  };
+  return (
+    <MenuButton
+      accessibilityLabel={t('drafts.writingTools')}
+      disabled={sending}
+      sections={[
+        ...(assistance ? [{ items: [rewrite] }] : []),
+        ...(translation ? [{ items: [translate] }] : []),
+        ...(assistance && reply ? [{ items: [suggestReply] }] : []),
+      ]}
+      style={styles.writingTools}>
+      <SFSymbol
+        name="sparkles"
+        size={20}
+        color={colors.textPrimary}
+      />
+    </MenuButton>
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -2024,104 +2096,41 @@ function Editor({
         }}
       />
       <View style={styles.grow} />
-      {translation === undefined && assistance === undefined ? null : (
-        // Writing tools: one system menu of Rewrite, Translate and, on replies, Suggest reply.
-        <MenuButton
-          accessibilityLabel={t('drafts.writingTools')}
-          disabled={sending}
-          sections={[
-            ...(assistance === undefined
-              ? []
-              : [
-                  {
-                    items: [
-                      {
-                        key: 'rewrite',
-                        title: t('assistance.rewrite'),
-                        accessibilityLabel: t(rewriteLabel(selection)),
-                        symbol: 'pencil',
-                        disabled: !canRewrite(draft.body, selection),
-                        run: () => {
-                          const at = selectionNow.current;
-                          if (
-                            lifetime.current.mounted &&
-                            canRewrite(authored.current.body, at)
-                          ) {
-                            capture('rewrite', at);
-                          }
-                        },
-                      },
-                    ],
-                  },
-                ]),
-            ...(translation === undefined
-              ? []
-              : [
-                  {
-                    items: [
-                      {
-                        key: 'translate',
-                        title: t('translation.translate'),
-                        accessibilityLabel: t(
-                          'translation.translateSelectionLabel',
-                        ),
-                        symbol: 'translate',
-                        disabled: !hasTranslatableText(
-                          selectedText(
-                            draft.body,
-                            selection,
-                            translationInputLimit + 1,
-                          ),
-                        ),
-                        run: () => {
-                          const at = selectionNow.current;
-                          const { body } = authored.current;
-                          const text = selectedText(
-                            body,
-                            at,
-                            translationInputLimit + 1,
-                          );
-                          if (
-                            sendingNow.current ||
-                            !lifetime.current.mounted ||
-                            !hasTranslatableText(text)
-                          ) {
-                            return;
-                          }
-                          capture('translate', at);
-                        },
-                      },
-                    ],
-                  },
-                ]),
-            ...(assistance !== undefined && canSuggestReply(draft)
-              ? [
-                  {
-                    items: [
-                      {
-                        key: 'reply',
-                        title: t('assistance.suggestReply'),
-                        accessibilityLabel: t('assistance.suggestReplyLabel'),
-                        symbol: '',
-                        run: () => {
-                          if (lifetime.current.mounted) {
-                            capture('reply', selectionNow.current);
-                          }
-                        },
-                      },
-                    ],
-                  },
-                ]
-              : []),
-          ]}
-          style={styles.writingTools}>
-          <SFSymbol
-            name="sparkles"
-            size={20}
-            color={colors.textPrimary}
-          />
-        </MenuButton>
-      )}
+      <WritingTools
+        assistance={assistance !== undefined}
+        translation={translation !== undefined}
+        reply={canSuggestReply(draft)}
+        body={draft.body}
+        selection={selection}
+        sending={sending}
+        onRewrite={() => {
+          const at = selectionNow.current;
+          if (
+            lifetime.current.mounted &&
+            canRewrite(authored.current.body, at)
+          ) {
+            capture('rewrite', at);
+          }
+        }}
+        onTranslate={() => {
+          const at = selectionNow.current;
+          const { body } = authored.current;
+          const text = selectedText(body, at, translationInputLimit + 1);
+          if (
+            sendingNow.current ||
+            !lifetime.current.mounted ||
+            !hasTranslatableText(text)
+          ) {
+            return;
+          }
+          capture('translate', at);
+        }}
+        onReply={() => {
+          if (lifetime.current.mounted) {
+            capture('reply', selectionNow.current);
+          }
+        }}
+      />
       <View style={[styles.divider, { backgroundColor: colors.separator }]} />
       <ToolbarButton
         disabled={sending}

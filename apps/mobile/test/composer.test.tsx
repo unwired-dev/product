@@ -3066,9 +3066,9 @@ describe('composing Drafts', () => {
       expect(cancelled).toStrictEqual([asked[0]?.request]);
       expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
       expect(asked).toHaveLength(1);
-      expect(
-        writingTool('Rewrite the message body') !== undefined,
-      ).toBe(offered);
+      expect(writingTool('Rewrite the message body') !== undefined).toBe(
+        offered,
+      );
     },
   );
   /* oxlint-enable vitest/max-expects */
