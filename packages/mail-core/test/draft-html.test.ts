@@ -504,6 +504,28 @@ describe('a Semantic Message Document from Draft HTML', () => {
     });
   });
 
+  it('refuses a block that inherits a visible background', () => {
+    expect.hasAssertions();
+    expect(
+      [
+        '<span style="background-color:#ff0000"><div style="background-color:inherit">text</div></span>',
+        '<span style="background:#ff0000"><p style="background:inherit">text</p></span>',
+      ].map((html) => documentFromHtml(html)),
+    ).toStrictEqual([
+      { unsupported: ['background-color'] },
+      { unsupported: ['background'] },
+    ]);
+    expect(
+      documentFromHtml(
+        '<span style="background-color:#ff0000"><span style="background-color:inherit">text</span></span>',
+      ),
+    ).toStrictEqual({
+      document: [
+        { kind: 'paragraph', spans: [{ text: 'text', background: '#ff0000' }] },
+      ],
+    });
+  });
+
   it('refuses inline alignment that blocks inside it would inherit', () => {
     expect.hasAssertions();
     expect(

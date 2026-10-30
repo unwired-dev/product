@@ -556,6 +556,12 @@ const replacementContext = (
     ? (inheritedRules.get(property)?.(context, parent) ?? context)
     : context;
 
+// An inherited visible background would fill the whole block, which the document cannot show.
+const paintsBlock = (property: string, parent: Context, block: boolean) =>
+  block &&
+  property.startsWith('background') &&
+  parent.format.background !== undefined;
+
 // The parser drops values it cannot vet, such as calc() sizes. Drafts must refuse them instead.
 const reportRejected = (
   unsupported: Set<string>,
@@ -594,7 +600,9 @@ const styled = (
       const inherit = inheritedRules.get(property);
       if (inherit !== undefined) {
         return applied({ ...applying, context }, [property, value], () =>
-          inherit(context, parent),
+          paintsBlock(property, parent, applying.block)
+            ? undefined
+            : inherit(context, parent),
         );
       }
     }

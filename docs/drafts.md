@@ -252,7 +252,7 @@ function is reported rather than turning an indentation into a quote.
 Browser-dependent active/visited
 link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
 Anything else, such as a table, an image, headings four to six, a nested list
-or quote, a color name, a relative size, a block background, a popover, list
+or quote, a color name, a relative size, a block background (including an inherited one), a popover, list
 markers with colors or fonts (including bold and italic), custom or reversed
 list numbering, adjacent ordered lists that restart numbering without a
 separating document block, a multiline list item, right-to-left text or a CSS-wide keyword
