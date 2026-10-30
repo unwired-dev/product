@@ -166,6 +166,7 @@ const capabilitiesOf = (user, namespaces) =>
       synthetic: ['MOVE', 'UIDPLUS', 'IDLE'],
       'no-move': ['UIDPLUS'],
       'large-search': ['ESEARCH'],
+      history: ['ESEARCH'],
     }[user] ?? []),
   ].join(' ');
 // Folders the server no longer selects, and a destination it refuses.
@@ -297,6 +298,13 @@ const answerChange = (socket, session, { tag, command }) => {
     socket.write(
       `* SEARCH${appended.has(boundary) ? ' 31' : ''}\r\n${tag} OK Completed\r\n`,
     );
+  } else if (/^UID SEARCH .*UID \d+:\d+ ALL$/u.test(command)) {
+    // History reads search bounded UID windows; the reply overstates them with a billions-wide range.
+    assert.equal(session.user, 'history');
+    operations.add('history-search');
+    socket.write(
+      `* ESEARCH (TAG "${tag}") UID ALL 1:3,7,11:4000000000\r\n${tag} OK Completed\r\n`,
+    );
   } else if (command.startsWith('UID SEARCH ')) {
     assert.match(command, /TEXT "?Controlled"?$/u);
     operations.add('search');
@@ -369,6 +377,21 @@ const answerFetch = (socket, session, { tag, command }) => {
       socket.write(raw);
       socket.write(`)\r\n${tag} OK Read\r\n`);
     }
+  } else if (session.user === 'history') {
+    // One reply per named UID, so the page carries only the window's newest messages.
+    const uids =
+      /^UID FETCH (?<set>[\d,:]+) /u.exec(command)?.groups?.set ?? '';
+    operations.add(
+      command.includes('ENVELOPE') ? 'history-fetch' : 'history-known',
+    );
+    const held = uids
+      .split(',')
+      .map(Number)
+      .filter((uid) => [2, 3, 7, 11].includes(uid));
+    assert.ok(held.length <= 2, `History fetch is unbounded: ${command}`);
+    socket.write(
+      `${held.map((uid, index) => `* ${index + 1} FETCH (${metadataFields(command, uid).join(' ')})\r\n`).join('')}${tag} OK Completed\r\n`,
+    );
   } else {
     assertResumed(command, session);
     operations.add(command.includes('ENVELOPE') ? 'metadata' : 'flags-or-size');
@@ -538,6 +561,9 @@ process.on('SIGTERM', () => {
       'flags-or-size',
       'folder-flood',
       'gone',
+      'history-fetch',
+      'history-known',
+      'history-search',
       'idle',
       'idle-done',
       'large-search',

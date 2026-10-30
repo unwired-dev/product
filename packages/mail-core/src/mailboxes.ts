@@ -192,6 +192,10 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
     request: Parameters<NativeImapMailbox['imapSynchronize']>[1],
   ) => Promise<unknown>;
+  readonly imapHistory: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapHistory']>[1],
+  ) => Promise<unknown>;
   readonly imapMessage: (
     mailbox: Scope,
     message: Parameters<NativeImapMailbox['imapMessage']>[1],
@@ -323,6 +327,8 @@ const boundImap = (
     imapClose: (mailbox, session) => native.imapClose(scope(mailbox), session),
     imapSynchronize: (mailbox, request) =>
       native.imapSynchronize(scope(mailbox), request),
+    imapHistory: (mailbox, request) =>
+      native.imapHistory(scope(mailbox), request),
     imapMessage: (mailbox, message) =>
       native.imapMessage(scope(mailbox), message),
     imapHeaders: (mailbox, request) =>
@@ -338,6 +344,7 @@ const boundImap = (
       native.imapFindSent(scope(mailbox), request),
     openMailbox: cache.openMailbox,
     commitMailbox: cache.commitMailbox,
+    openMailboxSegment: cache.openMailboxSegment,
     openMessageBody: cache.openMessageBody,
     commitMessageBody: cache.commitMessageBody,
     listMessageBodies: cache.listMessageBodies,
