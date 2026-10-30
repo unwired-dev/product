@@ -286,6 +286,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   numbered blocks. Compare source list boundaries with the document's
   consecutive-block numbering, including transparent wrappers and empty lists;
   otherwise a restarted list silently continues the preceding list's numbers.
+- `draft-html.ts.propertyRules` ignoring an inherited property on an inline
+  element because it does not affect that element's own text. Check block
+  descendants too: inline `text-align` can change their alignment. Refuse an
+  inline alignment that differs from its parent rather than returning blocks
+  with the parent's alignment or aligning plain inline text as a whole block.
 - `html-sanitizer.ts.readDeclarations` passing sender CSS to a recursive parser
   before bounding block and function nesting, including a new dependency's own
   throw limit and recursive token serialization. Check the installed parser's
