@@ -238,7 +238,8 @@ describe('imap recent-body prefetch', () => {
     ).toStrictEqual([
       'login',
       'folders',
-      'synchronize INBOX',
+      'login',
+      'examine INBOX',
       `headers INBOX ${uids.plain},${uids.html},${uids.attached}`,
       `message INBOX ${uids.plain}`,
       `message INBOX ${uids.html}`,
@@ -269,7 +270,8 @@ describe('imap recent-body prefetch', () => {
     expect(imap.server.reads).toStrictEqual([
       'login',
       'folders',
-      'synchronize INBOX',
+      'login',
+      'examine INBOX',
     ]);
     const release = inbox.retainMessage(ids.attached);
     await inbox.readMessage(ids.attached);
@@ -440,12 +442,12 @@ describe('imap recent-body prefetch', () => {
     await requested.promise;
     const synchronizing = Promise.withResolvers<undefined>();
     const synchronized = Promise.withResolvers<undefined>();
-    const sync = imap.native.imapSynchronize;
-    vi.spyOn(imap.native, 'imapSynchronize').mockImplementationOnce(
+    const examine = imap.native.imapExamine;
+    vi.spyOn(imap.native, 'imapExamine').mockImplementationOnce(
       async (...args) => {
         synchronizing.resolve(undefined);
         await synchronized.promise;
-        return sync(...args);
+        return examine(...args);
       },
     );
     onTestFinished(() => synchronized.resolve(undefined));

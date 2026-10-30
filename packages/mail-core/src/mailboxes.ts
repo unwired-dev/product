@@ -188,9 +188,17 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
     session: Parameters<NativeImapMailbox['imapClose']>[1],
   ) => Promise<unknown>;
-  readonly imapSynchronize: (
+  readonly imapExamine: (
     mailbox: Scope,
-    request: Parameters<NativeImapMailbox['imapSynchronize']>[1],
+    request: Parameters<NativeImapMailbox['imapExamine']>[1],
+  ) => Promise<unknown>;
+  readonly imapEnvelopes: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapEnvelopes']>[1],
+  ) => Promise<unknown>;
+  readonly imapFlags: (
+    mailbox: Scope,
+    request: Parameters<NativeImapMailbox['imapFlags']>[1],
   ) => Promise<unknown>;
   readonly imapHistory: (
     mailbox: Scope,
@@ -325,8 +333,11 @@ const boundImap = (
     imapListFolders: (mailbox, session) =>
       native.imapListFolders(scope(mailbox), session),
     imapClose: (mailbox, session) => native.imapClose(scope(mailbox), session),
-    imapSynchronize: (mailbox, request) =>
-      native.imapSynchronize(scope(mailbox), request),
+    imapExamine: (mailbox, request) =>
+      native.imapExamine(scope(mailbox), request),
+    imapEnvelopes: (mailbox, request) =>
+      native.imapEnvelopes(scope(mailbox), request),
+    imapFlags: (mailbox, request) => native.imapFlags(scope(mailbox), request),
     imapHistory: (mailbox, request) =>
       native.imapHistory(scope(mailbox), request),
     imapMessage: (mailbox, message) =>

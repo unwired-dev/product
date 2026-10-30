@@ -10,13 +10,11 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
   private let lock = NSLock()
   private var calls: [(String, String)] = []
   var failure: ImapFailure?
-  var state = ImapFolderState(
-    uidValidity: 7, uidNext: 12,
-    messages: [
-      ImapEnvelope(
-        uid: 11, flags: ["\\Seen"], received: 1_760_000_000_000, size: 120,
-        sender: "Synthetic Sender", address: "sender@example.invalid", subject: "Synthetic")
-    ], flags: [:], reset: true)
+  static let messages = [
+    ImapEnvelope(
+      uid: 11, flags: ["\\Seen"], received: 1_760_000_000_000, size: 120,
+      sender: "Synthetic Sender", address: "sender@example.invalid", subject: "Synthetic")
+  ]
 
   func requests() -> [(String, String)] {
     lock.withLock { calls }
@@ -41,12 +39,6 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
     lock.withLock { opened.append(session) }
     return session
   }
-  func synchronize(
-    _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?, window: Int
-  ) async throws -> ImapFolderState {
-    try record("synchronize \(folder)", password)
-    return state
-  }
   func message(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uid: UInt32,
     limit: Int
@@ -59,8 +51,7 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
   {
     try record("history \(request.folder) \(request.below ?? 0)", password)
     return ImapHistoryPage(
-      uidValidity: state.uidValidity, uidNext: state.uidNext, total: state.messages.count,
-      messages: state.messages, below: 1, present: request.known)
+      uidValidity: 7, uidNext: 12, total: Self.messages.count, messages: Self.messages, below: 1, present: request.known)
   }
   func headers(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
@@ -80,7 +71,7 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
     _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
   ) async throws -> (found: [ImapFound], skipped: Int) {
     try record("search \(folders.joined(separator: ",")) \(limit)", password)
-    return ([ImapFound(folder: "INBOX", uidValidity: 7, messages: state.messages, more: true)], 1)
+    return ([ImapFound(folder: "INBOX", uidValidity: 7, messages: Self.messages, more: true)], 1)
   }
   func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
     -> Bool
@@ -123,6 +114,13 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
     }
   }
   func capabilities() async throws -> [String] { ["IMAP4rev1", "MOVE"] }
+  func examine(_ folder: String) async throws -> ImapSelection {
+    ImapSelection(uidValidity: 7, uidNext: 12, messages: ControlledImap.messages.count)
+  }
+  func envelopes(_ read: ImapEnvelopeRead) async throws -> [ImapEnvelope] {
+    ControlledImap.messages
+  }
+  func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]] { [11: ["\\Seen"]] }
   func folders() async throws -> [ImapListedFolder] {
     if hold {
       await withCheckedContinuation { continuation in lock.withLock { held = continuation } }
@@ -264,12 +262,19 @@ extension PrivateInboxTests {
     let capabilities = try await store.imapCapabilities(
       connection: id, address: "alex@example.invalid", generation: generation, session: session)
     #expect(capabilities["capabilities"] as? [String] == ["IMAP4rev1", "MOVE"])
+    let selection = try await store.imapExamine(
+      connection: id, address: "alex@example.invalid", generation: generation, session: session,
+      folder: "INBOX")
+    #expect(selection["uidValidity"] as? Double == 7 && selection["messages"] as? Double == 1)
+    let envelopes = try await store.imapEnvelopes(
+      connection: id, address: "alex@example.invalid", generation: generation, session: session,
+      read: .newest(count: 200, total: 1))
+    #expect((envelopes["messages"] as? [[String: Any]])?.first?["uid"] as? Double == 11)
+    let flags = try await store.imapFlags(
+      connection: id, address: "alex@example.invalid", generation: generation, session: session,
+      uids: [11])
+    #expect((flags["flags"] as? [[String: Any]])?.first?["flags"] as? [String] == ["\\Seen"])
     store.imapClose(connection: id, session: session)
-    let synchronized = try await store.imapSynchronize(
-      connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
-      from: nil, window: 200)
-    #expect(synchronized["uidValidity"] as? Double == 7)
-    #expect((synchronized["messages"] as? [[String: Any]])?.first?["uid"] as? Double == 11)
     let message = try await store.imapMessage(
       connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
       uidValidity: 7, uid: 11)
@@ -359,10 +364,17 @@ extension PrivateInboxTests {
     }
     #expect(imap.requests().map(\.0).contains("search INBOX,Archive 50"))
     #expect(imap.requests().allSatisfy { $0.1 == "app-password" })
+    for read in [ImapEnvelopeRead.newest(count: 201, total: 300), .uids([]), .uids([0]), .from(0)] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.imapEnvelopes(
+          connection: id, address: "alex@example.invalid", generation: generation,
+          session: "session", read: read)
+      }
+    }
     await #expect(throws: RegistrationError.unavailable) {
-      _ = try await store.imapSynchronize(
-        connection: id, address: "alex@example.invalid", generation: generation, folder: "INBOX",
-        from: nil, window: 201)
+      _ = try await store.imapFlags(
+        connection: id, address: "alex@example.invalid", generation: generation,
+        session: "session", uids: Array(1...201))
     }
 
     // Work from before a removal or another verification is discarded.
@@ -610,28 +622,29 @@ extension PrivateInboxTests {
     let (shared, sharedCapabilities) = try await listed(namespaced)
     #expect(shared.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
     #expect(Set(sharedCapabilities.map { $0.uppercased() }).isDisjoint(with: ["MOVE", "UIDPLUS", "IDLE"]))
-    let initial = try await provider.synchronize(
-      account, password: "synthetic-password", folder: "INBOX", from: nil, window: 200)
-    #expect(initial.reset && initial.uidValidity == 7 && initial.uidNext == 12)
-    #expect(initial.messages.map(\.uid) == [11])
-    #expect(initial.messages.first?.subject == "Controlled IMAP")
-    let resumed = try await provider.synchronize(
-      account, password: "synthetic-password", folder: "INBOX",
-      from: ImapCheckpoint(uidValidity: 7, uidNext: 12, known: [11]), window: 200)
-    #expect(!resumed.reset && resumed.messages.isEmpty && resumed.flags[11] == ["\\Flagged"])
-    // Older messages never cached are not arrivals: a large folder whose UIDNEXT has not moved
-    // reads only the known flags, never its newest envelopes again.
-    let large = try await provider.synchronize(
-      account, password: "synthetic-password", folder: "Large",
-      from: ImapCheckpoint(uidValidity: 7, uidNext: 512, known: [511]), window: 200)
-    #expect(!large.reset && large.messages.isEmpty && large.flags[511] == ["\\Flagged"])
-    // Expunged arrivals advance UIDNEXT too; a large gap must not relist old envelopes when the
-    // remaining folder fits within the window. The server rejects that sequence-number fetch.
-    let sparse = try await provider.synchronize(
-      account, password: "synthetic-password", folder: "Sparse",
-      from: ImapCheckpoint(uidValidity: 7, uidNext: 12, known: [11]), window: 200)
-    #expect(!sparse.reset && sparse.messages.isEmpty && sparse.flags[11] == ["\\Flagged"])
-    #expect(sparse.uidNext == 402)
+    // One session examines folders and reads their envelopes and flags, as a synchronization
+    // does.
+    let reading = try await provider.open(account, password: "synthetic-password")
+    do {
+      #expect(
+        try await reading.examine("INBOX") == ImapSelection(uidValidity: 7, uidNext: 12, messages: 1))
+      let newest = try await reading.envelopes(.newest(count: 200, total: 1))
+      #expect(newest.map(\.uid) == [11] && newest.first?.subject == "Controlled IMAP")
+      #expect(try await reading.envelopes(.uids([11])).map(\.uid) == [11])
+      #expect(try await reading.flags([11]) == [11: ["\\Flagged"]])
+      // A large folder whose UIDNEXT has not moved is read by its known flags alone.
+      #expect(
+        try await reading.examine("Large") == ImapSelection(uidValidity: 7, uidNext: 512, messages: 500))
+      #expect(try await reading.flags([511]) == [511: ["\\Flagged"]])
+      // Expunged arrivals advance UIDNEXT too: they are read by UID, never by sequence number,
+      // which the server rejects. `UID 12:*` still names the newest message, below 12.
+      #expect(try await reading.examine("Sparse") == ImapSelection(uidValidity: 7, uidNext: 402, messages: 1))
+      #expect(try await reading.envelopes(.from(12)).map(\.uid) == [11])
+      await reading.close()
+    } catch {
+      await reading.close()
+      throw error
+    }
     let raw = try await provider.message(
       account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uid: 11,
       limit: RegistrationStore.imapMessageLimit)
@@ -662,10 +675,9 @@ extension PrivateInboxTests {
     }
     // SwiftMail reports zero when the server's EXAMINE omits UIDVALIDITY. Neither metadata nor
     // bodies may be fetched or cached under that unestablished identity.
-    await #expect(throws: ImapFailure.changed) {
-      _ = try await provider.synchronize(
-        account, password: "synthetic-password", folder: "NoValidity", from: nil, window: 200)
-    }
+    let unidentified = try await provider.open(account, password: "synthetic-password")
+    await #expect(throws: ImapFailure.changed) { _ = try await unidentified.examine("NoValidity") }
+    await unidentified.close()
     await #expect(throws: ImapFailure.changed) {
       _ = try await provider.message(
         account, password: "synthetic-password", folder: "NoValidity", uidValidity: 0, uid: 11,

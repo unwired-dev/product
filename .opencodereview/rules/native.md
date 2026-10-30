@@ -115,13 +115,6 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   inferring protection from a parser option or synthetic handler events; otherwise
   automatic prefetch can exhaust native memory before any exclusion marker is stored.
 
-- `SwiftMailImap.synchronize` estimating arrivals from the whole folder minus
-  cached flags alone, or from the UIDNEXT gap alone. Bound extant arrivals by
-  both when UIDNEXT is known, preserving the unknown-UIDNEXT fallback; old
-  uncached messages and expunged arrivals otherwise cause repeated envelope
-  relisting. Exercise a large unchanged folder and a small folder with a UID gap
-  through the controlled TLS fixture.
-
 - `SwiftMailImap` accepting SwiftMail's default zero UIDVALIDITY when EXAMINE
   omits it. Require nonzero validity before any FETCH, including verification,
   synchronization and body reads; exercise omission with the controlled TLS
