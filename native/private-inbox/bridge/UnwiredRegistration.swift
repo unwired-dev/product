@@ -1465,9 +1465,9 @@ extension UnwiredRegistration {
     ungatedMailbox("imapSearch", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
       let criterion: ImapSearchCriterion
-      switch (request["query"] as? String, request["boundary"] as? String) {
-      case (let query?, nil): criterion = .text(query)
-      case (nil, let boundary?): criterion = .boundary(boundary)
+      switch (request["query"], request["boundary"]) {
+      case (let query as String, nil): criterion = .text(query)
+      case (nil, let boundary as String): criterion = .boundary(boundary)
       default: throw RegistrationError.unavailable
       }
       guard let folder = request["folder"] as? String,
