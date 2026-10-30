@@ -1,4 +1,5 @@
 import * as Arr from 'effect/Array';
+import * as Clock from 'effect/Clock';
 import * as DateTime from 'effect/DateTime';
 import * as Deferred from 'effect/Deferred';
 import * as Duration from 'effect/Duration';
@@ -91,6 +92,7 @@ import {
   encodeDocument,
   encodeSegment,
   folderListing,
+  idleOutcome,
   inboxFolder,
   listedMessage,
   messageId,
@@ -253,11 +255,12 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<{ query: string; folders: readonly string[] }>,
   ) => Promise<unknown>;
-  // Resolves `{ changed }` once the server reports a change in the folder or `seconds` pass;
-  // rejects with `imap-unsupported` without IDLE.
+  // Waits in IDLE on the folder until the server sends an event or `seconds` pass. Resolves
+  // `{ events }`, the kinds of event sent before the wait ended (`exists`, `expunge`, `vanished`,
+  // `recent`, `flags`, `fetch`, `alert`, `capability` or `bye`), empty when the folder stayed quiet.
   readonly imapIdle: (
     mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{ folder: string; seconds: number }>,
+    request: Readonly<{ session: string; folder: string; seconds: number }>,
   ) => Promise<unknown>;
   // Submits the message as given through the connection's SMTP server to `recipients`. Resolves
   // once SMTP accepted it; rejects with `delivery-unknown` when it may have.
@@ -2915,38 +2918,69 @@ export function createImapInbox(
     );
   };
 
-  // One wait: a reported change, a quiet bound, a pause before trying again, or the end.
-  const waitOnce = async () => {
+  // One wait in its own session: a reported change, a quiet bound, a pause before trying again, or
+  // the end. Events that are neither a change nor the server closing the connection wait on until
+  // the bound. Stopping closes the session, which ends the wait.
+  const waitOnce = async (signal: Readonly<AbortSignal>) => {
     const scope = opened;
     const idle = document?.capabilities?.idle;
     if (idle === false) {
       return 'stop';
     }
-    return scope === undefined || idle === undefined
-      ? 'pause'
-      : runLogged(
-          call(() =>
-            native.imapIdle(scope, {
-              folder: inboxFolder,
-              seconds: idleSeconds,
-            }),
+    if (scope === undefined || idle === undefined) {
+      return 'pause';
+    }
+    const wait = withSession(scope, (session) =>
+      Effect.gen(function* () {
+        const { capabilities } = yield* call(() =>
+          native.imapCapabilities(scope, session),
+        ).pipe(
+          Effect.flatMap((reply) =>
+            decodeCapabilities(reply).pipe(Effect.mapError(malformed)),
+          ),
+        );
+        if (!capabilities.some((name) => name.toUpperCase() === 'IDLE')) {
+          return 'stop' as const;
+        }
+        const deadline = (yield* Clock.currentTimeMillis) + idleSeconds * 1000;
+        let seconds = idleSeconds;
+        while (seconds >= 1) {
+          const request = { ...session, folder: inboxFolder, seconds };
+          const { events } = yield* call(() =>
+            native.imapIdle(scope, request),
           ).pipe(
             Effect.flatMap((reply) =>
               decodeIdle(reply).pipe(Effect.mapError(malformed)),
             ),
-            Effect.match({
-              onSuccess: ({ changed }) => (changed ? 'changed' : 'quiet'),
-              // A refused password, a lock or a repaired connection pauses until it is usable.
-              onFailure: ({ kind }) =>
-                kind === 'unsupported' ? 'stop' : 'pause',
-            }),
-          ),
-        );
+          );
+          const outcome = idleOutcome(events);
+          if (outcome !== 'neither') {
+            // The server is closing the connection; a later wait reconnects.
+            return outcome === 'closing' ? ('pause' as const) : outcome;
+          }
+          seconds = Math.ceil(
+            (deadline - (yield* Clock.currentTimeMillis)) / 1000,
+          );
+        }
+        return 'quiet' as const;
+      }),
+    ).pipe(
+      // A refused password, a lock or a repaired connection pauses until it is usable.
+      Effect.orElseSucceed(() => 'pause' as const),
+    );
+    try {
+      return await runLogged(wait, { signal });
+    } catch (error) {
+      if (signal.aborted) {
+        return 'stop';
+      }
+      throw error;
+    }
   };
   // Waits with IDLE on the Inbox and reads it again whenever the server reports a change. A server
   // without IDLE leaves freshness to polling and foreground catch-up; any other failed wait, and a
   // wait before the first listing, tries again after a pause that grows to five minutes.
-  // Stopping ends future waits; one already waiting ends within its bound and is ignored.
+  // Stopping ends future waits and the one in progress.
   const watch = () => {
     const controller = new AbortController();
     const pause = Schedule.min([
@@ -2972,7 +3006,7 @@ export function createImapInbox(
     const follow = async () => {
       let step = await nextStep();
       while (watching()) {
-        const waited = await waitOnce();
+        const waited = await waitOnce(controller.signal);
         if (waited === 'stop' || !watching()) {
           return;
         }

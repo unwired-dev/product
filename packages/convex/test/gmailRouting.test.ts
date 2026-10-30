@@ -1,7 +1,7 @@
 import {
   gmailIdentityBindingDigest,
-  gmailRoutingDigest,
   gmailRoutingDigests,
+  opaqueGmailConnectionId,
 } from '../convex/gmailRouting.js';
 
 describe('gmail routing digest', () => {
@@ -16,10 +16,9 @@ describe('gmail routing digest', () => {
       expect.assertions(1);
       vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
 
-      await expect(gmailRoutingDigest(email)).resolves.toStrictEqual({
-        digest: expected,
-        keyVersion: 1,
-      });
+      await expect(gmailRoutingDigests(email)).resolves.toStrictEqual([
+        { digest: expected, keyVersion: 1 },
+      ]);
       vi.unstubAllEnvs();
     },
   );
@@ -28,7 +27,7 @@ describe('gmail routing digest', () => {
     expect.assertions(1);
     vi.stubEnv('GMAIL_ROUTING_KEY', '');
 
-    await expect(gmailRoutingDigest('user@example.com')).rejects.toThrow(
+    await expect(gmailRoutingDigests('user@example.com')).rejects.toThrow(
       'Gmail routing is not configured',
     );
     vi.unstubAllEnvs();
@@ -72,7 +71,17 @@ describe('gmail routing digest', () => {
     await expect(
       gmailIdentityBindingDigest('product-account-001', 'gmail-user-001'),
     ).resolves.toBe(beforeRotation);
-    expect(beforeRotation).toMatch(/^identity:/u);
+    expect(beforeRotation).toBe(
+      'identity:3XFfvyuOpZSqlnfUUDhrFkjrhhA9JVBoY9c2_iatNUM',
+    );
     vi.unstubAllEnvs();
+  });
+
+  it('keeps the opaque connection id', async () => {
+    expect.assertions(1);
+
+    await expect(
+      opaqueGmailConnectionId('product-account-001', 'gmail-user-001'),
+    ).resolves.toBe('7J73gzbM2JLvV98Y-RAzJMM_wGjXXgswQ-ZFEOsUNKY');
   });
 });

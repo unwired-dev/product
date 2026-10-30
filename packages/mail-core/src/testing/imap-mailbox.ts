@@ -184,8 +184,14 @@ export function createSyntheticImap({
     lost: false,
     stopped: false,
   };
-  // IDLE waits in progress; `notify` ends them as a change would.
-  const idles: Array<(changed: boolean) => void> = [];
+  // IDLE waits in progress by session; `notify` ends them with the events the server sent.
+  const idles = new Map<
+    string,
+    Readonly<{
+      end: (events: readonly string[]) => void;
+      close: () => void;
+    }>
+  >();
   const cache = {
     revision: 0,
     generation: 'generation-1',
@@ -431,6 +437,8 @@ export function createSyntheticImap({
     },
     imapClose: (_mailbox, { session }) => {
       server.sessions.delete(session);
+      idles.get(session)?.close();
+      idles.delete(session);
       examining.delete(session);
       return Promise.resolve({});
     },
@@ -541,19 +549,24 @@ export function createSyntheticImap({
     },
     imapIdle: (_mailbox, request) => {
       server.reads.push(`idle ${request.folder}`);
-      const failed = reach();
-      if (failed !== undefined) {
-        return failed;
-      }
-      if (!server.capabilities.idle) {
-        return rejection('imap-unsupported');
-      }
-      // oxlint-disable-next-line promise/avoid-new -- The controlled server holds the wait until the test notifies it.
-      return new Promise((resolve) => {
-        idles.push((changed) => {
-          resolve({ changed });
-        });
-      });
+      return (
+        inSession(request.session) ??
+        // oxlint-disable-next-line promise/avoid-new -- The controlled server holds the wait until the test notifies it or the session closes.
+        new Promise((resolve, reject) => {
+          idles.set(request.session, {
+            end: (events) => {
+              resolve({ events });
+            },
+            close: () => {
+              reject(
+                Object.assign(new Error('Synthetic mailbox-invalidated'), {
+                  code: 'mailbox-invalidated',
+                }),
+              );
+            },
+          });
+        })
+      );
     },
     // The newest messages of the requested UID range, as native code's bounded UID searches find
     // them, and the known UIDs still present.
@@ -681,13 +694,16 @@ export function createSyntheticImap({
     tiers,
     files,
     ...remote.controls,
-    // Ends every IDLE wait, as a change to the watched folder or the wait's bound would.
-    notify: (changed = true) => {
-      for (const end of idles.splice(0)) {
-        end(changed);
+    // Ends every IDLE wait with the events the server sent: new mail by default, none as the wait's
+    // bound would.
+    notify: (events: readonly string[] = ['exists']) => {
+      const waiting = [...idles.values()];
+      idles.clear();
+      for (const { end } of waiting) {
+        end(events);
       }
     },
-    idling: () => idles.length,
+    idling: () => idles.size,
     // Delivers a message to a folder, as an SMTP injection would.
     deliver: (
       name: string,

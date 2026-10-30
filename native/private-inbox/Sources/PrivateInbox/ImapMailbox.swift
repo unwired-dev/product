@@ -41,7 +41,7 @@ enum ImapFailure: Error, Equatable {
   case changed
   case missing
   case tooLarge
-  // The server lacks the extension a request needs, such as MOVE or UIDPLUS, or IDLE.
+  // The server lacks the extension a request needs, such as MOVE or UIDPLUS.
   case unsupported
   // The server refused a change to an identified message, such as a move to a removed folder.
   case rejected
@@ -180,9 +180,6 @@ protocol ImapProvider: Sendable {
   func search(
     _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
   ) async throws -> (found: [ImapFound], skipped: Int)
-  // Waits in IDLE on the folder for up to `seconds`; true once the server reports a change.
-  func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
-    -> Bool
   // How many messages in the folder carry the MIME boundary in their Content-Type.
   func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
     async throws -> Int
@@ -195,8 +192,7 @@ protocol ImapProvider: Sendable {
 #if canImport(SwiftMail)
 // SwiftMail over swift-nio-imap. Each operation opens one authenticated session and closes it, so
 // no connection outlives the work that needed it.
-// shortcut: one login per operation, IDLE included; keep a session per connection when frequent
-// reads need it.
+// shortcut: one login per operation; keep a session per connection when frequent reads need it.
 struct SwiftMailImap: ImapProvider {
   // SwiftMail logs hosts, folder names and server replies; none of them leaves this process.
   static let quiet: Void = LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
@@ -527,38 +523,6 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
-  func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
-    -> Bool
-  {
-    try await session(account, password) { server in
-      let advertised = try await server.fetchCapabilities().map { String($0).uppercased() }
-      guard advertised.contains("IDLE") else { throw ImapFailure.unsupported }
-      _ = try await Self.examine(server, folder: folder)
-      let events = try await server.idle()
-      let changed = try await withThrowingTaskGroup(of: Bool.self) { group in
-        group.addTask {
-          for await event in events {
-            switch event {
-            case .exists, .expunge, .vanished, .fetch, .fetchUID: return true
-            // The server is closing the connection; a later wait reconnects.
-            case .bye: throw ImapFailure.offline
-            default: continue
-            }
-          }
-          throw ImapFailure.offline
-        }
-        group.addTask {
-          try await Task.sleep(for: .seconds(seconds))
-          return false
-        }
-        defer { group.cancelAll() }
-        return try await group.next() ?? false
-      }
-      try? await server.done()
-      return changed
-    }
-  }
-
   func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
     async throws -> Int
   {
@@ -654,11 +618,6 @@ struct SwiftMailImap: ImapProvider {
     func search(
       _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
     ) async throws -> (found: [ImapFound], skipped: Int) {
-      throw ImapFailure.offline
-    }
-    func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int)
-      async throws -> Bool
-    {
       throw ImapFailure.offline
     }
     func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
@@ -813,19 +772,6 @@ extension RegistrationStore {
       },
       "skipped": Double(result.skipped),
     ]
-  }
-
-  // Waits for a change in the folder for up to `seconds`; rejects `imap-unsupported` without IDLE.
-  func imapIdle(
-    connection: String, address: String, generation: String, folder: String, seconds: Int
-  ) async throws -> [String: Any] {
-    guard Self.imapFolderName(folder), (1...600).contains(seconds) else {
-      throw RegistrationError.unavailable
-    }
-    let changed = try await imapWork(connection: connection, address: address, generation: generation) {
-      try await imap.idle($0, password: $1, folder: folder, seconds: seconds)
-    }
-    return ["changed": changed]
   }
 
   nonisolated static func imapFolderName(_ name: String) -> Bool {
