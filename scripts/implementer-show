@@ -60,7 +60,7 @@ while [ "$remaining" -gt 0 ]; do
         option=${options%"${options#?}"}
         options=${options#?}
         case "$option" in
-          z) reject 'NUL-delimited output cannot preserve the reviewer-only names inventory.' ;;
+          z) reject 'NUL-delimited output cannot preserve the reviewer-only path inventory.' ;;
           S|G|O|I|l|n)
             [ -n "$options" ] || value=$argument
             break ;;

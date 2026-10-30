@@ -506,7 +506,7 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
   }
 });
 
-test('implementer-show keeps tag and presentation output outside its names inventory', (t) => {
+test('implementer-show keeps tag and presentation output outside its path inventory', (t) => {
   const { cwd } = repository(t);
   const show = fileURLToPath(new URL('implementer-show', import.meta.url));
   execFileSync(

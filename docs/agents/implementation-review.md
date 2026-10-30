@@ -112,7 +112,7 @@ such as `--default`, `--stdin`, `--all`, `--tags` and `--indexed-objects` are re
 they can select trees or blobs outside the path exclusions.
 Required option operands, such as `-G 'old:public'`, are forwarded as attached
 values. Use `--` before pathspecs; `--end-of-options`, `--output` and NUL-delimited output
-(`-z`, including short-option clusters) are unsupported. The reviewer-only names
+(`-z`, including short-option clusters) are unsupported. The reviewer-only path
 inventory omits tag annotations, path rotation/skipping and presentation formatting,
 lists one path per line even for combined merges, and remains visible with `--quiet`.
 Operational guides, coding conventions, vocabulary and product requirements are
