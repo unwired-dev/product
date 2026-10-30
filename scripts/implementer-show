@@ -23,6 +23,8 @@ separated=false
 for argument do
   case "$argument" in
     --) separated=true; break ;;
+    --stdin|--all|--branches|--branches=*|--tags|--tags=*|--remotes|--remotes=*|--glob|--glob=*|--reflog|--alternate-refs|--indexed-objects|--bisect)
+      reject 'indirect object inputs can print trees and blobs outside the pathspecs; pass explicit commit revisions.' ;;
     --full-diff|--no-index)
       reject '--full-diff and --no-index print files outside the pathspecs.' ;;
     --ext-diff|--textconv) reject 'external diff and textconv helpers can read excluded files.' ;;

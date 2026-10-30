@@ -28,11 +28,13 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   delegates through the real Expo mod, including repeated generation; otherwise
   incremental prebuild can omit the notification delegate while fresh builds pass.
 
-- `scripts/implementer-grep` forwarding an option whose operand or external
+- `scripts/implementer-grep` or `scripts/implementer-show` forwarding an option whose operand or external
   helper can read reviewer-only content outside the searched pathspecs. Audit
   Git's accepted short clusters, attached values and long abbreviations as well
   as ordinary matches: pattern files, pager commands, textconv helpers and
   tree/blob selectors can disclose excluded text despite correct root exclusions.
+  For `implementer-show`, include indirect revision inputs such as `--stdin`,
+  ref expansion and `--indexed-objects`, which can select blobs without a positional selector.
   Verify rejection before Git reads them, and retain ordinary pattern operands.
 
 - Both hosts' `scripts/verify-native.ts` accepting a pinned revision found under

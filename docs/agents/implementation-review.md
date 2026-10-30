@@ -107,6 +107,9 @@ implementer reads commits and diffs with `scripts/implementer-show` (`git show`
 arguments, or `--diff` first for `git diff`; pathspecs after `--`). It applies
 the same exclusions, then lists the reviewer-only paths those revisions change
 by name only. Both scripts read the list from `scripts/reviewer-only-paths`.
+Use explicit commit revisions with `implementer-show`; indirect object inputs
+such as `--stdin`, `--all`, `--tags` and `--indexed-objects` are rejected because
+they can select trees or blobs outside the path exclusions.
 Operational guides, coding conventions, vocabulary and product requirements are
 separate files that the implementer can read in full. Keep architecture and design rationale in
 `docs/architecture/` or ADRs rather than embedding them in implementer-facing

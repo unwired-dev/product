@@ -86,6 +86,44 @@ test('never searches reviewer-only sources, even inside caller pathspecs', (t) =
   ]);
 });
 
+test('implementer-show rejects indirect object inputs before they can print reviewer-only blobs', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  const blob = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD:docs/architecture/README.md'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  for (const ref of [
+    'refs/tags/protected-blob',
+    'refs/remotes/test/protected-blob',
+    'refs/bisect/bad',
+  ]) {
+    execFileSync('git', ['update-ref', ref, blob], { cwd });
+  }
+  for (const args of [
+    ['--stdin'],
+    ['--all'],
+    ['--tags'],
+    ['--tags=*'],
+    ['--remotes'],
+    ['--remotes=*'],
+    ['--glob=refs/tags/*'],
+    ['--glob', 'refs/tags/*'],
+    ['--bisect'],
+    ['--indexed-objects'],
+  ]) {
+    const result = spawnSync(show, args, {
+      cwd,
+      encoding: 'utf8',
+      input: `${blob}\n`,
+    });
+    assert.equal(result.status, 2, `${args.join(' ')}: ${result.stdout}`);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /indirect object inputs/u);
+  }
+});
+
 test('keeps the exclusions when run from a subdirectory', (t) => {
   const { grep } = repository(t);
   assert.deepEqual(grep(['-l', 'needle'], 'docs'), ['guide.md']);
