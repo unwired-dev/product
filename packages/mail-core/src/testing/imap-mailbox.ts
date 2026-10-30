@@ -160,7 +160,7 @@ export function createSyntheticImap({
     reads: [] as string[],
     // What the server advertises: MOVE or UIDPLUS, and IDLE.
     capabilities: { moves: true, idle: true },
-    // UIDPLUS fallback returns COPYUID before source deletion.
+    // UIDPLUS without MOVE: COPY returns COPYUID before the source's deletion.
     copyOnly: false,
     // Applies the next change, then loses its reply as a dropped connection would.
     loseReply: false,
@@ -172,7 +172,7 @@ export function createSyntheticImap({
     historyFailure: undefined as string | undefined,
   };
   let sessionCount = 0;
-  // The folder each open session last examined.
+  // The folder each open session last selected or examined.
   const examining = new Map<string, ServerFolder>();
   // The connection's SMTP server: what it accepted, and the code its next submission rejects
   // with, such as `smtp-refused`, `smtp-rejected`, `offline` or `delivery-unknown`. `lost`
@@ -248,81 +248,44 @@ export function createSyntheticImap({
     }
     return Promise.resolve(reply);
   };
-  // STORE of \Seen for `read`, or of \Flagged for `flagged`.
-  const storeFlag = (
-    change: Readonly<{
-      folder: string;
-      uid: number;
-      read?: boolean;
-      flagged?: boolean;
-    }>,
-    message: ServerMessage,
-  ) => {
-    const [flag, set, named] =
-      change.flagged === undefined
-        ? [String.raw`\Seen`, change.read === true, ['unread', 'read']]
-        : [String.raw`\Flagged`, change.flagged, ['unflag', 'flag']];
-    message.flags = [
-      ...message.flags.filter((each) => each !== flag),
-      ...(set ? [flag] : []),
-    ];
-    server.changes.push(`${named[set ? 1 : 0]} ${change.folder} ${change.uid}`);
-    return { outcome: 'stored' };
+  const selected = (session: string) => {
+    const current = examining.get(session);
+    if (current === undefined) {
+      throw new Error('Command before SELECT or EXAMINE');
+    }
+    return current;
   };
-  // MOVE, with the new UID the server reports.
-  const moveTo = ({
-    name,
-    source,
-    message,
-    uid,
-  }: Readonly<{
-    name: string;
-    source: ServerFolder;
-    message: ServerMessage;
-    uid: number;
-  }>) => {
-    if (!server.capabilities.moves) {
+  // MOVE or COPY of one message, with the new UID the server reports.
+  const transfer = (
+    request: Readonly<{ session: string; uid: number; destination: string }>,
+    move: boolean,
+  ) => {
+    const failed = inSession(request.session);
+    if (failed !== undefined) {
+      return failed;
+    }
+    if (!server.capabilities.moves || (move && server.copyOnly)) {
       return rejection('imap-unsupported');
     }
-    const destination = folders.get(name);
+    const source = selected(request.session);
+    const destination = folders.get(request.destination);
     if (destination === undefined) {
       return rejection('imap-rejected');
     }
-    if (!server.copyOnly) {
+    const message = source.messages.find(({ uid }) => uid === request.uid);
+    if (message === undefined) {
+      return Promise.resolve({});
+    }
+    if (move) {
       source.messages = source.messages.filter((item) => item !== message);
     }
-    const moved = destination.uidNext;
+    const uid = destination.uidNext;
     destination.uidNext += 1;
-    destination.messages.push({ ...message, uid: moved });
+    destination.messages.push({ ...message, uid });
     server.changes.push(
-      `${server.copyOnly ? 'copy' : 'move'} ${source.name} ${uid} ${name}`,
+      `${move ? 'move' : 'copy'} ${source.name} ${request.uid} ${destination.name}`,
     );
-    return answer({
-      outcome: server.copyOnly ? 'copied' : 'moved',
-      uidValidity: destination.uidValidity,
-      uid: moved,
-    });
-  };
-
-  const finishCopy = ({
-    source,
-    change,
-    copied,
-  }: Readonly<{
-    source: ServerFolder;
-    change: Parameters<NativeImapMailbox['imapModify']>[1];
-    copied: Readonly<{ uidValidity: number; uid: number }>;
-  }>) => {
-    const target = folders.get(change.destination ?? '');
-    if (target?.uidValidity !== copied.uidValidity) {
-      return rejection('imap-changed');
-    }
-    if (!target.messages.some(({ uid }) => uid === copied.uid)) {
-      return rejection('imap-missing');
-    }
-    source.messages = source.messages.filter(({ uid }) => uid !== change.uid);
-    server.changes.push(`delete ${change.folder} ${change.uid}`);
-    return answer({ outcome: 'moved', ...copied });
+    return answer({ uidValidity: destination.uidValidity, uid });
   };
 
   // A controlled image server for the connection's Remote Message Content.
@@ -355,18 +318,15 @@ export function createSyntheticImap({
       }
       return Promise.resolve({ accepted: true });
     },
-    imapFileSent: (_mailbox, request) => {
-      server.reads.push(`file ${request.folder}`);
-      const failed = reach();
+    imapAppend: (_mailbox, request) => {
+      server.reads.push(`append ${request.folder}`);
+      const failed = inSession(request.session);
       if (failed !== undefined) {
         return failed;
       }
       const sent = folders.get(request.folder);
       if (sent === undefined) {
         return rejection('imap-missing');
-      }
-      if (sent.messages.some(({ raw }) => raw.includes(request.boundary))) {
-        return Promise.resolve({});
       }
       const raw = rawOf(request.segments);
       sent.messages.push({
@@ -381,20 +341,6 @@ export function createSyntheticImap({
       sent.uidNext += 1;
       server.changes.push(`append ${request.folder}`);
       return answer({});
-    },
-    imapFindSent: (_mailbox, request) => {
-      server.reads.push(`find ${request.folder}`);
-      const failed = reach();
-      if (failed !== undefined) {
-        return failed;
-      }
-      return Promise.resolve({
-        count:
-          folders
-            .get(request.folder)
-            ?.messages.filter(({ raw }) => raw.includes(request.boundary))
-            .length ?? 0,
-      });
     },
     imapOpen: () => {
       server.reads.push('login');
@@ -412,7 +358,9 @@ export function createSyntheticImap({
       Promise.resolve({
         capabilities: [
           'IMAP4rev1',
-          ...(server.capabilities.moves ? ['MOVE', 'UIDPLUS'] : []),
+          ...(server.capabilities.moves
+            ? [...(server.copyOnly ? [] : ['MOVE']), 'UIDPLUS']
+            : []),
           ...(server.capabilities.idle ? ['IDLE'] : []),
         ],
       }),
@@ -470,65 +418,88 @@ export function createSyntheticImap({
         Promise.resolve({ messages: read.map(envelope) })
       );
     },
-    imapFlags: (_mailbox, { session, uids }) => {
-      const current = examining.get(session);
-      if (current === undefined) {
-        throw new Error('Flags read before EXAMINE');
-      }
-      return (
-        inSession(session) ??
-        Promise.resolve({
-          flags: current.messages
-            .filter(({ uid }) => uids.includes(uid))
-            .map(({ uid, flags }) => ({ uid, flags })),
-        })
-      );
-    },
-    imapModify: (_mailbox, change) => {
-      server.reads.push(`modify ${change.folder} ${change.uid}`);
-      const failed = reach();
+    imapSelect: (_mailbox, { session, folder: name }) => {
+      const failed = inSession(session);
       if (failed !== undefined) {
         return failed;
       }
-      const source = folders.get(change.folder);
-      if (source === undefined) {
+      const current = folders.get(name);
+      if (current === undefined) {
         return rejection('imap-missing');
       }
-      if (source.uidValidity !== change.uidValidity) {
-        return rejection('imap-changed');
-      }
-      if (change.copied !== undefined) {
-        return finishCopy({ source, change, copied: change.copied });
-      }
-      const message = source.messages.find(({ uid }) => uid === change.uid);
-      if (message === undefined) {
-        return Promise.resolve({ outcome: 'absent' });
-      }
-      return change.destination === undefined
-        ? answer(storeFlag(change, message))
-        : moveTo({
-            name: change.destination,
-            source,
-            message,
-            uid: change.uid,
-          });
+      examining.set(session, current);
+      return Promise.resolve({ uidValidity: current.uidValidity });
     },
-    imapSearch: (_mailbox, { session, folder: name, query, newest }) => {
+    imapFlags: (_mailbox, { session, uids }) =>
+      inSession(session) ??
+      Promise.resolve({
+        flags: selected(session)
+          .messages.filter(({ uid }) => uids.includes(uid))
+          .map(({ uid, flags }) => ({ uid, flags })),
+      }),
+    imapStore: (_mailbox, { session, uid, flag, set }) => {
+      const failed = inSession(session);
+      if (failed !== undefined) {
+        return failed;
+      }
+      const current = selected(session);
+      const message = current.messages.find((item) => item.uid === uid);
+      if (message === undefined) {
+        return Promise.resolve({});
+      }
+      const name = {
+        seen: String.raw`\Seen`,
+        flagged: String.raw`\Flagged`,
+        deleted: String.raw`\Deleted`,
+      }[flag];
+      message.flags = [
+        ...message.flags.filter((each) => each !== name),
+        ...(set ? [name] : []),
+      ];
+      const named = { seen: ['unread', 'read'], flagged: ['unflag', 'flag'] };
+      if (flag !== 'deleted') {
+        server.changes.push(
+          `${named[flag][set ? 1 : 0]} ${current.name} ${uid}`,
+        );
+      }
+      return answer({});
+    },
+    imapMove: (_mailbox, request) => transfer(request, true),
+    imapCopy: (_mailbox, request) => transfer(request, false),
+    imapExpunge: (_mailbox, { session, uid }) => {
+      const failed = inSession(session);
+      if (failed !== undefined) {
+        return failed;
+      }
+      if (!server.capabilities.moves) {
+        return rejection('imap-unsupported');
+      }
+      const current = selected(session);
+      const deleted = current.messages.find(
+        (item) => item.uid === uid && item.flags.includes(String.raw`\Deleted`),
+      );
+      if (deleted !== undefined) {
+        current.messages = current.messages.filter((item) => item !== deleted);
+        server.changes.push(`delete ${current.name} ${uid}`);
+      }
+      return answer({});
+    },
+    imapSearch: (_mailbox, request) => {
+      const { session, folder: name, newest } = request;
       server.reads.push(`search ${name}`);
       const current = folders.get(name);
       if (current === undefined) {
         return inSession(session) ?? rejection('imap-missing');
       }
       examining.set(session, current);
-      const text = query.toLowerCase();
-      const matches = Arr.sort(
-        current.messages.filter(
-          ({ subject, raw }) =>
-            subject.toLowerCase().includes(text) ||
-            raw.toLowerCase().includes(text),
-        ),
-        newestUid,
-      );
+      // A text matches the subject or the message case-insensitively; a boundary, as it appears.
+      const matching =
+        request.boundary === undefined
+          ? ({ subject, raw }: ServerMessage) =>
+              subject.toLowerCase().includes(request.query.toLowerCase()) ||
+              raw.toLowerCase().includes(request.query.toLowerCase())
+          : ({ raw }: ServerMessage) => raw.includes(request.boundary);
+      const matches = Arr.sort(current.messages.filter(matching), newestUid);
       return (
         inSession(session) ??
         Promise.resolve({

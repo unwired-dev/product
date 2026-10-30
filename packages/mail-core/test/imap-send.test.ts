@@ -410,7 +410,7 @@ describe('sending through SMTP and filing Sent copies', () => {
     const sending = await imapSender();
     const { native } = sending.servers.work;
     const submit = vi.spyOn(native, 'imapSend');
-    const file = vi.spyOn(native, 'imapFileSent');
+    const file = vi.spyOn(native, 'imapAppend');
     try {
       const unknown = await sending.addressed();
       submit.mockResolvedValueOnce({ accepted: false });
@@ -538,7 +538,7 @@ describe('sending through SMTP and filing Sent copies', () => {
     expect.hasAssertions();
     const sending = await imapSender();
     const { native } = sending.servers.work;
-    const find = vi.spyOn(native, 'imapFindSent');
+    const find = vi.spyOn(native, 'imapSearch');
     try {
       const id = await sending.addressed();
       await sending.outbox.send(() => sending.draft(id));
@@ -564,7 +564,7 @@ describe('sending through SMTP and filing Sent copies', () => {
         expect(find).toHaveBeenCalledTimes(calls + 1);
       });
       mailbox.inbox.forget();
-      pending.resolve({ count: 1 });
+      pending.resolve({ uidValidity: 1, uids: [], total: 1 });
       await expect(checked).resolves.toBe(false);
       expect(sending.drafts.getOutbox()).toMatchObject([
         { id, state: 'unknown' },

@@ -45,18 +45,24 @@ export function syntheticConnections(
       server(mailbox.connection)?.imapMessage(mailbox, message) ?? missing(),
     imapHeaders: (mailbox, request) =>
       server(mailbox.connection)?.imapHeaders(mailbox, request) ?? missing(),
-    imapModify: (mailbox, change) =>
-      server(mailbox.connection)?.imapModify(mailbox, change) ?? missing(),
+    imapSelect: (mailbox, request) =>
+      server(mailbox.connection)?.imapSelect(mailbox, request) ?? missing(),
+    imapStore: (mailbox, request) =>
+      server(mailbox.connection)?.imapStore(mailbox, request) ?? missing(),
+    imapMove: (mailbox, request) =>
+      server(mailbox.connection)?.imapMove(mailbox, request) ?? missing(),
+    imapCopy: (mailbox, request) =>
+      server(mailbox.connection)?.imapCopy(mailbox, request) ?? missing(),
+    imapExpunge: (mailbox, request) =>
+      server(mailbox.connection)?.imapExpunge(mailbox, request) ?? missing(),
     imapSearch: (mailbox, request) =>
       server(mailbox.connection)?.imapSearch(mailbox, request) ?? missing(),
     imapIdle: (mailbox, request) =>
       server(mailbox.connection)?.imapIdle(mailbox, request) ?? missing(),
     imapSend: (message, mailbox) =>
       server(mailbox.connection)?.imapSend(message, mailbox) ?? missing(),
-    imapFileSent: (mailbox, request) =>
-      server(mailbox.connection)?.imapFileSent(mailbox, request) ?? missing(),
-    imapFindSent: (mailbox, request) =>
-      server(mailbox.connection)?.imapFindSent(mailbox, request) ?? missing(),
+    imapAppend: (mailbox, request) =>
+      server(mailbox.connection)?.imapAppend(mailbox, request) ?? missing(),
     gmailRequest: (path, query, mailbox) =>
       of(mailbox.connection)?.gmailRequest(path, query, mailbox) ?? missing(),
     graphRequest: (url, mailbox) =>

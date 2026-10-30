@@ -27,11 +27,13 @@ existing URL pins and restores app product and Frameworks references idempotentl
 
 ## Ownership and transport
 
-Folder listing (#1177), folder synchronization (#1178), online search (#1179) and
-IDLE waits (#1181) run in TypeScript over short-lived native session handles. Native
+Folder listing (#1177), folder synchronization (#1178), online search (#1179),
+IDLE waits (#1181) and Sent filing (#1182) run in TypeScript over short-lived native
+session handles. Native
 `SwiftMailImapSession` exposes capabilities, complete LIST results with attributes,
 read-only EXAMINE, envelope reads by UID set, UID range or newest sequence numbers,
-flag reads by UID set, folder text search and bounded IDLE event kinds. TypeScript
+flag reads by UID set, folder text or MIME-boundary header search, APPEND and
+bounded IDLE event kinds. TypeScript
 assigns roles, normalizes ASCII INBOX names, derives MOVE, UIDPLUS and IDLE support,
 owns the checkpoint and arrival arithmetic, and classifies IDLE events. Search
 examines one folder and returns a bounded newest-UID window and the total match count
@@ -58,9 +60,15 @@ the controlled native session test verifies that closing during IDLE answers
 the caller at once. The hosted TLS test covers the real primitive's change,
 quiet-bound and close paths, but its run on the #1181 snapshot remains deferred.
 
+Organizing also runs in TypeScript over a short-lived session handle (#1180).
+Native exposes SELECT, flags, STORE, MOVE with automatic fallback disabled, COPY
+and targeted UID EXPUNGE. TypeScript checks UIDVALIDITY and presence, chooses
+the move strategy and classifies the outcome. Native refuses read-only selection
+and maps command failures to fixed codes, preserving uncertain partial completion.
+
 The remaining operations still open one authenticated session each through
-`SwiftMailImap`, perform `EXAMINE` for reads and `SELECT` for explicit mutations,
-use `BODY.PEEK` and close success and failure paths. TLS starts before
+`SwiftMailImap`, perform `EXAMINE` for reads, use `BODY.PEEK` and close success
+and failure paths. TLS starts before
 authentication, uses full certificate verification and requires TLS 1.2 or newer.
 No plaintext/STARTTLS fallback or production trust override exists. The parser
 rejects body literals over 40 MB before buffering payload, and bounds response
@@ -193,10 +201,10 @@ is committed before its native call. A move whose outcome is unknown and has no
 destination mapping blocks later actions until explicit discard; source absence
 alone cannot prove the destination. Read-flag mutations remain idempotent.
 
-Without MOVE, native transport returns a verified COPYUID after COPY alone.
-TypeScript commits that continuation before requesting source deletion. The next
-native request checks the destination generation and copied UID, then the source
-generation, and sends STORE Deleted and targeted UID EXPUNGE. Replays of this
+Without MOVE, the native COPY command returns a verified COPYUID after COPY alone.
+TypeScript commits that continuation before requesting source deletion. In the next
+session, TypeScript checks the destination generation and copied UID, then the source
+generation and presence, and requests STORE Deleted and targeted UID EXPUNGE. Replays of this
 continuation never COPY again. An unavailable or invalid COPYUID prevents source
 deletion and automatic replay. MOVE partial-completion failures remain uncertain.
 Settled actions update cached and still-shown folder snapshots together.
@@ -238,12 +246,14 @@ SwiftMail's submission-phase retry disposition distinguishes definite refusal
 from possible acceptance; unsafe-to-retry errors remain delivery unknown.
 
 SMTP acceptance advances the durable Outbox to `filing` before APPEND. Only
-filing retries thereafter. Native Sent filing checks current Trusted Device
-revocation proof and connection generation, searches the selected folder's
-Content-Type for the frozen MIME boundary, and appends with Seen only when no
-copy is found. A lost APPEND reply retries the lookup without SMTP resubmission.
+filing retries thereafter. TypeScript searches the selected folder's Content-Type
+for the frozen MIME boundary and requests APPEND in the same session only when no
+copy is found. Native APPEND checks current Trusted Device revocation proof and
+connection generation, assembles the original Outbox segments with verified asset
+bytes, and appends with Seen. A lost APPEND reply retries the lookup without SMTP
+resubmission.
 Unknown SMTP outcomes use the same boundary lookup, confirming only exactly one
-copy and never inferring non-delivery from absence. Native lookup uses IMAP HEADER
+copy and never inferring non-delivery from absence. The native search uses IMAP HEADER
 substring matching; live preservation and server-created Sent copies still need
 provider qualification. Access-changing lookup/filing failures close or refresh
 the owning shared mailbox presentation, with late replies fenced by its lifetime.

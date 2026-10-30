@@ -28,7 +28,6 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
   func verify(_ account: ImapAccount, password: String) async throws {
     try record("verify", password)
   }
-  var outcome = ImapOutcome.moved(uidValidity: 9, uid: 4)
   // Sessions opened, in order; with `holdFolders`, a session's folder listing waits for its close.
   var holdFolders = false
   private var opened: [ControlledImapSession] = []
@@ -61,42 +60,25 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
       ImapHeaders(uid: $0, fields: [ImapHeaderField(name: "content-type", value: "text/plain")])
     }
   }
-  func modify(_ account: ImapAccount, password: String, change: ImapChange) async throws
-    -> ImapOutcome
-  {
-    try record("modify \(change.folder) \(change.uid) \(change.destination ?? "read")", password)
-    return outcome
-  }
-  // Sent copies filed by boundary, as the server would hold them.
-  private var filed: [String: Data] = [:]
-  func copy(_ boundary: String) -> Data? { lock.withLock { filed[boundary] } }
-  func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
-    async throws -> Int
-  {
-    try record("find \(folder) \(boundary)", password)
-    return lock.withLock { filed[boundary] == nil ? 0 : 1 }
-  }
-  func fileSent(
-    _ account: ImapAccount, password: String, folder: String, boundary: String, message: Data
-  ) async throws {
-    try record("file \(folder) \(boundary)", password)
-    lock.withLock { filed[boundary] = filed[boundary] ?? message }
-  }
 }
 
-// A controlled session: it lists the Inbox and records its close. With `hold`, a listing waits for
-// `release()`, as SwiftMail's command waits for the server's reply even after the session closes.
-// IDLE on the Inbox reports new mail; on any other folder it waits until the session closes.
+// A controlled session: it lists the Inbox, records each change command and its close. With `hold`,
+// a listing waits for `release()`, as SwiftMail's command waits for the server's reply even after
+// the session closes. IDLE on the Inbox reports new mail; on any other folder it waits until the
+// session closes.
 final class ControlledImapSession: ImapSession, @unchecked Sendable {
   private let lock = NSLock()
   private let hold: Bool
   private var held: CheckedContinuation<Void, Never>?
   private var idling: CheckedContinuation<Void, Never>?
   private var ended = false
+  private var issued: [String] = []
   init(hold: Bool) { self.hold = hold }
 
   var waiting: Bool { lock.withLock { held != nil || idling != nil } }
   var closed: Bool { lock.withLock { ended } }
+  var commands: [String] { lock.withLock { issued } }
+  private func command(_ text: String) { lock.withLock { issued.append(text) } }
   func release() {
     lock.withLock {
       held?.resume()
@@ -110,9 +92,20 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
   func envelopes(_ read: ImapEnvelopeRead) async throws -> [ImapEnvelope] {
     ControlledImap.messages
   }
-  func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]] { [11: ["\\Seen"]] }
-  func search(_ folder: String, query: String, newest: Int) async throws -> ImapMatches {
-    ImapMatches(uidValidity: 7, uids: [11], total: 2)
+  // Messages appended, in order; a boundary search counts the appended copies that carry it.
+  private var stored: [Data] = []
+  func appended() -> [Data] { lock.withLock { stored } }
+  func search(_ folder: String, for criterion: ImapSearchCriterion, newest: Int) async throws
+    -> ImapMatches
+  {
+    guard case .boundary(let boundary) = criterion else {
+      return ImapMatches(uidValidity: 7, uids: [11], total: 2)
+    }
+    let copies = lock.withLock { stored.filter { $0.range(of: Data(boundary.utf8)) != nil } }
+    return ImapMatches(uidValidity: 7, uids: [], total: copies.count)
+  }
+  func append(_ folder: String, message: Data) async throws {
+    lock.withLock { stored.append(message) }
   }
   func folders() async throws -> [ImapListedFolder] {
     if hold {
@@ -120,6 +113,26 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
     }
     return [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")]
   }
+  func select(_ folder: String) async throws -> UInt32 {
+    command("select \(folder)")
+    return 7
+  }
+  func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]] {
+    command("flags \(uids)")
+    return [uids[0]: ["\\Seen"]]
+  }
+  func store(_ uid: UInt32, flag: ImapStoredFlag, set: Bool) async throws {
+    command("store \(uid) \(flag.rawValue) \(set)")
+  }
+  func move(_ uid: UInt32, to destination: String) async throws -> ImapCopy? {
+    command("move \(uid) \(destination)")
+    return ImapCopy(uidValidity: 9, uid: 21)
+  }
+  func copy(_ uid: UInt32, to destination: String) async throws -> ImapCopy? {
+    command("copy \(uid) \(destination)")
+    return nil
+  }
+  func expunge(_ uid: UInt32) async throws { command("expunge \(uid)") }
   func idle(folder: String, seconds: Int) async throws -> [String] {
     guard folder != "INBOX" else { return ["exists"] }
     await withCheckedContinuation { continuation in
@@ -284,7 +297,7 @@ extension PrivateInboxTests {
     #expect((flags["flags"] as? [[String: Any]])?.first?["flags"] as? [String] == ["\\Seen"])
     let matches = try await store.imapSearch(
       connection: id, address: "alex@example.invalid", generation: generation, session: session,
-      folder: "INBOX", query: "Synthetic", newest: 50)
+      folder: "INBOX", for: .text("Synthetic"), newest: 50)
     #expect(matches["uidValidity"] as? Double == 7 && matches["uids"] as? [Double] == [11])
     #expect(matches["total"] as? Double == 2)
     store.imapClose(connection: id, session: session)
@@ -308,46 +321,6 @@ extension PrivateInboxTests {
       }
     }
 
-    // Organizing changes one identified message; a move reports where the server put it.
-    let moved = try await store.imapModify(
-      connection: id, address: "alex@example.invalid", generation: generation,
-      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "Archive"))
-    #expect(moved["outcome"] as? String == "moved")
-    #expect(moved["uidValidity"] as? Double == 9 && moved["uid"] as? Double == 4)
-    imap.outcome = .copied(uidValidity: 9, uid: 4)
-    let copied = try await store.imapModify(
-      connection: id, address: "alex@example.invalid", generation: generation,
-      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "Archive"))
-    #expect(copied["outcome"] as? String == "copied")
-    #expect(copied["uidValidity"] as? Double == 9 && copied["uid"] as? Double == 4)
-    imap.outcome = .absent
-    let absent = try await store.imapModify(
-      connection: id, address: "alex@example.invalid", generation: generation,
-      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: nil))
-    #expect(absent as? [String: String] == ["outcome": "absent"])
-    let flagged = try await store.imapModify(
-      connection: id, address: "alex@example.invalid", generation: generation,
-      change: ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, flagged: true, destination: nil))
-    #expect(flagged as? [String: String] == ["outcome": "absent"])
-    // A change names exactly one of read state, the star and a different destination folder.
-    for change in [
-      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: "Archive"),
-      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: true, flagged: false, destination: nil),
-      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, flagged: true, destination: "Archive"),
-      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: nil),
-      ImapChange(folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "INBOX"),
-      ImapChange(
-        folder: "INBOX", uidValidity: 7, uid: 11, read: true, destination: nil,
-        copied: ImapCopy(uidValidity: 9, uid: 4)),
-      ImapChange(
-        folder: "INBOX", uidValidity: 7, uid: 11, read: nil, destination: "Archive",
-        copied: ImapCopy(uidValidity: 0, uid: 4)),
-    ] {
-      await #expect(throws: RegistrationError.unavailable) {
-        _ = try await store.imapModify(
-          connection: id, address: "alex@example.invalid", generation: generation, change: change)
-      }
-    }
     let watching = try #require(
       try await store.imapOpen(
         connection: id, address: "alex@example.invalid", generation: generation)["session"]
@@ -375,15 +348,17 @@ extension PrivateInboxTests {
         connection: id, address: "alex@example.invalid", generation: generation,
         session: "session", uids: Array(1...201))
     }
-    for (folder, query, newest) in [
-      ("", "Synthetic", 50), ("INBOX", "", 50), ("INBOX", "a\r\nA1 LOGOUT", 50),
-      ("INBOX", String(repeating: "a", count: 201), 50), ("INBOX", "Synthetic", 0),
-      ("INBOX", "Synthetic", 201),
+    for (folder, criterion, newest): (String, ImapSearchCriterion, Int) in [
+      ("", .text("Synthetic"), 50), ("INBOX", .text(""), 50),
+      ("INBOX", .text("a\r\nA1 LOGOUT"), 50),
+      ("INBOX", .text(String(repeating: "a", count: 201)), 50), ("INBOX", .text("Synthetic"), 0),
+      ("INBOX", .text("Synthetic"), 201), ("Sent", .boundary("=_sent copy"), 1),
+      ("Sent", .boundary("=_short"), 1),
     ] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.imapSearch(
           connection: id, address: "alex@example.invalid", generation: generation,
-          session: "session", folder: folder, query: query, newest: newest)
+          session: "session", folder: folder, for: criterion, newest: newest)
       }
     }
 
@@ -473,6 +448,83 @@ extension PrivateInboxTests {
       try await list(session, address: "other@example.invalid")
     }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await list("unknown") }
+
+    // Organizing names one message by its UID in the folder the session selected; a move answers
+    // where COPYUID says the message went, a copy without a receipt answers nothing.
+    #expect(
+      try await store.imapSelect(
+        connection: id, address: address, generation: generation, session: session, folder: "INBOX"
+      )["uidValidity"] as? Double == 7)
+    let flags = try await store.imapFlags(
+      connection: id, address: address, generation: generation, session: session, uids: [11])
+    #expect((flags["flags"] as? [[String: Any]])?.first?["uid"] as? Double == 11)
+    #expect(
+      try await store.imapStore(
+        connection: id, address: address, generation: generation, session: session, uid: 11,
+        flag: .seen, set: true
+      ).isEmpty)
+    let moved = try await store.imapMove(
+      connection: id, address: address, generation: generation, session: session, uid: 11,
+      destination: "Archive")
+    #expect(moved["uidValidity"] as? Double == 9 && moved["uid"] as? Double == 21)
+    #expect(
+      try await store.imapCopy(
+        connection: id, address: address, generation: generation, session: session, uid: 11,
+        destination: "Archive"
+      ).isEmpty)
+    #expect(
+      try await store.imapExpunge(
+        connection: id, address: address, generation: generation, session: session, uid: 11
+      ).isEmpty)
+    let organized = try #require(imap.sessions().last)
+    #expect(
+      organized.commands == [
+        "select INBOX", "flags [11]", "store 11 seen true", "move 11 Archive", "copy 11 Archive",
+        "expunge 11",
+      ])
+    // A request without a folder name or a positive UID reaches no server.
+    let invalid: [@MainActor () async throws -> [String: Any]] = [
+      {
+        try await store.imapSelect(
+          connection: id, address: address, generation: generation, session: session, folder: "")
+      },
+      {
+        try await store.imapFlags(
+          connection: id, address: address, generation: generation, session: session, uids: [])
+      },
+      {
+        try await store.imapFlags(
+          connection: id, address: address, generation: generation, session: session,
+          uids: [UInt32](repeating: 11, count: 201))
+      },
+      {
+        try await store.imapFlags(
+          connection: id, address: address, generation: generation, session: session, uids: [0])
+      },
+      {
+        try await store.imapStore(
+          connection: id, address: address, generation: generation, session: session, uid: 0,
+          flag: .seen, set: true)
+      },
+      {
+        try await store.imapMove(
+          connection: id, address: address, generation: generation, session: session, uid: 11,
+          destination: "")
+      },
+      {
+        try await store.imapCopy(
+          connection: id, address: address, generation: generation, session: session, uid: 0,
+          destination: "Archive")
+      },
+      {
+        try await store.imapExpunge(
+          connection: id, address: address, generation: generation, session: session, uid: 0)
+      },
+    ]
+    for request in invalid {
+      await #expect(throws: RegistrationError.unavailable) { _ = try await request() }
+    }
+    #expect(organized.commands.count == 6)
 
     // One command at a time: another is refused while the first waits for the server. Closing the
     // session answers the waiting command at once, before the server replies.
@@ -737,84 +789,82 @@ extension PrivateInboxTests {
     let provider = SwiftMailImap()
     let synthetic = try account("synthetic")
     let password = "synthetic-password"
-    func change(
-      folder: String = "INBOX", uidValidity: UInt32 = 7, uid: UInt32 = 11, read: Bool? = nil,
-      flagged: Bool? = nil, to destination: String? = nil, copied: ImapCopy? = nil
-    ) -> ImapChange {
-      ImapChange(
-        folder: folder, uidValidity: uidValidity, uid: uid, read: read, flagged: flagged,
-        destination: destination, copied: copied)
+    // TypeScript runs each organizing step in a session of its own.
+    func organize(
+      _ user: String = "synthetic", _ work: (any ImapSession) async throws -> Void
+    ) async throws {
+      let session = try await provider.open(try account(user), password: password)
+      do {
+        try await work(session)
+      } catch {
+        await session.close()
+        throw error
+      }
+      await session.close()
     }
-    #expect(try await provider.modify(synthetic, password: password, change: change(read: true)) == .stored)
-    #expect(try await provider.modify(synthetic, password: password, change: change(read: false)) == .stored)
-    #expect(try await provider.modify(synthetic, password: password, change: change(flagged: true)) == .stored)
-    #expect(try await provider.modify(synthetic, password: password, change: change(flagged: false)) == .stored)
-    #expect(
-      try await provider.modify(synthetic, password: password, change: change(to: "Archive"))
-        == .moved(uidValidity: 9, uid: 21))
-    // Missing UIDs and mismatched mailbox generations cannot target a different message.
-    #expect(try await provider.modify(synthetic, password: password, change: change(uid: 13, to: "Archive")) == .absent)
-    await #expect(throws: ImapFailure.changed) {
-      _ = try await provider.modify(synthetic, password: password, change: change(uidValidity: 8, read: true))
+    try await organize { session in
+      #expect(try await session.select("INBOX") == 7)
+      #expect(try await session.flags([11]).keys.sorted() == [11])
+      // A missing UID cannot target a different message.
+      #expect(try await session.flags([13]).isEmpty)
+      for flag in [ImapStoredFlag.seen, .flagged] {
+        for set in [true, false] { try await session.store(11, flag: flag, set: set) }
+      }
+      #expect(try await session.move(11, to: "Archive") == ImapCopy(uidValidity: 9, uid: 21))
     }
     await #expect(throws: ImapFailure.missing) {
-      _ = try await provider.modify(synthetic, password: password, change: change(folder: "Gone", read: true))
+      try await organize { _ = try await $0.select("Gone") }
     }
-    // MOVE's tagged failure can follow partial completion, with or without a mapping.
-    await #expect(throws: ImapFailure.interrupted) {
-      _ = try await provider.modify(synthetic, password: password, change: change(to: "Missing"))
+    await #expect(throws: ImapFailure.changed) {
+      try await organize { _ = try await $0.select("NoValidity") }
     }
-    await #expect(throws: ImapFailure.interrupted) {
-      _ = try await provider.modify(synthetic, password: password, change: change(to: "Partial"))
-    }
-    // A connection lost after the change was sent may have applied it.
-    await #expect(throws: ImapFailure.interrupted) {
-      _ = try await provider.modify(synthetic, password: password, change: change(to: "Drop"))
-    }
-    // UIDPLUS returns the copy receipt before deletion; resumption reuses that receipt.
-    let noMove = try account("no-move")
-    let copied = ImapCopy(uidValidity: 9, uid: 22)
-    for destination in ["Unmapped", "DropCopy"] {
+    // MOVE's tagged failure can follow partial completion, with or without a mapping, and a
+    // connection lost after the change was sent may have applied it.
+    for destination in ["Missing", "Partial", "Drop"] {
       await #expect(throws: ImapFailure.interrupted) {
-        _ = try await provider.modify(
-          noMove, password: password, change: change(to: destination))
+        try await organize { session in
+          _ = try await session.select("INBOX")
+          _ = try await session.move(11, to: destination)
+        }
       }
     }
-    #expect(
-      try await provider.modify(noMove, password: password, change: change(to: "Archive"))
-        == .copied(uidValidity: 9, uid: 22))
-    #expect(
-      try await provider.modify(noMove, password: password, change: change(to: "Archive", copied: copied))
-        == .moved(uidValidity: 9, uid: 22))
-    #expect(
-      try await provider.modify(noMove, password: password, change: change(uid: 13, to: "Archive", copied: copied))
-        == .moved(uidValidity: 9, uid: 22))
-    await #expect(throws: ImapFailure.changed) {
-      _ = try await provider.modify(
-        noMove, password: password,
-        change: change(to: "Archive", copied: ImapCopy(uidValidity: 10, uid: 22)))
+    // Without MOVE, UIDPLUS returns the copy receipt before deletion; resumption reuses that
+    // receipt, finds the copy and deletes only the source.
+    try await organize("no-move") { session in
+      _ = try await session.select("INBOX")
+      #expect(try await session.copy(11, to: "Unmapped") == nil)
+      await #expect(throws: ImapFailure.unsupported) { _ = try await session.move(11, to: "Archive") }
+      #expect(try await session.copy(11, to: "Archive") == ImapCopy(uidValidity: 9, uid: 22))
     }
-    await #expect(throws: ImapFailure.missing) {
-      _ = try await provider.modify(
-        noMove, password: password,
-        change: change(to: "Archive", copied: ImapCopy(uidValidity: 9, uid: 23)))
+    await #expect(throws: ImapFailure.interrupted) {
+      try await organize("no-move") { session in
+        _ = try await session.select("INBOX")
+        _ = try await session.copy(11, to: "DropCopy")
+      }
     }
-    await #expect(throws: ImapFailure.changed) {
-      _ = try await provider.modify(
-        noMove, password: password, change: change(uidValidity: 8, to: "Archive", copied: copied))
+    try await organize("no-move") { session in
+      #expect(try await session.select("Archive") == 9)
+      #expect(try await session.flags([22]).keys.sorted() == [22])
+      #expect(try await session.flags([23]).isEmpty)
+      #expect(try await session.select("INBOX") == 7)
+      try await session.store(11, flag: .deleted, set: true)
+      try await session.expunge(11)
     }
-    await #expect(throws: ImapFailure.unsupported) {
-      _ = try await provider.modify(try account("namespaced"), password: password, change: change(to: "Archive"))
+    // Without MOVE or UIDPLUS, SwiftMail refuses before sending anything.
+    try await organize("namespaced") { session in
+      _ = try await session.select("INBOX")
+      await #expect(throws: ImapFailure.unsupported) { _ = try await session.move(11, to: "Archive") }
+      await #expect(throws: ImapFailure.unsupported) { try await session.expunge(11) }
     }
 
     // A session's search examines the folder; one the server no longer selects is refused.
     let searching = try await provider.open(synthetic, password: password)
     do {
       #expect(
-        try await searching.search("INBOX", query: "Controlled", newest: 50)
+        try await searching.search("INBOX", for: .text("Controlled"), newest: 50)
           == ImapMatches(uidValidity: 7, uids: [11], total: 1))
       await #expect(throws: ImapFailure.missing) {
-        _ = try await searching.search("Gone", query: "Controlled", newest: 50)
+        _ = try await searching.search("Gone", for: .text("Controlled"), newest: 50)
       }
       await searching.close()
     } catch {
@@ -825,7 +875,7 @@ extension PrivateInboxTests {
     // billions of identifiers supplied by an untrusted server, and its envelopes alone are read.
     let largeSearch = try await provider.open(try account("large-search"), password: password)
     do {
-      let matches = try await largeSearch.search("INBOX", query: "Controlled", newest: 50)
+      let matches = try await largeSearch.search("INBOX", for: .text("Controlled"), newest: 50)
       #expect(matches.uids == Array((3_999_999_951...4_000_000_000).reversed()))
       #expect(matches.total == 4_000_000_000)
       #expect(try await largeSearch.envelopes(.uids(matches.uids)).map(\.uid) == [4_000_000_000])

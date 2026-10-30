@@ -172,41 +172,4 @@ extension RegistrationStore {
     try await smtp.send(account, password: password, from: address, to: recipients, message: message)
     return ["accepted": true]
   }
-
-  // Files an accepted message's copy in the connection's Sent folder, unless a copy with its MIME
-  // boundary is already there, so filing again never adds a second copy.
-  func imapFileSent(
-    segments: [Any], folder: String, boundary: String, connection id: String, address: String,
-    generation: String
-  ) async throws -> [String: Any] {
-    guard Self.sentBoundary(boundary), !folder.isEmpty, folder.count <= 1_000 else {
-      throw RegistrationError.unavailable
-    }
-    let product = try mailboxAccount(id)
-    let message = try await outgoingMessage(
-      segments: segments, owner: product.productAccountId)
-    try await requireTrustedDevice(product)
-    try await imapWork(connection: id, address: address, generation: generation) {
-      try await imap.fileSent($0, password: $1, folder: folder, boundary: boundary, message: message)
-    }
-    return [:]
-  }
-
-  // How many messages in the Sent folder carry the MIME boundary.
-  func imapFindSent(
-    folder: String, boundary: String, connection id: String, address: String, generation: String
-  ) async throws -> [String: Any] {
-    guard Self.sentBoundary(boundary), !folder.isEmpty, folder.count <= 1_000 else {
-      throw RegistrationError.unavailable
-    }
-    let count = try await imapWork(connection: id, address: address, generation: generation) {
-      try await imap.findSent($0, password: $1, folder: folder, boundary: boundary)
-    }
-    return ["count": Double(count)]
-  }
-
-  // The boundaries TypeScript chooses, which a quoted IMAP search carries unchanged.
-  private nonisolated static func sentBoundary(_ boundary: String) -> Bool {
-    boundary.range(of: "^[0-9A-Za-z=_.-]{8,70}$", options: .regularExpression) != nil
-  }
 }
