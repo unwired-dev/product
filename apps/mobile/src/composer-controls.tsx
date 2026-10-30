@@ -52,7 +52,13 @@ import {
   View,
 } from 'react-native';
 
-import { Glass, SFSymbol, ToolbarButton, useMenuMotion } from './design.tsx';
+import {
+  Glass,
+  SFSymbol,
+  ToolbarButton,
+  useMenuMotion,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -523,8 +529,18 @@ export function LinkEditor({
   const destinationInput = useRef<TextInput>(null);
   // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
   const [checked, setChecked] = useState(false);
+  // An empty Link is the editor's starting state, not an invalid destination.
+  const check = () => {
+    setChecked(destination.trim() !== '');
+  };
   const href = vettedHref(destination);
   const applicable = href !== undefined && isLinkText(text);
+  const invalid = checked && destination.trim() !== '' && href === undefined;
+  // VoiceOver hears the reason when it appears, since iOS ignores live regions and the alert role.
+  useOutcomeAnnouncement(
+    shown && invalid ? t('drafts.link.invalid') : undefined,
+    false,
+  );
   const finish = (next: string, nextHref?: string) => {
     show(false);
     if (editing !== undefined) {
@@ -532,7 +548,7 @@ export function LinkEditor({
     }
   };
   const apply = () => {
-    setChecked(true);
+    check();
     if (applicable) {
       finish(text, href);
     }
@@ -580,10 +596,8 @@ export function LinkEditor({
     destination,
     applicable,
     adding: editing?.href === '',
-    invalid: checked && href === undefined,
-    onCheck: () => {
-      setChecked(true);
-    },
+    invalid,
+    onCheck: check,
     onText: setText,
     onDestination: setDestination,
     onApply: apply,

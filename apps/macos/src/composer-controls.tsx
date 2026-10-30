@@ -19,7 +19,12 @@ import {
   View,
 } from 'react-native';
 
-import { Button, Popover, ToolbarButton } from './design.tsx';
+import {
+  Button,
+  Popover,
+  ToolbarButton,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -351,6 +356,10 @@ export function LinkEditor({
   const [destination, setDestination] = useState('');
   // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
   const [checked, setChecked] = useState(false);
+  // An empty Link is the editor's starting state, not an invalid destination.
+  const check = () => {
+    setChecked(destination.trim() !== '');
+  };
   const href = vettedHref(destination);
   const applicable = href !== undefined && isLinkText(text);
   const adding = editing?.href === '';
@@ -361,7 +370,7 @@ export function LinkEditor({
     }
   };
   const apply = () => {
-    setChecked(true);
+    check();
     if (applicable) {
       finish(text, href);
     }
@@ -378,13 +387,7 @@ export function LinkEditor({
           autoCorrect={!url}
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- User-opened Add Link must focus Link when the popover gains its native window, after layout.
           autoFocus={url && adding}
-          onBlur={
-            url
-              ? () => {
-                  setChecked(true);
-                }
-              : undefined
-          }
+          onBlur={url ? check : undefined}
           onChangeText={url ? setDestination : setText}
           onSubmitEditing={apply}
           placeholder={url ? t('drafts.link.placeholder') : undefined}
@@ -398,7 +401,12 @@ export function LinkEditor({
       </View>
     );
   };
-  const invalid = checked && href === undefined;
+  const invalid = checked && destination.trim() !== '' && href === undefined;
+  // VoiceOver hears the reason when it appears, since macOS ignores live regions.
+  useOutcomeAnnouncement(
+    shown && invalid ? t('drafts.link.invalid') : undefined,
+    false,
+  );
   return (
     <View>
       <ToolbarButton
@@ -425,7 +433,6 @@ export function LinkEditor({
           {field(false)}
           {field(true)}
           <Label
-            accessibilityLiveRegion={invalid ? 'polite' : undefined}
             style={[
               textStyles.subheadline,
               {

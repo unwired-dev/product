@@ -2028,15 +2028,20 @@ describe('composing Drafts', () => {
       expect(screen.queryByRole('header', { name: 'Add Link' }) !== null).toBe(
         size === 'compact',
       );
-      // Return with a destination that cannot be applied says why.
+      const reason = 'Enter a valid web, email or phone link.';
+      // Return on the empty Link keeps the starting hint.
+      await fireEvent(destination, 'submitEditing');
+      expect(screen.queryByText(reason)).toBeNull();
+      // Return with a destination that cannot be applied says why, and VoiceOver hears it.
+      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      announce.mockClear();
       await fireEvent.changeText(
         destination,
         'ftp://docs.example.invalid/lease',
       );
       await fireEvent(destination, 'submitEditing');
-      expect(
-        screen.getByText('Enter a valid web, email or phone link.'),
-      ).toBeOnTheScreen();
+      expect(screen.getByText(reason)).toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([[reason]]);
       expect(bodyNow()?.[1]).not.toHaveProperty('link');
       // Closing the editor changes nothing.
       await act(async () => {

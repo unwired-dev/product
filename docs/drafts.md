@@ -175,7 +175,8 @@ popover on Mac and iPad and an **Edit Link** sheet on iPhone, with the link's
 text and destination. **Apply** replaces both and is available only while the
 text is not empty, contains no line break or inline-image placeholder, and the
 destination is one a Draft may keep; after Return, or on leaving the Link field,
-a destination it cannot keep is named as invalid. **Remove Link**
+an entered destination it cannot keep is named as invalid and announced to
+VoiceOver. **Remove Link**
 keeps the text without the link, and closing the editor changes nothing. Each
 change is one Undo step. With unlinked text selected inside one block, without a
 line break or inline image, the control is **Add Link** instead: the same editor,

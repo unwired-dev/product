@@ -1595,15 +1595,18 @@ describe('composing Drafts', () => {
     expect(destination).toHaveProp('autoFocus', true);
     expect(screen.queryByRole('button', { name: 'Remove Link' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
-    // Leaving Link with a destination that cannot be applied says why.
-    await fireEvent.changeText(destination, 'ftp://docs.example.invalid/lease');
-    expect(
-      screen.queryByText('Enter a valid web, email or phone link.'),
-    ).toBeNull();
+    const reason = 'Enter a valid web, email or phone link.';
+    // Leaving the empty Link keeps the starting hint.
     await fireEvent(destination, 'blur');
-    expect(
-      screen.getByText('Enter a valid web, email or phone link.'),
-    ).toBeOnTheScreen();
+    expect(screen.queryByText(reason)).toBeNull();
+    // Leaving Link with a destination that cannot be applied says why, and VoiceOver hears it.
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await fireEvent.changeText(destination, 'ftp://docs.example.invalid/lease');
+    expect(screen.queryByText(reason)).toBeNull();
+    await fireEvent(destination, 'blur');
+    expect(screen.getByText(reason)).toBeOnTheScreen();
+    expect(announce.mock.calls).toStrictEqual([[reason]]);
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
     expect(bodyNow()?.[1]).not.toHaveProperty('link');
     await fireEvent.changeText(destination, lease);
