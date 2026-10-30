@@ -410,6 +410,18 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
       ['docs/guide.md'],
     ],
     [['-s', 'HEAD'], '.', []],
+    [
+      ['--skip-to', 'docs/architecture/README.md', 'HEAD'],
+      '.',
+      ['docs/guide.md', 'src/app.ts'],
+    ],
+    [['--rotate-to', 'docs/guide.md', 'HEAD'], '.', readable],
+    [
+      ['--diff', '--skip-to=docs/guide.md', 'HEAD~', 'HEAD'],
+      '.',
+      ['docs/guide.md', 'src/app.ts'],
+    ],
+    [['--diff', '--rotate-to=docs/guide.md', 'HEAD~', 'HEAD'], '.', readable],
     [['HEAD~..HEAD', '--', 'docs', '.patterns'], '.', ['docs/guide.md']],
     [['-G', 'reviewer:|fix', 'HEAD'], '.', readable],
     [['-I', 'old:public', 'HEAD'], '.', readable],
@@ -548,4 +560,50 @@ test('implementer-show keeps tag and presentation output outside its names inven
     assert.match(result.stderr, /NUL-delimited/u);
     assert.equal(result.stdout, '');
   }
+});
+
+test('implementer-show lists each protected path once for combined merge output', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  const git = (args) =>
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        ...args,
+      ],
+      { cwd, encoding: 'utf8' },
+    ).trim();
+  const otherParent = git(['commit-tree', 'HEAD^{tree}', '-m', 'other parent']);
+  for (const file of reviewerOnly) {
+    writeFileSync(path.join(cwd, file), 'merge result\n');
+  }
+  git(['add', '.']);
+  const merge = git([
+    'commit-tree',
+    git(['write-tree']),
+    '-p',
+    'HEAD',
+    '-p',
+    otherParent,
+    '-m',
+    'merge',
+  ]);
+  const result = spawnSync(show, ['--cc', '--combined-all-paths', merge], {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const [, names] = result.stdout.split(
+    'Reviewer-only paths (names only; do not open):\n',
+  );
+  assert.deepEqual(
+    names.trim().split('\n').toSorted(),
+    [...reviewerOnly].toSorted(),
+  );
 });

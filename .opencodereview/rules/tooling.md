@@ -44,7 +44,9 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   the readable-content pass: annotated tags and presentation options such as
   `--log-size`, graph/prefix formatting and NUL delimiters must not add metadata
   or corrupt the reviewer-only path inventory. `--format=` alone does not
-  suppress every kind of `git show` output.
+  suppress every kind of `git show` output. Path rotation/skipping must not
+  omit protected names or fail on a readable-only target; combined-merge parent
+  columns must not turn the inventory into duplicate tab-separated paths.
   Reject output sinks such as `--output` before either pass can open a file.
   Output suppression such as `--quiet` must not silence the names pass or prevent
   the readable-content pass and its exit status from running.

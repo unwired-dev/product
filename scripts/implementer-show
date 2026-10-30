@@ -95,7 +95,8 @@ names=$(
       break
     fi
     case "$argument" in
-      (--log-size|--graph|--no-graph|--show-linear-break|--show-linear-break=*) continue ;;
+      (--log-size|--graph|--no-graph|--show-linear-break|--show-linear-break=*|\
+       --rotate-to=*|--skip-to=*|--combined-all-paths) continue ;;
       (-*) ;;
       (*)
         # show prints annotated tags outside --format, so peel them for this pass only.

@@ -113,8 +113,8 @@ they can select trees or blobs outside the path exclusions.
 Required option operands, such as `-G 'old:public'`, are forwarded as attached
 values. Use `--` before pathspecs; `--end-of-options`, `--output` and NUL-delimited output
 (`-z`, including short-option clusters) are unsupported. The reviewer-only names
-inventory omits tag annotations and presentation formatting and remains visible
-with `--quiet`.
+inventory omits tag annotations, path rotation/skipping and presentation formatting,
+lists one path per line even for combined merges, and remains visible with `--quiet`.
 Operational guides, coding conventions, vocabulary and product requirements are
 separate files that the implementer can read in full. Keep architecture and design rationale in
 `docs/architecture/` or ADRs rather than embedding them in implementer-facing
