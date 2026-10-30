@@ -26,6 +26,7 @@ import {
   keptFolders,
   listedFolder,
   newFolder,
+  reconciledFolder,
   restartedFolder,
   walkDue,
   withFolders,
@@ -753,16 +754,11 @@ export function createGraphReader(native: NativeGraphMailbox) {
         : { ...entry, round: link };
     }
     const changed = yield* readChanged(scope, entry.folder, page.value.value);
-    // A change among the messages listed at the pass's oldest receipt may shift the continuation,
-    // so the pass lists from that receipt again.
-    const edge = new Set(entry.edge);
-    return {
-      ...(changed.some(([id]) => edge.has(id))
-        ? Struct.omit(entry, ['scan'])
-        : entry),
-      link,
-      history: recorded(entry.history, changed),
-    };
+    return reconciledFolder(
+      { ...entry, link, history: recorded(entry.history, changed) },
+      changed.map(([id]) => id),
+      next === undefined,
+    );
   });
 
   // The pass's next page from its oldest listed receipt, or its continuation, without the messages
@@ -792,6 +788,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
           entry: listedFolder(entry, messages, {
             name,
             next: next === undefined ? undefined : yield* listingLink(next),
+            continued: entry.scan !== undefined || pages > 0,
           }),
           messages,
         };
@@ -882,6 +879,10 @@ export function createGraphReader(native: NativeGraphMailbox) {
     }
     const name = yield* newName;
     const page = yield* historyPage(scope, entry, name);
+    // The folder's round checks a page read through a continuation before the pass lists further.
+    if (page.entry.check !== undefined) {
+      done.delete(entry.folder);
+    }
     return {
       next: page.entry,
       written:

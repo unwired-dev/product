@@ -86,7 +86,11 @@ export const restartedFolder = (
 export const listedFolder = (
   entry: GraphFolderHistory,
   page: readonly GmailMessage[],
-  { name, next }: Readonly<{ name: string; next: string | undefined }>,
+  {
+    name,
+    next,
+    continued,
+  }: Readonly<{ name: string; next: string | undefined; continued: boolean }>,
 ): GraphFolderHistory => {
   const end = next === undefined;
   const messages = Arr.sort(page, newestFirst);
@@ -106,14 +110,58 @@ export const listedFolder = (
       ids: messages.map(({ id }) => id),
     },
   );
+  // A pending check also covers each page listed before its round.
+  const from = entry.check?.until ?? (continued ? until : undefined);
+  const check =
+    from === undefined
+      ? undefined
+      : {
+          until: from,
+          edge: [
+            ...(entry.check?.edge ?? entry.edge ?? []),
+            ...messages.map(({ id }) => id),
+          ],
+        };
   return {
-    ...Struct.omit(entry, ['edge', 'scan']),
+    ...Struct.omit(entry, ['edge', 'scan', 'check']),
+    ...(check === undefined ? {} : { check }),
     ...(end ? {} : { edge: oldest === undefined ? (entry.edge ?? []) : edge }),
     ...(next !== undefined && (oldest === undefined || oldest === until)
       ? { scan: next }
       : {}),
     history,
   };
+};
+
+// A folder after a round's changes. A change to a message listed through a continuation lists the
+// pass from the receipt it listed from again, without the messages listed there before, since the
+// continuation may have shifted past one. A change among the messages listed at the pass's oldest
+// receipt lists its next page from that receipt rather than its continuation. A round that ended
+// has checked every page listed before it.
+export const reconciledFolder = (
+  entry: GraphFolderHistory,
+  changed: readonly string[],
+  ended: boolean,
+): GraphFolderHistory => {
+  const { check, history } = entry;
+  if (check !== undefined && changed.some((id) => check.edge.includes(id))) {
+    return {
+      ...Struct.omit(entry, ['scan', 'check']),
+      edge: check.edge,
+      history: {
+        ...history,
+        current: {
+          segments: history.current.segments,
+          pageToken: check.until,
+        },
+      },
+    };
+  }
+  const edge = new Set(entry.edge);
+  const listing = changed.some((id) => edge.has(id))
+    ? Struct.omit(entry, ['scan'])
+    : entry;
+  return ended ? Struct.omit(listing, ['check']) : listing;
 };
 
 // Progress across folders, unknown in total and incomplete until the mailbox's folders are known. A

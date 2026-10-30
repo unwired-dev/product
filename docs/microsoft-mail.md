@@ -122,8 +122,12 @@ with the receipt time the next page lists below and the messages already listed 
 that time, so relaunching or an interrupted page continues where the last saved
 page ended without listing earlier pages again. Messages that share one receipt
 time are listed once each across pages; within thousands of them, the pass also
-saves Graph's continuation of the listing, so each step reads one new page. The
-opened-folder bounds never evict downloaded history.
+saves Graph's continuation of the listing, so each step reads one new page. A
+message that leaves the folder can shift that continuation past another, so after
+each page read through it the folder's delta round runs before the pass lists
+further; when the round reports a change to a message listed there, the pass lists
+that receipt time again without the messages it already has. The opened-folder
+bounds never evict downloaded history.
 
 When Move to lists only part of the mailbox's folders, the pass first walks every
 folder list page, nested folders included, saving its place after each page. Until
@@ -298,7 +302,8 @@ hosts' rendered tests connect Microsoft mail first and show its Inbox.
 
 History tests in `packages/mail-core/test/microsoft-history.test.ts` download the
 Inbox, Sent Items, Archive and a folder of the mailbox's own while leaving out Deleted
-Items, list messages sharing one receipt across pages once each, resume after an
+Items, list messages sharing one receipt across pages once each, also when messages
+listed before go during the pass, resume after an
 interrupted page and relaunch without listing a page twice, keep new, moved, deleted
 and read mail current during and after the pass, list a folder again after an
 expired delta link without lowering progress, pause on throttling and keep their place

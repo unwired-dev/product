@@ -109,6 +109,12 @@ const GraphFolderHistorySchema = Schema.Struct({
   link: Schema.optionalKey(GraphDeltaLink),
   edge: Schema.optionalKey(Schema.Array(GraphId)),
   scan: Schema.optionalKey(GraphInboxLink),
+  // After a page read through a continuation, which a change to a message listed before it may have
+  // shifted: the receipt the pass listed from, and the messages it had listed there since. The
+  // folder's next round checks them before the pass lists further.
+  check: Schema.optionalKey(
+    Schema.Struct({ until: Schema.String, edge: Schema.Array(GraphId) }),
+  ),
   history: MailboxHistorySchema,
 });
 export type GraphFolderHistory = typeof GraphFolderHistorySchema.Type;

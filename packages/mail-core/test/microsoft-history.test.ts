@@ -141,6 +141,25 @@ const historyListings = (graph: Graph) =>
         `${pathname.split('/').at(-2)} ${searchParams.get('$filter') ?? ''}`,
     );
 
+// Purges each message just before the history listing that continues from its offset, once.
+const purgingBefore = (
+  graph: Graph,
+  going: Map<number, string>,
+): Graph['native'] => ({
+  ...graph.native,
+  graphRequest: (url, owner) => {
+    const skip = Number(
+      /(?:\$|%24)top=50&.*(?:\$|%24)skip=(?<skip>\d+)/u.exec(url)?.groups?.skip,
+    );
+    const gone = going.get(skip);
+    if (gone !== undefined) {
+      going.delete(skip);
+      graph.purge(gone);
+    }
+    return graph.native.graphRequest(url, owner);
+  },
+});
+
 // How many Inbox pages of 50 Graph was asked for, including continuations.
 const inboxPages = (graph: Graph) =>
   graph.requests.filter(
@@ -228,6 +247,31 @@ describe('microsoft historical metadata backfill', () => {
     expect(progress(inbox)?.downloaded).toBe(120);
     const folders = await downloaded(graph);
     expect(folders.get('INBOX')).toStrictEqual(sorted(ids));
+  });
+
+  it('lists every message of a shared receipt when ones listed before go during the pass', async () => {
+    expect.hasAssertions();
+    const graph = createGraph();
+    const ids = Array.from({ length: 351 }, (_, index) =>
+      graph.deliver({ subject: `Batch ${index}`, at: Date.UTC(2026, 8, 1) }),
+    );
+    const [first = '', second = '', ...kept] = ids;
+    // Messages listed already go just before the history's third page and just before the page
+    // that ends its pass, each shifting Graph's continuation by one.
+    const going = new Map([
+      [100, first],
+      [300, second],
+    ]);
+    const inbox = createInbox(purgingBefore(graph, going));
+    await inbox.load();
+    await backfilled(inbox);
+    // The folder's round after each page reports the change, so the pass lists the receipt again.
+    // A later synchronization finds nothing more to list.
+    await inbox.load();
+    await backfilled(inbox);
+    expect(going.size).toBe(0);
+    const folders = await downloaded(graph);
+    expect(folders.get('INBOX')).toStrictEqual(sorted(kept));
   });
 
   it('lists a receipt shared by thousands of messages once each, across a relaunch', async () => {
