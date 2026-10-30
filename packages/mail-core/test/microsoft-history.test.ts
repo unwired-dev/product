@@ -378,16 +378,31 @@ describe('microsoft historical metadata backfill', () => {
     expect(progress(inbox)?.complete).toBe(true);
   });
 
-  it('lists a folder again after Graph expires its delta link, keeping the last pass', async () => {
+  it('keeps the last pass counted while an expired delta replacement is paused', async () => {
     expect.hasAssertions();
     const graph = createGraph();
     const ids = delivered(graph, 150, 'inbox');
-    const inbox = createInbox(graph.native);
+    delivered(graph, 1, 'sentitems');
+    delivered(graph, 1, 'archive');
+    let refusal: number | undefined;
+    const inbox = createInbox(refusingAfter(graph, 0, () => refusal));
     await inbox.load();
     await backfilled(inbox);
     graph.expireDelta();
     const arrival = graph.deliver({ subject: 'After expiry' });
     const shown = shownCounts(inbox);
+    onTestFinished(shown.stop);
+    refusal = 429;
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(progress(inbox)).toStrictEqual({
+        downloaded: 152,
+        total: 152,
+        complete: false,
+        paused: true,
+      });
+    });
+    refusal = undefined;
     await inbox.load();
     await vi.waitFor(async () => {
       const folders = await downloaded(graph);
@@ -396,8 +411,8 @@ describe('microsoft historical metadata backfill', () => {
     await backfilled(inbox);
     shown.stop();
     // Progress never falls back to the empty new pass.
-    expect(Math.min(...shown.counts)).toBeGreaterThanOrEqual(150);
-    expect(progress(inbox)?.downloaded).toBe(151);
+    expect(Math.min(...shown.counts)).toBeGreaterThanOrEqual(152);
+    expect(progress(inbox)?.downloaded).toBe(153);
   });
 
   it('pauses on throttling and stops for a refused grant, keeping its place', async () => {

@@ -133,7 +133,9 @@ export const graphProgress = (document: MailboxDocument) => {
     ...(known && totals.every((total) => total !== undefined)
       ? { total: totals.reduce((sum, total) => sum + total, 0) }
       : {}),
-    complete: known && passes.every(({ complete }) => complete === true),
+    complete:
+      known &&
+      folders.every(({ history }) => history.current.complete === true),
   };
 };
 
