@@ -128,6 +128,15 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   server. Otherwise repeated default identities can reuse a different message's
   encrypted cached body.
 
+- `SwiftMailImap.history` leaving a folder selection refusal as an upstream
+  error. Trace the pinned EXAMINE handler through `session`, the bridge rejection
+  mapper and `readHistory`: translate selection refusal to the existing missing
+  folder code so backfill can skip it and continue with later folders. Keep
+  authentication, transport and post-selection read failures distinct; otherwise
+  a folder removed after LIST pauses the entire connection, or a broad catch
+  hides a recoverable connection failure. Exercise the refusal over controlled TLS,
+  as a synthetic missing-folder reply alone cannot prove native translation.
+
 - `SwiftMailImap` trusting RFC822.SIZE or checking a fetched body only after the
   upstream parser buffered it. Bound body literals and response attributes in the
   real engine parser before accepting payload bytes, with a controlled TLS server
