@@ -38,6 +38,7 @@ import {
   imageCharacter,
   imagesOf,
   insertImage,
+  editableLinkAt,
   linkAt,
   marksAt,
   plainText,
@@ -735,6 +736,63 @@ describe('editing a Semantic Message Document', () => {
     const history = record(historyOf(document), renamed.document);
     expect(undo(history).present).toBe(document);
     expect(redo(undo(history)).present).toBe(renamed.document);
+  });
+
+  it('links selected unlinked text in one block as one edit', () => {
+    expect.hasAssertions();
+
+    const link = 'https://docs.example.com/lease';
+    const document: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Notes' }] },
+      {
+        kind: 'numbered',
+        spans: [
+          { text: 'Sign ' },
+          { text: 'the ', marks: ['italic'] },
+          { text: 'lease', marks: ['bold'] },
+          { text: ' today', link },
+        ],
+      },
+    ];
+    // A selection in either direction, but not one starting in the list marker past its text.
+    const found = { start: 14, end: 23, text: 'the lease', href: '' };
+    expect(editableLinkAt(document, { start: 14, end: 23 })).toStrictEqual(
+      found,
+    );
+    expect(editableLinkAt(document, { start: 23, end: 14 })).toStrictEqual(
+      found,
+    );
+    expect(editableLinkAt(document, { start: 7, end: 9 })).toBeUndefined();
+    expect(editableLinkAt(document, { start: 7, end: 11 })).toStrictEqual({
+      start: 9,
+      end: 11,
+      text: 'Si',
+      href: '',
+    });
+    // No caret, nothing across blocks, and nothing partly linked.
+    expect(editableLinkAt(document, { start: 17, end: 17 })).toBeUndefined();
+    expect(editableLinkAt(document, { start: 2, end: 12 })).toBeUndefined();
+    expect(editableLinkAt(document, { start: 20, end: 25 })).toBeUndefined();
+    // The link at a caret or selection opens as it is.
+    expect(editableLinkAt(document, { start: 25, end: 27 })).toStrictEqual({
+      start: 23,
+      end: 29,
+      text: ' today',
+      href: link,
+    });
+
+    // Applying a destination keeps the selected text's marks and puts the caret after it.
+    const linked = setLink(document, found, { text: 'the lease', href: link });
+    expect(linked.document[1]?.spans).toStrictEqual([
+      { text: 'Sign ' },
+      { text: 'the ', marks: ['italic'], link },
+      { text: 'lease', marks: ['bold'], link },
+      { text: ' today', link },
+    ]);
+    expect(linked.selection).toStrictEqual({ start: 23, end: 23 });
+    const history = record(historyOf(document), linked.document);
+    expect(undo(history).present).toBe(document);
+    expect(redo(undo(history)).present).toBe(linked.document);
   });
 
   it('undoes typing a word at a time and redoes it', () => {

@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 
 import { Button, Popover, ToolbarButton } from './design.tsx';
+import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -332,7 +333,7 @@ export function FormatBar({
 }
 
 // The format bar's Link control and the Link Editor popover it opens below itself for the link
-// at the caret. It is unavailable away from a link.
+// at the caret, or to add one to selected unlinked text. It is unavailable otherwise.
 export function LinkEditor({
   link,
   disabled,
@@ -348,8 +349,12 @@ export function LinkEditor({
   const [shown, setShown] = useState(false);
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
+  // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
+  const [checked, setChecked] = useState(false);
+  const destinationInput = useRef<TextInput>(null);
   const href = vettedHref(destination);
   const applicable = href !== undefined && isLinkText(text);
+  const adding = editing?.href === '';
   const finish = (next: string, nextHref?: string) => {
     setShown(false);
     if (editing !== undefined) {
@@ -357,6 +362,7 @@ export function LinkEditor({
     }
   };
   const apply = () => {
+    setChecked(true);
     if (applicable) {
       finish(text, href);
     }
@@ -371,8 +377,26 @@ export function LinkEditor({
         <TextInput
           accessibilityLabel={label}
           autoCorrect={!url}
+          // A new link's Link field takes focus as soon as the editor appears.
+          onLayout={
+            url && adding
+              ? () => {
+                  destinationInput.current?.focus();
+                }
+              : undefined
+          }
+          onBlur={
+            url
+              ? () => {
+                  setChecked(true);
+                }
+              : undefined
+          }
           onChangeText={url ? setDestination : setText}
           onSubmitEditing={apply}
+          placeholder={url ? t('drafts.link.placeholder') : undefined}
+          placeholderTextColor={colors.textSecondary}
+          ref={url ? destinationInput : undefined}
           style={[
             styles.linkInput,
             { backgroundColor: colors.fillQuiet, color: colors.textPrimary },
@@ -382,17 +406,19 @@ export function LinkEditor({
       </View>
     );
   };
+  const invalid = checked && href === undefined;
   return (
     <View>
       <ToolbarButton
         disabled={disabled || link === undefined}
         icon="link"
-        label={t('drafts.link.edit')}
+        label={t(link?.href === '' ? 'drafts.link.add' : 'drafts.link.edit')}
         onPress={() => {
           if (link !== undefined) {
             setEditing(link);
             setText(link.text);
             setDestination(link.href);
+            setChecked(false);
             setShown(true);
           }
         }}
@@ -406,20 +432,30 @@ export function LinkEditor({
         <View style={styles.linkPopover}>
           {field(false)}
           {field(true)}
-          <Text
-            style={[textStyles.subheadline, { color: colors.textSecondary }]}>
-            {t('drafts.link.hint')}
-          </Text>
+          <Label
+            accessibilityLiveRegion={invalid ? 'polite' : undefined}
+            style={[
+              textStyles.subheadline,
+              {
+                color: invalid
+                  ? colors.statusDestructive
+                  : colors.textSecondary,
+              },
+            ]}>
+            {t(invalid ? 'drafts.link.invalid' : 'drafts.link.hint')}
+          </Label>
           <View style={styles.linkActions}>
-            <Button
-              destructive
-              label={t('drafts.link.remove')}
-              onPress={() => {
-                if (editing !== undefined) {
-                  finish(editing.text);
-                }
-              }}
-            />
+            {adding ? null : (
+              <Button
+                destructive
+                label={t('drafts.link.remove')}
+                onPress={() => {
+                  if (editing !== undefined) {
+                    finish(editing.text);
+                  }
+                }}
+              />
+            )}
             <Button
               disabled={!applicable}
               fill="accent"
