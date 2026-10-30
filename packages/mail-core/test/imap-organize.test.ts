@@ -556,32 +556,104 @@ describe('organizing IMAP mail', () => {
     });
   });
 
-  it('reuses a durable COPYUID after an interrupted source deletion instead of copying again', async () => {
-    expect.hasAssertions();
-    const imap = organizedServer();
-    imap.server.copyOnly = true;
-    imap.deliver('INBOX', { subject: 'Hello' });
-    const inbox = createImapInbox({
-      ...imap.native,
-      imapExpunge: interruptDeletion(imap.native),
-    });
-    await inbox.load();
-    const message = inboxMessage(inbox.getSnapshot(), 'Hello');
-    await inbox.organize(message, { kind: 'archive', destination: 'Archive' });
-    expect(ready(inbox.getSnapshot()).pending).toBe(1);
-    inbox.forget();
-    const reopened = createImapInbox(imap.native);
-    await reopened.load();
-    await reopened.openFolder('Archive');
-    expect(imap.server.changes).toStrictEqual([
-      'copy INBOX 1 Archive',
-      'delete INBOX 1',
-    ]);
-    expect(reopened.folder('Archive')).toMatchObject({
-      messages: [{ subject: 'Hello' }],
-    });
-    expect(ready(reopened.getSnapshot()).pending).toBe(0);
-  });
+  it.each([
+    {
+      source: 'present',
+      external: () => undefined,
+      deletion: ['delete INBOX 1'],
+    },
+    {
+      source: 'absent',
+      external: (imap: ReturnType<typeof organizedServer>) => {
+        imap.expunge('INBOX', 1);
+      },
+      deletion: [],
+    },
+  ])(
+    'reuses a durable COPYUID after interrupted deletion with the source $source instead of copying again',
+    async ({ external, deletion }) => {
+      expect.hasAssertions();
+      const imap = organizedServer();
+      imap.server.copyOnly = true;
+      imap.deliver('INBOX', { subject: 'Hello' });
+      const inbox = createImapInbox({
+        ...imap.native,
+        imapExpunge: interruptDeletion(imap.native),
+      });
+      await inbox.load();
+      const message = inboxMessage(inbox.getSnapshot(), 'Hello');
+      await inbox.organize(message, {
+        kind: 'archive',
+        destination: 'Archive',
+      });
+      expect(ready(inbox.getSnapshot()).pending).toBe(1);
+      inbox.forget();
+      external(imap);
+      const reopened = createImapInbox(imap.native);
+      await reopened.load();
+      await reopened.openFolder('Archive');
+      expect(imap.server.changes).toStrictEqual([
+        'copy INBOX 1 Archive',
+        ...deletion,
+      ]);
+      expect(reopened.folder('Archive')).toMatchObject({
+        messages: [{ subject: 'Hello' }],
+      });
+      expect(ready(reopened.getSnapshot()).pending).toBe(0);
+    },
+  );
+
+  it.each([
+    {
+      changed: 'destination UIDVALIDITY changed',
+      external: (imap: ReturnType<typeof organizedServer>) => {
+        imap.renumber('Archive');
+      },
+    },
+    {
+      changed: 'copied UID disappeared',
+      external: (imap: ReturnType<typeof organizedServer>) => {
+        imap.expunge('Archive', 1);
+      },
+    },
+    {
+      changed: 'source UIDVALIDITY changed',
+      external: (imap: ReturnType<typeof organizedServer>) => {
+        imap.renumber('INBOX');
+      },
+    },
+  ])(
+    'preserves the source when resuming a copied move after $changed',
+    async ({ external }) => {
+      expect.hasAssertions();
+      const imap = organizedServer();
+      imap.server.copyOnly = true;
+      imap.deliver('INBOX', { subject: 'Hello' });
+      const inbox = createImapInbox({
+        ...imap.native,
+        imapExpunge: interruptDeletion(imap.native),
+      });
+      await inbox.load();
+      await inbox.organize(inboxMessage(inbox.getSnapshot(), 'Hello'), {
+        kind: 'archive',
+        destination: 'Archive',
+      });
+      expect(ready(inbox.getSnapshot()).pending).toBe(1);
+      inbox.forget();
+      external(imap);
+
+      const reopened = createImapInbox(imap.native);
+      await reopened.load();
+      expect(ready(reopened.getSnapshot())).toMatchObject({
+        pending: 0,
+        notice: { kind: 'rejected' },
+      });
+      expect(subjects(reopened.getSnapshot())).toStrictEqual(['Hello']);
+      expect(imap.server.changes).toStrictEqual(['copy INBOX 1 Archive']);
+      expect(imap.server.sessions.size).toBe(0);
+      reopened.forget();
+    },
+  );
 
   it('never treats an external deletion after an interrupted move as proof of its destination', async () => {
     expect.hasAssertions();
