@@ -226,6 +226,12 @@ windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there.
 In that window, Send sits level with the window controls, and clicking the
 Command Palette input there opens the palette.
+When the palette first opens in the Inbox, and again in that window, the
+journey compares window captures taken before and after opening it across the
+panel's first rows and fails if too few points change, so a palette that only
+exists for assistive technology fails
+([#1573](https://github.com/unwired-dev/product/issues/1573)). Each open-palette
+capture is kept as a `Command Palette open` attachment.
 Unfinished recipient text keeps that window open after Command-W and cancels
 Quit. Clearing it permits Command-W and the Inbox retains the Draft. Reopening
 that Draft and expanding again permits Quit from the new guarded window, stopping

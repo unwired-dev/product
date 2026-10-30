@@ -487,7 +487,9 @@ export function useMenuMotion(open: boolean, arrival: 'grow' | 'drop') {
       toValue: open ? 1 : 0,
       duration: open ? 200 : 150,
       easing: easeOut,
-      useNativeDriver: true,
+      // Fabric on Mac resets a natively animated opacity to the committed one on its next layout,
+      // which left the Command Palette undrawn at 0 (#1573), so the committed value must move.
+      useNativeDriver: false,
     });
     animation.start(({ finished }) => {
       if (finished && !open) {
