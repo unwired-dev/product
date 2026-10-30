@@ -831,7 +831,7 @@ describe('keeping IMAP mail fresh with IDLE', () => {
       expect(imap.idling()).toBe(1);
     });
     stop();
-    imap.notify(false);
+    imap.notify([]);
     await sleep(20);
     expect(imap.idling()).toBe(0);
   });
@@ -858,7 +858,66 @@ describe('keeping IMAP mail fresh with IDLE', () => {
       expect(subjects(inbox.getSnapshot())).toStrictEqual(['After reconnect']);
     } finally {
       stop?.();
-      imap.notify(false);
+      imap.notify([]);
+      inbox.forget();
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits on through events that are neither a change nor a closing connection, in one session', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const stop = inbox.watch();
+    try {
+      await vi.waitFor(() => {
+        expect(imap.idling()).toBe(1);
+      });
+      const [session] = imap.server.sessions;
+      imap.deliver('INBOX', { subject: 'Not yet read' });
+      imap.notify(['recent', 'flags', 'alert', 'capability']);
+      await vi.waitFor(() => {
+        expect(imap.idling()).toBe(1);
+      });
+      expect([...imap.server.sessions]).toStrictEqual([session]);
+      expect(subjects(inbox.getSnapshot())).toStrictEqual([]);
+      imap.notify(['recent', 'exists']);
+      await vi.waitFor(() => {
+        expect(subjects(inbox.getSnapshot())).toStrictEqual(['Not yet read']);
+      });
+    } finally {
+      stop();
+      inbox.forget();
+    }
+  });
+
+  it('pauses when the server closes the connection during IDLE, and closes the session when unwatched', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const imap = createSyntheticImap();
+    const inbox = createImapInbox(imap.native);
+    const open = () => ({
+      idling: imap.idling(),
+      sessions: imap.server.sessions.size,
+    });
+    let stop: (() => void) | undefined = undefined;
+    try {
+      await inbox.load();
+      stop = inbox.watch();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(open()).toStrictEqual({ idling: 1, sessions: 1 });
+      imap.notify(['bye']);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(open()).toStrictEqual({ idling: 0, sessions: 0 });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(open()).toStrictEqual({ idling: 1, sessions: 1 });
+      stop();
+      stop = undefined;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(open()).toStrictEqual({ idling: 0, sessions: 0 });
+    } finally {
+      stop?.();
       inbox.forget();
       vi.useRealTimers();
     }

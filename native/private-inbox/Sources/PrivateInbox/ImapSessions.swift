@@ -18,6 +18,10 @@ protocol ImapSession: Sendable {
   func capabilities() async throws -> [String]
   // Every folder the server lists, in every namespace it declares.
   func folders() async throws -> [ImapListedFolder]
+  // Waits in IDLE on the folder until the server sends an event or `seconds` pass, and reports the
+  // kinds of event sent before the wait ended, none when the folder stayed quiet: `exists`,
+  // `expunge`, `vanished`, `recent`, `flags`, `fetch`, `alert`, `capability` or `bye`.
+  func idle(folder: String, seconds: Int) async throws -> [String]
   // Examines the folder read-only for the reads that follow; refuses one without UIDVALIDITY.
   func examine(_ folder: String) async throws -> ImapSelection
   // Envelopes of the examined folder's messages that `read` names.
@@ -139,6 +143,47 @@ protocol ImapSession: Sendable {
       }
     }
 
+    func idle(folder: String, seconds: Int) async throws -> [String] {
+      try await run { server in
+        _ = try await SwiftMailImap.examine(server, folder: folder)
+        let events = try await server.idle()
+        let deadline = ContinuousClock.now + .seconds(seconds)
+        // DONE ends the stream once the server acknowledges it, after any events it sent first.
+        let bound = Task {
+          try await Task.sleep(until: deadline)
+          try? await server.done()
+        }
+        defer { bound.cancel() }
+        var kinds: [String] = []
+        for await event in events {
+          let kind = Self.kind(event)
+          guard !kinds.contains(kind) else { continue }
+          kinds.append(kind)
+          if kinds.count == 1 {
+            bound.cancel()
+            try? await server.done()
+          }
+        }
+        // A stream that ends quietly before its bound lost the connection.
+        if kinds.isEmpty, ContinuousClock.now < deadline { throw ImapFailure.offline }
+        return kinds
+      }
+    }
+
+    private static func kind(_ event: IMAPServerEvent) -> String {
+      switch event {
+      case .exists: "exists"
+      case .expunge: "expunge"
+      case .vanished: "vanished"
+      case .recent: "recent"
+      case .flags: "flags"
+      case .fetch, .fetchUID: "fetch"
+      case .alert: "alert"
+      case .capability: "capability"
+      case .bye: "bye"
+      }
+    }
+
     // Closes without LOGOUT, which would wait behind a command still in flight.
     func close() async { try? await server.disconnect() }
   }
@@ -199,6 +244,20 @@ extension RegistrationStore {
         return folder
       }
     ]
+  }
+
+  // Waits in IDLE on the folder for up to `seconds`; resolves the kinds of event the server sent.
+  func imapIdle(
+    connection: String, address: String, generation: String, session: String, folder: String,
+    seconds: Int
+  ) async throws -> [String: Any] {
+    guard Self.imapFolderName(folder), (1...600).contains(seconds) else {
+      throw RegistrationError.unavailable
+    }
+    let events = try await imapCommand(
+      session, connection: connection, address: address, generation: generation
+    ) { try await $0.idle(folder: folder, seconds: seconds) }
+    return ["events": events]
   }
 
   func imapExamine(

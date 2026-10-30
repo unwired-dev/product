@@ -1507,7 +1507,8 @@ extension UnwiredRegistration {
     }
   }
 
-  // `request` names the `folder` to watch and the most `seconds` to wait.
+  // `request` names the open `session`, the `folder` to watch and the most `seconds` to wait.
+  // Outside the registration gate, which a wait would hold for minutes.
   @objc(imapIdle:request:resolver:rejecter:)
   func imapIdle(
     _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
@@ -1519,8 +1520,8 @@ extension UnwiredRegistration {
         let seconds = (request["seconds"] as? Double).flatMap({ Int(exactly: $0) })
       else { throw RegistrationError.unavailable }
       return try await $0.imapIdle(
-        connection: connection, address: address, generation: generation, folder: folder,
-        seconds: seconds)
+        connection: connection, address: address, generation: generation,
+        session: try Self.imapSession(request), folder: folder, seconds: seconds)
     }
   }
 
