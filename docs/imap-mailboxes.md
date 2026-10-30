@@ -480,10 +480,16 @@ decides which of them are a change. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
 connection's generation changes, as on removal, sign-out or a new password.
 Closing a session answers a command still in flight at once, and native code
-delivers no later result. A connection may hold four open sessions. Organizing
-still runs as single native operations until
-[#1180](https://github.com/unwired-dev/product/issues/1180)
-moves it to the same sessions. Filing a Sent copy searches the Sent folder for its
+delivers no later result. A connection may hold four open sessions.
+
+Organizing runs the same way. TypeScript plans each saved change over a session:
+it selects the folder, checks the UIDVALIDITY and whether the message is still
+there, and then sets or clears `\Seen` or `\Flagged`, moves it, or copies it and
+deletes the source with `UID EXPUNGE`. Native code offers only select, flags,
+store, move, copy and expunge. Each answers with a fixed failure code and refuses
+a folder the server opens read-only. A command that fails after it was sent is
+reported as interrupted, so TypeScript never resends an uncertain move.
+Filing a Sent copy runs the same way: TypeScript searches the Sent folder for the copy's
 boundary and appends the message in the same session only when no copy is there.
 
 The connection of a closed session ends only when its active command answers or

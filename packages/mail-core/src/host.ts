@@ -333,7 +333,11 @@ export function createHost(
       imapHistory: (mailbox, request) => native().imapHistory(mailbox, request),
       imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),
       imapHeaders: (mailbox, request) => native().imapHeaders(mailbox, request),
-      imapModify: (mailbox, change) => native().imapModify(mailbox, change),
+      imapSelect: (mailbox, request) => native().imapSelect(mailbox, request),
+      imapStore: (mailbox, request) => native().imapStore(mailbox, request),
+      imapMove: (mailbox, request) => native().imapMove(mailbox, request),
+      imapCopy: (mailbox, request) => native().imapCopy(mailbox, request),
+      imapExpunge: (mailbox, request) => native().imapExpunge(mailbox, request),
       imapSearch: (mailbox, request) => native().imapSearch(mailbox, request),
       imapIdle: (mailbox, request) => native().imapIdle(mailbox, request),
       imapSend: (message, mailbox) =>

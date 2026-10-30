@@ -60,9 +60,15 @@ the controlled native session test verifies that closing during IDLE answers
 the caller at once. The hosted TLS test covers the real primitive's change,
 quiet-bound and close paths, but its run on the #1181 snapshot remains deferred.
 
+Organizing also runs in TypeScript over a short-lived session handle (#1180).
+Native exposes SELECT, flags, STORE, MOVE with automatic fallback disabled, COPY
+and targeted UID EXPUNGE. TypeScript checks UIDVALIDITY and presence, chooses
+the move strategy and classifies the outcome. Native refuses read-only selection
+and maps command failures to fixed codes, preserving uncertain partial completion.
+
 The remaining operations still open one authenticated session each through
-`SwiftMailImap`, perform `EXAMINE` for reads and `SELECT` for explicit mutations,
-use `BODY.PEEK` and close success and failure paths. TLS starts before
+`SwiftMailImap`, perform `EXAMINE` for reads, use `BODY.PEEK` and close success
+and failure paths. TLS starts before
 authentication, uses full certificate verification and requires TLS 1.2 or newer.
 No plaintext/STARTTLS fallback or production trust override exists. The parser
 rejects body literals over 40 MB before buffering payload, and bounds response
@@ -195,10 +201,10 @@ is committed before its native call. A move whose outcome is unknown and has no
 destination mapping blocks later actions until explicit discard; source absence
 alone cannot prove the destination. Read-flag mutations remain idempotent.
 
-Without MOVE, native transport returns a verified COPYUID after COPY alone.
-TypeScript commits that continuation before requesting source deletion. The next
-native request checks the destination generation and copied UID, then the source
-generation, and sends STORE Deleted and targeted UID EXPUNGE. Replays of this
+Without MOVE, the native COPY command returns a verified COPYUID after COPY alone.
+TypeScript commits that continuation before requesting source deletion. In the next
+session, TypeScript checks the destination generation and copied UID, then the source
+generation and presence, and requests STORE Deleted and targeted UID EXPUNGE. Replays of this
 continuation never COPY again. An unavailable or invalid COPYUID prevents source
 deletion and automatic replay. MOVE partial-completion failures remain uncertain.
 Settled actions update cached and still-shown folder snapshots together.
