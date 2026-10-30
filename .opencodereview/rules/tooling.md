@@ -45,6 +45,9 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   `--log-size`, graph/prefix formatting and NUL delimiters must not add metadata
   or corrupt the reviewer-only path inventory. `--format=` alone does not
   suppress every kind of `git show` output.
+  Reject output sinks such as `--output` before either pass can open a file.
+  Output suppression such as `--quiet` must not silence the names pass or prevent
+  the readable-content pass and its exit status from running.
 
 - Both hosts' `scripts/verify-native.ts` accepting a pinned revision found under
   another package in `Package.resolved`. Decode the pins and require the URL and

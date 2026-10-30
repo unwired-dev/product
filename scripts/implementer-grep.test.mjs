@@ -457,6 +457,9 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
   const exitCode = run(['--diff', '--exit-code', 'HEAD~', 'HEAD']);
   assert.equal(exitCode.status, 1, exitCode.stderr);
   assert.ok(exitCode.stdout.includes(heading), exitCode.stdout);
+  const quiet = run(['--diff', '--quiet', 'HEAD~', 'HEAD']);
+  assert.equal(quiet.status, 1, quiet.stderr);
+  assert.ok(quiet.stdout.includes(heading), quiet.stdout);
   const blob = execFileSync(
     'git',
     ['rev-parse', 'HEAD:docs/architecture/README.md'],
