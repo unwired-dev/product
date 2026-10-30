@@ -787,8 +787,10 @@ export function createImapInbox(
   const withdrawals = new Set<string>();
   let shownStatus: Sync = 'current';
   let authenticationRejected = false;
-  // Folders whose history was read up to date, or that are gone, since the connection opened.
+  // Folders whose history was read up to date since the connection opened, and folders it skips
+  // until the next launch because they are gone or refused their UIDVALIDITY.
   const settled = new Set<string>();
+  const skipped = new Set<string>();
   // A failed speculative read pauses prefetch and backfill until the next Inbox synchronization.
   let backfillPaused = false;
   const renderedHistory = (current: ImapDocument) => {
@@ -1271,9 +1273,10 @@ export function createImapInbox(
         ? undefined
         : { segments: {}, keep: historySegmentNames(next) },
     );
-    for (const name of settled) {
+    for (const name of [...settled, ...skipped]) {
       if (!kept(name)) {
         settled.delete(name);
+        skipped.delete(name);
       }
     }
     for (const name of folderViews.keys()) {
@@ -1397,6 +1400,7 @@ export function createImapInbox(
       restoring.clear();
       authenticationRejected = false;
       settled.clear();
+      skipped.clear();
       lifetime += 1;
       opened = undefined;
       document = undefined;
@@ -2528,13 +2532,13 @@ export function createImapInbox(
     yield* commit(next, { segments, keep: historySegmentNames(next) });
   });
   // One Historical Metadata Backfill read of the next folder, committed with the segment it saved.
-  // A folder the server no longer selects settles. False once every folder settled.
+  // A folder the server no longer selects is skipped. False once every folder settled or is skipped.
   // The folder backfill reads next, with its history; none while paused or done.
   const nextBackfill = (scope: Scope) => {
     const name =
       document === undefined || prefetchPaused(scope)
         ? undefined
-        : nextHistoryFolder(document, settled);
+        : nextHistoryFolder(document, settled, skipped);
     return name === undefined
       ? undefined
       : {
@@ -2573,10 +2577,12 @@ export function createImapInbox(
       render();
     }
     // A gone folder, or one refusing its UIDVALIDITY, waits for the next launch.
-    if (step?.settled === false) {
-      settled.delete(name);
-    } else {
+    if (step === undefined) {
+      skipped.add(name);
+    } else if (step.settled) {
       settled.add(name);
+    } else {
+      settled.delete(name);
     }
     return true;
   });

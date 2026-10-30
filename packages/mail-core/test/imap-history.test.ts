@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import type { ImapInboxState } from '@private-email/mail-core/imap-inbox';
 
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
@@ -53,18 +55,38 @@ const savedUids = (imap: Imap, folder: string) =>
   );
 
 // Runs `before` ahead of the history read numbered `at`, as the server changes mid-backfill.
-const beforeHistoryRead = (imap: Imap, at: number, before: () => void) => {
+// Runs each callback just before the history read with its number, counting from 1.
+const beforeHistoryReads = (
+  imap: Imap,
+  before: Readonly<Record<number, () => void>>,
+) => {
   const read = imap.native.imapHistory;
   let calls = 0;
   vi.spyOn(imap.native, 'imapHistory').mockImplementation(
     async (...request) => {
       calls += 1;
-      if (calls === at) {
-        before();
-      }
+      before[calls]?.();
       return read(...request);
     },
   );
+};
+
+// Refuses every history read of the folder as gone, counting the refusals.
+const refusingFolder = (imap: Imap, folder: string) => {
+  const read = imap.native.imapHistory;
+  const refused = { count: 0 };
+  vi.spyOn(imap.native, 'imapHistory').mockImplementation(
+    async (mailbox, request) => {
+      if (request.folder !== folder) {
+        return read(mailbox, request);
+      }
+      refused.count += 1;
+      throw Object.assign(new Error('Synthetic imap-missing'), {
+        code: 'imap-missing',
+      });
+    },
+  );
+  return refused;
 };
 
 describe('imap historical metadata backfill', () => {
@@ -101,8 +123,10 @@ describe('imap historical metadata backfill', () => {
     expect.hasAssertions();
     const imap = createImap();
     const uids = fill(imap, 'INBOX', 1100);
-    beforeHistoryRead(imap, 2, () => {
-      imap.server.historyFailure = 'offline';
+    beforeHistoryReads(imap, {
+      2: () => {
+        imap.server.historyFailure = 'offline';
+      },
     });
     const inbox = createImapInbox(imap.native);
     await inbox.load();
@@ -141,11 +165,13 @@ describe('imap historical metadata backfill', () => {
     const expunged = [uids[1050], uids[0]].filter((uid) => uid !== undefined);
     let arrived = 0;
     // The first page was saved: one of its messages and an unread one go, one arrives.
-    beforeHistoryRead(imap, 2, () => {
-      for (const uid of expunged) {
-        imap.expunge('INBOX', uid);
-      }
-      arrived = imap.deliver('INBOX', { subject: 'Arrived mid-backfill' });
+    beforeHistoryReads(imap, {
+      2: () => {
+        for (const uid of expunged) {
+          imap.expunge('INBOX', uid);
+        }
+        arrived = imap.deliver('INBOX', { subject: 'Arrived mid-backfill' });
+      },
     });
     const inbox = createImapInbox(imap.native);
     await inbox.load();
@@ -162,6 +188,54 @@ describe('imap historical metadata backfill', () => {
     expect(saved).not.toContain(expunged[1]);
   });
 
+  it('downloads a message that arrives during the last expunge check', async () => {
+    expect.hasAssertions();
+    const imap = createImap();
+    const uids = fill(imap, 'INBOX', 1100);
+    const expunged = Number(uids[1050]);
+    let arrived = 0;
+    // Reads 1-3 pass over the folder and 4-6 check its three segments.
+    beforeHistoryReads(imap, {
+      3: () => imap.expunge('INBOX', expunged),
+      6: () => {
+        arrived = imap.deliver('INBOX', { subject: 'Arrived mid-check' });
+      },
+    });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+
+    await expect(completed(inbox)).resolves.toStrictEqual({
+      downloaded: 1100,
+      total: 1100,
+      complete: true,
+    });
+    const saved = savedUids(imap, 'INBOX');
+    expect(saved).toContain(arrived);
+    expect(saved).not.toContain(expunged);
+  });
+
+  it('skips a folder the server no longer selects, even after its cached view moved on', async () => {
+    expect.hasAssertions();
+    const imap = createImap();
+    imap.addFolder('Archive');
+    fill(imap, 'INBOX', 3);
+    fill(imap, 'Archive', 3);
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await completed(inbox);
+    fill(imap, 'Archive', 2);
+    await inbox.openFolder('Archive');
+    const refused = refusingFolder(imap, 'Archive');
+    await inbox.load();
+
+    await vi.waitFor(() => {
+      expect(refused.count).toBe(1);
+    });
+    // A reselected folder would read again at once.
+    await sleep(100);
+    expect(refused.count).toBe(1);
+  });
+
   it('keeps the checkpoint and pauses when a saved segment is unavailable during expunge reconciliation', async () => {
     expect.hasAssertions();
     const imap = createImap();
@@ -169,7 +243,7 @@ describe('imap historical metadata backfill', () => {
     const expunged = imap.deliver('INBOX', {
       subject: 'Expunged after saving',
     });
-    beforeHistoryRead(imap, 2, () => imap.expunge('INBOX', expunged));
+    beforeHistoryReads(imap, { 2: () => imap.expunge('INBOX', expunged) });
     let checkpoint: string | null = null;
     vi.spyOn(imap.native, 'openMailboxSegment').mockImplementationOnce(() => {
       checkpoint = imap.cache.document;

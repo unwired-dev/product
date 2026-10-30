@@ -23,12 +23,14 @@ const historyFolders = (document: ImapDocument) => [
     .map(({ name }) => name),
 ];
 
-// The first folder with history left to read. `settled` folders were read up to date, or are gone,
-// since this connection opened. A cached UIDVALIDITY change or a later UIDNEXT makes one eligible
-// again. Other folders begin or continue a pass or expunge check, or learn what changed.
+// The first folder with history left to read. `settled` folders were read up to date since this
+// connection opened; a cached UIDVALIDITY change or a later UIDNEXT makes one eligible again.
+// `skipped` folders are gone or refused their UIDVALIDITY, and stay skipped. Other folders begin or
+// continue a pass or expunge check, or learn what changed.
 export function nextHistoryFolder(
   document: ImapDocument,
   settled: ReadonlySet<string>,
+  skipped: ReadonlySet<string>,
 ) {
   const histories = new Map(
     (document.history ?? []).map((history) => [history.folder, history]),
@@ -40,11 +42,12 @@ export function nextHistoryFolder(
     const history = histories.get(name);
     const cache = cached.get(name);
     return (
-      !settled.has(name) ||
-      (history !== undefined &&
-        cache !== undefined &&
-        (cache.uidValidity !== history.uidValidity ||
-          cache.uidNext > history.top))
+      !skipped.has(name) &&
+      (!settled.has(name) ||
+        (history !== undefined &&
+          cache !== undefined &&
+          (cache.uidValidity !== history.uidValidity ||
+            cache.uidNext > history.top)))
     );
   });
 }
@@ -81,10 +84,12 @@ const decided = (
   read: HistoryRead,
   checked: boolean,
 ): Omit<Step, 'written'> => {
+  // A finished expunge check ends here, whatever follows.
+  const { checking: _, ...rest } = history;
   if (read.uidNext > history.top) {
     return {
       history: {
-        ...history,
+        ...rest,
         above: history.top,
         below: read.uidNext,
         top: read.uidNext,
@@ -93,9 +98,8 @@ const decided = (
     };
   }
   if (!checked && downloaded(history) > read.total) {
-    return { history: { ...history, checking: 0 }, settled: false };
+    return { history: { ...rest, checking: 0 }, settled: false };
   }
-  const { checking: _, ...rest } = history;
   return { history: { ...rest, complete: true }, settled: true };
 };
 
