@@ -225,7 +225,8 @@ export const foldDue = (history: MailboxHistory) =>
     (history.current.segments.length > 0 || history.current.complete === true));
 
 // Changed messages no segment held whose receipt falls within a segment's range, as mail restored
-// from Spam or Trash is; mail newer than the pass waits for the first segment.
+// from Spam or Trash is; mail newer than the pass waits for the first segment. A receipt equal to
+// the segment's oldest may belong to a later segment that has not been read yet, so it waits too.
 const restoredInto = (
   changes: ReadonlyMap<string, GmailMessage | undefined>,
   held: ReadonlySet<string>,
@@ -243,15 +244,16 @@ const restoredInto = (
       !held.has(message.id) &&
       oldest !== undefined &&
       newest !== undefined &&
-      message.receivedAt >= oldest &&
+      message.receivedAt > oldest &&
       message.receivedAt < newest,
   );
 
 // Writes the recorded changes into the next segments, keeping them newest first: a changed message
-// no earlier segment held joins the first one whose oldest receipt is not newer, as mail restored
+// no earlier segment held joins the first one whose oldest receipt is older, as mail restored
 // from Spam or Trash does. When the last segment is written, mail that arrived after the pass
-// began joins a new first segment and, once the pass is complete, older mail a new last one; a
-// later page lists the others.
+// began joins a new first segment. Older mail joins a new last one if the pass is complete or
+// its receipt equals the last segment's oldest; a later page may miss restored mail at that tie.
+// A later page lists the others.
 // fallow-ignore-next-line complexity -- One step writes changed, restored, arrived and older mail into date-ordered segments.
 export const foldStep = Effect.fnUntraced(function* <E>(
   history: MailboxHistory,
@@ -274,14 +276,15 @@ export const foldStep = Effect.fnUntraced(function* <E>(
   const written: Array<readonly [string, readonly GmailMessage[]]> = [];
   const found = new Set(folding.found);
   let { newest } = folding;
+  let oldest: string | undefined = undefined;
   for (const segment of pass.segments.slice(
     folding.segment,
     folding.segment + foldSegments,
   )) {
     const stored = yield* read(segment.name);
     newest ??= stored[0]?.receivedAt;
-    const oldest = stored.at(-1)?.receivedAt;
-    // Equal receipts can place a changed message before the segment that already held it.
+    oldest = stored.at(-1)?.receivedAt;
+    // Removes the duplicates an earlier fold placed before the segment that already held them.
     const messages = stored.filter(({ id }) => !found.has(id));
     const changed = messages.filter(({ id }) => changes.has(id));
     for (const { id } of changed) {
@@ -336,12 +339,12 @@ export const foldStep = Effect.fnUntraced(function* <E>(
   const arrived = unheld.filter(
     ({ receivedAt }) => newest === undefined || receivedAt >= newest,
   );
-  const older =
-    pass.complete === true
-      ? unheld.filter(
-          ({ receivedAt }) => newest !== undefined && receivedAt < newest,
-        )
-      : [];
+  const older = unheld.filter(
+    ({ receivedAt }) =>
+      newest !== undefined &&
+      receivedAt < newest &&
+      (pass.complete === true || receivedAt === oldest),
+  );
   if (arrived.length > 0) {
     const name = yield* newName;
     written.push([name, arrived]);
