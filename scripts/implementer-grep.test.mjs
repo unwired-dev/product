@@ -96,12 +96,14 @@ test('implementer-show rejects indirect object inputs before they can print revi
   ).trim();
   for (const ref of [
     'refs/tags/protected-blob',
+    'refs/tags/-Gprotected',
     'refs/remotes/test/protected-blob',
     'refs/bisect/bad',
   ]) {
     execFileSync('git', ['update-ref', ref, blob], { cwd });
   }
   for (const args of [
+    ['--default', '-Gprotected'],
     ['--stdin'],
     ['--all'],
     ['--tags'],
@@ -356,6 +358,24 @@ test('implementer-conflicts names reviewer-only conflicts without their content'
   );
 });
 
+test('implementer-show binds option-looking operands before Git parses log options', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  const blob = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD:docs/architecture/README.md'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  for (const args of [
+    ['-G', '--source', '-G', blob],
+    ['--author', '--source', '-G', blob],
+  ]) {
+    const result = spawnSync(show, args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '', args.join(' '));
+  }
+});
+
 test('implementer-show reads a reviewer fix commit and names its reviewer-only paths', (t) => {
   const { cwd } = repository(t);
   const show = fileURLToPath(new URL('implementer-show', import.meta.url));
@@ -392,8 +412,30 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
     [['-s', 'HEAD'], '.', []],
     [['HEAD~..HEAD', '--', 'docs', '.patterns'], '.', ['docs/guide.md']],
     [['-G', 'reviewer:|fix', 'HEAD'], '.', readable],
+    [['-I', 'old:public', 'HEAD'], '.', readable],
+    [['-wI', 'old:public', 'HEAD'], '.', readable],
+    [['-wG', 'reviewer:|fix', 'HEAD'], '.', readable],
+    [['-G', '--source', '-G', 'fix', 'HEAD'], '.', readable],
+    [['-G', '--', '-G', 'fix', 'HEAD'], '.', readable],
+    [['--ignore-matching-lines', 'old:public', 'HEAD'], '.', readable],
+    [['--word-diff-regex', '[[:alnum:]]+', 'HEAD'], '.', readable],
+    [['--anchored', 'old:public', 'HEAD'], '.', readable],
     [['--since', '2000-01-01 00:00', 'HEAD'], '.', readable],
+    [['--since-as-filter', '2000-01-01 00:00', 'HEAD'], '.', readable],
+    [['--date', 'format:%H:%M', 'HEAD'], '.', readable],
+    [['--decorate-refs', 'refs/tags:*', 'HEAD'], '.', readable],
+    [
+      ['--find-object', 'HEAD:docs/architecture/README.md', 'HEAD'],
+      '.',
+      readable,
+    ],
     [['--diff', 'HEAD~', 'HEAD'], '.', readable],
+    [['--diff', '-I', 'old:public', 'HEAD~', 'HEAD'], '.', readable],
+    [
+      ['--diff', '--word-diff-regex', '[[:alnum:]]+', 'HEAD~', 'HEAD'],
+      '.',
+      readable,
+    ],
     [['--diff', '--pickaxe-all', '-S', 'fix', 'HEAD~', 'HEAD'], '.', readable],
     [['--diff', 'HEAD~..HEAD', '--', '.'], 'docs', ['docs/guide.md']],
   ]) {
@@ -427,6 +469,19 @@ test('implementer-show reads a reviewer fix commit and names its reviewer-only p
     ['--full-diff', 'HEAD', '--', 'docs/guide.md'],
     ['--diff', '--no-index', 'docs/architecture/README.md', 'docs/guide.md'],
     ['--textconv', 'HEAD'],
+    ['-G', 'old:public', blob],
+    ['-I', 'old:public', blob],
+    ['-Gfix', blob],
+    ['-wIold:public', blob],
+    ['--since-as-filter', '2000-01-01 00:00', blob],
+    ['--word-diff-regex', '[[:alnum:]]+', blob],
+    ['--src-prefix', 'old:', blob],
+    ['--find-object', blob, blob],
+    ['--color-words', blob],
+    ['-wM', blob],
+    ['--default', blob],
+    ['--end-of-options', 'HEAD'],
+    ['-G'],
   ]) {
     const result = run(args);
     assert.equal(result.status, 2, `${args.join(' ')}: ${result.stdout}`);

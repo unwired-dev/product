@@ -33,9 +33,14 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   Git's accepted short clusters, attached values and long abbreviations as well
   as ordinary matches: pattern files, pager commands, textconv helpers and
   tree/blob selectors can disclose excluded text despite correct root exclusions.
-  For `implementer-show`, include indirect revision inputs such as `--stdin`,
+  For `implementer-show`, include indirect revision inputs such as `--default`, `--stdin`,
   ref expansion and `--indexed-objects`, which can select blobs without a positional selector.
-  Verify rejection before Git reads them, and retain ordinary pattern operands.
+  Verify rejection before Git reads them. Distinguish required option operands
+  from revisions, including patterns, dates and object-filter values; preserve
+  their separate and attached forms without skipping the following revision.
+  Git's earlier log-option pass must not reinterpret an operand such as
+  `--source` and leave a skipped blob as a revision. Optional values must not
+  hide a positional tree/blob selector.
 
 - Both hosts' `scripts/verify-native.ts` accepting a pinned revision found under
   another package in `Package.resolved`. Decode the pins and require the URL and

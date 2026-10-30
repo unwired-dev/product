@@ -20,23 +20,52 @@ set -f
 paths=$(cat "$(dirname "$0")/reviewer-only-paths")
 
 separated=false
-value=false
-for argument do
-  # The operand of a preceding option, such as a -S pattern, is not a revision.
-  if [ "$value" = true ]; then
-    value=false
+value=
+remaining=$#
+while [ "$remaining" -gt 0 ]; do
+  argument=$1
+  shift
+  remaining=$((remaining - 1))
+  if [ "$separated" = true ]; then
+    set -- "$@" "$argument"
+    continue
+  fi
+  # Attach operands so Git's earlier log-option pass cannot reinterpret them.
+  if [ -n "$value" ]; then
+    set -- "$@" "$value$argument"
+    value=
     continue
   fi
   case "$argument" in
-    --) separated=true; break ;;
-    -S|-G|-O|--grep|--author|--committer|--since|--until|--after|--before) value=true ;;
-    --stdin|--all|--branches|--branches=*|--tags|--tags=*|--remotes|--remotes=*|--glob|--glob=*|--reflog|--alternate-refs|--indexed-objects|--bisect)
+    --) separated=true ;;
+    --grep|--grep-reflog|--author|--committer|--since|--since-as-filter|--until|--after|--before|--date|--encoding|--max-count|--skip|--max-age|--min-age|\
+    --decorate-refs|--decorate-refs-exclude|\
+    --stat-width|--stat-name-width|--stat-graph-width|--stat-count|--ws-error-highlight|--src-prefix|--dst-prefix|--line-prefix|--inter-hunk-context|\
+    --output-indicator-new|--output-indicator-old|--output-indicator-context|--ignore-matching-lines|--diff-algorithm|--anchored|--word-diff-regex|--color-moved-ws|\
+    --rotate-to|--skip-to|--find-object|--diff-filter|--max-depth|--output)
+      value="$argument="
+      continue ;;
+    --end-of-options) reject 'use -- before pathspecs; --end-of-options disables the name-only output controls.' ;;
+    --default|--stdin|--all|--branches|--branches=*|--tags|--tags=*|--remotes|--remotes=*|--glob|--glob=*|--reflog|--alternate-refs|--indexed-objects|--bisect)
       reject 'indirect object inputs can print trees and blobs outside the pathspecs; pass explicit commit revisions.' ;;
     --full-diff|--no-index)
       reject '--full-diff and --no-index print files outside the pathspecs.' ;;
     --ext-diff|--textconv) reject 'external diff and textconv helpers can read excluded files.' ;;
     --name-status|--check) reject 'use --name-only or --stat; --name-status and --check cannot list reviewer-only names.' ;;
-    -*) ;;
+    --*) ;;
+    -?*)
+      options=${argument#-}
+      while [ -n "$options" ]; do
+        option=${options%"${options#?}"}
+        options=${options#?}
+        case "$option" in
+          S|G|O|I|l|n)
+            [ -n "$options" ] || value=$argument
+            break ;;
+          U|X|B|M|C) break ;; # Optional values must be attached, not skipped.
+        esac
+      done ;;
+    -) ;;
     *:*) reject 'tree and blob selectors bypass root exclusions; use revisions and pathspecs after --.' ;;
     *)
       # Refs cannot contain `..`, so this splits ranges into their ends.
@@ -47,7 +76,10 @@ for argument do
         esac
       done ;;
   esac
+  [ -z "$value" ] || continue
+  set -- "$@" "$argument"
 done
+[ -z "$value" ] || reject 'missing option operand.'
 
 # The same revisions and options limited to reviewer-only paths, with the caller's pathspecs dropped.
 names=$(
