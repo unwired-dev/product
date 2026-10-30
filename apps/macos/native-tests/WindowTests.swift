@@ -196,10 +196,12 @@ final class WindowTests: XCTestCase {
     entry.click()
     entry.typeText(String(presented.suffix(4)))
     resumed.buttons["Confirm Recovery Key"].click()
-    // Confirmed setup keeps the account page open until Open Inbox shows the synchronized Gmail
-    // Inbox, listed over two Gmail pages.
-    XCTAssertTrue(resumed.buttons["Open Inbox"].waitForExistence(timeout: 15))
-    resumed.buttons["Open Inbox"].click()
+    // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages. An Apple
+    // account's account page stays open until Open Inbox.
+    if apple {
+      XCTAssertTrue(resumed.buttons["Open Inbox"].waitForExistence(timeout: 15))
+      resumed.buttons["Open Inbox"].click()
+    }
     let rowan = "Unread. Rowan Hale. Garden plans for spring"
     XCTAssertTrue(resumed.buttons[rowan].waitForExistence(timeout: 20))
     XCTAssertTrue(

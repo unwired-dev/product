@@ -1587,6 +1587,9 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(message.waitForExistence(timeout: 15))
     message.tap()
+    // iPhone drops a Reply tap that lands while the reader is still being pushed; its rendered
+    // body shows the push has settled.
+    XCTAssertTrue(webText("seed order", in: app).waitForExistence(timeout: 15))
     app.buttons["Reply"].tap()
     if app.buttons["Reply All"].waitForExistence(timeout: 2) {
       // iPhone's Reply sheet names the sender beside its Close button.
