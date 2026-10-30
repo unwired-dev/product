@@ -2179,6 +2179,54 @@ describe('gmail operational connection registration', () => {
     expect(migrated.signals).toStrictEqual([]);
   });
 
+  it('refreshes the current row and deletes its separate legacy copy', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const registration = {
+      gmailIdentityToken: userIdentityToken,
+      opaqueConnectionId: 'opaque-gmail-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    };
+    const first = await asUser.action(
+      api.pushRelay.registerGmailConnection,
+      registration,
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: 0,
+        emailAddress: 'user@example.com',
+        lastVerifiedAt: 0,
+        productAccountId: connect.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+        updatedAt: 0,
+      });
+    });
+
+    const refreshed = await asUser.action(
+      api.pushRelay.registerGmailConnection,
+      registration,
+    );
+
+    expect(refreshed.connectedAt).toBe(first.connectedAt);
+    await expect(
+      t.run((ctx) => ctx.db.query('mailProviderConnections').collect()),
+    ).resolves.toStrictEqual([
+      expect.objectContaining({
+        connectedAt: first.connectedAt,
+        lastVerifiedAt: refreshed.lastVerifiedAt,
+        opaqueConnectionId: 'opaque-gmail-001',
+      }),
+    ]);
+  });
+
   it('accepts an escaped single-line Apple private key', async () => {
     expect.assertions(1);
 
