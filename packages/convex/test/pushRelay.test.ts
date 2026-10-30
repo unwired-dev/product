@@ -3335,7 +3335,7 @@ describe('gmail push relay', () => {
               }),
             ),
           },
-        }).historyId,
+        })?.historyId,
       ).toBe(expected);
     },
   );
@@ -3395,6 +3395,7 @@ describe('gmail push relay', () => {
 
       const malformedStatuses = await Promise.all(
         [
+          null,
           { message: {} },
           ...['', -1, 1.5, 9_007_199_254_740_992, null, false, {}, []].map(
             (historyId) => ({
@@ -3417,7 +3418,7 @@ describe('gmail push relay', () => {
         }),
       );
       expect(malformedStatuses).toStrictEqual([
-        400, 400, 400, 400, 400, 400, 400, 400, 400,
+        400, 400, 400, 400, 400, 400, 400, 400, 400, 400,
       ]);
 
       const accepted = await t.fetch('/gmail/push?token=push-secret', {
