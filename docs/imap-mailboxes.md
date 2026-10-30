@@ -456,17 +456,21 @@ both hosts' `scripts/verify-native.ts`. The synthetic metadata check compiles th
 sources without Swift packages and gets an engine stub instead.
 
 SwiftMail parses the IMAP wire protocol inside native sessions; TypeScript decides
-what to do with the results. The folder listing runs in TypeScript over a short-lived
-native session: native code logs in for a verified connection at its current
-generation and returns an opaque handle. It answers one command at a time, the
-capabilities and the folders with their LIST attributes, and TypeScript closes the
-session when the listing ends, whether it succeeded or failed. Native code also
+what to do with the results. The folder listing and folder synchronization run in
+TypeScript over short-lived native sessions: native code logs in for a verified
+connection at its current generation and returns an opaque handle. It answers one
+command at a time: the capabilities, the folders with their LIST attributes, a
+read-only EXAMINE of a folder (its UIDVALIDITY, UIDNEXT and message count, refusing a
+folder without UIDVALIDITY), and envelopes or flags of that folder's messages by UID,
+from a UID onward or by the newest sequence numbers, at most 200 at a time.
+TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
+closes the session when the work ends, whether it succeeded or failed. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
 connection's generation changes, as on removal, sign-out or a new password.
 Closing a session answers a command still in flight at once, and native code
-delivers no later result. A connection may hold four open sessions. Synchronization, search, organizing, IDLE and Sent filing still run as
+delivers no later result. A connection may hold four open sessions. Search, organizing, IDLE and Sent filing still run as
 single native operations until
-[#1178](https://github.com/unwired-dev/product/issues/1178)–[#1182](https://github.com/unwired-dev/product/issues/1182)
+[#1179](https://github.com/unwired-dev/product/issues/1179)–[#1182](https://github.com/unwired-dev/product/issues/1182)
 move them to the same sessions.
 
 The connection of a closed session ends only when its active command answers or
@@ -541,7 +545,8 @@ a connection before credentials are sent.
 
 The hosted iOS runner owns a TLS IMAP protocol fixture, its synthetic certificate,
 port and disposable simulator. It installs trust only on that simulator and checks
-real engine authentication, folders, incremental UID reads, raw body reads, the
+real engine authentication, folders, the session's EXAMINE and its envelope and flag
+reads (including `UID n:*` naming the newest message below n), raw body reads, the
 prefetch preflight's header-only read of unfolded MIME fields,
 UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also checks
 `\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,

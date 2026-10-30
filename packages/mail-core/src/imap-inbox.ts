@@ -22,6 +22,9 @@ import type {
   SendOutcome,
 } from './gmail-inbox.ts';
 import type {
+  Envelope,
+  FolderCache,
+  FolderRead,
   ImapAction,
   ImapCapabilities,
   ImapDocument,
@@ -72,7 +75,8 @@ import {
   decodeCapabilities,
   decodeCommit,
   decodeDocument,
-  decodeFolderRead,
+  decodeEnvelopes,
+  decodeFlags,
   decodeCount,
   decodeHistoryRead,
   decodeHeaders,
@@ -82,6 +86,7 @@ import {
   decodeRaw,
   decodeSearch,
   decodeSegment,
+  decodeSelection,
   decodeSession,
   encodeDocument,
   encodeSegment,
@@ -169,18 +174,30 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
-  // Resolves the folder's `{ uidValidity, uidNext, reset, messages, flags }` since `from`.
-  readonly imapSynchronize: (
+  // Examines `folder` for the session's reads that follow and resolves its
+  // `{ uidValidity, uidNext, messages }`; a folder without UIDVALIDITY rejects with `imap-changed`.
+  readonly imapExamine: (
     mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{
-      folder: string;
-      window: number;
-      from?: Readonly<{
-        uidValidity: number;
-        uidNext: number;
-        known: readonly number[];
-      }>;
-    }>,
+    request: Readonly<{ session: string; folder: string }>,
+  ) => Promise<unknown>;
+  // Resolves `{ messages }`, the envelopes of the examined folder's messages that exactly one of
+  // `uids` (at most 200), `from` (`UID from:*`, which always names the newest message) or the
+  // `newest` of its `total` messages (at most 200) names.
+  readonly imapEnvelopes: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<
+      { session: string } & (
+        | { uids: readonly number[] }
+        | { from: number }
+        | { newest: number; total: number }
+      )
+    >,
+  ) => Promise<unknown>;
+  // Resolves `{ flags: [{ uid, flags }] }` for each of at most 200 `uids` still in the examined
+  // folder.
+  readonly imapFlags: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ session: string; uids: readonly number[] }>,
   ) => Promise<unknown>;
   // Resolves the folder's `{ uidValidity, uidNext, total, messages, below, present }`: up to `limit`
   // of the newest messages with UIDs from `above` up to, not including, `below` (UIDNEXT when
@@ -449,6 +466,10 @@ const decodeStoredBodies = Schema.decodeUnknownEffect(
     excluded: Schema.Array(Schema.String),
   }),
 );
+
+// The UID after the newest of `messages`.
+const uidAfter = (messages: ReadonlyArray<Readonly<{ uid: number }>>) =>
+  Math.max(0, ...messages.map(({ uid }) => uid + 1));
 
 const malformed = (error: Schema.SchemaError) =>
   new ImapFailure({
@@ -1334,6 +1355,82 @@ export function createImapInbox(
       }
     }
   };
+  // Reads what changed in the folder since the cached checkpoint, or its newest messages afresh
+  // without one at the folder's UIDVALIDITY.
+  const readFolder = Effect.fnUntraced(function* (
+    scope: Scope,
+    request: Readonly<{ session: string; folder: string }>,
+    cached: FolderCache | undefined,
+  ) {
+    const session = { session: request.session };
+    const selection = yield* call(() =>
+      native.imapExamine(scope, request),
+    ).pipe(
+      Effect.flatMap((reply) =>
+        decodeSelection(reply).pipe(Effect.mapError(malformed)),
+      ),
+    );
+    const envelopes = (
+      range: Parameters<NativeImapMailbox['imapEnvelopes']>[1],
+    ) =>
+      call(() => native.imapEnvelopes(scope, range)).pipe(
+        Effect.flatMap((reply) =>
+          decodeEnvelopes(reply).pipe(Effect.mapError(malformed)),
+        ),
+        Effect.map(({ messages }) => messages),
+      );
+    const newest =
+      selection.messages === 0
+        ? Effect.succeed([])
+        : envelopes({ ...session, newest: window, total: selection.messages });
+    if (cached === undefined || cached.uidValidity !== selection.uidValidity) {
+      const messages = yield* newest;
+      return {
+        uidValidity: selection.uidValidity,
+        uidNext: Math.max(selection.uidNext, uidAfter(messages)),
+        reset: true,
+        messages,
+        flags: [],
+      } satisfies FolderRead;
+    }
+    const known = cached.messages.map(({ uid }) => uid);
+    const { flags } =
+      known.length === 0
+        ? { flags: [] }
+        : yield* call(() =>
+            native.imapFlags(scope, { ...session, uids: known }),
+          ).pipe(
+            Effect.flatMap((reply) =>
+              decodeFlags(reply).pipe(Effect.mapError(malformed)),
+            ),
+          );
+    // Both counts bound arrivals still present: old uncached messages inflate the folder count,
+    // while arrivals expunged before this read inflate the UIDNEXT gap.
+    const next = selection.uidNext;
+    const unlisted = Math.max(0, selection.messages - flags.length);
+    const remaining =
+      next === 0
+        ? unlisted
+        : Math.min(unlisted, next - Math.min(next, cached.uidNext));
+    let messages: readonly Envelope[] = [];
+    if (remaining > window) {
+      // More arrived than the window keeps: only the newest are read.
+      messages = yield* newest;
+    } else if (next === 0 || next > cached.uidNext) {
+      // `UID n:*` always names the newest message, even one below n, so it is left out.
+      messages = (yield* envelopes({
+        ...session,
+        from: Math.max(1, cached.uidNext),
+      })).filter(({ uid }) => uid >= cached.uidNext);
+    }
+    return {
+      uidValidity: selection.uidValidity,
+      uidNext: Math.max(next, cached.uidNext, uidAfter(messages)),
+      reset: false,
+      messages,
+      flags,
+    } satisfies FolderRead;
+  });
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -1341,23 +1438,9 @@ export function createImapInbox(
     }
     const cached = cacheOf(name);
     const started = DateTime.formatIso(yield* DateTime.now);
-    const read = yield* decodeFolderRead(
-      yield* call(() =>
-        native.imapSynchronize(scope, {
-          folder: name,
-          window,
-          ...(cached === undefined
-            ? {}
-            : {
-                from: {
-                  uidValidity: cached.uidValidity,
-                  uidNext: cached.uidNext,
-                  known: cached.messages.map(({ uid }) => uid),
-                },
-              }),
-        }),
-      ),
-    ).pipe(Effect.mapError(malformed));
+    const read = yield* withSession(scope, (session) =>
+      readFolder(scope, { ...session, folder: name }, cached),
+    );
     if (forgotten || document === undefined) {
       return;
     }
