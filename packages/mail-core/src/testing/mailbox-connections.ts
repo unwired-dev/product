@@ -36,6 +36,8 @@ export function syntheticConnections(
     imapSynchronize: (mailbox, request) =>
       server(mailbox.connection)?.imapSynchronize(mailbox, request) ??
       missing(),
+    imapHistory: (mailbox, request) =>
+      server(mailbox.connection)?.imapHistory(mailbox, request) ?? missing(),
     imapMessage: (mailbox, message) =>
       server(mailbox.connection)?.imapMessage(mailbox, message) ?? missing(),
     imapHeaders: (mailbox, request) =>
@@ -81,7 +83,9 @@ export function syntheticConnections(
         history ?? undefined,
       ) ?? missing(),
     openMailboxSegment: (mailbox, name) =>
-      of(mailbox.connection)?.openMailboxSegment(mailbox, name) ?? missing(),
+      (
+        server(mailbox.connection) ?? of(mailbox.connection)
+      )?.openMailboxSegment(mailbox, name) ?? missing(),
     openMessageBody: (mailbox, id) =>
       (server(mailbox.connection) ?? of(mailbox.connection))?.openMessageBody(
         mailbox,
