@@ -244,10 +244,11 @@ describe('connecting IMAP mailboxes', () => {
       expect.objectContaining({ generation: 'generation-2' }),
     );
     // Login, listing and the Inbox; Historical Metadata Backfill may read on.
-    expect(imap.server.reads.slice(reads, reads + 3)).toStrictEqual([
+    expect(imap.server.reads.slice(reads, reads + 4)).toStrictEqual([
       'login',
       'folders',
-      'synchronize INBOX',
+      'login',
+      'examine INBOX',
     ]);
     expect(device.imap.logins).toBe(logins + 1);
     const otherInbox = mailboxes.getConnections()[1]?.inbox;
@@ -424,7 +425,8 @@ describe('connecting IMAP mailboxes', () => {
     expect(imap.server.reads).toStrictEqual([
       'login',
       'folders',
-      'synchronize INBOX',
+      'login',
+      'examine INBOX',
     ]);
 
     // A relaunch shows the encrypted cache before the server answers, then resumes from it.
@@ -463,6 +465,84 @@ describe('connecting IMAP mailboxes', () => {
       'First',
     ]);
     expect(after.some(({ id }) => before.has(id))).toBe(false);
+  });
+
+  it('reads only arrivals still present, and only the newest window after more arrive', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept' });
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    const envelopes = vi.spyOn(imap.native, 'imapEnvelopes');
+    const reads = () => envelopes.mock.calls.map(([, request]) => request);
+    const session = expect.any(String);
+    const subjects = () =>
+      ready(inbox.getSnapshot()).messages.map(({ subject }) => subject);
+
+    // Arrivals expunged before the read widen the UIDNEXT gap past the window; the one left is
+    // read by UID.
+    const flood = Array.from({ length: 250 }, (_, index) =>
+      imap.deliver('INBOX', { subject: `Arrival ${index}` }),
+    );
+    for (const uid of flood.slice(1)) {
+      imap.expunge('INBOX', uid);
+    }
+    await inbox.load();
+    expect(reads()).toStrictEqual([{ session, from: 2 }]);
+    expect(subjects()).toStrictEqual(['Arrival 0', 'Kept']);
+
+    // `UID n:*` names the newest message even when every arrival is gone; it is not listed
+    // again, and the checkpoint moves past the expunged arrival.
+    envelopes.mockClear();
+    imap.expunge('INBOX', imap.deliver('INBOX', { subject: 'Gone' }));
+    await inbox.load();
+    expect(reads()).toStrictEqual([{ session, from: 252 }]);
+    expect(subjects()).toStrictEqual(['Arrival 0', 'Kept']);
+    envelopes.mockClear();
+    await inbox.load();
+    expect(reads()).toStrictEqual([]);
+
+    // More arrivals than the window keeps: only the newest are read.
+    for (let index = 0; index < 201; index += 1) {
+      imap.deliver('INBOX', { subject: `Later ${index}` });
+    }
+    await inbox.load();
+    expect(reads()).toStrictEqual([{ session, newest: 200, total: 203 }]);
+    expect(subjects()).toHaveLength(200);
+    expect(subjects()[0]).toBe('Later 200');
+    expect(subjects()).not.toContain('Kept');
+  });
+
+  it('keeps the newest window when a UID range grows after EXAMINE', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept' });
+    const inbox = createImapInbox(imap.native);
+    onTestFinished(() => inbox.forget());
+    await inbox.load();
+    imap.deliver('INBOX', { subject: 'Trigger' });
+    const examine = imap.native.imapExamine;
+    vi.spyOn(imap.native, 'imapExamine').mockImplementationOnce(
+      async (...args) => {
+        const selection = await examine(...args);
+        // EXAMINE does not freeze `UID n:*`: a bulk arrival before FETCH can exceed its count
+        // and the JavaScript engine's function-argument limit.
+        for (let index = 0; index < 150_000; index += 1) {
+          imap.deliver('INBOX', { subject: `Arrival ${index}`, raw: '' });
+        }
+        return selection;
+      },
+    );
+    await inbox.load();
+    const state = ready(inbox.getSnapshot());
+    expect(state.status).toBe('current');
+    expect(state.messages).toHaveLength(200);
+    expect(state.messages[0]?.subject).toBe('Arrival 149999');
+    expect(imap.server.sessions.size).toBe(0);
+    const envelopes = vi.spyOn(imap.native, 'imapEnvelopes');
+    await inbox.load();
+    expect(envelopes).not.toHaveBeenCalled();
   });
 
   it('reports only unread mail newly arriving in the Inbox, once each, after its commit', async () => {
@@ -593,24 +673,8 @@ describe('connecting IMAP mailboxes', () => {
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Established identity' });
     const unidentified = vi
-      .spyOn(imap.native, 'imapSynchronize')
-      .mockResolvedValue({
-        uidValidity: 0,
-        uidNext: 2,
-        reset: true,
-        messages: [
-          {
-            uid: 1,
-            flags: [],
-            received: 1,
-            size: 1,
-            sender: 'Synthetic Sender',
-            address: 'sender@example.invalid',
-            subject: 'Unidentified message',
-          },
-        ],
-        flags: [],
-      });
+      .spyOn(imap.native, 'imapExamine')
+      .mockResolvedValue({ uidValidity: 0, uidNext: 2, messages: 1 });
     const inbox = createImapInbox(imap.native);
     await inbox.load();
     expect(ready(inbox.getSnapshot())).toMatchObject({

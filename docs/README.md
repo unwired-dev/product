@@ -31,6 +31,8 @@ completion status. Publication of a plan does not prove implementation or releas
 - [DeBERTa categorization spike on Mac, iPhone and iPad](categorization-spike.md)
 - [System Category model benchmark for English and Czech (spike #828)](../tools/system-category-benchmark/README.md)
 - [Custom Category model benchmark for English and Czech (spike #829)](../tools/system-category-benchmark/CUSTOM.md)
+- [Gmail delegation spike: no supported path for the native grant](gmail-delegation-spike.md)
+- [Microsoft mailbox import fidelity spike: IMAP APPEND awaits live proof](microsoft-import-fidelity-spike.md)
 - [Sending Drafts through the Outbox](outbox.md)
 - [New Mail Notifications](new-mail-notifications.md)
 - [Command Palette: finding and running actions from any screen](command-palette.md)

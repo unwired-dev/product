@@ -264,8 +264,10 @@ not Thread muting.
   requires service-account/domain-wide authority. It does not establish that an
   ordinary user's OAuth token can read or send from a mailbox delegated to them
   in Gmail's interface. No supported path for that use of the existing native
-  public-client grant was established by this research. Do not treat separately
-  authorizing another person's mailbox as verified delegation support.
+  public-client grant was established by this research, and the
+  [Gmail delegation spike](../gmail-delegation-spike.md) found none in Google's
+  current documentation. Do not treat separately authorizing another person's
+  mailbox as verified delegation support.
 - IMAP [namespaces](https://www.rfc-editor.org/rfc/rfc2342.html) and
   [ACL rights](https://www.rfc-editor.org/rfc/rfc4314.html) depend on server
   capabilities and granted rights. Discovering a shared folder does not establish
@@ -337,4 +339,6 @@ The approved first archive formats are EML and MBOX.
 The independent evidence tasks are Gmail delegation [#1335](https://github.com/unwired-dev/product/issues/1335) and
 Microsoft mailbox import fidelity [#1340](https://github.com/unwired-dev/product/issues/1340). Each must return a supported
 path with reproducible evidence or a concrete blocker, without changing runtime
-scope or the credential model.
+scope or the credential model. The
+[Microsoft import fidelity spike](../microsoft-import-fidelity-spike.md) found
+that Graph creates only Drafts from MIME; IMAP `APPEND` awaits live proof.

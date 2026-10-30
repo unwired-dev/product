@@ -41,7 +41,7 @@ enum ImapFailure: Error, Equatable {
   case changed
   case missing
   case tooLarge
-  // The server lacks the extension a request needs, such as MOVE or UIDPLUS, or IDLE.
+  // The server lacks the extension a request needs, such as MOVE or UIDPLUS.
   case unsupported
   // The server refused a change to an identified message, such as a move to a removed folder.
   case rejected
@@ -85,14 +85,20 @@ struct ImapHeaderField: Sendable, Equatable {
   let value: String
 }
 
-// What a folder synchronization read: its identity, new or listed messages, and the flags of the
-// already-known messages that remain. `reset` lists the newest messages afresh.
-struct ImapFolderState: Sendable, Equatable {
+// What EXAMINE reported for a folder: its identity, its next UID and how many messages it holds.
+struct ImapSelection: Sendable, Equatable {
   let uidValidity: UInt32
   let uidNext: UInt32
-  let messages: [ImapEnvelope]
-  let flags: [UInt32: [String]]
-  let reset: Bool
+  let messages: Int
+}
+
+// The messages of the examined folder an envelope read names.
+enum ImapEnvelopeRead: Sendable, Equatable {
+  case uids([UInt32])
+  // `UID n:*`, which always names the newest message, even one below n.
+  case from(UInt32)
+  // The newest `count` of the folder's `total` messages, by sequence number.
+  case newest(count: Int, total: Int)
 }
 
 // One Historical Metadata Backfill read: up to `limit` of the newest messages with UIDs from
@@ -116,20 +122,10 @@ struct ImapHistoryPage: Sendable, Equatable {
   let present: [UInt32]
 }
 
-// The checkpoint a synchronization resumes from.
-struct ImapCheckpoint: Sendable, Equatable {
-  let uidValidity: UInt32
-  let uidNext: UInt32
-  let known: [UInt32]
-}
-
 protocol ImapProvider: Sendable {
   func verify(_ account: ImapAccount, password: String) async throws
   // Logs in and keeps the session open until it is closed.
   func open(_ account: ImapAccount, password: String) async throws -> any ImapSession
-  func synchronize(
-    _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?, window: Int
-  ) async throws -> ImapFolderState
   // One page of the folder's history, newest first, found by bounded UID-range searches.
   func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest) async throws
     -> ImapHistoryPage
@@ -147,9 +143,6 @@ protocol ImapProvider: Sendable {
   func search(
     _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
   ) async throws -> (found: [ImapFound], skipped: Int)
-  // Waits in IDLE on the folder for up to `seconds`; true once the server reports a change.
-  func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
-    -> Bool
   // How many messages in the folder carry the MIME boundary in their Content-Type.
   func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
     async throws -> Int
@@ -162,8 +155,7 @@ protocol ImapProvider: Sendable {
 #if canImport(SwiftMail)
 // SwiftMail over swift-nio-imap. Each operation opens one authenticated session and closes it, so
 // no connection outlives the work that needed it.
-// shortcut: one login per operation, IDLE included; keep a session per connection when frequent
-// reads need it.
+// shortcut: one login per operation; keep a session per connection when frequent reads need it.
 struct SwiftMailImap: ImapProvider {
   // SwiftMail logs hosts, folder names and server replies; none of them leaves this process.
   static let quiet: Void = LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
@@ -246,63 +238,11 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
-  private static func examine(_ server: IMAPServer, folder: String) async throws -> Mailbox.Selection {
+  static func examine(_ server: IMAPServer, folder: String) async throws -> Mailbox.Selection {
     let selection = try await server.examineMailbox(folder)
     // SwiftMail defaults to zero when EXAMINE omits UIDVALIDITY. No UID is safe to reuse then.
     guard selection.uidValidity.value > 0 else { throw ImapFailure.changed }
     return selection
-  }
-
-  func synchronize(
-    _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?, window: Int
-  ) async throws -> ImapFolderState {
-    try await session(account, password) { server in
-      let selection = try await Self.examine(server, folder: folder)
-      let validity = selection.uidValidity.value
-      let envelopes = { (infos: [MessageInfo]) in infos.compactMap(Self.envelope) }
-      func newest() async throws -> [ImapEnvelope] {
-        guard let latest = selection.latest(window) else { return [] }
-        return envelopes(try await server.fetchMessageInfosBulk(using: latest, options: .slim))
-      }
-      // Without a checkpoint at this UIDVALIDITY, the newest messages are listed again.
-      guard let from, from.uidValidity == validity else {
-        let messages = try await newest()
-        return ImapFolderState(
-          uidValidity: validity,
-          uidNext: max(selection.uidNext.value, (messages.map(\.uid).max() ?? 0) &+ 1),
-          messages: messages, flags: [:], reset: true)
-      }
-      var flags: [UInt32: [String]] = [:]
-      if !from.known.isEmpty {
-        let present = try await server.fetchMessageInfosBulk(
-          using: UIDSet(from.known.map(UID.init)), options: .uidFlagsOnly)
-        for info in present {
-          if let uid = info.uid?.value { flags[uid] = info.flags.map(Self.flag) }
-        }
-      }
-      let arrivals: [ImapEnvelope]
-      // Both counts bound arrivals still present: old uncached messages inflate the folder count,
-      // while arrivals expunged before this read inflate the UIDNEXT gap.
-      let next = selection.uidNext.value
-      let unlisted = max(0, selection.messageCount - flags.count)
-      let arrived =
-        next == 0 ? unlisted : min(unlisted, Int(next - min(next, from.uidNext)))
-      if arrived > window {
-        // More arrived than the window keeps: only the newest are read.
-        arrivals = try await newest()
-      } else if selection.uidNext.value == 0 || selection.uidNext.value > from.uidNext {
-        // `n:*` always names the newest message, even one below n.
-        arrivals = envelopes(
-          try await server.fetchMessageInfos(uidRange: UID(from.uidNext)..., options: .slim)
-        ).filter { $0.uid >= from.uidNext }
-      } else {
-        arrivals = []
-      }
-      return ImapFolderState(
-        uidValidity: validity,
-        uidNext: max(selection.uidNext.value, from.uidNext, (arrivals.map(\.uid).max() ?? 0) &+ 1),
-        messages: arrivals, flags: flags, reset: false)
-    }
   }
 
   // Searches at most eight UID ranges below the cursor, each up to four times wider than the last,
@@ -452,38 +392,6 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
-  func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int) async throws
-    -> Bool
-  {
-    try await session(account, password) { server in
-      let advertised = try await server.fetchCapabilities().map { String($0).uppercased() }
-      guard advertised.contains("IDLE") else { throw ImapFailure.unsupported }
-      _ = try await Self.examine(server, folder: folder)
-      let events = try await server.idle()
-      let changed = try await withThrowingTaskGroup(of: Bool.self) { group in
-        group.addTask {
-          for await event in events {
-            switch event {
-            case .exists, .expunge, .vanished, .fetch, .fetchUID: return true
-            // The server is closing the connection; a later wait reconnects.
-            case .bye: throw ImapFailure.offline
-            default: continue
-            }
-          }
-          throw ImapFailure.offline
-        }
-        group.addTask {
-          try await Task.sleep(for: .seconds(seconds))
-          return false
-        }
-        defer { group.cancelAll() }
-        return try await group.next() ?? false
-      }
-      try? await server.done()
-      return changed
-    }
-  }
-
   func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
     async throws -> Int
   {
@@ -530,7 +438,7 @@ struct SwiftMailImap: ImapProvider {
     }
   }
 
-  private static func envelope(_ info: MessageInfo) -> ImapEnvelope? {
+  static func envelope(_ info: MessageInfo) -> ImapEnvelope? {
     guard let uid = info.uid?.value else { return nil }
     let from = info.fromAddresses.lazy.compactMap { entry -> EmailAddress? in
       if case .mailbox(let address) = entry { return address }
@@ -554,12 +462,6 @@ struct SwiftMailImap: ImapProvider {
     func open(_ account: ImapAccount, password: String) async throws -> any ImapSession {
       throw ImapFailure.offline
     }
-    func synchronize(
-      _ account: ImapAccount, password: String, folder: String, from: ImapCheckpoint?,
-      window: Int
-    ) async throws -> ImapFolderState {
-      throw ImapFailure.offline
-    }
     func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest)
       async throws -> ImapHistoryPage
     {
@@ -580,11 +482,6 @@ struct SwiftMailImap: ImapProvider {
     func search(
       _ account: ImapAccount, password: String, query: String, folders: [String], limit: Int
     ) async throws -> (found: [ImapFound], skipped: Int) {
-      throw ImapFailure.offline
-    }
-    func idle(_ account: ImapAccount, password: String, folder: String, seconds: Int)
-      async throws -> Bool
-    {
       throw ImapFailure.offline
     }
     func findSent(_ account: ImapAccount, password: String, folder: String, boundary: String)
@@ -677,24 +574,6 @@ extension RegistrationStore {
     return value
   }
 
-  func imapSynchronize(
-    connection: String, address: String, generation: String, folder: String,
-    from: ImapCheckpoint?, window: Int
-  ) async throws -> [String: Any] {
-    guard (1...200).contains(window), Self.imapFolderName(folder),
-      (from?.known.count ?? 0) <= 200
-    else { throw RegistrationError.unavailable }
-    let state = try await imapWork(connection: connection, address: address, generation: generation) {
-      try await imap.synchronize($0, password: $1, folder: folder, from: from, window: window)
-    }
-    return [
-      "uidValidity": Double(state.uidValidity), "uidNext": Double(state.uidNext),
-      "reset": state.reset,
-      "messages": state.messages.map(Self.envelopeReply),
-      "flags": state.flags.map { ["uid": Double($0.key), "flags": $0.value] as [String: Any] },
-    ]
-  }
-
   // One history page of at most 500 messages, checking at most 500 known UIDs.
   func imapHistory(
     connection: String, address: String, generation: String, request: ImapHistoryRequest
@@ -735,24 +614,11 @@ extension RegistrationStore {
     ]
   }
 
-  // Waits for a change in the folder for up to `seconds`; rejects `imap-unsupported` without IDLE.
-  func imapIdle(
-    connection: String, address: String, generation: String, folder: String, seconds: Int
-  ) async throws -> [String: Any] {
-    guard Self.imapFolderName(folder), (1...600).contains(seconds) else {
-      throw RegistrationError.unavailable
-    }
-    let changed = try await imapWork(connection: connection, address: address, generation: generation) {
-      try await imap.idle($0, password: $1, folder: folder, seconds: seconds)
-    }
-    return ["changed": changed]
-  }
-
   nonisolated static func imapFolderName(_ name: String) -> Bool {
     !name.isEmpty && name.count <= 1_000
   }
 
-  private nonisolated static func envelopeReply(_ envelope: ImapEnvelope) -> [String: Any] {
+  nonisolated static func envelopeReply(_ envelope: ImapEnvelope) -> [String: Any] {
     [
       "uid": Double(envelope.uid), "flags": envelope.flags, "received": envelope.received,
       "size": Double(envelope.size), "sender": envelope.sender, "address": envelope.address,

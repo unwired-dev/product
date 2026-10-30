@@ -21,8 +21,6 @@ protocol ImapSession: Sendable {
   // Selects the folder read-write for the commands that follow and returns its UIDVALIDITY; refuses
   // a folder the server does not select, one without UIDVALIDITY and a read-only selection.
   func select(_ folder: String) async throws -> UInt32
-  // The flags of each named message still in the selected folder.
-  func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]]
   // Each change sends one command for one message of the selected folder. Once sent, a failure
   // other than the server's refusal is `interrupted`: the server may have applied it.
   func store(_ uid: UInt32, flag: ImapStoredFlag, set: Bool) async throws
@@ -32,6 +30,16 @@ protocol ImapSession: Sendable {
   func copy(_ uid: UInt32, to destination: String) async throws -> ImapCopy?
   // UID EXPUNGE of this message alone; a plain EXPUNGE would remove other clients' deleted mail.
   func expunge(_ uid: UInt32) async throws
+  // Waits in IDLE on the folder until the server sends an event or `seconds` pass, and reports the
+  // kinds of event sent before the wait ended, none when the folder stayed quiet: `exists`,
+  // `expunge`, `vanished`, `recent`, `flags`, `fetch`, `alert`, `capability` or `bye`.
+  func idle(folder: String, seconds: Int) async throws -> [String]
+  // Examines the folder read-only for the reads that follow; refuses one without UIDVALIDITY.
+  func examine(_ folder: String) async throws -> ImapSelection
+  // Envelopes of the examined folder's messages that `read` names.
+  func envelopes(_ read: ImapEnvelopeRead) async throws -> [ImapEnvelope]
+  // The flags of each named message still in the selected or examined folder.
+  func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]]
   func close() async
 }
 
@@ -105,15 +113,40 @@ enum ImapStoredFlag: String, Sendable {
       }
     }
 
+    func examine(_ folder: String) async throws -> ImapSelection {
+      try await run { server in
+        let selection = try await SwiftMailImap.examine(server, folder: folder)
+        return ImapSelection(
+          uidValidity: selection.uidValidity.value, uidNext: selection.uidNext.value,
+          messages: selection.messageCount)
+      }
+    }
+
+    func envelopes(_ read: ImapEnvelopeRead) async throws -> [ImapEnvelope] {
+      try await run { server in
+        let infos: [MessageInfo]
+        switch read {
+        case .uids(let uids):
+          infos = try await server.fetchMessageInfosBulk(
+            using: UIDSet(uids.map(UID.init)), options: .slim)
+        case .from(let uid):
+          infos = try await server.fetchMessageInfos(uidRange: UID(uid)..., options: .slim)
+        case .newest(let count, let total):
+          infos = try await server.fetchMessageInfos(
+            sequenceRange: SequenceNumber(max(1, total - count + 1))...SequenceNumber(total),
+            options: .slim)
+        }
+        return infos.compactMap(SwiftMailImap.envelope)
+      }
+    }
+
     func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]] {
       try await run { server in
-        let infos = try await server.fetchMessageInfosBulk(
-          using: UIDSet(uids.map { UID($0) }), options: .uidFlagsOnly)
+        let present = try await server.fetchMessageInfosBulk(
+          using: UIDSet(uids.map(UID.init)), options: .uidFlagsOnly)
         var flags: [UInt32: [String]] = [:]
-        for info in infos {
-          if let uid = info.uid?.value, uids.contains(uid) {
-            flags[uid] = info.flags.map(SwiftMailImap.flag)
-          }
+        for info in present {
+          if let uid = info.uid?.value { flags[uid] = info.flags.map(SwiftMailImap.flag) }
         }
         return flags
       }
@@ -178,6 +211,47 @@ enum ImapStoredFlag: String, Sendable {
         mapped.destination.value > 0
       else { return nil }
       return ImapCopy(uidValidity: copied.destinationUIDValidity.value, uid: mapped.destination.value)
+    }
+
+    func idle(folder: String, seconds: Int) async throws -> [String] {
+      try await run { server in
+        _ = try await SwiftMailImap.examine(server, folder: folder)
+        let events = try await server.idle()
+        let deadline = ContinuousClock.now + .seconds(seconds)
+        // DONE ends the stream once the server acknowledges it, after any events it sent first.
+        let bound = Task {
+          try await Task.sleep(until: deadline)
+          try? await server.done()
+        }
+        defer { bound.cancel() }
+        var kinds: [String] = []
+        for await event in events {
+          let kind = Self.kind(event)
+          guard !kinds.contains(kind) else { continue }
+          kinds.append(kind)
+          if kinds.count == 1 {
+            bound.cancel()
+            try? await server.done()
+          }
+        }
+        // A stream that ends quietly before its bound lost the connection.
+        if kinds.isEmpty, ContinuousClock.now < deadline { throw ImapFailure.offline }
+        return kinds
+      }
+    }
+
+    private static func kind(_ event: IMAPServerEvent) -> String {
+      switch event {
+      case .exists: "exists"
+      case .expunge: "expunge"
+      case .vanished: "vanished"
+      case .recent: "recent"
+      case .flags: "flags"
+      case .fetch, .fetchUID: "fetch"
+      case .alert: "alert"
+      case .capability: "capability"
+      case .bye: "bye"
+      }
     }
 
     // Closes without LOGOUT, which would wait behind a command still in flight.
@@ -252,13 +326,56 @@ extension RegistrationStore {
     return ["uidValidity": Double(uidValidity)]
   }
 
+  // Waits in IDLE on the folder for up to `seconds`; resolves the kinds of event the server sent.
+  func imapIdle(
+    connection: String, address: String, generation: String, session: String, folder: String,
+    seconds: Int
+  ) async throws -> [String: Any] {
+    guard Self.imapFolderName(folder), (1...600).contains(seconds) else {
+      throw RegistrationError.unavailable
+    }
+    let events = try await imapCommand(
+      session, connection: connection, address: address, generation: generation
+    ) { try await $0.idle(folder: folder, seconds: seconds) }
+    return ["events": events]
+  }
+
+  func imapExamine(
+    connection: String, address: String, generation: String, session: String, folder: String
+  ) async throws -> [String: Any] {
+    guard Self.imapFolderName(folder) else { throw RegistrationError.unavailable }
+    let selection = try await imapCommand(
+      session, connection: connection, address: address, generation: generation
+    ) { try await $0.examine(folder) }
+    return [
+      "uidValidity": Double(selection.uidValidity), "uidNext": Double(selection.uidNext),
+      "messages": Double(selection.messages),
+    ]
+  }
+
+  // At most 200 named or newest messages; `UID n:*` is bounded by the server's arrivals.
+  func imapEnvelopes(
+    connection: String, address: String, generation: String, session: String,
+    read: ImapEnvelopeRead
+  ) async throws -> [String: Any] {
+    let bounded =
+      switch read {
+      case .uids(let uids): Self.imapUids(uids)
+      case .from(let uid): uid > 0
+      case .newest(let count, let total): (1...200).contains(count) && total > 0
+      }
+    guard bounded else { throw RegistrationError.unavailable }
+    let envelopes = try await imapCommand(
+      session, connection: connection, address: address, generation: generation
+    ) { try await $0.envelopes(read) }
+    return ["messages": envelopes.map(Self.envelopeReply)]
+  }
+
   // The flags of at most 200 named messages; a message no longer in the folder is left out.
   func imapFlags(
     connection: String, address: String, generation: String, session: String, uids: [UInt32]
   ) async throws -> [String: Any] {
-    guard (1...200).contains(uids.count), uids.allSatisfy({ $0 > 0 }) else {
-      throw RegistrationError.unavailable
-    }
+    guard Self.imapUids(uids) else { throw RegistrationError.unavailable }
     let flags = try await imapCommand(
       session, connection: connection, address: address, generation: generation
     ) { try await $0.flags(uids) }
@@ -311,6 +428,10 @@ extension RegistrationStore {
 
   private nonisolated static func receiptReply(_ receipt: ImapCopy?) -> [String: Any] {
     receipt.map { ["uidValidity": Double($0.uidValidity), "uid": Double($0.uid)] } ?? [:]
+  }
+
+  private nonisolated static func imapUids(_ uids: [UInt32]) -> Bool {
+    (1...200).contains(uids.count) && uids.allSatisfy { $0 > 0 }
   }
 
   // Closes the connection's session, cancelling a command in flight; an unknown one is ignored.

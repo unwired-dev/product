@@ -183,6 +183,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   coverage. Otherwise folder selection creates duplicate cache namespaces or
   reads a different mailbox under the same message identity.
 
+- `imap-inbox.ts.readFolder` estimating arrivals from the whole folder minus
+  cached flags alone, or from the UIDNEXT gap alone. Bound extant arrivals by
+  both when UIDNEXT is known, preserving the unknown-UIDNEXT fallback; old
+  uncached messages and expunged arrivals otherwise cause repeated envelope
+  relisting. Exercise a large unchanged folder and a small folder with a UID gap
+  through the public Inbox store. Keep controlled TLS coverage for the native
+  EXAMINE and fetch operations separate from this TypeScript policy evidence.
+
+- `imap-inbox.ts.uidAfter` spreading every fetched UID into function arguments.
+  `UID n:*` is open-ended and can grow after EXAMINE, even when its earlier
+  message count selected an incremental read. Advance the checkpoint without
+  the JavaScript engine's argument-count limit; otherwise a valid bulk arrival
+  rejects synchronization before committing the newest window. Exercise arrivals
+  between EXAMINE and FETCH through the public Inbox store.
+
 - `imap-inbox.ts.acceptListing` preserving cached mailboxes or retained evicted
   views for folders a complete listing no longer offers as selectable, or deleting
   views before that listing commits. Retire both only after successful cache

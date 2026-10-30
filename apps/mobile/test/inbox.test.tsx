@@ -1653,7 +1653,7 @@ describe('connected Gmail Inbox', () => {
       // The folder was already current, so wait for the refresh itself to settle.
       await waitFor(() => {
         expect(imap.server.reads.slice(readsBefore)).toStrictEqual(
-          expect.arrayContaining(['synchronize INBOX', 'synchronize Folder 0']),
+          expect.arrayContaining(['examine INBOX', 'examine Folder 0']),
         );
         expect(screen.getByLabelText('Inbox messages')).toHaveProp(
           'refreshing',

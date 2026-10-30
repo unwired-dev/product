@@ -1,4 +1,5 @@
 import * as Arr from 'effect/Array';
+import * as Clock from 'effect/Clock';
 import * as DateTime from 'effect/DateTime';
 import * as Deferred from 'effect/Deferred';
 import * as Duration from 'effect/Duration';
@@ -22,6 +23,9 @@ import type {
   SendOutcome,
 } from './gmail-inbox.ts';
 import type {
+  Envelope,
+  FolderCache,
+  FolderRead,
   ImapAction,
   ImapCapabilities,
   ImapDocument,
@@ -72,22 +76,24 @@ import {
   decodeCapabilities,
   decodeCommit,
   decodeDocument,
-  decodeFolderRead,
+  decodeEnvelopes,
+  decodeFlags,
   decodeCount,
   decodeHistoryRead,
   decodeHeaders,
   decodeIdle,
   decodeListedFolders,
-  decodeFlags,
   decodeReceipt,
   decodeSelected,
   decodeRaw,
   decodeSearch,
   decodeSegment,
+  decodeSelection,
   decodeSession,
   encodeDocument,
   encodeSegment,
   folderListing,
+  idleOutcome,
   inboxFolder,
   listedMessage,
   messageId,
@@ -171,18 +177,30 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
-  // Resolves the folder's `{ uidValidity, uidNext, reset, messages, flags }` since `from`.
-  readonly imapSynchronize: (
+  // Examines `folder` for the session's reads that follow and resolves its
+  // `{ uidValidity, uidNext, messages }`; a folder without UIDVALIDITY rejects with `imap-changed`.
+  readonly imapExamine: (
     mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{
-      folder: string;
-      window: number;
-      from?: Readonly<{
-        uidValidity: number;
-        uidNext: number;
-        known: readonly number[];
-      }>;
-    }>,
+    request: Readonly<{ session: string; folder: string }>,
+  ) => Promise<unknown>;
+  // Resolves `{ messages }`, the envelopes of the examined folder's messages that exactly one of
+  // `uids` (at most 200), `from` (`UID from:*`, which always names the newest message) or the
+  // `newest` of its `total` messages (at most 200) names.
+  readonly imapEnvelopes: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<
+      { session: string } & (
+        | { uids: readonly number[] }
+        | { from: number }
+        | { newest: number; total: number }
+      )
+    >,
+  ) => Promise<unknown>;
+  // Resolves `{ flags: [{ uid, flags }] }` for each of at most 200 `uids` still in the selected
+  // or examined folder.
+  readonly imapFlags: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    request: Readonly<{ session: string; uids: readonly number[] }>,
   ) => Promise<unknown>;
   // Resolves the folder's `{ uidValidity, uidNext, total, messages, below, present }`: up to `limit`
   // of the newest messages with UIDs from `above` up to, not including, `below` (UIDNEXT when
@@ -222,12 +240,6 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<{ session: string; folder: string }>,
   ) => Promise<unknown>;
-  // Resolves `{ flags: [{ uid, flags }] }` for each of at most 200 `uids` still in the selected
-  // folder.
-  readonly imapFlags: (
-    mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{ session: string; uids: readonly number[] }>,
-  ) => Promise<unknown>;
   // Each change sends one command for message `uid` of the selected folder and rejects with
   // `imap-rejected` when the server refuses it, `imap-unsupported` when the server lacks the
   // command and `imap-interrupted` when the server may have applied it.
@@ -262,11 +274,12 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<{ query: string; folders: readonly string[] }>,
   ) => Promise<unknown>;
-  // Resolves `{ changed }` once the server reports a change in the folder or `seconds` pass;
-  // rejects with `imap-unsupported` without IDLE.
+  // Waits in IDLE on the folder until the server sends an event or `seconds` pass. Resolves
+  // `{ events }`, the kinds of event sent before the wait ended (`exists`, `expunge`, `vanished`,
+  // `recent`, `flags`, `fetch`, `alert`, `capability` or `bye`), empty when the folder stayed quiet.
   readonly imapIdle: (
     mailbox: Readonly<{ address: string; generation: string }>,
-    request: Readonly<{ folder: string; seconds: number }>,
+    request: Readonly<{ session: string; folder: string; seconds: number }>,
   ) => Promise<unknown>;
   // Submits the message as given through the connection's SMTP server to `recipients`. Resolves
   // once SMTP accepted it; rejects with `delivery-unknown` when it may have.
@@ -475,6 +488,10 @@ const decodeStoredBodies = Schema.decodeUnknownEffect(
     excluded: Schema.Array(Schema.String),
   }),
 );
+
+// The UID after the newest of `messages`.
+const uidAfter = (messages: ReadonlyArray<Readonly<{ uid: number }>>) =>
+  messages.reduce((next, { uid }) => Math.max(next, uid + 1), 0);
 
 const malformed = (error: Schema.SchemaError) =>
   new ImapFailure({
@@ -1376,6 +1393,82 @@ export function createImapInbox(
       }
     }
   };
+  // Reads what changed in the folder since the cached checkpoint, or its newest messages afresh
+  // without one at the folder's UIDVALIDITY.
+  const readFolder = Effect.fnUntraced(function* (
+    scope: Scope,
+    request: Readonly<{ session: string; folder: string }>,
+    cached: FolderCache | undefined,
+  ) {
+    const session = { session: request.session };
+    const selection = yield* call(() =>
+      native.imapExamine(scope, request),
+    ).pipe(
+      Effect.flatMap((reply) =>
+        decodeSelection(reply).pipe(Effect.mapError(malformed)),
+      ),
+    );
+    const envelopes = (
+      range: Parameters<NativeImapMailbox['imapEnvelopes']>[1],
+    ) =>
+      call(() => native.imapEnvelopes(scope, range)).pipe(
+        Effect.flatMap((reply) =>
+          decodeEnvelopes(reply).pipe(Effect.mapError(malformed)),
+        ),
+        Effect.map(({ messages }) => messages),
+      );
+    const newest =
+      selection.messages === 0
+        ? Effect.succeed([])
+        : envelopes({ ...session, newest: window, total: selection.messages });
+    if (cached === undefined || cached.uidValidity !== selection.uidValidity) {
+      const messages = yield* newest;
+      return {
+        uidValidity: selection.uidValidity,
+        uidNext: Math.max(selection.uidNext, uidAfter(messages)),
+        reset: true,
+        messages,
+        flags: [],
+      } satisfies FolderRead;
+    }
+    const known = cached.messages.map(({ uid }) => uid);
+    const { flags } =
+      known.length === 0
+        ? { flags: [] }
+        : yield* call(() =>
+            native.imapFlags(scope, { ...session, uids: known }),
+          ).pipe(
+            Effect.flatMap((reply) =>
+              decodeFlags(reply).pipe(Effect.mapError(malformed)),
+            ),
+          );
+    // Both counts bound arrivals still present: old uncached messages inflate the folder count,
+    // while arrivals expunged before this read inflate the UIDNEXT gap.
+    const next = selection.uidNext;
+    const unlisted = Math.max(0, selection.messages - flags.length);
+    const remaining =
+      next === 0
+        ? unlisted
+        : Math.min(unlisted, next - Math.min(next, cached.uidNext));
+    let messages: readonly Envelope[] = [];
+    if (remaining > window) {
+      // More arrived than the window keeps: only the newest are read.
+      messages = yield* newest;
+    } else if (next === 0 || next > cached.uidNext) {
+      // `UID n:*` always names the newest message, even one below n, so it is left out.
+      messages = (yield* envelopes({
+        ...session,
+        from: Math.max(1, cached.uidNext),
+      })).filter(({ uid }) => uid >= cached.uidNext);
+    }
+    return {
+      uidValidity: selection.uidValidity,
+      uidNext: Math.max(next, cached.uidNext, uidAfter(messages)),
+      reset: false,
+      messages,
+      flags,
+    } satisfies FolderRead;
+  });
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
     const scope = opened;
     if (scope === undefined || document === undefined) {
@@ -1383,23 +1476,9 @@ export function createImapInbox(
     }
     const cached = cacheOf(name);
     const started = DateTime.formatIso(yield* DateTime.now);
-    const read = yield* decodeFolderRead(
-      yield* call(() =>
-        native.imapSynchronize(scope, {
-          folder: name,
-          window,
-          ...(cached === undefined
-            ? {}
-            : {
-                from: {
-                  uidValidity: cached.uidValidity,
-                  uidNext: cached.uidNext,
-                  known: cached.messages.map(({ uid }) => uid),
-                },
-              }),
-        }),
-      ),
-    ).pipe(Effect.mapError(malformed));
+    const read = yield* withSession(scope, (session) =>
+      readFolder(scope, { ...session, folder: name }, cached),
+    );
     if (forgotten || document === undefined) {
       return;
     }
@@ -2972,38 +3051,69 @@ export function createImapInbox(
     );
   };
 
-  // One wait: a reported change, a quiet bound, a pause before trying again, or the end.
-  const waitOnce = async () => {
+  // One wait in its own session: a reported change, a quiet bound, a pause before trying again, or
+  // the end. Events that are neither a change nor the server closing the connection wait on until
+  // the bound. Stopping closes the session, which ends the wait.
+  const waitOnce = async (signal: Readonly<AbortSignal>) => {
     const scope = opened;
     const idle = document?.capabilities?.idle;
     if (idle === false) {
       return 'stop';
     }
-    return scope === undefined || idle === undefined
-      ? 'pause'
-      : runLogged(
-          call(() =>
-            native.imapIdle(scope, {
-              folder: inboxFolder,
-              seconds: idleSeconds,
-            }),
+    if (scope === undefined || idle === undefined) {
+      return 'pause';
+    }
+    const wait = withSession(scope, (session) =>
+      Effect.gen(function* () {
+        const { capabilities } = yield* call(() =>
+          native.imapCapabilities(scope, session),
+        ).pipe(
+          Effect.flatMap((reply) =>
+            decodeCapabilities(reply).pipe(Effect.mapError(malformed)),
+          ),
+        );
+        if (!capabilities.some((name) => name.toUpperCase() === 'IDLE')) {
+          return 'stop' as const;
+        }
+        const deadline = (yield* Clock.currentTimeMillis) + idleSeconds * 1000;
+        let seconds = idleSeconds;
+        while (seconds >= 1) {
+          const request = { ...session, folder: inboxFolder, seconds };
+          const { events } = yield* call(() =>
+            native.imapIdle(scope, request),
           ).pipe(
             Effect.flatMap((reply) =>
               decodeIdle(reply).pipe(Effect.mapError(malformed)),
             ),
-            Effect.match({
-              onSuccess: ({ changed }) => (changed ? 'changed' : 'quiet'),
-              // A refused password, a lock or a repaired connection pauses until it is usable.
-              onFailure: ({ kind }) =>
-                kind === 'unsupported' ? 'stop' : 'pause',
-            }),
-          ),
-        );
+          );
+          const outcome = idleOutcome(events);
+          if (outcome !== 'neither') {
+            // The server is closing the connection; a later wait reconnects.
+            return outcome === 'closing' ? ('pause' as const) : outcome;
+          }
+          seconds = Math.ceil(
+            (deadline - (yield* Clock.currentTimeMillis)) / 1000,
+          );
+        }
+        return 'quiet' as const;
+      }),
+    ).pipe(
+      // A refused password, a lock or a repaired connection pauses until it is usable.
+      Effect.orElseSucceed(() => 'pause' as const),
+    );
+    try {
+      return await runLogged(wait, { signal });
+    } catch (error) {
+      if (signal.aborted) {
+        return 'stop';
+      }
+      throw error;
+    }
   };
   // Waits with IDLE on the Inbox and reads it again whenever the server reports a change. A server
   // without IDLE leaves freshness to polling and foreground catch-up; any other failed wait, and a
   // wait before the first listing, tries again after a pause that grows to five minutes.
-  // Stopping ends future waits; one already waiting ends within its bound and is ignored.
+  // Stopping ends future waits and the one in progress.
   const watch = () => {
     const controller = new AbortController();
     const pause = Schedule.min([
@@ -3029,7 +3139,7 @@ export function createImapInbox(
     const follow = async () => {
       let step = await nextStep();
       while (watching()) {
-        const waited = await waitOnce();
+        const waited = await waitOnce(controller.signal);
         if (waited === 'stop' || !watching()) {
           return;
         }

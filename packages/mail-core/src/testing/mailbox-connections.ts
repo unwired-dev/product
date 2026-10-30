@@ -33,9 +33,12 @@ export function syntheticConnections(
       missing(),
     imapClose: (mailbox, session) =>
       server(mailbox.connection)?.imapClose(mailbox, session) ?? missing(),
-    imapSynchronize: (mailbox, request) =>
-      server(mailbox.connection)?.imapSynchronize(mailbox, request) ??
-      missing(),
+    imapExamine: (mailbox, request) =>
+      server(mailbox.connection)?.imapExamine(mailbox, request) ?? missing(),
+    imapEnvelopes: (mailbox, request) =>
+      server(mailbox.connection)?.imapEnvelopes(mailbox, request) ?? missing(),
+    imapFlags: (mailbox, request) =>
+      server(mailbox.connection)?.imapFlags(mailbox, request) ?? missing(),
     imapHistory: (mailbox, request) =>
       server(mailbox.connection)?.imapHistory(mailbox, request) ?? missing(),
     imapMessage: (mailbox, message) =>
@@ -44,8 +47,6 @@ export function syntheticConnections(
       server(mailbox.connection)?.imapHeaders(mailbox, request) ?? missing(),
     imapSelect: (mailbox, request) =>
       server(mailbox.connection)?.imapSelect(mailbox, request) ?? missing(),
-    imapFlags: (mailbox, request) =>
-      server(mailbox.connection)?.imapFlags(mailbox, request) ?? missing(),
     imapStore: (mailbox, request) =>
       server(mailbox.connection)?.imapStore(mailbox, request) ?? missing(),
     imapMove: (mailbox, request) =>

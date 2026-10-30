@@ -303,7 +303,7 @@ describe('organizing row continuity', () => {
         destination: 'Archive',
       });
       motion.settle();
-      vi.spyOn(imap.native, 'imapSynchronize').mockRejectedValueOnce({
+      vi.spyOn(imap.native, 'imapExamine').mockRejectedValueOnce({
         code: 'offline',
       });
       await inbox.undo();

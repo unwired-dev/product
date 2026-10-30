@@ -89,7 +89,7 @@ const FolderCacheSchema = Schema.Struct({
   // saved before it was kept.
   synchronizedAt: Schema.optionalKey(SynchronizationTime),
 });
-type FolderCache = typeof FolderCacheSchema.Type;
+export type FolderCache = typeof FolderCacheSchema.Type;
 
 // One folder's Historical Metadata Backfill under its UIDVALIDITY. A pass downloads the UIDs from
 // `above` up to, not including, `below`, newest first, and ends once `below` reaches `above`; `top`
@@ -213,14 +213,6 @@ export const folderListing = (
 export const decodeSelected = Schema.decodeUnknownEffect(
   Schema.Struct({ uidValidity: Validity }),
 );
-// The flags of the named messages still in the folder.
-export const decodeFlags = Schema.decodeUnknownEffect(
-  Schema.Struct({
-    flags: Schema.Array(
-      Schema.Struct({ uid: Uid, flags: Schema.Array(Schema.String) }),
-    ),
-  }),
-);
 // Where COPYUID says a moved or copied message went, when the server reported it.
 export const decodeReceipt = Schema.decodeUnknownEffect(
   Schema.Struct({
@@ -228,9 +220,38 @@ export const decodeReceipt = Schema.decodeUnknownEffect(
     uid: Schema.optionalKey(Uid),
   }),
 );
+// The kinds of event the server sent before an IDLE wait ended; none when it stayed quiet.
+const IdleEventSchema = Schema.Literals([
+  'exists',
+  'expunge',
+  'vanished',
+  'recent',
+  'flags',
+  'fetch',
+  'alert',
+  'capability',
+  'bye',
+]);
 export const decodeIdle = Schema.decodeUnknownEffect(
-  Schema.Struct({ changed: Schema.Boolean }),
+  Schema.Struct({ events: Schema.Array(IdleEventSchema) }),
 );
+// New, removed or changed messages are a change; BYE closes the connection; anything else, such as
+// an alert or a changed flag list, is neither, so the wait goes on.
+export const idleOutcome = (
+  events: ReadonlyArray<typeof IdleEventSchema.Type>,
+): 'changed' | 'closing' | 'neither' | 'quiet' => {
+  if (
+    events.some((event) =>
+      ['exists', 'expunge', 'vanished', 'fetch'].includes(event),
+    )
+  ) {
+    return 'changed';
+  }
+  if (events.includes('bye')) {
+    return 'closing';
+  }
+  return events.length === 0 ? 'quiet' : 'neither';
+};
 // How many Sent messages carry a MIME boundary.
 export const decodeCount = Schema.decodeUnknownEffect(
   Schema.Struct({
@@ -246,7 +267,7 @@ const EnvelopeSchema = Schema.Struct({
   address: Schema.String,
   subject: Schema.String,
 });
-type Envelope = typeof EnvelopeSchema.Type;
+export type Envelope = typeof EnvelopeSchema.Type;
 // Each searched folder's newest matches, and how many folders the server no longer selects.
 export const decodeSearch = Schema.decodeUnknownEffect(
   Schema.Struct({
@@ -262,17 +283,35 @@ export const decodeSearch = Schema.decodeUnknownEffect(
     skipped: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   }),
 );
-const FolderReadSchema = Schema.Struct({
-  uidValidity: Validity,
-  uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  reset: Schema.Boolean,
-  messages: Schema.Array(EnvelopeSchema),
-  flags: Schema.Array(
-    Schema.Struct({ uid: Uid, flags: Schema.Array(Schema.String) }),
-  ),
+// What EXAMINE reported: the folder's UIDVALIDITY, its UIDNEXT (0 when the server names none) and
+// how many messages it holds.
+export const decodeSelection = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    uidValidity: Validity,
+    uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    messages: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+);
+export const decodeEnvelopes = Schema.decodeUnknownEffect(
+  Schema.Struct({ messages: Schema.Array(EnvelopeSchema) }),
+);
+const FlagsSchema = Schema.Struct({
+  uid: Uid,
+  flags: Schema.Array(Schema.String),
 });
-type FolderRead = typeof FolderReadSchema.Type;
-export const decodeFolderRead = Schema.decodeUnknownEffect(FolderReadSchema);
+// The flags of the named messages still in the folder.
+export const decodeFlags = Schema.decodeUnknownEffect(
+  Schema.Struct({ flags: Schema.Array(FlagsSchema) }),
+);
+// What a folder synchronization read: its identity, new or listed messages, and the flags of the
+// already-known messages that remain. `reset` lists the newest messages afresh.
+export type FolderRead = Readonly<{
+  uidValidity: number;
+  uidNext: number;
+  reset: boolean;
+  messages: readonly Envelope[];
+  flags: ReadonlyArray<typeof FlagsSchema.Type>;
+}>;
 // One history read: the folder's UIDVALIDITY, UIDNEXT and message count, the newest messages of the
 // requested UID range, the exclusive cursor its next read starts below, and which of the known UIDs
 // remain.

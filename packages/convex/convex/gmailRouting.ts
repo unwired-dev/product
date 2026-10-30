@@ -1,3 +1,5 @@
+import { base64url } from 'jose';
+
 import { env } from './_generated/server.js';
 
 type GmailRoutingKey = Readonly<{ key: string; version: number }>;
@@ -42,18 +44,6 @@ function previousRoutingKey(): GmailRoutingKey | null {
   };
 }
 
-function base64Url(data: ArrayBuffer): string {
-  const bytes = new Uint8Array(data);
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCodePoint(byte);
-  }
-  return btoa(binary)
-    .replaceAll('+', '-')
-    .replaceAll('/', '_')
-    .replaceAll('=', '');
-}
-
 function identityBindingKey(): string {
   const key = environmentValue('GMAIL_IDENTITY_BINDING_KEY');
   if (key === undefined) {
@@ -80,7 +70,7 @@ export async function gmailIdentityBindingDigest(
       `identity-binding\0${productAccountId}\0${providerAccountIdentifier}`,
     ),
   );
-  return `identity:${base64Url(digest)}`;
+  return `identity:${base64url.encode(new Uint8Array(digest))}`;
 }
 
 export async function opaqueGmailConnectionId(
@@ -93,7 +83,7 @@ export async function opaqueGmailConnectionId(
       `dev.unwired.mail.gmail-operational-connection.v1\0${productAccountId}\0${providerAccountIdentifier}`,
     ),
   );
-  return base64Url(digest);
+  return base64url.encode(new Uint8Array(digest));
 }
 
 async function routingDigest(
@@ -115,15 +105,9 @@ async function routingDigest(
     ),
   );
   return {
-    digest: `${String(routingKey.version)}:${base64Url(digest)}`,
+    digest: `${String(routingKey.version)}:${base64url.encode(new Uint8Array(digest))}`,
     keyVersion: routingKey.version,
   };
-}
-
-export async function gmailRoutingDigest(
-  canonicalEmailAddress: string,
-): Promise<Readonly<{ digest: string; keyVersion: number }>> {
-  return routingDigest(canonicalEmailAddress, currentRoutingKey());
 }
 
 export async function gmailRoutingDigests(
