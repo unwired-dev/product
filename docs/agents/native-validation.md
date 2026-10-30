@@ -230,8 +230,8 @@ When the palette first opens in the Inbox, and again in that window, the
 journey compares window captures taken before and after opening it across the
 panel's first rows and fails if too few points change, so a palette that only
 exists for assistive technology fails
-([#1573](https://github.com/unwired-dev/product/issues/1573)). Each capture is
-kept as a `Command Palette open` attachment.
+([#1573](https://github.com/unwired-dev/product/issues/1573)). Each open-palette
+capture is kept as a `Command Palette open` attachment.
 Unfinished recipient text keeps that window open after Command-W and cancels
 Quit. Clearing it permits Command-W and the Inbox retains the Draft. Reopening
 that Draft and expanding again permits Quit from the new guarded window, stopping
