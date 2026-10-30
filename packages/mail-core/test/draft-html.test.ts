@@ -504,6 +504,22 @@ describe('a Semantic Message Document from Draft HTML', () => {
     });
   });
 
+  it('adds no blank line for an empty paragraph, which shows nothing', () => {
+    expect.hasAssertions();
+    const lines = [
+      { kind: 'paragraph', spans: [{ text: 'one' }] },
+      { kind: 'paragraph', spans: [{ text: 'two' }] },
+    ];
+    expect(
+      ['<p>one</p><p></p><p>two</p>', '<p>one</p><p> </p><p>two</p>'].map(
+        (html) => documentFromHtml(html),
+      ),
+    ).toStrictEqual([{ document: lines }, { document: lines }]);
+    expect(documentFromHtml('<p>one</p><p><br></p><p>two</p>')).toStrictEqual({
+      document: [lines[0], { kind: 'paragraph', spans: [] }, lines[1]],
+    });
+  });
+
   it('refuses a block that inherits a visible background', () => {
     expect.hasAssertions();
     expect(

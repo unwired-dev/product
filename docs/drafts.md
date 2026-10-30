@@ -262,7 +262,8 @@ silently changed. Escaped CSS and declarations beyond the CSS parser's nesting
 budget report the `style` attribute. Other declarations the style parser cannot
 vet, including quoted values left open at the end of the attribute, report their
 property unless it is ignored above. An unvetted display override on hidden
-content is reported rather than discarding potentially visible text. Outgoing HTML reads back to the same
+content is reported rather than discarding potentially visible text. An empty
+paragraph shows nothing and adds no line; a blank line is `<p><br></p>`. Outgoing HTML reads back to the same
 document, apart from the spaces HTML collapses, a trailing empty code line and
 code alignment, which is not sent.
 

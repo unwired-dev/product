@@ -118,8 +118,9 @@ const structureTags: ReadonlyMap<
 ]);
 const isBlock = (tag: string) =>
   !transparentTags.has(tag) && !markTags.has(tag);
-// Each of these holds at least one block, so an empty heading or list item reads back.
-const lineTags = new Set(['p', 'li', 'h1', 'h2', 'h3', 'pre']);
+// Each of these holds at least one block, so an empty heading or list item reads back. An empty
+// paragraph shows nothing, and outgoing mail writes a blank line as `<p><br></p>`.
+const lineTags = new Set(['li', 'h1', 'h2', 'h3', 'pre']);
 // Spacing and wrapping that browsers and mail clients add; the document has none of its own.
 const ignoredProperties =
   /^(?:margin|padding|line-height|word-wrap|overflow-wrap|line-break|caret-color|-webkit-nbsp-mode|mso-)/u;
