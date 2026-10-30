@@ -90,6 +90,28 @@ evidence under the [testing policy](testing.md#proportionate-verification).
 Keep the native interaction check deferred; passing mocks do not validate a
 presentation workaround.
 
+### Recorded exceptions
+
+**iOS SF Symbols (`UnwiredSymbol`).** `SFSymbol` in `apps/mobile/src/design.tsx`
+must draw each symbol at its DESIGN.md point size, regular weight, centered in a
+`size`×`size` box. Checked: `expo-symbols` 57.0.3 through `expo-router` 57.0.29,
+Expo 57.0.31, React Native 0.86.3, iOS 27. `SymbolViewProps` in
+`build/SymbolModule.types.d.ts` exposes `size`, `resizeMode`, `scale`, `weight`
+and `tintColor`, but no point-size prop. `size` sets the view's square dimensions
+(`build/SymbolView.ios.js`); `scale` selects a preset, not a point size.
+`SymbolView` builds glyphs at `UIFont.systemFontSize` (`getSymbolConfig` in
+`ios/SymbolView.swift`). The default `resizeMode="scaleAspectFit"` rescales the
+glyph to fit the box; `resizeMode="center"` leaves its configured point size
+fixed. Neither preserves the required point sizes across symbols. 58.0.4, the
+latest release on 30 October 2026, has the same sizing limitation. The owner
+chose to keep the bridge over box-fit sizing or a package patch
+([#1121](https://github.com/unwired-dev/product/issues/1121)).
+The retained part is the iOS `UnwiredSymbolView` and `UnwiredSymbolManager` in
+`native/design/UnwiredDesign.m`. Delete them, and move `SFSymbol` to `SymbolView`,
+once a supported `expo-symbols` release renders at a given point size with the
+designed glyph sizes. The Mac `UnwiredSymbolView` is not part of this exception:
+Expo stays out of the Mac bundle.
+
 ## Skills
 
 For React, React Native or Expo implementation and review, load
