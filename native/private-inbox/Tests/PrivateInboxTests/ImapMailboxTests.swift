@@ -790,6 +790,11 @@ extension PrivateInboxTests {
     #expect(page.uidValidity == 7 && page.uidNext == 12 && page.total == 1)
     #expect(page.messages.map(\.uid) == [7, 11] || page.messages.map(\.uid) == [11, 7])
     #expect(page.below == 7 && page.present == [11])
+    await #expect(throws: ImapFailure.missing) {
+      _ = try await provider.history(
+        try account("history"), password: password,
+        request: ImapHistoryRequest(folder: "Gone", above: 1, below: nil, limit: 2, known: []))
+    }
 
     #expect(try await provider.idle(synthetic, password: password, folder: "INBOX", seconds: 30))
     #expect(try await provider.idle(synthetic, password: password, folder: "Quiet", seconds: 1) == false)

@@ -348,7 +348,13 @@ struct SwiftMailImap: ImapProvider {
     -> ImapHistoryPage
   {
     try await session(account, password) { server in
-      let selection = try await Self.examine(server, folder: request.folder)
+      // A folder deleted since it was listed is skipped, not a failure of the whole backfill.
+      let selection: Mailbox.Selection
+      do {
+        selection = try await Self.examine(server, folder: request.folder)
+      } catch IMAPError.selectFailed {
+        throw ImapFailure.missing
+      }
       var next = selection.uidNext.value
       if next == 0, let latest = selection.latest(1) {
         let newest = try await server.fetchMessageInfosBulk(using: latest, options: .uidFlagsOnly)
