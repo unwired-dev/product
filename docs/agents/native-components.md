@@ -74,6 +74,25 @@ Check the recorded component choice before reviewing its styling. A known
 custom-control follow-up does not satisfy the exception rule; validate an API
 gap or replace the standard interaction within the agreed scope.
 
+### Recorded exceptions
+
+**iOS SF Symbols (`UnwiredSymbol`).** `SFSymbol` in `apps/mobile/src/design.tsx`
+must draw each symbol at its DESIGN.md point size, regular weight, centered in a
+`size`×`size` box. `expo-symbols` 57.0.3 (installed through `expo-router` with
+Expo 57.0.31, iOS 27) cannot: `SymbolView` builds every glyph at
+`UIFont.systemFontSize` (`getSymbolConfig` in `ios/SymbolView.swift`), and its
+documented `size` prop (`build/SymbolModule.types.d.ts`) only sizes the view, which
+`resizeMode` (default `scaleAspectFit`) then fills. Symbols are not square, so
+fitting shrinks wide ones such as `tray.2` and `laptopcomputer.and.iphone` by up to
+41%; `resizeMode="center"` keeps every glyph at 17 pt. 58.0.4, the latest release
+on 30 October 2026, is unchanged. The owner chose to keep the bridge over box-fit
+sizing or a package patch ([#1121](https://github.com/unwired-dev/product/issues/1121)).
+The retained part is the iOS `UnwiredSymbolView` and `UnwiredSymbolManager` in
+`native/design/UnwiredDesign.m`. Delete them, and move `SFSymbol` to `SymbolView`,
+once a supported `expo-symbols` release renders at a given point size with the
+designed glyph sizes. The Mac `UnwiredSymbolView` is not part of this exception:
+Expo stays out of the Mac bundle.
+
 Every migration moves all affected callers and removes its superseded controls,
 bridges, presence state and motion in the same change. Add a replacement wrapper
 only when the remaining requirement needs it. Verify completed and cancelled
