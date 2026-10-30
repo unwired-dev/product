@@ -191,6 +191,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   eligibility only after the listing commits. Exercise renumbering a completed
   folder and retiring then recreating its name without relaunch; otherwise old
   history survives a known identity change or a new folder never backfills.
+- `imap-history.ts.nextHistoryFolder` allowing cached UIDNEXT or UIDVALIDITY
+  observations to reselect a folder whose history read was refused as missing
+  or changed. Keep refusal exclusions distinct from folders merely read up to
+  date, clear them at the owning access reset, and retire them only after a
+  complete listing commits. Exercise a refused folder with a newer cached view
+  and a later selectable folder; otherwise repeated refusals starve other history.
+- `imap-history.ts.decided` carrying a finished expunge check's `checking`
+  cursor into a catch-up pass. Clear phase-local state on every successor
+  branch and exercise an arrival during the final segment check through the
+  public store and saved UIDs. Otherwise catch-up replies are reconciled as
+  old segments, their arrivals are dropped and progress falsely completes.
 - `imap-inbox.ts.open` recreating a cached folder view as `current` without
   reading that folder, or discarding a failed first read because no cache entry
   exists. Preserve failed uncached views and previous ready status, including
