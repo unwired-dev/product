@@ -1274,6 +1274,7 @@ export function WritingTools({
               {
                 key: 'rewrite',
                 title: t('assistance.rewrite'),
+                symbol: 'pencil',
                 accessibilityLabel: t(rewriteLabel(selection)),
                 disabled: !canRewrite(draft.body, selection),
                 run: () => {
@@ -1287,6 +1288,7 @@ export function WritingTools({
               {
                 key: 'translate',
                 title: t('translation.translateTo'),
+                symbol: 'translate',
                 accessibilityLabel: t('translation.translateSelectionLabel'),
                 disabled: !hasTranslatableText(
                   selectedText(
