@@ -27,12 +27,16 @@ existing URL pins and restores app product and Frameworks references idempotentl
 
 ## Ownership and transport
 
-Folder listing (#1177) and folder synchronization (#1178) run in TypeScript over
-short-lived native session handles. Native `SwiftMailImapSession` exposes capabilities,
+Folder listing (#1177), folder synchronization (#1178) and online search (#1179)
+run in TypeScript over short-lived native session handles. Native `SwiftMailImapSession` exposes capabilities,
 complete LIST results with attributes, read-only EXAMINE, envelope reads by UID set,
 UID range or newest sequence numbers, and flag reads by UID set. TypeScript assigns
 roles, normalizes ASCII INBOX names, derives MOVE, UIDPLUS and IDLE support, and owns
-the checkpoint and arrival arithmetic. `RegistrationStore` binds each handle
+the checkpoint and arrival arithmetic. Search examines one folder and returns a bounded
+newest-UID window and the total match count without expanding compressed UID ranges.
+TypeScript chooses the folder order and per-folder limit, fetches the matching
+envelopes, skips missing or unestablished folder identities and derives truncation
+disclosure. `RegistrationStore` binds each handle
 to its connection, address, generation and receipt subject, admits one command
 at a time, and owns expiry, limits and invalidation cleanup. TypeScript's
 `acquireUseRelease` closes the handle on success and failure. The operational
