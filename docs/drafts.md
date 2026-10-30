@@ -244,7 +244,10 @@ would also change the line's color.
 It ignores the head, style sheets, comments, wrapper classes, identifiers,
 language and namespace attributes, left-to-right or automatic `dir`, HTML-hidden
 content without a display override, spacing (margins, padding, line height),
-Outlook `mso-` properties and quote borders. Browser-dependent active/visited
+Outlook `mso-` properties and visible quote borders. A quote border with zero
+width, a transparent color, an omitted line style in a shorthand or an unvetted
+function is reported rather than turning an indentation into a quote.
+Browser-dependent active/visited
 link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
 Anything else, such as a table, an image, headings four to six, a nested list
 or quote, a color name, a relative size, a block background, a popover, list

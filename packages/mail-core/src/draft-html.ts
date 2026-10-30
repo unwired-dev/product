@@ -338,16 +338,40 @@ const propertyRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
   ],
 ]);
 // A bordered blockquote is a quote; without a border, it only indents.
-const noBorder =
-  /^(?:none|hidden|transparent|[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z]+|%)?)$/iu;
+const noBorder = /^(?:none|hidden|transparent|#[\da-f]{3}0|#[\da-f]{6}00)$/iu;
+const borderLength =
+  /^(?<amount>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?:[a-z]+|%)?$/iu;
+const borderShorthand =
+  /^border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/u;
+const borderLine =
+  /^(?:solid|dotted|dashed|double|groove|ridge|inset|outset)$/iu;
+const shownBorder = (property: string, value: string) => {
+  if (property === 'border-radius') {
+    return true;
+  }
+  // Only opaque literal RGB functions can be ignored without hiding a transparent border.
+  const literal = value.replaceAll(
+    /\brgba?\([^()]*\)/giu,
+    (color) => ` ${colorOf(color) ?? 'none'} `,
+  );
+  const parts = literal.split(/[\t\n\f\r ]+/u);
+  return (
+    !literal.includes('(') &&
+    !parts.some(
+      (part) =>
+        noBorder.test(part) || Number(borderLength.exec(part)?.[1]) === 0,
+    ) &&
+    (!borderShorthand.test(property) ||
+      parts.some((part) => borderLine.test(part)))
+  );
+};
 const otherProperty =
   (property: string): Rule =>
   (context, value) => {
     if (property.startsWith('border')) {
-      const shown =
-        property === 'border-radius' ||
-        !value.split(/[\t\n\f\r ]+/u).some((part) => noBorder.test(part));
-      return context.kind === 'quote' && shown ? context : undefined;
+      return context.kind === 'quote' && shownBorder(property, value)
+        ? context
+        : undefined;
     }
     return ignoredProperties.test(property) ? context : undefined;
   };

@@ -257,6 +257,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `draft-html.ts.otherProperty` accepting a quote border without checking whether
+  it draws a line. Audit shorthand defaults, every width spelling including
+  exponent notation, transparent colors and unvetted functions. Preserve token
+  boundaries where a color function touches a width without whitespace;
+  refusing only a leading `0` or `none` misses equivalent invisible borders.
+  Keep a zero border radius distinct from a zero border width, and preserve the
+  representative visible Gmail quote. Otherwise indentation is silently promoted
+  to a semantic quote instead of reporting the border property.
 - `draft-html.ts.styled` or `hiddenElement` trusting only the declarations a
   shared reader parser retains. Audit every parser omission, including values
   it cannot vet and strings browsers close at the attribute's end. Preserve a
