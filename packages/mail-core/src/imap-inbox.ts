@@ -2754,18 +2754,12 @@ export function createImapInbox(
   // when the folder is gone or refuses its UIDVALIDITY.
   const searchFolder = (
     scope: Scope,
-    session: Readonly<{ session: string }>,
-    folder: string,
-    query: string,
+    request: Readonly<{ session: string; folder: string; query: string }>,
   ) =>
     Effect.gen(function* () {
+      const { session, folder } = request;
       const { uidValidity, uids, total } = yield* call(() =>
-        native.imapSearch(scope, {
-          ...session,
-          folder,
-          query,
-          newest: searchMatchLimit,
-        }),
+        native.imapSearch(scope, { ...request, newest: searchMatchLimit }),
       ).pipe(
         Effect.flatMap((reply) =>
           decodeSearch(reply).pipe(Effect.mapError(malformed)),
@@ -2775,7 +2769,7 @@ export function createImapInbox(
         uids.length === 0
           ? { messages: [] }
           : yield* call(() =>
-              native.imapEnvelopes(scope, { ...session, uids }),
+              native.imapEnvelopes(scope, { session, uids }),
             ).pipe(
               Effect.flatMap((reply) =>
                 decodeEnvelopes(reply).pipe(Effect.mapError(malformed)),
@@ -2807,9 +2801,12 @@ export function createImapInbox(
         const folders = searchedFolders(document.folders);
         const asked = folders.slice(0, searchFolderLimit);
         const searched = Arr.getSomes(
+          // A session answers one command at a time.
           yield* withSession(scope, (session) =>
-            Effect.forEach(asked, (folder) =>
-              searchFolder(scope, session, folder, query),
+            Effect.forEach(
+              asked,
+              (folder) => searchFolder(scope, { ...session, folder, query }),
+              { concurrency: 1 },
             ),
           ),
         );

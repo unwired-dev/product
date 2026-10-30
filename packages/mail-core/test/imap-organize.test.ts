@@ -750,8 +750,6 @@ describe('searching IMAP mail at the server', () => {
     expect(
       imap.server.reads.filter((read) => read.startsWith('search ')),
     ).toStrictEqual(['search INBOX', 'search Archive', 'search Projects']);
-    expect(opened).toHaveBeenCalledOnce();
-    expect(imap.server.sessions.size).toBe(0);
 
     vi.spyOn(imap.native, 'imapSearch').mockRejectedValueOnce({
       code: 'imap-unsupported',
@@ -760,7 +758,10 @@ describe('searching IMAP mail at the server', () => {
       kind: 'unavailable',
       reason: 'failed',
     });
-    expect(imap.server.sessions.size).toBe(0);
+    // Each search opened one session and closed it, even after a failure.
+    expect([opened.mock.calls.length, imap.server.sessions.size]).toStrictEqual(
+      [2, 0],
+    );
   });
 
   it('joins the unified online search beside other mailboxes and reports a limited IMAP search', async () => {
