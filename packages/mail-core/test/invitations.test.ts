@@ -192,6 +192,14 @@ describe('meeting invitations', () => {
       calendar(meeting.filter((line) => !line.startsWith('ORGANIZER'))),
     ],
     ['damaged text', 'not a calendar'],
+    [
+      'a missing calendar version',
+      calendar(meeting).replace('VERSION:2.0\r\n', ''),
+    ],
+    [
+      'an unsupported calendar version',
+      calendar(meeting).replace('VERSION:2.0', 'VERSION:1.0'),
+    ],
     ['a truncated event', calendar(meeting).replace('END:VEVENT\r\n', '')],
     [
       'a mismatched ending',
@@ -231,7 +239,9 @@ describe('meeting invitations', () => {
       'a DATE value containing a time',
       calendar(
         meeting.map((line) =>
-          line.replace('DTSTART;TZID=Europe/Prague', 'DTSTART;VALUE=DATE'),
+          line
+            .replace('DTSTART;TZID=Europe/Prague', 'DTSTART;VALUE=DATE')
+            .replace('20261106T140000', '20261106T140000Z'),
         ),
       ),
     ],

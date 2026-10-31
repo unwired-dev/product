@@ -211,7 +211,13 @@ const requestedEvent = (lines: readonly Line[] | undefined) => {
   const methods = properties
     .filter(({ path, line }) => path === 'VCALENDAR' && line.name === 'METHOD')
     .map(({ line }) => line.value.trim().toUpperCase());
-  return methods.join(',') === 'REQUEST' && events === 1
+  const versions = properties.filter(
+    ({ path, line }) => path === 'VCALENDAR' && line.name === 'VERSION',
+  );
+  return methods.join(',') === 'REQUEST' &&
+    events === 1 &&
+    versions.length === 1 &&
+    versions[0]?.line.value === '2.0'
     ? properties
         .filter(({ path }) => path === 'VCALENDAR/VEVENT')
         .map(({ line }) => line)
