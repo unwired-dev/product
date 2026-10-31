@@ -194,8 +194,9 @@ or synchronized. A line break keeps the alignment of the block it splits, joinin
 two blocks keeps the first block's, and typing, formatting, block kinds, inline
 images, replacements and Undo keep it. Sent mail aligns headings, paragraphs, list
 items and quotes; code lines share one `<pre>` and are sent without their alignment.
-Composers do not yet show or set alignment, and no Draft holds one until Drafts
-from other mail clients open
+The Mac composer shows a Draft's alignment; the iPhone and iPad composer does
+not yet. No composer sets one, and no Draft holds one until Drafts from other
+mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Text can also carry a color and a background color, each stored as lowercase
@@ -205,8 +206,8 @@ synchronized. Typed and replacing text takes the color and background of the tex
 before it, or at the start of a block the text after it, and line breaks, joined
 blocks, formatting, block kinds, inline images, link edits and Undo keep each.
 Sent mail colors the text and its background, links included, with inline `color`
-and `background-color` styles; plain text is unchanged. Composers do not yet show
-or set either, and no Draft holds one until Drafts from other mail clients open
+and `background-color` styles; plain text is unchanged. No composer sets either,
+and no Draft holds one until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Text can also carry a font family and a font size. The family is a CSS family
@@ -216,9 +217,22 @@ pixels. Text without them shows in the default font, and a Draft holding any
 other value is not saved or synchronized. Typing, replacing and editing keep them
 as they keep color, and text in another family or size stays separate. Sent mail
 sets them with inline `font-family` and `font-size` styles in `px`, links
-included; plain text is unchanged. Composers do not yet show or set fonts, and no
-Draft holds one until Drafts from other mail clients open
+included; plain text is unchanged. No composer sets fonts, and no Draft holds one
+until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
+
+The Mac composer shows stored colors and fonts
+([#1639](https://github.com/unwired-dev/product/issues/1639)); the iPhone and iPad
+composer does not yet. Light shows colors as stored. Dark changes only what is on
+screen: near-black text (relative luminance below 0.02) shows in `text/primary`,
+including inside quotes, and a color below 4.5:1 against the content surface
+`#1E1E1E` lightens
+toward white a tenth at a time until it reaches 4.5:1, so `#c00000` shows as
+`#d96666`. Text on a background keeps that background and, without a color of its
+own, shows in the Light text color. The first family of the list shows when it is
+installed, a generic `serif`, `sans-serif` or `monospace` shows the matching
+system font, and any other missing family shows the system font, all at the
+stored size. The Draft, its Undo steps and sent mail keep the stored values.
 
 Shared code reads a Draft body written as HTML, by Gmail, Apple Mail, Outlook or
 outgoing mail, into a Semantic Message Document
