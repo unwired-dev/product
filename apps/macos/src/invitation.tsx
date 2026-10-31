@@ -264,7 +264,7 @@ const choiceOf = (t: Translate, state: ResponseState) =>
 // How the card describes each response state.
 const describe: {
   readonly [K in Kind]: (
-    state: Extract<ResponseState, { kind: K }>,
+    state: ResponseState & { kind: K },
     context: Describing,
   ) => Shown;
 } = {
@@ -328,7 +328,7 @@ const describe: {
 };
 
 const described = <K extends Kind>(
-  state: Extract<ResponseState, { kind: K }>,
+  state: ResponseState & { kind: K },
   context: Describing,
 ) => describe[state.kind](state, context);
 
