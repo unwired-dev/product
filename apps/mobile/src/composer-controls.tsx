@@ -22,6 +22,7 @@ import {
   buttonStyle,
   contentShape,
   controlSize,
+  accessibilityLabel as spokenLabel,
   disabled as inactive,
   font,
   foregroundStyle,
@@ -1053,6 +1054,7 @@ function GenerateFields({
               buttonBorderShape('capsule'),
               tint(colors.accentFill),
               inactive(!generable),
+              spokenLabel(t('assistance.generateActionLabel')),
             ]}
           />
         </Host>

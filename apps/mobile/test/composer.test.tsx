@@ -3399,9 +3399,17 @@ describe('composing Drafts', () => {
       expect(
         screen.getByRole('header', { name: 'Generate a Draft' }),
       ).toBeOnTheScreen();
-      expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+      expect(
+        screen.getByRole('button', {
+          name: 'Generate a draft from this description',
+        }),
+      ).toBeDisabled();
       await fireEvent.changeText(prompt(), '   ');
-      expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+      expect(
+        screen.getByRole('button', {
+          name: 'Generate a draft from this description',
+        }),
+      ).toBeDisabled();
       // Close dismisses it without asking the model or changing the Draft.
       await fireEvent.changeText(prompt(), 'thank Maya');
       const queuedText = queuedPress('What to write', 'onChangeText');
@@ -3450,7 +3458,7 @@ describe('composing Drafts', () => {
       const description = 'confirm Thursday’s lease signing';
       await open();
       await fireEvent.changeText(prompt(), ` ${description} `);
-      await press('Generate');
+      await press('Generate a draft from this description');
       expect(shown()).toBeNull();
       expect(asked[0]?.operation).toBe('rewrite');
       expect(parseJson(asked[0]!.input)).toStrictEqual({
@@ -3482,7 +3490,7 @@ describe('composing Drafts', () => {
       // Discard closes a generated draft without inserting it.
       await open();
       await fireEvent.changeText(prompt(), description);
-      await press('Generate');
+      await press('Generate a draft from this description');
       asked[2]?.answer.resolve('Thursday works.');
       await screen.findByText('Thursday works.');
       await press('Close this draft without inserting it');
@@ -3492,7 +3500,7 @@ describe('composing Drafts', () => {
       // A prompt beyond the model's input bound is refused before the model is asked.
       await open();
       await fireEvent.changeText(prompt(), 'a'.repeat(6000));
-      await press('Generate');
+      await press('Generate a draft from this description');
       await screen.findByText(
         'Describe what to write in fewer words. Up to 6,000 characters can be read.',
       );

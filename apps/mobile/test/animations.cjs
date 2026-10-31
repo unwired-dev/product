@@ -159,6 +159,9 @@ jest.mock('@expo/ui/swift-ui', () => {
       Pressable,
       {
         accessibilityRole: 'button',
+        accessibilityLabel: modifiers?.find(
+          (each) => each.$type === 'accessibilityLabel',
+        )?.label,
         onPress,
         disabled: modifiers?.some(
           (each) => each.$type === 'disabled' && each.disabled,
@@ -256,6 +259,7 @@ jest.mock('@expo/ui/swift-ui', () => {
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  accessibilityLabel: (label) => ({ $type: 'accessibilityLabel', label }),
   buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
   contentShape: (shape) => ({ $type: 'contentShape', shape }),
