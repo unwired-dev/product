@@ -957,6 +957,13 @@ function usePreview(
   const retry = useCallback(() => {
     setAttempt((current) => current + 1);
   }, []);
+  const checked = check?.get(asset.id);
+  const sendResult = useRef<AssetPreview['kind']>(undefined);
+  useLayoutEffect(() => {
+    if (checked !== undefined) {
+      sendResult.current = checked;
+    }
+  }, [checked]);
   const shown =
     preview?.id === id && preview?.digest === digest
       ? preview?.preview
@@ -981,13 +988,20 @@ function usePreview(
       return undefined;
     }
     let showing = true;
+    // New reads can recover; an older read must preserve the newer Send result and any thumbnail.
+    sendResult.current = undefined;
     const read = async () => {
       const next = await store.readAsset(
         { id, digest, type },
         { preview: inline },
       );
       if (showing) {
-        setPreview({ id, digest, attempt, preview: next });
+        setPreview({
+          id,
+          digest,
+          attempt,
+          preview: sendPreview(sendResult.current, next) ?? next,
+        });
       }
     };
     void read();
@@ -995,7 +1009,6 @@ function usePreview(
       showing = false;
     };
   }, [store, id, digest, type, inline, attempt]);
-  const checked = check?.get(asset.id);
   const [found, setFound] = useState(checked);
   if (found !== checked) {
     setFound(checked);

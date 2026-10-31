@@ -662,6 +662,8 @@ still applies. See `docs/architecture/macos-client.md`.
   damaged, or permanently hides an Inline Image after storage unlocks. Fence
   retry, replacement and unmount results as for image previews, and remove
   foreground subscriptions when their row no longer needs them.
+  A completed Send check must supersede older in-flight previews without blocking
+  a later explicit or foreground retry; otherwise a late preview erases its refusal.
 - `evaluation-composer.tsx` displaying an Inline Image through a page while
   `composer.tsx.usePreview` owns the row's verified thumbnail. Trace explicit
   retry and foreground recovery to every presentation, including a page that

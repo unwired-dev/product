@@ -348,6 +348,20 @@ describe('sending a Draft', () => {
         { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
         { uri: 'file:///scan.pdf', name: 'scan.pdf', type: 'application/pdf' },
       ]);
+      const originalRead = sender.storage.native.readDraftAsset;
+      // An older verified preview must not replace a newer Send refusal.
+      let finishPreview: (() => void) | undefined = undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Deliver an older read after the Send result.
+      const preview = new Promise<undefined>((resolve) => {
+        finishPreview = () => resolve(undefined);
+      });
+      jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockImplementationOnce(async (...args) => {
+          const result = await originalRead(...args);
+          await preview;
+          return result;
+        });
       await press('Attach Files…');
       await screen.findByLabelText('plan.pdf, 4 bytes');
       await screen.findByLabelText('scan.pdf, 4 bytes');
@@ -361,6 +375,16 @@ describe('sending a Draft', () => {
       await screen.findByLabelText(
         'plan.pdf, 4 bytes · Not checked while private storage is locked',
       );
+      await act(async () => {
+        ok(finishPreview, 'Expected the earlier file preview');
+        finishPreview();
+        await preview;
+      });
+      expect(
+        screen.getByLabelText(
+          'plan.pdf, 4 bytes · Not checked while private storage is locked',
+        ),
+      ).toBeOnTheScreen();
       locked.mockRestore();
       announce.mockClear();
       // Each file's check finishes only when the test lets it.
