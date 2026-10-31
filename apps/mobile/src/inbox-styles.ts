@@ -88,22 +88,21 @@ export const styles = StyleSheet.create({
     flexGrow: 1,
   },
   listFooter: { flexGrow: 1 },
-  // The 2pt focus ring sits inside the design's 10/12/18pt row insets.
+  // The design's 10/12/18pt row insets.
   row: {
-    paddingTop: ipad ? 8 * scale - 2 : 8,
-    paddingBottom: ipad ? 9 * scale - 2 : 10,
-    paddingLeft: ipad ? 22 * scale - 2 : 16,
-    paddingRight: ipad ? spacing.m * scale - 2 : 0,
+    paddingTop: ipad ? 8 * scale : 10,
+    paddingBottom: ipad ? 9 * scale : 12,
+    paddingLeft: ipad ? 22 * scale : 18,
+    paddingRight: ipad ? spacing.m * scale : 2,
     gap: ipad ? scale : 2,
-    borderWidth: 2,
     borderRadius: radius.row * scale,
     borderCurve: 'continuous',
   },
   separator: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    left: 2,
+    right: 2,
+    bottom: 2,
     height: StyleSheet.hairlineWidth,
   },
   rowHeading: {
@@ -118,8 +117,8 @@ export const styles = StyleSheet.create({
   match: { fontWeight: '600' },
   unread: {
     position: 'absolute',
-    left: ipad ? 8 * scale - 2 : 0,
-    top: ipad ? 13 * scale - 2 : 15,
+    left: ipad ? 8 * scale : 2,
+    top: ipad ? 13 * scale : 17,
     width: ipad ? 8 * scale : 9,
     height: ipad ? 8 * scale : 9,
     borderRadius: ipad ? 4 * scale : 4.5,

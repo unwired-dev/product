@@ -14,6 +14,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   navigation, or appear for the wrong focus and duplicate the system indicator.
   Keep native interaction evidence distinct from a substituted event-boundary test.
 
+- Removing a layout border from `inbox-styles.ts.row` or another control without
+  rebasing its absolute children. Yoga adds the containing border to explicit
+  child insets; compare unread markers and separators as well as padded text
+  against the previous layout and approved frames. Otherwise focus cleanup can
+  silently shift visible indicators even when the text keeps its position.
+
 A host owns views and native adapters. It renders shared stores from `@private-email/mail-core` and passes native modules into them. `apps/mobile` is Expo on iOS and iPadOS (Hermes, Expo Router split view); `apps/macos` is React Native macOS, where AppKit owns windows and each window mounts its own React root over one JavaScript runtime. The two hosts pin different React and React Native versions.
 
 Apply `docs/agents/native-components.md` to UI selection and migration. Checks

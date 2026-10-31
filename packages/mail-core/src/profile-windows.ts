@@ -14,7 +14,11 @@ import { savedPreference, savePreference } from './commands.ts';
 import { runLogged } from './diagnostics.ts';
 import { mailboxSidebar, profileMailboxes } from './mailbox-views.ts';
 import { readingProfile } from './mailboxes.ts';
-import { defaultProfile } from './registration-snapshot.ts';
+import {
+  defaultProfile,
+  ProfileColorSchema,
+  ProfileIconSchema,
+} from './registration-snapshot.ts';
 
 // A window's Mail Profile: a targeted deep link's, then the Profile the window restores, then the
 // device's Startup Profile, then the Default Profile. A restored or Startup Profile this device no
@@ -60,6 +64,23 @@ export const profileMonogram = (name: string) =>
     .map((word) => [...word][0] ?? '')
     .join('')
     .toLocaleUpperCase();
+
+// The Colors and Icons a Mail Profile can choose, in menu order. A Profile without a Color shows
+// Graphite, and one without an Icon shows its name's first letter.
+export const profileColors = ProfileColorSchema.literals;
+export const profileIcons = ProfileIconSchema.literals;
+
+// The SF Symbol each Icon shows.
+export const profileIconSymbol = {
+  person: 'person.fill',
+  people: 'person.2',
+  laptop: 'laptopcomputer',
+  book: 'text.book.closed',
+  airplane: 'airplane',
+  cart: 'cart',
+  paintbrush: 'paintbrush',
+  star: 'star',
+} satisfies Record<(typeof profileIcons)[number], string>;
 
 type Listed = Parameters<typeof mailboxSidebar>[0]['mailboxes'][number] &
   Readonly<{ profile: string }>;
@@ -109,7 +130,7 @@ export const profileRemoval = (
 // Why a Mail Profile change did not complete.
 export const profileRefusalText = (
   t: Translate,
-  change: 'new' | 'rename' | 'move' | 'remove',
+  change: 'new' | 'rename' | 'restyle' | 'move' | 'remove',
   failure: ProfileFailure,
 ) => {
   if (failure === 'upgrade-required') {

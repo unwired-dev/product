@@ -1,5 +1,4 @@
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { SFSymbol } from './design.tsx';
@@ -13,15 +12,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.m,
-    borderWidth: 2,
+    paddingHorizontal: 14,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
   label: { ...textStyles.subheadline, flexShrink: 1 },
 });
 
-// A keyboard-focusable control that shows where focus is; a checked state makes it a checkbox.
+// A keyboard-focusable control; a checked state makes it a checkbox.
 export function ActionButton({
   label,
   onPress,
@@ -32,19 +30,12 @@ export function ActionButton({
   readonly checked?: boolean;
 }) {
   const colors = usePalette();
-  const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole={checked === undefined ? 'button' : 'checkbox'}
       accessibilityState={checked === undefined ? undefined : { checked }}
       focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
@@ -52,7 +43,6 @@ export function ActionButton({
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
             : colors.fillQuiet,
-          borderColor: focused ? colors.accentInk : 'transparent',
         },
       ]}>
       {checked === true ? (

@@ -316,6 +316,9 @@ describe('mac window selection with the shared mock mailbox', () => {
           name: 'New Message',
         }),
       );
+      await act(async () => {
+        chooseSheetButton('Cancel');
+      });
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: oliver }));
       expect(app.getByLabelText('Message body')).toHaveTextContent(
@@ -329,6 +332,9 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).resolves.toBeVisible();
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      await act(async () => {
+        chooseSheetButton('Save');
+      });
       expect(
         app.getByRole('alert', {
           name: 'Correct or remove the invalid address to close this Draft.',
@@ -414,10 +420,17 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).toBeVisible();
       expect(window.getAllByRole('button', { name: 'Send' })).toHaveLength(1);
       // Native Close and Quit must reach this editor's leave guard, including unfinished entries.
+      await fireEvent.changeText(
+        window.getByLabelText('Subject'),
+        'In a window',
+      );
       await act(async () => {
         DeviceEventEmitter.emit('windowShouldClose', {
           window: 'composer-window-1',
         });
+      });
+      await act(async () => {
+        chooseSheetButton('Save');
       });
       expect(
         window.getByRole('alert', {
@@ -436,6 +449,9 @@ describe('mac window selection with the shared mock mailbox', () => {
           window: 'composer-window-1',
         });
       });
+      await act(async () => {
+        chooseSheetButton('Save');
+      });
       expect(
         window.getByText(
           'This Draft could not be saved, so it stays open. Try again, or discard it.',
@@ -447,6 +463,9 @@ describe('mac window selection with the shared mock mailbox', () => {
         DeviceEventEmitter.emit('windowShouldClose', {
           window: 'composer-window-1',
         });
+      });
+      await act(async () => {
+        chooseSheetButton('Save');
       });
       await waitFor(() => {
         expect(closedWindows()).toContain('composer-window-1');
@@ -2422,6 +2441,100 @@ describe('mac windows of different Mail Profiles', () => {
       jest.restoreAllMocks();
     }
   });
+
+  /* oxlint-disable vitest/max-expects -- One journey proves both pop-ups and that each keeps the other choice. */
+  it('chooses a Mail Profile’s Color and Icon in Settings, keeping the other choice', async () => {
+    expect.hasAssertions();
+    const { vault, work } = await createTwoProfileRegistration();
+    const store = createRegistration({
+      ...vault,
+      registration: () => vault.registration(),
+      recordProfiles: (next) => vault.recordProfiles(next),
+    });
+    await store.restore();
+    const replaced = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof store }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      store,
+    );
+    const inbox = createGmailInbox(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const styleOf = () =>
+      profilesOf(store.getSnapshot().snapshot)
+        .filter(({ id }) => id === work)
+        .map(({ color, icon }) => ({ color, icon }));
+    try {
+      const app = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="restyle" />
+        </MacWindows>,
+      );
+      await chooseProfile(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'Manage Mail Profiles…',
+      );
+      const settings = settingsWindow();
+      // The Primary Profile has no record to style; it shows the defaults.
+      await expect(settings.findByText('Graphite')).resolves.toBeVisible();
+      expect(settings.getByText('First Letter')).toBeVisible();
+      expect(settings.queryByRole('button', { name: 'Color' })).toBeNull();
+      await fireEvent.press(settings.getByRole('button', { name: 'Work' }));
+      const color = settings.getByRole('button', { name: 'Color' });
+      expect(color).toHaveAccessibilityValue({ text: 'Graphite' });
+      await fireEvent.press(color);
+      expect(
+        menuItems().map(({ title, checked }) => [title, checked]),
+      ).toStrictEqual([
+        ['Graphite', true],
+        ['Blue', false],
+        ['Indigo', false],
+        ['Purple', false],
+        ['Pink', false],
+        ['Teal', false],
+        ['Green', false],
+        ['Brown', false],
+      ]);
+      await chooseMenuItem('Blue');
+      await waitFor(() => {
+        expect(styleOf()).toStrictEqual([{ color: 'blue', icon: undefined }]);
+      });
+      await fireEvent.press(settings.getByRole('button', { name: 'Icon' }));
+      expect(
+        menuItems().map(({ title, checked }) => [title, checked]),
+      ).toStrictEqual([
+        ['First Letter', true],
+        ['Person', false],
+        ['People', false],
+        ['Laptop', false],
+        ['Book', false],
+        ['Airplane', false],
+        ['Cart', false],
+        ['Paintbrush', false],
+        ['Star', false],
+      ]);
+      await chooseMenuItem('Laptop');
+      await waitFor(() => {
+        expect(styleOf()).toStrictEqual([{ color: 'blue', icon: 'laptop' }]);
+      });
+      expect(
+        settings.getByRole('button', { name: 'Color' }),
+      ).toHaveAccessibilityValue({ text: 'Blue' });
+      expect(
+        settings.getByRole('button', { name: 'Icon' }),
+      ).toHaveAccessibilityValue({ text: 'Laptop' });
+      // First Letter clears the Icon and keeps the Color.
+      await fireEvent.press(settings.getByRole('button', { name: 'Icon' }));
+      await chooseMenuItem('First Letter');
+      await waitFor(() => {
+        expect(styleOf()).toStrictEqual([{ color: 'blue', icon: undefined }]);
+      });
+    } finally {
+      replaced.restore();
+      jest.restoreAllMocks();
+    }
+  }); /* oxlint-enable vitest/max-expects */
 
   /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
   it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {

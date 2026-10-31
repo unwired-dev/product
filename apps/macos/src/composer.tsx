@@ -2,6 +2,7 @@ import type { Translate } from '@private-email/localization';
 import type {
   CapturedDraftText,
   NativeAssistance,
+  TextTool,
 } from '@private-email/mail-core/assistance';
 import type {
   AssetPreview,
@@ -41,11 +42,11 @@ import {
   canSuggestReply,
   captureDraftText,
   draftReplacement,
+  isTextTool,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
 import {
   addRecipients,
-  draftSaveProblem,
   draftOf,
   entryOf,
   isEmptyDraft,
@@ -112,6 +113,8 @@ import {
   View,
 } from 'react-native';
 
+import type { PopUpItem } from './composer-controls.tsx';
+
 import { Action } from './action.tsx';
 import { useCloseGuard } from './command-palette.tsx';
 import {
@@ -121,6 +124,7 @@ import {
   PopUp,
 } from './composer-controls.tsx';
 import {
+  askInSheet,
   Notice as Banner,
   Button,
   ContextMenu,
@@ -170,11 +174,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
   },
   title: { ...textStyles.bodyEmphasized },
-  status: {
-    ...textStyles.subheadline,
-    paddingHorizontal: fieldInset,
-    paddingBottom: spacing.xs,
-  },
   alerts: {
     gap: spacing.s,
     paddingHorizontal: fieldInset,
@@ -1231,10 +1230,20 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   );
 }
 
-export const rewriteLabel = (at: Selection) =>
+const textToolLabel = (tool: TextTool, at: Selection) =>
   at.start === at.end
-    ? 'assistance.rewriteDraftLabel'
-    : 'assistance.rewriteSelectionLabel';
+    ? (`assistance.${tool}DraftLabel` as const)
+    : (`assistance.${tool}SelectionLabel` as const);
+
+const textToolSymbols: Readonly<Record<TextTool, string>> = {
+  rewrite: 'pencil',
+  proofread: 'text.badge.checkmark',
+  paragraphs: 'text.alignleft',
+  expand: 'arrow.up.and.down.text.horizontal',
+  shorten: 'arrow.down.and.line.horizontal.and.arrow.up',
+  friendly: 'face.smiling',
+  neutral: 'face.dashed',
+};
 
 // The format bar's Writing tools menu. A choice reports its purpose; the composer checks it
 // against its current Draft before capturing text.
@@ -1262,27 +1271,43 @@ export function WritingTools({
       onCapture('translate', language);
     },
   );
+  const rewritable = canRewrite(draft.body, selection);
+  const tools = (...names: TextTool[]): PopUpItem[] =>
+    assistance === undefined
+      ? []
+      : names.map((tool) => ({
+          key: tool,
+          title: t(`assistance.${tool}`),
+          symbol: textToolSymbols[tool],
+          accessibilityLabel: t(textToolLabel(tool, selection)),
+          disabled: !rewritable,
+          run: () => {
+            onCapture(tool);
+          },
+        }));
   return assistance === undefined && translation === undefined ? null : (
     <PopUp
       disabled={disabled}
       accessibilityLabel={t('drafts.writingTools')}
       icon="sparkles"
-      items={[
-        ...(assistance === undefined
-          ? []
-          : [
-              {
-                key: 'rewrite',
-                title: t('assistance.rewrite'),
-                symbol: 'pencil',
-                accessibilityLabel: t(rewriteLabel(selection)),
-                disabled: !canRewrite(draft.body, selection),
-                run: () => {
-                  onCapture('rewrite');
+      sections={[
+        [
+          ...tools('rewrite'),
+          ...(assistance !== undefined && canSuggestReply(draft)
+            ? [
+                {
+                  key: 'reply',
+                  title: t('assistance.suggestReply'),
+                  accessibilityLabel: t('assistance.suggestReplyLabel'),
+                  run: () => {
+                    onCapture('reply');
+                  },
                 },
-              },
-            ]),
-        ...(translation === undefined
+              ]
+            : []),
+        ],
+        tools('proofread', 'paragraphs'),
+        translation === undefined
           ? []
           : [
               {
@@ -1299,20 +1324,10 @@ export function WritingTools({
                 ),
                 items: targetLanguages,
               },
-            ]),
-        ...(assistance !== undefined && canSuggestReply(draft)
-          ? [
-              {
-                key: 'reply',
-                title: t('assistance.suggestReply'),
-                accessibilityLabel: t('assistance.suggestReplyLabel'),
-                run: () => {
-                  onCapture('reply');
-                },
-              },
-            ]
-          : []),
-      ]}
+            ],
+        tools('expand', 'shorten'),
+        tools('friendly', 'neutral'),
+      ].flatMap((items) => (items.length === 0 ? [] : [{ items }]))}
     />
   );
 }
@@ -1490,7 +1505,6 @@ function Editor({
   readonly renderToolbar?: Toolbar | undefined;
 }) {
   const store = useDraftStore();
-  const state = useDrafts();
   const colors = usePalette();
   const { t } = useLocalization();
   const [history, setHistory] = useState(() => historyOf(initial));
@@ -1513,6 +1527,10 @@ function Editor({
   // Native events can arrive before React commits a rebind or an earlier edit.
   const authored = useRef(initial);
   const getDraft = useCallback(() => authored.current, []);
+  // The version the store holds: the Draft as opened, until Save or Send stores this one.
+  const stored = useRef(initial);
+  // Whether storage may not hold the stored version yet, because its Save is pending or failed.
+  const unsaved = useRef(false);
   const keepIdentity = useCallback((next: typeof history) => {
     if (next.present.id === authored.current.id) {
       return next;
@@ -1539,7 +1557,10 @@ function Editor({
   const rebind = useCallback(
     (id: string) => {
       const bound = (each: Draft): Draft => ({ ...each, id, conflict: true });
-      authored.current = bound(authored.current);
+      const previous = authored.current;
+      authored.current = bound(previous);
+      stored.current =
+        stored.current === previous ? authored.current : bound(stored.current);
       if (lifetime.current.mounted) {
         commitHistory((current) => ({
           ...current,
@@ -1555,6 +1576,7 @@ function Editor({
   useLayoutEffect(() => {
     const { current } = lifetime;
     current.mounted = true;
+    store.hold(authored.current.id, rebind);
     return () => {
       current.mounted = false;
       // A pending Close or Discard still resolves its target through authored.current.
@@ -1603,12 +1625,12 @@ function Editor({
   const [closing, setClosing] = useState<Closing>();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
-  // While Send is pending the editor accepts no edits, so nothing typed then is lost.
-  const [sending, setSending] = useState(false);
+  // While Save or Send is pending the editor accepts no edits, so nothing typed then is lost.
+  const [paused, setPaused] = useState(false);
   // Native callbacks can arrive before the disabled props commit.
-  const sendingNow = useRef(false);
-  // A control that also waits while Send is pending.
-  const lockedUnless = (available: boolean) => sending || !available;
+  const pausedNow = useRef(false);
+  // A control that also waits while Save or Send is pending.
+  const lockedUnless = (available: boolean) => paused || !available;
   const outbox = useOutbox();
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
@@ -1628,36 +1650,48 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
-  const unsaved = draftSaveProblem(state);
 
-  // Holds saving during discard; a failed discard restores edits accepted while it waited.
+  // Holds edits and finishing while Discard or Send runs.
   const discarded = useRef(false);
-  const update = useCallback(
-    (next: Draft) => {
-      const previous = authored.current;
-      const bound =
-        next.id === previous.id
-          ? next
-          : { ...next, id: previous.id, conflict: true as const };
-      const capture = captureNow.current;
-      if (
-        bound.body !== previous.body ||
-        (capture !== undefined &&
-          !sameDraftAssistanceSource(capture.draft, bound, capture.purpose))
-      ) {
-        captureNow.current = undefined;
-        setCaptured(undefined);
-      }
-      authored.current = bound;
-      if (!discarded.current) {
-        setRefused(undefined);
-        void store.update(bound, previous, rebind);
-      }
-    },
-    [rebind, store],
-  );
+  const update = useCallback((next: Draft) => {
+    const previous = authored.current;
+    const bound =
+      next.id === previous.id
+        ? next
+        : { ...next, id: previous.id, conflict: true as const };
+    const capture = captureNow.current;
+    if (
+      bound.body !== previous.body ||
+      (capture !== undefined &&
+        !sameDraftAssistanceSource(capture.draft, bound, capture.purpose))
+    ) {
+      captureNow.current = undefined;
+      setCaptured(undefined);
+    }
+    authored.current = bound;
+    if (!discarded.current) {
+      setRefused(undefined);
+    }
+  }, []);
+  // Stores this editor's version; a Draft that changed elsewhere since it was opened becomes a
+  // conflicting copy.
+  const storeShown = useCallback(() => {
+    if (authored.current !== stored.current) {
+      void store.update(authored.current, stored.current, rebind);
+      stored.current = authored.current;
+      unsaved.current = true;
+    }
+  }, [rebind, store]);
+  const storeAndSave = useCallback(async () => {
+    storeShown();
+    const saved = await store.save();
+    if (saved) {
+      unsaved.current = false;
+    }
+    return saved;
+  }, [store, storeShown]);
   const change = (next: Draft, word = false, field?: string) => {
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     const continuing = typingField.current === field;
@@ -1690,7 +1724,12 @@ function Editor({
           bodies.set(each.body, body);
           return { ...patched, body };
         };
-        authored.current = patch(authored.current);
+        const previous = authored.current;
+        authored.current = patch(previous);
+        stored.current =
+          stored.current === previous
+            ? authored.current
+            : patch(stored.current);
         commitHistory((current) => ({
           ...current,
           past: current.past.map(patch),
@@ -1704,7 +1743,7 @@ function Editor({
   );
   // Files become attachments; images placed inline go at the caret, replacing any selection.
   const addFiles = (files: readonly PickedFile[], inline: boolean) => {
-    if (files.length === 0 || discarded.current) {
+    if (files.length === 0 || discarded.current || pausedNow.current) {
       return;
     }
     const prepared = prepareFiles(authored.current, {
@@ -1738,7 +1777,7 @@ function Editor({
     );
   };
   const removeAsset = (id: string) => {
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     void store.cancelImport(id);
@@ -1759,7 +1798,7 @@ function Editor({
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
     fromControl();
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     commitHistory((current) => keepIdentity(step(current)));
@@ -1767,7 +1806,7 @@ function Editor({
     update(historyNow.current.present);
   };
   const edit = (text: string) => {
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     const at = selectionNow.current;
@@ -1809,7 +1848,7 @@ function Editor({
     }
   };
   const format = (mark: Mark) => {
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     const at = selectionNow.current;
@@ -1825,7 +1864,7 @@ function Editor({
   const applyCaptured = (replacement: string) => {
     const latest = authored.current;
     if (
-      sendingNow.current ||
+      pausedNow.current ||
       !lifetime.current.mounted ||
       captured === undefined ||
       captureNow.current !== captured ||
@@ -1847,7 +1886,7 @@ function Editor({
   };
   const closeCaptured = () => {
     if (
-      !sendingNow.current &&
+      !pausedNow.current &&
       captured !== undefined &&
       captureNow.current === captured
     ) {
@@ -1862,7 +1901,7 @@ function Editor({
     target?: TranslationLanguage,
   ) => {
     if (
-      sendingNow.current ||
+      pausedNow.current ||
       !lifetime.current.mounted ||
       !assistanceEnabled()
     ) {
@@ -1879,7 +1918,7 @@ function Editor({
     setCaptured(next);
   };
   const block = (kind: BlockKind) => {
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     const at = selectionNow.current;
@@ -1890,7 +1929,7 @@ function Editor({
     setPlaced(result.selection);
   };
   const editLink = (link: Link, text: string, href?: string) => {
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     const latest = authored.current;
@@ -1918,72 +1957,133 @@ function Editor({
     }
     return finished;
   }, [commitHistory, keepIdentity, update]);
-  const close = useCallback(async () => {
-    if (discarded.current || lifetime.current.finishing > 0) {
-      return false;
-    }
-    // Invalid text keeps the Draft open.
-    const finished = finishEntries();
-    if (finished.entries !== undefined) {
-      setClosing('recipients');
-      return false;
-    }
+  const [open, setOpen] = useState<'save'>();
+  const leaving = useRef<((allowed: boolean) => void) | undefined>(undefined);
+  // Whether the last Close opened its question rather than finishing.
+  const asked = useRef(false);
+  const answerLeave = useCallback((allowed: boolean) => {
+    const answer = leaving.current;
+    leaving.current = undefined;
+    answer?.(allowed);
+  }, []);
+  useLayoutEffect(
+    () => () => {
+      leaving.current?.(false);
+    },
+    [],
+  );
+  // Runs one Save, removal of an empty Draft or Expand; `finish` resolves whether the editor may
+  // close, which `done` then does in place of closing.
+  const finishing = async (
+    finish: () => Promise<boolean>,
+    done?: () => void,
+  ) => {
+    setOpen(undefined);
     setClosing('saving');
+    pausedNow.current = true;
+    setPaused(true);
     let closed = false;
     lifetime.current.finishing += 1;
     try {
-      closed = isEmptyDraft(finished)
-        ? await store.discard(() => authored.current.id, {
-            onlyIfEmpty: true,
-            expected: () => authored.current,
-          })
-        : await store.save();
+      closed = await finish();
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
+    pausedNow.current = false;
     finishOperation();
+    answerLeave(closed);
     if (!lifetime.current.mounted) {
-      if (closed) {
+      if (closed && done === undefined) {
         onClosedAfterRemoval(authored.current.id);
       }
       return closed;
     }
+    setPaused(false);
     if (closed) {
+      (done ?? onClose)();
+    } else {
+      setClosing((current) => (current === 'saving' ? 'blocked' : current));
+    }
+    return closed;
+  };
+  // Stores this editor's version, then saves it. Invalid recipient text keeps the Draft open.
+  const saveDraft = async () => {
+    if (discarded.current || lifetime.current.finishing > 0) {
+      return false;
+    }
+    if (finishEntries().entries !== undefined) {
+      setOpen(undefined);
+      setClosing('recipients');
+      answerLeave(false);
+      return false;
+    }
+    return finishing(storeAndSave);
+  };
+  // Close asks to save changes, including ones a failed Save left unsaved; an empty Draft is
+  // removed and an unchanged one closes.
+  const close = async () => {
+    if (discarded.current || lifetime.current.finishing > 0) {
+      return false;
+    }
+    asked.current = false;
+    if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
+      return finishing(() =>
+        store.discard(() => authored.current.id, {
+          onlyIfEmpty: true,
+          expected: () => stored.current,
+        }),
+      );
+    }
+    // Another window's failed save leaves this editor's untouched Draft alone.
+    if (authored.current === stored.current && !unsaved.current) {
       onClose();
       return true;
     }
-    setClosing('blocked');
+    setClosing(undefined);
+    setOpen('save');
+    asked.current = true;
     return false;
-  }, [finishEntries, finishOperation, onClose, onClosedAfterRemoval, store]);
+  };
+  // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
+  // Command-W, the window's close button and Quit ask the same question before closing.
   useCloseGuard(navigation.leave);
-  useLayoutEffect(() => navigation.register(close), [navigation, close]);
-  // Expand hands the Draft over once every edit is saved; a failed save keeps it here.
+  useLayoutEffect(() =>
+    navigation.register(async () => {
+      if (await close()) {
+        return true;
+      }
+      // Only an open question can still answer; a refused Close leaves at once.
+      if (
+        !asked.current ||
+        lifetime.current.finishing > 0 ||
+        !lifetime.current.mounted
+      ) {
+        return false;
+      }
+      // oxlint-disable-next-line promise/avoid-new -- Navigation waits for Save, Don’t Save or dismissal.
+      return new Promise<boolean>((resolve) => {
+        leaving.current = resolve;
+      });
+    }),
+  );
+  useEffect(() => {
+    if (open !== 'save' && lifetime.current.finishing === 0) {
+      answerLeave(false);
+    }
+  }, [answerLeave, open]);
+  // Expand hands the Draft over once this editor's version is saved; a failed save keeps it here.
   const expand = async () => {
     if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
-    setClosing('saving');
-    let saved = false;
-    lifetime.current.finishing += 1;
-    try {
-      saved = await store.save();
-    } catch {
-      // An unexpected storage rejection keeps the composer open and retryable too.
-    }
-    finishOperation();
-    if (!lifetime.current.mounted) {
-      return;
-    }
-    if (saved) {
+    await finishing(storeAndSave, () => {
       onExpand?.(authored.current.id);
-    } else {
-      setClosing('blocked');
-    }
+    });
   };
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     deletion.current = undefined;
-    if (sendingNow.current) {
+    if (pausedNow.current) {
       return;
     }
     if (nativeEvent.key === 'Delete') {
@@ -2008,37 +2108,28 @@ function Editor({
       format(mark);
     }
   };
+  // Deletes the Draft, as Discard and Don’t Save do; a failed deletion keeps this editor's version.
   const discard = async () => {
     if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
-    const previous = authored.current;
+    setOpen(undefined);
     setClosing('saving');
     discarded.current = true;
     lifetime.current.finishing += 1;
     let removed = false;
-    // The content Discard froze, following any conflict rebind that lands before deletion runs.
-    const baseline = () =>
-      previous.id === authored.current.id
-        ? previous
-        : { ...previous, id: authored.current.id, conflict: true as const };
     try {
       removed = await store.discard(() => authored.current.id, {
-        // Discard suppresses later autosaves; freeze its content while following any rebind.
-        expected: baseline,
+        expected: () => stored.current,
       });
     } catch {
       // An unexpected storage rejection leaves the editor retryable too.
     }
     if (!removed) {
       discarded.current = false;
-      // Edits accepted meanwhile follow the same version, so they save as one sequential edit.
-      if (authored.current !== previous) {
-        void store.update(authored.current, baseline(), rebind);
-      }
     }
-    // A failed discard may have rebound its restored edit; release after that update.
     finishOperation();
+    answerLeave(removed);
     if (lifetime.current.mounted) {
       if (removed) {
         onClose();
@@ -2049,7 +2140,8 @@ function Editor({
       onClosedAfterRemoval(authored.current.id);
     }
   };
-  // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
+  // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
+  // keeps it open.
   const send = async () => {
     if (discarded.current || lifetime.current.finishing > 0) {
       return;
@@ -2059,32 +2151,34 @@ function Editor({
       setRefused('entries');
       return;
     }
-    const previous = authored.current;
+    const shown = authored.current;
     setRefused(undefined);
     setClosing('saving');
-    sendingNow.current = true;
-    setSending(true);
+    pausedNow.current = true;
+    setPaused(true);
     captureNow.current = undefined;
     setCaptured(undefined);
-    // As for Discard, later edits wait: the version shown at Send is the one sent.
+    // Later edits wait: the version shown at Send is the one sent.
     discarded.current = true;
     lifetime.current.finishing += 1;
-    const baseline = () =>
-      previous.id === authored.current.id
-        ? previous
-        : { ...previous, id: authored.current.id, conflict: true as const };
     let refusal: SendRefusal | undefined = 'storage';
     try {
-      refusal = await outbox.send(baseline);
+      storeShown();
+      refusal = await outbox.send(() => ({
+        ...shown,
+        id: authored.current.id,
+        ...(authored.current.conflict ? { conflict: true as const } : {}),
+      }));
+      // A refused Send still stored the version shown; Close asks only if saving it failed.
+      if (refusal !== undefined && (await store.save())) {
+        unsaved.current = false;
+      }
     } catch {
       // An unexpected rejection keeps the Draft open to send again.
     }
     if (refusal !== undefined) {
-      sendingNow.current = false;
+      pausedNow.current = false;
       discarded.current = false;
-      if (authored.current !== previous) {
-        void store.update(authored.current, baseline(), rebind);
-      }
     }
     finishOperation();
     if (lifetime.current.mounted) {
@@ -2093,12 +2187,53 @@ function Editor({
       } else {
         setClosing(undefined);
         setRefused(refusal);
-        setSending(false);
+        setPaused(false);
       }
     } else if (refusal === undefined) {
       onClosedAfterRemoval(authored.current.id);
     }
   };
+  // The question's choices act through this render's Save and Don’t Save.
+  const answerSave = useRef<(choice: number) => void>(undefined);
+  useLayoutEffect(() => {
+    answerSave.current = (choice) => {
+      if (choice === 0) {
+        void saveDraft();
+      } else if (choice === 1) {
+        void discard();
+      } else {
+        setOpen(undefined);
+      }
+    };
+  });
+  // Close asks in a sheet on this editor's window, which closes once the editor stops asking.
+  const root = useRef<View>(null);
+  useEffect(() => {
+    if (open !== 'save') {
+      return undefined;
+    }
+    let current = true;
+    const question = askInSheet(root.current, {
+      title: t('drafts.saveQuestion'),
+      detail: t('drafts.saveQuestionDetail'),
+      buttons: [
+        t('drafts.saveAction'),
+        t('drafts.dontSave'),
+        t('common.cancel'),
+      ],
+    });
+    const answer = async () => {
+      const choice = await question.answer;
+      if (current && lifetime.current.mounted && choice !== null) {
+        answerSave.current?.(choice);
+      }
+    };
+    void answer();
+    return () => {
+      current = false;
+      question.retire();
+    };
+  }, [open, t]);
   const title = clip(draft.subject) || t('drafts.newMessage');
   const titleLabel =
     title.length < draft.subject.length
@@ -2110,7 +2245,7 @@ function Editor({
     <ComposerActions
       disabled={lockedUnless(closing !== 'saving')}
       onDiscard={() => {
-        if (!sendingNow.current && lifetime.current.finishing === 0) {
+        if (!pausedNow.current && lifetime.current.finishing === 0) {
           setClosing('discard');
         }
       }}
@@ -2119,7 +2254,7 @@ function Editor({
   const sender = (
     <SendingMailbox
       draft={draft}
-      editable={!sending}
+      editable={!paused}
       onChange={(mailbox) => {
         change(withSender(authored.current, mailbox));
       }}
@@ -2141,6 +2276,8 @@ function Editor({
 
   return (
     <View
+      ref={root}
+      collapsable={false}
       // Files dropped anywhere on the composer are attached.
       draggedTypes={['fileUrl']}
       testID="composer"
@@ -2196,7 +2333,7 @@ function Editor({
       <FormatBar
         active={active}
         kind={kind}
-        disabled={sending}
+        disabled={paused}
         onBlock={(next) => {
           fromControl();
           block(next);
@@ -2206,7 +2343,7 @@ function Editor({
           format(mark);
         }}>
         <LinkEditor
-          disabled={sending}
+          disabled={paused}
           link={editableLinkAt(draft.body, selection)}
           onChange={(link, text, href) => {
             fromControl();
@@ -2234,17 +2371,16 @@ function Editor({
         <WritingTools
           draft={draft}
           selection={selection}
-          disabled={sending}
+          disabled={paused}
           onCapture={(purpose, target) => {
             const at = selectionNow.current;
             const { body } = authored.current;
-            const available =
-              purpose === 'rewrite'
-                ? canRewrite(body, at)
-                : purpose === 'reply' ||
-                  hasTranslatableText(
-                    selectedText(body, at, translationInputLimit + 1),
-                  );
+            const available = isTextTool(purpose)
+              ? canRewrite(body, at)
+              : purpose === 'reply' ||
+                hasTranslatableText(
+                  selectedText(body, at, translationInputLimit + 1),
+                );
             if (available) {
               capture(purpose, at, target);
             }
@@ -2252,7 +2388,7 @@ function Editor({
         />
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />
         <ToolbarButton
-          disabled={sending}
+          disabled={paused}
           icon="paperclip"
           label={t('drafts.assets.attachFilesPanel')}
           onPress={() => {
@@ -2260,7 +2396,7 @@ function Editor({
           }}
         />
         <ToolbarButton
-          disabled={sending}
+          disabled={paused}
           icon="photo.on.rectangle"
           label={t('drafts.assets.insertImagePanel')}
           onPress={() => {
@@ -2269,19 +2405,12 @@ function Editor({
         />
       </FormatBar>
       <ScrollView contentContainerStyle={styles.content}>
-        {unsaved === undefined ? null : (
-          <View style={styles.bar}>
-            <Notice style={[styles.status, { color: colors.textSecondary }]}>
-              {t('drafts.status', { status: t(`drafts.save.${unsaved}`) })}
-            </Notice>
-          </View>
-        )}
         <ComposerNotices
           closing={closing}
           draft={draft}
           refused={refused}
           onClose={() => {
-            void close();
+            void saveDraft();
           }}
           onDiscard={() => {
             void discard();
@@ -2307,8 +2436,8 @@ function Editor({
         )}
         <TextInput
           accessibilityLabel={t('drafts.body')}
-          editable={!sending}
-          accessibilityState={{ disabled: sending }}
+          editable={!paused}
+          accessibilityState={{ disabled: paused }}
           // Pasted images go inline at the caret; other pasted files are attached. Text pastes as
           // usual. React Native macOS supports these props but leaves them out of TextInputProps.
           {...({
@@ -2373,9 +2502,9 @@ function Editor({
         )}
         <DraftAssets
           draft={draft}
-          editable={!sending}
+          editable={!paused}
           onCancel={(id) => {
-            if (!sendingNow.current) {
+            if (!pausedNow.current) {
               void store.cancelImport(id);
             }
           }}
@@ -2388,8 +2517,8 @@ function Editor({
             </Text>
             <TextInput
               accessibilityLabel={t('drafts.subject')}
-              editable={!sending}
-              accessibilityState={{ disabled: sending }}
+              editable={!paused}
+              accessibilityState={{ disabled: paused }}
               onChangeText={(subject) => {
                 const previous = authored.current.subject;
                 subjectCaret.current =
@@ -2428,7 +2557,7 @@ function Editor({
           <Recipients
             draft={draft}
             getDraft={getDraft}
-            editable={!sending}
+            editable={!paused}
             field="to"
             onChange={change}
             onCaretMove={breakTyping}
@@ -2436,7 +2565,7 @@ function Editor({
               copiesShown ? undefined : (
                 <Action
                   variant="composer"
-                  disabled={sending}
+                  disabled={paused}
                   accessibilityLabel={t('drafts.showCcBcc')}
                   label={t('drafts.ccBcc')}
                   onPress={() => {
@@ -2451,7 +2580,7 @@ function Editor({
               <Recipients
                 draft={draft}
                 getDraft={getDraft}
-                editable={!sending}
+                editable={!paused}
                 field="cc"
                 onChange={change}
                 onCaretMove={breakTyping}
@@ -2459,7 +2588,7 @@ function Editor({
               <Recipients
                 draft={draft}
                 getDraft={getDraft}
-                editable={!sending}
+                editable={!paused}
                 field="bcc"
                 onChange={change}
                 onCaretMove={breakTyping}
@@ -2498,18 +2627,30 @@ export function Composer({
   const store = useDraftStore();
   const colors = usePalette();
   const { t } = useLocalization();
-  // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
-  const [editor, setEditor] = useState({ key: id, followed: id });
+  const draft = draftOf(state, id);
+  // The editor stays mounted when it moves to its own copy, and remounts for another Draft. Once
+  // open, it keeps its unsaved version even if the Draft is removed elsewhere, so Save can still
+  // keep it as a copy; a change of Product Account retires it.
+  const [editor, setEditor] = useState({
+    key: id,
+    followed: id,
+    opened: draft,
+  });
   if (editor.followed !== id) {
-    setEditor({ key: id, followed: id });
+    setEditor({ key: id, followed: id, opened: draft });
+  } else if (state.kind !== 'ready' && editor.opened !== undefined) {
+    setEditor({ ...editor, opened: undefined });
+  } else if (editor.opened === undefined && draft !== undefined) {
+    setEditor({ ...editor, opened: draft });
   }
   const rebind = useCallback(
     (copy: string) => {
-      setEditor((current) => ({ key: current.key, followed: copy }));
+      setEditor((current) => ({ ...current, followed: copy }));
       onRebind(copy);
     },
     [onRebind],
   );
+  const opened = editor.followed === id ? editor.opened : draft;
   // Deleting an empty Draft can retire its editor before Close or Discard settles.
   const shown = useRef<string | undefined>(id);
   useLayoutEffect(() => {
@@ -2526,12 +2667,11 @@ export function Composer({
     },
     [onClose],
   );
-  const draft = draftOf(state, id);
-  if (draft !== undefined) {
+  if (opened !== undefined) {
     return (
       <Editor
         key={editor.key}
-        initial={draft}
+        initial={opened}
         onClose={onClose}
         onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}

@@ -198,7 +198,7 @@ describe('preview Inbox', () => {
   });
 
   it.each(['light', 'dark'] as const)(
-    'keeps the selected row legible after focus leaves in %s appearance',
+    'keeps the selected row legible in %s appearance',
     async (appearance) => {
       expect.hasAssertions();
       const colors = palette[appearance];
@@ -220,13 +220,7 @@ describe('preview Inbox', () => {
           within(message).getByText('Saturday, by the river?'),
         ).toHaveStyle({ fontWeight: '600' });
         await fireEvent.press(message);
-        await fireEvent(message, 'focus');
-        expect(message).toHaveStyle({ borderColor: colors.accentOnFill });
-        await fireEvent(message, 'blur');
-        expect(message).toHaveStyle({
-          backgroundColor: colors.accentFill,
-          borderColor: 'transparent',
-        });
+        expect(message).toHaveStyle({ backgroundColor: colors.accentFill });
         expect(within(message).getByText('Oliver Park')).toHaveStyle({
           color: colors.accentOnFill,
           fontWeight: '600',

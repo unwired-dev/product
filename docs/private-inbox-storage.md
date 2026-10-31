@@ -249,9 +249,15 @@ whole style through compare-and-set, like a move; a Profile named offline keeps
 its style and publishes it with its name. A style edited before the first
 publication is confirmed survives a delayed earlier publication and relaunch,
 until Product Sync confirms the edited style. The snapshot omits Graphite and
-First Letter even when Graphite is stored explicitly. Settings and the Profile
-monograms do not show the style yet; they follow in
-[#1039](https://github.com/unwired-dev/product/issues/1039).
+First Letter even when Graphite is stored explicitly. On Mac, the selected
+Profile's page in Settings › Mail Profiles shows **Color** and **Icon** system
+pop-ups after its name, and the Profile list shows each Profile's monogram, a
+circle in its Color with its Icon or first letter in white
+([#1619](https://github.com/unwired-dev/product/issues/1619)). Choosing one
+writes the other as this client reads it, so a key it does not know is replaced.
+The Primary Profile shows Graphite and First Letter without pop-ups. iPhone and
+iPad Settings, the Profile Switcher and the Profile Menu do not show the style
+yet; they follow in [#1039](https://github.com/unwired-dev/product/issues/1039).
 Every Profile except the Primary Profile offers **Remove Mail
 Profile…**, which asks first in a system alert. For a Profile that owns
 connections, the question names them, and confirming removes them from Unwired
