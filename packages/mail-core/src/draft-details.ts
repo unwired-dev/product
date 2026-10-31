@@ -45,14 +45,15 @@ const anyCase = (words: string) =>
   );
 const weekday = anyCase('(?:mon|tues|wednes|thurs|fri|satur|sun)day');
 const month = `${anyCase('(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)')}(?:\\.(?=,?\\s\\d))?`;
-const day = String.raw`\d{1,2}(?:st|nd|rd|th)?`;
+const day = `\\d{1,2}(?:${anyCase('st|nd|rd|th')})?`;
 const unsigned = String.raw`(?:\d+(?:[.,]\d+)*|[.,]\d+)`;
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
 const linkEnd = String.raw`[^\s<>"“”«»]`;
 const currency = String.raw`\p{Sc}|\b[A-Z]{3}\b|Kč`;
-const edge = String.raw`(?![\p{L}\p{N}])`;
+// A detail never ends inside a word or before the rest of a number, so `0.5` is not read as `0`.
+const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 
 // A detail starts and ends outside a word. Earlier alternatives win where details overlap, so an
 // amount's number or a date's day is not counted again. Quotes are read separately because they
@@ -80,11 +81,12 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
     ].join('|'),
   ],
   ['time', `\\d{1,2}(?::\\d{2})?\\s?[aApP]\\.?[mM]\\.?${edge}|\\d{1,2}:\\d{2}`],
-  ['number', figure],
+  // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
+  ['number', String.raw`${figure}(?![.,]?\p{N})`],
 ];
 const kinds = patterns.map(([kind]) => kind);
 const pattern = new RegExp(
-  `(?:^|[^\\p{L}\\p{N}])(?:${patterns.map(([, source]) => `(${source})`).join('|')})${edge}`,
+  `(?:^|[^\\p{L}\\p{N}])(?:${patterns.map(([kind, source]) => `(${source})${kind === 'number' ? '' : edge}`).join('|')})`,
   'gu',
 );
 const quote = /"[^"\n]+"|“[^”\n]+”|„[^“”\n]+[“”]|«[^»\n]+»/gu;

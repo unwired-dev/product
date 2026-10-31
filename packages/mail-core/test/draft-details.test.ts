@@ -162,6 +162,31 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('compares a whole number beside its unit and ordinal dates in capitals', () => {
+    expect.hasAssertions();
+    const changes = (original: string, result: string) =>
+      checkDetails(whole(original), result).changes;
+    expect(changes('Wait 0.5s.', 'Wait 0.6s.')).toStrictEqual([
+      { kind: 'number', status: 'changed', original: '0.5', result: '0.6' },
+    ]);
+    expect(changes('Meet NOV 3RD.', 'Meet NOV 4TH.')).toStrictEqual([
+      {
+        kind: 'date',
+        status: 'changed',
+        original: 'NOV 3RD',
+        result: 'NOV 4TH',
+      },
+    ]);
+    expect(changes('Meet 3RD NOV.', 'Meet 4TH NOV.')).toStrictEqual([
+      {
+        kind: 'date',
+        status: 'changed',
+        original: '3RD NOV',
+        result: '4TH NOV',
+      },
+    ]);
+  });
+
   it('compares dates in any letter case', () => {
     expect.hasAssertions();
     expect(

@@ -100,7 +100,8 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     even when its text shows the address with such punctuation. Its complete
     address must be written out; a substring is insufficient. Written linked
     text may omit the web scheme or root slash, but a slash after a path stays
-    part of the destination. Nothing else is interpreted, so `3` rewritten as `three` is removed.
+    part of the destination. A number beside a unit (`0.5s`, `3rd`) is compared by its figures. Nothing
+    else is interpreted, so `3` rewritten as `three` is removed.
   - A difference that may be another way to write the same detail is
     uncertain, never kept: a date that gains or loses a part (`Saturday` as
     `Saturday, 1 Nov`) or is in figures on one side only (`2026-11-01` as
@@ -200,7 +201,8 @@ allow-listed native code or decode path, never Draft or generated text.
 - `packages/mail-core/test/draft-details.test.ts` checks the detail rules: kept,
   changed, uncertain, removed and added details of each kind, the accepted equivalents,
   `3` and `three`, regrouped numbers, signed and leading-decimal numbers and
-  amounts, reformatted dates and quotes, dates in capitals, bare addresses,
+  amounts, decimals beside a unit, reformatted dates and quotes, dates and
+  ordinals in capitals, bare addresses,
   trailing link punctuation including `!`, and hidden, scheme-less and
   `mailto:` link destinations, including address substrings, path slashes and
   mail links with query fields.
