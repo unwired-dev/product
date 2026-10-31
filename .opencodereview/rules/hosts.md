@@ -1110,6 +1110,16 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- Mac `design.tsx.ModalBackground` callers or another legacy native container
+  changing their content frame without checking direct legacy native children.
+  Trace the installed Fabric interop's child mounting as well as Yoga layout:
+  nested legacy children can mount their content view without the wrapper's
+  layout origin. Audit padded or bordered callers, including the palette's
+  `Glass` and Outbox toast's `SFSymbol`, or a shared inset correction can move
+  icons to the container origin and paint glass over its border. Preserve the
+  required native layout boundary and qualify geometry through native captures;
+  mocked component layout cannot establish the correction.
+
 - Mac `design.tsx.useMenuMotion` or another overlay relying on native-driven
   opacity across Fabric layout changes without tracing the installed renderer's
   committed props and layer invalidation. Check the palette, `MenuPresence` and
