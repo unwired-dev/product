@@ -231,9 +231,27 @@ with a system pop-up naming its Mail Profile; choosing another Profile moves the
 connection. A Profile that owns none says so and points to moving one from its
 current Profile. **Duplicate Mail Profile**, on every Profile, creates
 `<name> Copy` without asking, selects it and shows its page for renaming
-([#1533](https://github.com/unwired-dev/product/issues/1533)). It copies only the
-name, the one reviewed Profile-scoped setting so far, and never a connection,
-sign-in, cached mail, Drafts, Outbox attempt, history, notification policy or pin.
+([#1533](https://github.com/unwired-dev/product/issues/1533)). It copies the
+name, Color and Icon, and never a connection, sign-in, cached mail, Drafts,
+Outbox attempt, history, notification policy or pin.
+
+Each Profile other than the Primary Profile may carry a curated **Color** and
+**Icon** in its synchronized definition
+([#1613](https://github.com/unwired-dev/product/issues/1613)). The record stores
+stable keys: Color `graphite`, `blue`, `indigo`, `purple`, `pink`, `teal`,
+`green` or `brown`, and Icon `person`, `people`, `laptop`, `book`, `airplane`,
+`cart`, `paintbrush` or `star`, with no icon meaning First Letter. A record
+without them, or with a key this client does not know, reads as Graphite and
+First Letter. A rename or a mailbox move rewrites the record with the style it
+read, including keys this client does not know; an older client drops them when
+it rewrites the record. The registration store's `restyleProfile` replaces the
+whole style through compare-and-set, like a move; a Profile named offline keeps
+its style and publishes it with its name. A style edited before the first
+publication is confirmed survives a delayed earlier publication and relaunch,
+until Product Sync confirms the edited style. The snapshot omits Graphite and
+First Letter even when Graphite is stored explicitly. Settings and the Profile
+monograms do not show the style yet; they follow in
+[#1039](https://github.com/unwired-dev/product/issues/1039).
 Every Profile except the Primary Profile offers **Remove Mail
 Profile…**, which asks first in a system alert. For a Profile that owns
 connections, the question names them, and confirming removes them from Unwired

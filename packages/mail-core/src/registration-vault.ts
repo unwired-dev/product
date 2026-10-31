@@ -49,6 +49,9 @@ export const ProfileRecordSchema = Schema.Union([
     version: Version,
     // Absent once the Profile is removed.
     name: Schema.optionalKey(Schema.NonEmptyString),
+    // The curated style, kept as stored so a value from a newer client survives a rewrite here.
+    color: Schema.optionalKey(Schema.NonEmptyString),
+    icon: Schema.optionalKey(Schema.NonEmptyString),
   }),
   Schema.Struct({
     kind: Schema.Literal('mailbox'),
@@ -80,6 +83,16 @@ export const ProfileStateSchema = Schema.Struct({
       name: Schema.optionalKey(Schema.NonEmptyString),
       version: Schema.optionalKey(Version),
       updatedAt: Schema.optionalKey(Schema.Finite),
+      // The stored style, or before the first publication the style it publishes with its name.
+      color: Schema.optionalKey(Schema.NonEmptyString),
+      icon: Schema.optionalKey(Schema.NonEmptyString),
+      // A style edited before the first publication was confirmed, retained until read back.
+      pendingStyle: Schema.optionalKey(
+        Schema.Struct({
+          color: Schema.optionalKey(Schema.NonEmptyString),
+          icon: Schema.optionalKey(Schema.NonEmptyString),
+        }),
+      ),
       // A name this device chose that Product Sync does not hold yet.
       pending: Schema.optionalKey(Schema.NonEmptyString),
       // A fenced removal retained until its tombstone can publish.

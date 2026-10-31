@@ -47,13 +47,41 @@ const trustedDevicesText = Schema.NonEmptyString.check(
   Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
 );
 
-// The Mail Profiles besides the Default Profile: each one's identifier and name, and whether that
-// name, chosen on this device, is not yet synchronized.
+// A Mail Profile's curated Color and Icon. Without one, a Profile shows Graphite and its first letter.
+export const ProfileColorSchema = Schema.Literals([
+  'graphite',
+  'blue',
+  'indigo',
+  'purple',
+  'pink',
+  'teal',
+  'green',
+  'brown',
+]);
+export const ProfileIconSchema = Schema.Literals([
+  'person',
+  'people',
+  'laptop',
+  'book',
+  'airplane',
+  'cart',
+  'paintbrush',
+  'star',
+]);
+export type ProfileStyle = Readonly<{
+  color?: typeof ProfileColorSchema.Type;
+  icon?: typeof ProfileIconSchema.Type;
+}>;
+
+// The Mail Profiles besides the Default Profile: each one's identifier, name and style, and whether
+// that name, chosen on this device, is not yet synchronized.
 const ProfilesSchema = Schema.fromJsonString(
   Schema.Array(
     Schema.Struct({
       id: Schema.NonEmptyString,
       name: Schema.NonEmptyString,
+      color: Schema.optionalKey(ProfileColorSchema),
+      icon: Schema.optionalKey(ProfileIconSchema),
       pending: Schema.optionalKey(Schema.Literal(true)),
     }),
   ),

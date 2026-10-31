@@ -673,7 +673,10 @@ extension PrivateInboxTests {
     try store.recordInitialization(true)
     let ring = try #require(try store.loadVault(account)).ring
 
-    let work: [String: Any] = ["kind": "profile", "id": "work", "version": 1.0, "name": "Work"]
+    let work: [String: Any] = [
+      "kind": "profile", "id": "work", "version": 1.0, "name": "Work", "color": "teal",
+      "icon": "laptop",
+    ]
     let mailbox = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
     let owner: [String: Any] = [
       "kind": "mailbox", "record": mailbox, "epoch": "epoch-1", "version": 2.0,
@@ -703,11 +706,15 @@ extension PrivateInboxTests {
       ])
     #expect((opened[0] as? [String: Any])?["name"] as? String == "Work")
     #expect((opened[0] as? [String: Any])?["kind"] as? String == "profile")
+    // The style travels sealed with the name.
+    #expect((opened[0] as? [String: Any])?["color"] as? String == "teal")
+    #expect((opened[0] as? [String: Any])?["icon"] as? String == "laptop")
     #expect((opened[1] as? [String: Any])?["profile"] as? String == "work")
     #expect((opened[1] as? [String: Any])?["epoch"] as? String == "epoch-1")
     // A removed Profile keeps its identifier and write count, without a name.
     let tombstone = try #require(opened[2] as? [String: Any])
     #expect(tombstone["id"] as? String == "home" && tombstone["name"] == nil)
+    #expect(tombstone["color"] == nil && tombstone["icon"] == nil)
     #expect(opened.dropFirst(3).allSatisfy { $0 is NSNull })
     // Even correctly authenticated ciphertext cannot bind another Profile's or connection's content
     // to this identifier. This exercises the content check separately from outer AEAD binding.
@@ -737,6 +744,8 @@ extension PrivateInboxTests {
     for malformed: [String: Any] in [
       ["kind": "profile", "id": "work", "version": 0.0, "name": "Work"],
       ["kind": "profile", "id": "work", "version": 1.0, "name": ""],
+      ["kind": "profile", "id": "work", "version": 1.0, "name": "Work", "color": ""],
+      ["kind": "profile", "id": "work", "version": 1.0, "name": "Work", "icon": 1.0],
       ["kind": "mailbox", "record": "draft.other", "epoch": "e", "version": 1.0, "profile": "work"],
       ["kind": "other", "id": "work", "version": 1.0],
     ] {
