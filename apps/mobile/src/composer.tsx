@@ -1313,19 +1313,29 @@ export function CloseQuestion({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const choice = (label: string, color: string, onPress: () => void) => (
+  const choice = (label: string, destructive: boolean, onPress: () => void) => (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
         styles.closeChoice,
         {
-          backgroundColor: pressed
-            ? colors.accentSelectionSubtle
-            : colors.fillQuiet,
+          // The selection tint lowers destructive text below AA contrast.
+          backgroundColor:
+            pressed && !destructive
+              ? colors.accentSelectionSubtle
+              : colors.fillQuiet,
         },
       ]}>
-      <Text style={[styles.closeChoiceText, { color }]}>{label}</Text>
+      <Text
+        style={[
+          styles.closeChoiceText,
+          {
+            color: destructive ? colors.statusDestructive : colors.textPrimary,
+          },
+        ]}>
+        {label}
+      </Text>
     </Pressable>
   );
   return (
@@ -1339,8 +1349,8 @@ export function CloseQuestion({
         open={open}
         origin="top left"
         style={styles.closeQuestionPanel}>
-        {choice(t('drafts.deleteDraft'), colors.statusDestructive, onDelete)}
-        {choice(t('drafts.saveDraft'), colors.textPrimary, onSave)}
+        {choice(t('drafts.deleteDraft'), true, onDelete)}
+        {choice(t('drafts.saveDraft'), false, onSave)}
       </GlassPanel>
     </View>
   );

@@ -1490,6 +1490,11 @@ still applies. See `docs/architecture/macos-client.md`.
   Dark's light ink token is not a fill for white foregrounds. Preserve the
   shared primary button's `accentFill` treatment, or the action becomes illegible
   precisely while it is being activated.
+- `composer.tsx.CloseQuestion` or another quiet destructive action applying
+  `accentSelectionSubtle` on press while retaining `statusDestructive` text.
+  Composite both states over their actual backing in Light and Dark and verify
+  text contrast before adding feedback; the documented tokens can be legible
+  at rest and fall below AA while the person holds the action.
 - `command-palette.tsx.usePaletteHeader` or another hook attaching
   `accessibilityActions`/`onAccessibilityAction` to a container `View` that is
   not itself `accessible`, such as the Inbox heading row or the composer's top
