@@ -1,3 +1,6 @@
+import * as DateTime from 'effect/DateTime';
+import * as Option from 'effect/Option';
+
 import type { Draft, Recipient } from './draft-model.ts';
 import type { GmailInbox, SendOutcome } from './gmail-inbox.ts';
 import type { BodyDocument } from './message-body.ts';
@@ -105,37 +108,6 @@ const recipientOf = (line: Line): Recipient | undefined => {
   return name === undefined || name === '' ? { address } : { name, address };
 };
 
-// A wall-clock time in an IANA zone as an instant: the zone's offset at the naive guess, then at
-// the corrected instant, which settles across a transition.
-const zoned = (naive: number, zone: string) => {
-  const format = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-  });
-  const offset = (at: number) => {
-    const parts = format.formatToParts(at);
-    const part = (type: Intl.DateTimeFormatPartTypes) =>
-      Number(parts.find((candidate) => candidate.type === type)?.value);
-    return (
-      Date.UTC(
-        part('year'),
-        part('month') - 1,
-        part('day'),
-        part('hour'),
-        part('minute'),
-        part('second'),
-      ) - at
-    );
-  };
-  return naive - offset(naive - offset(naive));
-};
-
 // A DATE-TIME in the IANA zone `zone`, or undefined for a missing or unknown zone.
 const zonedTime = (
   naive: number,
@@ -144,12 +116,13 @@ const zonedTime = (
   if (zone === undefined) {
     return undefined;
   }
-  try {
-    const at = zoned(naive, zone);
-    return Number.isNaN(at) ? undefined : { at, allDay: false };
-  } catch {
-    return undefined;
-  }
+  return DateTime.zoneMakeNamed(zone).pipe(
+    Option.flatMap((timeZone) =>
+      DateTime.makeZoned(naive, { timeZone, adjustForTimeZone: true }),
+    ),
+    Option.map((time) => ({ at: DateTime.toEpochMillis(time), allDay: false })),
+    Option.getOrUndefined,
+  );
 };
 
 const dateTime =

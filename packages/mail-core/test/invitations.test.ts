@@ -1,12 +1,12 @@
-import type { BodyDocument } from '../src/message-body.ts';
+import type { BodyDocument } from '@private-email/mail-core/message-body';
 
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   invitationOf,
   invitationReply,
   invitationResponses,
-} from '../src/invitations.ts';
-import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+} from '@private-email/mail-core/invitations';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 
 const me = 'alex@example.invalid';
 const copy = { subject: 'Accepted: Q4 roadmap review', text: 'Accepted.' };
@@ -128,6 +128,21 @@ describe('meeting invitations', () => {
       kind: 'elsewhere',
       details: expect.objectContaining({ summary: 'Q4 roadmap review, final' }),
       invited: ['Alex@example.invalid', 'team@northwind.example'],
+    });
+  });
+
+  it.each([
+    ['20261025T023000', Date.UTC(2026, 9, 25, 0, 30)],
+    ['20260329T023000', Date.UTC(2026, 2, 29, 1, 30)],
+  ])('uses iCalendar daylight-saving rules for %s', (local, at) => {
+    expect.hasAssertions();
+    const event = meeting
+      .filter((line) => !line.startsWith('DTEND'))
+      .map((line) => line.replace('20261106T140000', local));
+
+    expect(offered(calendar(event)).details.start).toStrictEqual({
+      at,
+      allDay: false,
     });
   });
 
