@@ -1,6 +1,7 @@
 import type { Translate } from '@private-email/localization';
 import type {
   CapturedDraftText,
+  DraftTextPurpose,
   NativeAssistance,
   TextTool,
 } from '@private-email/mail-core/assistance';
@@ -1945,7 +1946,7 @@ function Editor({
     }
   };
   // Captures authored text for an explicitly requested translation, text tool or reply suggestion.
-  const capture = (purpose: CapturedDraftText['purpose'], at: Selection) => {
+  const capture = (purpose: DraftTextPurpose, at: Selection) => {
     if (
       sendingNow.current ||
       !lifetime.current.mounted ||

@@ -601,7 +601,8 @@ form accessories, keyboards, status bar).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Suggest reply, Proofread, Break into Paragraphs, Translate, Expand
-  Text, Shorten Text and the tone tools, in the
+  Text, Shorten Text and the tone tools (on Mac also Generate a Draft…, whose
+  prompt popover follows the Generate a Draft frames), in the
   [grouped order](docs/draft-assistance.md#behavior)), the file controls and
   Templates; no glass on iPad and Mac),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,

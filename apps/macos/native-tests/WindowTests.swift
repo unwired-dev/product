@@ -569,6 +569,18 @@ final class WindowTests: XCTestCase {
       window.webViews.textViews["Message body"].click()
       self.writingTool("Rewrite the message body", in: window, of: app).click()
     }
+    // #1625: Generate a Draft asks from its prompt alone and inserts the result at the caret.
+    assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Insert this draft at the cursor", boldAfterApply: false) {
+      window.webViews.textViews["Message body"].click()
+      self.writingTool("Generate a draft from a description of what to write", in: window, of: app).click()
+      let generate = app.buttons["Generate a draft from this description"]
+      XCTAssertTrue(generate.waitForExistence(timeout: 10))
+      XCTAssertFalse(generate.isEnabled)
+      // The prompt field has keyboard focus when the popover opens.
+      app.typeText("confirm Thursday")
+      waitUntil { generate.isEnabled }
+      app.typeText("\r")
+    }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
       firstWord().doubleClick()
       // Translate To opens its submenu of the device's languages.

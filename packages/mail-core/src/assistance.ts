@@ -22,7 +22,8 @@ import {
 export interface NativeAssistance {
   readonly availability: () => Promise<unknown>;
   readonly summarize: (request: string, input: string) => Promise<unknown>;
-  // A Writing tools edit of authored Draft text; the request names its text tool.
+  // A Writing tools edit of authored Draft text, or a draft from a prompt; the request names its
+  // operation.
   readonly rewrite: (request: string, input: string) => Promise<unknown>;
   // One full reply from a reply Draft's authored text, recipient names and quoted message.
   readonly suggestReply: (request: string, input: string) => Promise<unknown>;
@@ -114,6 +115,10 @@ const ModelRequest = Schema.Union([
     recipientNames: Schema.String,
     authoredText: Schema.String,
     quotedText: Schema.String,
+  }),
+  Schema.Struct({
+    operation: Schema.Literal('generate'),
+    prompt: Schema.String,
   }),
 ]);
 // oxlint-disable-next-line node/no-sync -- Pure JSON serialization of locally constructed string fields, not synchronous I/O.
@@ -501,18 +506,20 @@ export const draftReplacement = (selected: string, replacement: string) =>
   `${/^\s*/u.exec(selected)?.[0] ?? ''}${replacement.trim()}${/\s*$/u.exec(selected)?.[0] ?? ''}`;
 
 export type DraftAssistanceInput = Readonly<
-  SummaryInput & { purpose: TextTool | 'reply' }
+  SummaryInput & { purpose: TextTool | 'reply' | 'generate' }
 >;
 export type DraftAssistanceState = AssistanceState<'generating'>;
 
+// What a Writing tool reads from the Draft's authored text; Generate a Draft reads a prompt instead.
+export type DraftTextPurpose = 'translate' | TextTool | 'reply';
 export type CapturedDraftText = Readonly<{
-  purpose: 'translate' | TextTool | 'reply';
+  purpose: DraftTextPurpose | 'generate';
   draft: Draft;
   selection: Selection;
   text: string;
   // Translation chooses its own language; a refused model input cannot run.
   input: DraftAssistanceInput | undefined;
-  // Why a rewrite or reply input was refused, when the person can act on it.
+  // Why a rewrite, reply or prompt input was refused, when the person can act on it.
   issue: 'too-long' | 'inline-image' | undefined;
 }>;
 
@@ -541,6 +548,20 @@ export const rewriteInput = (
         omitted: false,
       }
     : undefined;
+
+// Whether a Generate a Draft prompt describes anything.
+export const canGenerate = (prompt: string) => hasVisibleText(prompt);
+
+// A Generate a Draft prompt within the same bound as a rewrite. The model reads only the prompt.
+const generateInput = (prompt: string): DraftAssistanceInput | undefined => {
+  const text = encodeModelRequest({
+    operation: 'generate',
+    prompt: prompt.trim(),
+  });
+  return canGenerate(prompt) && text.length <= summaryInputLimit
+    ? { purpose: 'generate', text, omitted: false }
+    : undefined;
+};
 
 // Captured text belongs to its body revision; replies also capture their admitted context.
 export const sameDraftAssistanceSource = (
@@ -661,9 +682,26 @@ export const replyInput = (
   source: Parameters<typeof captureReplyInput>[0],
 ): DraftAssistanceInput | undefined => captureReplyInput(source).input;
 
+// Generate a Draft reads only its prompt and inserts at the end of the selection, replacing nothing.
+export function capturePrompt(
+  draft: Draft,
+  at: Selection,
+  prompt: string,
+): CapturedDraftText {
+  const input = generateInput(prompt);
+  return {
+    purpose: 'generate',
+    draft,
+    selection: { start: at.end, end: at.end },
+    text: '',
+    input,
+    issue: input === undefined && canGenerate(prompt) ? 'too-long' : undefined,
+  };
+}
+
 // Capture policy is shared by both editors; hosts retain ownership and apply the reviewed edit.
 export function captureDraftText(
-  purpose: CapturedDraftText['purpose'],
+  purpose: DraftTextPurpose,
   draft: Draft,
   at: Selection,
 ): CapturedDraftText {
@@ -691,7 +729,7 @@ export function captureDraftText(
   return { purpose, draft, selection, text, input, issue };
 }
 
-// One composer's explicitly requested text tool or reply suggestion. The preview is never stored or
+// One composer's explicitly requested text tool, reply suggestion or prompted draft. The preview is never stored or
 // synchronized; the Draft changes only when its owner applies it.
 export const createDraftAssistance = (native: NativeAssistance) =>
   createAssistanceRequest<DraftAssistanceInput, DraftAssistanceState>({
@@ -702,6 +740,7 @@ export const createDraftAssistance = (native: NativeAssistance) =>
           {
             request,
             input,
+            // Writing tools and Generate a Draft name their operation in the request.
             generate: (id, text) =>
               input.purpose === 'reply'
                 ? native.suggestReply(id, text)

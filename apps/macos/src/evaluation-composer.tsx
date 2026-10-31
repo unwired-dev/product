@@ -13,6 +13,7 @@ import {
 import { editorPage } from '@private-email/draft-editor/page';
 import {
   captureDraftText,
+  capturePrompt,
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
@@ -44,7 +45,10 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import type { Closing, Toolbar } from './composer.tsx';
-import type { PageState } from './evaluation-composer-controls.tsx';
+import type {
+  CaptureRequest,
+  PageState,
+} from './evaluation-composer-controls.tsx';
 
 import { useCloseGuard } from './command-palette.tsx';
 import {
@@ -311,10 +315,7 @@ function EvaluationEditor({
       });
     }
   }, [ready, run]);
-  const capture = (
-    purpose: CapturedDraftText['purpose'],
-    target?: TranslationLanguage,
-  ) => {
+  const capture = (request: CaptureRequest, target?: TranslationLanguage) => {
     setOpen(undefined);
     const reported = pageNow.current;
     if (
@@ -329,7 +330,13 @@ function EvaluationEditor({
     }
     captureGeneration.current += 1;
     const next = {
-      ...captureDraftText(purpose, authored.current, reported.selection),
+      ...(request.purpose === 'generate'
+        ? capturePrompt(authored.current, reported.selection, request.prompt)
+        : captureDraftText(
+            request.purpose,
+            authored.current,
+            reported.selection,
+          )),
       id: captureGeneration.current,
       profile,
       target,
@@ -709,6 +716,7 @@ function EvaluationEditor({
         style={styles.controls}>
         {pageState === undefined ? null : (
           <PageFormatBar
+            key={profile}
             draft={draft}
             page={pageState}
             run={run}
