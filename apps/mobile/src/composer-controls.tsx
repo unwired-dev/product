@@ -110,7 +110,12 @@ const styles = StyleSheet.create({
   linkRowInput: { ...textStyles.body, flex: 1, padding: 0 },
   linkSeparator: { height: StyleSheet.hairlineWidth, marginLeft: spacing.l },
   linkSheetHint: { ...textStyles.footnote, paddingHorizontal: spacing.l },
-  generate: { gap: spacing.m, padding: spacing.l },
+  // The "Generate a Draft" frames' insets.
+  generate: {
+    gap: spacing.m,
+    paddingHorizontal: spacing.l,
+    paddingVertical: 14,
+  },
   // iPad draws the "Generate a Draft" popover at the frame's width.
   generatePopover: { width: 420 },
   generateHeader: {
@@ -119,7 +124,7 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   generateTitle: { ...textStyles.headline, flex: 1 },
-  generatePrompt: { ...textStyles.body, minHeight: 44, padding: 0 },
+  generatePrompt: { ...textStyles.subheadline, minHeight: 44, padding: 0 },
   generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
   formatBar: {
     flexDirection: 'row',
