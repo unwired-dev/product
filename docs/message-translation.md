@@ -45,10 +45,11 @@ fallback and nothing is downloaded by the app.
   forgets it. It is never
   stored, synchronized or written into mail.
 - In a Draft, **Translate** in the formatting toolbar (on iPhone and iPad, in its
-  **Writing tools** menu) is enabled while body text is selected. It captures the selected text without list markers and opens a review
-  panel. On Mac, **Translate** is a menu of the same languages, and the Writing tools
-  menu's **Translate To** submenu lists them; choosing one captures the selection
-  and starts that translation. The Draft is unchanged until **Replace selection**, which replaces exactly
+  **Writing tools** menu) is enabled while body text is selected. It captures the
+  selected text without list markers and opens a review panel. On Mac, the format
+  bar's **Writing tools** menu has a **Translate To** submenu of the same languages,
+  enabled while body text is selected; choosing one captures the selection and
+  starts that translation. The Draft is unchanged until **Replace selection**, which replaces exactly
   the captured selection as one edit that one **Undo** reverts. **Keep original**
   closes the panel. When the translation retains the selected line breaks, those
   lines keep their list and block formatting. The inserted text takes the formatting of the text

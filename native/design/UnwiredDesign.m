@@ -33,6 +33,12 @@ typedef NSView UnwiredPlatformView;
 {
   return self.accessibilityElementsHidden ? nil : [super accessibilityHitTest:point];
 }
+// Fabric frames this hosted view to its content box but lays its children out from the border
+// box, so padding and borders would offset them twice. Fill the host instead.
+- (void)setFrame:(NSRect)frame
+{
+  [super setFrame:self.superview ? self.superview.bounds : frame];
+}
 @end
 
 @interface UnwiredModalBackgroundManager : RCTViewManager

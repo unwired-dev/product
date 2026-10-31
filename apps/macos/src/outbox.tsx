@@ -115,10 +115,14 @@ function RefusedToast({
         styles.toast,
         { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
       ]}>
-      <SFSymbol
-        name="exclamationmark.triangle.fill"
-        color={colors.brandOnDeep}
-      />
+      {/* React Native's legacy view interop mounts a nested native view without its offset,
+          so the symbol sits in a plain view inside the toast's padding. */}
+      <View collapsable={false}>
+        <SFSymbol
+          name="exclamationmark.triangle.fill"
+          color={colors.brandOnDeep}
+        />
+      </View>
       <View
         accessible
         accessibilityLabel={message}

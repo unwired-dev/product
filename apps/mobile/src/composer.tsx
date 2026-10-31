@@ -59,7 +59,7 @@ import {
   historyOf,
   imageCharacter,
   imagesOf,
-  linkAt,
+  editableLinkAt,
   marksAt,
   clip,
   previewOf,
@@ -2074,7 +2074,7 @@ function Editor({
       onMark={format}>
       <LinkEditor
         disabled={sending}
-        link={linkAt(draft.body, selection)}
+        link={editableLinkAt(draft.body, selection)}
         popover={regular}
         onChange={editLink}
       />

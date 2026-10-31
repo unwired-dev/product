@@ -26,7 +26,13 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, AppState, Dimensions, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  Dimensions,
+  TextInput,
+  View,
+} from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -1946,6 +1952,133 @@ describe('composing Drafts', () => {
         draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body[0]
           ?.spans,
       ).toStrictEqual(bodyNow());
+    },
+  );
+
+  it.each([
+    ['compact', 'bottom-sheet'],
+    ['regular', 'popover'],
+  ] as const)(
+    'adds a link to selected text with the Link Editor on %s as one Undo step',
+    async (size, presenter) => {
+      expect.hasAssertions();
+      const focus = jest.spyOn(TextInput.prototype, 'focus');
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await drafts.load();
+      const created = await drafts.create({
+        id: alex,
+        address: 'alex@example.invalid',
+      });
+      ok(created);
+      const id: string = created;
+      const draft = draftsOf(drafts.getSnapshot()).find(
+        (each) => each.id === id,
+      );
+      ok(draft);
+      const lease = 'https://docs.example.invalid/lease';
+      await drafts.update(
+        {
+          ...draft,
+          body: [
+            {
+              kind: 'paragraph',
+              spans: [
+                { text: 'Read ' },
+                { text: 'the lease', marks: ['bold'] },
+                { text: ' today' },
+              ],
+            },
+          ],
+        },
+        draft,
+      );
+      await render(
+        <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            registration={registration}
+            initialDraft={id}
+          />
+        </ComposerLayoutContext>,
+      );
+      const body = await screen.findByLabelText('Message body');
+      const bodyNow = () =>
+        draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
+          ?.spans;
+      const select = async (start: number, end: number) => {
+        await fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection: { start, end } },
+        });
+      };
+      // A caret has no text to link.
+      await select(8, 8);
+      expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
+      await select(5, 14);
+      await press('Add Link');
+      const destination = screen.getByLabelText('Link');
+      // Layout can precede native presentation. Only appearance requests focus.
+      focus.mockClear();
+      await fireEvent(destination, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 278, height: 22 } },
+      });
+      expect(focus).not.toHaveBeenCalled();
+      await fireEvent(destination, 'appear');
+      expect(focus).toHaveBeenCalledWith();
+      expect(screen.getByLabelText('Text')).toHaveProp('value', 'the lease');
+      expect(destination).toHaveProp('value', '');
+      expect(destination).toHaveProp('placeholder', 'https://example.com');
+      expect(screen.queryByText('Remove Link')).toBeNull();
+      expect(screen.queryByRole('header', { name: 'Add Link' }) !== null).toBe(
+        size === 'compact',
+      );
+      const reason = 'Enter a valid web, email or phone link.';
+      // Return on the empty Link keeps the starting hint.
+      await fireEvent(destination, 'submitEditing');
+      expect(screen.queryByText(reason)).toBeNull();
+      // Return with a destination that cannot be applied says why, and VoiceOver hears it.
+      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      announce.mockClear();
+      await fireEvent.changeText(
+        destination,
+        'ftp://docs.example.invalid/lease',
+      );
+      await fireEvent(destination, 'submitEditing');
+      expect(screen.getByText(reason)).toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([[reason]]);
+      expect(bodyNow()?.[1]).not.toHaveProperty('link');
+      // Closing the editor changes nothing.
+      await act(async () => {
+        await fireEvent(screen.getByTestId(presenter), 'accessibilityEscape');
+      });
+      expect(bodyNow()?.[1]).toStrictEqual({
+        text: 'the lease',
+        marks: ['bold'],
+      });
+      await press('Add Link');
+      focus.mockClear();
+      await fireEvent(screen.getByLabelText('Link'), 'appear');
+      expect(focus).toHaveBeenCalledWith();
+      expect(screen.getByLabelText('Link')).toHaveProp('value', '');
+      expect(
+        screen.queryByText('Enter a valid web, email or phone link.'),
+      ).toBeNull();
+      await fireEvent.changeText(screen.getByLabelText('Link'), lease);
+      await press('Apply');
+      expect(bodyNow()).toStrictEqual([
+        { text: 'Read ' },
+        { text: 'the lease', marks: ['bold'], link: lease },
+        { text: ' today' },
+      ]);
+      expect(screen.getByRole('button', { name: 'Edit Link' })).toBeEnabled();
+      await press('Undo');
+      expect(bodyNow()?.[1]).toStrictEqual({
+        text: 'the lease',
+        marks: ['bold'],
+      });
+      await press('Redo');
+      expect(bodyNow()?.[1]).toHaveProperty('link', lease);
     },
   );
 
