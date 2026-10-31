@@ -1,0 +1,9 @@
+docs/architecture
+docs/adr
+.patterns
+.opencodereview/rule.json
+.opencodereview/rules
+docs/research
+docs/qualification
+docs/archive
+artifacts/review-*

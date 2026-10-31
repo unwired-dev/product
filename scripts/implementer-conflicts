@@ -1,6 +1,6 @@
 #!/bin/sh
 # Lists unmerged paths during a merge without printing reviewer-only content.
-# Reviewer-only paths match scripts/implementer-grep; only their names print.
+# Reviewer-only paths come from scripts/reviewer-only-paths; only their names print.
 # Usage: scripts/implementer-conflicts [--diff]
 # --diff also prints the conflict hunks of implementer-readable paths.
 set -eu
@@ -11,16 +11,9 @@ case "${1-}" in
   *) printf '%s\n' 'usage: scripts/implementer-conflicts [--diff]' >&2; exit 2 ;;
 esac
 
-set -- \
-  'docs/architecture' \
-  'docs/adr' \
-  '.patterns' \
-  '.opencodereview/rule.json' \
-  '.opencodereview/rules' \
-  'docs/research' \
-  'docs/qualification' \
-  'docs/archive' \
-  'artifacts/review-*'
+set -f
+paths=$(cat "$(dirname "$0")/reviewer-only-paths")
+set -- $paths
 excluded=
 included=
 for path do

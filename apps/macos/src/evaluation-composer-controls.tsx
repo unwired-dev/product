@@ -5,29 +5,15 @@ import type { Link } from '@private-email/mail-core/semantic-document';
 import type { TranslationLanguage } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
-import {
-  canRewrite,
-  canSuggestReply,
-} from '@private-email/mail-core/assistance';
-import {
-  editableLinkAt,
-  selectedText,
-} from '@private-email/mail-core/semantic-document';
-import {
-  hasTranslatableText,
-  translationInputLimit,
-} from '@private-email/mail-core/translation';
-import { use } from 'react';
+import { editableLinkAt } from '@private-email/mail-core/semantic-document';
 import { Text, TextInput, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import { FormatBar, LinkEditor, PopUp } from './composer-controls.tsx';
-import { composerStyles, Recipients, rewriteLabel } from './composer.tsx';
+import { FormatBar, LinkEditor } from './composer-controls.tsx';
+import { composerStyles, Recipients, WritingTools } from './composer.tsx';
 import { ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { AssistanceContext } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
-import { TranslationContext, useTargetLanguages } from './translation.tsx';
 
 const s = composerStyles;
 
@@ -63,15 +49,6 @@ export function PageFormatBar({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const assistance = use(AssistanceContext);
-  const translation = use(TranslationContext);
-  const targetLanguages = useTargetLanguages(
-    translation,
-    undefined,
-    (language) => {
-      onCapture('translate', language);
-    },
-  );
   return (
     <FormatBar
       active={page.marks}
@@ -106,58 +83,11 @@ export function PageFormatBar({
         }}
       />
       <View style={s.grow} />
-      {assistance === undefined && translation === undefined ? null : (
-        <PopUp
-          accessibilityLabel={t('drafts.writingTools')}
-          icon="sparkles"
-          items={[
-            ...(assistance === undefined
-              ? []
-              : [
-                  {
-                    key: 'rewrite',
-                    title: t('assistance.rewrite'),
-                    accessibilityLabel: t(rewriteLabel(page.selection)),
-                    disabled: !canRewrite(draft.body, page.selection),
-                    run: () => {
-                      onCapture('rewrite');
-                    },
-                  },
-                ]),
-            ...(translation === undefined
-              ? []
-              : [
-                  {
-                    key: 'translate',
-                    title: t('translation.translateTo'),
-                    accessibilityLabel: t(
-                      'translation.translateSelectionLabel',
-                    ),
-                    disabled: !hasTranslatableText(
-                      selectedText(
-                        draft.body,
-                        page.selection,
-                        translationInputLimit + 1,
-                      ),
-                    ),
-                    items: targetLanguages,
-                  },
-                ]),
-            ...(assistance !== undefined && canSuggestReply(draft)
-              ? [
-                  {
-                    key: 'reply',
-                    title: t('assistance.suggestReply'),
-                    accessibilityLabel: t('assistance.suggestReplyLabel'),
-                    run: () => {
-                      onCapture('reply');
-                    },
-                  },
-                ]
-              : []),
-          ]}
-        />
-      )}
+      <WritingTools
+        draft={draft}
+        selection={page.selection}
+        onCapture={onCapture}
+      />
       <View style={[s.divider, { backgroundColor: colors.separator }]} />
       {pickers.map(([label, from, inline, icon]) => (
         <ToolbarButton

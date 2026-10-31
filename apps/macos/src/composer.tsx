@@ -1236,6 +1236,87 @@ export const rewriteLabel = (at: Selection) =>
     ? 'assistance.rewriteDraftLabel'
     : 'assistance.rewriteSelectionLabel';
 
+// The format bar's Writing tools menu. A choice reports its purpose; the composer checks it
+// against its current Draft before capturing text.
+export function WritingTools({
+  draft,
+  selection,
+  disabled = false,
+  onCapture,
+}: {
+  readonly draft: Draft;
+  readonly selection: Selection;
+  readonly disabled?: boolean;
+  readonly onCapture: (
+    purpose: CapturedDraftText['purpose'],
+    target?: TranslationLanguage,
+  ) => void;
+}) {
+  const { t } = useLocalization();
+  const assistance = use(AssistanceContext);
+  const translation = use(TranslationContext);
+  const targetLanguages = useTargetLanguages(
+    translation,
+    undefined,
+    (language) => {
+      onCapture('translate', language);
+    },
+  );
+  return assistance === undefined && translation === undefined ? null : (
+    <PopUp
+      disabled={disabled}
+      accessibilityLabel={t('drafts.writingTools')}
+      icon="sparkles"
+      items={[
+        ...(assistance === undefined
+          ? []
+          : [
+              {
+                key: 'rewrite',
+                title: t('assistance.rewrite'),
+                symbol: 'pencil',
+                accessibilityLabel: t(rewriteLabel(selection)),
+                disabled: !canRewrite(draft.body, selection),
+                run: () => {
+                  onCapture('rewrite');
+                },
+              },
+            ]),
+        ...(translation === undefined
+          ? []
+          : [
+              {
+                key: 'translate',
+                title: t('translation.translateTo'),
+                symbol: 'translate',
+                accessibilityLabel: t('translation.translateSelectionLabel'),
+                disabled: !hasTranslatableText(
+                  selectedText(
+                    draft.body,
+                    selection,
+                    translationInputLimit + 1,
+                  ),
+                ),
+                items: targetLanguages,
+              },
+            ]),
+        ...(assistance !== undefined && canSuggestReply(draft)
+          ? [
+              {
+                key: 'reply',
+                title: t('assistance.suggestReply'),
+                accessibilityLabel: t('assistance.suggestReplyLabel'),
+                run: () => {
+                  onCapture('reply');
+                },
+              },
+            ]
+          : []),
+      ]}
+    />
+  );
+}
+
 // Why the last Send left the Draft in the composer, if it did. A message sent through an IMAP
 // connection's mail server or Microsoft is not limited by Gmail.
 const tooLarge = {
@@ -2057,23 +2138,6 @@ function Editor({
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
-  const targetLanguages = useTargetLanguages(
-    translation,
-    undefined,
-    (language) => {
-      const at = selectionNow.current;
-      const { body } = authored.current;
-      const text = selectedText(body, at, translationInputLimit + 1);
-      if (
-        sendingNow.current ||
-        !lifetime.current.mounted ||
-        !hasTranslatableText(text)
-      ) {
-        return;
-      }
-      capture('translate', at, language);
-    },
-  );
 
   return (
     <View
@@ -2167,49 +2231,25 @@ function Editor({
           }}
         />
         <View style={styles.grow} />
-        {translation === undefined ? null : (
-          <PopUp
-            disabled={lockedUnless(
-              hasTranslatableText(
-                selectedText(draft.body, selection, translationInputLimit + 1),
-              ),
-            )}
-            icon="translate"
-            label={t('translation.translate')}
-            accessibilityLabel={t('translation.translateSelectionLabel')}
-            items={targetLanguages}
-          />
-        )}
-        {assistance === undefined ? null : (
-          <>
-            <Button
-              disabled={lockedUnless(canRewrite(draft.body, selection))}
-              label={t('assistance.rewrite')}
-              accessibilityLabel={t(rewriteLabel(selection))}
-              onPress={() => {
-                const at = selectionNow.current;
-                if (
-                  lifetime.current.mounted &&
-                  canRewrite(authored.current.body, at)
-                ) {
-                  capture('rewrite', at);
-                }
-              }}
-            />
-            {canSuggestReply(draft) ? (
-              <Button
-                disabled={sending}
-                label={t('assistance.suggestReply')}
-                accessibilityLabel={t('assistance.suggestReplyLabel')}
-                onPress={() => {
-                  if (lifetime.current.mounted) {
-                    capture('reply', selectionNow.current);
-                  }
-                }}
-              />
-            ) : null}
-          </>
-        )}
+        <WritingTools
+          draft={draft}
+          selection={selection}
+          disabled={sending}
+          onCapture={(purpose, target) => {
+            const at = selectionNow.current;
+            const { body } = authored.current;
+            const available =
+              purpose === 'rewrite'
+                ? canRewrite(body, at)
+                : purpose === 'reply' ||
+                  hasTranslatableText(
+                    selectedText(body, at, translationInputLimit + 1),
+                  );
+            if (available) {
+              capture(purpose, at, target);
+            }
+          }}
+        />
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />
         <ToolbarButton
           disabled={sending}
