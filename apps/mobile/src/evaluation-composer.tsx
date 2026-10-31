@@ -901,10 +901,22 @@ type ComposerProps = Readonly<{
 export function DraftComposer(props: ComposerProps) {
   const draft = draftOf(useDrafts(), props.id);
   const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  // An editor outlives its Draft's removal elsewhere, so it keeps the sender it opened with.
+  const [owner, setOwner] = useState({
+    id: props.id,
+    connection: draft?.connection,
+  });
+  if (
+    draft !== undefined &&
+    (owner.id !== props.id || owner.connection !== draft.connection)
+  ) {
+    setOwner({ id: props.id, connection: draft.connection });
+  }
+  const connection =
+    owner.id === props.id ? owner.connection : draft?.connection;
   // Assistance for a Draft follows the consent of the Mail Profile that owns its sender.
   return (
-    <ProfileMailAssistanceGate
-      profile={profileOf(draft?.connection, mailboxes)}>
+    <ProfileMailAssistanceGate profile={profileOf(connection, mailboxes)}>
       {editorPage === undefined ? (
         <Composer {...props} />
       ) : (

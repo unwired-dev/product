@@ -3391,6 +3391,63 @@ describe('composing Drafts', () => {
     expect(asked).toHaveLength(1);
   });
 
+  it('keeps the sender Profile’s consent after the open Draft is removed elsewhere', async () => {
+    expect.hasAssertions();
+    const registration = account({
+      ...connected(['alex@example.invalid']),
+      mailboxes: JSON.stringify([
+        {
+          id: alex,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+      ]),
+    });
+    const drafts = createDrafts(
+      createSyntheticDrafts(() => 'synthetic-product-account').native,
+      registration,
+    );
+    const { native } = scriptedDraftAssistance();
+    const translation: NativeTranslation = {
+      translationLanguages: () => Promise.resolve([]),
+      translate: () => Promise.reject(new Error('unused')),
+      cancel: () => Promise.resolve(null),
+    };
+    const owner = 'synthetic-product-account';
+    const enablement = createMailAssistanceEnablement({
+      mailAssistance: () => Promise.resolve({ owner, profiles: ['default'] }),
+      setMailAssistance: (account, profiles) =>
+        Promise.resolve({ owner: account, profiles }),
+    });
+    await enablement.load(owner);
+    await render(
+      <MailAssistanceContext value={enablement}>
+        <MailAssistanceGate
+          account={owner}
+          assistance={native}
+          translation={translation}>
+          <App
+            drafts={drafts}
+            registration={registration}
+            profile="work"
+          />
+        </MailAssistanceGate>
+      </MailAssistanceContext>,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      'lets meet friday. thanks',
+    );
+    expect(writingTool('Rewrite the message body')).toBeUndefined();
+    const stored = draftsOf(drafts.getSnapshot()).map(({ id }) => id);
+    await act(() => Promise.all(stored.map((id) => drafts.discard(id))));
+    // The kept editor still answers to the Work Profile, not the Default one.
+    expect(screen.getByLabelText('Message body')).toBeDefined();
+    expect(writingTool('Rewrite the message body')).toBeUndefined();
+  });
+
   it.each([
     { profiles: ['default'], offered: false },
     { profiles: ['default', 'personal'], offered: true },
