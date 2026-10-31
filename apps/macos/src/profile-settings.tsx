@@ -12,9 +12,11 @@ import {
   profileConnections,
   profileIcons,
   profileIconSymbol,
+  profileLetter,
   profileName,
   profileRefusalText,
   profileRemoval,
+  profileStyle,
   windowProfile,
 } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
@@ -45,13 +47,7 @@ const styles = StyleSheet.create({
     marginVertical: -spacing.s,
     textAlign: 'right',
   },
-  monogram: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  monogram: { alignItems: 'center', justifyContent: 'center' },
   monogramText: { ...textStyles.subheadline, fontWeight: '600' },
 });
 
@@ -95,13 +91,16 @@ export function promptNewProfile(
   );
 }
 
-// A Mail Profile's monogram: its Icon, or its name's first letter, in white on its Color.
-function ProfileMonogram({
+// A Mail Profile's monogram: its Icon, or its name's first letter, in white on its Color. The
+// glyph scales with the circle: a 10pt symbol or 11pt letter at 24pt.
+export function ProfileMonogram({
   name,
   style: { color = 'graphite', icon },
+  size,
 }: {
   readonly name: string;
   readonly style: ProfileStyle;
+  readonly size: number;
 }) {
   const colors = usePalette();
   const fills = useProfilePalette();
@@ -109,15 +108,30 @@ function ProfileMonogram({
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.monogram, { backgroundColor: fills[color] }]}>
+      style={[
+        styles.monogram,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: fills[color],
+        },
+      ]}>
       {icon === undefined ? (
-        <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
-          {[...name][0]?.toLocaleUpperCase() ?? ''}
+        <Text
+          style={[
+            styles.monogramText,
+            {
+              color: colors.brandOnDeep,
+              fontSize: Math.round((size * 11) / 24),
+            },
+          ]}>
+          {profileLetter(name)}
         </Text>
       ) : (
         <SFSymbol
           name={profileIconSymbol[icon]}
-          size={10}
+          size={Math.round((size * 10) / 24)}
           color={colors.brandOnDeep}
         />
       )}
@@ -206,10 +220,7 @@ export function MailProfilesSettings({
   const selected = ids.includes(chosen) ? chosen : defaultProfile;
   const startup = windowProfile({ startup: choices?.startup, profiles });
   const nameOf = (id: string) => profileName(t, id, profiles);
-  // The Default Profile has no record, so it keeps Graphite and its first letter.
-  const styleOf = (id: string): ProfileStyle =>
-    profiles.find((profile) => profile.id === id) ?? {};
-  const { color = 'graphite', icon } = styleOf(selected);
+  const { color = 'graphite', icon } = profileStyle(profiles, selected);
   const owned = mailboxes.filter(({ profile }) => profile === selected);
   const [pending, setPending] = useState<readonly Pending[]>([]);
   const busy = pending.length > 0;
@@ -314,7 +325,8 @@ export function MailProfilesSettings({
               icon={
                 <ProfileMonogram
                   name={nameOf(id)}
-                  style={styleOf(id)}
+                  style={profileStyle(profiles, id)}
+                  size={24}
                 />
               }
               title={nameOf(id)}

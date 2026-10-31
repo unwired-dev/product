@@ -835,14 +835,46 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #if TARGET_OS_OSX
 static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor);
 
-// An item sends `select:` to `target` with its `id`; `symbol`, its `symbolColor`, `checked` and
-// `disabled` are optional.
+// A Mail Profile's 20pt monogram: its `symbol`, or with none its `letter`, in white on a circle of
+// its hex `color`.
+static NSImage *UnwiredMonogram(NSDictionary *monogram)
+{
+  unsigned int rgb = 0;
+  [[NSScanner scannerWithString:[monogram[@"color"] substringFromIndex:1]] scanHexInt:&rgb];
+  NSColor *fill = [NSColor colorWithSRGBRed:((rgb >> 16) & 0xFF) / 255.0
+                                      green:((rgb >> 8) & 0xFF) / 255.0
+                                       blue:(rgb & 0xFF) / 255.0
+                                      alpha:1];
+  NSString *symbol = monogram[@"symbol"];
+  NSImage *glyph = symbol.length == 0 ? nil : [[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil]
+      imageWithSymbolConfiguration:[[NSImageSymbolConfiguration configurationWithPointSize:8 weight:NSFontWeightRegular]
+          configurationByApplyingConfiguration:[NSImageSymbolConfiguration configurationWithPaletteColors:@[NSColor.whiteColor]]]];
+  NSAttributedString *letter = [[NSAttributedString alloc] initWithString:monogram[@"letter"]
+      attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:9 weight:NSFontWeightSemibold],
+                   NSForegroundColorAttributeName: NSColor.whiteColor}];
+  return [NSImage imageWithSize:NSMakeSize(20, 20) flipped:NO drawingHandler:^BOOL(NSRect rect) {
+    [fill setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:rect] fill];
+    NSSize size = glyph != nil ? glyph.size : letter.size;
+    NSRect centered = NSMakeRect(NSMidX(rect) - size.width / 2, NSMidY(rect) - size.height / 2, size.width, size.height);
+    if (glyph != nil) {
+      [glyph drawInRect:centered];
+    } else {
+      [letter drawInRect:centered];
+    }
+    return YES;
+  }];
+}
+
+// An item sends `select:` to `target` with its `id`; `symbol`, its `symbolColor`, a `monogram` in
+// its place, `checked` and `disabled` are optional.
 static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destructiveColor)
 {
   NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:item[@"title"] action:nil keyEquivalent:@""];
   if (item[@"accessibilityLabel"] != nil) menuItem.accessibilityLabel = item[@"accessibilityLabel"];
   NSString *symbol = item[@"symbol"];
   NSImage *image = symbol.length == 0 ? nil : [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+  if (item[@"monogram"] != nil) image = UnwiredMonogram(item[@"monogram"]);
   if (item[@"symbolColor"] != nil) {
     image = [image imageWithSymbolConfiguration:
         [NSImageSymbolConfiguration configurationWithPaletteColors:@[[RCTConvert NSColor:item[@"symbolColor"]]]]];
