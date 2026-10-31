@@ -875,8 +875,8 @@ function LinkSheet({
 }
 
 // Generate a Draft's prompt, opened from Writing tools: a popover below the trigger on iPad, a
-// sheet on iPhone. Each opening is a new prompt. Every dismissal settles the opening once, so
-// already-queued input cannot generate a closed prompt.
+// sheet on iPhone. Each opening is a new prompt. Only the shown opening may close or generate, and
+// every dismissal retires it, so already-queued input cannot generate a closed prompt.
 export function GeneratePrompt({
   popover,
   shown,
@@ -894,19 +894,22 @@ export function GeneratePrompt({
   readonly onClose: () => void;
   readonly onGenerate: (prompt: string) => void;
 }) {
-  const settled = useRef(true);
+  const active = useRef<number | undefined>(undefined);
   useLayoutEffect(() => {
-    settled.current = !shown;
-  }, [shown]);
-  const close = () => {
-    if (!settled.current) {
-      settled.current = true;
+    active.current = shown ? opening : undefined;
+    return () => {
+      active.current = undefined;
+    };
+  }, [shown, opening]);
+  const close = (at: number) => {
+    if (active.current === at) {
+      active.current = undefined;
       onClose();
     }
   };
   const dismiss = (next: boolean) => {
     if (!next) {
-      close();
+      close(opening);
     }
   };
   const fields = (
@@ -914,10 +917,12 @@ export function GeneratePrompt({
       key={opening}
       popover={popover}
       disabled={disabled}
-      onClose={close}
+      onClose={() => {
+        close(opening);
+      }}
       onGenerate={(prompt) => {
-        if (!settled.current) {
-          close();
+        if (active.current === opening) {
+          close(opening);
           onGenerate(prompt);
         }
       }}

@@ -3418,6 +3418,18 @@ describe('composing Drafts', () => {
       });
       expect(shown()).toBeNull();
       expect(asked).toHaveLength(0);
+      // Input queued in a closed prompt cannot generate once a new one opens, nor close it.
+      await open();
+      await fireEvent.changeText(prompt(), 'thank Maya');
+      const stale = queuedPress('What to write', 'onSubmitEditing');
+      await press('Close Generate a Draft');
+      await open();
+      await act(() => {
+        stale();
+      });
+      expect(shown()).toBeOnTheScreen();
+      expect(asked).toHaveLength(0);
+      await press('Close Generate a Draft');
 
       // The model reads only the trimmed prompt; the Draft stays as it is during review.
       await fireEvent.changeText(body(), 'Hi Maya,  Best, Alex');
