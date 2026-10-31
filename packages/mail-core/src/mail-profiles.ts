@@ -38,7 +38,10 @@ const isColor = Schema.is(ProfileColorSchema);
 const isIcon = Schema.is(ProfileIconSchema);
 
 // A Profile's style as a record or state entry carries it, without absent keys.
-const styleOf = ({ color, icon }: Readonly<{ color?: string; icon?: string }>) => ({
+const styleOf = ({
+  color,
+  icon,
+}: Readonly<{ color?: string; icon?: string }>) => ({
   ...(color === undefined ? {} : { color }),
   ...(icon === undefined ? {} : { icon }),
 });
@@ -614,19 +617,22 @@ export function createMailProfileProgram<E>(
 
   // Replaces a Profile's style. A published Profile changes through Product Sync with its stored
   // name; one not yet published keeps the style to publish with its name.
-  const restyle = Effect.fnUntraced(function* (id: string, style: ProfileStyle) {
-    const saved = yield* known;
-    const draft = saved.profiles.find((item) => item.id === id);
+  const restyle = Effect.fnUntraced(function* (
+    id: string,
+    style: ProfileStyle,
+  ) {
+    const before = yield* known;
+    const draft = before.profiles.find((item) => item.id === id);
     if (draft !== undefined && draft.version === undefined) {
       const { color: _color, icon: _icon, ...rest } = draft;
-      return yield* save(saved, {
-        ...saved,
-        profiles: saved.profiles.map((item) =>
+      return yield* save(before, {
+        ...before,
+        profiles: before.profiles.map((item) =>
           item === draft ? { ...rest, ...styleOf(style) } : item,
         ),
       });
     }
-    const { state } = yield* refreshed(saved);
+    const { state } = yield* refreshed(before);
     const profile = state.profiles.find((item) => item.id === id);
     if (
       profile?.version === undefined ||

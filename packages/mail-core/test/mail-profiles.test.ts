@@ -868,9 +868,9 @@ describe('mail profiles', () => {
       icon: 'rocket',
     });
     await flow.renameProfile(id, 'Office');
-    expect(
-      listed(await flow.moveMailbox(await mailboxId(), id)),
-    ).toStrictEqual([{ id, name: 'Office' }]);
+    expect(listed(await flow.moveMailbox(await mailboxId(), id))).toStrictEqual(
+      [{ id, name: 'Office' }],
+    );
     expect(storedProfiles(sync, account)).toContainEqual({
       kind: 'profile',
       id,

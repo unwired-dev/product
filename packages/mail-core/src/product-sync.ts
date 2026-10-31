@@ -905,9 +905,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
           () => Effect.succeed(false),
         ),
         Effect.flatMap((refused) =>
-          refused
-            ? failWith('upgrade-required')
-            : profiles.create(name, style),
+          refused ? failWith('upgrade-required') : profiles.create(name, style),
         ),
       ),
     renameProfile: profiles.rename,
