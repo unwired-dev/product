@@ -36,22 +36,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     borderCurve: 'continuous',
   },
-  heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   title: { ...textStyles.title3Emphasized },
-  details: { gap: spacing.xs },
-  row: { flexDirection: 'row', gap: spacing.m },
-  label: { ...textStyles.body, width: 72, textAlign: 'right' },
+  details: { gap: 6 },
+  row: { flexDirection: 'row', gap: spacing.s },
+  label: { ...textStyles.body, width: 76 },
   value: { flex: 1, gap: 2 },
   text: { ...textStyles.body },
   emphasized: { ...textStyles.bodyEmphasized },
-  small: { ...textStyles.subheadline },
   smallEmphasized: { ...textStyles.subheadlineEmphasized },
   status: {
-    flexDirection: 'row',
-    gap: spacing.s,
+    gap: 10,
     paddingTop: spacing.m,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  statusRow: { flexDirection: 'row', gap: spacing.s },
   statusText: { flex: 1, gap: 2 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
 });
@@ -154,8 +153,7 @@ function Details({
       <View style={styles.heading}>
         <SFSymbol
           name="calendar"
-          color={colors.textSecondary}
-          size={12}
+          color={colors.accentInk}
         />
         <Text style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
           {t('invitation.from', { name: nameOf(details) })}
@@ -184,7 +182,7 @@ function Details({
             {nameOf(details)}
           </Text>
           {details.organizer.name === undefined ? null : (
-            <Text style={[styles.small, { color: colors.textSecondary }]}>
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
               {details.organizer.address}
             </Text>
           )}
@@ -214,27 +212,29 @@ function Status({
   const colors = usePalette();
   return (
     <View style={[styles.status, { borderTopColor: colors.separator }]}>
-      {busy ? (
-        <ActivityIndicator size="small" />
-      ) : (
-        <SFSymbol
-          name={icon ?? 'circle'}
-          color={iconColor ?? colors.textSecondary}
-        />
-      )}
-      <View style={styles.statusText}>
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.emphasized, { color: colors.textPrimary }]}>
-          {title}
-        </Text>
-        <Text style={[styles.text, { color: colors.textSecondary }]}>
-          {detail}
-        </Text>
-        {children === undefined ? null : (
-          <View style={styles.actions}>{children}</View>
+      <View style={styles.statusRow}>
+        {busy ? (
+          <ActivityIndicator size="small" />
+        ) : (
+          <SFSymbol
+            name={icon ?? 'circle'}
+            color={iconColor ?? colors.textSecondary}
+          />
         )}
+        <View style={styles.statusText}>
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[styles.emphasized, { color: colors.textPrimary }]}>
+            {title}
+          </Text>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>
+            {detail}
+          </Text>
+        </View>
       </View>
+      {children === undefined ? null : (
+        <View style={styles.actions}>{children}</View>
+      )}
     </View>
   );
 }
@@ -282,7 +282,7 @@ const describe: {
   }),
   sent: (state, { t, name, provider, colors, time }) => ({
     icon: 'checkmark.circle.fill',
-    iconColor: colors.textPrimary,
+    iconColor: colors.accentInk,
     title: t(`invitation.${state.choice}`),
     detail: t('invitation.sentDetail', {
       provider,
@@ -292,7 +292,7 @@ const describe: {
   }),
   refused: (state, { t, name, provider, colors }) => ({
     icon: 'exclamationmark.triangle.fill',
-    iconColor: colors.statusWarning,
+    iconColor: colors.statusDestructive,
     title: t('invitation.refused'),
     detail: t('invitation.refusedDetail', {
       provider,
@@ -528,17 +528,9 @@ export function InvitationCard({
   if (offer.kind === 'unreadable') {
     return (
       <View style={card}>
-        <View style={styles.heading}>
-          <SFSymbol
-            name="calendar"
-            color={colors.textSecondary}
-            size={12}
-          />
-          <Text
-            style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
-            {t('invitation.heading')}
-          </Text>
-        </View>
+        <Text style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
+          {t('invitation.heading')}
+        </Text>
         <Status
           icon="exclamationmark.triangle.fill"
           iconColor={colors.statusWarning}
@@ -558,14 +550,14 @@ export function InvitationCard({
               <Text style={[styles.text, { color: colors.textPrimary }]}>
                 {offer.invited.join(', ')}
               </Text>
-              <Text style={[styles.small, { color: colors.textSecondary }]}>
+              <Text style={[styles.text, { color: colors.textSecondary }]}>
                 {t('invitation.notYours')}
               </Text>
             </>
           }
         />
         <Status
-          icon="info.circle"
+          icon="person.crop.circle.badge.exclamationmark"
           title={t('invitation.elsewhere')}
           detail={t('invitation.elsewhereDetail', {
             name: nameOf(offer.details),
@@ -584,7 +576,7 @@ export function InvitationCard({
             <Text style={[styles.text, { color: colors.textPrimary }]}>
               {t('invitation.you')}
             </Text>
-            <Text style={[styles.small, { color: colors.textSecondary }]}>
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
               {t('invitation.yourAddress', {
                 address: offer.address,
                 provider,
