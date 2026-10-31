@@ -1362,33 +1362,28 @@ export function WritingTools({
           tools('friendly', 'neutral'),
         ].flatMap((items) => (items.length === 0 ? [] : [{ items }]))}
       />
-      <Popover
-        below
+      <GeneratePrompt
+        key={openings}
         shown={prompting}
+        disabled={disabled}
         onClose={() => {
           setPrompting(false);
-        }}>
-        {/* A closed prompt stays while AppKit fades it out; the next opening starts empty. */}
-        <GeneratePrompt
-          key={openings}
-          disabled={disabled}
-          onClose={() => {
-            setPrompting(false);
-          }}
-          onGenerate={onGenerate}
-        />
-      </Popover>
+        }}
+        onGenerate={onGenerate}
+      />
     </View>
   );
 }
 
-// One opening of Generate a Draft. Close, Escape and Generate settle it once, so a handler
-// already queued from a closed prompt cannot generate it.
+// One opening of Generate a Draft. Every dismissal settles it once, so already-queued input
+// cannot generate a closed prompt. AppKit retains the content while fading out.
 function GeneratePrompt({
+  shown,
   disabled,
   onClose,
   onGenerate,
 }: {
+  readonly shown: boolean;
   readonly disabled: boolean;
   readonly onClose: () => void;
   readonly onGenerate: (prompt: string) => void;
@@ -1397,6 +1392,12 @@ function GeneratePrompt({
   const colors = usePalette();
   const [prompt, setPrompt] = useState('');
   const settled = useRef(false);
+  useLayoutEffect(() => {
+    settled.current = false;
+    return () => {
+      settled.current = true;
+    };
+  }, []);
   const generable = !disabled && canGenerate(prompt);
   const close = () => {
     if (!settled.current) {
@@ -1410,54 +1411,60 @@ function GeneratePrompt({
       onGenerate(prompt);
     }
   };
+  useMailAssistanceLifetime(close);
   return (
-    <View style={styles.generate}>
-      <View style={styles.generateTitle}>
-        <SFSymbol
-          name="sparkles"
-          color={colors.textPrimary}
-          size={13}
+    <Popover
+      below
+      shown={shown}
+      onClose={close}>
+      <View style={styles.generate}>
+        <View style={styles.generateTitle}>
+          <SFSymbol
+            name="sparkles"
+            color={colors.textPrimary}
+            size={13}
+          />
+          <Text
+            accessibilityRole="header"
+            style={[styles.title, styles.grow, { color: colors.textPrimary }]}>
+            {t('assistance.generatePromptTitle')}
+          </Text>
+          <ToolbarButton
+            icon="xmark"
+            label={t('assistance.closeGenerate')}
+            onPress={close}
+          />
+        </View>
+        <TextInput
+          multiline
+          submitBehavior="submit"
+          accessibilityLabel={t('assistance.generatePromptLabel')}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- The person opened the popover to type a prompt; it focuses once AppKit gives it a window.
+          autoFocus
+          onChangeText={setPrompt}
+          // AppKit reports Escape in a text input as a key press; it closes like the Close button.
+          onKeyPress={({ nativeEvent }) => {
+            if (nativeEvent.key === 'Escape') {
+              close();
+            }
+          }}
+          onSubmitEditing={generate}
+          placeholder={t('assistance.generatePrompt')}
+          placeholderTextColor={colors.textSecondary}
+          style={[styles.generatePrompt, { color: colors.textPrimary }]}
+          value={prompt}
         />
-        <Text
-          accessibilityRole="header"
-          style={[styles.title, styles.grow, { color: colors.textPrimary }]}>
-          {t('assistance.generatePromptTitle')}
-        </Text>
-        <ToolbarButton
-          icon="xmark"
-          label={t('assistance.closeGenerate')}
-          onPress={close}
-        />
+        <View style={styles.generateActions}>
+          <Button
+            disabled={!generable}
+            fill="accent"
+            label={t('assistance.generateAction')}
+            accessibilityLabel={t('assistance.generateActionLabel')}
+            onPress={generate}
+          />
+        </View>
       </View>
-      <TextInput
-        multiline
-        submitBehavior="submit"
-        accessibilityLabel={t('assistance.generatePromptLabel')}
-        // oxlint-disable-next-line jsx-a11y/no-autofocus -- The person opened the popover to type a prompt; it focuses once AppKit gives it a window.
-        autoFocus
-        onChangeText={setPrompt}
-        // AppKit reports Escape in a text input as a key press; it closes like the Close button.
-        onKeyPress={({ nativeEvent }) => {
-          if (nativeEvent.key === 'Escape') {
-            close();
-          }
-        }}
-        onSubmitEditing={generate}
-        placeholder={t('assistance.generatePrompt')}
-        placeholderTextColor={colors.textSecondary}
-        style={[styles.generatePrompt, { color: colors.textPrimary }]}
-        value={prompt}
-      />
-      <View style={styles.generateActions}>
-        <Button
-          disabled={!generable}
-          fill="accent"
-          label={t('assistance.generateAction')}
-          accessibilityLabel={t('assistance.generateActionLabel')}
-          onPress={generate}
-        />
-      </View>
-    </View>
+    </Popover>
   );
 }
 

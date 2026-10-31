@@ -3240,6 +3240,20 @@ describe('composing Drafts', () => {
     expect(asked).toHaveLength(0);
     expect(body()).toHaveTextContent('', { exact: true });
 
+    // A native click-outside dismissal retires Generate before an already-queued press arrives.
+    await writingTool('Generate a Draft…');
+    await fireEvent.changeText(prompt(), 'thank Maya');
+    const outsideGenerate = queuedPress(
+      'Generate a draft from this description',
+    );
+    const outsideClose = (await popover())!.props.onClose;
+    await act(() => {
+      outsideClose();
+      outsideGenerate();
+    });
+    expect(asked).toHaveLength(0);
+    expect(screen.queryByLabelText('Generated draft')).toBeNull();
+
     // The model reads only the trimmed prompt; the Draft stays as it is while the draft is reviewed.
     await fireEvent.changeText(body(), 'Hi Maya,  Best, Alex');
     await fireEvent(body(), 'selectionChange', {
@@ -3591,6 +3605,9 @@ describe('composing Drafts', () => {
       screen.getByLabelText('What to write'),
       'thank Maya',
     );
+    const disabledGenerate = queuedPress(
+      'Generate a draft from this description',
+    );
     await act(async () => {
       await enablement.setEnabled(owner, 'default', false);
     });
@@ -3598,6 +3615,10 @@ describe('composing Drafts', () => {
       await enablement.setEnabled(owner, 'default', true);
     });
     expect(screen.queryByLabelText('What to write')).toBeNull();
+    await act(() => {
+      disabledGenerate();
+    });
+    expect(asked).toHaveLength(1);
     await writingTool('Generate a Draft…');
     expect(screen.getByLabelText('What to write')).toHaveProp('value', '');
     expect(asked).toHaveLength(1);
