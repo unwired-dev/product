@@ -172,6 +172,18 @@ export const profileList = (value: RegistrationRecord) => {
   return profiles.length === 0 ? undefined : JSON.stringify(profiles);
 };
 
+// A pre-publication edit stays pending until an authenticated record carries the whole style.
+const pendingStyleOf = (
+  known: Profile | undefined,
+  stored: Pick<Profile, 'color' | 'icon'>,
+) => {
+  const pendingStyle = known?.pendingStyle;
+  return pendingStyle === undefined ||
+    (pendingStyle.color === stored.color && pendingStyle.icon === stored.icon)
+    ? {}
+    : { pendingStyle };
+};
+
 // The stored state of one Profile as a record read from Product Sync leaves it. A removal drops the
 // name this device has not yet published; a published name equal to it settles it.
 const readProfile = (
@@ -184,14 +196,11 @@ const readProfile = (
     return stored;
   }
   const pending = known?.pending === name ? undefined : known?.pending;
-  const pendingStyle = known?.pendingStyle;
-  const styleSettled =
-    pendingStyle?.color === style.color && pendingStyle?.icon === style.icon;
   return {
     ...stored,
     name,
     ...styleOf(style),
-    ...(pendingStyle === undefined || styleSettled ? {} : { pendingStyle }),
+    ...pendingStyleOf(known, style),
     ...(pending === undefined ? {} : { pending }),
     ...(known?.pendingRemoval === true
       ? { pendingRemoval: true as const }
@@ -295,6 +304,19 @@ const named = (name: string) => {
     ? failWith('unavailable')
     : Effect.succeed(trimmed);
 };
+
+// The next definition publishes pending edits together, or only its identity/version for removal.
+const publicationOf = (
+  { id, version, pending, name, pendingStyle, ...stored }: Profile,
+  removed: boolean,
+): ProfileRecord => ({
+  kind: 'profile',
+  id,
+  version: (version ?? 0) + 1,
+  ...(removed
+    ? {}
+    : { name: pending ?? name, ...styleOf(pendingStyle ?? stored) }),
+});
 
 type Write = Readonly<{
   record: ProfileRecord;
@@ -545,7 +567,7 @@ export function createMailProfileProgram<E>(
     const learned = yield* refreshed(yield* known);
     let { state } = learned;
     for (const profile of state.profiles) {
-      const { id, pending, pendingStyle, version, updatedAt } = profile;
+      const { id, pending, pendingStyle, updatedAt } = profile;
       const removal =
         profile.pendingRemoval === true
           ? yield* pendingRemoval(state, id, learned.readable)
@@ -569,17 +591,7 @@ export function createMailProfileProgram<E>(
       ) {
         ({ state } = yield* put(state, [
           {
-            record: {
-              kind: 'profile',
-              id,
-              version: (version ?? 0) + 1,
-              ...(removal === 'publish'
-                ? {}
-                : {
-                    name: pending ?? profile.name,
-                    ...styleOf(pendingStyle ?? profile),
-                  }),
-            },
+            record: publicationOf(profile, removal === 'publish'),
             expectedUpdatedAt: updatedAt,
           },
         ]));
