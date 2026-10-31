@@ -55,7 +55,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -68,7 +67,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.m,
     borderRadius: radius.insetGroup,
     borderCurve: 'continuous',
-    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -83,10 +81,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.m,
     minHeight: 48,
-    // The focus border counts toward the row's 16pt horizontal and 12pt vertical insets.
-    paddingHorizontal: spacing.l - 2,
-    paddingVertical: spacing.m - 2,
-    borderWidth: 2,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
     borderRadius: radius.insetGroup,
   },
   actionLabel: { ...textStyles.body, flex: 1 },
@@ -113,7 +109,6 @@ export function ReplySheet({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [focused, setFocused] = useState<string>();
   // The sheet fits its content; taller content scrolls inside the tallest detent iOS allows.
   const [height, setHeight] = useState<number>();
   const pending = useRef<
@@ -218,12 +213,6 @@ export function ReplySheet({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={t('message.closeResponses')}
-                  onFocus={() => {
-                    setFocused('close');
-                  }}
-                  onBlur={() => {
-                    setFocused(undefined);
-                  }}
                   onPress={onClose}
                   style={({ pressed }) => [
                     styles.replyClose,
@@ -231,8 +220,6 @@ export function ReplySheet({
                       backgroundColor: pressed
                         ? colors.accentSelectionSubtle
                         : colors.fillQuiet,
-                      borderColor:
-                        focused === 'close' ? colors.accentInk : 'transparent',
                     },
                   ]}>
                   <SFSymbol
@@ -247,12 +234,6 @@ export function ReplySheet({
                     key={name}
                     accessibilityRole="button"
                     accessibilityLabel={label}
-                    onFocus={() => {
-                      setFocused(name);
-                    }}
-                    onBlur={() => {
-                      setFocused(undefined);
-                    }}
                     onPress={() => {
                       select(name);
                     }}
@@ -262,8 +243,6 @@ export function ReplySheet({
                         backgroundColor: pressed
                           ? colors.accentSelectionSubtle
                           : colors.fillQuiet,
-                        borderColor:
-                          focused === name ? colors.accentInk : 'transparent',
                       },
                     ]}>
                     <SFSymbol
@@ -301,12 +280,6 @@ export function ReplySheet({
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={label}
-                        onFocus={() => {
-                          setFocused(name);
-                        }}
-                        onBlur={() => {
-                          setFocused(undefined);
-                        }}
                         onPress={() => {
                           select(name);
                         }}
@@ -316,10 +289,6 @@ export function ReplySheet({
                             backgroundColor: pressed
                               ? colors.accentSelectionSubtle
                               : 'transparent',
-                            borderColor:
-                              focused === name
-                                ? colors.accentInk
-                                : 'transparent',
                           },
                         ]}>
                         <Text

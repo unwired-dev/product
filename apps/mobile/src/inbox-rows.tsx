@@ -6,7 +6,6 @@ import type { ReactNode } from 'react';
 import { messageDay } from '@private-email/localization';
 import { rowContextMenu } from '@private-email/mail-core/context-menu';
 import { matchedRanges } from '@private-email/mail-core/mailboxes';
-import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { ContextMenu, SFSymbol } from './design.tsx';
@@ -84,10 +83,8 @@ export function MessageRow({
   const colors = usePalette();
   const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
   const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
-  const focusColor = selected ? colors.accentOnFill : colors.accentInk;
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
-  const [focused, setFocused] = useState(false);
   // Gmail's star and IMAP's \Flagged are the list's flag; Microsoft mail lists none yet.
   const flagged =
     'flagged' in message
@@ -124,12 +121,6 @@ export function MessageRow({
         onAccessibilityAction={({ nativeEvent }) => {
           actions.find(({ name }) => name === nativeEvent.actionName)?.run();
         }}
-        onBlur={() => {
-          setFocused(false);
-        }}
-        onFocus={() => {
-          setFocused(true);
-        }}
         onPress={onSelect}
         style={({ pressed }) => [
           styles.row,
@@ -137,7 +128,6 @@ export function MessageRow({
             backgroundColor: pressed
               ? colors.accentSelectionSubtle
               : 'transparent',
-            borderColor: focused ? focusColor : 'transparent',
           },
           selected && { backgroundColor: colors.accentFill },
         ]}>
