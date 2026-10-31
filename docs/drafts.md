@@ -294,8 +294,8 @@ saves as Mail does:
   address keeps the composer open. Editing pauses while saving. When storage refuses,
   the composer stays open with **Try again**, and its edits still ask on the next
   **Close**.
-- **Leaving.** Opening another Draft, **New Message**, received mail,
-  Command-W, the window's close button and **Quit** ask the same question first;
+- **Leaving.** Opening another Draft, **New Message**, received mail on compact
+  layouts, Command-W, the window's close button and **Quit** ask the same question first;
   they continue once the Draft is saved, deleted or unchanged.
 - **Durability.** Edits live only in the open composer until **Save** or **Send**
   stores them; ending the app loses them, and reopening shows the stored version.
