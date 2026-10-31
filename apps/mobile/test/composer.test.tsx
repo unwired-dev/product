@@ -3404,8 +3404,16 @@ describe('composing Drafts', () => {
       expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
       // Close dismisses it without asking the model or changing the Draft.
       await fireEvent.changeText(prompt(), 'thank Maya');
+      const queuedText = queuedPress('What to write', 'onChangeText');
       await press('Close Generate a Draft');
+      await act(() => {
+        queuedText('late input');
+      });
       expect(shown()).toBeNull();
+      // Native presenters keep their content mounted, but dismissal must forget the prompt.
+      expect(
+        screen.getByLabelText('What to write', { includeHiddenElements: true }),
+      ).toHaveDisplayValue('');
       expect(asked).toHaveLength(0);
       expect(body()).toHaveTextContent('', { exact: true });
       // A system dismissal retires Generate before an already-queued Return arrives.
@@ -3417,6 +3425,9 @@ describe('composing Drafts', () => {
         queued();
       });
       expect(shown()).toBeNull();
+      expect(
+        screen.getByLabelText('What to write', { includeHiddenElements: true }),
+      ).toHaveDisplayValue('');
       expect(asked).toHaveLength(0);
       // Input queued in a closed prompt cannot generate once a new one opens, nor close it.
       await open();
@@ -3642,6 +3653,23 @@ describe('composing Drafts', () => {
     expect(writingTool('Rewrite the message body')).toBeDefined();
     expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
     expect(asked).toHaveLength(1);
+
+    // Turning assistance off also retires an unfinished prompt and its queued input.
+    await chooseWritingTool(
+      'Generate a draft from a description of what to write',
+    );
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
+    const generate = queuedPress('What to write', 'onSubmitEditing');
+    await act(async () => {
+      const off = enablement.setEnabled(owner, 'default', false);
+      generate();
+      await off;
+    });
+    expect(screen.queryByLabelText('What to write')).toBeNull();
+    expect(asked).toHaveLength(1);
   });
 
   it('keeps the sender Profile’s consent after the open Draft is removed elsewhere', async () => {
@@ -3778,6 +3806,21 @@ describe('composing Drafts', () => {
       expect(writingTool('Rewrite the message body') !== undefined).toBe(
         offered,
       );
+
+      // An unfinished prompt is also retired when its Draft moves, even with target consent.
+      await act(() => registration.change(owned('work')));
+      await chooseWritingTool(
+        'Generate a draft from a description of what to write',
+      );
+      await fireEvent.changeText(
+        screen.getByLabelText('What to write'),
+        'thank Maya',
+      );
+      const generate = queuedPress('What to write', 'onSubmitEditing');
+      await act(() => registration.change(owned('personal')));
+      await act(() => generate());
+      expect(screen.queryByLabelText('What to write')).toBeNull();
+      expect(asked).toHaveLength(1);
     },
   );
   /* oxlint-enable vitest/max-expects */

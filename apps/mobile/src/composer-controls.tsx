@@ -895,6 +895,7 @@ export function GeneratePrompt({
   readonly onGenerate: (prompt: string) => void;
 }) {
   const active = useRef<number | undefined>(undefined);
+  const [prompt, setPrompt] = useState('');
   useLayoutEffect(() => {
     active.current = shown ? opening : undefined;
     return () => {
@@ -904,6 +905,7 @@ export function GeneratePrompt({
   const close = (at: number) => {
     if (active.current === at) {
       active.current = undefined;
+      setPrompt('');
       onClose();
     }
   };
@@ -916,14 +918,20 @@ export function GeneratePrompt({
     <GenerateFields
       key={opening}
       popover={popover}
-      disabled={disabled}
+      disabled={disabled || !shown}
+      prompt={prompt}
+      onPrompt={(text) => {
+        if (active.current === opening) {
+          setPrompt(text);
+        }
+      }}
       onClose={() => {
         close(opening);
       }}
-      onGenerate={(prompt) => {
+      onGenerate={(text) => {
         if (active.current === opening) {
           close(opening);
-          onGenerate(prompt);
+          onGenerate(text);
         }
       }}
     />
@@ -962,17 +970,26 @@ export function GeneratePrompt({
 function GenerateFields({
   popover,
   disabled,
+  prompt,
+  onPrompt,
   onClose,
   onGenerate,
 }: {
   readonly popover: boolean;
   readonly disabled: boolean;
+  readonly prompt: string;
+  readonly onPrompt: (prompt: string) => void;
   readonly onClose: () => void;
   readonly onGenerate: (prompt: string) => void;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const [prompt, setPrompt] = useState('');
+  const input = useRef<TextInput>(null);
+  useLayoutEffect(() => {
+    if (disabled) {
+      input.current?.blur();
+    }
+  }, [disabled]);
   const generable = !disabled && canGenerate(prompt);
   const generate = () => {
     if (generable) {
@@ -1011,11 +1028,13 @@ function GenerateFields({
         submitBehavior="submit"
         accessibilityLabel={t('assistance.generatePromptLabel')}
         // oxlint-disable-next-line jsx-a11y/no-autofocus -- The person opened Generate a Draft to type a prompt.
-        autoFocus
-        onChangeText={setPrompt}
+        autoFocus={!disabled}
+        editable={!disabled}
+        onChangeText={onPrompt}
         onSubmitEditing={generate}
         placeholder={t('assistance.generatePrompt')}
         placeholderTextColor={colors.textSecondary}
+        ref={input}
         style={[styles.generatePrompt, { color: colors.textPrimary }]}
         value={prompt}
       />
