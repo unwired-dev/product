@@ -34,6 +34,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Gmail delegation spike: no supported path for the native grant](gmail-delegation-spike.md)
 - [Microsoft mailbox import fidelity spike: IMAP APPEND awaits live proof](microsoft-import-fidelity-spike.md)
 - [Sending Drafts through the Outbox](outbox.md)
+- [Responding to Gmail meeting invitations on Mac](invitation-responses.md)
 - [New Mail Notifications](new-mail-notifications.md)
 - [Command Palette: finding and running actions from any screen](command-palette.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)

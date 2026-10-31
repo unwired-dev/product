@@ -50,6 +50,7 @@ import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
 import { askInSheet, ContextMenu, Notice, SFSymbol } from './design.tsx';
+import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
@@ -1032,6 +1033,13 @@ export function MessageBody({
           body={body.presentation.readable}
         />
       </View>
+      {imap ? null : (
+        <InvitationCard
+          inbox={inbox}
+          id={id}
+          connection={connection}
+        />
+      )}
       <Presentation
         onCopy={(link) => {
           if (current()) {
