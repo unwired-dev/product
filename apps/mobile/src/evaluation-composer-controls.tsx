@@ -1,5 +1,5 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
-import type { CapturedDraftText } from '@private-email/mail-core/assistance';
+import type { DraftTextPurpose } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { Link } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
@@ -136,7 +136,7 @@ export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
 // The open menu, or on iPhone the Format panel in place of the keyboard.
 export type Open = 'close' | 'attach' | 'tools' | 'format';
 type Add = (source: PickSource, inline: boolean) => void;
-type Capture = (purpose: CapturedDraftText['purpose']) => void;
+type Capture = (purpose: DraftTextPurpose) => void;
 type EditLink = (link: Link, text: string, href?: string) => void;
 
 // The current composer's file controls: the system pickers, and images on the pasteboard placed

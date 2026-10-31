@@ -215,6 +215,15 @@ function isScrollable(
   );
 }
 
+// The AppKit popover that holds an element.
+function popoverOf(
+  element: ReturnType<typeof screen.getByText> | null,
+): ReturnType<typeof screen.getByText> | null {
+  return element === null || element.type === 'UnwiredPopover'
+    ? element
+    : popoverOf(element.parent);
+}
+
 const ignore = () => undefined;
 
 // A save that throws once, as when storage fails unexpectedly, then saves normally.
@@ -3090,7 +3099,10 @@ describe('composing Drafts', () => {
         items.map(({ title, symbol, disabled }) => [title, symbol, disabled]),
       ),
     ).toStrictEqual([
-      [['Rewrite', 'pencil', true]],
+      [
+        ['Generate a Draft…', 'square.and.pencil', undefined],
+        ['Rewrite', 'pencil', true],
+      ],
       [
         ['Proofread', 'text.badge.checkmark', true],
         ['Break into Paragraphs', 'text.alignleft', true],
@@ -3155,6 +3167,119 @@ describe('composing Drafts', () => {
     await screen.findByLabelText('Shortened version of your text');
     await press('Replace your text with this rewrite');
     expect(body()).toHaveTextContent('Friday? thanks', { exact: true });
+  });
+
+  it('generates a draft from a prompt and inserts it at the caret only after review', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked, cancelled } = scriptedDraftAssistance();
+    await render(
+      <AssistanceContext value={native}>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    const body = () => screen.getByLabelText('Message body');
+    const prompt = () => screen.getByLabelText('What to write');
+    // AppKit shows the popover once its content has a size; Jest lays out nothing.
+    const popover = async () => {
+      await fireEvent(prompt(), 'layout', {
+        nativeEvent: { layout: { width: 360, height: 122 } },
+      });
+      return popoverOf(prompt());
+    };
+    // An empty Draft can be generated into.
+    await expect(writingToolsItem('Generate a Draft…')).resolves.toStrictEqual({
+      id: 'generate',
+      title: 'Generate a Draft…',
+      symbol: 'square.and.pencil',
+      accessibilityLabel:
+        'Generate a draft from a description of what to write',
+    });
+    await writingTool('Generate a Draft…');
+    await expect(popover()).resolves.toHaveProp('shown', true);
+    expect(prompt()).toHaveProp(
+      'placeholder',
+      'Describe what to write, for example, “confirm Thursday’s lease signing and ask about parking”.',
+    );
+    const action = () =>
+      screen.getByRole('button', {
+        name: 'Generate a draft from this description',
+      });
+    expect(action()).toBeDisabled();
+    await fireEvent.changeText(prompt(), '   ');
+    expect(action()).toBeDisabled();
+
+    // Close and Escape dismiss the popover without asking the model or changing the Draft.
+    await fireEvent.changeText(prompt(), 'thank Maya');
+    await press('Close Generate a Draft');
+    await expect(popover()).resolves.toHaveProp('shown', false);
+    await writingTool('Generate a Draft…');
+    expect(prompt()).toHaveProp('value', '');
+    await fireEvent.changeText(prompt(), 'thank Maya');
+    await fireEvent(prompt(), 'keyPress', { nativeEvent: { key: 'Escape' } });
+    await expect(popover()).resolves.toHaveProp('shown', false);
+    expect(asked).toHaveLength(0);
+    expect(body()).toHaveTextContent('', { exact: true });
+
+    // The model reads only the trimmed prompt; the Draft stays as it is while the draft is reviewed.
+    await fireEvent.changeText(body(), 'Hi Maya,  Best, Alex');
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 9, end: 9 } },
+    });
+    const description = 'confirm Thursday’s lease signing';
+    await writingTool('Generate a Draft…');
+    await fireEvent.changeText(prompt(), ` ${description} `);
+    await press('Generate a draft from this description');
+    await expect(popover()).resolves.toHaveProp('shown', false);
+    expect(asked[0]?.operation).toBe('rewrite');
+    expect(parseJson(asked[0]!.input)).toStrictEqual({
+      operation: 'generate',
+      prompt: description,
+    });
+    await press('Cancel writing help');
+    expect(cancelled).toStrictEqual([asked[0]?.request]);
+    expect(body()).toHaveTextContent('Hi Maya,  Best, Alex', { exact: true });
+
+    // Return in the prompt generates too, and Insert places the draft at the caret.
+    await writingTool('Generate a Draft…');
+    await fireEvent.changeText(prompt(), description);
+    await fireEvent(prompt(), 'submitEditing');
+    asked[1]?.answer.resolve('I can confirm the signing on Thursday.');
+    await screen.findByText('I can confirm the signing on Thursday.');
+    expect(screen.getByLabelText('Generated draft')).toBeOnTheScreen();
+    expect(body()).toHaveTextContent('Hi Maya,  Best, Alex', { exact: true });
+    await press('Insert this draft at the cursor');
+    expect(body()).toHaveTextContent(
+      'Hi Maya, I can confirm the signing on Thursday. Best, Alex',
+      { exact: true },
+    );
+    expect(screen.queryByLabelText('Generated draft')).toBeNull();
+    await press('Undo');
+    expect(body()).toHaveTextContent('Hi Maya,  Best, Alex', { exact: true });
+
+    // Discard closes a generated draft without inserting it.
+    await writingTool('Generate a Draft…');
+    await fireEvent.changeText(prompt(), description);
+    await press('Generate a draft from this description');
+    asked[2]?.answer.resolve('Thursday works.');
+    await screen.findByText('Thursday works.');
+    await press('Close this draft without inserting it');
+    expect(screen.queryByText('Thursday works.')).toBeNull();
+    expect(body()).toHaveTextContent('Hi Maya,  Best, Alex', { exact: true });
+
+    // A prompt beyond the model's input bound is refused before the model is asked.
+    await writingTool('Generate a Draft…');
+    await fireEvent.changeText(prompt(), 'a'.repeat(6000));
+    await press('Generate a draft from this description');
+    await screen.findByText(
+      'Describe what to write in fewer words. Up to 6,000 characters can be read.',
+    );
+    expect(asked).toHaveLength(3);
   });
 
   it('rewrites the body or a selection and applies it only after review as one undoable edit', async () => {

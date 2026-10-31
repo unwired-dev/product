@@ -13,6 +13,7 @@ import {
 import { editorPage } from '@private-email/draft-editor/page';
 import {
   captureDraftText,
+  capturePrompt,
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
@@ -314,6 +315,7 @@ function EvaluationEditor({
   const capture = (
     purpose: CapturedDraftText['purpose'],
     target?: TranslationLanguage,
+    prompt?: string,
   ) => {
     setOpen(undefined);
     const reported = pageNow.current;
@@ -329,7 +331,9 @@ function EvaluationEditor({
     }
     captureGeneration.current += 1;
     const next = {
-      ...captureDraftText(purpose, authored.current, reported.selection),
+      ...(purpose === 'generate'
+        ? capturePrompt(authored.current, reported.selection, prompt ?? '')
+        : captureDraftText(purpose, authored.current, reported.selection)),
       id: captureGeneration.current,
       profile,
       target,

@@ -21,6 +21,7 @@ export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
 type Capture = (
   purpose: CapturedDraftText['purpose'],
   target?: TranslationLanguage,
+  prompt?: string,
 ) => void;
 
 // The current composer's file controls, through the system open panel. Native code reads the
@@ -87,6 +88,9 @@ export function PageFormatBar({
         draft={draft}
         selection={page.selection}
         onCapture={onCapture}
+        onGenerate={(prompt) => {
+          onCapture('generate', undefined, prompt);
+        }}
       />
       <View style={[s.divider, { backgroundColor: colors.separator }]} />
       {pickers.map(([label, from, inline, icon]) => (

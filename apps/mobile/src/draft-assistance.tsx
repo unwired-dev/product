@@ -103,11 +103,17 @@ function Refusal({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const refusal = t(
-    issue === undefined
-      ? 'assistance.failed'
-      : `assistance.${purpose}${issue === 'inline-image' ? 'HasImage' : 'TooLong'}`,
-  );
+  let refusal = t('assistance.failed');
+  if (purpose === 'generate') {
+    // A prompt has no images, so it is refused only for its length.
+    if (issue !== undefined) {
+      refusal = t('assistance.generateTooLong');
+    }
+  } else if (issue !== undefined) {
+    refusal = t(
+      `assistance.${purpose}${issue === 'inline-image' ? 'HasImage' : 'TooLong'}`,
+    );
+  }
   useOutcomeAnnouncement(refusal, false);
   return (
     <Text

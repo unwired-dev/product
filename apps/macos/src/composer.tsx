@@ -1,6 +1,7 @@
 import type { Translate } from '@private-email/localization';
 import type {
   CapturedDraftText,
+  DraftTextPurpose,
   NativeAssistance,
   TextTool,
 } from '@private-email/mail-core/assistance';
@@ -38,9 +39,11 @@ import type {
 } from 'react-native';
 
 import {
+  canGenerate,
   canRewrite,
   canSuggestReply,
   captureDraftText,
+  capturePrompt,
   draftReplacement,
   isTextTool,
   sameDraftAssistanceSource,
@@ -128,6 +131,7 @@ import {
   Notice as Banner,
   Button,
   ContextMenu,
+  Popover,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -174,6 +178,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
   },
   title: { ...textStyles.bodyEmphasized },
+  // The Generate a Draft popover, per the Mac Compose Generate a Draft frames.
+  generate: { width: 360, gap: spacing.s, padding: spacing.l },
+  generateTitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  generatePrompt: { ...textStyles.subheadline, minHeight: 28 },
+  generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
   alerts: {
     gap: spacing.s,
     paddingHorizontal: fieldInset,
@@ -1246,23 +1255,36 @@ const textToolSymbols: Readonly<Record<TextTool, string>> = {
 };
 
 // The format bar's Writing tools menu. A choice reports its purpose; the composer checks it
-// against its current Draft before capturing text.
+// against its current Draft before capturing text. Generate a Draft first asks for a prompt in a
+// popover below the menu; the prompt is never kept.
 export function WritingTools({
   draft,
   selection,
   disabled = false,
   onCapture,
+  onGenerate,
 }: {
   readonly draft: Draft;
   readonly selection: Selection;
   readonly disabled?: boolean;
   readonly onCapture: (
-    purpose: CapturedDraftText['purpose'],
+    purpose: DraftTextPurpose,
     target?: TranslationLanguage,
   ) => void;
+  readonly onGenerate: (prompt: string) => void;
 }) {
   const { t } = useLocalization();
+  const colors = usePalette();
   const assistance = use(AssistanceContext);
+  const [prompting, setPrompting] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const generable = !disabled && canGenerate(prompt);
+  const generate = () => {
+    if (generable) {
+      setPrompting(false);
+      onGenerate(prompt);
+    }
+  };
   const translation = use(TranslationContext);
   const targetLanguages = useTargetLanguages(
     translation,
@@ -1286,49 +1308,124 @@ export function WritingTools({
           },
         }));
   return assistance === undefined && translation === undefined ? null : (
-    <PopUp
-      disabled={disabled}
-      accessibilityLabel={t('drafts.writingTools')}
-      icon="sparkles"
-      sections={[
-        [
-          ...tools('rewrite'),
-          ...(assistance !== undefined && canSuggestReply(draft)
-            ? [
-                {
-                  key: 'reply',
-                  title: t('assistance.suggestReply'),
-                  accessibilityLabel: t('assistance.suggestReplyLabel'),
-                  run: () => {
-                    onCapture('reply');
+    <View>
+      <PopUp
+        disabled={disabled}
+        accessibilityLabel={t('drafts.writingTools')}
+        icon="sparkles"
+        sections={[
+          [
+            ...(assistance === undefined
+              ? []
+              : [
+                  {
+                    key: 'generate',
+                    title: t('assistance.generate'),
+                    symbol: 'square.and.pencil',
+                    accessibilityLabel: t('assistance.generateLabel'),
+                    run: () => {
+                      setPrompt('');
+                      setPrompting(true);
+                    },
                   },
-                },
-              ]
-            : []),
-        ],
-        tools('proofread', 'paragraphs'),
-        translation === undefined
-          ? []
-          : [
-              {
-                key: 'translate',
-                title: t('translation.translateTo'),
-                symbol: 'translate',
-                accessibilityLabel: t('translation.translateSelectionLabel'),
-                disabled: !hasTranslatableText(
-                  selectedText(
-                    draft.body,
-                    selection,
-                    translationInputLimit + 1,
+                ]),
+            ...tools('rewrite'),
+            ...(assistance !== undefined && canSuggestReply(draft)
+              ? [
+                  {
+                    key: 'reply',
+                    title: t('assistance.suggestReply'),
+                    accessibilityLabel: t('assistance.suggestReplyLabel'),
+                    run: () => {
+                      onCapture('reply');
+                    },
+                  },
+                ]
+              : []),
+          ],
+          tools('proofread', 'paragraphs'),
+          translation === undefined
+            ? []
+            : [
+                {
+                  key: 'translate',
+                  title: t('translation.translateTo'),
+                  symbol: 'translate',
+                  accessibilityLabel: t('translation.translateSelectionLabel'),
+                  disabled: !hasTranslatableText(
+                    selectedText(
+                      draft.body,
+                      selection,
+                      translationInputLimit + 1,
+                    ),
                   ),
-                ),
-                items: targetLanguages,
-              },
-            ],
-        tools('expand', 'shorten'),
-        tools('friendly', 'neutral'),
-      ].flatMap((items) => (items.length === 0 ? [] : [{ items }]))}
-    />
+                  items: targetLanguages,
+                },
+              ],
+          tools('expand', 'shorten'),
+          tools('friendly', 'neutral'),
+        ].flatMap((items) => (items.length === 0 ? [] : [{ items }]))}
+      />
+      <Popover
+        below
+        shown={prompting && assistance !== undefined}
+        onClose={() => {
+          setPrompting(false);
+        }}>
+        <View style={styles.generate}>
+          <View style={styles.generateTitle}>
+            <SFSymbol
+              name="sparkles"
+              color={colors.textPrimary}
+              size={13}
+            />
+            <Text
+              accessibilityRole="header"
+              style={[
+                styles.title,
+                styles.grow,
+                { color: colors.textPrimary },
+              ]}>
+              {t('assistance.generatePromptTitle')}
+            </Text>
+            <ToolbarButton
+              icon="xmark"
+              label={t('assistance.closeGenerate')}
+              onPress={() => {
+                setPrompting(false);
+              }}
+            />
+          </View>
+          <TextInput
+            multiline
+            accessibilityLabel={t('assistance.generatePromptLabel')}
+            // oxlint-disable-next-line jsx-a11y/no-autofocus -- The person opened the popover to type a prompt; it focuses once AppKit gives it a window.
+            autoFocus
+            onChangeText={setPrompt}
+            // AppKit reports Escape in a text input as a key press; it closes like the Close button.
+            onKeyPress={({ nativeEvent }) => {
+              if (nativeEvent.key === 'Escape') {
+                setPrompting(false);
+              }
+            }}
+            onSubmitEditing={generate}
+            placeholder={t('assistance.generatePrompt')}
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.generatePrompt, { color: colors.textPrimary }]}
+            value={prompt}
+          />
+          <View style={styles.generateActions}>
+            <Button
+              disabled={!generable}
+              fill="accent"
+              label={t('assistance.generateAction')}
+              accessibilityLabel={t('assistance.generateActionLabel')}
+              onPress={generate}
+            />
+          </View>
+        </View>
+      </Popover>
+    </View>
   );
 }
 
@@ -1859,7 +1956,8 @@ function Editor({
     }
     change({ ...latest, body: toggleMark(latest.body, at, mark) });
   };
-  // Replaces exactly the captured text with its reviewed result as one undoable edit. Recipients,
+  // Replaces exactly the captured text with its reviewed result as one undoable edit; a prompted
+  // draft captured no text, so it is inserted at the caret. Recipients,
   // the subject, quoted text, attachments and delivery state are left as they are.
   const applyCaptured = (replacement: string) => {
     const latest = authored.current;
@@ -1894,12 +1992,9 @@ function Editor({
       setCaptured(undefined);
     }
   };
-  // Captures authored text for an explicitly requested translation, rewrite or reply suggestion.
-  const capture = (
-    purpose: CapturedDraftText['purpose'],
-    at: Selection,
-    target?: TranslationLanguage,
-  ) => {
+  // Keeps authored text captured for an explicitly requested translation, rewrite or reply
+  // suggestion, or the caret and prompt for Generate a Draft.
+  const capture = (text: CapturedDraftText, target?: TranslationLanguage) => {
     if (
       pausedNow.current ||
       !lifetime.current.mounted ||
@@ -1909,7 +2004,7 @@ function Editor({
     }
     captureGeneration.current += 1;
     const next = {
-      ...captureDraftText(purpose, authored.current, at),
+      ...text,
       id: captureGeneration.current,
       profile,
       target,
@@ -2382,8 +2477,13 @@ function Editor({
                   selectedText(body, at, translationInputLimit + 1),
                 );
             if (available) {
-              capture(purpose, at, target);
+              capture(captureDraftText(purpose, authored.current, at), target);
             }
+          }}
+          onGenerate={(prompt) => {
+            capture(
+              capturePrompt(authored.current, selectionNow.current, prompt),
+            );
           }}
         />
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />

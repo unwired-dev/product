@@ -1,5 +1,8 @@
 import type { Command } from '@private-email/draft-editor/messages';
-import type { CapturedDraftText } from '@private-email/mail-core/assistance';
+import type {
+  CapturedDraftText,
+  DraftTextPurpose,
+} from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
 import type { Link } from '@private-email/mail-core/semantic-document';
@@ -328,7 +331,7 @@ function EvaluationEditor({
       });
     }
   }, [ready, run]);
-  const capture = (purpose: CapturedDraftText['purpose']) => {
+  const capture = (purpose: DraftTextPurpose) => {
     setOpen(undefined);
     const reported = pageNow.current;
     if (
