@@ -3,7 +3,7 @@ import type {
   Link,
   Mark,
 } from '@private-email/mail-core/semantic-document';
-import type { ReactNode, RefObject } from 'react';
+import type { ReactElement, ReactNode, RefObject } from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 
 import {
@@ -33,6 +33,7 @@ import {
   shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
+import { canGenerate } from '@private-email/mail-core/assistance';
 import { vettedHref } from '@private-email/mail-core/link-inspection';
 import { isLinkText } from '@private-email/mail-core/semantic-document';
 import {
@@ -41,7 +42,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
@@ -60,6 +61,7 @@ import {
   useOutcomeAnnouncement,
 } from './design.tsx';
 import { useLocalization } from './localization.ts';
+import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -108,6 +110,17 @@ const styles = StyleSheet.create({
   linkRowInput: { ...textStyles.body, flex: 1, padding: 0 },
   linkSeparator: { height: StyleSheet.hairlineWidth, marginLeft: spacing.l },
   linkSheetHint: { ...textStyles.footnote, paddingHorizontal: spacing.l },
+  generate: { gap: spacing.m, padding: spacing.l },
+  // iPad draws the "Generate a Draft" popover at the frame's width.
+  generatePopover: { width: 420 },
+  generateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  generateTitle: { ...textStyles.headline, flex: 1 },
+  generatePrompt: { ...textStyles.body, minHeight: 44, padding: 0 },
+  generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
   formatBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -857,6 +870,164 @@ function LinkSheet({
           </Host>
         </View>
       )}
+    </View>
+  );
+}
+
+// Generate a Draft's prompt, opened from Writing tools: a popover below the trigger on iPad, a
+// sheet on iPhone. Each opening is a new prompt. Every dismissal settles the opening once, so
+// already-queued input cannot generate a closed prompt.
+export function GeneratePrompt({
+  popover,
+  shown,
+  opening,
+  disabled,
+  trigger,
+  onClose,
+  onGenerate,
+}: {
+  readonly popover: boolean;
+  readonly shown: boolean;
+  readonly opening: number;
+  readonly disabled: boolean;
+  readonly trigger: ReactElement;
+  readonly onClose: () => void;
+  readonly onGenerate: (prompt: string) => void;
+}) {
+  const settled = useRef(true);
+  useLayoutEffect(() => {
+    settled.current = !shown;
+  }, [shown]);
+  const close = () => {
+    if (!settled.current) {
+      settled.current = true;
+      onClose();
+    }
+  };
+  const dismiss = (next: boolean) => {
+    if (!next) {
+      close();
+    }
+  };
+  const fields = (
+    <GenerateFields
+      key={opening}
+      popover={popover}
+      disabled={disabled}
+      onClose={close}
+      onGenerate={(prompt) => {
+        if (!settled.current) {
+          close();
+          onGenerate(prompt);
+        }
+      }}
+    />
+  );
+  return popover ? (
+    <Host matchContents>
+      <Popover
+        arrowEdge="top"
+        isPresented={shown}
+        onIsPresentedChange={dismiss}>
+        <Popover.Trigger>
+          <RNHostView matchContents>{trigger}</RNHostView>
+        </Popover.Trigger>
+        <Popover.Content>
+          <RNHostView matchContents>{fields}</RNHostView>
+        </Popover.Content>
+      </Popover>
+    </Host>
+  ) : (
+    <>
+      {trigger}
+      <Host matchContents>
+        <BottomSheet
+          isPresented={shown}
+          onIsPresentedChange={dismiss}>
+          <Group modifiers={[presentationDetents(['medium'])]}>
+            <RNHostView>{fields}</RNHostView>
+          </Group>
+        </BottomSheet>
+      </Host>
+    </>
+  );
+}
+
+// "Generate a Draft" frames. The prompt is never kept.
+function GenerateFields({
+  popover,
+  disabled,
+  onClose,
+  onGenerate,
+}: {
+  readonly popover: boolean;
+  readonly disabled: boolean;
+  readonly onClose: () => void;
+  readonly onGenerate: (prompt: string) => void;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const [prompt, setPrompt] = useState('');
+  const generable = !disabled && canGenerate(prompt);
+  const generate = () => {
+    if (generable) {
+      onGenerate(prompt);
+    }
+  };
+  useMailAssistanceLifetime(onClose);
+  return (
+    <View style={[styles.generate, popover && styles.generatePopover]}>
+      <View style={styles.generateHeader}>
+        <SFSymbol
+          name="sparkles"
+          size={15}
+          color={colors.textPrimary}
+        />
+        <Text
+          accessibilityRole="header"
+          style={[styles.generateTitle, { color: colors.textPrimary }]}>
+          {t('assistance.generatePromptTitle')}
+        </Text>
+        <Host matchContents>
+          <SwiftUIButton
+            label={t('assistance.closeGenerate')}
+            systemImage="xmark"
+            onPress={onClose}
+            modifiers={[
+              labelStyle('iconOnly'),
+              buttonStyle('bordered'),
+              buttonBorderShape('circle'),
+            ]}
+          />
+        </Host>
+      </View>
+      <TextInput
+        multiline
+        submitBehavior="submit"
+        accessibilityLabel={t('assistance.generatePromptLabel')}
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- The person opened Generate a Draft to type a prompt.
+        autoFocus
+        onChangeText={setPrompt}
+        onSubmitEditing={generate}
+        placeholder={t('assistance.generatePrompt')}
+        placeholderTextColor={colors.textSecondary}
+        style={[styles.generatePrompt, { color: colors.textPrimary }]}
+        value={prompt}
+      />
+      <View style={styles.generateActions}>
+        <Host matchContents>
+          <SwiftUIButton
+            label={t('assistance.generateAction')}
+            onPress={generate}
+            modifiers={[
+              buttonStyle('borderedProminent'),
+              buttonBorderShape('capsule'),
+              tint(colors.accentFill),
+              inactive(!generable),
+            ]}
+          />
+        </Host>
+      </View>
     </View>
   );
 }

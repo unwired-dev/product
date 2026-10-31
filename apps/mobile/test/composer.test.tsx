@@ -3364,6 +3364,119 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it.each([
+    ['compact', 'bottom-sheet'],
+    ['regular', 'popover'],
+  ] as const)(
+    'generates a draft from a prompt on %s and inserts it at the caret only after review',
+    async (size, presenter) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const { native, asked, cancelled } = scriptedDraftAssistance();
+      await render(
+        <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+          <AssistanceContext value={native}>
+            <App
+              drafts={createDrafts(storage.native, registration)}
+              registration={registration}
+            />
+          </AssistanceContext>
+        </ComposerLayoutContext>,
+      );
+      await press('New Message');
+      const body = () => screen.getByLabelText('Message body');
+      const prompt = () => screen.getByLabelText('What to write');
+      const open = () =>
+        chooseWritingTool(
+          'Generate a draft from a description of what to write',
+        );
+      const shown = () => screen.queryByTestId(presenter);
+
+      // Generate needs no Draft text, and stays unavailable until there is a prompt.
+      await open();
+      expect(shown()).toBeOnTheScreen();
+      expect(
+        screen.getByRole('header', { name: 'Generate a Draft' }),
+      ).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+      await fireEvent.changeText(prompt(), '   ');
+      expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+      // Close dismisses it without asking the model or changing the Draft.
+      await fireEvent.changeText(prompt(), 'thank Maya');
+      await press('Close Generate a Draft');
+      expect(shown()).toBeNull();
+      expect(asked).toHaveLength(0);
+      expect(body()).toHaveTextContent('', { exact: true });
+      // A system dismissal retires Generate before an already-queued Return arrives.
+      await open();
+      await fireEvent.changeText(prompt(), 'thank Maya');
+      const queued = queuedPress('What to write', 'onSubmitEditing');
+      await act(() => {
+        fireEvent(shown()!, 'accessibilityEscape');
+        queued();
+      });
+      expect(shown()).toBeNull();
+      expect(asked).toHaveLength(0);
+
+      // The model reads only the trimmed prompt; the Draft stays as it is during review.
+      await fireEvent.changeText(body(), 'Hi Maya,  Best, Alex');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 9, end: 9 } },
+      });
+      const description = 'confirm Thursday’s lease signing';
+      await open();
+      await fireEvent.changeText(prompt(), ` ${description} `);
+      await press('Generate');
+      expect(shown()).toBeNull();
+      expect(asked[0]?.operation).toBe('rewrite');
+      expect(parseJson(asked[0]!.input)).toStrictEqual({
+        operation: 'generate',
+        prompt: description,
+      });
+      await press('Cancel writing help');
+      expect(cancelled).toStrictEqual([asked[0]?.request]);
+
+      // Return in the prompt generates too; a new opening starts with an empty prompt.
+      await open();
+      expect(prompt()).toHaveDisplayValue('');
+      await fireEvent.changeText(prompt(), description);
+      await fireEvent(prompt(), 'submitEditing');
+      asked[1]?.answer.resolve('I can confirm the signing on Thursday.');
+      await screen.findByText('I can confirm the signing on Thursday.');
+      expect(screen.getByLabelText('Generated draft')).toBeOnTheScreen();
+      expect(body()).toHaveTextContent('Hi Maya,  Best, Alex', { exact: true });
+      // Insert places the draft at the caret as one undoable edit.
+      await press('Insert this draft at the cursor');
+      expect(body()).toHaveTextContent(
+        'Hi Maya, I can confirm the signing on Thursday. Best, Alex',
+        { exact: true },
+      );
+      expect(screen.queryByLabelText('Generated draft')).toBeNull();
+      await press('Undo');
+      expect(body()).toHaveTextContent('Hi Maya,  Best, Alex', { exact: true });
+
+      // Discard closes a generated draft without inserting it.
+      await open();
+      await fireEvent.changeText(prompt(), description);
+      await press('Generate');
+      asked[2]?.answer.resolve('Thursday works.');
+      await screen.findByText('Thursday works.');
+      await press('Close this draft without inserting it');
+      expect(screen.queryByText('Thursday works.')).toBeNull();
+      expect(body()).toHaveTextContent('Hi Maya,  Best, Alex', { exact: true });
+
+      // A prompt beyond the model's input bound is refused before the model is asked.
+      await open();
+      await fireEvent.changeText(prompt(), 'a'.repeat(6000));
+      await press('Generate');
+      await screen.findByText(
+        'Describe what to write in fewer words. Up to 6,000 characters can be read.',
+      );
+      expect(asked).toHaveLength(3);
+    },
+  );
+
   it('offers each Writing tool in its group and applies its reviewed result like Rewrite', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -3388,7 +3501,10 @@ describe('composing Drafts', () => {
     await screen.findByLabelText('Writing tools');
     // The approved groups, in order, each tool with its symbol; nothing to edit yet.
     expect(writingToolGroups()).toStrictEqual([
-      [['Rewrite', 'pencil', true]],
+      [
+        ['Generate a Draft…', 'square.and.pencil', undefined],
+        ['Rewrite', 'pencil', true],
+      ],
       [
         ['Proofread', 'text.badge.checkmark', true],
         ['Break into Paragraphs', 'text.alignleft', true],

@@ -1,7 +1,6 @@
 import type { Translate } from '@private-email/localization';
 import type {
   CapturedDraftText,
-  DraftTextPurpose,
   NativeAssistance,
   TextTool,
 } from '@private-email/mail-core/assistance';
@@ -35,6 +34,7 @@ import {
   canRewrite,
   canSuggestReply,
   captureDraftText,
+  capturePrompt,
   draftReplacement,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
@@ -112,6 +112,7 @@ import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
+  GeneratePrompt,
   LinkEditor,
   MenuItem,
   PopUp,
@@ -1456,8 +1457,9 @@ export function ComposerNotices({
   );
 }
 
-// The format bar's Writing tools: one system menu of the text tools and Translate where they are
-// available, plus Suggest reply on replies. Hidden when neither is available.
+// The format bar's Writing tools: one system menu of Generate a Draft, the text tools and Translate
+// where they are available, plus Suggest reply on replies. Hidden when neither is available.
+// Generate a Draft first asks for a prompt, which is never kept.
 function WritingTools({
   assistance,
   translation,
@@ -1465,6 +1467,8 @@ function WritingTools({
   body,
   selection,
   sending,
+  popover,
+  onGenerate,
   onTextTool,
   onTranslate,
   onReply,
@@ -1475,12 +1479,20 @@ function WritingTools({
   readonly body: Draft['body'];
   readonly selection: Selection;
   readonly sending: boolean;
+  readonly popover: boolean;
+  readonly onGenerate: (prompt: string) => void;
   readonly onTextTool: (tool: TextTool) => void;
   readonly onTranslate: () => void;
   readonly onReply: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  // Each opening of Generate a Draft is a new prompt; none outlives Mail Assistance.
+  const [prompting, setPrompting] = useState(false);
+  const [openings, setOpenings] = useState(0);
+  if (prompting && !assistance) {
+    setPrompting(false);
+  }
   if (!assistance && !translation) {
     return null;
   }
@@ -1508,6 +1520,16 @@ function WritingTools({
     ),
     run: onTranslate,
   };
+  const generate = {
+    key: 'generate',
+    title: t('assistance.generate'),
+    accessibilityLabel: t('assistance.generateLabel'),
+    symbol: 'square.and.pencil',
+    run: () => {
+      setOpenings(openings + 1);
+      setPrompting(true);
+    },
+  };
   const suggestReply = {
     key: 'reply',
     title: t('assistance.suggestReply'),
@@ -1515,12 +1537,16 @@ function WritingTools({
     symbol: '',
     run: onReply,
   };
-  return (
+  const menu = (
     <MenuButton
       accessibilityLabel={t('drafts.writingTools')}
       disabled={sending}
       sections={[
-        [...tools('rewrite'), ...(assistance && reply ? [suggestReply] : [])],
+        [
+          ...(assistance ? [generate] : []),
+          ...tools('rewrite'),
+          ...(assistance && reply ? [suggestReply] : []),
+        ],
         tools('proofread', 'paragraphs'),
         translation ? [translate] : [],
         tools('expand', 'shorten'),
@@ -1533,6 +1559,19 @@ function WritingTools({
         color={colors.textPrimary}
       />
     </MenuButton>
+  );
+  return (
+    <GeneratePrompt
+      popover={popover}
+      shown={prompting}
+      opening={openings}
+      disabled={sending}
+      trigger={menu}
+      onClose={() => {
+        setPrompting(false);
+      }}
+      onGenerate={onGenerate}
+    />
   );
 }
 
@@ -1945,8 +1984,9 @@ function Editor({
       setCaptured(undefined);
     }
   };
-  // Captures authored text for an explicitly requested translation, text tool or reply suggestion.
-  const capture = (purpose: DraftTextPurpose, at: Selection) => {
+  // Captures authored text for an explicitly requested translation, text tool, reply suggestion or
+  // generated draft.
+  const capture = (text: (draft: Draft) => CapturedDraftText) => {
     if (
       sendingNow.current ||
       !lifetime.current.mounted ||
@@ -1956,7 +1996,7 @@ function Editor({
     }
     captureGeneration.current += 1;
     const next = {
-      ...captureDraftText(purpose, authored.current, at),
+      ...text(authored.current),
       id: captureGeneration.current,
       profile,
     };
@@ -2202,19 +2242,29 @@ function Editor({
       />
       <View style={styles.grow} />
       <WritingTools
+        // A prompt belongs to the Mail Profile it was opened in.
+        key={profile}
         assistance={assistance !== undefined}
         translation={translation !== undefined}
         reply={canSuggestReply(draft)}
         body={draft.body}
         selection={selection}
         sending={sending}
+        popover={regular}
+        onGenerate={(prompt) => {
+          if (lifetime.current.mounted) {
+            capture((latest) =>
+              capturePrompt(latest, selectionNow.current, prompt),
+            );
+          }
+        }}
         onTextTool={(tool) => {
           const at = selectionNow.current;
           if (
             lifetime.current.mounted &&
             canRewrite(authored.current.body, at)
           ) {
-            capture(tool, at);
+            capture((latest) => captureDraftText(tool, latest, at));
           }
         }}
         onTranslate={() => {
@@ -2228,11 +2278,13 @@ function Editor({
           ) {
             return;
           }
-          capture('translate', at);
+          capture((latest) => captureDraftText('translate', latest, at));
         }}
         onReply={() => {
           if (lifetime.current.mounted) {
-            capture('reply', selectionNow.current);
+            capture((latest) =>
+              captureDraftText('reply', latest, selectionNow.current),
+            );
           }
         }}
       />

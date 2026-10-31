@@ -12,7 +12,9 @@ composer's other Writing tools that edit authored text the same way, and
 [#1623](https://github.com/unwired-dev/product/issues/1623) adds them to the
 iPhone and iPad composer, and
 [#1625](https://github.com/unwired-dev/product/issues/1625) adds the Mac
-composer's **Generate a Draft…**, which writes new text from a prompt.
+composer's **Generate a Draft…**, which writes new text from a prompt, and
+[#1635](https://github.com/unwired-dev/product/issues/1635) adds it to the
+iPhone and iPad composer.
 
 ## Behavior
 
@@ -21,7 +23,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   selected it rewrites the selection; with nothing selected it rewrites the whole
   authored body. It is disabled while that text is blank.
 - The Writing tools menu groups its items as the approved design does:
-  **Rewrite** and **Suggest reply** (on Mac led by **Generate a Draft…**);
+  **Generate a Draft…**, **Rewrite** and **Suggest reply**;
   **Proofread** and **Break into Paragraphs**; **Translate** (**Translate To** on
   Mac); **Expand Text** and **Shorten Text**; **Make More Friendly** and
   **Make More Neutral**. Each of these text tools captures text and is enabled like
@@ -30,11 +32,11 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   text into paragraphs; **Expand Text** and **Shorten Text** change its length;
   the tone tools change only its tone. The `registration-draft-editor` evaluation
   editor still offers only **Rewrite** on iPhone and iPad.
-- On Mac, **Generate a Draft…** needs no text, so it is enabled whenever the
-  menu is. It opens a popover below the menu button with a prompt field and
-  **Generate**, which is disabled while the prompt is blank; Return also
-  generates. The close button, Escape or a click elsewhere dismisses it without
-  changing the Draft. The model reads only the prompt, never the Draft, and the
+- **Generate a Draft…** needs no text, so it is enabled whenever the menu is. It
+  opens a prompt field and **Generate**, which is disabled while the prompt is
+  blank; Return also generates. On Mac and iPad the prompt is a popover below the
+  menu button; on iPhone it is a sheet. The close button, Escape, a click or tap
+  elsewhere, or dismissing the sheet closes it without changing the Draft. The model reads only the prompt, never the Draft, and the
   result opens in the review panel titled **Generated draft**. **Insert** places
   it at the caret, after any selection without replacing it, as one undoable
   edit; **Discard** closes it. A prompt longer than the input bound is refused
@@ -94,8 +96,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   ([#1164](https://github.com/unwired-dev/product/issues/1164)).
 
 Not in this slice: the three concise reply directions and the question check that
-[Response Assistance](domain/assistance.md) describes, subject suggestions,
-and **Generate a Draft…** on iPhone and iPad.
+[Response Assistance](domain/assistance.md) describes, and subject suggestions.
 The Writing tools that use the model appear only
 while [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement)
 is on; turning it off cancels a pending request and closes its panel.
@@ -154,8 +155,8 @@ allow-listed native code or decode path, never Draft or generated text.
 - The composer tests in `apps/mobile/test/composer.test.tsx` and
   `apps/macos/test/composer.test.tsx` rewrite the whole body and a selection,
   check the Writing tools groups, symbols and per-tool requests, panels and Replace,
-  the Mac Generate a Draft popover's blank prompt, Close and Escape, its prompt-only
-  request, Cancel, Insert at the caret with Undo, Discard and a too-long prompt,
+  the Generate a Draft popover (and iPhone sheet) with its blank prompt, Close,
+  Escape or a system dismissal against queued input, its prompt-only request, Cancel, Insert at the caret with Undo, Discard and a too-long prompt,
   review and apply the whole-body result as one undoable edit without touching recipients, keep the
   original against a queued apply, show reply-length guidance without inference when the encoded authored
   reply leaves no room for context, show a refusal, cancel and retry, and drop a

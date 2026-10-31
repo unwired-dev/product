@@ -194,9 +194,10 @@ function Status({
   );
 }
 
-// Review of an explicitly requested rewrite or reply suggestion for captured Draft text. Opening it
-// is the request. The Draft changes only when the person applies the result; the owner then
-// replaces exactly the captured text as one undoable edit. Nothing is saved or sent.
+// Review of an explicitly requested rewrite, reply suggestion or generated draft for captured
+// Draft text. Opening it is the request. The Draft changes only when the person applies the
+// result; the owner then replaces exactly the captured text, or inserts a generated draft at the
+// caret, as one undoable edit. Nothing is saved or sent.
 export function DraftAssistance({
   native,
   purpose,
@@ -216,7 +217,10 @@ export function DraftAssistance({
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
-  const apply = purpose === 'reply' ? 'useReply' : 'replace';
+  const verbs = { reply: 'useReply', generate: 'insert' } as const;
+  const apply =
+    purpose === 'reply' || purpose === 'generate' ? verbs[purpose] : 'replace';
+  const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
   return (
     <View
       accessibilityLabel={t(`assistance.${purpose}Region`)}
@@ -268,8 +272,8 @@ export function DraftAssistance({
           />
         ) : null}
         <Action
-          label={t('assistance.keepOriginal')}
-          accessibilityLabel={t('assistance.keepOriginalLabel')}
+          label={t(`assistance.${close}`)}
+          accessibilityLabel={t(`assistance.${close}Label`)}
           onPress={() => {
             store.discard();
             onClose();
