@@ -38,7 +38,7 @@ const styles = StyleSheet.create({
   secondary: { ...textStyles.body },
 });
 
-type Purpose = 'rewrite' | 'reply';
+type Purpose = DraftAssistanceInput['purpose'];
 
 const idle: DraftAssistanceState = { kind: 'idle' };
 
@@ -217,7 +217,7 @@ export function DraftAssistance({
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
-  const apply = purpose === 'rewrite' ? 'replace' : 'useReply';
+  const apply = purpose === 'reply' ? 'useReply' : 'replace';
   return (
     <View
       accessibilityLabel={t(`assistance.${purpose}Region`)}

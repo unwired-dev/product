@@ -23,7 +23,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [On-device message summaries](message-summaries.md)
 - [Catch Up, the planned chat-style Inbox, and background summaries](catch-up.md)
 - [On-device translation](message-translation.md)
-- [On-device Draft rewrites and reply suggestions](draft-assistance.md)
+- [On-device Draft rewrites, Writing tools and reply suggestions](draft-assistance.md)
 - [Private Cloud Mail Assistance: confirmed planned scope and delivery](product/private-cloud-mail-assistance.md)
 - [On-device assistance qualification on physical hardware](assistance-qualification.md)
 - [Drafts, the composer and provider-hosted launch work](drafts.md)

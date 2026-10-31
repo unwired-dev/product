@@ -7,19 +7,19 @@ import { unwiredMenu } from './native-menu.ts';
 // `UnwiredPopUpButton` at the Jest native boundary. A press opens its AppKit menu with the items it
 // shows then, which a test answers through `native-menu.ts`; a choice reports the item's id.
 export function NativePopUpButton({
-  items,
+  sections,
   enabled,
   onSelect,
   ...props
 }: ComponentProps<typeof Pressable> & {
-  readonly items: Parameters<typeof unwiredMenu.show>[1][number]['items'];
+  readonly sections: Parameters<typeof unwiredMenu.show>[1];
   readonly enabled: boolean;
   readonly onSelect: (event: {
     readonly nativeEvent: { readonly id: string };
   }) => void;
 }) {
   const open = async () => {
-    const id = await unwiredMenu.show(0, [{ items }]);
+    const id = await unwiredMenu.show(0, sections);
     if (id !== null) {
       onSelect({ nativeEvent: { id } });
     }

@@ -14,6 +14,7 @@ import {
   rewriteInput,
   summaryInput,
   summaryInputLimit,
+  textTools,
 } from '../src/assistance.ts';
 import { imageCharacter } from '../src/semantic-document.ts';
 import {
@@ -634,6 +635,65 @@ describe('on-device Draft rewrites and reply suggestions', () => {
       );
       expect(noContext.input).toBeUndefined();
       expect(noContext.issue).toBeUndefined();
+    }
+  });
+
+  it('asks the native model for each Writing tool by its own operation on the captured text', async () => {
+    expect.hasAssertions();
+    const { native, nth } = scriptedAssistance();
+    const assistance = createDraftAssistance(native);
+    const draft: Draft = {
+      id: 'draft',
+      connection: 'connection',
+      from: 'alex@example.invalid',
+      to: [],
+      cc: [],
+      bcc: [],
+      subject: 'Plans',
+      body: [{ kind: 'paragraph', spans: [{ text: 'lets meet friday ok' }] }],
+      updatedAt: 0,
+    };
+    for (const [index, tool] of textTools.entries()) {
+      // A collapsed caret captures the whole body; a selection captures only itself.
+      const whole = captureDraftText(tool, draft, { start: 3, end: 3 });
+      expect(whole).toMatchObject({
+        purpose: tool,
+        text: 'lets meet friday ok',
+      });
+      expect(captureDraftText(tool, draft, { start: 10, end: 16 }).text).toBe(
+        'friday',
+      );
+      const input = admitted(whole.input);
+      const done = assistance.start(input);
+      const call = await nth(index);
+      expect(call.operation).toBe('rewrite');
+      expect(parseRequest(call.input)).toStrictEqual({
+        operation: tool,
+        authoredText: 'lets meet friday ok',
+      });
+      call.answer.resolve(`${tool} result`);
+      await done;
+      expect(assistance.getSnapshot(input)).toMatchObject({
+        kind: 'ready',
+        text: `${tool} result`,
+      });
+      // Every tool refuses what Rewrite refuses, under its own name.
+      const image = captureDraftText(
+        tool,
+        {
+          ...draft,
+          body: [
+            { kind: 'paragraph', spans: [{ text: `See ${imageCharacter}` }] },
+          ],
+        },
+        { start: 0, end: 0 },
+      );
+      expect(image).toMatchObject({
+        purpose: tool,
+        input: undefined,
+        issue: 'inline-image',
+      });
+      expect(rewriteInput('"'.repeat(3000), tool)).toBeUndefined();
     }
   });
 

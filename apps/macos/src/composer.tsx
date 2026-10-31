@@ -2,6 +2,7 @@ import type { Translate } from '@private-email/localization';
 import type {
   CapturedDraftText,
   NativeAssistance,
+  TextTool,
 } from '@private-email/mail-core/assistance';
 import type {
   AssetPreview,
@@ -41,6 +42,7 @@ import {
   canSuggestReply,
   captureDraftText,
   draftReplacement,
+  isTextTool,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
 import {
@@ -111,6 +113,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+import type { PopUpItem } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
 import { useCloseGuard } from './command-palette.tsx';
@@ -1231,10 +1235,20 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   );
 }
 
-export const rewriteLabel = (at: Selection) =>
+const textToolLabel = (tool: TextTool, at: Selection) =>
   at.start === at.end
-    ? 'assistance.rewriteDraftLabel'
-    : 'assistance.rewriteSelectionLabel';
+    ? (`assistance.${tool}DraftLabel` as const)
+    : (`assistance.${tool}SelectionLabel` as const);
+
+const textToolSymbols: Readonly<Record<TextTool, string>> = {
+  rewrite: 'pencil',
+  proofread: 'text.badge.checkmark',
+  paragraphs: 'text.alignleft',
+  expand: 'arrow.up.and.down.text.horizontal',
+  shorten: 'arrow.down.and.line.horizontal.and.arrow.up',
+  friendly: 'face.smiling',
+  neutral: 'face.dashed',
+};
 
 // The format bar's Writing tools menu. A choice reports its purpose; the composer checks it
 // against its current Draft before capturing text.
@@ -1262,27 +1276,43 @@ export function WritingTools({
       onCapture('translate', language);
     },
   );
+  const rewritable = canRewrite(draft.body, selection);
+  const tools = (...names: TextTool[]): PopUpItem[] =>
+    assistance === undefined
+      ? []
+      : names.map((tool) => ({
+          key: tool,
+          title: t(`assistance.${tool}`),
+          symbol: textToolSymbols[tool],
+          accessibilityLabel: t(textToolLabel(tool, selection)),
+          disabled: !rewritable,
+          run: () => {
+            onCapture(tool);
+          },
+        }));
   return assistance === undefined && translation === undefined ? null : (
     <PopUp
       disabled={disabled}
       accessibilityLabel={t('drafts.writingTools')}
       icon="sparkles"
-      items={[
-        ...(assistance === undefined
-          ? []
-          : [
-              {
-                key: 'rewrite',
-                title: t('assistance.rewrite'),
-                symbol: 'pencil',
-                accessibilityLabel: t(rewriteLabel(selection)),
-                disabled: !canRewrite(draft.body, selection),
-                run: () => {
-                  onCapture('rewrite');
+      sections={[
+        [
+          ...tools('rewrite'),
+          ...(assistance !== undefined && canSuggestReply(draft)
+            ? [
+                {
+                  key: 'reply',
+                  title: t('assistance.suggestReply'),
+                  accessibilityLabel: t('assistance.suggestReplyLabel'),
+                  run: () => {
+                    onCapture('reply');
+                  },
                 },
-              },
-            ]),
-        ...(translation === undefined
+              ]
+            : []),
+        ],
+        tools('proofread', 'paragraphs'),
+        translation === undefined
           ? []
           : [
               {
@@ -1299,20 +1329,10 @@ export function WritingTools({
                 ),
                 items: targetLanguages,
               },
-            ]),
-        ...(assistance !== undefined && canSuggestReply(draft)
-          ? [
-              {
-                key: 'reply',
-                title: t('assistance.suggestReply'),
-                accessibilityLabel: t('assistance.suggestReplyLabel'),
-                run: () => {
-                  onCapture('reply');
-                },
-              },
-            ]
-          : []),
-      ]}
+            ],
+        tools('expand', 'shorten'),
+        tools('friendly', 'neutral'),
+      ].flatMap((items) => (items.length === 0 ? [] : [{ items }]))}
     />
   );
 }
@@ -2238,13 +2258,12 @@ function Editor({
           onCapture={(purpose, target) => {
             const at = selectionNow.current;
             const { body } = authored.current;
-            const available =
-              purpose === 'rewrite'
-                ? canRewrite(body, at)
-                : purpose === 'reply' ||
-                  hasTranslatableText(
-                    selectedText(body, at, translationInputLimit + 1),
-                  );
+            const available = isTextTool(purpose)
+              ? canRewrite(body, at)
+              : purpose === 'reply' ||
+                hasTranslatableText(
+                  selectedText(body, at, translationInputLimit + 1),
+                );
             if (available) {
               capture(purpose, at, target);
             }

@@ -50,6 +50,7 @@ import {
   chooseSubmenuItem,
   dismissMenu,
   menuItems,
+  menuSections,
   submenuItems,
 } from './native-menu.ts';
 
@@ -2822,6 +2823,102 @@ describe('composing Drafts', () => {
       'Hello! Nos vemos el viernes.',
       { exact: true },
     );
+  });
+
+  it('offers each Writing tool in its group and applies its reviewed result like Rewrite', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked } = scriptedDraftAssistance();
+    const translation: NativeTranslation = {
+      translationLanguages: () =>
+        Promise.resolve([{ code: 'en', name: 'English' }]),
+      translate: () => Promise.reject(new Error('unused')),
+      cancel: () => Promise.resolve(null),
+    };
+    await render(
+      <AssistanceContext value={native}>
+        <TranslationContext value={translation}>
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            registration={registration}
+          />
+        </TranslationContext>
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    await press('Writing tools');
+    // The approved groups, in order, each tool with its symbol; nothing to edit yet.
+    expect(
+      menuSections().map(({ items }) =>
+        items.map(({ title, symbol, disabled }) => [title, symbol, disabled]),
+      ),
+    ).toStrictEqual([
+      [['Rewrite', 'pencil', true]],
+      [
+        ['Proofread', 'text.badge.checkmark', true],
+        ['Break into Paragraphs', 'text.alignleft', true],
+      ],
+      [['Translate To', 'translate', true]],
+      [
+        ['Expand Text', 'arrow.up.and.down.text.horizontal', true],
+        ['Shorten Text', 'arrow.down.and.line.horizontal.and.arrow.up', true],
+      ],
+      [
+        ['Make More Friendly', 'face.smiling', true],
+        ['Make More Neutral', 'face.dashed', true],
+      ],
+    ]);
+    await dismissMenu();
+    const original = 'lets meet friday. thanks';
+    const body = () => screen.getByLabelText('Message body');
+    await fireEvent.changeText(body(), original);
+    await expect(writingToolsItem('Proofread')).resolves.toMatchObject({
+      accessibilityLabel: 'Proofread the message body',
+      disabled: false,
+    });
+
+    // Each tool sends its own operation; the panel is titled and labelled for that tool.
+    await writingTool('Proofread');
+    expect(asked[0]?.operation).toBe('rewrite');
+    expect(parseJson(asked[0]!.input)).toStrictEqual({
+      operation: 'proofread',
+      authoredText: original,
+    });
+    asked[0]?.answer.resolve("Let's meet Friday. Thanks");
+    await screen.findByText("Let's meet Friday. Thanks");
+    expect(
+      screen.getByLabelText('Proofread version of your text'),
+    ).toBeOnTheScreen();
+    expect(
+      jest.mocked(AccessibilityInfo.announceForAccessibilityWithOptions),
+    ).toHaveBeenLastCalledWith("Proofread\nLet's meet Friday. Thanks", {
+      queue: true,
+    });
+    expect(body()).toHaveTextContent(original, { exact: true });
+    await press('Replace your text with this rewrite');
+    expect(body()).toHaveTextContent("Let's meet Friday. Thanks", {
+      exact: true,
+    });
+    await press('Undo');
+    expect(body()).toHaveTextContent(original, { exact: true });
+
+    // A selection is edited alone.
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 17 } },
+    });
+    await expect(writingToolsItem('Make More Friendly')).resolves.toMatchObject(
+      { accessibilityLabel: 'Make the selected text more friendly' },
+    );
+    await writingTool('Shorten Text');
+    expect(parseJson(asked[1]!.input)).toStrictEqual({
+      operation: 'shorten',
+      authoredText: 'lets meet friday.',
+    });
+    asked[1]?.answer.resolve('Friday?');
+    await screen.findByLabelText('Shortened version of your text');
+    await press('Replace your text with this rewrite');
+    expect(body()).toHaveTextContent('Friday? thanks', { exact: true });
   });
 
   it('rewrites the body or a selection and applies it only after review as one undoable edit', async () => {
