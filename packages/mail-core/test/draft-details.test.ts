@@ -941,6 +941,22 @@ describe('the Writing tools detail check', () => {
     });
   });
 
+  it('compares a time or date range as one detail', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Available 09:00–17:00, 8am–9am, Mon–Fri.'),
+        'Available 17:00–09:00, 9am–8am, Fri–Mon.',
+      ).changes.map(({ kind, status }) => `${kind} ${status}`),
+    ).toStrictEqual(['time changed', 'time changed', 'date changed']);
+    expect(
+      checkDetails(
+        whole('Open 9:00 – 17:00, Mon - Fri.'),
+        'Open Mon-Fri, 9:00–17:00.',
+      ),
+    ).toStrictEqual({ kept: ['9:00 – 17:00', 'Mon - Fri'], changes: [] });
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(
