@@ -96,7 +96,11 @@ iPhone and iPad composer.
     symbol, a three-letter code or Kč, including compact `USD40` and `40USD`,
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
     point (`-40`, `.5`), percentages (`10%`), grouped figures (`1 500`), fractions,
-    ratios and ranges (`100/200`, `100:200`, `1–2`) and time or date ranges (`09:00–17:00`, `Mon–Fri`) are each one detail, so reversing their ends is a change,
+    ratios and ranges (`100/200`, `100:200`, `1–2`). Adjacent numbers, amounts,
+    dates or times joined by a dash, slash, colon, `to`, `until`, `through` or `till`
+    are compared in order as one detail (`€40–€50`, `09:00–17:00`, `Mon–Fri`,
+    `from 9 to 5`), so reversing their ends is a change. Each endpoint keeps its
+    own sign, date/time parts and equivalence rules. The check also reads
     dates in any letter case, including full weekday names, unambiguous full month
     names, a month with a day or
     year, year-first dates with hyphens, dots or slashes, and an ISO

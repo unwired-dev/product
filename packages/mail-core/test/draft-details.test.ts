@@ -957,6 +957,66 @@ describe('the Writing tools detail check', () => {
     ).toStrictEqual({ kept: ['9:00 – 17:00', 'Mon - Fri'], changes: [] });
   });
 
+  it.each([
+    ['€40–€50', '€50–€40'],
+    ['$40 - $50', '$50 - $40'],
+    ['40 EUR–50 EUR', '50 EUR–40 EUR'],
+    ['€40/€50', '€50/€40'],
+    ['€40:€50', '€50:€40'],
+    ['9 to 5', '5 to 9'],
+    ['9:00 to 17:00', '17:00 to 9:00'],
+    ['9am until 5pm', '5pm until 9am'],
+    ['Mon to Fri', 'Fri to Mon'],
+    ['9am−5pm', '5pm−9am'],
+    ['3 Nov through 5 Nov', '5 Nov through 3 Nov'],
+  ])('flags reversed joined details in %s', (original, result) => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole(`from ${original}`), `from ${result}`),
+    ).toStrictEqual({
+      kept: [],
+      changes: [
+        { kind: expect.any(String), status: 'changed', original, result },
+      ],
+    });
+  });
+
+  it('keeps each range endpoint normalization and sign in place', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('€40 – €50, 8 P.M. until 9 P.M.'),
+        '40€–50€, 8pm until 9pm',
+      ),
+    ).toStrictEqual({
+      kept: ['€40 – €50', '8 P.M. until 9 P.M.'],
+      changes: [],
+    });
+    expect(
+      checkDetails(whole('€40 – €-50'), '€-40 – €50').changes,
+    ).not.toHaveLength(0);
+  });
+
+  it.each([
+    ['3–5 Nov', '5–3 Nov'],
+    ['3 Nov – 5 Nov', '5 Nov – 3 Nov'],
+    ['2026-11-01', '2026-11-02'],
+    ['2026-11-01T09:00-05:00', '2026-11-01T09:00-06:00'],
+    ['9:00-05:00', '9:00-06:00'],
+    ['-40', '40'],
+    ['−40', '40'],
+    ['555-123-4567', '555-456-1237'],
+    ['1/2–3/4', '3/4–1/2'],
+    ['€40–50', '€50–40'],
+  ])(
+    'keeps a change inside a complete numeric detail visible in %s',
+    (original, result) => {
+      expect.hasAssertions();
+      expect(checkDetails(whole(original), result).changes).not.toHaveLength(0);
+      expect(checkDetails(whole(original), original).changes).toStrictEqual([]);
+    },
+  );
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

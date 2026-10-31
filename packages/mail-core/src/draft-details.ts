@@ -68,9 +68,12 @@ const web = `${host}(?::\\d+)?`;
 const currency = String.raw`\p{Sc}|[A-Z]{3}|Kč`;
 // A detail never ends inside a word or before the rest of a number, so `0.5` is not read as `0`.
 const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
-// A range is one detail, so reversing its ends (`09:00–17:00` → `17:00–09:00`) is a change.
-const range = (source: string) =>
-  `(?:${source})(?:\\s?[–—-]\\s?(?:${source}))*`;
+const rangeKinds = new Set<DetailKind>(['date', 'time', 'amount', 'number']);
+const rangeJoin = /^\s*(?:[/–—−:-]|to|until|through|till)\s*$/iu;
+const joinsRange = (previous: Detail, each: Detail, join: string) =>
+  rangeKinds.has(previous.kind) &&
+  rangeKinds.has(each.kind) &&
+  rangeJoin.test(join);
 
 // A detail starts and ends outside a word. Earlier alternatives win where details overlap, so an
 // amount's number or a date's day is not counted again. Quotes are read separately because they
@@ -89,21 +92,19 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   ['link', web],
   [
     'date',
-    range(
-      [
-        String.raw`\d{4}[./-]\d{1,2}[./-]\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
-        `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
-        // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
-        `\\d{1,2}/\\d{1,2}`,
-        `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
-        weekdayName,
-        `${month}\\s\\d{4}`,
-        unambiguousMonth,
-        // Ambiguous standalone names need capitals, so `you may` and `sat down` are words.
-        `(?=\\p{Lu})(?:${weekday}|${month})`,
-        anyCase('today|tomorrow|tonight|yesterday'),
-      ].join('|'),
-    ),
+    [
+      String.raw`\d{4}[./-]\d{1,2}[./-]\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
+      `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
+      // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
+      `\\d{1,2}/\\d{1,2}`,
+      `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
+      weekdayName,
+      `${month}\\s\\d{4}`,
+      unambiguousMonth,
+      // Ambiguous standalone names need capitals, so `you may` and `sat down` are words.
+      `(?=\\p{Lu})(?:${weekday}|${month})`,
+      anyCase('today|tomorrow|tonight|yesterday'),
+    ].join('|'),
   ],
   [
     'amount',
@@ -112,9 +113,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   ],
   [
     'time',
-    range(
-      `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}\\s?${meridiem})(?:\\.?\\s?(?:${zone}))?`,
-    ),
+    `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}\\s?${meridiem})(?:\\.?\\s?(?:${zone}))?`,
   ],
   // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
   [
@@ -153,8 +152,7 @@ const amountKey = (amount: string) => {
 };
 const keys: Partial<Record<DetailKind, (spaced: string) => string>> = {
   email: (spaced) => spaced.toLowerCase(),
-  date: (spaced) =>
-    spaced.toLowerCase().replaceAll(/ ?(?<dash>[–—-]) ?/gu, '$<dash>'),
+  date: (spaced) => spaced.toLowerCase(),
   time: (spaced) =>
     spaced
       .toLowerCase()
@@ -187,10 +185,27 @@ const detailsIn = (source: string): Detail[] => {
     const group = match.slice(1).findIndex((each) => each !== undefined);
     const written = match[group + 1] ?? '';
     const kind = kinds[group] ?? 'number';
-    found.push([
-      match.index + match[0].length - written.length,
-      detail(kind, kind === 'link' ? trimLink(written) : written),
-    ]);
+    const at = match.index + match[0].length - written.length;
+    const each = detail(kind, kind === 'link' ? trimLink(written) : written);
+    const previous = found.at(-1);
+    const join =
+      previous === undefined
+        ? ''
+        : text.slice(previous[0] + previous[1].value.length, at);
+    // Join extracted endpoints, so every kind keeps its own token boundaries and normalization.
+    if (previous !== undefined && joinsRange(previous[1], each, join)) {
+      found.pop();
+      found.push([
+        previous[0],
+        {
+          kind: previous[1].kind,
+          value: text.slice(previous[0], at + written.length),
+          key: `${previous[1].key}\0${join.trim().toLowerCase()}\0${kind}\0${each.key}`,
+        },
+      ]);
+    } else {
+      found.push([at, each]);
+    }
   }
   // Every quote mark is one character.
   for (const match of text.matchAll(quote)) {

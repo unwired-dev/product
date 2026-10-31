@@ -1236,6 +1236,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Distinguish sentence punctuation from a detail's own abbreviation, and retain
   a written time zone after `pm.` as well as `p.m.`; reducing punctuation warnings
   must not let a changed or removed zone disappear behind a kept clock value.
+  Preserve endpoint order in joined numeric, amount, date and time details,
+  including dashed ranges, ratios and word joins such as `to` or `until`.
+  Exercise endpoint reversals and sign/zone swaps across kinds, not only a
+  reported spelling; order-free occurrence matching must not mark a reversed
+  range as kept. Normalize each endpoint without moving its sign or splitting
+  ISO timestamps, offsets, numeric dates or phone-like figures.
   For root-only web destinations, audit every allowed combination of a written
   scheme and omitted root slash against the semantic target. Keep different
   paths, queries and ambiguous spellings visible; otherwise a missing written
