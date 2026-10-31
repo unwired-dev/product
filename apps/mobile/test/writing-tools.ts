@@ -5,6 +5,8 @@ interface WritingToolsMenu {
   readonly sections: ReadonlyArray<{
     readonly items: ReadonlyArray<{
       readonly id: string;
+      readonly title: string;
+      readonly symbol: string;
       readonly accessibilityLabel?: string;
       readonly disabled?: boolean;
     }>;
@@ -23,6 +25,12 @@ const menu = () => {
   const props: unknown = screen.queryByLabelText('Writing tools')?.props;
   return isMenu(props) ? props : undefined;
 };
+
+// The Writing tools groups, in order, as each item's title, symbol and whether it is disabled.
+export const writingToolGroups = () =>
+  menu()?.sections.map(({ items }) =>
+    items.map(({ title, symbol, disabled }) => [title, symbol, disabled]),
+  );
 
 // The composer's Writing tools item with this spoken name, if the menu offers it now.
 export const writingTool = (name: string) =>
