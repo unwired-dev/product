@@ -1425,6 +1425,7 @@ function GeneratePrompt({
             size={13}
           />
           <Text
+            selectable
             accessibilityRole="header"
             style={[styles.title, styles.grow, { color: colors.textPrimary }]}>
             {t('assistance.generatePromptTitle')}
