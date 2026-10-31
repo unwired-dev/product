@@ -56,28 +56,29 @@ export type InvitationOffer =
 const unreadable = { kind: 'unreadable' } as const;
 
 // Unfolded content lines; a parameter value may quote `;`, `:` and `,`.
-const contentLines = (text: string): readonly Line[] =>
-  text
+const contentLines = (text: string): readonly Line[] | undefined => {
+  const lines: Line[] = [];
+  for (const raw of text
     .replaceAll(/\r?\n[ \t]/gu, '')
-    .split(/\r?\n/u)
-    .flatMap((raw) => {
-      const match =
-        /^(?<name>[A-Za-z0-9-]+)(?<parameters>(?:;[^:";]+=(?:"[^"]*"|[^:";]*)(?:,(?:"[^"]*"|[^:";,]*))*)*):(?<value>.*)$/u.exec(
-          raw,
-        );
-      if (match === null) {
-        return [];
-      }
-      return [
-        {
-          name: (match[1] ?? '').toUpperCase(),
-          parameters: (match[2] ?? '')
-            .split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/u)
-            .slice(1),
-          value: match[3] ?? '',
-        },
-      ];
+    .trimEnd()
+    .split(/\r?\n/u)) {
+    const match =
+      /^(?<name>[A-Za-z0-9-]+)(?<parameters>(?:;[^:";]+=(?:"[^"]*"|[^:";]*)(?:,(?:"[^"]*"|[^:";,]*))*)*):(?<value>.*)$/u.exec(
+        raw,
+      );
+    if (match === null || /[\r\u0000]/u.test(raw)) {
+      return undefined;
+    }
+    lines.push({
+      name: (match[1] ?? '').toUpperCase(),
+      parameters: (match[2] ?? '')
+        .split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/u)
+        .slice(1),
+      value: match[3] ?? '',
     });
+  }
+  return lines;
+};
 
 const parameterOf = (line: Line, name: string) => {
   const found = line.parameters.find((parameter) =>
@@ -92,9 +93,10 @@ const text = (value: string) =>
   );
 
 const addressOf = (line: Line) => {
-  const match = /^mailto:(?<address>[^\s@]+@[^\s@]+)$/iu.exec(
-    line.value.trim(),
-  );
+  const match =
+    /^mailto:(?<address>[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+)$/iu.exec(
+      line.value.trim(),
+    );
   return match?.[1];
 };
 
@@ -144,6 +146,23 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
     second,
   ].map((field) => Number(field ?? 0));
   const naive = Date.UTC(y, mo - 1, d, h, mi, se);
+  const date = new Date(naive);
+  const value = parameterOf(line, 'VALUE')?.toUpperCase();
+  if (
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== mo - 1 ||
+    date.getUTCDate() !== d ||
+    date.getUTCHours() !== h ||
+    date.getUTCMinutes() !== mi ||
+    date.getUTCSeconds() !== se ||
+    (hour === undefined
+      ? value !== 'DATE'
+      : value !== undefined && value !== 'DATE-TIME') ||
+    (parameterOf(line, 'TZID') !== undefined &&
+      (hour === undefined || utc === 'Z'))
+  ) {
+    return undefined;
+  }
   return hour === undefined || utc === 'Z'
     ? { at: naive, allDay: hour === undefined }
     : zonedTime(naive, parameterOf(line, 'TZID'));
@@ -157,22 +176,38 @@ const scoped = (lines: readonly Line[]) => {
   const stack: string[] = [];
   const properties: Array<{ path: string; line: Line }> = [];
   let events = 0;
+  let calendars = 0;
   for (const line of lines) {
     if (line.name === 'BEGIN') {
+      if (stack.length === 0 && line.value.toUpperCase() !== 'VCALENDAR') {
+        return undefined;
+      }
       stack.push(line.value.trim().toUpperCase());
+      calendars += stack.join('/') === 'VCALENDAR' ? 1 : 0;
       events += stack.join('/') === 'VCALENDAR/VEVENT' ? 1 : 0;
     } else if (line.name === 'END') {
-      stack.pop();
+      if (stack.pop() !== line.value.trim().toUpperCase()) {
+        return undefined;
+      }
     } else {
+      if (stack.length === 0) {
+        return undefined;
+      }
       properties.push({ path: stack.join('/'), line });
     }
   }
-  return { properties, events };
+  return stack.length === 0 && calendars === 1
+    ? { properties, events }
+    : undefined;
 };
 
 // The single top-level event of a `METHOD:REQUEST` calendar, or undefined for anything else.
-const requestedEvent = (lines: readonly Line[]) => {
-  const { properties, events } = scoped(lines);
+const requestedEvent = (lines: readonly Line[] | undefined) => {
+  const calendar = lines === undefined ? undefined : scoped(lines);
+  if (calendar === undefined) {
+    return undefined;
+  }
+  const { properties, events } = calendar;
   const methods = properties
     .filter(({ path, line }) => path === 'VCALENDAR' && line.name === 'METHOD')
     .map(({ line }) => line.value.trim().toUpperCase());
@@ -188,8 +223,11 @@ const find = (event: readonly Line[], name: string) =>
 
 // A non-negative SEQUENCE, 0 when absent.
 const sequenceOf = (event: readonly Line[]) => {
-  const sequence = Number(find(event, 'SEQUENCE')?.value.trim() ?? '0');
-  return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : undefined;
+  const value = find(event, 'SEQUENCE')?.value.trim() ?? '0';
+  const sequence = Number(value);
+  return /^\d+$/u.test(value) && Number.isSafeInteger(sequence)
+    ? sequence
+    : undefined;
 };
 
 // The ORGANIZER line and its recipient.
@@ -225,8 +263,27 @@ const meetingOf = (event: readonly Line[]) => {
   const organizer = organizerOf(event);
   const start = timeOf(find(event, 'DTSTART'));
   const sequence = sequenceOf(event);
+  const endLine = find(event, 'DTEND');
+  const end = timeOf(endLine);
+  const singletons = [
+    'UID',
+    'SEQUENCE',
+    'DTSTART',
+    'DTEND',
+    'ORGANIZER',
+    'SUMMARY',
+    'LOCATION',
+  ];
   if (
     event.some((line) => recurring.has(line.name)) ||
+    singletons.some(
+      (name) => event.filter((line) => line.name === name).length > 1,
+    ) ||
+    (endLine !== undefined &&
+      (end === undefined ||
+        start === undefined ||
+        end.allDay !== start.allDay ||
+        end.at <= start.at)) ||
     uid === '' ||
     organizer === undefined ||
     start === undefined ||

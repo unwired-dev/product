@@ -192,6 +192,60 @@ describe('meeting invitations', () => {
       calendar(meeting.filter((line) => !line.startsWith('ORGANIZER'))),
     ],
     ['damaged text', 'not a calendar'],
+    ['a truncated event', calendar(meeting).replace('END:VEVENT\r\n', '')],
+    [
+      'a mismatched ending',
+      calendar(meeting).replace('END:VEVENT', 'END:VTODO'),
+    ],
+    ['an invalid content line', calendar([...meeting, 'RRULE;FREQ=WEEKLY'])],
+    ['two event identifiers', calendar([...meeting, 'UID:other-meeting'])],
+    [
+      'an invalid sequence',
+      calendar(
+        meeting.map((line) => line.replace('SEQUENCE:2', 'SEQUENCE:2e0')),
+      ),
+    ],
+    [
+      'an invalid date',
+      calendar(
+        meeting.map((line) =>
+          line.replace('20261106T140000', '20260230T140000'),
+        ),
+      ),
+    ],
+    [
+      'an invalid end',
+      calendar(
+        meeting.map((line) => line.replace('20261106T150000', 'not-a-time')),
+      ),
+    ],
+    [
+      'an end before the start',
+      calendar(
+        meeting.map((line) =>
+          line.replace('20261106T150000', '20261106T120000'),
+        ),
+      ),
+    ],
+    [
+      'a DATE value containing a time',
+      calendar(
+        meeting.map((line) =>
+          line.replace('DTSTART;TZID=Europe/Prague', 'DTSTART;VALUE=DATE'),
+        ),
+      ),
+    ],
+    [
+      'an organizer address list',
+      calendar(
+        meeting.map((line) =>
+          line.replace(
+            'mailto:lena@northwind.example',
+            'mailto:lena@northwind.example,other@northwind.example',
+          ),
+        ),
+      ),
+    ],
   ])('cannot read %s', (_, text) => {
     expect.hasAssertions();
     expect(invitationOf(documentOf(text), me)).toStrictEqual({
