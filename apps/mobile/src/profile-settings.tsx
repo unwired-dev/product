@@ -85,10 +85,9 @@ function ProfilePopUp({
   const colors = usePalette();
   return (
     <MenuButton
-      style={[styles.menu, disabled && { opacity: 0.4 }]}
-      pointerEvents={disabled ? 'none' : undefined}
+      style={styles.menu}
+      disabled={disabled}
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled }}
       accessibilityValue={{ text: nameOf(current) }}
       sections={[
         {

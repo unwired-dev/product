@@ -32,6 +32,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { chooseWritingTool, writingToolChoice } from './writing-tools.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -399,9 +400,9 @@ describe('sending a Draft', () => {
         await press(
           'Draft. Lunch. To sam@example.invalid. From alex@example.invalid',
         );
-        await press(captureLabel);
+        await chooseWritingTool(captureLabel);
         await screen.findByText('Reviewed text');
-        const capture = queuedPress(captureLabel);
+        const capture = writingToolChoice(captureLabel);
         const apply = queuedPress(applyLabel);
         const close = queuedPress('Keep your text and close this suggestion');
         sender.storage.hold();
@@ -416,9 +417,7 @@ describe('sending a Draft', () => {
           await pressed;
         });
         expect(screen.queryByLabelText(region)).toBeNull();
-        expect(
-          screen.getByRole('button', { name: captureLabel }),
-        ).toBeDisabled();
+        expect(screen.getByLabelText('Writing tools')).toBeDisabled();
         expect(screen.getByLabelText('Message body')).toHaveTextContent(
           'See you',
           { exact: true },
@@ -429,10 +428,8 @@ describe('sending a Draft', () => {
         await screen.findByRole('alert', {
           name: 'This message could not be queued because Drafts are not saved. Try again.',
         });
-        expect(
-          screen.getByRole('button', { name: captureLabel }),
-        ).not.toBeDisabled();
-        await press(captureLabel);
+        expect(screen.getByLabelText('Writing tools')).not.toBeDisabled();
+        await chooseWritingTool(captureLabel);
         await screen.findByText('Reviewed text');
         await press(applyLabel);
         expect(screen.getByLabelText('Message body')).toHaveTextContent(
