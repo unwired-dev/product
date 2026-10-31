@@ -305,17 +305,20 @@ saves as Mail does:
   keeps its attachment and image bytes while its Draft is deleted in another window, so
   its **Save** stores a usable copy.
 
-The rest of this section describes the iPhone and iPad composer, which still saves
-every edit; on Mac its conflict, discard and removal rules apply to the stored
-version.
+On iPhone and iPad nothing is saved while editing and no save status is shown, as in
+Mail: the Draft is stored only on **Save Draft** or **Send**. **Close** removes an
+empty Draft and closes an unchanged one at once; otherwise **Delete Draft** and
+**Save Draft** grow out of **Close**, and pressing **Close** again keeps editing.
+**Save Draft** first turns any address still being typed into a recipient; text that
+is not a valid address keeps the composer open until it is corrected or removed. It
+then closes once the Draft is stored; when that fails the composer stays open with
+**Try again**, and its edits still ask on the next **Close**. A Draft deleted or
+changed elsewhere while open keeps this composer's version, and **Save Draft** stores
+it as a conflicting copy.
 
-Every edit is saved as it happens, in order: an edit made while an earlier one is
-being written is saved after it, never dropped. Successful saving shows no status,
-so typing never flickers between saving and saved; the composer shows only why the
-latest edit is not saved. Unsaved edits stay in
-the composer and are saved by the next edit or **Try again**.
+On both, the conflict, discard and removal rules below apply to the stored version.
 An editor whose content is unchanged creates no conflict copy when another editor
-has saved newer content; any earlier unsaved work still finishes saving.
+has saved newer content.
 
 Conflicting edits from separate Mac windows or storage writers are preserved as
 separate Drafts labelled **DRAFT · CONFLICT**. Independent Drafts survive a
@@ -328,19 +331,15 @@ This also applies to authored edits arriving after an empty Draft was closed;
 an empty late edit creates no copy. A completed explicit discard suppresses
 later events from the editor that discarded it.
 
-**Close** first turns any address still being typed into a recipient; text that
-is not a valid address keeps the composer open until it is corrected or removed.
-It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. On iPhone
-the composer covers the Inbox and reader, so their system **Back** and edge swipe cannot leave it.
+On iPhone the composer covers the Inbox and reader, so their system **Back** and edge swipe cannot leave it.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
 If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
-Switching to another Draft, starting **New Message**, or selecting received mail on compact layouts
-also finishes recipient entry and waits for saving; invalid entry or a save failure
-keeps the current composer open. **Account** follows the separate
+Switching to another Draft, starting **New Message**, selecting received mail, or choosing
+another destination from the Command Palette asks the same question first, and leaves once the Draft is saved, deleted or
+unchanged. **Account** follows the separate
 [Settings navigation contract](gmail-inbox.md#settings).
 A failed discard keeps the Draft visible and can
 be retried. A concurrent save from another storage writer is recovered once;
@@ -353,7 +352,8 @@ another attempt. Drafts and received mail share the Inbox column's scroll surfac
 If saving failed or private storage became locked, the Inbox also says that Draft
 changes are not saved and offers **Save Drafts**. Keep the app open until saving
 succeeds; unsaved changes survive in memory, not a process termination or account
-removal. On iPhone, selecting the current Draft again requests its composer without trying to
+removal. On iPhone and iPad edits live only in the open composer until **Save Draft**
+or **Send**; ending the app loses them, and reopening shows the stored version. On iPhone, selecting the current Draft again requests its composer without trying to
 leave it, so unfinished recipient text remains available to correct.
 After an interruption or relaunch the Drafts list shows every saved Draft, and
 opening one restores its sending mailbox, recipients, subject and formatted body
@@ -595,8 +595,8 @@ Also measure peak and retained memory across 100 independent history entries of
 a changed long block with several composers and large admitted documents.
 
 The mobile and Mac component journeys create a Draft, enter recipients, format and
-undo, save (as each edit happens on mobile, on **Save** on Mac), finish or refuse
-unfinished recipient text on Close, reopen the
+undo, store it on **Save Draft** (iPhone and iPad) or **Save** (Mac), finish
+or refuse unfinished recipient text on Close or Save Draft, reopen the
 Draft after a remount, keep a Draft open while saving fails,
 and choose another sender after its mailbox is removed; the Mac journey also uses
 the keyboard shortcuts. The Mac journeys check the Close sheet's buttons, **Cancel**,

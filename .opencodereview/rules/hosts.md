@@ -772,6 +772,13 @@ still applies. See `docs/architecture/macos-client.md`.
   overflow's queued Discard, queued Close and later typing, then durable Close
   completion; otherwise Discard or an edit re-enables controls and starts a second
   close, deletion or delivery operation against the same Draft.
+- Mobile `composer.tsx.Editor.saveDraft` completing recipient text only before
+  its first persistence await while continuing to accept edits. Recheck and
+  finish recipient entries for every authored version the save loop admits,
+  including retries; invalid later input must keep the composer open with its
+  recipient notice. Exercise held storage followed by both invalid input and a
+  valid unfinished address, then reopen the saved Draft; otherwise Save Draft
+  closes over invalid input or stores uncompleted recipient text.
 - `composer.tsx.Editor` or `evaluation-composer.tsx.EvaluationEditor` putting
   variable-height save status, errors, confirmations or assistance reviews outside
   its single outer content scroll. Verify failed saving, refusal, Discard and
@@ -861,12 +868,15 @@ still applies. See `docs/architecture/macos-client.md`.
   authored payload too; pairing a fresh save baseline with a stale render payload
   silently erases edits from another field before React renders.
 
-- `Recipients` or `Editor` keeping unfinished recipient text only in component
+- Mac `Recipients` or `Editor` keeping unfinished recipient text only in component
   state instead of the autosaved Draft. Verify interruption recovery without
   blur, Close or navigation, and include unfinished entries in content equality,
   conflict preservation, empty-Draft disposal and Undo/Redo. Otherwise authored
   addresses disappear after termination despite a saved Draft, or a stale empty
   editor deletes another window's work.
+  The regular iPhone and iPad composer intentionally keeps edits local until
+  Save Draft or Send under #1612; do not require autosave or interruption recovery
+  for edits that have not been explicitly saved there.
 
 - Composer text editing that infers a replacement solely from identical display
   text instead of using the selection and deletion direction, or coalesces Undo across fields or caret
@@ -1486,6 +1496,11 @@ still applies. See `docs/architecture/macos-client.md`.
   Dark's light ink token is not a fill for white foregrounds. Preserve the
   shared primary button's `accentFill` treatment, or the action becomes illegible
   precisely while it is being activated.
+- `composer.tsx.CloseQuestion` or another quiet destructive action applying
+  `accentSelectionSubtle` on press while retaining `statusDestructive` text.
+  Composite both states over their actual backing in Light and Dark and verify
+  text contrast before adding feedback; the documented tokens can be legible
+  at rest and fall below AA while the person holds the action.
 - `command-palette.tsx.usePaletteHeader` or another hook attaching
   `accessibilityActions`/`onAccessibilityAction` to a container `View` that is
   not itself `accessible`, such as the Inbox heading row or the composer's top

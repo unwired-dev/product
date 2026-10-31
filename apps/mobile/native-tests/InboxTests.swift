@@ -392,7 +392,11 @@ final class InboxTests: XCTestCase {
     subject.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     type("Unsaved plans", into: subject)
+    // #1612: Close asks first; nothing is stored until Save Draft.
     app.buttons["Close"].tap()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
     let blocked = text("This Draft could not be saved, so it stays open.", in: app)
     XCTAssertTrue(blocked.waitForExistence(timeout: 10))
     XCTAssertFalse(back.isHittable)
@@ -1814,6 +1818,13 @@ final class InboxTests: XCTestCase {
     body.tap()
     press("Keyboard reply", in: app)
     waitUntil { body.value as? String == "Keyboard reply" }
+
+    // #1612: edits are stored only on Save Draft; Close asks first.
+    app.buttons["Close"].tap()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
 
     // Relaunch lists the saved Draft, which reopens with both edits.
     app.terminate()

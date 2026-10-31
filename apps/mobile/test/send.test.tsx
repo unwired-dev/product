@@ -451,7 +451,7 @@ describe('sending a Draft', () => {
     },
   );
 
-  it('restores editing after refused admission and saves the next edits', async () => {
+  it('restores editing after refused admission and stores the next edits on Save Draft', async () => {
     expect.hasAssertions();
     const sender = device();
     try {
@@ -487,6 +487,7 @@ describe('sending a Draft', () => {
         'Kept edits',
       );
       await press('Close');
+      await press('Save Draft');
       await press(
         'Draft. After refusal. To sam@example.invalid. From alex@example.invalid',
       );
