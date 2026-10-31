@@ -71,19 +71,20 @@ jest.mock('react-native-screens', () => {
   return { ...screens, ScreenStack, ScreenStackItem };
 });
 
-// Without SwiftUI, a sheet or popover shows its content while presented, and the system's
-// accessibility escape dismisses it; a sheet finishes dismissing at once.
+// Without SwiftUI, presenters retain hidden content like the installed Expo views. The system's
+// accessibility escape dismisses them; a sheet finishes dismissing at once.
 jest.mock('@expo/ui/swift-ui', () => {
   const React = require('react');
   const { Pressable, Text, View } = require('react-native');
   function Passthrough({ children }) {
     return React.createElement(React.Fragment, null, children);
   }
-  function Presented({ testID, onIsPresentedChange, children }) {
+  function Presented({ testID, shown = true, onIsPresentedChange, children }) {
     return React.createElement(
       View,
       {
         testID,
+        style: shown ? undefined : { display: 'none' },
         onAccessibilityEscape: () => {
           onIsPresentedChange?.(false);
         },
@@ -98,6 +99,10 @@ jest.mock('@expo/ui/swift-ui', () => {
     children,
   }) {
     const [shown, setShown] = React.useState(isPresented);
+    const [mounted, setMounted] = React.useState(isPresented);
+    if (isPresented && !mounted) {
+      setMounted(true);
+    }
     if (isPresented && !shown) {
       setShown(true);
     }
@@ -107,10 +112,10 @@ jest.mock('@expo/ui/swift-ui', () => {
         onDismiss?.();
       }
     }, [shown, isPresented, onDismiss]);
-    return shown
+    return mounted
       ? React.createElement(
           Presented,
-          { testID: 'bottom-sheet', onIsPresentedChange },
+          { testID: 'bottom-sheet', shown, onIsPresentedChange },
           children,
         )
       : null;
@@ -154,6 +159,9 @@ jest.mock('@expo/ui/swift-ui', () => {
       Pressable,
       {
         accessibilityRole: 'button',
+        accessibilityLabel: modifiers?.find(
+          (each) => each.$type === 'accessibilityLabel',
+        )?.label,
         onPress,
         disabled: modifiers?.some(
           (each) => each.$type === 'disabled' && each.disabled,
@@ -201,13 +209,11 @@ jest.mock('@expo/ui/swift-ui', () => {
       if (child.type !== Popover.Content) {
         return child;
       }
-      return isPresented
-        ? React.createElement(
-            Presented,
-            { testID: 'popover', onIsPresentedChange },
-            child,
-          )
-        : null;
+      return React.createElement(
+        Presented,
+        { testID: 'popover', shown: isPresented, onIsPresentedChange },
+        child,
+      );
     });
   }
   // A distinct component, so Popover can tell its content from its trigger.
@@ -253,6 +259,7 @@ jest.mock('@expo/ui/swift-ui', () => {
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  accessibilityLabel: (label) => ({ $type: 'accessibilityLabel', label }),
   buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
   contentShape: (shape) => ({ $type: 'contentShape', shape }),
