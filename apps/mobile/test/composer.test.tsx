@@ -1688,6 +1688,74 @@ describe('composing Drafts', () => {
     ).toStrictEqual([[id, 'First window']]);
   });
 
+  it('keeps a stale editor on one conflicting copy after a refused Send', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const id: string = created;
+    const editor = (name: string) => (
+      <View testID={name}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={id}
+        />
+      </View>
+    );
+    await render(
+      <>
+        {editor('first')}
+        {editor('second')}
+      </>,
+    );
+    const first = within(screen.getByTestId('first'));
+    const second = within(screen.getByTestId('second'));
+    const inWindow = async (
+      window: ReturnType<typeof within>,
+      name: string,
+    ) => {
+      await act(async () => {
+        await fireEvent.press(window.getByRole('button', { name }));
+      });
+    };
+    await fireEvent.changeText(first.getByLabelText('Subject'), 'First window');
+    await inWindow(first, 'Close');
+    await inWindow(first, 'Save Draft');
+    await fireEvent.changeText(
+      second.getByLabelText('To'),
+      'sam@example.invalid',
+    );
+    await fireEvent(second.getByLabelText('To'), 'submitEditing');
+    await fireEvent.changeText(
+      second.getByLabelText('Subject'),
+      'Second window',
+    );
+    // Send stores the stale version as a conflicting copy; storage then refuses the Send.
+    storage.setLocked(true);
+    await inWindow(second, 'Send');
+    storage.setLocked(false);
+    expect(second.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Second window',
+    );
+    await fireEvent.changeText(second.getByLabelText('Subject'), 'Second edit');
+    await inWindow(second, 'Close');
+    await inWindow(second, 'Save Draft');
+    // Later edits continue that copy rather than adding another.
+    expect(
+      draftsOf(drafts.getSnapshot())
+        .map(({ subject }) => subject)
+        .toSorted(),
+    ).toStrictEqual(['First window', 'Second edit']);
+  });
+
   it('undoes subject typing a word at a time wherever the caret is', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

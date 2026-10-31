@@ -2104,7 +2104,7 @@ function Editor({
       // As for Discard, later edits wait: the version shown at Send is the one sent.
       discarded.current = true;
       void store.update(previous, stored.current, rebind);
-      stored.current = previous;
+      stored.current = authored.current;
       const baseline = () =>
         previous.id === authored.current.id
           ? previous
