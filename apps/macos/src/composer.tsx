@@ -920,15 +920,20 @@ const transferred = (
     source: { kind: uri.startsWith('data:') ? 'data' : 'file', uri },
   }));
 
-// What Send's check found about a file whose bytes did not verify.
-const unverified = (kind: AssetPreview['kind'] | undefined) =>
-  kind !== undefined && kind !== 'verified' && kind !== 'ready'
-    ? kind
-    : undefined;
+// A verify-only Send check updates availability without replacing an inline thumbnail.
+const sendPreview = (
+  kind: AssetPreview['kind'] | undefined,
+  preview: AssetPreview | undefined,
+): AssetPreview | undefined => {
+  if (kind === undefined || kind === 'ready') {
+    return undefined;
+  }
+  return kind === 'verified' && preview?.kind === 'ready' ? preview : { kind };
+};
 
 // A complete asset's bytes checked against its digest, read again when it completes or changes;
 // an inline image's are also returned to show. A check refused while storage was locked runs
-// again when the app becomes active, or when asked. A file Send found unverified shows what it found.
+// again when the app becomes active, or when asked. A Send check updates the same status.
 function usePreview(
   asset: Asset,
   inline: boolean,
@@ -994,13 +999,13 @@ function usePreview(
   const [found, setFound] = useState(checked);
   if (found !== checked) {
     setFound(checked);
-    const failure = unverified(checked);
-    if (complete !== undefined && failure !== undefined) {
+    const next = sendPreview(checked, shown);
+    if (complete !== undefined && next !== undefined) {
       setPreview({
         id: complete.id,
         digest: complete.digest,
         attempt,
-        preview: { kind: failure },
+        preview: next,
       });
     }
   }

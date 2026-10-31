@@ -351,6 +351,18 @@ describe('sending a Draft', () => {
       await press('Attach Files…');
       await screen.findByLabelText('plan.pdf, 4 bytes');
       await screen.findByLabelText('scan.pdf, 4 bytes');
+      // A refused check can succeed on the next Send without a separate preview retry.
+      const locked = jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('Storage locked'), { code: 'locked' }),
+        );
+      await press('Send');
+      await screen.findByLabelText(
+        'plan.pdf, 4 bytes · Not checked while private storage is locked',
+      );
+      locked.mockRestore();
+      announce.mockClear();
       // Each file's check finishes only when the test lets it.
       const read = sender.storage.native.readDraftAsset;
       const reads: Array<Readonly<{ id: string; finish: () => void }>> = [];
