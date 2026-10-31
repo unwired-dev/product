@@ -10,4 +10,6 @@ Profile's known `color` and `icon`, `createProfile` accepts a style, and the new
 `restyleProfile` changes a published Profile's style through compare-and-set or
 keeps it for a Profile named offline. Older records and keys this client does
 not know read as Graphite and First Letter, and rewrites keep the stored keys.
-Duplicate Mail Profile copies the Color and Icon with the name.
+The snapshot omits the default style. Edits to an unpublished Profile's style
+survive delayed publication, relaunch and retry conflicts. Duplicate Mail Profile
+copies the Color and Icon with the name.

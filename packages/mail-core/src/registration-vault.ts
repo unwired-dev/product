@@ -86,6 +86,13 @@ export const ProfileStateSchema = Schema.Struct({
       // The stored style, or before the first publication the style it publishes with its name.
       color: Schema.optionalKey(Schema.NonEmptyString),
       icon: Schema.optionalKey(Schema.NonEmptyString),
+      // A style edited before the first publication was confirmed, retained until read back.
+      pendingStyle: Schema.optionalKey(
+        Schema.Struct({
+          color: Schema.optionalKey(Schema.NonEmptyString),
+          icon: Schema.optionalKey(Schema.NonEmptyString),
+        }),
+      ),
       // A name this device chose that Product Sync does not hold yet.
       pending: Schema.optionalKey(Schema.NonEmptyString),
       // A fenced removal retained until its tombstone can publish.

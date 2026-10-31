@@ -881,6 +881,55 @@ describe('mail profiles', () => {
     });
   });
 
+  it('omits the default style from the Profile snapshot while retaining the stored key', async () => {
+    expect.hasAssertions();
+    const { flow, sync } = await connected();
+    const snapshot = await flow.createProfile('Work', { color: 'graphite' });
+    const { id } = profileNamed(snapshot, 'Work');
+    expect(listed(snapshot)).toStrictEqual([{ id, name: 'Work' }]);
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 1, name: 'Work', color: 'graphite' },
+    ]);
+  });
+
+  it('keeps an unpublished Profile’s edited style when its delayed first publication arrives', async () => {
+    expect.hasAssertions();
+    const { flow, vault, sync, relaunch } = await connected();
+    const { flow: interrupted, publish } = delayPublication(vault);
+    const { id } = profileNamed(
+      await interrupted.createProfile('Work', {
+        color: 'teal',
+        icon: 'laptop',
+      }),
+      'Work',
+    );
+    sync.offline = true;
+    await flow.restyleProfile(id, { color: 'green' });
+    sync.offline = false;
+    await publish();
+    // A competing write during retry must not discard the still-unpublished edit either.
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, {
+        kind: 'profile',
+        id,
+        version: 2,
+        name: 'Work',
+        color: 'indigo',
+        icon: 'star',
+      });
+    };
+    const reopened = relaunch();
+    expect(listed(await reopened.restore())).toStrictEqual([
+      { id, name: 'Work', color: 'green' },
+    ]);
+    await reopened.refreshPrivateSync();
+    await reopened.refreshPrivateSync();
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 3, name: 'Work', color: 'green' },
+    ]);
+  });
+
   it('keeps the style chosen for a Profile named offline and publishes it with the name', async () => {
     expect.hasAssertions();
     const { flow, sync } = await connected();

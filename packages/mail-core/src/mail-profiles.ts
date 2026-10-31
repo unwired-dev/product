@@ -152,20 +152,23 @@ export const profileList = (value: RegistrationRecord) => {
   const state = value.profiles;
   const profiles = (
     state === undefined || state === 'unreadable' ? [] : state.profiles
-  ).flatMap(({ id, name, pending, pendingRemoval, color, icon }) => {
-    const shown = pendingRemoval === true ? undefined : (pending ?? name);
-    return shown === undefined
-      ? []
-      : [
-          {
-            id,
-            name: shown,
-            ...(isColor(color) ? { color } : {}),
-            ...(isIcon(icon) ? { icon } : {}),
-            ...(pending === undefined ? {} : { pending: true }),
-          },
-        ];
-  });
+  ).flatMap(
+    ({ id, name, pending, pendingRemoval, pendingStyle, ...storedStyle }) => {
+      const { color, icon } = pendingStyle ?? storedStyle;
+      const shown = pendingRemoval === true ? undefined : (pending ?? name);
+      return shown === undefined
+        ? []
+        : [
+            {
+              id,
+              name: shown,
+              ...(isColor(color) && color !== 'graphite' ? { color } : {}),
+              ...(isIcon(icon) ? { icon } : {}),
+              ...(pending === undefined ? {} : { pending: true }),
+            },
+          ];
+    },
+  );
   return profiles.length === 0 ? undefined : JSON.stringify(profiles);
 };
 
@@ -181,10 +184,14 @@ const readProfile = (
     return stored;
   }
   const pending = known?.pending === name ? undefined : known?.pending;
+  const pendingStyle = known?.pendingStyle;
+  const styleSettled =
+    pendingStyle?.color === style.color && pendingStyle?.icon === style.icon;
   return {
     ...stored,
     name,
     ...styleOf(style),
+    ...(pendingStyle === undefined || styleSettled ? {} : { pendingStyle }),
     ...(pending === undefined ? {} : { pending }),
     ...(known?.pendingRemoval === true
       ? { pendingRemoval: true as const }
@@ -532,13 +539,13 @@ export function createMailProfileProgram<E>(
     );
   });
 
-  // Reads every Profile record and publishes the names this device chose. A name another device
-  // overwrote meanwhile is published again on the next pass.
+  // Reads every Profile record and publishes pending names and unpublished style edits. A CAS
+  // loss keeps those edits for the next pass; an authenticated matching record settles them.
   const synchronize = Effect.gen(function* () {
     const learned = yield* refreshed(yield* known);
     let { state } = learned;
     for (const profile of state.profiles) {
-      const { id, pending, version, updatedAt } = profile;
+      const { id, pending, pendingStyle, version, updatedAt } = profile;
       const removal =
         profile.pendingRemoval === true
           ? yield* pendingRemoval(state, id, learned.readable)
@@ -556,7 +563,9 @@ export function createMailProfileProgram<E>(
         state = next;
       } else if (
         removal !== 'retry' &&
-        (pending !== undefined || removal === 'publish')
+        (pending !== undefined ||
+          pendingStyle !== undefined ||
+          removal === 'publish')
       ) {
         ({ state } = yield* put(state, [
           {
@@ -566,7 +575,10 @@ export function createMailProfileProgram<E>(
               version: (version ?? 0) + 1,
               ...(removal === 'publish'
                 ? {}
-                : { name: pending, ...styleOf(profile) }),
+                : {
+                    name: pending ?? profile.name,
+                    ...styleOf(pendingStyle ?? profile),
+                  }),
             },
             expectedUpdatedAt: updatedAt,
           },
@@ -623,12 +635,18 @@ export function createMailProfileProgram<E>(
   ) {
     const before = yield* known;
     const draft = before.profiles.find((item) => item.id === id);
-    if (draft !== undefined && draft.version === undefined) {
+    if (
+      draft !== undefined &&
+      draft.pendingRemoval !== true &&
+      (draft.version === undefined || draft.pendingStyle !== undefined)
+    ) {
       const { color: _color, icon: _icon, ...rest } = draft;
       return yield* save(before, {
         ...before,
         profiles: before.profiles.map((item) =>
-          item === draft ? { ...rest, ...styleOf(style) } : item,
+          item === draft
+            ? { ...rest, ...styleOf(style), pendingStyle: styleOf(style) }
+            : item,
         ),
       });
     }

@@ -246,8 +246,11 @@ First Letter. A rename or a mailbox move rewrites the record with the style it
 read, including keys this client does not know; an older client drops them when
 it rewrites the record. The registration store's `restyleProfile` replaces the
 whole style through compare-and-set, like a move; a Profile named offline keeps
-its style and publishes it with its name. Settings and the Profile monograms do
-not show the style yet; they follow in
+its style and publishes it with its name. A style edited before the first
+publication is confirmed survives a delayed earlier publication and relaunch,
+until Product Sync confirms the edited style. The snapshot omits Graphite and
+First Letter even when Graphite is stored explicitly. Settings and the Profile
+monograms do not show the style yet; they follow in
 [#1039](https://github.com/unwired-dev/product/issues/1039).
 Every Profile except the Primary Profile offers **Remove Mail
 Profile…**, which asks first in a system alert. For a Profile that owns

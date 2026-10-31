@@ -518,7 +518,14 @@ later incarnation starts in Default. The Default Profile has no record.
 
 `mail-profiles.ts` owns listing, merging and CAS publication. The account's
 device-only `SavedRegistration.profiles` retains the confirmed records and version
-floors, plus pending names. Lower authenticated versions are read-only even under
+floors, plus pending names. Definitions also carry optional raw Color and Icon
+keys. Snapshot projection admits known non-default keys while rewrites preserve
+stored keys, including unknown ones. A style edited before first publication is
+confirmed retains `pendingStyle` in the protected Profile state through delayed
+publication and CAS loss, until an authenticated record matches that exact style.
+A tombstone drops the pending style with the name. Published Profile restyling
+otherwise uses the same online CAS boundary as a move. Lower authenticated
+versions are read-only even under
 a newer unauthenticated row revision. Absent or unreadable ownership retains the
 last confirmed owner. Pending names survive a CAS loss and apply to the winner on
 the next pass; a remote tombstone drops them. Removal publishes a tombstone even
