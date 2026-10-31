@@ -31,9 +31,12 @@ export const createRegistrationFlow = (
     connectImap: (setup) => Effect.runPromise(flow.connectImap(setup)),
     removeMailbox: (connection) =>
       Effect.runPromise(flow.removeMailbox(connection)),
-    createProfile: (name) => Effect.runPromise(flow.createProfile(name)),
+    createProfile: (name, style) =>
+      Effect.runPromise(flow.createProfile(name, style)),
     renameProfile: (profile, name) =>
       Effect.runPromise(flow.renameProfile(profile, name)),
+    restyleProfile: (profile, style) =>
+      Effect.runPromise(flow.restyleProfile(profile, style)),
     ensureSession: () => Effect.runPromise(flow.ensureSession()),
     removeProfile: (profile) => Effect.runPromise(flow.removeProfile(profile)),
     moveMailbox: (connection, profile) =>

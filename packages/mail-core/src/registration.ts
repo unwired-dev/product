@@ -11,6 +11,7 @@ import type {
   MailboxConnection,
   MailGrantProvider,
   PrivateSync,
+  ProfileStyle,
   RegistrationSnapshot,
   SignInProvider,
 } from './registration-snapshot.ts';
@@ -51,6 +52,7 @@ export type {
   MailProfile,
   MailProvider,
   PrivateSync,
+  ProfileStyle,
   RegistrationSnapshot,
   SignInProvider,
   TrustedDevice,
@@ -692,10 +694,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
         }),
       ),
     // Resolves with the new Profile's identifier, or nothing when refused or retired.
-    createProfile: async (name: string): Promise<string | undefined> => {
+    createProfile: async (
+      name: string,
+      style?: ProfileStyle,
+    ): Promise<string | undefined> => {
       let created: string | undefined = undefined;
       await changeProfile(
-        request(native.createProfile(name)).pipe(
+        request(native.createProfile(name, style)).pipe(
           Effect.tap((snapshot) =>
             Effect.sync(() => {
               created =
@@ -710,6 +715,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
     },
     renameProfile: (profile: string, name: string) =>
       changeProfile(request(native.renameProfile(profile, name))),
+    restyleProfile: (profile: string, style: ProfileStyle) =>
+      changeProfile(request(native.restyleProfile(profile, style))),
     // Removes the mailboxes the person confirmed removing with the Profile, each as Email Accounts
     // removes one, then the Profile. One this device already knows moved to another Profile stays;
     // an unobserved move does not revoke confirmation. One moved in unconfirmed refuses removal
