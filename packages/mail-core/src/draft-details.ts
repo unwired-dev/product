@@ -1,8 +1,9 @@
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 
-import { selectedLinks } from './semantic-document.ts';
 import type { SemanticDocument, Selection } from './semantic-document.ts';
+
+import { selectedLinks } from './semantic-document.ts';
 
 // Details a Writing tools result must not change unnoticed. The check reads text only: it cannot
 // tell whether meaning, questions or commitments survived, so people still read the result.
@@ -36,24 +37,21 @@ export type DetailCheck = Readonly<{
   changes: readonly DetailChange[];
 }>;
 
-const weekday = '(?:[Mm]on|[Tt]ues|[Ww]ednes|[Tt]hurs|[Ff]ri|[Ss]atur|[Ss]un)day';
-const month =
-  '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)(?:\\.(?=,?\\s\\d))?';
-const day = '\\d{1,2}(?:st|nd|rd|th)?';
-const figure = '\\d+(?:[.,]\\d+)*';
-const currency = '\\p{Sc}|\\b[A-Z]{3}\\b|Kč';
-const edge = '(?![\\p{L}\\p{N}])';
+const weekday =
+  '(?:[Mm]on|[Tt]ues|[Ww]ednes|[Tt]hurs|[Ff]ri|[Ss]atur|[Ss]un)day';
+const month = String.raw`(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)(?:\.(?=,?\s\d))?`;
+const day = String.raw`\d{1,2}(?:st|nd|rd|th)?`;
+const figure = String.raw`\d+(?:[.,]\d+)*`;
+const currency = String.raw`\p{Sc}|\b[A-Z]{3}\b|Kč`;
+const edge = String.raw`(?![\p{L}\p{N}])`;
 
 // A detail starts and ends outside a word. Earlier alternatives win where details overlap, so an
 // amount's number or a date's day is not counted again. Quotes are read separately because they
 // may hold other details.
 const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
-  ['link', '(?:https?://|www\\.)[^\\s<>"“”«»]+'],
-  ['email', '[\\p{L}\\p{N}._%+-]+@[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)+'],
-  [
-    'amount',
-    `(?:${currency})\\s?${figure}|${figure}\\s?(?:${currency})`,
-  ],
+  ['link', String.raw`(?:https?://|www\.)[^\s<>"“”«»]+`],
+  ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
+  ['amount', `(?:${currency})\\s?${figure}|${figure}\\s?(?:${currency})`],
   [
     'date',
     [
@@ -72,7 +70,7 @@ const pattern = new RegExp(
   `(?:^|[^\\p{L}\\p{N}])(?:${patterns.map(([, source]) => `(${source})`).join('|')})${edge}`,
   'gu',
 );
-const quote = /"([^"\n]+)"|“([^”\n]+)”|„([^“”\n]+)[“”]|«([^»\n]+)»/gu;
+const quote = /"[^"\n]+"|“[^”\n]+”|„[^“”\n]+[“”]|«[^»\n]+»/gu;
 
 // A written link ends before sentence punctuation or a closing quote, and before a closing
 // parenthesis it did not open.
@@ -88,7 +86,7 @@ const trimLink = (link: string): string => {
 // a date or "p.m.", and whether a currency comes before or after its amount. Anything else, such as a
 // reformatted date, a number written as a word or a regrouped number, stays visible to compare.
 const keyOf = (kind: DetailKind, value: string) => {
-  const spaced = value.replace(/\s+/gu, kind === 'quote' ? ' ' : '');
+  const spaced = value.replaceAll(/\s+/gu, kind === 'quote' ? ' ' : '');
   if (kind === 'email' || kind === 'date') {
     return spaced.toLowerCase();
   }
@@ -110,24 +108,24 @@ const detail = (kind: DetailKind, value: string, label?: string): Detail => ({
 });
 
 const detailsIn = (text: string): Detail[] => {
-  const found: Array<Detail & { at: number }> = [];
+  const found: Array<readonly [number, Detail]> = [];
   for (const match of text.matchAll(pattern)) {
     const group = match.slice(1).findIndex((each) => each !== undefined);
     const written = match[group + 1] ?? '';
     const kind = kinds[group] ?? 'number';
-    found.push({
-      ...detail(kind, kind === 'link' ? trimLink(written) : written),
-      at: match.index + match[0].length - written.length,
-    });
+    found.push([
+      match.index + match[0].length - written.length,
+      detail(kind, kind === 'link' ? trimLink(written) : written),
+    ]);
   }
+  // Every quote mark is one character.
   for (const match of text.matchAll(quote)) {
-    const inner = match.slice(1).find((each) => each !== undefined) ?? '';
-    found.push({ ...detail('quote', inner.trim()), at: match.index });
+    found.push([match.index, detail('quote', match[0].slice(1, -1).trim())]);
   }
   return Arr.sort(
     found,
-    Order.mapInput(Order.Number, ({ at }: { at: number }) => at),
-  ).map(({ at: _, ...each }) => each);
+    Order.mapInput(Order.Number, ([at]: readonly [number, Detail]) => at),
+  ).map(([, each]) => each);
 };
 
 // A link whose destination its words do not show is still a detail: plain result text cannot

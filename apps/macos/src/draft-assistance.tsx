@@ -19,11 +19,7 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import {
-  OnDeviceMarker,
-  SFSymbol,
-  useOutcomeAnnouncement,
-} from './design.tsx';
+import { OnDeviceMarker, SFSymbol, useOutcomeAnnouncement } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -220,10 +216,20 @@ function Checks({ check }: { readonly check: DetailCheck }) {
               <Text style={[styles.name, { color: colors.textSecondary }]}>
                 {t('assistance.detailColumn')}
               </Text>
-              <Text style={[styles.value, styles.heading, { color: colors.textSecondary }]}>
+              <Text
+                style={[
+                  styles.value,
+                  styles.heading,
+                  { color: colors.textSecondary },
+                ]}>
                 {t('assistance.originalColumn')}
               </Text>
-              <Text style={[styles.value, styles.heading, { color: colors.textSecondary }]}>
+              <Text
+                style={[
+                  styles.value,
+                  styles.heading,
+                  { color: colors.textSecondary },
+                ]}>
                 {t('assistance.resultColumn')}
               </Text>
               <View style={styles.status} />

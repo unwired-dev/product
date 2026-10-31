@@ -2,11 +2,12 @@ import type { SemanticDocument } from '../src/semantic-document.ts';
 
 import { checkDetails } from '../src/assistance.ts';
 
-const whole = (text: string, body: SemanticDocument = [
-  { kind: 'paragraph', spans: [{ text }] },
-]) => ({ text, draft: { body }, selection: { start: 0, end: text.length } });
+const whole = (
+  text: string,
+  body: SemanticDocument = [{ kind: 'paragraph', spans: [{ text }] }],
+) => ({ text, draft: { body }, selection: { start: 0, end: text.length } });
 
-describe('Writing tools detail check', () => {
+describe('the Writing tools detail check', () => {
   it('lists changed, removed and added details and the kept ones', () => {
     expect.hasAssertions();
     expect(
@@ -53,7 +54,12 @@ describe('Writing tools detail check', () => {
         'Call at 8pm or write to ana.kovac@example.com; it costs €40, see www.example.com/menu_(2026)',
       ),
     ).toStrictEqual({
-      kept: ['8 P.M.', 'Ana.Kovac@Example.com', '40 €', 'www.example.com/menu_(2026)'],
+      kept: [
+        '8 P.M.',
+        'Ana.Kovac@Example.com',
+        '40 €',
+        'www.example.com/menu_(2026)',
+      ],
       changes: [],
     });
     // A number written as a word, a regrouped number, a reformatted date and an edited quote
@@ -106,9 +112,12 @@ describe('Writing tools detail check', () => {
         spans: [{ text: 'Not selected', link: 'https://example.com/' }],
       },
     ];
-    const text =
-      'Here is the booking confirmation. Ask the restaurant.';
-    const original = { text, draft: { body }, selection: { start: 0, end: text.length } };
+    const text = 'Here is the booking confirmation. Ask the restaurant.';
+    const original = {
+      text,
+      draft: { body },
+      selection: { start: 0, end: text.length },
+    };
     // Plain result text cannot carry a link, so it is removed unless written out.
     expect(
       checkDetails(original, 'The booking confirmation is attached.'),
@@ -143,7 +152,10 @@ describe('Writing tools detail check', () => {
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(
-      checkDetails(whole('lets meet soon. thanks'), 'Let us meet soon. Thanks!'),
+      checkDetails(
+        whole('lets meet soon. thanks'),
+        'Let us meet soon. Thanks!',
+      ),
     ).toStrictEqual({ kept: [], changes: [] });
   });
 });

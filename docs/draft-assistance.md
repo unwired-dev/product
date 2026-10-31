@@ -75,6 +75,34 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   plain text. The preview says so. Recipients, the sender, the subject, quoted text,
   attachments, threading and delivery state are never changed. **Keep original**
   closes the panel.
+- On Mac, a finished Writing tools result (Rewrite, Proofread, Break into
+  Paragraphs, Expand, Shorten and the tones) is checked mechanically against the
+  captured text, using `checkDetails` from the assistance core. It never says a
+  result is verified or safe: every finished result ends with a note that the
+  checks compare details only and that meaning, questions and commitments need
+  the person's own reading. Reply suggestions and Generate a Draft are not checked.
+  - Checked details are links (written web addresses, and the destination of
+    linked words whose text does not show it), email addresses (including
+    `mailto:` links), amounts (a number with a currency symbol, a three-letter
+    code or Kč), numbers, dates, times and quoted text in straight, curly, low
+    and angle quotes.
+  - A detail is kept only when the result writes an unambiguous equivalent: the
+    same text apart from spacing, letter case for email addresses, dates and
+    times (`8 P.M.` and `8pm`), the currency on either side of an amount
+    (`40 €` and `€40`), the quote style around the same quoted words, and
+    sentence punctuation after a link (`example.com/r.`), which is not part of
+    it. Nothing else is interpreted, so `3` rewritten as `three` is removed, a
+    reformatted date (`2026-11-01` as `1 November 2026`) or a date that gains a
+    day (`Saturday` as `Saturday, 1 Nov`) is changed, and `1,000` as `1000`
+    is changed.
+  - Details that differ are paired in order within each kind as changed, and
+    the rest are removed or added. The panel counts them, lists each with its
+    original and rewritten value (a changed link says it goes somewhere else; a
+    changed date says it can't be confirmed as the same date) and lists the
+    kept details. The apply action then becomes **Use rewrite with changes**,
+    so applying them is an explicit choice; **Keep original** and **Try again**
+    stay. VoiceOver reads each row as one element and hears the count after
+    the result.
 - A result belongs to the text it was captured from. Any edit to the Draft body, or to the To/Cc recipients
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
   offered or applied. Closing the Draft cancels the request. Controls rendered for
@@ -151,6 +179,10 @@ allow-listed native code or decode path, never Draft or generated text.
   inserted after a selection and its blank and too-long prompts,
   refusal, unavailability and failure without logging Draft text, retry rules, an
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.
+- `packages/mail-core/test/draft-details.test.ts` checks the detail rules: kept,
+  changed, removed and added details of each kind, the accepted equivalents,
+  `3` and `three`, regrouped numbers, reformatted dates and quotes, trailing
+  link punctuation, and hidden link and `mailto:` destinations.
 - The composer tests in `apps/mobile/test/composer.test.tsx` and
   `apps/macos/test/composer.test.tsx` rewrite the whole body and a selection,
   check the Writing tools groups, symbols and per-tool requests, panels and Replace,
@@ -159,7 +191,10 @@ allow-listed native code or decode path, never Draft or generated text.
   review and apply the whole-body result as one undoable edit without touching recipients, keep the
   original against a queued apply, show reply-length guidance without inference when the encoded authored
   reply leaves no room for context, show a refusal, cancel and retry, and drop a
-  pending result when the body is edited or the Product Account changes. From the real reader with a synthetic
+  pending result when the body is edited or the Product Account changes. The Mac tests also show the
+  details note on every rewrite, and a rewrite with changed details: its count and announcement, one
+  readable row per change, the kept details, no plain Replace, Keep original, then **Use rewrite with
+  changes** and Undo. From the real reader with a synthetic
   Gmail mailbox, they request a reply suggestion for a Reply All Draft, check its
   admitted input and that no Gmail request is made, apply it to the authored body
   only, undo it, invalidate recipient edits even when Undo precedes a queued apply,
