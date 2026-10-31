@@ -66,7 +66,7 @@ const contentLines = (text: string): readonly Line[] | undefined => {
       /^(?<name>[A-Za-z0-9-]+)(?<parameters>(?:;[^:";]+=(?:"[^"]*"|[^:";]*)(?:,(?:"[^"]*"|[^:";,]*))*)*):(?<value>.*)$/u.exec(
         raw,
       );
-    if (match === null || /[\r\u0000]/u.test(raw)) {
+    if (match === null || raw.includes('\r') || raw.includes('\0')) {
       return undefined;
     }
     lines.push({
@@ -129,6 +129,26 @@ const zonedTime = (
 const dateTime =
   /^(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})(?:T(?<hour>\d{2})(?<minute>\d{2})(?<second>\d{2})(?<utc>Z?))?$/u;
 
+const sameDate = (date: Date, parts: readonly number[]) =>
+  [
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    date.getUTCHours(),
+    date.getUTCMinutes(),
+    date.getUTCSeconds(),
+  ].every((part, index) => part === parts[index]);
+
+// DATE must be declared; a TZID belongs only to a local DATE-TIME.
+const supportedTime = (line: Line, allDay: boolean, utc: boolean) => {
+  const value = parameterOf(line, 'VALUE')?.toUpperCase();
+  const hasZone = parameterOf(line, 'TZID') !== undefined;
+  if (allDay) {
+    return value === 'DATE' && !hasZone;
+  }
+  return (value === undefined || value === 'DATE-TIME') && !(hasZone && utc);
+};
+
 // A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA zone; floating and unknown-zone times are
 // unreadable.
 const timeOf = (line: Line | undefined): InvitationTime | undefined => {
@@ -146,20 +166,9 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
     second,
   ].map((field) => Number(field ?? 0));
   const naive = Date.UTC(y, mo - 1, d, h, mi, se);
-  const date = new Date(naive);
-  const value = parameterOf(line, 'VALUE')?.toUpperCase();
   if (
-    date.getUTCFullYear() !== y ||
-    date.getUTCMonth() !== mo - 1 ||
-    date.getUTCDate() !== d ||
-    date.getUTCHours() !== h ||
-    date.getUTCMinutes() !== mi ||
-    date.getUTCSeconds() !== se ||
-    (hour === undefined
-      ? value !== 'DATE'
-      : value !== undefined && value !== 'DATE-TIME') ||
-    (parameterOf(line, 'TZID') !== undefined &&
-      (hour === undefined || utc === 'Z'))
+    !sameDate(new Date(naive), [y, mo - 1, d, h, mi, se]) ||
+    !supportedTime(line, hour === undefined, utc === 'Z')
   ) {
     return undefined;
   }
@@ -174,30 +183,39 @@ const recurring = new Set(['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID']);
 // top-level events the calendar has.
 const scoped = (lines: readonly Line[]) => {
   const stack: string[] = [];
-  const properties: Array<{ path: string; line: Line }> = [];
-  let events = 0;
-  let calendars = 0;
-  for (const line of lines) {
+  // Advance only through matching components in one outer calendar.
+  const advance = (line: Line) => {
     if (line.name === 'BEGIN') {
       if (stack.length === 0 && line.value.toUpperCase() !== 'VCALENDAR') {
-        return undefined;
+        return false;
       }
       stack.push(line.value.trim().toUpperCase());
-      calendars += stack.join('/') === 'VCALENDAR' ? 1 : 0;
-      events += stack.join('/') === 'VCALENDAR/VEVENT' ? 1 : 0;
-    } else if (line.name === 'END') {
-      if (stack.pop() !== line.value.trim().toUpperCase()) {
-        return undefined;
-      }
-    } else {
-      if (stack.length === 0) {
-        return undefined;
-      }
-      properties.push({ path: stack.join('/'), line });
+      return true;
+    }
+    if (line.name === 'END') {
+      return stack.pop() === line.value.trim().toUpperCase();
+    }
+    return stack.length > 0;
+  };
+  const properties: Array<{ path: string; line: Line }> = [];
+  const components: string[] = [];
+  for (const line of lines) {
+    if (!advance(line)) {
+      return undefined;
+    }
+    const path = stack.join('/');
+    if (line.name === 'BEGIN') {
+      components.push(path);
+    } else if (line.name !== 'END') {
+      properties.push({ path, line });
     }
   }
-  return stack.length === 0 && calendars === 1
-    ? { properties, events }
+  return stack.length === 0 &&
+    components.filter((path) => path === 'VCALENDAR').length === 1
+    ? {
+        properties,
+        events: components.filter((path) => path === 'VCALENDAR/VEVENT').length,
+      }
     : undefined;
 };
 
@@ -249,8 +267,14 @@ const detailsOf = (
   event: readonly Line[],
   start: InvitationTime,
   organizer: Recipient,
-): InvitationDetails => {
+): InvitationDetails | undefined => {
   const end = timeOf(find(event, 'DTEND'));
+  if (
+    find(event, 'DTEND') !== undefined &&
+    (end === undefined || end.allDay !== start.allDay || end.at <= start.at)
+  ) {
+    return undefined;
+  }
   const summary = find(event, 'SUMMARY');
   const location = find(event, 'LOCATION');
   return {
@@ -269,8 +293,6 @@ const meetingOf = (event: readonly Line[]) => {
   const organizer = organizerOf(event);
   const start = timeOf(find(event, 'DTSTART'));
   const sequence = sequenceOf(event);
-  const endLine = find(event, 'DTEND');
-  const end = timeOf(endLine);
   const singletons = [
     'UID',
     'SEQUENCE',
@@ -285,11 +307,6 @@ const meetingOf = (event: readonly Line[]) => {
     singletons.some(
       (name) => event.filter((line) => line.name === name).length > 1,
     ) ||
-    (endLine !== undefined &&
-      (end === undefined ||
-        start === undefined ||
-        end.allDay !== start.allDay ||
-        end.at <= start.at)) ||
     uid === '' ||
     organizer === undefined ||
     start === undefined ||
@@ -297,10 +314,14 @@ const meetingOf = (event: readonly Line[]) => {
   ) {
     return undefined;
   }
+  const details = detailsOf(event, start, organizer.recipient);
+  if (details === undefined) {
+    return undefined;
+  }
   return {
     uid,
     sequence,
-    details: detailsOf(event, start, organizer.recipient),
+    details,
     organizerLine: organizer.line,
     summary: find(event, 'SUMMARY'),
   };

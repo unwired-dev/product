@@ -114,19 +114,17 @@ describe('meeting invitations', () => {
         }
         return result;
       });
-    let offer;
     try {
-      offer = invitationOf(documentOf(calendar(meeting)), me);
+      expect(invitationOf(documentOf(calendar(meeting)), me)).toMatchObject({
+        kind: 'invited',
+        details: {
+          organizer: { address: 'lena@northwind.example' },
+          start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+        },
+      });
     } finally {
       spy.mockRestore();
     }
-    expect(offer).toMatchObject({
-      kind: 'invited',
-      details: {
-        organizer: { address: 'lena@northwind.example' },
-        start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
-      },
-    });
   });
 
   it('reads one meeting for the mailbox the invitation names', () => {
