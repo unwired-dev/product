@@ -3,6 +3,7 @@ import type {
   CapturedDraftText,
   DraftTextPurpose,
   NativeAssistance,
+  TextTool,
 } from '@private-email/mail-core/assistance';
 import type {
   AssetPreview,
@@ -1152,10 +1153,20 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   );
 }
 
-export const rewriteLabel = (at: Selection) =>
+export const textToolLabel = (tool: TextTool, at: Selection) =>
   at.start === at.end
-    ? 'assistance.rewriteDraftLabel'
-    : 'assistance.rewriteSelectionLabel';
+    ? (`assistance.${tool}DraftLabel` as const)
+    : (`assistance.${tool}SelectionLabel` as const);
+
+const textToolSymbols: Readonly<Record<TextTool, string>> = {
+  rewrite: 'pencil',
+  proofread: 'text.badge.checkmark',
+  paragraphs: 'text.alignleft',
+  expand: 'arrow.up.and.down.text.horizontal',
+  shorten: 'arrow.down.and.line.horizontal.and.arrow.up',
+  friendly: 'face.smiling',
+  neutral: 'face.dashed',
+};
 
 // Why the last Send left the Draft in the composer, if it did. A message sent through an IMAP
 // connection's mail server or Microsoft is not limited by Gmail.
@@ -1379,7 +1390,7 @@ export function ComposerNotices({
   );
 }
 
-// The format bar's Writing tools: one system menu of Rewrite and Translate where they are
+// The format bar's Writing tools: one system menu of the text tools and Translate where they are
 // available, plus Suggest reply on replies. Hidden when neither is available.
 function WritingTools({
   assistance,
@@ -1388,7 +1399,7 @@ function WritingTools({
   body,
   selection,
   sending,
-  onRewrite,
+  onTextTool,
   onTranslate,
   onReply,
 }: {
@@ -1398,7 +1409,7 @@ function WritingTools({
   readonly body: Draft['body'];
   readonly selection: Selection;
   readonly sending: boolean;
-  readonly onRewrite: () => void;
+  readonly onTextTool: (tool: TextTool) => void;
   readonly onTranslate: () => void;
   readonly onReply: () => void;
 }) {
@@ -1407,14 +1418,20 @@ function WritingTools({
   if (!assistance && !translation) {
     return null;
   }
-  const rewrite = {
-    key: 'rewrite',
-    title: t('assistance.rewrite'),
-    accessibilityLabel: t(rewriteLabel(selection)),
-    symbol: 'pencil',
-    disabled: !canRewrite(body, selection),
-    run: onRewrite,
-  };
+  const rewritable = canRewrite(body, selection);
+  const tools = (...names: TextTool[]) =>
+    assistance
+      ? names.map((tool) => ({
+          key: tool,
+          title: t(`assistance.${tool}`),
+          accessibilityLabel: t(textToolLabel(tool, selection)),
+          symbol: textToolSymbols[tool],
+          disabled: !rewritable,
+          run: () => {
+            onTextTool(tool);
+          },
+        }))
+      : [];
   const translate = {
     key: 'translate',
     title: t('translation.translate'),
@@ -1437,10 +1454,12 @@ function WritingTools({
       accessibilityLabel={t('drafts.writingTools')}
       disabled={sending}
       sections={[
-        ...(assistance ? [{ items: [rewrite] }] : []),
-        ...(translation ? [{ items: [translate] }] : []),
-        ...(assistance && reply ? [{ items: [suggestReply] }] : []),
-      ]}
+        [...tools('rewrite'), ...(assistance && reply ? [suggestReply] : [])],
+        tools('proofread', 'paragraphs'),
+        translation ? [translate] : [],
+        tools('expand', 'shorten'),
+        tools('friendly', 'neutral'),
+      ].flatMap((items) => (items.length === 0 ? [] : [{ items }]))}
       style={styles.writingTools}>
       <SFSymbol
         name="sparkles"
@@ -1836,7 +1855,7 @@ function Editor({
       setCaptured(undefined);
     }
   };
-  // Captures authored text for an explicitly requested translation, rewrite or reply suggestion.
+  // Captures authored text for an explicitly requested translation, text tool or reply suggestion.
   const capture = (purpose: DraftTextPurpose, at: Selection) => {
     if (
       sendingNow.current ||
@@ -2092,13 +2111,13 @@ function Editor({
         body={draft.body}
         selection={selection}
         sending={sending}
-        onRewrite={() => {
+        onTextTool={(tool) => {
           const at = selectionNow.current;
           if (
             lifetime.current.mounted &&
             canRewrite(authored.current.body, at)
           ) {
-            capture('rewrite', at);
+            capture(tool, at);
           }
         }}
         onTranslate={() => {

@@ -42,8 +42,8 @@ import {
   ComposerLayoutContext,
   composerStyles,
   Recipients,
-  rewriteLabel,
   SendButton,
+  textToolLabel,
 } from './composer.tsx';
 import {
   GlassGroup,
@@ -177,7 +177,7 @@ function WritingTools({
         <MenuItem
           disabled={!canRewrite(draft.body, selection)}
           label={t('assistance.rewrite')}
-          accessibilityLabel={t(rewriteLabel(selection))}
+          accessibilityLabel={t(textToolLabel('rewrite', selection))}
           selected={false}
           onPress={() => {
             onCapture('rewrite');
