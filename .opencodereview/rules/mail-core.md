@@ -1201,6 +1201,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Carry the builder's diagnosis to both panels, or a refused reply shows generic
   failure for encoded overflow or asks to shorten even an empty authored body.
 
+- `draft-details.ts` treating a numeric suffix or a destination substring as a
+  kept detail. Compare complete numeric tokens and authoritative semantic link
+  targets, including path slashes and mail-link query fields, before declaring
+  equivalent visible text. Preserve occurrence counts and expose ambiguous
+  equivalence through the documented review outcome; otherwise the plain apply
+  action can hide changed values or lost destinations.
+
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit
   operation and distinct fields for each admitted context source,
