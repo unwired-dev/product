@@ -835,13 +835,18 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #if TARGET_OS_OSX
 static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor);
 
-// An item sends `select:` to `target` with its `id`; `symbol`, `checked` and `disabled` are optional.
+// An item sends `select:` to `target` with its `id`; `symbol`, its `symbolColor`, `checked` and
+// `disabled` are optional.
 static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destructiveColor)
 {
   NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:item[@"title"] action:nil keyEquivalent:@""];
   if (item[@"accessibilityLabel"] != nil) menuItem.accessibilityLabel = item[@"accessibilityLabel"];
   NSString *symbol = item[@"symbol"];
   NSImage *image = symbol.length == 0 ? nil : [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+  if (item[@"symbolColor"] != nil) {
+    image = [image imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPaletteColors:@[[RCTConvert NSColor:item[@"symbolColor"]]]]];
+  }
   if ([item[@"destructive"] boolValue]) {
     menuItem.attributedTitle = [[NSAttributedString alloc] initWithString:item[@"title"]
         attributes:@{NSForegroundColorAttributeName: destructiveColor}];

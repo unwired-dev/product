@@ -1227,6 +1227,31 @@
     "startup": "Startup Profile",
     "renameTitle": "Rename Mail Profile",
     "renameFailed": "The Mail Profile could not be renamed. Try again.",
+    "color": "Color",
+    "icon": "Icon",
+    "colors": {
+      "graphite": "Graphite",
+      "blue": "Blue",
+      "indigo": "Indigo",
+      "purple": "Purple",
+      "pink": "Pink",
+      "teal": "Teal",
+      "green": "Green",
+      "brown": "Brown"
+    },
+    "icons": {
+      "firstLetter": "First Letter",
+      "person": "Person",
+      "people": "People",
+      "laptop": "Laptop",
+      "book": "Book",
+      "airplane": "Airplane",
+      "cart": "Cart",
+      "paintbrush": "Paintbrush",
+      "star": "Star"
+    },
+    "restyleTitle": "Mail Profile Not Changed",
+    "restyleFailed": "The Mail Profile’s color and icon could not be changed. Try again.",
     "upgradeRetry": "Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then try again.",
     "changed": "Another device changed these Mail Profiles first. Check them, then try again.",
     "moveMailbox": "Mail Profile for {{address}}",
@@ -1247,14 +1272,14 @@
     "removeFailed": "The Mail Profile could not be removed. Try again.",
     "settings": {
       "profiles": "Profiles",
-      "synchronized": "Names and ownership synchronize through Private Sync.",
+      "synchronized": "Names, colors, icons and ownership synchronize through Private Sync.",
       "device": "This Device",
       "deviceFooter": "Window restoration and the Startup Profile stay only on this device.",
       "mailboxes": "Mailboxes",
       "moveFooter": "Moving a mailbox keeps its mail, Drafts and sign-in. Moving needs Private Sync.",
       "emptyMailboxes": "No mailboxes in this Mail Profile",
       "emptyMailboxesDetail": "Move a mailbox here from its current Mail Profile.",
-      "duplicateFooter": "Copies the name into a new Mail Profile. Mailboxes, sign-ins, mail and Drafts are not copied.",
+      "duplicateFooter": "Copies the name, color and icon into a new Mail Profile. Mailboxes, sign-ins, mail and Drafts are not copied.",
       "removeFooter": "Removing a Mail Profile also removes its mailboxes from Unwired Mail on all your devices, after you confirm. Their mail stays with the provider."
     }
   }

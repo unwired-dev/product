@@ -4,7 +4,7 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
-import type { NativeSyntheticEvent, ViewProps } from 'react-native';
+import type { ColorValue, NativeSyntheticEvent, ViewProps } from 'react-native';
 
 import { vettedHref } from '@private-email/mail-core/link-inspection';
 import { isLinkText } from '@private-email/mail-core/semantic-document';
@@ -110,8 +110,9 @@ export type PopUpItem = Readonly<{
   key: string;
   title: string;
   accessibilityLabel?: string;
-  // An SF Symbol beside the title.
+  // An SF Symbol beside the title, in its own color when given.
   symbol?: string;
+  symbolColor?: ColorValue;
   checked?: boolean;
   disabled?: boolean;
   destructive?: boolean;
@@ -120,25 +121,34 @@ export type PopUpItem = Readonly<{
   sections?: ReadonlyArray<Readonly<{ items: readonly PopUpItem[] }>>;
 }>;
 
-type NativePopUpItem = Omit<PopUpItem, 'key' | 'run' | 'items' | 'sections'> & {
+type NativePopUpItem = Omit<
+  PopUpItem,
+  'key' | 'run' | 'symbolColor' | 'items' | 'sections'
+> & {
   readonly id: string;
+  readonly symbolColor?: ReturnType<typeof processColor>;
   readonly items?: readonly NativePopUpItem[];
   readonly sections?: ReadonlyArray<{ readonly items: NativePopUpItem[] }>;
 };
 
 const nativeItems = (items: readonly PopUpItem[]): NativePopUpItem[] =>
-  items.map(({ key, run: _run, items: submenu, sections, ...item }) => ({
-    ...item,
-    id: key,
-    ...(submenu === undefined ? {} : { items: nativeItems(submenu) }),
-    ...(sections === undefined
-      ? {}
-      : {
-          sections: sections.map((section) => ({
-            items: nativeItems(section.items),
-          })),
-        }),
-  }));
+  items.map(
+    ({ key, run: _run, symbolColor, items: submenu, sections, ...item }) => ({
+      ...item,
+      id: key,
+      ...(symbolColor === undefined
+        ? {}
+        : { symbolColor: processColor(symbolColor) }),
+      ...(submenu === undefined ? {} : { items: nativeItems(submenu) }),
+      ...(sections === undefined
+        ? {}
+        : {
+            sections: sections.map((section) => ({
+              items: nativeItems(section.items),
+            })),
+          }),
+    }),
+  );
 
 const enabledItems = (items: readonly PopUpItem[]): PopUpItem[] =>
   items.flatMap((item) =>

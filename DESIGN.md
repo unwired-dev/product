@@ -19,6 +19,20 @@ colors:
   brand-on-seal: '#FFFFFF'
   brand-monogram: '#15171B'
   brand-monogram-dark: '#6A6E78'
+  profile-blue: '#0A58CA'
+  profile-blue-dark: '#3B6FD6'
+  profile-indigo: '#3634A3'
+  profile-indigo-dark: '#5E5CE6'
+  profile-purple: '#8944AB'
+  profile-purple-dark: '#9558BB'
+  profile-pink: '#C2185B'
+  profile-pink-dark: '#D6336C'
+  profile-teal: '#0E7490'
+  profile-teal-dark: '#117C97'
+  profile-green: '#237A3A'
+  profile-green-dark: '#2A8443'
+  profile-brown: '#7A5C3E'
+  profile-brown-dark: '#8C6A4A'
   apple-button: '#000000'
   apple-button-dark: '#FFFFFF'
   apple-on-button: '#FFFFFF'
@@ -265,7 +279,14 @@ Graphite neutrals with a single warm seal.
 | On brand deep     | `brand/on-deep`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep                                  |
 | Brand seal        | `brand/seal`              | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                       |
 | On brand seal     | `brand/on-seal`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                  |
-| Monogram          | `brand/monogram`          | `#15171B`     | `#6A6E78`     | Mail Profile and account monograms                            |
+| Monogram          | `brand/monogram`          | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                 |
+| Profile Blue      | `profile/blue`            | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                         |
+| Profile Indigo    | `profile/indigo`          | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                         |
+| Profile Purple    | `profile/purple`          | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                         |
+| Profile Pink      | `profile/pink`            | `#C2185B`     | `#D6336C`     | A Mail Profile monogram in this Color                         |
+| Profile Teal      | `profile/teal`            | `#0E7490`     | `#117C97`     | A Mail Profile monogram in this Color                         |
+| Profile Green     | `profile/green`           | `#237A3A`     | `#2A8443`     | A Mail Profile monogram in this Color                         |
+| Profile Brown     | `profile/brown`           | `#7A5C3E`     | `#8C6A4A`     | A Mail Profile monogram in this Color                         |
 | Apple button      | `apple/button`            | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles            |
 | On Apple button   | `apple/on-button`         | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                   |
 | Primary text      | `text/primary`            | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                  |
@@ -295,6 +316,7 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | White on brand deep                | 17.94 | 17.94 |
 | White on brand seal                | 5.14  | 5.14  |
 | White on monogram                  | 17.94 | 5.10  |
+| White on Profile Colors (lowest)   | 5.36  | 4.62  |
 | Unread dot (non-text) on content   | 10.88 | 3.27  |
 
 `text/secondary` uses the solid colours approved for #1195. The ratios above use
@@ -487,7 +509,10 @@ content.
   20pt. Glass groups take half their height.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
   control groups use 22pt corners and 18pt inset selections.
-- Monograms and avatars are circles. Message list rows show a real contact photo
+- Monograms and avatars are circles. A Mail Profile monogram fills the circle
+  with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
+  Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
+  Settings' 24pt monogram the symbol is 10pt and the letter 11pt semibold. Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
