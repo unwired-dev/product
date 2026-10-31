@@ -93,6 +93,30 @@ export const palette = {
   },
 };
 
+// A Mail Profile's Color fills its monogram behind white; Graphite is the brand monogram.
+export const profilePalette = {
+  light: {
+    graphite: palette.light.brandMonogram,
+    blue: '#0A58CA',
+    indigo: '#3634A3',
+    purple: '#8944AB',
+    pink: '#C2185B',
+    teal: '#0E7490',
+    green: '#237A3A',
+    brown: '#7A5C3E',
+  },
+  dark: {
+    graphite: palette.dark.brandMonogram,
+    blue: '#3B6FD6',
+    indigo: '#5E5CE6',
+    purple: '#9558BB',
+    pink: '#D6336C',
+    teal: '#117C97',
+    green: '#2A8443',
+    brown: '#8C6A4A',
+  },
+};
+
 const style = (
   fontSize: number,
   lineHeight: number,

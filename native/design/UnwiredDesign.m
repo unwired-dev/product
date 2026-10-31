@@ -835,13 +835,18 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #if TARGET_OS_OSX
 static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections, id target, NSColor *destructiveColor);
 
-// An item sends `select:` to `target` with its `id`; `symbol`, `checked` and `disabled` are optional.
+// An item sends `select:` to `target` with its `id`; `symbol`, its `symbolColor`, `checked` and
+// `disabled` are optional.
 static NSMenuItem *UnwiredMenuItem(NSDictionary *item, id target, NSColor *destructiveColor)
 {
   NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:item[@"title"] action:nil keyEquivalent:@""];
   if (item[@"accessibilityLabel"] != nil) menuItem.accessibilityLabel = item[@"accessibilityLabel"];
   NSString *symbol = item[@"symbol"];
   NSImage *image = symbol.length == 0 ? nil : [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+  if (item[@"symbolColor"] != nil) {
+    image = [image imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPaletteColors:@[[RCTConvert NSColor:item[@"symbolColor"]]]]];
+  }
   if ([item[@"destructive"] boolValue]) {
     menuItem.attributedTitle = [[NSAttributedString alloc] initWithString:item[@"title"]
         attributes:@{NSForegroundColorAttributeName: destructiveColor}];
@@ -1051,11 +1056,12 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 @end
 
 // A pop-up or pull-down button that AppKit draws, focuses and opens, showing `text` and an optional
-// symbol in either mode. The button sits inside a plain view,
-// so that React Native's wrapper stays out of accessibility and VoiceOver reaches only the button.
+// symbol in either mode, with its items in sections set apart by separators. The button sits inside
+// a plain view, so that React Native's wrapper stays out of accessibility and VoiceOver reaches
+// only the button.
 // React Native macOS 0.81.9 has no pop-up button; remove this view when it offers one.
 @interface UnwiredPopUpButtonView : NSView
-@property (nonatomic, copy) NSArray<NSDictionary *> *items;
+@property (nonatomic, copy) NSArray<NSDictionary *> *sections;
 @property (nonatomic, copy) NSString *text;
 @property (nonatomic, copy) NSString *symbol;
 @property (nonatomic) BOOL pullsDown;
@@ -1087,7 +1093,7 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 // The menu always shows the items React Native last gave it; a choice only reports their id.
 - (void)render
 {
-  NSMenu *menu = UnwiredMenuOf(@"", @[@{@"items": self.items ?: @[]}], self,
+  NSMenu *menu = UnwiredMenuOf(@"", self.sections ?: @[], self,
                                self.destructiveColor ?: NSColor.systemRedColor);
   NSMenuItem *shown = [[NSMenuItem alloc] initWithTitle:self.text ?: @"" action:nil keyEquivalent:@""];
   if (self.symbol.length > 0) {
@@ -1328,7 +1334,7 @@ RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 
 @implementation UnwiredPopUpButtonManager
 RCT_EXPORT_MODULE(UnwiredPopUpButton)
-RCT_EXPORT_VIEW_PROPERTY(items, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(text, NSString)
 RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
 RCT_EXPORT_VIEW_PROPERTY(pullsDown, BOOL)

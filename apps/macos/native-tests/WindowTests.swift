@@ -796,6 +796,18 @@ final class WindowTests: XCTestCase {
     let travel = settings.buttons["Travel"]
     XCTAssertTrue(travel.waitForExistence(timeout: 15))
     travel.click()
+    // #1619: a new Mail Profile is Graphite with its First Letter; each pop-up's AppKit menu
+    // owns the choice.
+    for (label, from, to) in [("Color", "Graphite", "Blue"), ("Icon", "First Letter", "Airplane")] {
+      let popUp = settings.popUpButtons[label]
+      XCTAssertTrue(popUp.waitForExistence(timeout: 15))
+      XCTAssertEqual(popUp.value as? String, from)
+      popUp.click()
+      let item = app.menuItems[to]
+      XCTAssertTrue(item.waitForExistence(timeout: 5))
+      item.click()
+      waitUntil { popUp.value as? String == to }
+    }
     let remove = settings.buttons["Remove Mail Profile…"]
     func ask() {
       XCTAssertTrue(remove.waitForExistence(timeout: 15))
