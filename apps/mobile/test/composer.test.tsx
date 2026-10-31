@@ -57,6 +57,7 @@ import {
   chooseWritingTool,
   writingTool,
   writingToolChoice,
+  writingToolGroups,
 } from './writing-tools.ts';
 
 // Allow cold component rendering even when a focused run skips the first test.
@@ -3058,6 +3059,93 @@ describe('composing Drafts', () => {
       asked[4]?.request,
       asked[5]?.request,
     ]);
+  });
+
+  it('offers each Writing tool in its group and applies its reviewed result like Rewrite', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked } = scriptedDraftAssistance();
+    const translation: NativeTranslation = {
+      translationLanguages: () => Promise.resolve([]),
+      translate: () => Promise.reject(new Error('unused')),
+      cancel: () => Promise.resolve(null),
+    };
+    await render(
+      <AssistanceContext value={native}>
+        <TranslationContext value={translation}>
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            registration={registration}
+          />
+        </TranslationContext>
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    await screen.findByLabelText('Writing tools');
+    // The approved groups, in order, each tool with its symbol; nothing to edit yet.
+    expect(writingToolGroups()).toStrictEqual([
+      [['Rewrite', 'pencil', true]],
+      [
+        ['Proofread', 'text.badge.checkmark', true],
+        ['Break into Paragraphs', 'text.alignleft', true],
+      ],
+      [['Translate', 'translate', true]],
+      [
+        ['Expand Text', 'arrow.up.and.down.text.horizontal', true],
+        ['Shorten Text', 'arrow.down.and.line.horizontal.and.arrow.up', true],
+      ],
+      [
+        ['Make More Friendly', 'face.smiling', true],
+        ['Make More Neutral', 'face.dashed', true],
+      ],
+    ]);
+    const original = 'lets meet friday. thanks';
+    const body = () => screen.getByLabelText('Message body');
+    await fireEvent.changeText(body(), original);
+    expect(writingTool('Proofread the message body')).toMatchObject({
+      disabled: false,
+    });
+
+    // Each tool sends its own operation; the panel is titled and labelled for that tool.
+    await chooseWritingTool('Proofread the message body');
+    expect(asked[0]?.operation).toBe('rewrite');
+    expect(parseJson(asked[0]!.input)).toStrictEqual({
+      operation: 'proofread',
+      authoredText: original,
+    });
+    asked[0]?.answer.resolve("Let's meet Friday. Thanks");
+    await screen.findByText("Let's meet Friday. Thanks");
+    expect(
+      screen.getByLabelText('Proofread version of your text'),
+    ).toBeOnTheScreen();
+    expect(
+      jest.mocked(AccessibilityInfo.announceForAccessibilityWithOptions),
+    ).toHaveBeenLastCalledWith("Proofread\nLet's meet Friday. Thanks", {
+      queue: true,
+    });
+    expect(body()).toHaveTextContent(original, { exact: true });
+    await press('Replace your text with this rewrite');
+    expect(body()).toHaveTextContent("Let's meet Friday. Thanks", {
+      exact: true,
+    });
+    await press('Undo');
+    expect(body()).toHaveTextContent(original, { exact: true });
+
+    // A selection is edited alone.
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 17 } },
+    });
+    expect(writingTool('Make the selected text more friendly')).toBeDefined();
+    await chooseWritingTool('Shorten the selected text');
+    expect(parseJson(asked[1]!.input)).toStrictEqual({
+      operation: 'shorten',
+      authoredText: 'lets meet friday.',
+    });
+    asked[1]?.answer.resolve('Friday?');
+    await screen.findByLabelText('Shortened version of your text');
+    await press('Replace your text with this rewrite');
+    expect(body()).toHaveTextContent('Friday? thanks', { exact: true });
   });
 
   it('offers Draft assistance only while enabled and retires a pending request when it turns off', async () => {
