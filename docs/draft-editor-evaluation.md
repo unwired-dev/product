@@ -571,8 +571,8 @@ simulated at the host boundary.
 
 Outstanding for #821: the Mac two-window journey and the Command-W, window close and
 **Quit** questions natively, which need a signed mock profile; and edits lost when
-the app ends before **Save Draft**, which is the evaluation editor's save model
-rather than the current composer's autosave. On iPhone both composers cover the
+the app ends before **Save Draft**. The regular iPhone and iPad composer now uses
+the same save model; the regular Mac composer still autosaves. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
 ([#778](https://github.com/unwired-dev/product/issues/778)).
 

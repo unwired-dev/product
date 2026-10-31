@@ -1990,12 +1990,12 @@ function Editor({
   // opened becomes a conflicting copy.
   const saveDraft = () =>
     finish(async () => {
-      if (!finishEntries()) {
-        setClosing('recipients');
-        return false;
-      }
       // Edits accepted while storage saves are stored too before the editor closes.
       do {
+        if (!finishEntries()) {
+          setClosing('recipients');
+          return false;
+        }
         if (authored.current !== stored.current) {
           void store.update(authored.current, stored.current, rebind);
           stored.current = authored.current;

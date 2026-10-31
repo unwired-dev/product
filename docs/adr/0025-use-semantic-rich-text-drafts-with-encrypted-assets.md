@@ -1,5 +1,13 @@
 # Use semantic rich-text Drafts with encrypted assets
 
+## iPhone and iPad saving amendment, 2026-10-31
+
+[ADR 0057's mobile saving amendment](0057-present-composing-inside-the-mail-shell.md#iphone-and-ipad-saving-amendment-2026-10-31)
+supersedes the mobile autosave clauses below under owner-approved
+[#1612](https://github.com/unwired-dev/product/issues/1612). The regular iPhone
+and iPad composer stores edits only on **Save Draft** or **Send**; Mac autosave,
+semantic content, assets and conflict preservation retain their existing scope.
+
 ## Provider Draft amendment, 2026-10-24
 
 [ADR 0074](0074-use-provider-hosted-drafts-for-cross-client-editing.md) supersedes

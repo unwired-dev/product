@@ -279,7 +279,7 @@ of the body editor for comparison with this composer; it does not change it.
 
 ## Saving
 
-Every edit is saved as it happens, in order: an edit made while an earlier one is
+On Mac, every edit is saved as it happens, in order: an edit made while an earlier one is
 being written is saved after it, never dropped. Successful saving shows no status,
 so typing never flickers between saving and saved; the composer shows only why the
 latest edit is not saved. Unsaved edits stay in

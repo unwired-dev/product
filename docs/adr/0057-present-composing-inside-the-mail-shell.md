@@ -4,6 +4,19 @@ status: accepted
 
 # Present composing inside the mail shell
 
+## iPhone and iPad saving amendment, 2026-10-31
+
+The owner-approved [#1612](https://github.com/unwired-dev/product/issues/1612)
+replaces continuous autosave and save-on-Close in the regular iPhone and iPad
+composer with explicit **Save Draft** or **Send**. Close removes an empty Draft
+and closes an unchanged stored one; otherwise it offers **Delete Draft** and
+**Save Draft**. Guarded navigation waits for that choice, and dismissal keeps
+editing. Failed saving or invalid recipient entry keeps the composer open.
+This supersedes the mobile autosave clauses below and in
+[ADR 0025](0025-use-semantic-rich-text-drafts-with-encrypted-assets.md).
+The [Draft guide](../drafts.md#saving) owns the observable contract. Mac saving,
+composer placement, ownership, encryption, conflict preservation and delivery remain unchanged.
+
 ## Mac composer window amendment, 2026-10-24
 
 The owner-approved [#1058 design](https://github.com/unwired-dev/product/issues/1058)

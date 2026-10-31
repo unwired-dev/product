@@ -952,6 +952,65 @@ describe('composing Drafts', () => {
     }
   });
 
+  it('finishes recipient text entered while Save Draft waits and keeps invalid text open', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Recipients');
+    await press('Show Cc and Bcc');
+    storage.hold();
+    try {
+      await saveDraft();
+      await fireEvent.changeText(screen.getByLabelText('To'), 'not an address');
+      await act(async () => {
+        storage.release();
+        await drafts.save();
+      });
+      await expect(
+        screen.findByText(
+          'Correct or remove the invalid address to close this Draft.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('To')).toHaveProp('value', 'not an address');
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'maya@example.com',
+      );
+      storage.hold();
+      await saveDraft();
+      await fireEvent.changeText(
+        screen.getByLabelText('Cc'),
+        'oliver@example.com',
+      );
+      await act(async () => {
+        storage.release();
+        await drafts.save();
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(draftsOf(reopened.getSnapshot())).toMatchObject([
+        {
+          to: [{ address: 'maya@example.com' }],
+          cc: [{ address: 'oliver@example.com' }],
+        },
+      ]);
+      expect(draftsOf(reopened.getSnapshot())[0]?.entries).toBeUndefined();
+    } finally {
+      storage.release();
+    }
+  });
+
   it('stores edits made while retrying a refused Save Draft', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
