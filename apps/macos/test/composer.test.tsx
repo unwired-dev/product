@@ -3,6 +3,7 @@ import { ok } from 'node:assert/strict';
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
+import type { TextStyle } from 'react-native';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
@@ -26,7 +27,7 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, AppState, View } from 'react-native';
+import { AccessibilityInfo, AppState, StyleSheet, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -45,6 +46,7 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
 
 // The shared CI runner takes seconds to warm up the first composer journey.
@@ -103,6 +105,41 @@ async function savedQuietly(
   });
   expect(screen.queryByText(/^Draft · /u)).toBeNull();
 }
+
+// The body as the composer shows it, which the store holds only after Save or Send: each line's
+// spans with the marks their style shows. Linked text shows underlined.
+type ShownSpan = { text: string; marks?: string[] };
+const shownBody = (body = screen.getByLabelText('Message body')) =>
+  body.children.flatMap((line) => {
+    if (typeof line === 'string') {
+      return [];
+    }
+    const spans = line.children.flatMap((span): ShownSpan[] => {
+      if (typeof span === 'string') {
+        return [];
+      }
+      const style = StyleSheet.flatten<TextStyle>(span.props.style);
+      const decoration = style.textDecorationLine ?? '';
+      const marks = [
+        ...(style.fontWeight === '700' ? ['bold'] : []),
+        ...(style.fontStyle === 'italic' ? ['italic'] : []),
+        ...(decoration.includes('underline') ? ['underline'] : []),
+        ...(decoration.includes('line-through') ? ['strikethrough'] : []),
+        ...(style.fontFamily === 'Menlo' ? ['code'] : []),
+      ];
+      const text = [span.props.children].flat().join('');
+      return [marks.length === 0 ? { text } : { text, marks }];
+    });
+    return [spans];
+  });
+
+// Chooses `title` in the composer's Close question.
+const answer = async (title: 'Save' | 'Don’t Save' | 'Cancel') => {
+  ok(sheetShown()?.title === 'Do you want to save this message as a draft?');
+  await act(async () => {
+    chooseSheetButton(title);
+  });
+};
 
 // A promise the test settles.
 function deferred() {
@@ -298,6 +335,12 @@ const press = async (name: string) => {
   await act(async () => {
     await fireEvent.press(button);
   });
+};
+
+// Stores the composer's version with Close and Save, closing it.
+const saveAndClose = async () => {
+  await press('Close');
+  await answer('Save');
 };
 
 // Choosing a message leaves the open composer for the reader.
@@ -570,7 +613,7 @@ describe('composing Drafts', () => {
     await fireEvent(body(), 'keyDown', {
       nativeEvent: { key: 'b', metaKey: false },
     });
-    expect(draftsOf(current.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+    expect(shownBody()[0]).toStrictEqual([
       { text: 'a', marks: ['bold'] },
       { text: 'a' },
     ]);
@@ -584,14 +627,12 @@ describe('composing Drafts', () => {
     await fireEvent(body(), 'keyDown', {
       nativeEvent: { key: 'Delete', metaKey: false },
     });
-    expect(draftsOf(current.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+    expect(shownBody()[0]).toStrictEqual([
       { text: 'a', marks: ['bold'] },
       { text: 'a' },
     ]);
     await fireEvent.changeText(body(), 'a');
-    expect(draftsOf(current.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
-      { text: 'a', marks: ['bold'] },
-    ]);
+    expect(shownBody()[0]).toStrictEqual([{ text: 'a', marks: ['bold'] }]);
     await press('Undo');
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 1, end: 1 } },
@@ -600,9 +641,7 @@ describe('composing Drafts', () => {
       nativeEvent: { key: 'Backspace', metaKey: false },
     });
     await fireEvent.changeText(body(), 'a');
-    expect(draftsOf(current.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
-      { text: 'a' },
-    ]);
+    expect(shownBody()[0]).toStrictEqual([{ text: 'a' }]);
   });
 
   it('preserves native deletion, block normalization and separate Undo steps', async () => {
@@ -631,19 +670,19 @@ describe('composing Drafts', () => {
       await fireEvent(body(), 'selectionChange', {
         nativeEvent: { selection: { start, end } },
       });
-      const before = draftsOf(current.getSnapshot())[0]?.body;
+      const before = shownBody();
       await fireEvent(body(), 'keyDown', {
         nativeEvent: { key: 'Delete', metaKey: false },
       });
       // Native owns deletion and its collapsed caret. keyDown only records direction.
-      expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(before);
+      expect(shownBody()).toStrictEqual(before);
       await fireEvent.changeText(body(), after);
       await fireEvent(body(), 'selectionChange', {
         nativeEvent: { selection: { start, end: start } },
       });
       expect(body()).toHaveTextContent(after);
       await press('Undo');
-      expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(before);
+      expect(shownBody()).toStrictEqual(before);
       await press('Redo');
       expect(body()).toHaveTextContent(after);
     }
@@ -660,9 +699,8 @@ describe('composing Drafts', () => {
       nativeEvent: { key: 'Delete', metaKey: false },
     });
     await fireEvent.changeText(body(), '•aa');
-    expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual([
-      { kind: 'paragraph', spans: [{ text: 'aa' }] },
-    ]);
+    expect(shownBody()).toStrictEqual([[{ text: 'aa' }]]);
+    expect(body()).toHaveTextContent('aa', { exact: true });
     expect(body()).toHaveProp('selection', { start: 0, end: 0 });
     await press('Undo');
     expect(body()).toHaveTextContent('• aa');
@@ -675,21 +713,21 @@ describe('composing Drafts', () => {
       { shiftKey: true },
       { metaKey: true },
     ]) {
-      const before = draftsOf(current.getSnapshot())[0]?.body;
+      const before = shownBody();
       await fireEvent(body(), 'keyDown', {
         nativeEvent: { key: 'Delete', metaKey: false, ...modifiers },
       });
-      expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(before);
+      expect(shownBody()).toStrictEqual(before);
     }
 
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 2, end: 2 } },
     });
-    const atEnd = draftsOf(current.getSnapshot())[0]?.body;
+    const atEnd = shownBody();
     await fireEvent(body(), 'keyDown', {
       nativeEvent: { key: 'Delete', metaKey: false },
     });
-    expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(atEnd);
+    expect(shownBody()).toStrictEqual(atEnd);
     await press('Undo');
     expect(body()).toHaveTextContent('• aa');
   });
@@ -724,7 +762,95 @@ describe('composing Drafts', () => {
     );
   });
 
-  it('composes a rich-text Draft that autosaves and reopens after relaunch without sending', async () => {
+  it('asks to save on Close, keeps editing on Cancel and closes an unchanged Draft at once', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const app = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Unsaved');
+    // Editing stores nothing until Save.
+    expect(draftsOf(drafts.getSnapshot())[0]?.subject).toBe('');
+    await press('Close');
+    // AppKit owns the sheet's focus, Return, Escape (its last button) and VoiceOver.
+    expect(sheetShown()).toStrictEqual({
+      title: 'Do you want to save this message as a draft?',
+      detail: 'If you don’t save, this draft is deleted.',
+      buttons: ['Save', 'Don’t Save', 'Cancel'],
+    });
+    await answer('Cancel');
+    expect(sheetShown()).toBeUndefined();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
+    expect(draftsOf(drafts.getSnapshot())[0]?.subject).toBe('');
+    await saveAndClose();
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+    expect(draftsOf(drafts.getSnapshot())[0]?.subject).toBe('Unsaved');
+
+    // A Draft opened and closed unchanged closes without asking.
+    await press('Draft. Unsaved. No recipients. From alex@example.invalid');
+    await press('Close');
+    expect(sheetShown()).toBeUndefined();
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+
+    // An editor that unmounts withdraws its sheet unanswered and stores nothing.
+    await press('Draft. Unsaved. No recipients. From alex@example.invalid');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Unanswered');
+    await press('Close');
+    expect(sheetShown()).toBeDefined();
+    await app.unmount();
+    expect(sheetShown()).toBeUndefined();
+    expect(draftsOf(drafts.getSnapshot())[0]?.subject).toBe('Unsaved');
+  });
+
+  it('removes an empty Draft on Close and deletes an edited one on Don’t Save', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    await press('Close');
+    expect(sheetShown()).toBeUndefined();
+    await waitFor(() => {
+      expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    });
+
+    await press('New Message');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Never mind');
+    await press('Close');
+    await answer('Don’t Save');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+    });
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+
+    // Don't Save deletes a stored Draft too, as the sheet says.
+    await press('New Message');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Stored');
+    await saveAndClose();
+    await press('Draft. Stored. No recipients. From alex@example.invalid');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Edited');
+    await press('Close');
+    await answer('Don’t Save');
+    await waitFor(() => {
+      expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    });
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+  });
+
+  it('composes a rich-text Draft that Save stores and reopens after relaunch without sending', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -788,7 +914,6 @@ describe('composing Drafts', () => {
       '• Notes',
     );
     // Command-B formats the selected word, and Command-Z undoes it.
-    const drafts = () => draftsOf(current.getSnapshot());
     await fireEvent(screen.getByLabelText('Message body'), 'selectionChange', {
       nativeEvent: { selection: { start: 2, end: 7 } },
     });
@@ -800,18 +925,16 @@ describe('composing Drafts', () => {
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'b', metaKey: true },
     });
-    expect(drafts()[0]?.body[0]?.spans).toStrictEqual([
-      { text: 'Notes', marks: ['bold'] },
-    ]);
+    expect(shownBody()[0]).toStrictEqual([{ text: 'Notes', marks: ['bold'] }]);
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'z', metaKey: true },
     });
-    expect(drafts()[0]?.body[0]?.spans).toStrictEqual([{ text: 'Notes' }]);
+    expect(shownBody()[0]).toStrictEqual([{ text: 'Notes' }]);
     // The native same-text report must not add a step between formatting and typing.
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'z', metaKey: true },
     });
-    expect(drafts()[0]?.body[0]?.spans).toStrictEqual([]);
+    expect(shownBody()[0]).toStrictEqual([]);
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'Z', metaKey: true, shiftKey: true },
     });
@@ -822,9 +945,7 @@ describe('composing Drafts', () => {
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'Z', metaKey: true, shiftKey: true },
     });
-    expect(drafts()[0]?.body[0]?.spans).toStrictEqual([
-      { text: 'Notes', marks: ['bold'] },
-    ]);
+    expect(shownBody()[0]).toStrictEqual([{ text: 'Notes', marks: ['bold'] }]);
     await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
       nativeEvent: { key: 'z', metaKey: true },
     });
@@ -833,17 +954,18 @@ describe('composing Drafts', () => {
     await press('Text style');
     expect(menuItems().filter(({ checked }) => checked)).toStrictEqual([]);
     await chooseMenuItem('Heading 1');
-    expect(drafts()[0]?.body[0]?.kind).toBe('heading1');
+    expect(screen.getByLabelText('Message body')).not.toHaveTextContent('•');
     await press('Text style');
     expect(menuItems().filter(({ checked }) => checked)).toMatchObject([
       { title: 'Heading 1' },
     ]);
     await dismissMenu();
     await press('Undo');
-    expect(drafts()[0]?.body[0]?.kind).toBe('bulleted');
-    await savedQuietly(current);
-    // Closing finishes an address still being typed, but not invalid text.
-    await press('Close');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('• Notes');
+    // Editing stores nothing until Save.
+    expect(draftsOf(current.getSnapshot())[0]?.subject).toBe('');
+    // Save finishes an address still being typed, but not invalid text.
+    await saveAndClose();
     expect(
       screen.getByText(
         'Correct or remove the invalid address to close this Draft.',
@@ -853,7 +975,7 @@ describe('composing Drafts', () => {
       screen.getByLabelText('To'),
       'oliver@example.com',
     );
-    await press('Close');
+    await saveAndClose();
     expect(
       screen.getByRole('button', {
         name: 'Draft. Studio review. To Maya Chen, oliver@example.com. From alex@example.invalid',
@@ -917,7 +1039,7 @@ describe('composing Drafts', () => {
       'accessibilityState',
       expect.objectContaining({ disabled: false }),
     );
-    await press('Close');
+    await saveAndClose();
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From renamed@example.invalid',
     );
@@ -942,7 +1064,7 @@ describe('composing Drafts', () => {
     );
   });
 
-  it('keeps Close exclusive while saving despite queued Discard and later typing', async () => {
+  it('keeps Save exclusive and editing paused despite queued Discard and Close', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -967,7 +1089,7 @@ describe('composing Drafts', () => {
         screen.getByLabelText('Subject'),
         'Saving on Close',
       );
-      await press('Close');
+      await saveAndClose();
       expect(
         screen.getByRole('button', { name: 'Compose actions' }),
       ).toBeDisabled();
@@ -977,10 +1099,11 @@ describe('composing Drafts', () => {
       ).toBeNull();
       expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-      await fireEvent.changeText(
-        screen.getByLabelText('Subject'),
-        'Typed while closing',
-      );
+      // Typing waits while Save stores the version the person chose to save.
+      expect(screen.getByLabelText('Subject')).toHaveProp('editable', false);
+      await act(() => {
+        queuedPress('Subject', 'onChangeText')('Typed while saving');
+      });
       expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await act(() => {
@@ -994,7 +1117,7 @@ describe('composing Drafts', () => {
         expect(screen.queryByLabelText('Subject')).toBeNull();
       });
       expect(draftsOf(drafts.getSnapshot())).toMatchObject([
-        { subject: 'Typed while closing' },
+        { subject: 'Saving on Close' },
       ]);
     } finally {
       storage.release();
@@ -1014,17 +1137,14 @@ describe('composing Drafts', () => {
       />,
     );
     await press('New Message');
-    storage.failNextCommit('unavailable');
     await fireEvent.changeText(
       await screen.findByLabelText('Subject'),
       'Unsaved',
     );
-    await waitFor(() => {
-      expect(screen.getByText(/Not saved/u)).toBeOnTheScreen();
-      expect(isScrollable(screen.getByText(/Not saved/u))).toBe(true);
-    });
-    storage.failNextCommit('locked');
-    await press('Close');
+    // Editing shows no save status.
+    expect(screen.queryByText(/Not saved|Saving/u)).toBeNull();
+    storage.setLocked(true);
+    await saveAndClose();
     expect(
       screen.getByText(
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
@@ -1037,13 +1157,15 @@ describe('composing Drafts', () => {
         ),
       ),
     ).toBe(true);
-    storage.failNextCommit('locked');
+    // Its edits still ask before leaving, and a failed Save keeps the Draft open.
     await press('New Message');
+    await answer('Save');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Settings opens in its own window, so the Draft stays open beside it.
     await press('Account');
     expect(openAccount).toHaveBeenCalledWith();
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
+    storage.setLocked(false);
     await press('Try again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     await press('New Message');
@@ -1200,7 +1322,8 @@ describe('composing Drafts', () => {
       await screen.findByLabelText('Subject'),
       'Synthetic message 0',
     );
-    const draftName = /^Draft\. Synthetic message 0\./u;
+    // The list shows the stored Draft, which stays empty until Save.
+    const draftName = /^Draft\. No subject\./u;
     await expect(
       screen.findByRole('button', { name: draftName }),
     ).resolves.toHaveProp('accessibilityState', { selected: true });
@@ -1250,6 +1373,7 @@ describe('composing Drafts', () => {
     ).toBeOnTheScreen();
     await fireEvent.changeText(screen.getByLabelText('To'), 'not valid');
     await press(onlineName);
+    await answer('Save');
     expect(
       screen.getByText(
         'Correct or remove the invalid address to close this Draft.',
@@ -1263,31 +1387,13 @@ describe('composing Drafts', () => {
       screen.getByLabelText('To'),
       'maya@example.com,',
     );
-    await savedQuietly(drafts);
-    // A slow save stays quiet; only an unsaved edit is shown.
-    storage.hold();
-    try {
-      await fireEvent.changeText(screen.getByLabelText('Subject'), 'Slow save');
-      await waitFor(() => {
-        expect(drafts.getSnapshot()).toMatchObject({ save: 'saving' });
-      });
-      expect(screen.queryByText(/^Draft · /u)).toBeNull();
-    } finally {
-      await act(() => {
-        storage.release();
-      });
-    }
-    await savedQuietly(drafts);
-    storage.failNextCommit('unavailable');
     await fireEvent.changeText(
       screen.getByLabelText('Subject'),
       'Authored while searching',
     );
-    await waitFor(() => {
-      expect(screen.getByText(/Not saved/u)).toBeOnTheScreen();
-    });
-    storage.failNextCommit('locked');
+    storage.setLocked(true);
     await press(onlineName);
+    await answer('Save');
     expect(screen.getByLabelText('Subject')).toHaveProp(
       'value',
       'Authored while searching',
@@ -1301,7 +1407,10 @@ describe('composing Drafts', () => {
       'accessibilityState',
       { selected: false },
     );
+    // The unsaved edits ask again, and the result opens once they are saved.
+    storage.setLocked(false);
     await press(onlineName);
+    await answer('Save');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     expect(screen.getByRole('button', { name: onlineName })).toHaveProp(
       'accessibilityState',
@@ -1344,7 +1453,7 @@ describe('composing Drafts', () => {
     expect(rows.length).toBeLessThan(60);
   });
 
-  it('keeps a recipient still being typed through an interruption', async () => {
+  it('keeps only the stored version when the app ends before Save', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1357,8 +1466,7 @@ describe('composing Drafts', () => {
     );
     await press('New Message');
     await fireEvent.changeText(await screen.findByLabelText('To'), 'maya@exa');
-    await savedQuietly(drafts);
-    // The app ends without leaving the field or closing the composer.
+    // The app ends without leaving the field or closing the composer, so the edit is lost.
     await first.unmount();
     await render(
       <App
@@ -1367,7 +1475,7 @@ describe('composing Drafts', () => {
       />,
     );
     await press('Draft. No subject. No recipients. From alex@example.invalid');
-    expect(screen.getByLabelText('To')).toHaveProp('value', 'maya@exa');
+    expect(screen.getByLabelText('To')).toHaveProp('value', '');
   });
 
   it('undoes recipient corrections without erasing earlier typing', async () => {
@@ -1464,9 +1572,8 @@ describe('composing Drafts', () => {
       />,
     );
     const body = await screen.findByLabelText('Message body');
-    const bodyNow = () =>
-      draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
-        ?.spans;
+    // Linked text shows underlined.
+    const bodyNow = () => shownBody()[0];
     const caret = async (at: number) => {
       await fireEvent(body, 'selectionChange', {
         nativeEvent: { selection: { start: at, end: at } },
@@ -1496,14 +1603,13 @@ describe('composing Drafts', () => {
     await press('Apply');
     expect(bodyNow()).toStrictEqual([
       { text: 'Read ' },
-      { text: 'revised lease', marks: ['bold'], link: `${lease}-v3` },
+      { text: 'revised lease', marks: ['bold', 'underline'] },
       { text: ' today' },
     ]);
     await press('Undo');
     expect(bodyNow()?.[1]).toStrictEqual({
       text: 'the lease',
-      marks: ['bold'],
-      link: lease,
+      marks: ['bold', 'underline'],
     });
     await press('Redo');
     expect(bodyNow()?.[1]).toHaveProperty('text', 'revised lease');
@@ -1512,8 +1618,9 @@ describe('composing Drafts', () => {
     await caret(10);
     await press('Edit Link');
     expect(screen.getByLabelText('Text')).toHaveProp('value', 'revised lease');
+    expect(screen.getByLabelText('Link')).toHaveProp('value', `${lease}-v3`);
     await fireEvent(screen.getByLabelText('Link'), 'submitEditing');
-    expect(bodyNow()?.[1]).toHaveProperty('link', `${lease}-v3`);
+    expect(bodyNow()?.[1]).toHaveProperty('marks', ['bold', 'underline']);
     await press('Edit Link');
     await press('Remove Link');
     expect(bodyNow()).toStrictEqual([
@@ -1523,16 +1630,22 @@ describe('composing Drafts', () => {
     ]);
     expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
     await press('Undo');
-    expect(bodyNow()?.[1]).toHaveProperty('link', `${lease}-v3`);
+    expect(bodyNow()?.[1]).toHaveProperty('marks', ['bold', 'underline']);
+    await caret(10);
+    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeEnabled();
     await press('Redo');
-    expect(bodyNow()?.[1]).not.toHaveProperty('link');
-    await savedQuietly(drafts);
+    expect(bodyNow()?.[1]).toHaveProperty('marks', ['bold']);
+    await saveAndClose();
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     expect(
       draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body[0]
         ?.spans,
-    ).toStrictEqual(bodyNow());
+    ).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'revised lease', marks: ['bold'] },
+      { text: ' today' },
+    ]);
   });
 
   it('keeps a stale editor on its own conflicting copy', async () => {
@@ -1564,41 +1677,51 @@ describe('composing Drafts', () => {
     );
     const first = within(screen.getByTestId('first'));
     const second = within(screen.getByTestId('second'));
+    const answerIn = async (title: 'Save' | 'Don’t Save') => {
+      await act(async () => {
+        chooseSheetButton(title);
+      });
+    };
     await fireEvent.changeText(first.getByLabelText('Subject'), 'First window');
     const staleSubject = second.getByLabelText('Subject');
-    // Native text events can arrive before React has committed the synchronous rebind.
     await act(() => {
       staleSubject.props.onChangeText('Second');
       staleSubject.props.onChangeText('Second window');
     });
+    // Each editor keeps its edits to itself until Save.
+    expect(draftsOf(drafts.getSnapshot())).toMatchObject([{ subject: '' }]);
+    await act(async () => {
+      await fireEvent.press(first.getByRole('button', { name: 'Close' }));
+    });
+    await answerIn('Save');
+    expect(first.queryByLabelText('Subject')).toBeNull();
+    // Saving the stale editor stores its version as a conflicting copy. While storage refuses
+    // the save, the editor stays open on that copy with its own history.
+    storage.setLocked(true);
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Close' }));
+    });
+    await answerIn('Save');
     const copy = second.getByRole('button', {
       name: /^Conflicting Draft\. Second window\./u,
     });
     expect(copy).toHaveProp('accessibilityState', { selected: true });
     expect(
-      first.getByRole('button', { name: /^Draft\. First window\./u }),
-    ).toHaveProp('accessibilityState', { selected: true });
-    // Following the copy retains the mounted editor's history, not just its saved payload.
+      second.getByText(
+        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+      ),
+    ).toBeOnTheScreen();
+    storage.setLocked(false);
     await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
     expect(second.getByLabelText('Subject')).toHaveProp('value', 'Second');
     await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
     expect(second.getByLabelText('Subject')).toHaveProp('value', '');
     await fireEvent.press(second.getByRole('button', { name: 'Redo' }));
-    expect(second.getByLabelText('Subject')).toHaveProp('value', 'Second');
     await fireEvent.press(second.getByRole('button', { name: 'Redo' }));
     expect(second.getByLabelText('Subject')).toHaveProp(
       'value',
       'Second window',
     );
-    await fireEvent.changeText(
-      second.getByLabelText('Subject'),
-      'Second window continued',
-    );
-    expect(draftsOf(drafts.getSnapshot())).toHaveLength(2);
-    expect(
-      draftsOf(drafts.getSnapshot()).find(({ id: each }) => each !== id)
-        ?.subject,
-    ).toBe('Second window continued');
     // Discarding in the stale window deletes only its own version.
     await act(async () => {
       await fireEvent.press(
@@ -1699,7 +1822,7 @@ describe('composing Drafts', () => {
       to.props.onChangeText('maya@example.invalid');
       to.props.onSubmitEditing();
     });
-    await press('Close');
+    await saveAndClose();
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     expect(draftsOf(reopened.getSnapshot())).toMatchObject([
@@ -1732,7 +1855,6 @@ describe('composing Drafts', () => {
         screen.getByLabelText('Subject'),
         'Before discard',
       );
-      await savedQuietly(drafts);
       await press('Compose actions');
       await chooseMenuItem('Discard');
       await press('Keep Editing');
@@ -1740,7 +1862,6 @@ describe('composing Drafts', () => {
         screen.getByLabelText('Message body'),
         'After cancelling discard',
       );
-      await savedQuietly(drafts);
       await press('Compose actions');
       await chooseMenuItem('Discard');
       storage.hold();
@@ -1750,7 +1871,9 @@ describe('composing Drafts', () => {
         screen.getByLabelText('Subject'),
         'During discard',
       );
+      // Leaving waits while Discard runs.
       await press('New Message');
+      expect(sheetShown()).toBeUndefined();
       expect(screen.getByLabelText('Subject')).toHaveProp(
         'value',
         'During discard',
@@ -1765,7 +1888,7 @@ describe('composing Drafts', () => {
           ),
         ).toBeOnTheScreen();
       });
-      await press('Close');
+      await saveAndClose();
       await press(
         'Draft. During discard. No recipients. From alex@example.invalid',
       );
@@ -1791,7 +1914,7 @@ describe('composing Drafts', () => {
     },
   );
 
-  it('discards its rebound version when a late keystroke arrives behind an autosave', async () => {
+  it('keeps another writer’s version when Discard removes an unsaved editor’s Draft', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1816,7 +1939,7 @@ describe('composing Drafts', () => {
     await press('Compose actions');
     await chooseMenuItem('Discard');
     await press('Discard Draft');
-    // This accepted native event changes the editor while its autosave is suppressed.
+    // A native event accepted while Discard waits changes only the editor.
     await fireEvent.changeText(
       screen.getByLabelText('Subject'),
       'During discard',
@@ -1833,69 +1956,7 @@ describe('composing Drafts', () => {
     ]);
   });
 
-  it('keeps a late edit as one conflict copy when its Discard behind a rebinding autosave fails', async () => {
-    expect.hasAssertions();
-    const registration = account(connected(['alex@example.invalid']));
-    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    let refusing = false;
-    // Storage refuses the deletion that would remove this editor's conflict copy.
-    const drafts = createDrafts(
-      {
-        ...storage.native,
-        commitDrafts: async (owner, revision, commit) => {
-          // oxlint-disable-next-line vitest/no-conditional-in-test -- Storage refuses only the armed deletion.
-          if (refusing && !commit.document.includes('Discard me')) {
-            refusing = false;
-            throw Object.assign(new Error('locked'), { code: 'locked' });
-          }
-          return storage.native.commitDrafts(owner, revision, commit);
-        },
-      },
-      registration,
-    );
-    await render(
-      <StrictMode>
-        <App
-          drafts={drafts}
-          registration={registration}
-        />
-      </StrictMode>,
-    );
-    await press('New Message');
-    const [before] = draftsOf(drafts.getSnapshot());
-    ok(before !== undefined);
-    const otherWriter = createDrafts(storage.native, registration);
-    await otherWriter.load();
-    await otherWriter.update({ ...before, subject: 'Other writer' }, before);
-    storage.hold();
-    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
-    await press('Compose actions');
-    await chooseMenuItem('Discard');
-    await press('Discard Draft');
-    refusing = true;
-    // A native text event accepted while Discard waits.
-    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Late edit');
-    await act(async () => {
-      storage.release();
-      await drafts.save();
-    });
-    expect(
-      screen.getByText(
-        'This Draft could not be discarded, so it stays open. Try again.',
-      ),
-    ).toBeOnTheScreen();
-    const reopened = createDrafts(storage.native, registration);
-    await reopened.load();
-    const subjects = draftsOf(reopened.getSnapshot()).map(
-      ({ subject }) => subject,
-    );
-    expect(subjects).toHaveLength(2);
-    expect(subjects).toStrictEqual(
-      expect.arrayContaining(['Late edit', 'Other writer']),
-    );
-  });
-
-  it('finishes discarding its conflict copy after the composer unmounts', async () => {
+  it('finishes Discard after the composer unmounts, keeping another writer’s version', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1951,10 +2012,11 @@ describe('composing Drafts', () => {
     );
     await press('New Message');
     await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Kept');
-    // Finishing the open composer fails once: it stays open.
+    // Saving the open composer fails once: it stays open.
     await press('New Message');
+    await answer('Save');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Kept');
-    // The next attempt is not blocked by the failed one.
+    // The next attempt is not blocked by the failed one; the Draft storage already holds closes.
     await press('New Message');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
   });
@@ -1992,7 +2054,7 @@ describe('composing Drafts', () => {
       'value',
       'One Two Three',
     );
-    await press('Close');
+    await saveAndClose();
     await press(
       'Draft. One Two Three. No recipients. From alex@example.invalid',
     );
@@ -2034,7 +2096,7 @@ describe('composing Drafts', () => {
         fireEvent.changeText(body, 'aaa'),
       ]);
     });
-    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+    expect(shownBody()[0]).toStrictEqual([
       { text: 'aa', marks: ['bold'] },
       { text: 'a' },
     ]);
@@ -2048,7 +2110,7 @@ describe('composing Drafts', () => {
         fireEvent.changeText(body, 'aaab'),
       ]);
     });
-    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+    expect(shownBody()[0]).toStrictEqual([
       { text: 'aa', marks: ['bold'] },
       { text: 'a' },
       { text: 'b', marks: ['italic'] },
@@ -2063,7 +2125,7 @@ describe('composing Drafts', () => {
         fireEvent.changeText(body, 'aaac'),
       ]);
     });
-    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+    expect(shownBody()[0]).toStrictEqual([
       { text: 'aa', marks: ['bold'] },
       { text: 'ac' },
     ]);
@@ -2081,7 +2143,7 @@ describe('composing Drafts', () => {
       { selected: false, disabled: false },
     );
     await fireEvent.changeText(body, 'Xaaac');
-    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+    expect(shownBody()[0]).toStrictEqual([
       { text: 'X' },
       { text: 'aa', marks: ['bold'] },
       { text: 'ac' },
@@ -2161,12 +2223,26 @@ describe('composing Drafts', () => {
       'Draft changes are not saved while private storage is locked. Unlock your device.',
     ],
   ])(
-    'saves unfinished Draft changes from the Inbox after its composer unmounts (%s)',
+    'saves a Draft whose Save failed from the Inbox after its composer unmounts (%s)',
     async (failure, unsaved) => {
       expect.hasAssertions();
       const registration = account(connected(['alex@example.invalid']));
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-      const drafts = createDrafts(storage.native, registration);
+      let refusing = false;
+      // Storage refuses every commit while armed, as a locked or unavailable store does.
+      const drafts = createDrafts(
+        {
+          ...storage.native,
+          commitDrafts: async (owner, revision, commit) => {
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Storage refuses only while armed.
+            if (refusing) {
+              throw Object.assign(new Error(failure), { code: failure });
+            }
+            return storage.native.commitDrafts(owner, revision, commit);
+          },
+        },
+        registration,
+      );
       const moved: string[] = [];
       const first = await render(
         <App
@@ -2186,13 +2262,20 @@ describe('composing Drafts', () => {
       ok(saved !== undefined);
       const otherWriter = createDrafts(storage.native, registration);
       await otherWriter.load();
-      storage.failNextCommit(failure);
       await fireEvent.changeText(
-        await screen.findByLabelText('To'),
-        'unfinished',
+        await screen.findByLabelText('Message body'),
+        'Unsaved body',
       );
-      await expect(screen.findByText(unsaved)).resolves.toBeOnTheScreen();
+      // Save keeps a Draft it could not store open, with its edits waiting in memory.
+      refusing = true;
+      await saveAndClose();
+      expect(
+        screen.getByText(
+          'This Draft could not be saved, so it stays open. Try again, or discard it.',
+        ),
+      ).toBeOnTheScreen();
       await first.unmount();
+      refusing = false;
       await otherWriter.update({ ...saved, subject: 'Other writer' }, saved);
       const inbox = await render(
         <App
@@ -2216,7 +2299,9 @@ describe('composing Drafts', () => {
         'Conflicting Draft. Kept. No recipients. From alex@example.invalid',
       );
       expect(screen.getByLabelText('Subject')).toHaveDisplayValue('Kept');
-      expect(screen.getByLabelText('To')).toHaveDisplayValue('unfinished');
+      expect(screen.getByLabelText('Message body')).toHaveTextContent(
+        'Unsaved body',
+      );
     },
   );
 
@@ -2233,13 +2318,13 @@ describe('composing Drafts', () => {
     );
     await press('New Message');
     await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Kept');
-    await press('Close');
+    await saveAndClose();
     expect(
       screen.getByText(
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
-    await press('Close');
+    await press('Try again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
@@ -3196,19 +3281,12 @@ describe('adding files and images to a Draft', () => {
       { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
     ]);
     await press('Insert Image…');
-    await screen.findByLabelText('Inline image chart.png');
-    await waitFor(() => {
-      const [current] = draftsOf(drafts.getSnapshot());
-      ok(current, 'Expected the current Draft');
-      expect(imagesOf(current.body)[0]?.state).toBe('complete');
-      expect(drafts.getSnapshot()).toMatchObject({
-        kind: 'ready',
-        save: 'saved',
-      });
+    await expect(
+      screen.findByLabelText('Inline image chart.png'),
+    ).resolves.toHaveProp('source', {
+      uri: `data:image/png;base64,${btoa('chart')}`,
     });
-    const [before] = draftsOf(drafts.getSnapshot());
-    ok(before, 'Expected a Draft with an image');
-    const originalImages = imagesOf(before.body);
+    const before = shownBody();
     const guidance =
       'Select text without inline images to translate. Your images are unchanged.';
     // Neither a mixed selection nor an image alone starts a native request or changes the Draft.
@@ -3220,9 +3298,7 @@ describe('adding files and images to a Draft', () => {
       await press('Translate the selected text');
       await chooseMenuItem('English');
       await screen.findByText(guidance);
-      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
-        before.body,
-      );
+      expect(shownBody()).toStrictEqual(before);
       await press('Keep the original text and close the translation');
     }
     expect(inputs).toStrictEqual([]);
@@ -3244,24 +3320,22 @@ describe('adding files and images to a Draft', () => {
       'Hello \uFFFCworld',
       { exact: true },
     );
-    const [translated] = draftsOf(drafts.getSnapshot());
-    ok(translated, 'Expected the translated Draft');
-    expect(imagesOf(translated.body)).toStrictEqual(originalImages);
     await press('Undo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent(
       'Hello \uFFFCmundo',
       { exact: true },
     );
     await press('Redo');
-    await press('Close');
+    await saveAndClose();
     await app.unmount();
     storage.relaunch();
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     const [saved] = draftsOf(reopened.getSnapshot());
     ok(saved, 'Expected the saved Draft');
-    expect(imagesOf(saved.body)).toStrictEqual(originalImages);
-    const [image] = imagesOf(saved.body);
+    expect(saved.body).toHaveLength(1);
+    const [image, ...others] = imagesOf(saved.body);
+    expect(others).toStrictEqual([]);
     ok(image?.state === 'complete', 'Expected the complete saved inline image');
     await expect(reopened.readAsset(image)).resolves.toMatchObject({
       kind: 'ready',
@@ -3372,7 +3446,7 @@ describe('adding files and images to a Draft', () => {
       { uri: 'file:///late.txt', name: 'late.txt', type: 'text/plain' },
     ]);
     await press('Attach Files…');
-    await press('Close');
+    await saveAndClose();
     await first.unmount();
     storage.relaunch();
     const [saved] = draftsOf(drafts.getSnapshot());
@@ -3447,7 +3521,7 @@ describe('adding files and images to a Draft', () => {
     await expect(
       screen.findByLabelText('brief.txt, 5 bytes'),
     ).resolves.toBeOnTheScreen();
-    await press('Close');
+    await saveAndClose();
     await first.unmount();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the saved Draft');
@@ -3533,7 +3607,7 @@ describe('adding files and images to a Draft', () => {
     ]);
     await press('Insert Image…');
     await screen.findByLabelText('chart.png, 5 bytes');
-    await press('Close');
+    await saveAndClose();
     await first.unmount();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the saved Draft');
@@ -3825,7 +3899,7 @@ describe('adding files and images to a Draft', () => {
     ]);
     await press('Attach Files…');
     await screen.findByLabelText('plan.pdf, 4 bytes');
-    await press('Close');
+    await saveAndClose();
     await first.unmount();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the attachment-only Draft');
@@ -4166,8 +4240,8 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes!');
     await press('Hide quoted text');
     expect(screen.queryByText(/Shall we meet/u)).not.toBeOnTheScreen();
-    await press('Close');
-    // Closing keeps the reply as a Draft; nothing was sent.
+    await saveAndClose();
+    // Saving on Close keeps the reply as a Draft; nothing was sent.
     await waitFor(() => {
       expect(storage.stored()?.document).toContain('Yes!');
     });
@@ -4247,19 +4321,6 @@ describe('replying to and forwarding from the reader', () => {
       'Yes, Friday works. See you then.',
       { exact: true },
     );
-    await waitFor(() => {
-      expect(storage.stored()?.document).toContain('See you then.');
-    });
-    // Recipients, sender, quoted text and threading are unchanged, and nothing was sent.
-    const [applied] = draftsOf(drafts.getSnapshot());
-    expect(applied).toMatchObject({
-      from: draft?.from,
-      to: draft?.to,
-      cc: draft?.cc,
-      bcc: draft?.bcc,
-      quoted: draft?.quoted,
-      response: draft?.response,
-    });
     expect(gmail.requests).toHaveLength(requests);
     await press('Undo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes', {
@@ -4298,9 +4359,20 @@ describe('replying to and forwarding from the reader', () => {
     // Closing the Draft while a suggestion is pending cancels it.
     await press('Suggest a reply to the quoted message');
     await screen.findByLabelText('Cancel writing help');
-    await press('Close');
+    await saveAndClose();
     await waitFor(() => {
       expect(cancelled).toStrictEqual([asked[2]?.request, asked[3]?.request]);
+    });
+    // Recipients, sender, quoted text and threading are unchanged.
+    const [saved] = draftsOf(drafts.getSnapshot());
+    expect(saved).toMatchObject({
+      from: draft?.from,
+      to: draft?.to,
+      cc: draft?.cc,
+      bcc: draft?.bcc,
+      quoted: draft?.quoted,
+      response: draft?.response,
+      body: [{ kind: 'paragraph', spans: [{ text: 'Yes' }] }],
     });
   });
 

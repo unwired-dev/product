@@ -272,6 +272,33 @@ of the body editor for comparison with this composer; it does not change it.
 
 ## Saving
 
+On Mac ([#1609](https://github.com/unwired-dev/product/issues/1609)), the composer
+saves as Mail does:
+
+- **Editing** stores nothing and shows no save status. The Draft is stored only when
+  the person chooses **Save** on **Close** or sends it.
+- **Close** closes an unchanged Draft at once and removes an empty one without
+  asking. Otherwise the window's alert sheet asks **Do you want to save this message
+  as a draft?** with **Save**, **Don’t Save** and **Cancel**. AppKit keeps keyboard
+  focus and VoiceOver in the sheet, and Escape chooses **Cancel**. **Don’t Save**
+  deletes the Draft, as the sheet says; **Cancel** keeps editing. A sheet whose
+  composer goes away closes without an answer.
+- **Save** first turns any address still being typed into a recipient; an invalid
+  address keeps the composer open. Editing pauses while saving. When storage refuses,
+  the composer stays open with **Try again**, and its edits still ask on the next
+  **Close**.
+- **Leaving.** Opening another Draft, **New Message**, received mail, **Expand**,
+  Command-W, the window's close button and **Quit** ask the same question first;
+  they continue once the Draft is saved, deleted or unchanged.
+- **Durability.** Edits live only in the open composer until **Save** or **Send**
+  stores them; ending the app loses them, and reopening shows the stored version.
+  **Expand** stores the shown version before moving it into its own window. A change
+  of Product Account closes the composer without storing its edits.
+
+The rest of this section describes the iPhone and iPad composer, which still saves
+every edit; on Mac its conflict, discard and removal rules apply to the stored
+version.
+
 Every edit is saved as it happens, in order: an edit made while an earlier one is
 being written is saved after it, never dropped. Successful saving shows no status,
 so typing never flickers between saving and saved; the composer shows only why the
@@ -508,7 +535,7 @@ locked** with **Try again**. Logs carry no Draft content.
 Native Apple code owns [that storage](private-inbox-storage.md#draft-storage):
 encryption and its key, the Product Account owner and revision checks, the
 **Outgoing Content Store**'s 100 MB limit and the purge. The TypeScript Draft store in `@private-email/mail-core/drafts`
-owns ordered autosave, rebasing onto a newer revision and conflicting copies; it
+owns ordered saving, rebasing onto a newer revision and conflicting copies; it
 never handles key material.
 
 A Draft's files and inline images are stored as separate [Draft Assets](private-inbox-storage.md#draft-storage).
@@ -558,10 +585,14 @@ Also measure peak and retained memory across 100 independent history entries of
 a changed long block with several composers and large admitted documents.
 
 The mobile and Mac component journeys create a Draft, enter recipients, format and
-undo, autosave, finish or refuse unfinished recipient text on Close, reopen the
+undo, save (as each edit happens on mobile, on **Save** on Mac), finish or refuse
+unfinished recipient text on Close, reopen the
 Draft after a remount, keep a Draft open while saving fails,
 and choose another sender after its mailbox is removed; the Mac journey also uses
-the keyboard shortcuts. These are rendered component tests, not native E2E.
+the keyboard shortcuts. The Mac journeys check the Close sheet's buttons, **Cancel**,
+**Don’t Save** deleting a stored Draft, an unchanged or empty Draft closing without
+asking, the sheet withdrawn when its composer unmounts, and window close reaching
+the question. These are rendered component tests, not native E2E.
 Feedback regressions also reject a New Message identifier after account
 invalidation and recover failed or locked saves from the Inbox without a mounted
 composer, then reopen the content through a fresh Draft store. The mobile journey

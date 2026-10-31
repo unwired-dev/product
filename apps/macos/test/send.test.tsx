@@ -32,6 +32,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { chooseSheetButton } from './native-alert.ts';
 import { chooseMenuItem } from './native-menu.ts';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -483,6 +484,9 @@ describe('sending a Draft', () => {
         'Kept edits',
       );
       await press('Close');
+      await act(async () => {
+        chooseSheetButton('Save');
+      });
       await press(
         'Draft. After refusal. To sam@example.invalid. From alex@example.invalid',
       );
