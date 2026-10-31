@@ -1,8 +1,9 @@
+import type { SendCheck } from '@private-email/mail-core/outbox';
+
 import * as Schema from 'effect/Schema';
 import PostalMime from 'postal-mime';
 
 import type { Draft } from '../src/drafts.ts';
-import type { SendCheck } from '../src/outbox.ts';
 import type { Device } from './outbox-fixture.ts';
 
 import { createDrafts, draftsOf, profileDrafts } from '../src/drafts.ts';
