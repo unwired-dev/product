@@ -334,8 +334,8 @@ describe('the Writing tools detail check', () => {
       {
         kind: 'quote',
         status: 'changed',
-        original: 'Please approve\nthe full budget',
-        result: 'Please reject\nthe full budget',
+        original: 'Please approve the full budget',
+        result: 'Please reject the full budget',
       },
     ]);
   });
@@ -823,10 +823,11 @@ describe('the Writing tools detail check', () => {
     'keeps the full destination of $text visible for review',
     ({ text, href, kind, originalTarget }) => {
       expect.hasAssertions();
-      const original = whole(text, [
-        { kind: 'paragraph', spans: [{ text, link: href }] },
+      // The selection starts before the link, so the applied result carries none.
+      const original = whole(`Open ${text}`, [
+        { kind: 'paragraph', spans: [{ text: 'Open ' }, { text, link: href }] },
       ]);
-      expect(checkDetails(original, text).changes).toStrictEqual([
+      expect(checkDetails(original, `Open ${text}`).changes).toStrictEqual([
         {
           kind,
           status: 'removed',
@@ -836,6 +837,50 @@ describe('the Writing tools detail check', () => {
       ]);
     },
   );
+
+  it('compares the links the applied result carries', () => {
+    expect.hasAssertions();
+    // Replaced text keeps the link of its first replaced character.
+    const linked = (text: string, link: string) =>
+      whole(text, [{ kind: 'paragraph', spans: [{ text, link }] }]);
+    expect(
+      checkDetails(
+        linked('https://example.com/old', 'https://example.com/old'),
+        'https://example.com/new',
+      ),
+    ).toStrictEqual({
+      kept: ['https://example.com/old'],
+      changes: [
+        { kind: 'link', status: 'added', result: 'https://example.com/new' },
+      ],
+    });
+    expect(
+      checkDetails(linked('read here', 'https://example.com/x'), 'see this'),
+    ).toStrictEqual({ kept: ['https://example.com/x'], changes: [] });
+  });
+
+  it('reads a detail across a run of spaces or a wrapped line', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Meet 3  November 2026 and 4\n   December 2027'),
+        'Meet 4  November 2026 and 3\n   December 2027',
+      ).changes,
+    ).toStrictEqual([
+      {
+        kind: 'date',
+        status: 'changed',
+        original: '3 November 2026',
+        result: '4 November 2026',
+      },
+      {
+        kind: 'date',
+        status: 'changed',
+        original: '4 December 2027',
+        result: '3 December 2027',
+      },
+    ]);
+  });
 
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();

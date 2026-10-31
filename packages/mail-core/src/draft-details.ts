@@ -3,7 +3,7 @@ import * as Order from 'effect/Order';
 
 import type { SemanticDocument, Selection } from './semantic-document.ts';
 
-import { selectedLinks } from './semantic-document.ts';
+import { replaceSelection, selectedLinks } from './semantic-document.ts';
 
 // Details a Writing tools result must not change unnoticed. The check reads text only: it cannot
 // tell whether meaning, questions or commitments survived, so people still read the result.
@@ -170,7 +170,9 @@ const detail = (kind: DetailKind, value: string, label?: string): Detail => ({
   ...(label === undefined ? {} : { label }),
 });
 
-const detailsIn = (text: string): Detail[] => {
+// Any run of spaces or line breaks reads as one space, so wrapping never splits a detail.
+const detailsIn = (source: string): Detail[] => {
+  const text = source.replaceAll(/\s{2,}|\n/gu, ' ');
   const found: Array<readonly [number, Detail]> = [];
   for (const match of text.matchAll(pattern)) {
     const group = match.slice(1).findIndex((each) => each !== undefined);
@@ -270,6 +272,11 @@ const changeOf = (each: Detail, paired: Detail | undefined): DetailChange => {
       };
 };
 
+// The text that replaces captured Draft text: the result, trimmed for the preview, between the
+// capture's own leading and trailing whitespace so neighbouring words stay separated.
+export const draftReplacement = (selected: string, replacement: string) =>
+  `${/^\s*/u.exec(selected)?.[0] ?? ''}${replacement.trim()}${/\s*$/u.exec(selected)?.[0] ?? ''}`;
+
 // Compares the details of captured Draft text with a Writing tools result. Equal details are kept;
 // left-over details of one kind pair up in order as changed; the rest were removed or added.
 export function checkDetails(
@@ -284,7 +291,21 @@ export function checkDetails(
     ...detailsIn(original.text),
     ...hiddenLinks(original.draft.body, original.selection),
   ];
-  const after = detailsIn(result);
+  // The applied Draft, not the plain result, carries the links: replaced text keeps the link of
+  // its first replaced character.
+  const start = Math.min(original.selection.start, original.selection.end);
+  const applied = replaceSelection(
+    original.draft.body,
+    original.selection,
+    draftReplacement(original.text, result),
+  );
+  const after = [
+    ...detailsIn(result),
+    ...hiddenLinks(applied.document, {
+      start,
+      end: applied.selection?.end ?? start,
+    }),
+  ];
   const removed = before.filter(
     (each) =>
       take(

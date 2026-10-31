@@ -108,6 +108,12 @@ iPhone and iPad composer.
     Times retain seconds, fractional seconds and a written zone such as `UTC`,
     `PST` or `+01:00`. Quoted text in straight double, curly, low and angle quotes
     may cross line breaks; a straight inch mark after a number cannot open a quote.
+    A run of spaces or a line break reads as one space, so wrapping never splits
+    a detail (`3  November` is one date).
+  - The result side is the Draft the result would make: replaced text keeps the
+    link of its first replaced character, so a result typed over a link still
+    carries that link's destination and the check compares it rather than the
+    plain result alone.
   - A detail is kept only when the result writes an unambiguous equivalent: the
     same text apart from spacing, letter case for email addresses, dates and
     times (`8 P.M.` and `8pm`), the currency on either side of an amount
