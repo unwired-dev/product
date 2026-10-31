@@ -392,7 +392,11 @@ final class InboxTests: XCTestCase {
     subject.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     type("Unsaved plans", into: subject)
+    // #1612: Close asks first; nothing is stored until Save Draft.
     app.buttons["Close"].tap()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
     let blocked = text("This Draft could not be saved, so it stays open.", in: app)
     XCTAssertTrue(blocked.waitForExistence(timeout: 10))
     XCTAssertFalse(back.isHittable)

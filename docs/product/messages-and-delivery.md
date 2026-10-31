@@ -36,8 +36,8 @@ implemented.
 - On compact layouts, composing is an editor destination pushed into the existing navigation stack rather than a sheet or full-screen modal
 - Composer expansion is transient to the open editor and never changes how a later Draft opens; the legacy synchronized partial-or-full opening preference is ignored after migration.
 - Selecting a product-authored **Draft** enters that same editor directly; Drafts have no read-only reader state
-- Each mail window has one active composer. Its `x` closes only after the latest autosave succeeds and never discards the Draft; Discard remains an explicit destructive overflow action
-- Starting another message or selecting another product-authored Draft autosaves and parks the current Draft, then switches the same editor to the requested Draft; a save failure blocks the switch and remains visible inline
+- Each mail window has one active composer. On iPhone and iPad its `x` closes an unchanged Draft at once and removes an empty one; otherwise **Delete Draft** and **Save Draft** grow out of it, and the composer closes only once the chosen save or deletion succeeds. On the Mac its `x` closes only after the latest autosave succeeds and never discards the Draft. Discard remains an explicit destructive overflow action
+- Starting another message or selecting another product-authored Draft first asks the same question on iPhone and iPad, and on the Mac autosaves and parks the current Draft; the same editor then switches to the requested Draft, and a save failure blocks the switch and remains visible inline
 - The expand or collapse control remains directly visible in both regular-width states and is absent on compact iPhone, where the composer already fills its navigation destination, and in the Mac New Message window
 - The **Formatting Toolbar Preference** synchronizes globally and hides only the formatting toolbar; Markdown, keyboard, context-menu, document, and delivery formatting remain available
 
@@ -56,7 +56,7 @@ and back out of the Outbox. Current implementation is documented in the
 
 - An ambiguous post-content SMTP outcome is never retried automatically and requires explicit user reconciliation
 - The **Outbox** appears only while it contains a scheduled, pending, retrying, failed, or needs-attention outgoing message
-- Composer edits continuously autosave to an encrypted **Draft**; if the **Outgoing Content Store** cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
+- On the Mac, composer edits continuously autosave to an encrypted **Draft**; on iPhone and iPad they are stored only on **Save Draft** or Send. If the **Outgoing Content Store** cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
 - The Apple Share Extension binds explicit shared content to the device-local **Startup Profile** and its Default Sending Identity, authenticates before revealing a locked Profile, and opens the normal composer without a direct-send path or backend-readable copy.
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which retains its complete content and assets until the attempt becomes terminal or is cancelled.
 - **Draft Assets** synchronize through **Private Sync**. Send remains unavailable until every required asset is complete and valid on the sending device.

@@ -47,9 +47,9 @@ import { WebView } from 'react-native-webview';
 import type { Closing } from './composer.tsx';
 import type { Open, PageState } from './evaluation-composer-controls.tsx';
 
-import { MenuItem } from './composer-controls.tsx';
 import {
   CapturedAssistance,
+  CloseQuestion,
   Composer,
   ComposerLayoutContext,
   ComposerNotices,
@@ -58,7 +58,6 @@ import {
   retires,
   SendingMailbox,
 } from './composer.tsx';
-import { GlassPanel } from './design.tsx';
 import {
   FormatPanel,
   PhoneControls,
@@ -94,13 +93,6 @@ const styles = StyleSheet.create({
   // Menus float over the content below or above their control.
   controls: { zIndex: 4 },
   padControls: { zIndex: 1 },
-  closeMenu: {
-    position: 'absolute',
-    zIndex: 4,
-    top: 56,
-    left: spacing.l,
-    minWidth: 240,
-  },
 });
 
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
@@ -630,32 +622,15 @@ function EvaluationEditor({
               void send();
             }}
           />
-          {/* Delete Draft and Save Draft grow out of Close. */}
-          <View
-            accessibilityRole="menu"
-            accessibilityElementsHidden={open !== 'close'}
-            pointerEvents={open === 'close' ? 'box-none' : 'none'}
-            style={styles.closeMenu}>
-            <GlassPanel
-              open={open === 'close'}
-              origin="top left">
-              <MenuItem
-                destructive
-                label={t('drafts.deleteDraft')}
-                selected={false}
-                onPress={() => {
-                  void deleteDraft();
-                }}
-              />
-              <MenuItem
-                label={t('drafts.saveDraft')}
-                selected={false}
-                onPress={() => {
-                  void saveDraft();
-                }}
-              />
-            </GlassPanel>
-          </View>
+          <CloseQuestion
+            open={open === 'close'}
+            onDelete={() => {
+              void deleteDraft();
+            }}
+            onSave={() => {
+              void saveDraft();
+            }}
+          />
           {retained.pad === undefined ? null : (
             <View
               style={styles.padControls}
