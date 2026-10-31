@@ -14,10 +14,8 @@ iPhone and iPad composer.
 
 ## Behavior
 
-- **Rewrite** sits in the formatting toolbar next to **Translate**; on iPhone and
-  iPad, **Rewrite**, **Translate** and **Suggest reply**, and on Mac **Rewrite**,
-  **Translate To** and **Suggest reply**, share the format bar's
-  **Writing tools** (sparkles) menu, which is unavailable while sending. With text
+- **Rewrite** sits in the format bar's **Writing tools** (sparkles) menu with the
+  other actions listed below, which is unavailable while sending. With text
   selected it rewrites the selection; with nothing selected it rewrites the whole
   authored body. It is disabled while that text is blank.
 - The Writing tools menu groups its items as the approved design does:
