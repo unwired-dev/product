@@ -468,6 +468,11 @@ describe('sending a Draft', () => {
   it('shows an inline image again once Send verifies it after a locked check', async () => {
     expect.hasAssertions();
     const sender = device();
+    let finishThumbnail: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Verify status before the thumbnail read finishes.
+    const thumbnail = new Promise<undefined>((resolve) => {
+      finishThumbnail = () => resolve(undefined);
+    });
     try {
       await act(async () => {
         await sender.mailboxes.load();
@@ -498,6 +503,10 @@ describe('sending a Draft', () => {
       const read = sender.storage.native.readDraftAsset;
       jest
         .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockImplementation(async (...args) => {
+          await thumbnail;
+          return read(...args);
+        })
         .mockImplementationOnce(read)
         .mockImplementationOnce(async (...args) => {
           sender.storage.damage(args[1].id);
@@ -509,11 +518,17 @@ describe('sending a Draft', () => {
       await expect(
         screen.findByLabelText('photo.png, 5 bytes · Damaged on this device'),
       ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('chart.png, 5 bytes')).toBeOnTheScreen();
+      await act(async () => {
+        finishThumbnail();
+        await thumbnail;
+      });
       await expect(
         screen.findByLabelText('Inline image chart.png'),
       ).resolves.toBeOnTheScreen();
       expect(screen.getByLabelText('chart.png, 5 bytes')).toBeOnTheScreen();
     } finally {
+      finishThumbnail();
       sender.outbox.dispose();
     }
   });

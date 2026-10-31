@@ -933,30 +933,21 @@ const sendPreview = (
   return kind === 'verified' && preview?.kind === 'ready' ? preview : { kind };
 };
 
-// What a Send check changes on a file: verified bytes carry no thumbnail, so an inline image
-// without one is read again to show it.
+// A Send result replaces the row's previous availability for this asset revision.
 const afterSend = (
   asset: Asset,
   {
-    inline,
     kind,
     shown,
     attempt,
   }: Readonly<{
-    inline: boolean;
     kind: AssetPreview['kind'] | undefined;
     shown: AssetPreview | undefined;
     attempt: number;
   }>,
 ) => {
-  if (asset.state !== 'complete') {
-    return undefined;
-  }
-  if (inline && kind === 'verified' && shown?.kind !== 'ready') {
-    return 'reload';
-  }
   const preview = sendPreview(kind, shown);
-  return preview === undefined
+  return asset.state !== 'complete' || preview === undefined
     ? undefined
     : { id: asset.id, digest: asset.digest, attempt, preview };
 };
@@ -1042,16 +1033,13 @@ function usePreview(
   const [found, setFound] = useState(checked);
   if (found !== checked) {
     setFound(checked);
-    const next = afterSend(asset, {
-      inline,
-      kind: checked,
-      shown,
-      attempt,
-    });
-    if (next === 'reload') {
-      retry();
-    } else if (next !== undefined) {
+    const next = afterSend(asset, { kind: checked, shown, attempt });
+    if (next !== undefined) {
       setPreview(next);
+      // Send verified the bytes; a missing inline thumbnail can load separately.
+      if (inline && next.preview.kind === 'verified') {
+        retry();
+      }
     }
   }
   return {
