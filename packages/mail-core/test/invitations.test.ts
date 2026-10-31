@@ -66,12 +66,17 @@ const replyOf = (send: Readonly<{ raw: string }> | undefined) => {
 // A Gmail mailbox whose separately stored attachments cannot be fetched.
 const withoutAttachments = (
   native: ReturnType<typeof createSyntheticGmail>['native'],
+  failure: number | Readonly<{ code: string }>,
 ): ReturnType<typeof createSyntheticGmail>['native'] => ({
   ...native,
-  gmailRequest: (path, query, request) =>
-    path.includes('/attachments/')
-      ? Promise.resolve({ status: 404, body: '{}' })
-      : native.gmailRequest(path, query, request),
+  gmailRequest: (path, query, request) => {
+    if (!path.includes('/attachments/')) {
+      return native.gmailRequest(path, query, request);
+    }
+    return typeof failure === 'number'
+      ? Promise.resolve({ status: failure, body: '{}' })
+      : Promise.reject(Object.assign(new Error('Attachment refused'), failure));
+  },
 });
 
 // An Inbox showing one received invitation and the mailbox's responses to it.
@@ -431,33 +436,41 @@ describe('meeting invitations', () => {
     close();
   });
 
-  it('keeps the message readable when its invitation cannot be fetched', async () => {
-    expect.hasAssertions();
-    const gmail = createSyntheticGmail();
-    const id = gmail.deliver({
-      from: 'Lena Fischer <lena@northwind.example>',
-      subject: 'Invitation: Q4 roadmap review',
-      content: {
-        text: 'Join us.',
-        attachments: [
-          {
-            filename: 'invite.ics',
-            mimeType: 'text/calendar',
-            bytes: [...Buffer.from(calendar(meeting))],
-          },
-        ],
-      },
-    });
-    const inbox = createGmailInbox(withoutAttachments(gmail.native));
-    await inbox.load();
-    const close = inbox.retainMessage(id);
-    await inbox.readMessage(id);
+  it.each([
+    [404, 'current', expect.objectContaining({ text: 'Join us.' })],
+    [401, 'authentication', expect.objectContaining({ text: 'Join us.' })],
+    [{ code: 'locked' }, 'current', undefined],
+  ] as const)(
+    'preserves body access and sign-in state after invitation fetch failure %s',
+    async (failure, sync, source) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        from: 'Lena Fischer <lena@northwind.example>',
+        subject: 'Invitation: Q4 roadmap review',
+        content: {
+          text: 'Join us.',
+          attachments: [
+            {
+              filename: 'invite.ics',
+              mimeType: 'text/calendar',
+              bytes: [...Buffer.from(calendar(meeting))],
+            },
+          ],
+        },
+      });
+      const inbox = createGmailInbox(withoutAttachments(gmail.native, failure));
+      await inbox.load();
+      const close = inbox.retainMessage(id);
+      await inbox.readMessage(id);
 
-    expect(inbox.responseSource(id)).toMatchObject({ text: 'Join us.' });
-    expect(inbox.responseSource(id)).not.toHaveProperty('calendar');
+      expect(inbox.responseSource(id)).toStrictEqual(source);
+      expect(inbox.responseSource(id)?.calendar).toBeUndefined();
+      expect(inbox.getSnapshot()).toMatchObject({ kind: 'ready', sync });
 
-    close();
-  });
+      close();
+    },
+  );
 
   it('prevents simultaneous readers of one Inbox from sending twice', async () => {
     expect.hasAssertions();

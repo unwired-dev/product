@@ -43,6 +43,8 @@ separately.
   **Not answered yet** again. Gmail's Sent keeps the sent response.
 - Bodies cached before this change open without the card until the cache is
   refreshed.
+- If the calendar part cannot be fetched, the message stays readable without
+  the card. A rejected Gmail grant still asks for sign-in.
 - The card does not show the organizer's own time zone, and the chosen button
   does not show a spinner while sending; the status row does.
 
