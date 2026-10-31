@@ -1317,7 +1317,14 @@ export function CloseQuestion({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={[styles.closeChoice, { backgroundColor: colors.fillQuiet }]}>
+      style={({ pressed }) => [
+        styles.closeChoice,
+        {
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : colors.fillQuiet,
+        },
+      ]}>
       <Text style={[styles.closeChoiceText, { color }]}>{label}</Text>
     </Pressable>
   );
