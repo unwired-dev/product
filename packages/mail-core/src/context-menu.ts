@@ -13,6 +13,8 @@ export type MenuAction = () => void | Promise<void>;
 export type MenuItem = Readonly<{
   title: string;
   symbol: string;
+  // A `#RRGGBB` color drawing the symbol, such as a swatch, on iPhone and iPad.
+  symbolColor?: string;
   destructive?: boolean;
   // A second line beneath the title, and a checkmark for the chosen item.
   subtitle?: string;
@@ -37,6 +39,7 @@ export type NativeMenuItem = Readonly<{
   id: string;
   title: string;
   symbol: string;
+  symbolColor?: string | undefined;
   destructive?: boolean | undefined;
   subtitle?: string | undefined;
   checked?: boolean | undefined;
@@ -53,11 +56,13 @@ export const menuState = (sections: readonly MenuSection[]) => {
     const { title, symbol, destructive } = item;
     if ('run' in item) {
       runs.set(item.key, item.run);
-      const { subtitle, checked, disabled, accessibilityLabel } = item;
+      const { symbolColor, subtitle, checked, disabled, accessibilityLabel } =
+        item;
       return {
         id: item.key,
         title,
         symbol,
+        ...(symbolColor === undefined ? {} : { symbolColor }),
         destructive,
         subtitle,
         checked,

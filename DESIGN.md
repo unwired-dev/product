@@ -512,7 +512,9 @@ content.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
-  Settings' 24pt monogram the symbol is 10pt and the letter 11pt semibold. Message list rows show a real contact photo
+  Settings' 24pt monogram the symbol is 10pt and the letter 11pt semibold; iPhone
+  Settings' is 30pt with a 12pt symbol and 14pt letter, and iPad's 28pt with a
+  12pt symbol and 13pt letter. Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.

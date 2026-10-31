@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import { Fragment } from 'react';
@@ -706,7 +706,7 @@ function Hairline() {
   );
 }
 
-// A row: an optional icon, the title and its subtitle, then its trailing controls.
+// A row: an optional SF Symbol or icon view, the title and its subtitle, then its trailing controls.
 export function SettingsRow({
   icon,
   title,
@@ -717,7 +717,7 @@ export function SettingsRow({
   subtitleTone,
   children,
 }: {
-  readonly icon?: string;
+  readonly icon?: string | ReactElement;
   readonly title: string;
   readonly titleTone?: 'accent' | 'destructive';
   readonly titleNumberOfLines?: number;
@@ -731,13 +731,13 @@ export function SettingsRow({
   return (
     <View style={styles.row}>
       <Hairline />
-      {icon === undefined ? null : (
+      {typeof icon === 'string' ? (
         <SFSymbol
           name={icon}
           size={20}
           color={colors.accentInk}
         />
-      )}
+      ) : icon}
       <View style={[styles.rowText, disabled && { opacity: 0.4 }]}>
         <Text
           numberOfLines={titleNumberOfLines}
