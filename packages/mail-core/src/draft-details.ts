@@ -70,7 +70,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   [
     'date',
     [
-      String.raw`\d{4}-\d{1,2}-\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}:?\d{2})?)?`,
+      String.raw`\d{4}-\d{1,2}-\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
       `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
       `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
       weekday,
