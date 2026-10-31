@@ -708,7 +708,8 @@ describe('profile-scoped mobile routes', () => {
       expect(screen.getByLabelText('Message body')).toHaveTextContent(
         'Keep this draft.',
       );
-      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      // Selecting a message asks about the changed Draft; its unfinished recipient keeps it open.
+      await fireEvent.press(screen.getByRole('button', { name: 'Save Draft' }));
       expect(
         screen.getByText(
           'Correct or remove the invalid address to close this Draft.',
@@ -750,6 +751,7 @@ describe('profile-scoped mobile routes', () => {
       waitingForSave = pendingSave;
       await fireEvent.press(screen.getByRole('button', { name: 'Redo' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Save Draft' }));
       // Reader input and native save completion can arrive before the next render.
       await act(async () => {
         await fireEvent.press(
@@ -776,18 +778,25 @@ describe('profile-scoped mobile routes', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  // A Draft with content asks before leaving; leaving removes an untouched one at once.
   it.each([
-    { draft: 'with content', body: 'Keep this draft.', command: 'Inbox' },
+    {
+      draft: 'with content',
+      body: 'Keep this draft.',
+      command: 'Inbox',
+      answers: ['Save Draft'],
+    },
     // Leaving removes the empty Draft, which unmounts its editor before it finishes closing.
-    { draft: 'untouched', body: '', command: 'Inbox' },
+    { draft: 'untouched', body: '', command: 'Inbox', answers: [] },
     {
       draft: 'expanded via Search Mail',
       body: 'Keep this draft.',
       command: 'Search Mail',
+      answers: ['Save Draft'],
     },
   ])(
     'leaves an expanded iPad composer $draft for the Inbox from the Command Palette',
-    async ({ body, command }) => {
+    async ({ body, command, answers }) => {
       expect.hasAssertions();
       split.shown.length = 0;
       const dimensions = jest
@@ -870,6 +879,11 @@ describe('profile-scoped mobile routes', () => {
             }),
           );
         });
+        for (const name of answers) {
+          await act(async () => {
+            await fireEvent.press(screen.getByRole('button', { name }));
+          });
+        }
         expect(screen.queryByLabelText('Message body')).toBeNull();
         expect(screen.queryByText('This Draft is not available.')).toBeNull();
         expect(screen.queryByText('Synthetic garden body.')).toBeNull();
