@@ -59,11 +59,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  // iPhone's 30pt monogram, iPad's 28pt.
+  // iPhone's 30pt monogram, iPad's 28pt. The frames draw it 4pt into the row's leading inset, with
+  // its title 10pt (iPad 8pt) after it, in line with the mailbox rows' titles.
   monogram: {
     width: settingsColumns ? 28 : 30,
     height: settingsColumns ? 28 : 30,
     borderRadius: settingsColumns ? 14 : 15,
+    marginLeft: -4,
+    marginRight: settingsColumns ? -4 : -2,
     alignItems: 'center',
     justifyContent: 'center',
   },
