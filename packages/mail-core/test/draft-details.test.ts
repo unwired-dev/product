@@ -135,10 +135,25 @@ describe('the Writing tools detail check', () => {
   it('compares compact currency codes as complete amounts', () => {
     expect.hasAssertions();
     expect(
-      checkDetails(whole('Pay 40USD or USD40.'), 'Pay 40EUR or EUR40.').changes,
+      checkDetails(
+        whole('Pay 40USD, USD40, $40USD or USD-40.'),
+        'Pay 40EUR, EUR40, €40USD or USD+40.',
+      ).changes,
     ).toStrictEqual([
       { kind: 'amount', status: 'changed', original: '40USD', result: '40EUR' },
       { kind: 'amount', status: 'changed', original: 'USD40', result: 'EUR40' },
+      {
+        kind: 'amount',
+        status: 'changed',
+        original: '$40USD',
+        result: '€40USD',
+      },
+      {
+        kind: 'amount',
+        status: 'changed',
+        original: 'USD-40',
+        result: 'USD+40',
+      },
     ]);
   });
 

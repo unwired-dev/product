@@ -68,7 +68,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
   [
     'amount',
-    `${sign}?(?:${currency})\\s?${unsigned}|${figure}\\s?(?:${currency})`,
+    `${sign}?(?:${currency})\\s?${figure}(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`,
   ],
   [
     'date',
