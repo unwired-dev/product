@@ -102,20 +102,22 @@ const trimLink = (link: string): string => {
 // Only unambiguous differences in writing compare equal: spacing, the case of an email address,
 // a date or "p.m.", and whether a currency comes before or after its amount. Anything else, such as a
 // reformatted date, a number written as a word or a regrouped number, stays visible to compare.
+const first = (source: string, text: string) =>
+  new RegExp(source, 'u').exec(text)?.[0] ?? '';
+const amountKey = (amount: string) => {
+  const number = first(unsigned, amount);
+  const signed = first(sign, amount);
+  return `${amount.replace(number, '').replace(signed, '')} ${signed}${number}`;
+};
+const keys: Partial<Record<DetailKind, (spaced: string) => string>> = {
+  email: (spaced) => spaced.toLowerCase(),
+  date: (spaced) => spaced.toLowerCase(),
+  time: (spaced) => spaced.toLowerCase().replaceAll('.', ''),
+  amount: amountKey,
+};
 const keyOf = (kind: DetailKind, value: string) => {
   const spaced = value.replaceAll(/\s+/gu, kind === 'quote' ? ' ' : '');
-  if (kind === 'email' || kind === 'date') {
-    return spaced.toLowerCase();
-  }
-  if (kind === 'time') {
-    return spaced.toLowerCase().replaceAll('.', '');
-  }
-  if (kind === 'amount') {
-    const number = new RegExp(unsigned, 'u').exec(spaced)?.[0] ?? '';
-    const signed = new RegExp(sign, 'u').exec(spaced)?.[0] ?? '';
-    return `${spaced.replace(number, '').replace(signed, '')} ${signed}${number}`;
-  }
-  return spaced;
+  return keys[kind]?.(spaced) ?? spaced;
 };
 
 const detail = (kind: DetailKind, value: string, label?: string): Detail => ({
