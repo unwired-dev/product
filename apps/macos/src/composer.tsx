@@ -2504,6 +2504,7 @@ function Editor({
         />
         <View style={styles.grow} />
         <WritingTools
+          key={profile}
           draft={draft}
           selection={selection}
           disabled={paused}

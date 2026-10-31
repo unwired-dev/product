@@ -38,7 +38,8 @@ Draft…**, which writes new text from a prompt.
   result opens in the review panel titled **Generated draft**. **Insert** places
   it at the caret, after any selection without replacing it, as one undoable
   edit; **Discard** closes it. A prompt longer than the input bound is refused
-  before the model is asked. Prompts are not kept, so the design's prompt-history
+  before the model is asked. Changing the Draft's Profile dismisses any unfinished
+  prompt, even when the destination also permits assistance. Prompts are not kept, so the design's prompt-history
   control is not offered.
 - **Suggest reply** appears only in a Reply or Reply All Draft that has its quoted
   message. It writes one complete reply that keeps the points already written.

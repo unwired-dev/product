@@ -713,6 +713,7 @@ function EvaluationEditor({
         style={styles.controls}>
         {pageState === undefined ? null : (
           <PageFormatBar
+            key={profile}
             draft={draft}
             page={pageState}
             run={run}

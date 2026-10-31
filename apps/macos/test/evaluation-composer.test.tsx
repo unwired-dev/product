@@ -433,7 +433,7 @@ describe('the Tiptap evaluation composer', () => {
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
   });
 
-  it('retires a reviewed rewrite on a Profile change without losing the page’s unsaved body', async () => {
+  it('retires a reviewed rewrite and unfinished prompt on a Profile change without losing the page’s unsaved body', async () => {
     expect.hasAssertions();
     const mock = createMockMailSession('open-read-relaunch');
     const drafts = createDrafts(
@@ -455,8 +455,19 @@ describe('the Tiptap evaluation composer', () => {
     await press('Writing tools');
     await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
+    await press('Writing tools');
+    await chooseMenuItem('Generate a Draft…');
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
     await app.rerender(view('personal'));
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
+    expect(screen.queryByLabelText('What to write')).toBeNull();
+    await press('Writing tools');
+    await chooseMenuItem('Generate a Draft…');
+    expect(screen.getByLabelText('What to write')).toHaveProp('value', '');
+    await press('Close Generate a Draft');
     expect(screen.getByTestId('message-webview')).toBeOnTheScreen();
     await press('Close', false);
     await page.report({ frozen: true });

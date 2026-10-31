@@ -3691,12 +3691,25 @@ describe('composing Drafts', () => {
       await writingTool('Rewrite');
       await screen.findByLabelText('Cancel writing help');
 
+      // An unfinished prompt belongs to this Profile too, even when the destination permits it.
+      await writingTool('Generate a Draft…');
+      await fireEvent.changeText(
+        screen.getByLabelText('What to write'),
+        'thank Maya',
+      );
+      const movedGenerate = queuedPress(
+        'Generate a draft from this description',
+      );
       // A move retires the request even when the destination Profile also permits assistance.
       await act(async () => {
         registration.change(owned('personal'));
       });
       expect(cancelled).toStrictEqual([asked[0]?.request]);
       expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+      expect(screen.queryByLabelText('What to write')).toBeNull();
+      await act(() => {
+        movedGenerate();
+      });
       expect(asked).toHaveLength(1);
       expect((await writingToolsItem('Rewrite')) !== undefined).toBe(offered);
     },
