@@ -38,16 +38,14 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancel: {
     minWidth: 44,
     height: 44,
-    paddingHorizontal: spacing.l - 2,
+    paddingHorizontal: spacing.l,
     borderRadius: 22,
-    borderWidth: 2,
     justifyContent: 'center',
   },
   cancelLabel: { ...textStyles.body },
@@ -81,10 +79,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.m,
     minHeight: 44,
-    // The focus border counts toward the row's 12pt horizontal and 11pt vertical insets.
-    paddingHorizontal: spacing.m - 2,
-    paddingVertical: 11 - 2,
-    borderWidth: 2,
+    paddingHorizontal: spacing.m,
+    paddingVertical: 11,
     borderRadius: radius.card,
   },
   rowIcon: { width: 22, alignItems: 'center' },
@@ -176,7 +172,7 @@ const rowsFor = (
           depth: 0,
         }));
 
-// A round or pill control in the picker's header, ringed in the accent while it has focus.
+// A round or pill control in the picker's header.
 function SheetButton({
   label,
   style,
@@ -189,17 +185,10 @@ function SheetButton({
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
-  const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      onFocus={() => {
-        setFocused(true);
-      }}
-      onBlur={() => {
-        setFocused(false);
-      }}
       onPress={onPress}
       style={({ pressed }) => [
         style,
@@ -207,7 +196,6 @@ function SheetButton({
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
             : colors.fillQuiet,
-          borderColor: focused ? colors.accentInk : 'transparent',
         },
       ]}>
       {children}
@@ -215,7 +203,7 @@ function SheetButton({
   );
 }
 
-// A row of the picker, indented by its depth and ringed in the accent while it has focus.
+// A row of the picker, indented by its depth.
 function SheetRow({
   label,
   depth = 0,
@@ -232,7 +220,6 @@ function SheetRow({
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
-  const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityLabel={label}
@@ -240,12 +227,6 @@ function SheetRow({
       accessibilityState={{ disabled, selected: current }}
       disabled={disabled}
       focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
@@ -254,7 +235,6 @@ function SheetRow({
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
             : 'transparent',
-          borderColor: focused ? colors.accentInk : 'transparent',
         },
       ]}>
       {children}

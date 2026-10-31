@@ -280,7 +280,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.s,
     paddingVertical: 4,
-    outlineWidth: 2,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -662,7 +661,6 @@ export function Recipients({
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
-  const [focused, setFocused] = useState<string>();
   const name = t(`drafts.fields.${field}`);
   const add = (value: string, all: boolean, typing = false) => {
     if (!editable) {
@@ -698,12 +696,6 @@ export function Recipients({
               accessibilityState={{ disabled: !editable }}
               disabled={!editable}
               focusable
-              onBlur={() => {
-                setFocused(undefined);
-              }}
-              onFocus={() => {
-                setFocused(recipient.address);
-              }}
               onPress={() => {
                 const current = getDraft();
                 onChange(
@@ -727,10 +719,6 @@ export function Recipients({
                         ? colors.accentSelectionSubtle
                         : colors.fillQuiet,
                       opacity: editable ? 1 : 0.4,
-                      outlineColor:
-                        focused === recipient.address && editable
-                          ? colors.accentInk
-                          : 'transparent',
                     },
                   ]}>
                   <Text

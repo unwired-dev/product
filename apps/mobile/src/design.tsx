@@ -521,7 +521,6 @@ export function ToolbarButton({
 }) {
   const colors = usePalette();
   const inGlass = use(InteractiveGlass);
-  const [focused, setFocused] = useState(false);
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
@@ -534,12 +533,6 @@ export function ToolbarButton({
       }}
       disabled={disabled}
       focusable
-      onBlur={() => {
-        setFocused(false);
-      }}
-      onFocus={() => {
-        setFocused(true);
-      }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.toolbarButton,
@@ -549,8 +542,7 @@ export function ToolbarButton({
               ? colors.accentSelectionSubtle
               : 'transparent',
           borderWidth: 2,
-          borderColor:
-            focused || selected === true ? colors.accentInk : 'transparent',
+          borderColor: selected === true ? colors.accentInk : 'transparent',
           opacity: disabled ? 0.4 : 1,
         },
       ]}>
