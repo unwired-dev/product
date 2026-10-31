@@ -165,7 +165,7 @@ const enabledItems = (items: readonly PopUpItem[]): PopUpItem[] =>
 
 const NativePopUpButton = requireNativeComponent<
   ViewProps & {
-    readonly items: readonly NativePopUpItem[];
+    readonly sections: ReadonlyArray<{ readonly items: NativePopUpItem[] }>;
     readonly text: string | undefined;
     readonly symbol: string | undefined;
     readonly pullsDown: boolean;
@@ -186,6 +186,7 @@ export function PopUp({
   variant = 'compact',
   disabled = false,
   items,
+  sections,
 }: {
   readonly label?: string;
   readonly accessibilityLabel: string;
@@ -193,12 +194,16 @@ export function PopUp({
   readonly pullsDown?: boolean;
   readonly variant?: 'compact' | 'field';
   readonly disabled?: boolean;
-  readonly items: readonly PopUpItem[];
+  readonly items?: readonly PopUpItem[];
+  // Groups of items set apart by separators, in place of `items`.
+  readonly sections?: ReadonlyArray<Readonly<{ items: readonly PopUpItem[] }>>;
 }) {
   const colors = usePalette();
-  const latest = useRef(items);
+  const groups = sections ?? [{ items: items ?? [] }];
+  const shown = groups.flatMap((section) => section.items);
+  const latest = useRef(shown);
   useLayoutEffect(() => {
-    latest.current = disabled ? [] : items;
+    latest.current = disabled ? [] : shown;
     return () => {
       latest.current = [];
     };
@@ -232,7 +237,9 @@ export function PopUp({
         destructiveColor={processColor(colors.statusDestructive)}
         enabled={!disabled}
         pullsDown={pullsDown ?? icon !== undefined}
-        items={nativeItems(items)}
+        sections={groups.map((section) => ({
+          items: nativeItems(section.items),
+        }))}
         label={accessibilityLabel}
         onSelect={({ nativeEvent }) => {
           enabledItems(latest.current)

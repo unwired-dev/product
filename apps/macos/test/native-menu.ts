@@ -4,6 +4,7 @@ interface Item {
   readonly id: string;
   readonly title: string;
   readonly accessibilityLabel?: string;
+  readonly symbol?: string;
   readonly checked?: boolean;
   readonly disabled?: boolean;
   readonly destructive?: boolean;
@@ -14,7 +15,7 @@ interface Item {
 // The AppKit menu `UnwiredMenu` is tracking, as it received it, until a test answers it.
 let tracking:
   | {
-      readonly items: readonly Item[];
+      readonly sections: ReadonlyArray<{ readonly items: readonly Item[] }>;
       readonly answer: (id: string | null) => void;
     }
   | undefined = undefined;
@@ -33,7 +34,7 @@ export const unwiredMenu = {
     // oxlint-disable-next-line promise/avoid-new -- The menu answers once the test chooses.
     new Promise<string | null>((resolve) => {
       tracking = {
-        items: sections.flatMap(({ items }) => items),
+        sections,
         answer: (id) => {
           tracking = undefined;
           resolve(id);
@@ -42,13 +43,16 @@ export const unwiredMenu = {
     }),
 };
 
-// The open menu's items.
-export const menuItems = () => {
+// The open menu's groups of items, as separators set them apart.
+export const menuSections = () => {
   if (tracking === undefined) {
     throw new Error('Expected an open menu');
   }
-  return tracking.items;
+  return tracking.sections;
 };
+
+// The open menu's items.
+export const menuItems = () => menuSections().flatMap(({ items }) => items);
 
 // Chooses an enabled item by its title, as a click or Return would.
 export const chooseMenuItem = async (title: string) => {

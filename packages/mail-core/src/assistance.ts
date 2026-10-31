@@ -22,7 +22,7 @@ import {
 export interface NativeAssistance {
   readonly availability: () => Promise<unknown>;
   readonly summarize: (request: string, input: string) => Promise<unknown>;
-  // A meaning-preserving rewrite of authored Draft text.
+  // A Writing tools edit of authored Draft text; the request names its text tool.
   readonly rewrite: (request: string, input: string) => Promise<unknown>;
   // One full reply from a reply Draft's authored text, recipient names and quoted message.
   readonly suggestReply: (request: string, input: string) => Promise<unknown>;
@@ -85,6 +85,20 @@ const recipientLimit = 100;
 
 export type SummaryInput = Readonly<{ text: string; omitted: boolean }>;
 
+// Writing tools that edit authored Draft text in place, each its own on-device model operation.
+export const textTools = [
+  'rewrite',
+  'proofread',
+  'paragraphs',
+  'expand',
+  'shorten',
+  'friendly',
+  'neutral',
+] as const;
+const TextToolSchema = Schema.Literals(textTools);
+export type TextTool = typeof TextToolSchema.Type;
+export const isTextTool = Schema.is(TextToolSchema);
+
 const ModelRequest = Schema.Union([
   Schema.Struct({
     operation: Schema.Literal('summary'),
@@ -92,7 +106,7 @@ const ModelRequest = Schema.Union([
     body: Schema.String,
   }),
   Schema.Struct({
-    operation: Schema.Literal('rewrite'),
+    operation: TextToolSchema,
     authoredText: Schema.String,
   }),
   Schema.Struct({
@@ -463,7 +477,7 @@ export const canRetryAssistance = (state: AssistanceState<string>) =>
 // never cut, and a text result cannot retain selected semantic image spans.
 export const draftTextIssue = (
   text: string,
-  purpose: 'translate' | 'rewrite' | 'reply' = 'translate',
+  purpose: CapturedDraftText['purpose'] = 'translate',
 ) => {
   if (text.length > summaryInputLimit) {
     return 'too-long';
@@ -472,8 +486,8 @@ export const draftTextIssue = (
     return 'inline-image';
   }
   if (
-    purpose === 'rewrite' &&
-    encodeModelRequest({ operation: 'rewrite', authoredText: text }).length >
+    isTextTool(purpose) &&
+    encodeModelRequest({ operation: purpose, authoredText: text }).length >
       summaryInputLimit
   ) {
     return 'too-long';
@@ -487,12 +501,12 @@ export const draftReplacement = (selected: string, replacement: string) =>
   `${/^\s*/u.exec(selected)?.[0] ?? ''}${replacement.trim()}${/\s*$/u.exec(selected)?.[0] ?? ''}`;
 
 export type DraftAssistanceInput = Readonly<
-  SummaryInput & { purpose: 'rewrite' | 'reply' }
+  SummaryInput & { purpose: TextTool | 'reply' }
 >;
 export type DraftAssistanceState = AssistanceState<'generating'>;
 
 export type CapturedDraftText = Readonly<{
-  purpose: 'translate' | 'rewrite' | 'reply';
+  purpose: 'translate' | TextTool | 'reply';
   draft: Draft;
   selection: Selection;
   text: string;
@@ -502,7 +516,7 @@ export type CapturedDraftText = Readonly<{
   issue: 'too-long' | 'inline-image' | undefined;
 }>;
 
-// Whether Rewrite has text: the selection's, or with a collapsed caret any authored text.
+// Whether Rewrite and the other text tools have text: the selection's, or with a collapsed caret any authored text.
 // The whole-body check stops at the first visible span without projecting document ranges.
 export const canRewrite = (body: Draft['body'], at: Selection) =>
   at.start === at.end
@@ -515,12 +529,15 @@ export const canRewrite = (body: Draft['body'], at: Selection) =>
 export const canSuggestReply = ({ quoted, response }: Draft) =>
   quoted !== undefined && response !== undefined && response.kind !== 'forward';
 
-// Selected authored text, or the whole authored body, to rewrite.
-export const rewriteInput = (text: string): DraftAssistanceInput | undefined =>
-  hasVisibleText(text) && draftTextIssue(text, 'rewrite') === undefined
+// Selected authored text, or the whole authored body, for one text tool.
+export const rewriteInput = (
+  text: string,
+  tool: TextTool = 'rewrite',
+): DraftAssistanceInput | undefined =>
+  hasVisibleText(text) && draftTextIssue(text, tool) === undefined
     ? {
-        purpose: 'rewrite',
-        text: encodeModelRequest({ operation: 'rewrite', authoredText: text }),
+        purpose: tool,
+        text: encodeModelRequest({ operation: tool, authoredText: text }),
         omitted: false,
       }
     : undefined;
@@ -529,7 +546,7 @@ export const rewriteInput = (text: string): DraftAssistanceInput | undefined =>
 export const sameDraftAssistanceSource = (
   captured: Draft,
   current: Draft,
-  purpose: 'translate' | 'rewrite' | 'reply',
+  purpose: CapturedDraftText['purpose'],
 ) =>
   captured.body === current.body &&
   (purpose !== 'reply' ||
@@ -650,16 +667,16 @@ export function captureDraftText(
   draft: Draft,
   at: Selection,
 ): CapturedDraftText {
-  // Rewrite defaults to the whole body; a reply suggestion always replaces the whole body.
+  // A text tool defaults to the whole body; a reply suggestion always replaces the whole body.
   const selection =
-    purpose === 'reply' || (purpose === 'rewrite' && at.start === at.end)
+    purpose === 'reply' || (isTextTool(purpose) && at.start === at.end)
       ? { start: 0, end: displayOf(draft.body).text.length }
       : at;
   const text = selectedText(draft.body, selection, summaryInputLimit + 1);
   let input: DraftAssistanceInput | undefined = undefined;
   let issue: CapturedDraftText['issue'] = undefined;
-  if (purpose === 'rewrite') {
-    input = rewriteInput(text);
+  if (isTextTool(purpose)) {
+    input = rewriteInput(text, purpose);
     issue = input === undefined ? draftTextIssue(text, purpose) : undefined;
   } else if (purpose === 'reply' && draft.quoted !== undefined) {
     ({ input, issue } = captureReplyInput({
@@ -674,7 +691,7 @@ export function captureDraftText(
   return { purpose, draft, selection, text, input, issue };
 }
 
-// One composer's explicitly requested rewrite or reply suggestion. The preview is never stored or
+// One composer's explicitly requested text tool or reply suggestion. The preview is never stored or
 // synchronized; the Draft changes only when its owner applies it.
 export const createDraftAssistance = (native: NativeAssistance) =>
   createAssistanceRequest<DraftAssistanceInput, DraftAssistanceState>({
@@ -686,9 +703,9 @@ export const createDraftAssistance = (native: NativeAssistance) =>
             request,
             input,
             generate: (id, text) =>
-              input.purpose === 'rewrite'
-                ? native.rewrite(id, text)
-                : native.suggestReply(id, text),
+              input.purpose === 'reply'
+                ? native.suggestReply(id, text)
+                : native.rewrite(id, text),
             decode: decodeDraftText,
           },
           isCurrent,
