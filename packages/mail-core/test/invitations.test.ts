@@ -397,11 +397,21 @@ describe('meeting invitations', () => {
     },
   );
 
-  it('shares responses between readers of one Inbox', async () => {
+  it('prevents simultaneous readers of one Inbox from sending twice', async () => {
     expect.hasAssertions();
-    const { inbox, responses, close } = await invited();
+    const { inbox, invitation, gmail, responses, close } = await invited();
+    const otherReader = invitationResponses(inbox);
 
-    expect(invitationResponses(inbox)).toBe(responses);
+    await Promise.all([
+      responses.respond(invitation, 'accepted', copy),
+      otherReader.respond(invitation, 'declined', copy),
+    ]);
+
+    expect(gmail.sends).toHaveLength(1);
+    expect(otherReader.state(invitation)).toMatchObject({
+      kind: 'sent',
+      choice: 'accepted',
+    });
 
     close();
   });
