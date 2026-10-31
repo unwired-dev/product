@@ -5,6 +5,23 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { MessageBody } from '../src/message-body.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
 
+// The application callback that a queued native button event would deliver.
+const pressHandler = (
+  element: Parameters<typeof fireEvent.press>[0],
+): (() => void) => {
+  let fiber = element.unstable_fiber;
+  while (fiber !== null) {
+    const handler = fiber.memoizedProps?.onPress;
+    if (typeof handler === 'function') {
+      return () => {
+        handler();
+      };
+    }
+    fiber = fiber.return;
+  }
+  throw new Error('Expected a rendered press handler');
+};
+
 const invitation = (attendee: string, extra: readonly string[] = []) =>
   [
     'BEGIN:VCALENDAR',
@@ -54,6 +71,19 @@ async function opened(calendar: string) {
 }
 
 describe('meeting invitations in the Mac reader', () => {
+  it('ignores a queued response after the reader closes', async () => {
+    expect.hasAssertions();
+    const { gmail, app } = await opened(invitation('alex@example.invalid'));
+    const staleAccept = pressHandler(
+      await screen.findByRole('button', { name: 'Accept' }),
+    );
+    await app.unmount();
+    await act(async () => {
+      staleAccept();
+    });
+    expect(gmail.sends).toHaveLength(0);
+  });
+
   /* oxlint-disable vitest/max-expects -- The journey proves each visible response step. */
   it('sends the chosen response once and shows that Gmail sent it', async () => {
     expect.hasAssertions();

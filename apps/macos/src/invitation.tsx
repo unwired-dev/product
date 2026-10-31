@@ -344,10 +344,12 @@ function Responding({
   inbox,
   invitation,
   connection,
+  current,
 }: {
   readonly inbox: InvitationInbox;
   readonly invitation: Invitation;
   readonly connection: string | undefined;
+  readonly current: () => boolean;
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
@@ -398,6 +400,9 @@ function Responding({
     }),
   });
   const respondAgain = async (choice: InvitationChoice) => {
+    if (!current()) {
+      return;
+    }
     const question = askInSheet(anchor.current, {
       title: t('invitation.respondAgainTitle'),
       detail: t('invitation.respondAgainDetail', {
@@ -408,7 +413,7 @@ function Responding({
       buttons: [t('invitation.respondAgainConfirm'), t('common.cancel')],
     });
     asked.current = question;
-    if ((await question.answer) === 0) {
+    if ((await question.answer) === 0 && current()) {
       await responses.respondAgain(invitation, choice, copy(choice));
     }
   };
@@ -419,7 +424,9 @@ function Responding({
           <Button
             label={t('invitation.signIn')}
             onPress={() => {
-              void account.authorizeMailbox(connection);
+              if (current()) {
+                void account.authorizeMailbox(connection);
+              }
             }}
           />
         )}
@@ -437,7 +444,9 @@ function Responding({
             label={t('invitation.checkAgain')}
             disabled={checking}
             onPress={() => {
-              void responses.check(invitation);
+              if (current()) {
+                void responses.check(invitation);
+              }
             }}
           />
           <Button
@@ -472,7 +481,9 @@ function Responding({
           }
           disabled={recorded.kind === 'sending' || blocked === 'offline'}
           onPress={() => {
-            void responses.respond(invitation, choice, copy(choice));
+            if (current()) {
+              void responses.respond(invitation, choice, copy(choice));
+            }
           }}
         />
       ))}
@@ -486,10 +497,12 @@ export function InvitationCard({
   inbox,
   id,
   connection,
+  current,
 }: {
   readonly inbox: InvitationInbox;
   readonly id: string;
   readonly connection: string | undefined;
+  readonly current: () => boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -584,6 +597,7 @@ export function InvitationCard({
         inbox={inbox}
         invitation={offer}
         connection={connection}
+        current={current}
       />
     </View>
   );

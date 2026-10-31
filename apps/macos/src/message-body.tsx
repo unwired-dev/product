@@ -1038,6 +1038,7 @@ export function MessageBody({
           inbox={inbox}
           id={id}
           connection={connection}
+          current={current}
         />
       )}
       <Presentation
