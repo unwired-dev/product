@@ -187,11 +187,13 @@ const styles = StyleSheet.create({
   pill: {
     position: 'absolute',
     right: spacing.l,
-    bottom: spacing.s,
+    bottom: 10,
     flexDirection: 'row',
     gap: 10,
   },
   pillGroup: { borderRadius: 26 },
+  // The Format pill is 104pt wide in the frame: its two 44pt buttons sit 8pt from each end.
+  formatPill: { paddingHorizontal: spacing.s },
   pillInset: { paddingBottom: 44 + 2 * spacing.xs + 2 * spacing.s },
   // Open menus stack header over From over the format bar, whose layout-only rows Fabric
   // flattens into this column, so each menu opens over the rows that follow it.
@@ -2342,7 +2344,7 @@ function Editor({
     <View
       pointerEvents="box-none"
       style={styles.pill}>
-      <GlassGroup style={styles.pillGroup}>
+      <GlassGroup style={[styles.pillGroup, styles.formatPill]}>
         <ToolbarButton
           disabled={sending}
           icon="textformat"
@@ -2360,7 +2362,8 @@ function Editor({
               items: assetPickers.map(([label, from, inline, icon]) => ({
                 key: label,
                 title: t(label),
-                symbol: icon,
+                // The paperclip opens this menu, so its Attach File row shows a document.
+                symbol: from === 'files' ? 'doc' : icon,
                 run: () => {
                   void choose(from, inline);
                 },

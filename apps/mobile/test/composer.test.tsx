@@ -2250,7 +2250,7 @@ describe('composing Drafts', () => {
     expect(screen.queryByRole('button', { name: 'Bold' })).toBeNull();
     expect(menuGroups('Add files')).toStrictEqual([
       [
-        ['Attach File', 'paperclip', undefined],
+        ['Attach File', 'doc', undefined],
         ['Attach Photo', 'photo', undefined],
         ['Insert Image', 'photo.on.rectangle', undefined],
         ['Paste Image', 'doc.on.clipboard', undefined],
