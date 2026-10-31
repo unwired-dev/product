@@ -782,10 +782,10 @@ still applies. See `docs/architecture/macos-client.md`.
   open editor's lifetime solely from its stored Draft's presence. Keep the opened
   version and sender connection through removal elsewhere, retain its assets with
   `store.hold` before the first edit is stored, and release them with the editor's
-  operation lifetime. Retire the retained opened version when storage leaves
-  ready so another Product Account cannot revive it after loading; hiding it
-  only during loading is insufficient. Preserve the sender Profile's assistance
-  consent. Exercise removal followed by Save with an asset,
+  operation lifetime. Preserve forced Product Account invalidation through the
+  owning shell lifecycle and the sender Profile's assistance consent. A direct
+  test-store owner change does not establish that the app retains its composer.
+  Exercise removal followed by Save with an asset,
   disabled sender-Profile consent with Default consent enabled, and account
   replacement; otherwise removal loses edits or bytes, or enables assistance
   under another Profile's consent.
