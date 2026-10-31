@@ -68,10 +68,6 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   ],
   ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
   [
-    'amount',
-    `${sign}?(?:${currency})\\s?${figure}(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`,
-  ],
-  [
     'date',
     [
       `\\d{4}-\\d{1,2}-\\d{1,2}`,
@@ -80,6 +76,11 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
       weekday,
       anyCase('today|tomorrow|tonight|yesterday'),
     ].join('|'),
+  ],
+  [
+    'amount',
+    // After dates, so an all-caps month after a day (`3 NOV`) is not read as a currency code.
+    `${sign}?(?:${currency})\\s?${figure}(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`,
   ],
   ['time', `\\d{1,2}(?::\\d{2})?\\s?[aApP]\\.?[mM]\\.?${edge}|\\d{1,2}:\\d{2}`],
   // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
@@ -196,12 +197,18 @@ const take = (details: Detail[], matches: (other: Detail) => boolean) => {
 // Only a separator before a group of three digits can be grouping.
 const ungrouped = (key: string) =>
   key.replaceAll(/(?<digit>\d)[.,](?=\d{3}(?!\d))/gu, '$<digit>');
+// A shorter date is contained only as whole figures, so `3nov` is not within `13nov`.
+const within = (whole: string, part: string) =>
+  new RegExp(
+    `(?:^|\\D)${part.replaceAll(/[.*+?^${}()|[\]\\/]/gu, String.raw`\$&`)}(?!\\d)`,
+    'u',
+  ).test(whole);
 const named = (key: string) => /\p{L}/u.test(key);
 const similar: Partial<
   Record<DetailKind, (one: string, other: string) => boolean>
 > = {
   date: (one, other) =>
-    one.includes(other) || other.includes(one) || named(one) !== named(other),
+    within(one, other) || within(other, one) || named(one) !== named(other),
   number: (one, other) => ungrouped(one) === ungrouped(other),
   amount: (one, other) => ungrouped(one) === ungrouped(other),
   link: (one, other) =>

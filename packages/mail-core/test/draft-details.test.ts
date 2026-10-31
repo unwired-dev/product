@@ -224,6 +224,27 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('reads an all-caps month after a day as a date and compares days as whole figures', () => {
+    expect.hasAssertions();
+    const changes = (original: string, result: string) =>
+      checkDetails(whole(original), result).changes;
+    expect(changes('See you 3 NOV.', 'See you 3 Nov.')).toStrictEqual([]);
+    expect(changes('See you 3 Nov.', 'See you 13 Nov.')).toStrictEqual([
+      { kind: 'date', status: 'changed', original: '3 Nov', result: '13 Nov' },
+    ]);
+    expect(changes('Due 1/11/2026.', 'Due 11/11/2026.')).toStrictEqual([
+      {
+        kind: 'date',
+        status: 'changed',
+        original: '1/11/2026',
+        result: '11/11/2026',
+      },
+    ]);
+    expect(changes('Due 2026-11-01.', 'Due 2026-11-01, Sunday.')).toStrictEqual(
+      [{ kind: 'date', status: 'added', result: 'Sunday' }],
+    );
+  });
+
   it('compares numbers with exponents and addresses with punycode labels', () => {
     expect.hasAssertions();
     const changes = (original: string, result: string) =>
