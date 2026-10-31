@@ -24,13 +24,13 @@ type Detail = Readonly<{
   key: string;
 }>;
 
-export type DetailChange = Readonly<{
-  kind: DetailKind;
-  status: 'changed' | 'uncertain' | 'removed' | 'added';
-  label?: string;
-  original?: string;
-  result?: string;
-}>;
+export type DetailChange = Readonly<
+  { kind: DetailKind; label?: string } & (
+    | { status: 'changed' | 'uncertain'; original: string; result: string }
+    | { status: 'removed'; original: string; result?: never }
+    | { status: 'added'; original?: never; result: string }
+  )
+>;
 
 export type DetailCheck = Readonly<{
   kept: readonly string[];
@@ -205,22 +205,23 @@ const similar: Partial<
   link: (one, other) =>
     one.replace(/[!?]+$/u, '') === other.replace(/[!?]+$/u, ''),
 };
-const statusOf = (each: Detail, paired: Detail | undefined) => {
-  if (paired === undefined) {
-    return 'removed';
-  }
-  return similar[each.kind]?.(each.key, paired.key) === true
-    ? 'uncertain'
-    : 'changed';
+const changeOf = (each: Detail, paired: Detail | undefined): DetailChange => {
+  const original = {
+    kind: each.kind,
+    ...(each.label === undefined ? {} : { label: each.label }),
+    original: each.value,
+  };
+  return paired === undefined
+    ? { ...original, status: 'removed' }
+    : {
+        ...original,
+        status:
+          similar[each.kind]?.(each.key, paired.key) === true
+            ? 'uncertain'
+            : 'changed',
+        result: paired.value,
+      };
 };
-
-const changeOf = (each: Detail, paired: Detail | undefined): DetailChange => ({
-  kind: each.kind,
-  status: statusOf(each, paired),
-  ...(each.label === undefined ? {} : { label: each.label }),
-  original: each.value,
-  ...(paired === undefined ? {} : { result: paired.value }),
-});
 
 // Compares the details of captured Draft text with a Writing tools result. Equal details are kept;
 // left-over details of one kind pair up in order as changed; the rest were removed or added.

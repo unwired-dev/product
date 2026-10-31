@@ -1,3 +1,4 @@
+import type { DetailChange } from '@private-email/mail-core/assistance';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 
 import { checkDetails } from '@private-email/mail-core/assistance';
@@ -10,6 +11,19 @@ const whole = (
 describe('the Writing tools detail check', () => {
   it('lists changed, removed and added details and the kept ones', () => {
     expect.hasAssertions();
+    // Callers can read the compared values after narrowing the reported outcome.
+    expectTypeOf<DetailChange>()
+      .extract<{ status: 'changed' | 'uncertain' }>()
+      .toHaveProperty('result')
+      .toBeString();
+    expectTypeOf<DetailChange>()
+      .extract<{ status: 'removed' }>()
+      .toHaveProperty('original')
+      .toBeString();
+    expectTypeOf<DetailChange>()
+      .extract<{ status: 'added' }>()
+      .toHaveProperty('result')
+      .toBeString();
     expect(
       checkDetails(
         whole(
