@@ -12,7 +12,7 @@ import type {
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
-import type { SendRefusal } from '@private-email/mail-core/outbox';
+import type { SendCheck, SendRefusal } from '@private-email/mail-core/outbox';
 import type {
   MailboxConnection,
   MailProvider,
@@ -130,6 +130,7 @@ import {
   ContextMenu,
   SFSymbol,
   ToolbarButton,
+  useOutcomeAnnouncement,
 } from './design.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
@@ -225,7 +226,8 @@ const styles = StyleSheet.create({
   },
   assetMeta: { flexShrink: 1 },
   assetName: { ...textStyles.bodyEmphasized },
-  assetStatus: { ...textStyles.subheadline },
+  assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
   thumbnail: { width: 28, height: 28, borderRadius: radius.control },
   fields: { paddingHorizontal: fieldInset, paddingBottom: 6 },
   field: {
@@ -845,13 +847,18 @@ const assetStatus = (
   {
     asset,
     running,
+    checking,
     preview,
   }: Readonly<{
     asset: Asset;
     running: boolean;
+    checking: boolean;
     preview: AssetPreview | undefined;
   }>,
 ) => {
+  if (checking) {
+    return t('drafts.assets.status.checking');
+  }
   if (asset.state === 'complete') {
     if (
       preview?.kind === 'damaged' ||
@@ -913,10 +920,20 @@ const transferred = (
     source: { kind: uri.startsWith('data:') ? 'data' : 'file', uri },
   }));
 
+// What Send's check found about a file whose bytes did not verify.
+const unverified = (kind: AssetPreview['kind'] | undefined) =>
+  kind !== undefined && kind !== 'verified' && kind !== 'ready'
+    ? kind
+    : undefined;
+
 // A complete asset's bytes checked against its digest, read again when it completes or changes;
 // an inline image's are also returned to show. A check refused while storage was locked runs
-// again when the app becomes active, or when asked.
-function usePreview(asset: Asset, inline: boolean) {
+// again when the app becomes active, or when asked. A file Send found unverified shows what it found.
+function usePreview(
+  asset: Asset,
+  inline: boolean,
+  check: SendCheck | undefined,
+) {
   const store = useDraftStore();
   const complete = asset.state === 'complete' ? asset : undefined;
   const id = complete?.id;
@@ -973,7 +990,61 @@ function usePreview(asset: Asset, inline: boolean) {
       showing = false;
     };
   }, [store, id, digest, type, inline, attempt]);
-  return { preview: shown, retry };
+  const checked = check?.get(asset.id);
+  const [found, setFound] = useState(checked);
+  if (found !== checked) {
+    setFound(checked);
+    const failure = unverified(checked);
+    if (complete !== undefined && failure !== undefined) {
+      setPreview({
+        id: complete.id,
+        digest: complete.digest,
+        attempt,
+        preview: { kind: failure },
+      });
+    }
+  }
+  return {
+    preview: shown,
+    retry,
+    checking: check?.has(asset.id) === true && checked === undefined,
+  };
+}
+
+// A file's status; while Send reads it, Checking… beside an indeterminate spinner.
+function AssetStatus({
+  checking,
+  preview,
+  status,
+}: Readonly<{
+  checking: boolean;
+  preview: AssetPreview | undefined;
+  status: string;
+}>) {
+  const colors = usePalette();
+  return (
+    <View style={styles.assetStatusRow}>
+      {checking ? (
+        <ActivityIndicator
+          size="small"
+          color={colors.textSecondary}
+        />
+      ) : null}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.assetStatus,
+          {
+            color:
+              preview?.kind === 'damaged' && !checking
+                ? colors.statusDestructive
+                : colors.textSecondary,
+          },
+        ]}>
+        {status}
+      </Text>
+    </View>
+  );
 }
 
 function AssetRow({
@@ -981,6 +1052,7 @@ function AssetRow({
   editable,
   inline,
   running,
+  check,
   onRemove,
   onCancel,
   onConvert,
@@ -990,6 +1062,7 @@ function AssetRow({
   readonly inline: boolean;
   readonly running: boolean;
   readonly editable: boolean;
+  readonly check: SendCheck | undefined;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
@@ -1002,7 +1075,7 @@ function AssetRow({
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
     [settings.locale],
   );
-  const { preview, retry } = usePreview(asset, inline);
+  const { preview, retry, checking } = usePreview(asset, inline, check);
   const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
   useEffect(() => {
     if (inline) {
@@ -1012,6 +1085,7 @@ function AssetRow({
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
+    checking,
     preview,
   });
   const toAttachment = inline ? 'toAttachment' : 'toInline';
@@ -1062,11 +1136,11 @@ function AssetRow({
           style={[styles.assetName, { color: colors.textPrimary }]}>
           {asset.name}
         </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.assetStatus, { color: colors.textSecondary }]}>
-          {status}
-        </Text>
+        <AssetStatus
+          checking={checking}
+          preview={preview}
+          status={status}
+        />
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
@@ -1139,6 +1213,7 @@ function AssetRow({
 export function DraftAssets({
   draft,
   editable,
+  check,
   onRemove,
   onCancel,
   onConvert,
@@ -1146,6 +1221,8 @@ export function DraftAssets({
 }: {
   readonly draft: Draft;
   readonly editable: boolean;
+  // The files Send is checking; each shows Checking… until its read finishes.
+  readonly check?: SendCheck | undefined;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
@@ -1172,6 +1249,7 @@ export function DraftAssets({
       <AssetRow
         key={asset.id}
         asset={asset}
+        check={check}
         editable={editable}
         inline={inline}
         onCancel={onCancel}
@@ -1625,6 +1703,13 @@ function Editor({
   const [closing, setClosing] = useState<Closing>();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
+  const [check, setCheck] = useState<SendCheck>();
+  useOutcomeAnnouncement(
+    check !== undefined && check.size > 0
+      ? t('drafts.assets.checking')
+      : undefined,
+    false,
+  );
   // While Save or Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [paused, setPaused] = useState(false);
   // Native callbacks can arrive before the disabled props commit.
@@ -2164,11 +2249,14 @@ function Editor({
     let refusal: SendRefusal | undefined = 'storage';
     try {
       storeShown();
-      refusal = await outbox.send(() => ({
-        ...shown,
-        id: authored.current.id,
-        ...(authored.current.conflict ? { conflict: true as const } : {}),
-      }));
+      refusal = await outbox.send(
+        () => ({
+          ...shown,
+          id: authored.current.id,
+          ...(authored.current.conflict ? { conflict: true as const } : {}),
+        }),
+        setCheck,
+      );
       // A refused Send still stored the version shown; Close asks only if saving it failed.
       if (refusal !== undefined && (await store.save())) {
         unsaved.current = false;
@@ -2180,6 +2268,7 @@ function Editor({
       pausedNow.current = false;
       discarded.current = false;
     }
+    setCheck(undefined);
     finishOperation();
     if (lifetime.current.mounted) {
       if (refusal === undefined) {
@@ -2501,6 +2590,7 @@ function Editor({
           <QuotedText quoted={draft.quoted} />
         )}
         <DraftAssets
+          check={check}
           draft={draft}
           editable={!paused}
           onCancel={(id) => {

@@ -925,7 +925,9 @@
       "toInline": "Show Inline",
       "toInlineLabel": "Show {{name}} inline at the cursor",
       "pastedImage": "Pasted image",
+      "checking": "Checking attachments",
       "status": {
+        "checking": "Checking…",
         "adding": "Adding…",
         "interrupted": "Not added: adding was interrupted",
         "cancelled": "Not added: cancelled",

@@ -331,6 +331,104 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('shows Checking… on each file Send checks, keeps a damaged one to remove and sends only when asked again', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Contracts');
+      sender.storage.addFile('file:///plan.pdf', 'plan');
+      sender.storage.addFile('file:///scan.pdf', 'scan');
+      sender.storage.pickNext('files', [
+        { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+        { uri: 'file:///scan.pdf', name: 'scan.pdf', type: 'application/pdf' },
+      ]);
+      await press('Attach Files…');
+      await screen.findByLabelText('plan.pdf, 4 bytes');
+      await screen.findByLabelText('scan.pdf, 4 bytes');
+      // Each file's check finishes only when the test lets it.
+      const read = sender.storage.native.readDraftAsset;
+      const reads: Array<Readonly<{ id: string; finish: () => void }>> = [];
+      const held = jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockImplementation(async (...args) => {
+          // oxlint-disable-next-line promise/avoid-new -- Hold each check until the test finishes it.
+          await new Promise((resolve) => {
+            reads.push({ id: args[1].id, finish: () => resolve(undefined) });
+          });
+          return read(...args);
+        });
+      const finishRead = async () => {
+        const next = reads.shift();
+        ok(next, 'Expected a file being checked');
+        await act(async () => {
+          next.finish();
+          await Promise.resolve();
+        });
+      };
+
+      await press('Send');
+
+      await expect(
+        screen.findByLabelText('plan.pdf, Checking…'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('scan.pdf, Checking…')).toBeOnTheScreen();
+      for (const name of ['Send', 'Remove plan.pdf', 'Remove scan.pdf']) {
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      }
+      expect(screen.getByLabelText('Subject')).toBeDisabled();
+      expect(announce).toHaveBeenCalledWith('Checking attachments');
+
+      await finishRead();
+      await expect(
+        screen.findByLabelText('plan.pdf, 4 bytes'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('scan.pdf, Checking…')).toBeOnTheScreen();
+      expect(
+        screen.getByRole('button', { name: 'Remove scan.pdf' }),
+      ).toBeDisabled();
+
+      const [scan] = reads;
+      ok(scan, 'Expected scan.pdf being checked');
+      sender.storage.damage(scan.id);
+      await finishRead();
+      await expect(
+        screen.findByLabelText('scan.pdf, 4 bytes · Damaged on this device'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('plan.pdf, 4 bytes')).toBeOnTheScreen();
+      for (const name of ['Send', 'Remove plan.pdf', 'Remove scan.pdf']) {
+        expect(screen.getByRole('button', { name })).toBeEnabled();
+      }
+      expect(
+        announce.mock.calls.filter(
+          ([words]) => words === 'Checking attachments',
+        ),
+      ).toHaveLength(1);
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toStrictEqual([]);
+      expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+
+      held.mockRestore();
+      await press('Remove scan.pdf');
+      expect(screen.queryByLabelText(/^scan\.pdf/u)).toBeNull();
+      await press('Send');
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toHaveLength(1);
+      expect(sender.gmail.sends[0]?.raw).toContain('plan.pdf');
+      expect(sender.gmail.sends[0]?.raw).not.toContain('scan.pdf');
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
   it.each([
     {
       purpose: 'rewrite',
