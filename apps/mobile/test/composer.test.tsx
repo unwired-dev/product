@@ -4069,6 +4069,15 @@ describe('adding files and images to a Draft', () => {
     );
     await screen.findByLabelText('plan.pdf, 4 bytes');
     expect(storage.assets()).toHaveLength(1);
+    // Removed elsewhere while open, the Draft keeps its file for the editor's Save Draft.
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Kept');
+    await act(() => reopened.discard(saved.id));
+    expect(draftsOf(reopened.getSnapshot())).toStrictEqual([]);
+    await saveDraft();
+    expect(draftsOf(reopened.getSnapshot())).toMatchObject([
+      { subject: 'Kept', conflict: true },
+    ]);
+    expect(storage.assets()).toHaveLength(1);
   });
 
   it('restores verified image bytes with Undo after deleting an importing image', async () => {

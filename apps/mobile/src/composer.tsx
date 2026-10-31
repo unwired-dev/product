@@ -1606,6 +1606,7 @@ function Editor({
   useLayoutEffect(() => {
     const { current } = lifetime;
     current.mounted = true;
+    store.hold(authored.current.id, rebind);
     return () => {
       current.mounted = false;
       leaving.current?.(false);
