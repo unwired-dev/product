@@ -517,7 +517,9 @@ content.
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
   the glyph scales with the circle: 24pt in Settings with a 10pt symbol or an
   11pt semibold letter, 22pt in the Profile Switcher with 9pt or 10pt, and 20pt
-  in the Profile Menu with 8pt or 9pt. Message list rows show a real contact photo
+  in the Profile Menu with 8pt or 9pt. iPhone Settings' is 30pt with a 12pt
+  symbol and 14pt letter, and iPad's 28pt with a 12pt symbol and 13pt letter.
+  Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
