@@ -594,14 +594,39 @@ describe('the Tiptap evaluation composer', () => {
         selection: { start: replaced.length, end: replaced.length },
       }),
     );
-    // The page's next update carries the replacement, which Save Draft stores like any edit.
+    // Generate inserts after the selection only on Insert, through the same page edit boundary.
     await report({
       document: [{ kind: 'quote', spans: [{ text: replaced }] }],
+      selection: { start: 5, end: replaced.length },
+    });
+    const beforeGenerate = lastCommand();
+    await press('Writing tools');
+    await chooseMenuItem('Generate a Draft…');
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
+    await press('Generate a draft from this description');
+    await screen.findByText(syntheticRewrite);
+    expect(lastCommand()).toBe(beforeGenerate);
+    await press('Insert this draft at the cursor');
+    const inserted = `${replaced}${syntheticRewrite}`;
+    expect(lastCommand()).toBe(
+      sent({
+        type: 'replace',
+        revision: revision(),
+        document: [{ kind: 'quote', spans: [{ text: inserted }] }],
+        selection: { start: inserted.length, end: inserted.length },
+      }),
+    );
+    // The page's next update carries the insertion, which Save Draft stores like any edit.
+    await report({
+      document: [{ kind: 'quote', spans: [{ text: inserted }] }],
     });
     await press('Close');
     await answer('Save');
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
-      { kind: 'quote', spans: [{ text: replaced }] },
+      { kind: 'quote', spans: [{ text: inserted }] },
     ]);
   });
 

@@ -1,5 +1,5 @@
 import type { Command, Update } from '@private-email/draft-editor/messages';
-import type { CapturedDraftText } from '@private-email/mail-core/assistance';
+import type { DraftTextPurpose } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { Link } from '@private-email/mail-core/semantic-document';
 import type { TranslationLanguage } from '@private-email/mail-core/translation';
@@ -18,11 +18,10 @@ import { usePalette } from './theme.ts';
 const s = composerStyles;
 
 export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
-type Capture = (
-  purpose: CapturedDraftText['purpose'],
-  target?: TranslationLanguage,
-  prompt?: string,
-) => void;
+export type CaptureRequest =
+  | { readonly purpose: DraftTextPurpose }
+  | { readonly purpose: 'generate'; readonly prompt: string };
+type Capture = (request: CaptureRequest, target?: TranslationLanguage) => void;
 
 // The current composer's file controls, through the system open panel. Native code reads the
 // chosen files.
@@ -87,9 +86,11 @@ export function PageFormatBar({
       <WritingTools
         draft={draft}
         selection={page.selection}
-        onCapture={onCapture}
+        onCapture={(purpose, target) => {
+          onCapture({ purpose }, target);
+        }}
         onGenerate={(prompt) => {
-          onCapture('generate', undefined, prompt);
+          onCapture({ purpose: 'generate', prompt });
         }}
       />
       <View style={[s.divider, { backgroundColor: colors.separator }]} />
