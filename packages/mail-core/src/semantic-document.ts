@@ -258,21 +258,14 @@ const markersOf = (lines: readonly Block[]) => {
   });
 };
 
-export type DisplayLine = Readonly<{
-  kind: BlockKind;
-  marker: string;
-  spans: Block['spans'];
-  align?: typeof AlignmentSchema.Type;
-}>;
+export type DisplayLine = Block & Readonly<{ marker: string }>;
 
 // What the editor shows for a document, line by line, and as one text.
 export function displayOf(document: SemanticDocument) {
   const markers = markersOf(document);
-  const lines: DisplayLine[] = document.map(({ kind, spans, align }, i) => ({
-    kind,
+  const lines: DisplayLine[] = document.map((block, i) => ({
+    ...block,
     marker: markers[i] ?? '',
-    spans,
-    ...(align === undefined ? {} : { align }),
   }));
   return {
     lines,
