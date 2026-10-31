@@ -27,8 +27,8 @@ import {
 } from '@private-email/mail-core/drafts';
 import {
   clip,
+  editableLinkAt,
   imagesOf,
-  linkAt,
   replaceSelection,
   setLink,
 } from '@private-email/mail-core/semantic-document';
@@ -365,11 +365,12 @@ function EvaluationEditor({
     });
   };
   // Applies a Link Editor change to the body revision the page reported, as one undoable edit in
-  // the page. A link the page has moved or changed since the editor opened stays as it is.
+  // the page. A link or selection the page has moved or changed since the editor opened stays as
+  // it is.
   const editLink = (link: Link, text: string, href?: string) => {
     const reported = pageNow.current;
     const { body } = authored.current;
-    const current = linkAt(body, link);
+    const current = reported && editableLinkAt(body, reported.selection);
     if (
       !mounted.current ||
       busy.current ||

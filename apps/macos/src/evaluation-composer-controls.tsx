@@ -5,7 +5,7 @@ import type { Link } from '@private-email/mail-core/semantic-document';
 import type { TranslationLanguage } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
-import { linkAt } from '@private-email/mail-core/semantic-document';
+import { editableLinkAt } from '@private-email/mail-core/semantic-document';
 import { Text, TextInput, View } from 'react-native';
 
 import { Action } from './action.tsx';
@@ -62,7 +62,7 @@ export function PageFormatBar({
       }}>
       <LinkEditor
         disabled={false}
-        link={linkAt(draft.body, page.selection)}
+        link={editableLinkAt(draft.body, page.selection)}
         onChange={onLink}
       />
       <View style={[s.divider, { backgroundColor: colors.separator }]} />
