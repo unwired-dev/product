@@ -65,17 +65,16 @@ const contentLines = (text: string): readonly Line[] =>
         /^(?<name>[A-Za-z0-9-]+)(?<parameters>(?:;[^:";]+=(?:"[^"]*"|[^:";]*)(?:,(?:"[^"]*"|[^:";,]*))*)*):(?<value>.*)$/u.exec(
           raw,
         );
-      const groups = match?.groups;
-      if (groups === undefined) {
+      if (match === null) {
         return [];
       }
       return [
         {
-          name: (groups.name ?? '').toUpperCase(),
-          parameters: (groups.parameters ?? '')
+          name: (match[1] ?? '').toUpperCase(),
+          parameters: (match[2] ?? '')
             .split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/u)
             .slice(1),
-          value: groups.value ?? '',
+          value: match[3] ?? '',
         },
       ];
     });
@@ -96,7 +95,7 @@ const addressOf = (line: Line) => {
   const match = /^mailto:(?<address>[^\s@]+@[^\s@]+)$/iu.exec(
     line.value.trim(),
   );
-  return match?.groups?.address;
+  return match?.[1];
 };
 
 const recipientOf = (line: Line): Recipient | undefined => {
@@ -131,11 +130,11 @@ const dateTime =
 // A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA zone; floating and unknown-zone times are
 // unreadable.
 const timeOf = (line: Line | undefined): InvitationTime | undefined => {
-  const groups = dateTime.exec(line?.value.trim() ?? '')?.groups;
-  if (line === undefined || groups === undefined) {
+  const match = dateTime.exec(line?.value.trim() ?? '');
+  if (line === undefined || match === null) {
     return undefined;
   }
-  const { year, month, day, hour, minute, second, utc } = groups;
+  const [, year, month, day, hour, minute, second, utc] = match;
   const [y = 0, mo = 1, d = 1, h = 0, mi = 0, se = 0] = [
     year,
     month,

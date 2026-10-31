@@ -101,6 +101,34 @@ async function invited() {
 }
 
 describe('meeting invitations', () => {
+  it('reads an invitation when the host omits named capture groups', () => {
+    expect.hasAssertions();
+    const nativeExec = RegExp.prototype.exec;
+    const spy = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(function withoutNamedGroups(this: RegExp, input) {
+        const result = nativeExec.call(this, input);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only matches carry groups to remove.
+        if (result !== null) {
+          delete result.groups;
+        }
+        return result;
+      });
+    let offer;
+    try {
+      offer = invitationOf(documentOf(calendar(meeting)), me);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(offer).toMatchObject({
+      kind: 'invited',
+      details: {
+        organizer: { address: 'lena@northwind.example' },
+        start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+      },
+    });
+  });
+
   it('reads one meeting for the mailbox the invitation names', () => {
     expect.hasAssertions();
     const offer = invitationOf(documentOf(calendar(meeting)), me);
