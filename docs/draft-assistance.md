@@ -82,7 +82,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   checks compare details only and that meaning, questions and commitments need
   the person's own reading. Reply suggestions and Generate a Draft are not checked.
   - Checked details are links (written web addresses, with a scheme or as a
-    bare domain such as `example.com/r` or `example.com:8080/r`, and the destination of linked words
+    bare domain such as `example.com/r`, `example.com:8080/r` or `shop.xn--p1ai/r`, and the destination of linked words
     whose text does not show it exactly), email addresses (including
     `mailto:` links without query fields; mail links with query fields remain
     flagged with their complete destination), amounts (a number with a currency
@@ -101,7 +101,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     even when its text shows the address with such punctuation. Its complete
     address must be written out; a substring is insufficient. Written linked
     text may omit the web scheme or root slash, but a slash after a path stays
-    part of the destination. A number beside a unit (`0.5s`, `3rd`) is compared by its figures. Nothing
+    part of the destination. A number beside a unit (`0.5s`, `3rd`) is compared by its figures, and an exponent (`1e3`) is part of its number. Nothing
     else is interpreted, so `3` rewritten as `three` is removed.
   - A difference that may be another way to write the same detail is
     uncertain, never kept: a date that gains or loses a part (`Saturday` as

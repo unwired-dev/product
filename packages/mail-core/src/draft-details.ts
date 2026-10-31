@@ -46,7 +46,8 @@ const anyCase = (words: string) =>
 const weekday = anyCase('(?:mon|tues|wednes|thurs|fri|satur|sun)day');
 const month = `${anyCase('(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)')}(?:\\.(?=,?\\s\\d))?`;
 const day = `\\d{1,2}(?:${anyCase('st|nd|rd|th')})?`;
-const unsigned = String.raw`(?:\d+(?:[.,]\d+)*|[.,]\d+)`;
+// An exponent belongs to its number: `1e3` and `1e4` differ.
+const unsigned = String.raw`(?:\d+(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
@@ -61,9 +62,9 @@ const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   [
     'link',
-    // A bare address ends in a label of letters, as in link inspection, and is not an email's
-    // local part.
-    `https?://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+\\p{L}{2,}(?![@\\p{L}\\p{N}-])(?::\\d+)?(?:[/?#]${linkEnd}*)?`,
+    // A bare address ends in a label of letters or a punycode label, as in link inspection, and
+    // is not an email's local part.
+    `https?://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|xn--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])(?::\\d+)?(?:[/?#]${linkEnd}*)?`,
   ],
   ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
   [

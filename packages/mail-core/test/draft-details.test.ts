@@ -224,6 +224,27 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('compares numbers with exponents and addresses with punycode labels', () => {
+    expect.hasAssertions();
+    const changes = (original: string, result: string) =>
+      checkDetails(whole(original), result).changes;
+    expect(
+      changes('The limit is 1e3 units.', 'The limit is 1e4 units.'),
+    ).toStrictEqual([
+      { kind: 'number', status: 'changed', original: '1e3', result: '1e4' },
+    ]);
+    expect(
+      changes('Order at shop.xn--p1ai/old.', 'Order at shop.xn--p1ai/new.'),
+    ).toStrictEqual([
+      {
+        kind: 'link',
+        status: 'changed',
+        original: 'shop.xn--p1ai/old',
+        result: 'shop.xn--p1ai/new',
+      },
+    ]);
+  });
+
   it('compares a whole number beside its unit and ordinal dates in capitals', () => {
     expect.hasAssertions();
     const changes = (original: string, result: string) =>
