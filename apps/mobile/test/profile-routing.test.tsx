@@ -1313,9 +1313,10 @@ describe('the mobile Profile Switcher', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
-  it('duplicates a Mail Profile into a selected copy without its mailboxes', async () => {
+  it('duplicates a Mail Profile into a selected copy with its style, without its mailboxes', async () => {
     expect.hasAssertions();
     const { registration, vault, work } = await createTwoProfileRegistration();
+    await registration.restyleProfile(work, { color: 'teal', icon: 'laptop' });
     const mode = jest.replaceProperty(
       jest.requireMock<{ previewInbox: boolean }>(
         '@private-email/mail-core/registration-mode',
@@ -1392,7 +1393,12 @@ describe('the mobile Profile Switcher', () => {
         ]),
       }).toStrictEqual({
         created: 'Family',
-        copy: { id: copy?.id, name: 'Work Copy' },
+        copy: {
+          id: copy?.id,
+          name: 'Work Copy',
+          color: 'teal',
+          icon: 'laptop',
+        },
         owners: [
           ['alex@example.invalid', defaultProfile],
           ['other@example.invalid', work],

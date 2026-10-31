@@ -8,6 +8,7 @@ import type { ListedDevices } from './product-sync.ts';
 import type { Code, RegistrationRejected } from './registration-rejection.ts';
 import type {
   MailGrantProvider,
+  ProfileStyle,
   RegistrationSnapshot,
   SignInProvider,
 } from './registration-snapshot.ts';
@@ -921,10 +922,10 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       ),
     // A Profile is named on this device first and published when Product Sync is reachable.
     // The snapshot carries the new Profile's identifier for the host that asked.
-    createProfile: (name: string) =>
+    createProfile: (name: string, style: ProfileStyle = {}) =>
       program(
         session.pipe(
-          Effect.andThen(productSyncFlow.createProfile(name)),
+          Effect.andThen(productSyncFlow.createProfile(name, style)),
           Effect.flatMap((profileCreated) =>
             synchronize.pipe(
               Effect.andThen(current),
@@ -942,6 +943,20 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
             () => Effect.void,
           ),
           Effect.andThen(productSyncFlow.renameProfile(id, name)),
+          Effect.andThen(synchronize),
+          Effect.andThen(current),
+        ),
+      ),
+    // A published Profile's style changes through Product Sync; one named offline keeps it to
+    // publish with its name.
+    restyleProfile: (id: string, style: ProfileStyle) =>
+      program(
+        session.pipe(
+          Effect.catchIf(
+            (error) => error.code === 'offline',
+            () => Effect.void,
+          ),
+          Effect.andThen(productSyncFlow.restyleProfile(id, style)),
           Effect.andThen(synchronize),
           Effect.andThen(current),
         ),

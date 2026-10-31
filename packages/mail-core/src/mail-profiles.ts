@@ -2,6 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
 import type { StoredPayload } from './registration-replies.ts';
+import type { ProfileStyle } from './registration-snapshot.ts';
 import type {
   NativeRegistrationVault,
   ProfileRecord,
@@ -12,7 +13,12 @@ import type {
 import { failWith, nativeSteps } from './registration-native.ts';
 import { RegistrationRejected } from './registration-rejection.ts';
 import { EncryptedPayload } from './registration-replies.ts';
-import { defaultProfile, unavailableProfile } from './registration-snapshot.ts';
+import {
+  ProfileColorSchema,
+  ProfileIconSchema,
+  defaultProfile,
+  unavailableProfile,
+} from './registration-snapshot.ts';
 import {
   ProfileRecordSchema,
   ProfileStateSchema,
@@ -28,6 +34,17 @@ const Sealed = Schema.Struct({
   encryptedPayload: EncryptedPayload,
 });
 const emptyState: ProfileState = { profiles: [], owners: [] };
+const isColor = Schema.is(ProfileColorSchema);
+const isIcon = Schema.is(ProfileIconSchema);
+
+// A Profile's style as a record or state entry carries it, without absent keys.
+const styleOf = ({
+  color,
+  icon,
+}: Readonly<{ color?: string; icon?: string }>) => ({
+  ...(color === undefined ? {} : { color }),
+  ...(icon === undefined ? {} : { icon }),
+});
 const sameState = Schema.toEquivalence(ProfileStateSchema);
 
 // Product Sync holds the Profile without a name: it was removed.
@@ -130,31 +147,48 @@ export const notifyingConnections = (value: RegistrationRecord) => {
 };
 
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
-// identifier and name, and whether that name is not yet synchronized.
+// identifier, name and style this client knows, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
   const state = value.profiles;
   const profiles = (
     state === undefined || state === 'unreadable' ? [] : state.profiles
-  ).flatMap(({ id, name, pending, pendingRemoval }) => {
-    const shown = pendingRemoval === true ? undefined : (pending ?? name);
-    return shown === undefined
-      ? []
-      : [
-          {
-            id,
-            name: shown,
-            ...(pending === undefined ? {} : { pending: true }),
-          },
-        ];
-  });
+  ).flatMap(
+    ({ id, name, pending, pendingRemoval, pendingStyle, ...storedStyle }) => {
+      const { color, icon } = pendingStyle ?? storedStyle;
+      const shown = pendingRemoval === true ? undefined : (pending ?? name);
+      return shown === undefined
+        ? []
+        : [
+            {
+              id,
+              name: shown,
+              ...(isColor(color) && color !== 'graphite' ? { color } : {}),
+              ...(isIcon(icon) ? { icon } : {}),
+              ...(pending === undefined ? {} : { pending: true }),
+            },
+          ];
+    },
+  );
   return profiles.length === 0 ? undefined : JSON.stringify(profiles);
+};
+
+// A pre-publication edit stays pending until an authenticated record carries the whole style.
+const pendingStyleOf = (
+  known: Profile | undefined,
+  stored: Pick<Profile, 'color' | 'icon'>,
+) => {
+  const pendingStyle = known?.pendingStyle;
+  return pendingStyle === undefined ||
+    (pendingStyle.color === stored.color && pendingStyle.icon === stored.icon)
+    ? {}
+    : { pendingStyle };
 };
 
 // The stored state of one Profile as a record read from Product Sync leaves it. A removal drops the
 // name this device has not yet published; a published name equal to it settles it.
 const readProfile = (
   known: Profile | undefined,
-  { id, name, version }: Extract<ProfileRecord, { kind: 'profile' }>,
+  { id, name, version, ...style }: Extract<ProfileRecord, { kind: 'profile' }>,
   updatedAt: number,
 ): Profile => {
   const stored = { id, version, updatedAt };
@@ -165,6 +199,8 @@ const readProfile = (
   return {
     ...stored,
     name,
+    ...styleOf(style),
+    ...pendingStyleOf(known, style),
     ...(pending === undefined ? {} : { pending }),
     ...(known?.pendingRemoval === true
       ? { pendingRemoval: true as const }
@@ -268,6 +304,19 @@ const named = (name: string) => {
     ? failWith('unavailable')
     : Effect.succeed(trimmed);
 };
+
+// The next definition publishes pending edits together, or only its identity/version for removal.
+const publicationOf = (
+  { id, version, pending, name, pendingStyle, ...stored }: Profile,
+  removed: boolean,
+): ProfileRecord => ({
+  kind: 'profile',
+  id,
+  version: (version ?? 0) + 1,
+  ...(removed
+    ? {}
+    : { name: pending ?? name, ...styleOf(pendingStyle ?? stored) }),
+});
 
 type Write = Readonly<{
   record: ProfileRecord;
@@ -512,13 +561,13 @@ export function createMailProfileProgram<E>(
     );
   });
 
-  // Reads every Profile record and publishes the names this device chose. A name another device
-  // overwrote meanwhile is published again on the next pass.
+  // Reads every Profile record and publishes pending names and unpublished style edits. A CAS
+  // loss keeps those edits for the next pass; an authenticated matching record settles them.
   const synchronize = Effect.gen(function* () {
     const learned = yield* refreshed(yield* known);
     let { state } = learned;
     for (const profile of state.profiles) {
-      const { id, pending, version, updatedAt } = profile;
+      const { id, pending, pendingStyle, updatedAt } = profile;
       const removal =
         profile.pendingRemoval === true
           ? yield* pendingRemoval(state, id, learned.readable)
@@ -536,16 +585,13 @@ export function createMailProfileProgram<E>(
         state = next;
       } else if (
         removal !== 'retry' &&
-        (pending !== undefined || removal === 'publish')
+        (pending !== undefined ||
+          pendingStyle !== undefined ||
+          removal === 'publish')
       ) {
         ({ state } = yield* put(state, [
           {
-            record: {
-              kind: 'profile',
-              id,
-              version: (version ?? 0) + 1,
-              ...(removal === 'publish' ? {} : { name: pending }),
-            },
+            record: publicationOf(profile, removal === 'publish'),
             expectedUpdatedAt: updatedAt,
           },
         ]));
@@ -553,16 +599,19 @@ export function createMailProfileProgram<E>(
     }
   });
 
-  // Names a new Profile in the vault, which publishes it once Product Sync is reachable, and
-  // returns its opaque identifier, which never changes.
-  const create = Effect.fnUntraced(function* (name: string) {
+  // Names a new Profile in the vault, which publishes it with its style once Product Sync is
+  // reachable, and returns its opaque identifier, which never changes.
+  const create = Effect.fnUntraced(function* (
+    name: string,
+    style: ProfileStyle,
+  ) {
     const pending = yield* named(name);
     const state = yield* known;
     const id = yield* freshId;
     yield* step(() =>
       vault.recordProfiles({
         ...state,
-        profiles: [...state.profiles, { id, pending }],
+        profiles: [...state.profiles, { id, pending, ...styleOf(style) }],
       }),
     );
     return id;
@@ -588,6 +637,52 @@ export function createMailProfileProgram<E>(
         item === profile ? renamed : item,
       ),
     });
+  });
+
+  // Replaces a Profile's style. A published Profile changes through Product Sync with its stored
+  // name; one not yet published keeps the style to publish with its name.
+  const restyle = Effect.fnUntraced(function* (
+    id: string,
+    style: ProfileStyle,
+  ) {
+    const before = yield* known;
+    const draft = before.profiles.find((item) => item.id === id);
+    if (
+      draft !== undefined &&
+      draft.pendingRemoval !== true &&
+      (draft.version === undefined || draft.pendingStyle !== undefined)
+    ) {
+      const { color: _color, icon: _icon, ...rest } = draft;
+      return yield* save(before, {
+        ...before,
+        profiles: before.profiles.map((item) =>
+          item === draft
+            ? { ...rest, ...styleOf(style), pendingStyle: styleOf(style) }
+            : item,
+        ),
+      });
+    }
+    const { state } = yield* refreshed(before);
+    const profile = state.profiles.find((item) => item.id === id);
+    if (
+      profile?.version === undefined ||
+      profile.name === undefined ||
+      profile.pendingRemoval === true
+    ) {
+      return yield* failWith('unavailable');
+    }
+    yield* commit(state, [
+      {
+        record: {
+          kind: 'profile',
+          id,
+          version: profile.version + 1,
+          name: profile.name,
+          ...styleOf(style),
+        },
+        expectedUpdatedAt: profile.updatedAt,
+      },
+    ]);
   });
 
   // Removes a Profile that owns no live connection. Even a locally pending Profile needs a
@@ -677,7 +772,9 @@ export function createMailProfileProgram<E>(
                 kind: 'profile' as const,
                 id: profile,
                 version: target.version + 1,
-                ...(target.name === undefined ? {} : { name: target.name }),
+                ...(target.name === undefined
+                  ? {}
+                  : { name: target.name, ...styleOf(target) }),
               },
               expectedUpdatedAt: target.updatedAt,
             },
@@ -717,5 +814,5 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
-  return { synchronize, create, rename, remove, move, notify };
+  return { synchronize, create, rename, restyle, remove, move, notify };
 }
