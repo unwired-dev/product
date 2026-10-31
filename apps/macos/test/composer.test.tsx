@@ -1837,10 +1837,7 @@ describe('composing Drafts', () => {
           'right',
         ]);
         // Explicit near-black must override the quote's secondary ink in Dark.
-        expect(shown[0]?.spans[0]).toHaveProperty(
-          'color',
-          appearance === 'dark' ? palette.dark.textPrimary : '#000000',
-        );
+        expect(shown[0]?.spans[0]).toHaveProperty('color', colors[1]);
         expect(shown[0]?.spans[0]).toMatchObject({
           fontFamily: 'Georgia',
           fontSize: 18,

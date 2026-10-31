@@ -268,6 +268,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   including quote secondary ink, and test their effective color in the composer;
   otherwise an explicit near-black run inherits another role instead of Dark
   `text/primary`. Keep authored highlights and stored/outgoing values unchanged.
+  When adding authored font families, trace the installed host's missing-family
+  fallback with bold/italic marks; emitting fontStyle is insufficient if native
+  fallback drops that trait.
 
 - `profile-windows.ts.profileMenu` dispatching a switch for its checked Profile.
   Selecting the window's current workspace must return before host navigation or
