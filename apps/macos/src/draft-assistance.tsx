@@ -42,10 +42,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xl,
   },
+  // A checked result's push buttons sit 8pt apart, as in its frames.
+  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   title: { ...textStyles.bodyEmphasized },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.body },
   note: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  count: { ...textStyles.bodyEmphasized, flex: 1 },
   noteText: { ...textStyles.subheadline, flex: 1 },
   table: {
     paddingHorizontal: spacing.m,
@@ -208,7 +211,7 @@ function Checks({ check }: { readonly check: DetailCheck }) {
             />
             <Text
               selectable
-              style={[styles.title, { color: colors.textPrimary }]}>
+              style={[styles.count, { color: colors.textPrimary }]}>
               {t('assistance.detailsDiffer', { count: check.changes.length })}
             </Text>
           </View>
@@ -493,7 +496,7 @@ export function DraftAssistance({
           }}
         />
       )}
-      <View style={styles.row}>
+      <View style={check === undefined ? styles.row : styles.buttons}>
         {check === undefined ? (
           <>
             {applyAction}
