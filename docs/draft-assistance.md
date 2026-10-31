@@ -84,8 +84,10 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   - Checked details are links (written web addresses, with a scheme or as a
     bare domain such as `example.com/r`, and the destination of linked words
     whose text does not show it exactly), email addresses (including
-    `mailto:` links), amounts (a number with a currency symbol, a three-letter
-    code or Kč), numbers with their sign or leading decimal point (`-40`, `.5`),
+    `mailto:` links without query fields; mail links with query fields remain
+    flagged with their complete destination), amounts (a number with a currency
+    symbol, a three-letter code or Kč), numbers with their sign or leading decimal
+    point (`-40`, `.5`),
     dates in any letter case, times and quoted text in straight, curly, low
     and angle quotes.
   - A detail is kept only when the result writes an unambiguous equivalent: the
@@ -95,7 +97,10 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     a full stop, comma, colon, semicolon or closing quote after a written link
     (`example.com/r.`), which is not part of it. `!` and `?` can end an address,
     so they stay part of the link, and a linked word's own destination decides
-    even when its text shows the address with such punctuation. Nothing else is interpreted, so `3` rewritten as `three` is removed, a
+    even when its text shows the address with such punctuation. Its complete
+    address must be written out; a substring is insufficient. Written linked
+    text may omit the web scheme or root slash, but a slash after a path stays
+    part of the destination. Nothing else is interpreted, so `3` rewritten as `three` is removed, a
     reformatted date (`2026-11-01` as `1 November 2026`) or a date that gains a
     day (`Saturday` as `Saturday, 1 Nov`) is changed, and `1,000` as `1000`
     is changed.
@@ -190,7 +195,8 @@ allow-listed native code or decode path, never Draft or generated text.
   `3` and `three`, regrouped numbers, signed and leading-decimal numbers and
   amounts, reformatted dates and quotes, dates in capitals, bare addresses,
   trailing link punctuation including `!`, and hidden, scheme-less and
-  `mailto:` link destinations.
+  `mailto:` link destinations, including address substrings, path slashes and
+  mail links with query fields.
 - The composer tests in `apps/mobile/test/composer.test.tsx` and
   `apps/macos/test/composer.test.tsx` rewrite the whole body and a selection,
   check the Writing tools groups, symbols and per-tool requests, panels and Replace,

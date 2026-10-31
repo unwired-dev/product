@@ -244,6 +244,49 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it.each([
+    {
+      text: 'https://example.com/reviewed',
+      href: 'https://example.com/review',
+      kind: 'link',
+      originalTarget: 'https://example.com/review',
+    },
+    {
+      text: 'https://example.com/review',
+      href: 'https://example.com/review/',
+      kind: 'link',
+      originalTarget: 'https://example.com/review/',
+    },
+    {
+      text: 'otherana@example.com',
+      href: 'mailto:ana@example.com',
+      kind: 'email',
+      originalTarget: 'ana@example.com',
+    },
+    {
+      text: 'ana@example.com',
+      href: 'mailto:ana@example.com?cc=other@example.com',
+      kind: 'link',
+      originalTarget: 'mailto:ana@example.com?cc=other@example.com',
+    },
+  ] as const)(
+    'keeps the full destination of $text visible for review',
+    ({ text, href, kind, originalTarget }) => {
+      expect.hasAssertions();
+      const original = whole(text, [
+        { kind: 'paragraph', spans: [{ text, link: href }] },
+      ]);
+      expect(checkDetails(original, text).changes).toStrictEqual([
+        {
+          kind,
+          status: 'removed',
+          label: text,
+          original: originalTarget,
+        },
+      ]);
+    },
+  );
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

@@ -152,18 +152,28 @@ const detailsIn = (text: string): Detail[] => {
 // cannot carry it, so it is removed unless the result writes the destination out.
 const hiddenLinks = (document: SemanticDocument, selection: Selection) =>
   selectedLinks(document, selection).flatMap(({ text, href }) => {
-    const address = href.startsWith('mailto:')
-      ? href.slice('mailto:'.length).split('?')[0]
-      : undefined;
+    const written = detailsIn(text);
+    // Query fields can change the recipients or content, so the whole mail link stays visible.
+    const address =
+      href.startsWith('mailto:') && !href.includes('?')
+        ? href.slice('mailto:'.length)
+        : undefined;
     if (address !== undefined) {
-      return text.toLowerCase().includes(address.toLowerCase())
+      return written.some(
+        (each) => each.kind === 'email' && each.key === keyOf('email', address),
+      )
         ? []
         : [detail('email', address, text)];
     }
-    // Linked words may show the destination without its scheme, as link inspection does.
-    const shown = href.replace(/^https?:\/\//u, '').replace(/\/$/u, '');
+    // A complete written address may omit the scheme or the root slash, never a path's slash.
+    const shown = href.replace(/^https?:\/\//u, '');
+    const forms = new Set([
+      href,
+      shown,
+      shown.replace(/^(?<host>[^/?#]+)\/$/u, '$<host>'),
+    ]);
     return trimLink(href) === href &&
-      (text.includes(href) || text.includes(shown))
+      written.some((each) => each.kind === 'link' && forms.has(each.value))
       ? []
       : [detail('link', href, text)];
   });
