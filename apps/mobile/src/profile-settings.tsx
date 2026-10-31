@@ -1,13 +1,18 @@
 import type { Translate } from '@private-email/localization';
+import type { MenuItem } from '@private-email/mail-core/context-menu';
 import type {
   MailboxConnection,
   MailProfile,
   ProfileFailure,
+  ProfileStyle,
   Registration,
 } from '@private-email/mail-core/registration';
 
 import {
+  profileColors,
   profileConnections,
+  profileIcons,
+  profileIconSymbol,
   profileName,
   profileRefusalText,
   profileRemoval,
@@ -30,7 +35,7 @@ import { MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
 import { SettingsGroup, SettingsRow, settingsColumns } from './settings.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, usePalette, useProfilePalette } from './theme.ts';
 
 const value = settingsColumns ? typography.ipadList.body : textStyles.body;
 
@@ -54,6 +59,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  // iPhone's 30pt monogram, iPad's 28pt. The frames draw it 4pt into the row's leading inset, with
+  // its title 10pt (iPad 8pt) after it, in line with the mailbox rows' titles.
+  monogram: {
+    width: settingsColumns ? 28 : 30,
+    height: settingsColumns ? 28 : 30,
+    borderRadius: settingsColumns ? 14 : 15,
+    marginLeft: -4,
+    marginRight: settingsColumns ? -4 : -2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramText: {
+    fontSize: settingsColumns ? 13 : 14,
+    fontWeight: '600',
+  },
 });
 
 // Explains why a Mail Profile change did not complete.
@@ -65,6 +85,55 @@ const refused = (
   const { title, message } = profileRefusalText(t, change, failure);
   Alert.alert(title, message, [{ text: t('profiles.ok') }]);
 };
+
+// A system menu choosing one item, labeled with the current one; it ignores a choice once disabled.
+function PopUp({
+  accessibilityLabel,
+  label,
+  items,
+  disabled = false,
+}: {
+  readonly accessibilityLabel: string;
+  readonly label: string;
+  readonly items: readonly MenuItem[];
+  readonly disabled?: boolean;
+}) {
+  const colors = usePalette();
+  return (
+    <MenuButton
+      style={styles.menu}
+      disabled={disabled}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityValue={{ text: label }}
+      sections={[
+        {
+          items: items.map((item) =>
+            'run' in item
+              ? {
+                  ...item,
+                  run: () => {
+                    if (!disabled) {
+                      void item.run();
+                    }
+                  },
+                }
+              : item,
+          ),
+        },
+      ]}>
+      <View style={styles.popUp}>
+        <Text style={[styles.value, { color: colors.textPrimary }]}>
+          {label}
+        </Text>
+        <SFSymbol
+          name="chevron.up.chevron.down"
+          size={12}
+          color={colors.textSecondary}
+        />
+      </View>
+    </MenuButton>
+  );
+}
 
 // A system menu choosing one Mail Profile, labeled with the current one.
 function ProfilePopUp({
@@ -82,39 +151,51 @@ function ProfilePopUp({
   readonly onChoose: (id: string) => void;
   readonly disabled?: boolean;
 }) {
-  const colors = usePalette();
   return (
-    <MenuButton
-      style={styles.menu}
-      disabled={disabled}
+    <PopUp
       accessibilityLabel={accessibilityLabel}
-      accessibilityValue={{ text: nameOf(current) }}
-      sections={[
-        {
-          items: ids.map((id) => ({
-            key: id,
-            title: nameOf(id),
-            symbol: '',
-            checked: id === current,
-            run: () => {
-              if (!disabled) {
-                onChoose(id);
-              }
-            },
-          })),
+      label={nameOf(current)}
+      disabled={disabled}
+      items={ids.map((id) => ({
+        key: id,
+        title: nameOf(id),
+        symbol: '',
+        checked: id === current,
+        run: () => {
+          onChoose(id);
         },
-      ]}>
-      <View style={styles.popUp}>
-        <Text style={[styles.value, { color: colors.textPrimary }]}>
-          {nameOf(current)}
+      }))}
+    />
+  );
+}
+
+// A Mail Profile's monogram: its Color filling the circle under its Icon, or its name's first letter.
+function ProfileMonogram({
+  name,
+  style: { color = 'graphite', icon },
+}: {
+  readonly name: string;
+  readonly style: ProfileStyle;
+}) {
+  const colors = usePalette();
+  const fills = useProfilePalette();
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.monogram, { backgroundColor: fills[color] }]}>
+      {icon === undefined ? (
+        <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
+          {[...name][0]?.toLocaleUpperCase() ?? ''}
         </Text>
+      ) : (
         <SFSymbol
-          name="chevron.up.chevron.down"
+          name={profileIconSymbol[icon]}
           size={12}
-          color={colors.textSecondary}
+          color={colors.brandOnDeep}
         />
-      </View>
-    </MenuButton>
+      )}
+    </View>
   );
 }
 
@@ -228,6 +309,11 @@ export function MailProfilesSettings({
   const selected = ids.includes(chosen) ? chosen : defaultProfile;
   const startup = windowProfile({ startup: choices?.startup, profiles });
   const nameOf = (id: string) => profileName(t, id, profiles);
+  // The Primary Profile has no record, so it keeps Graphite and First Letter.
+  const styleOf = (id: string): ProfileStyle =>
+    profiles.find((profile) => profile.id === id) ?? {};
+  const { color = 'graphite', icon } = styleOf(selected);
+  const fills = useProfilePalette();
   const owned = mailboxes.filter(({ profile }) => profile === selected);
   const [pending, setPending] = useState<readonly Pending[]>([]);
   const busy = pending.length > 0;
@@ -259,6 +345,15 @@ export function MailProfilesSettings({
     );
     if (failure !== undefined) {
       refused(t, 'move', failure);
+    }
+  };
+  // Each change stores the whole style, keeping the other choice.
+  const restyle = async (control: string, style: ProfileStyle) => {
+    const failure = await change({ control }, () =>
+      store.restyleProfile(selected, style),
+    );
+    if (failure !== undefined) {
+      refused(t, 'restyle', failure);
     }
   };
   // Duplicate copies the name, Color and Icon into a new Profile, then opens it for renaming.
@@ -337,7 +432,12 @@ export function MailProfilesSettings({
                   />
                 ) : null}
                 <SettingsRow
-                  icon="person.crop.rectangle.stack"
+                  icon={
+                    <ProfileMonogram
+                      name={nameOf(id)}
+                      style={styleOf(id)}
+                    />
+                  }
                   title={nameOf(id)}
                   subtitle={profileConnections(t, mailboxes, id)}>
                   {id === startup && choices !== undefined ? (
@@ -395,6 +495,64 @@ export function MailProfilesSettings({
               )
             }
           />
+        </SettingsRow>
+        <SettingsRow title={t('profiles.color')}>
+          {progress('color')}
+          {selected === defaultProfile ? (
+            <Text style={[styles.value, { color: colors.textSecondary }]}>
+              {t(`profiles.colors.${color}`)}
+            </Text>
+          ) : (
+            <PopUp
+              accessibilityLabel={t('profiles.color')}
+              disabled={busy}
+              label={t(`profiles.colors.${color}`)}
+              items={profileColors.map((each) => ({
+                key: each,
+                title: t(`profiles.colors.${each}`),
+                symbol: 'circle.fill',
+                symbolColor: fills[each],
+                checked: each === color,
+                run: () => {
+                  if (each !== color) {
+                    void restyle('color', {
+                      color: each,
+                      ...(icon === undefined ? {} : { icon }),
+                    });
+                  }
+                },
+              }))}
+            />
+          )}
+        </SettingsRow>
+        <SettingsRow title={t('profiles.icon')}>
+          {progress('icon')}
+          {selected === defaultProfile ? (
+            <Text style={[styles.value, { color: colors.textSecondary }]}>
+              {t('profiles.icons.firstLetter')}
+            </Text>
+          ) : (
+            <PopUp
+              accessibilityLabel={t('profiles.icon')}
+              disabled={busy}
+              label={t(`profiles.icons.${icon ?? 'firstLetter'}`)}
+              items={[undefined, ...profileIcons].map((each) => ({
+                key: each ?? 'firstLetter',
+                title: t(`profiles.icons.${each ?? 'firstLetter'}`),
+                symbol:
+                  each === undefined ? 'character' : profileIconSymbol[each],
+                checked: each === icon,
+                run: () => {
+                  if (each !== icon) {
+                    void restyle('icon', {
+                      color,
+                      ...(each === undefined ? {} : { icon: each }),
+                    });
+                  }
+                },
+              }))}
+            />
+          )}
         </SettingsRow>
       </SettingsGroup>
       {mailboxes.length === 0 ? null : (

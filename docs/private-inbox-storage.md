@@ -255,9 +255,13 @@ pop-ups after its name, and the Profile list shows each Profile's monogram, a
 circle in its Color with its Icon or first letter in white
 ([#1619](https://github.com/unwired-dev/product/issues/1619)). Choosing one
 writes the other as this client reads it, so a key it does not know is replaced.
-The Primary Profile shows Graphite and First Letter without pop-ups. iPhone and
-iPad Settings, the Profile Switcher and the Profile Menu do not show the style
-yet; they follow in [#1039](https://github.com/unwired-dev/product/issues/1039).
+iPhone and iPad Settings › Mail Profiles show the same **Color** and **Icon**
+rows as system pull-down menus, each Color with its swatch, and list each
+Profile with its monogram
+([#1628](https://github.com/unwired-dev/product/issues/1628)).
+The Primary Profile shows Graphite and First Letter without pop-ups. The iPhone
+and iPad Profile Switcher and Profile Menu do not show the style yet; they follow in
+[#1039](https://github.com/unwired-dev/product/issues/1039).
 Every Profile except the Primary Profile offers **Remove Mail
 Profile…**, which asks first in a system alert. For a Profile that owns
 connections, the question names them, and confirming removes them from Unwired
