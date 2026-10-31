@@ -136,32 +136,11 @@ const zoned = (naive: number, zone: string) => {
   return naive - offset(naive - offset(naive));
 };
 
-// A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA zone; floating and unknown-zone times are
-// unreadable.
-const timeOf = (line: Line | undefined): InvitationTime | undefined => {
-  const match =
-    /^(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})(?:T(?<hour>\d{2})(?<minute>\d{2})(?<second>\d{2})(?<utc>Z?))?$/u.exec(
-      line?.value.trim() ?? '',
-    );
-  const groups = match?.groups;
-  if (line === undefined || groups === undefined) {
-    return undefined;
-  }
-  const naive = Date.UTC(
-    Number(groups.year),
-    Number(groups.month) - 1,
-    Number(groups.day),
-    Number(groups.hour ?? 0),
-    Number(groups.minute ?? 0),
-    Number(groups.second ?? 0),
-  );
-  if (groups.hour === undefined) {
-    return { at: naive, allDay: true };
-  }
-  if (groups.utc === 'Z') {
-    return { at: naive, allDay: false };
-  }
-  const zone = parameterOf(line, 'TZID');
+// A DATE-TIME in the IANA zone `zone`, or undefined for a missing or unknown zone.
+const zonedTime = (
+  naive: number,
+  zone: string | undefined,
+): InvitationTime | undefined => {
   if (zone === undefined) {
     return undefined;
   }
@@ -173,65 +152,123 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
   }
 };
 
+const dateTime =
+  /^(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})(?:T(?<hour>\d{2})(?<minute>\d{2})(?<second>\d{2})(?<utc>Z?))?$/u;
+
+// A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA zone; floating and unknown-zone times are
+// unreadable.
+const timeOf = (line: Line | undefined): InvitationTime | undefined => {
+  const groups = dateTime.exec(line?.value.trim() ?? '')?.groups;
+  if (line === undefined || groups === undefined) {
+    return undefined;
+  }
+  const { year, month, day, hour, minute, second, utc } = groups;
+  const [y = 0, mo = 1, d = 1, h = 0, mi = 0, se = 0] = [
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+  ].map((field) => Number(field ?? 0));
+  const naive = Date.UTC(y, mo - 1, d, h, mi, se);
+  return hour === undefined || utc === 'Z'
+    ? { at: naive, allDay: hour === undefined }
+    : zonedTime(naive, parameterOf(line, 'TZID'));
+};
+
 const recurring = new Set(['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID']);
 
-// The single top-level event of a `METHOD:REQUEST` calendar, or undefined for anything else.
-const requestedEvent = (lines: readonly Line[]) => {
+// Each property line with the components it sits in, such as `VCALENDAR/VEVENT`, and how many
+// top-level events the calendar has.
+const scoped = (lines: readonly Line[]) => {
   const stack: string[] = [];
-  const events: Line[][] = [];
-  const methods: string[] = [];
+  const properties: Array<{ path: string; line: Line }> = [];
+  let events = 0;
   for (const line of lines) {
     if (line.name === 'BEGIN') {
       stack.push(line.value.trim().toUpperCase());
-      if (stack.join('/') === 'VCALENDAR/VEVENT') {
-        events.push([]);
-      }
+      events += stack.join('/') === 'VCALENDAR/VEVENT' ? 1 : 0;
     } else if (line.name === 'END') {
       stack.pop();
-    } else if (stack.join('/') === 'VCALENDAR' && line.name === 'METHOD') {
-      methods.push(line.value.trim().toUpperCase());
-    } else if (stack.join('/') === 'VCALENDAR/VEVENT') {
-      events.at(-1)?.push(line);
+    } else {
+      properties.push({ path: stack.join('/'), line });
     }
   }
-  const [event, ...others] = events;
-  return methods.join(',') === 'REQUEST' && others.length === 0
-    ? event
+  return { properties, events };
+};
+
+// The single top-level event of a `METHOD:REQUEST` calendar, or undefined for anything else.
+const requestedEvent = (lines: readonly Line[]) => {
+  const { properties, events } = scoped(lines);
+  const methods = properties
+    .filter(({ path, line }) => path === 'VCALENDAR' && line.name === 'METHOD')
+    .map(({ line }) => line.value.trim().toUpperCase());
+  return methods.join(',') === 'REQUEST' && events === 1
+    ? properties
+        .filter(({ path }) => path === 'VCALENDAR/VEVENT')
+        .map(({ line }) => line)
     : undefined;
 };
 
-// A single meeting's identity and details; a recurring meeting or one missing its UID, organizer
-// or start is unreadable.
-const meetingOf = (event: readonly Line[]) => {
-  const find = (name: string) => event.find((line) => line.name === name);
-  const uid = find('UID')?.value.trim() ?? '';
-  const organizerLine = find('ORGANIZER');
-  const organizer =
-    organizerLine === undefined ? undefined : recipientOf(organizerLine);
-  const start = timeOf(find('DTSTART'));
-  const sequence = Number(find('SEQUENCE')?.value.trim() ?? '0');
-  if (
-    event.some((line) => recurring.has(line.name)) ||
-    uid === '' ||
-    organizerLine === undefined ||
-    organizer === undefined ||
-    start === undefined ||
-    !Number.isSafeInteger(sequence) ||
-    sequence < 0
-  ) {
-    return undefined;
-  }
-  const end = timeOf(find('DTEND'));
-  const summary = find('SUMMARY');
-  const location = find('LOCATION');
-  const details: InvitationDetails = {
+const find = (event: readonly Line[], name: string) =>
+  event.find((line) => line.name === name);
+
+// A non-negative SEQUENCE, 0 when absent.
+const sequenceOf = (event: readonly Line[]) => {
+  const sequence = Number(find(event, 'SEQUENCE')?.value.trim() ?? '0');
+  return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : undefined;
+};
+
+// The ORGANIZER line and its recipient.
+const organizerOf = (event: readonly Line[]) => {
+  const line = find(event, 'ORGANIZER');
+  const recipient = line === undefined ? undefined : recipientOf(line);
+  return recipient === undefined || line === undefined
+    ? undefined
+    : { line, recipient };
+};
+
+const detailsOf = (
+  event: readonly Line[],
+  start: InvitationTime,
+  organizer: Recipient,
+): InvitationDetails => {
+  const end = timeOf(find(event, 'DTEND'));
+  const summary = find(event, 'SUMMARY');
+  const location = find(event, 'LOCATION');
+  return {
     ...(summary === undefined ? {} : { summary: text(summary.value) }),
     start,
     ...(end === undefined ? {} : { end }),
     ...(location === undefined ? {} : { location: text(location.value) }),
     organizer,
   };
-  return { uid, sequence, details, organizerLine, summary };
+};
+
+// A single meeting's identity and details; a recurring meeting or one missing its UID, organizer
+// or start is unreadable.
+const meetingOf = (event: readonly Line[]) => {
+  const uid = find(event, 'UID')?.value.trim() ?? '';
+  const organizer = organizerOf(event);
+  const start = timeOf(find(event, 'DTSTART'));
+  const sequence = sequenceOf(event);
+  if (
+    event.some((line) => recurring.has(line.name)) ||
+    uid === '' ||
+    organizer === undefined ||
+    start === undefined ||
+    sequence === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    uid,
+    sequence,
+    details: detailsOf(event, start, organizer.recipient),
+    organizerLine: organizer.line,
+    summary: find(event, 'SUMMARY'),
+  };
 };
 
 // The message's invitation for the owning mailbox `address`. The attendee is never guessed: only
