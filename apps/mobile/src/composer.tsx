@@ -1554,6 +1554,13 @@ function Editor({
   const getDraft = useCallback(() => authored.current, []);
   // The version the store holds: the Draft as opened, until Save Draft or Send stores this one.
   const stored = useRef(initial);
+  // Another Draft's failed save does not make this editor's unchanged version unsaved.
+  const unsaved = useRef(false);
+  useLayoutEffect(() => {
+    if (state.kind === 'ready' && state.save === 'saved') {
+      unsaved.current = false;
+    }
+  }, [state]);
   const keepIdentity = useCallback((next: typeof history) => {
     if (next.present.id === authored.current.id) {
       return next;
@@ -2016,10 +2023,12 @@ function Editor({
         if (authored.current !== stored.current) {
           void store.update(authored.current, stored.current, rebind);
           stored.current = authored.current;
+          unsaved.current = true;
         }
         if (!(await store.save())) {
           return false;
         }
+        unsaved.current = false;
       } while (authored.current !== stored.current);
       return true;
     });
@@ -2049,11 +2058,7 @@ function Editor({
         if (!removed || isEmptyDraft(authored.current)) {
           return removed;
         }
-      } else if (
-        authored.current === stored.current &&
-        state.kind === 'ready' &&
-        state.save === 'saved'
-      ) {
+      } else if (authored.current === stored.current && !unsaved.current) {
         return true;
       }
       setClosing(undefined);
@@ -2106,6 +2111,9 @@ function Editor({
       setCaptured(undefined);
       // As for Discard, later edits wait: the version shown at Send is the one sent.
       discarded.current = true;
+      if (previous !== stored.current) {
+        unsaved.current = true;
+      }
       void store.update(previous, stored.current, rebind);
       stored.current = authored.current;
       const baseline = () =>

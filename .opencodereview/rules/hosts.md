@@ -798,6 +798,13 @@ still applies. See `docs/architecture/macos-client.md`.
   baseline to the rebound authored version as Save Draft does. Exercise refused
   Send from a stale editor followed by editing and Save Draft; otherwise the
   retry creates another conflicting copy of that editor's own version.
+- `composer.tsx.Editor.close` using the whole Draft store's save status to decide
+  whether its unchanged opened Draft needs saving. Track this editor's explicit
+  unsaved write as the Mac composer does, clearing it after successful saving,
+  including a refused Send that still stored the shown version. Exercise an
+  unchanged saved Draft while a different Draft's write fails, and this editor's
+  own refused save; otherwise unrelated failures force a needless Close question
+  or an actual unsaved write closes without one.
 - `composer.tsx.Editor` or `evaluation-composer.tsx.EvaluationEditor` putting
   variable-height save status, errors, confirmations or assistance reviews outside
   its single outer content scroll. Verify failed saving, refusal, Discard and

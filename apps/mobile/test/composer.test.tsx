@@ -1688,6 +1688,43 @@ describe('composing Drafts', () => {
     ).toStrictEqual([[id, 'First window']]);
   });
 
+  it('closes an unchanged stored Draft while another Draft cannot save', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const mailbox = { id: alex, address: 'alex@example.invalid' };
+    const first = await drafts.create(mailbox);
+    const second = await drafts.create(mailbox);
+    const original = draftsOf(drafts.getSnapshot()).find(
+      ({ id }) => id === first,
+    );
+    const otherDraft = draftsOf(drafts.getSnapshot()).find(
+      ({ id }) => id === second,
+    );
+    ok(first);
+    ok(original);
+    ok(otherDraft);
+    await drafts.update({ ...original, subject: 'Stored' }, original);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+        initialDraft={first}
+      />,
+    );
+    storage.setLocked(true);
+    await act(() =>
+      drafts.update({ ...otherDraft, subject: 'Waiting' }, otherDraft),
+    );
+    expect(drafts.getSnapshot()).toMatchObject({ save: 'locked' });
+    await press('Close');
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
+    expect(drafts.getSnapshot()).toMatchObject({ save: 'locked' });
+  });
+
   it("does not reopen another Product Account's editor once the new account is ready", async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
