@@ -69,12 +69,6 @@ const choiceKeys = {
   declined: 'decline',
 } as const;
 
-const statusKeys = {
-  accepted: 'accepted',
-  tentative: 'tentative',
-  declined: 'declined',
-} as const;
-
 const nameOf = ({ organizer }: InvitationDetails) =>
   organizer.name ?? organizer.address;
 
@@ -289,7 +283,7 @@ const describe: {
   sent: (state, { t, name, provider, colors, time }) => ({
     icon: 'checkmark.circle.fill',
     iconColor: colors.textPrimary,
-    title: t(`invitation.${statusKeys[state.choice]}`),
+    title: t(`invitation.${state.choice}`),
     detail: t('invitation.sentDetail', {
       provider,
       name,
@@ -396,10 +390,10 @@ function Responding({
     { t, name, address: invitation.address, provider, colors, time },
   );
   const copy = (choice: InvitationChoice) => ({
-    subject: t(`invitation.${statusKeys[choice]}Subject`, {
+    subject: t(`invitation.${choice}Subject`, {
       summary: invitation.details.summary ?? t('invitation.untitled'),
     }),
-    text: t(`invitation.${statusKeys[choice]}Text`, {
+    text: t(`invitation.${choice}Text`, {
       address: invitation.address,
     }),
   });
@@ -473,7 +467,7 @@ function Responding({
           }
           accessibilityLabel={
             chosen === choice
-              ? t(`invitation.${statusKeys[choice]}`)
+              ? t(`invitation.${choice}`)
               : t(`invitation.${choiceKeys[choice]}`)
           }
           disabled={recorded.kind === 'sending' || blocked === 'offline'}
