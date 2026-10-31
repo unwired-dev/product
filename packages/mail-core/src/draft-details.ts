@@ -64,7 +64,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
     'link',
     // A bare address ends in a label of letters or a punycode label, as in link inspection, and
     // is not an email's local part.
-    `https?://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|xn--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])(?::\\d+)?(?:[/?#]${linkEnd}*)?`,
+    `${anyCase('https?')}://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|${anyCase('xn')}--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])(?::\\d+)?(?:[/?#]${linkEnd}*)?`,
   ],
   ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
   [
@@ -109,8 +109,9 @@ const first = (source: string, text: string) =>
   new RegExp(source, 'u').exec(text)?.[0] ?? '';
 const amountKey = (amount: string) => {
   const number = first(unsigned, amount);
-  const signed = first(sign, amount);
-  return `${amount.replace(number, '').replace(signed, '')} ${signed}${number}`;
+  const affixes = amount.replace(number, '');
+  const signed = first(sign, affixes);
+  return `${affixes.replace(signed, '')} ${signed}${number}`;
 };
 const keys: Partial<Record<DetailKind, (spaced: string) => string>> = {
   email: (spaced) => spaced.toLowerCase(),

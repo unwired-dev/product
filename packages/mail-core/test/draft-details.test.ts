@@ -245,6 +245,66 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('distinguishes an amount sign from its exponent sign', () => {
+    expect.hasAssertions();
+    for (const [original, result] of [
+      ['$1e-3', '-$1e-3'],
+      ['$1e-3', '$-1e-3'],
+      ['1e-3 USD', '-1e-3 USD'],
+      ['USD1E-3', 'USD-1E-3'],
+    ] as const) {
+      expect(checkDetails(whole(original), result)).toStrictEqual({
+        kept: [],
+        changes: [{ kind: 'amount', status: 'changed', original, result }],
+      });
+    }
+    expect(checkDetails(whole('-$1e-3'), '-1e-3 $')).toStrictEqual({
+      kept: ['-$1e-3'],
+      changes: [],
+    });
+  });
+
+  it('recognizes web schemes and punycode prefixes in any letter case', () => {
+    expect.hasAssertions();
+    for (const address of ['shop.XN--P1AI', 'HTTPS://127.0.0.1']) {
+      const original = `${address}/old`;
+      const result = `${address}/new`;
+      expect(checkDetails(whole(original), result)).toStrictEqual({
+        kept: [],
+        changes: [{ kind: 'link', status: 'changed', original, result }],
+      });
+    }
+  });
+
+  it('reads complete signed exponents without interpreting ordinary word suffixes or identifiers', () => {
+    expect.hasAssertions();
+    for (const [original, result] of [
+      ['1E+3', '1E+4'],
+      ['.5e-3', '.5e-4'],
+      ['-1e3s', '-1e4s'],
+    ] as const) {
+      expect(checkDetails(whole(original), result).changes).toStrictEqual([
+        {
+          kind: 'number',
+          status: 'changed',
+          original: original.replace(/s$/u, ''),
+          result: result.replace(/s$/u, ''),
+        },
+      ]);
+    }
+    for (const [original, result, kept] of [
+      ['3e place', '3e rue', ['3']],
+      ['2e-mail', '2e-letter', ['2']],
+      ['0x1e3', '0x1e4', ['0']],
+      ['ref1e3', 'ref1e4', []],
+    ] as const) {
+      expect(checkDetails(whole(original), result)).toStrictEqual({
+        kept,
+        changes: [],
+      });
+    }
+  });
+
   it('compares a whole number beside its unit and ordinal dates in capitals', () => {
     expect.hasAssertions();
     const changes = (original: string, result: string) =>
