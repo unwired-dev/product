@@ -224,6 +224,23 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('compares a whole email address whose local part has dots', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Write to first.last+tag@example.com.'),
+        'Write to first.last_tag@example.com.',
+      ).changes,
+    ).toStrictEqual([
+      {
+        kind: 'email',
+        status: 'changed',
+        original: 'first.last+tag@example.com',
+        result: 'first.last_tag@example.com',
+      },
+    ]);
+  });
+
   it('reads an all-caps month after a day as a date and compares days as whole figures', () => {
     expect.hasAssertions();
     const changes = (original: string, result: string) =>

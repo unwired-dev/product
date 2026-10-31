@@ -60,13 +60,14 @@ const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 // amount's number or a date's day is not counted again. Quotes are read separately because they
 // may hold other details.
 const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
+  // Before links, so a dotted local part (`first.last+tag@`) is not read as a bare address.
+  ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
   [
     'link',
     // A bare address ends in a label of letters or a punycode label, as in link inspection, and
     // is not an email's local part.
     `${anyCase('https?')}://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|${anyCase('xn')}--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])(?::\\d+)?(?:[/?#]${linkEnd}*)?`,
   ],
-  ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
   [
     'date',
     [
