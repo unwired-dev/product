@@ -143,6 +143,21 @@ const hiddenLinks = (document: SemanticDocument, selection: Selection) =>
     return text.includes(href) ? [] : [detail('link', href, text)];
   });
 
+// Removes and returns the first detail that matches.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- it removes the match from the caller's list.
+const take = (details: Detail[], matches: (other: Detail) => boolean) => {
+  const index = details.findIndex(matches);
+  return index === -1 ? undefined : details.splice(index, 1)[0];
+};
+
+const changeOf = (each: Detail, paired: Detail | undefined): DetailChange => ({
+  kind: each.kind,
+  status: paired === undefined ? 'removed' : 'changed',
+  ...(each.label === undefined ? {} : { label: each.label }),
+  original: each.value,
+  ...(paired === undefined ? {} : { result: paired.value }),
+});
+
 // Compares the details of captured Draft text with a Writing tools result. Equal details are kept;
 // left-over details of one kind pair up in order as changed; the rest were removed or added.
 export function checkDetails(
@@ -158,35 +173,31 @@ export function checkDetails(
     ...hiddenLinks(original.draft.body, original.selection),
   ];
   const after = detailsIn(result);
-  const kept: string[] = [];
-  const removed: Detail[] = [];
-  for (const each of before) {
-    const index = after.findIndex(
-      (other) => other.kind === each.kind && other.key === each.key,
-    );
-    if (index === -1) {
-      removed.push(each);
-    } else {
-      after.splice(index, 1);
-      if (!kept.includes(each.value)) {
-        kept.push(each.value);
-      }
-    }
-  }
-  const changes: DetailChange[] = [];
-  for (const each of removed) {
-    const index = after.findIndex((other) => other.kind === each.kind);
-    const [paired] = index === -1 ? [] : after.splice(index, 1);
-    changes.push({
-      kind: each.kind,
-      status: paired === undefined ? 'removed' : 'changed',
-      ...(each.label === undefined ? {} : { label: each.label }),
-      original: each.value,
-      ...(paired === undefined ? {} : { result: paired.value }),
-    });
-  }
-  for (const each of after) {
-    changes.push({ kind: each.kind, status: 'added', result: each.value });
-  }
-  return { kept, changes };
+  const removed = before.filter(
+    (each) =>
+      take(
+        after,
+        (other) => other.kind === each.kind && other.key === each.key,
+      ) === undefined,
+  );
+  const kept = Arr.dedupe(
+    before.filter((each) => !removed.includes(each)).map(({ value }) => value),
+  );
+  const changes = removed.map((each) =>
+    changeOf(
+      each,
+      take(after, (other) => other.kind === each.kind),
+    ),
+  );
+  return {
+    kept,
+    changes: [
+      ...changes,
+      ...after.map((each): DetailChange => ({
+        kind: each.kind,
+        status: 'added',
+        result: each.value,
+      })),
+    ],
+  };
 }
