@@ -194,8 +194,9 @@ or synchronized. A line break keeps the alignment of the block it splits, joinin
 two blocks keeps the first block's, and typing, formatting, block kinds, inline
 images, replacements and Undo keep it. Sent mail aligns headings, paragraphs, list
 items and quotes; code lines share one `<pre>` and are sent without their alignment.
-The Mac composer shows a Draft's alignment, and no composer sets one; no Draft
-holds one until Drafts from other mail clients open
+The Mac composer shows a Draft's alignment; the iPhone and iPad composer does
+not yet. No composer sets one, and no Draft holds one until Drafts from other
+mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Text can also carry a color and a background color, each stored as lowercase
@@ -223,8 +224,9 @@ until Drafts from other mail clients open
 The Mac composer shows stored colors and fonts
 ([#1639](https://github.com/unwired-dev/product/issues/1639)); the iPhone and iPad
 composer does not yet. Light shows colors as stored. Dark changes only what is on
-screen: near-black text (relative luminance below 0.02) shows in the default text
-color, and a color below 4.5:1 against the content surface `#1E1E1E` lightens
+screen: near-black text (relative luminance below 0.02) shows in `text/primary`,
+including inside quotes, and a color below 4.5:1 against the content surface
+`#1E1E1E` lightens
 toward white a tenth at a time until it reaches 4.5:1, so `#c00000` shows as
 `#d96666`. Text on a background keeps that background and, without a color of its
 own, shows in the Light text color. The first family of the list shows when it is

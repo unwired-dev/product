@@ -366,7 +366,15 @@ const shownFormatting = (body: ReturnType<typeof screen.getByLabelText>) =>
             spans: line.children.flatMap((span) =>
               typeof span === 'string'
                 ? []
-                : [StyleSheet.flatten<TextStyle>(span.props.style)],
+                : [
+                    {
+                      color: StyleSheet.flatten<TextStyle>([
+                        body.props.style,
+                        line.props.style,
+                      ]).color,
+                      ...StyleSheet.flatten<TextStyle>(span.props.style),
+                    },
+                  ],
             ),
           },
         ],
@@ -1734,7 +1742,13 @@ describe('composing Drafts', () => {
     // Dark lightens a color below 4.5:1 along its hue and shows near-black as the text color.
     {
       appearance: 'dark',
-      colors: ['#bf7497', undefined, '#ff3333', '#7988a2', '#d96666'],
+      colors: [
+        '#bf7497',
+        palette.dark.textPrimary,
+        '#ff3333',
+        '#7988a2',
+        '#d96666',
+      ],
     },
   ] as const)(
     "shows a Draft's stored alignment, fonts and colors in $appearance appearance without changing them",
@@ -1767,6 +1781,21 @@ describe('composing Drafts', () => {
         ok(draft);
         // Apple Mail, Gmail and Outlook formatting, with the colors the design adapts for Dark.
         const body: SemanticDocument = [
+          {
+            kind: 'quote',
+            spans: [
+              {
+                text: 'Quoted ink',
+                color: '#000000',
+                font: 'Georgia',
+                size: 18,
+                marks: ['code', 'italic', 'strikethrough'],
+                link: 'https://example.invalid',
+              },
+              { text: ' code', marks: ['code'] },
+            ],
+            align: 'justify',
+          },
           {
             kind: 'paragraph',
             spans: [{ text: 'Housewarming', font: 'Georgia', size: 20 }],
@@ -1802,21 +1831,35 @@ describe('composing Drafts', () => {
         const field = await screen.findByLabelText('Message body');
         const shown = shownFormatting(field);
         expect(shown.map(({ align }) => align)).toStrictEqual([
+          'justify',
           'center',
           'center',
           'right',
         ]);
+        // Explicit near-black must override the quote's secondary ink in Dark.
+        expect(shown[0]?.spans[0]).toHaveProperty(
+          'color',
+          appearance === 'dark' ? palette.dark.textPrimary : '#000000',
+        );
         expect(shown[0]?.spans[0]).toMatchObject({
+          fontFamily: 'Georgia',
+          fontSize: 18,
+          lineHeight: 24,
+          fontStyle: 'italic',
+          textDecorationLine: 'underline line-through',
+        });
+        expect(shown[0]?.spans[1]).toHaveProperty('fontFamily', 'Menlo');
+        expect(shown[1]?.spans[0]).toMatchObject({
           fontFamily: 'Georgia',
           fontSize: 20,
           lineHeight: 27,
         });
-        expect(shown[1]?.spans.map(({ color }) => color)).toStrictEqual(
+        expect(shown[2]?.spans.map(({ color }) => color)).toStrictEqual(
           colors.slice(0, 3),
         );
-        expect(shown[1]?.spans[2]).toHaveProperty('fontWeight', '700');
+        expect(shown[2]?.spans[2]).toHaveProperty('fontWeight', '700');
         // A highlight keeps its background and Light ink; a missing font falls back by family.
-        expect(shown[2]?.spans).toStrictEqual([
+        expect(shown[3]?.spans).toStrictEqual([
           { backgroundColor: '#ffff00', color: palette.light.textPrimary },
           { color: colors[3], fontFamily: 'arial' },
           { color: colors[4], fontFamily: 'Aptos' },
@@ -1825,7 +1868,7 @@ describe('composing Drafts', () => {
         // Typing into a formatted run keeps the authored values, which the store keeps on Save.
         await fireEvent.changeText(
           field,
-          'Housewarming\nRing twice or call\nKeys Friday now!',
+          'Quoted ink code\nHousewarming\nRing twice or call\nKeys Friday now!',
         );
         await saveAndClose();
         const reopened = createDrafts(storage.native, registration);
@@ -1835,6 +1878,7 @@ describe('composing Drafts', () => {
         ).toStrictEqual([
           body[0],
           body[1],
+          body[2],
           {
             kind: 'paragraph',
             spans: [

@@ -291,12 +291,13 @@ const luminanceOf = (channels: readonly number[]) => {
 
 const darkSurface = luminanceOf(channelsOf(palette.dark.surfaceContent));
 
-// An authored text color as Dark shows it on `surface/content`, undefined for near-black, which
-// follows the theme's text color. Below 4.5:1 it lightens toward white a tenth at a time.
+// An authored text color as Dark shows it on `surface/content`; near-black explicitly uses
+// text/primary, including inside a quote with secondary ink. Below 4.5:1 it lightens toward white
+// a tenth at a time.
 const darkTextColor = (color: string) => {
   const channels = channelsOf(color);
   if (luminanceOf(channels) < 0.02) {
-    return undefined;
+    return palette.dark.textPrimary;
   }
   for (let tenths = 0; ; tenths += 1) {
     const shown = channels.map((channel) =>

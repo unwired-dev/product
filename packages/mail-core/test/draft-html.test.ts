@@ -1038,7 +1038,7 @@ describe('stored formatting as a composer shows it', () => {
     expect.hasAssertions();
     expect(
       formatStyleOf({ text: 'a', color: '#000000' }, 'dark'),
-    ).toStrictEqual({});
+    ).toStrictEqual({ color: palette.dark.textPrimary });
     expect(
       formatStyleOf({ text: 'a', background: '#ffff00' }, 'dark'),
     ).toStrictEqual({

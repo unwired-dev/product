@@ -263,6 +263,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared palette and visible states
 
+- `semantic-document.ts.formatStyleOf` omitting an explicit display color when
+  the authored ink must use a theme role. Trace inherited block and mark styles,
+  including quote secondary ink, and test their effective color in the composer;
+  otherwise an explicit near-black run inherits another role instead of Dark
+  `text/primary`. Keep authored highlights and stored/outgoing values unchanged.
+
 - `profile-windows.ts.profileMenu` dispatching a switch for its checked Profile.
   Selecting the window's current workspace must return before host navigation or
   composer-exit work; otherwise a no-op selection closes a reader or prompts for
