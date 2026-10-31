@@ -18,6 +18,9 @@ import {
   selectedText,
 } from './semantic-document.ts';
 
+export { checkDetails } from './draft-details.ts';
+export type { DetailChange, DetailCheck, DetailKind } from './draft-details.ts';
+
 // The host's on-device Apple model. It reads only the text it is given and has no cloud fallback.
 export interface NativeAssistance {
   readonly availability: () => Promise<unknown>;
