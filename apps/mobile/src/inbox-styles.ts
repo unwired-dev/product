@@ -100,9 +100,9 @@ export const styles = StyleSheet.create({
   },
   separator: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    left: 2,
+    right: 2,
+    bottom: 2,
     height: StyleSheet.hairlineWidth,
   },
   rowHeading: {
@@ -117,8 +117,8 @@ export const styles = StyleSheet.create({
   match: { fontWeight: '600' },
   unread: {
     position: 'absolute',
-    left: ipad ? 8 * scale - 2 : 0,
-    top: ipad ? 13 * scale - 2 : 15,
+    left: ipad ? 8 * scale : 2,
+    top: ipad ? 13 * scale : 17,
     width: ipad ? 8 * scale : 9,
     height: ipad ? 8 * scale : 9,
     borderRadius: ipad ? 4 * scale : 4.5,
