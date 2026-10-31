@@ -596,8 +596,8 @@ form accessories, keyboards, status bar).
   or Edit, the same toast shows the refusal with **Try Again**.
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
-  Rewrite, Translate and Suggest reply (on Mac also Proofread, Break into
-  Paragraphs, Expand Text, Shorten Text and the tone tools, in the
+  Rewrite, Suggest reply, Proofread, Break into Paragraphs, Translate, Expand
+  Text, Shorten Text and the tone tools, in the
   [grouped order](docs/draft-assistance.md#behavior)), the file controls and
   Templates; no glass on iPad and Mac),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,
