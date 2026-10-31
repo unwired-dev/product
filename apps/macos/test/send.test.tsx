@@ -134,13 +134,13 @@ const press = async (name: string) => {
 };
 
 // The same composite-fiber boundary used by fireEvent, retained before disabled props commit.
-const queuedPress = (label: string) => {
+const queuedPress = (label: string, event = 'onPress') => {
   let fiber = screen.getByLabelText(label).unstable_fiber;
   while (fiber !== null) {
-    const handler = fiber.memoizedProps?.onPress;
+    const handler = fiber.memoizedProps?.[event];
     if (typeof handler === 'function') {
-      return () => {
-        handler();
+      return (input?: unknown) => {
+        handler(input);
       };
     }
     fiber = fiber.return;
@@ -333,14 +333,14 @@ describe('sending a Draft', () => {
   it.each([
     {
       purpose: 'rewrite',
-      captureLabel: 'Rewrite the message body',
+      capture: 'Rewrite',
       applyLabel: 'Replace your text with this rewrite',
       region: 'Rewrite of your text',
       context: {},
     },
     {
       purpose: 'reply',
-      captureLabel: 'Suggest a reply to the quoted message',
+      capture: 'Suggest reply',
       applyLabel: 'Replace your reply with this suggestion',
       region: 'Suggested reply',
       context: {
@@ -355,7 +355,7 @@ describe('sending a Draft', () => {
     },
   ] as const)(
     'retires $purpose assistance during Send, including queued actions, and restores it after refusal',
-    async ({ captureLabel, applyLabel, region, context }) => {
+    async ({ purpose, capture, applyLabel, region, context }) => {
       expect.hasAssertions();
       const sender = device();
       const native: NativeAssistance = {
@@ -392,9 +392,10 @@ describe('sending a Draft', () => {
         await press(
           'Draft. Lunch. To sam@example.invalid. From alex@example.invalid',
         );
-        await press(captureLabel);
+        await press('Writing tools');
+        await chooseMenuItem(capture);
         await screen.findByText('Reviewed text');
-        const capture = queuedPress(captureLabel);
+        const writingTools = queuedPress('Writing tools', 'onSelect');
         const apply = queuedPress(applyLabel);
         const close = queuedPress('Keep your text and close this suggestion');
         sender.storage.hold();
@@ -405,12 +406,12 @@ describe('sending a Draft', () => {
           );
           apply();
           close();
-          capture();
+          writingTools({ nativeEvent: { id: purpose } });
           await pressed;
         });
         expect(screen.queryByLabelText(region)).toBeNull();
         expect(
-          screen.getByRole('button', { name: captureLabel }),
+          screen.getByRole('button', { name: 'Writing tools' }),
         ).toBeDisabled();
         expect(screen.getByLabelText('Message body')).toHaveTextContent(
           'See you',
@@ -423,9 +424,10 @@ describe('sending a Draft', () => {
           name: 'This message could not be queued because Drafts are not saved. Try again.',
         });
         expect(
-          screen.getByRole('button', { name: captureLabel }),
+          screen.getByRole('button', { name: 'Writing tools' }),
         ).not.toBeDisabled();
-        await press(captureLabel);
+        await press('Writing tools');
+        await chooseMenuItem(capture);
         await screen.findByText('Reviewed text');
         await press(applyLabel);
         expect(screen.getByLabelText('Message body')).toHaveTextContent(
