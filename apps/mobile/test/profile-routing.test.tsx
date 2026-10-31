@@ -1397,6 +1397,67 @@ describe('the mobile Profile Switcher', () => {
     }
   });
 
+  it('shows each Profile Color with its swatch in Settings, and the Primary Profile’s defaults', async () => {
+    expect.hasAssertions();
+    const { registration } = await createTwoProfileRegistration();
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      savedPreferences(new Map());
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(<RootLayout />);
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      // The Primary Profile has no record to style; it shows the defaults.
+      await expect(screen.findByText('Graphite')).resolves.toBeVisible();
+      expect(screen.getByText('First Letter')).toBeVisible();
+      expect(screen.queryByLabelText('Color')).toBeNull();
+      await fireEvent.press(screen.getByRole('button', { name: 'Work' }));
+      // Each Color's swatch trails its name; the current one is checked.
+      expect(
+        screen
+          .getByLabelText('Color')
+          .props.sections[0].items.map(
+            ({
+              title,
+              symbolColor,
+              checked,
+            }: {
+              title: string;
+              symbolColor: string;
+              checked: boolean;
+            }) => [title, symbolColor, checked],
+          ),
+      ).toStrictEqual([
+        ['Graphite', '#15171B', true],
+        ['Blue', '#0A58CA', false],
+        ['Indigo', '#3634A3', false],
+        ['Purple', '#8944AB', false],
+        ['Pink', '#C2185B', false],
+        ['Teal', '#0E7490', false],
+        ['Green', '#237A3A', false],
+        ['Brown', '#7A5C3E', false],
+      ]);
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
   it('chooses a Mail Profile’s Color and Icon in Settings, keeping the other choice', async () => {
     expect.hasAssertions();
     const { registration, work } = await createTwoProfileRegistration();
@@ -1414,13 +1475,10 @@ describe('the mobile Profile Switcher', () => {
       'registration',
       registration,
     );
-    const styleOf = () => {
-      const { color, icon } =
-        profilesOf(registration.getSnapshot().snapshot).find(
-          ({ id }) => id === work,
-        ) ?? {};
-      return { color, icon };
-    };
+    const styleOf = () =>
+      profilesOf(registration.getSnapshot().snapshot)
+        .filter(({ id }) => id === work)
+        .map(({ color, icon }) => ({ color, icon }));
     try {
       savedPreferences(new Map());
       showMail(defaultProfile);
@@ -1428,43 +1486,16 @@ describe('the mobile Profile Switcher', () => {
       await render(<RootLayout />);
       await screen.findByLabelText('Mail Profile, Primary Profile');
       await choose('Mail Profile, Primary Profile', 'profile\nmanage');
-      // The Primary Profile has no record to style; it shows the defaults.
-      await expect(screen.findByText('Graphite')).resolves.toBeVisible();
-      expect(screen.getByText('First Letter')).toBeVisible();
-      expect(screen.queryByLabelText('Color')).toBeNull();
-      await fireEvent.press(screen.getByRole('button', { name: 'Work' }));
-      const color = screen.getByLabelText('Color');
-      expect(color).toHaveAccessibilityValue({ text: 'Graphite' });
-      // Each Color's swatch trails its name; the current one is checked.
-      expect(
-        color.props.sections[0].items.map(
-          ({
-            title,
-            symbolColor,
-            checked,
-          }: {
-            title: string;
-            symbolColor: string;
-            checked: boolean;
-          }) => [title, symbolColor, checked],
-        ),
-      ).toStrictEqual([
-        ['Graphite', '#15171B', true],
-        ['Blue', '#0A58CA', false],
-        ['Indigo', '#3634A3', false],
-        ['Purple', '#8944AB', false],
-        ['Pink', '#C2185B', false],
-        ['Teal', '#0E7490', false],
-        ['Green', '#237A3A', false],
-        ['Brown', '#7A5C3E', false],
-      ]);
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Work' }),
+      );
       await choose('Color', 'blue');
       await waitFor(() => {
-        expect(styleOf()).toStrictEqual({ color: 'blue', icon: undefined });
+        expect(styleOf()).toStrictEqual([{ color: 'blue', icon: undefined }]);
       });
       await choose('Icon', 'laptop');
       await waitFor(() => {
-        expect(styleOf()).toStrictEqual({ color: 'blue', icon: 'laptop' });
+        expect(styleOf()).toStrictEqual([{ color: 'blue', icon: 'laptop' }]);
       });
       expect(screen.getByLabelText('Icon')).toHaveAccessibilityValue({
         text: 'Laptop',
@@ -1472,7 +1503,7 @@ describe('the mobile Profile Switcher', () => {
       // First Letter clears the Icon and keeps the Color.
       await choose('Icon', 'firstLetter');
       await waitFor(() => {
-        expect(styleOf()).toStrictEqual({ color: 'blue', icon: undefined });
+        expect(styleOf()).toStrictEqual([{ color: 'blue', icon: undefined }]);
       });
     } finally {
       store.restore();
