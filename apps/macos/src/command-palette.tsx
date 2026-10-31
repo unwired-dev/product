@@ -754,7 +754,13 @@ function Palette({
           style,
         ]}
         testID="command-palette">
-        <Glass cornerRadius={radius.card + 2} />
+        {/* React Native's legacy view interop mounts a nested native view without its offset,
+            so the glass sits in a plain view inside the panel's border. */}
+        <View
+          collapsable={false}
+          style={StyleSheet.absoluteFill}>
+          <Glass cornerRadius={radius.card + 2} />
+        </View>
         {choosing === undefined ? null : (
           <View
             style={[styles.backRow, { borderBottomColor: colors.separator }]}>

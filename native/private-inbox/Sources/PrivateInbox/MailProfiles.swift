@@ -1,13 +1,15 @@
 import Foundation
 
 // One Mail Profile's definition in Product Sync: its opaque identifier, the record's write count
-// and its name, or none once the Profile is removed. Sealed together, so a record cannot be moved
-// to another Profile or served as a newer one.
+// and its name and optional Color and Icon keys, or none once the Profile is removed. Sealed
+// together, so a record cannot be moved to another Profile or served as a newer one.
 struct MailProfileRecord: Codable, Equatable {
   static let schemaVersion = 1
   let id: String
   let version: Int
   let name: String?
+  var color: String? = nil
+  var icon: String? = nil
 }
 
 // The Mail Profile that owns one incarnation of a Mailbox Connection, named by its descriptor's
@@ -54,7 +56,14 @@ extension RegistrationStore {
         guard let id = value["id"] as? String, !id.isEmpty, id.count <= 200 else { return nil }
         let name = value["name"] as? String
         guard name.map({ !$0.isEmpty }) ?? (value["name"] == nil) else { return nil }
-        self = .profile(MailProfileRecord(id: id, version: version, name: name))
+        // Style keys are carried as given, so a key a newer client wrote survives a rewrite here.
+        let color = value["color"] as? String
+        let icon = value["icon"] as? String
+        guard color.map({ !$0.isEmpty }) ?? (value["color"] == nil),
+          icon.map({ !$0.isEmpty }) ?? (value["icon"] == nil)
+        else { return nil }
+        self = .profile(
+          MailProfileRecord(id: id, version: version, name: name, color: color, icon: icon))
       } else if kind == "mailbox" {
         guard let record = value["record"] as? String, record.hasPrefix("mailbox."),
           let epoch = value["epoch"] as? String, !epoch.isEmpty,

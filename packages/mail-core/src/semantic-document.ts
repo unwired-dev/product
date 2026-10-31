@@ -854,7 +854,8 @@ export function toggleMark(
   );
 }
 
-// Linked text in one block, from editor offset `start` to `end`.
+// Linked text in one block, from editor offset `start` to `end`. A link still to be made has an
+// empty `href`.
 export type Link = Readonly<{
   start: number;
   end: number;
@@ -903,9 +904,41 @@ export function linkAt(
       };
 }
 
-// Replaces a link's text and destination as one edit, or with no destination removes the link
-// and keeps its text. Unchanged text keeps its marks, colors and fonts; new text takes those
-// of the link's start.
+// The link the Link Editor opens for a selection: the link at it, else the selection as a link
+// still to be made, with no destination yet, when it is unlinked text in one block without a
+// line break or an image.
+export function editableLinkAt(
+  document: SemanticDocument,
+  selection: Selection,
+): Link | undefined {
+  const existing = linkAt(document, selection);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const text = selectedText(document, selection);
+  if (!isLinkText(text)) {
+    return undefined;
+  }
+  const { line, column, marker } = locate(
+    document,
+    Math.min(selection.start, selection.end),
+  );
+  const from = Math.max(0, column - marker);
+  const spans = sliceSpans(
+    document[line]?.spans ?? [],
+    from,
+    from + text.length,
+  );
+  if (spans.some((span) => linkOf(span) !== undefined)) {
+    return undefined;
+  }
+  const start = offsetOf(document, line, from);
+  return { start, end: start + text.length, text, href: '' };
+}
+
+// Replaces a link's text and destination as one edit, or links new text, or with no destination
+// removes the link and keeps its text. Unchanged text keeps its marks, colors and fonts; new
+// text takes those of the link's start.
 export function setLink(
   document: SemanticDocument,
   link: Link,

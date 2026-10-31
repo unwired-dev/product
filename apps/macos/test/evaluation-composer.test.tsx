@@ -589,11 +589,12 @@ describe('the Tiptap evaluation composer', () => {
     ]);
   });
 
-  it('edits and removes a link through the Link Editor as one page edit each', async () => {
+  it('adds, edits and removes a link through the Link Editor as one page edit each', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    await render(<App drafts={createDrafts(storage.native, registration)} />);
+    const drafts = createDrafts(storage.native, registration);
+    await render(<App drafts={drafts} />);
     await press('New Message');
     const { report, revision } = simulatedPage();
     const lease = 'https://docs.example.invalid/lease';
@@ -665,6 +666,44 @@ describe('the Tiptap evaluation composer', () => {
     const moved = injectedScripts.length;
     await fireEvent(screen.getByLabelText('Link'), 'submitEditing');
     expect(injectedScripts).toHaveLength(moved);
+
+    // Selected unlinked text opens Add Link, with nothing to remove.
+    await report({ selection: { start: 19, end: 24 } });
+    await press('Add Link');
+    expect(screen.getByLabelText('Text')).toHaveProp('value', 'today');
+    expect(screen.getByLabelText('Link')).toHaveProp('value', '');
+    expect(screen.queryByRole('button', { name: 'Remove Link' })).toBeNull();
+    // A selection the page has changed since the editor opened stays unlinked.
+    await fireEvent.changeText(screen.getByLabelText('Link'), lease);
+    await report({ selection: { start: 19, end: 22 } });
+    const changed = injectedScripts.length;
+    await press('Apply');
+    expect(injectedScripts).toHaveLength(changed);
+    await report({ selection: { start: 19, end: 24 } });
+    await press('Add Link');
+    await fireEvent.changeText(screen.getByLabelText('Link'), lease);
+    await press('Apply');
+    const linked = body(
+      { text: 'New Read ' },
+      { text: 'the lease', marks: ['bold'], link: lease },
+      { text: ' ' },
+      { text: 'today', link: lease },
+    );
+    expect(lastCommand()).toBe(
+      commandScript({
+        type: 'replace',
+        revision: revision(),
+        document: linked,
+        selection: { start: 24, end: 24 },
+      }),
+    );
+    // The page's next update carries the link, which Save Draft stores for reopening.
+    await report({ document: linked });
+    await press('Close');
+    await answer('Save');
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual(linked);
   });
 
   it.each(['onError', 'onContentProcessDidTerminate'])(

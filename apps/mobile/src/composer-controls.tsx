@@ -3,7 +3,7 @@ import type {
   Link,
   Mark,
 } from '@private-email/mail-core/semantic-document';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 
 import {
@@ -27,6 +27,7 @@ import {
   foregroundStyle,
   frame,
   labelStyle,
+  onAppear,
   padding,
   presentationDetents,
   shapes,
@@ -40,7 +41,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
@@ -51,7 +52,13 @@ import {
   View,
 } from 'react-native';
 
-import { Glass, SFSymbol, ToolbarButton, useMenuMotion } from './design.tsx';
+import {
+  Glass,
+  SFSymbol,
+  ToolbarButton,
+  useMenuMotion,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -493,8 +500,9 @@ export function FormatBar({
   );
 }
 
-// The format bar's Link control and the Link Editor it opens for the link at the caret: a
-// popover below the control on iPad, a sheet on iPhone. It is unavailable away from a link.
+// The format bar's Link control and the Link Editor it opens for the link at the caret, or to
+// add one to selected unlinked text: a popover below the control on iPad, a sheet on iPhone. It
+// is unavailable otherwise.
 export function LinkEditor({
   link,
   disabled,
@@ -518,8 +526,21 @@ export function LinkEditor({
   };
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
+  const destinationInput = useRef<TextInput>(null);
+  // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
+  const [checked, setChecked] = useState(false);
+  // An empty Link is the editor's starting state, not an invalid destination.
+  const check = () => {
+    setChecked(destination.trim() !== '');
+  };
   const href = vettedHref(destination);
   const applicable = href !== undefined && isLinkText(text);
+  const invalid = checked && destination.trim() !== '' && href === undefined;
+  // VoiceOver hears the reason when it appears, since iOS ignores live regions and the alert role.
+  useOutcomeAnnouncement(
+    shown && invalid ? t('drafts.link.invalid') : undefined,
+    false,
+  );
   const finish = (next: string, nextHref?: string) => {
     show(false);
     if (editing !== undefined) {
@@ -527,6 +548,7 @@ export function LinkEditor({
     }
   };
   const apply = () => {
+    check();
     if (applicable) {
       finish(text, href);
     }
@@ -537,9 +559,17 @@ export function LinkEditor({
     }
   };
   const colors = usePalette();
+  // Native presenters retain their content; layout is not a signal that it appeared again.
+  const focusDestination = () => {
+    if (shown && editing?.href === '') {
+      destinationInput.current?.focus();
+    }
+  };
+  // oxlint-disable-next-line react/refs, react-hooks-js/refs -- Expo onAppear only stores this callback; SwiftUI invokes it after presentation, never during render.
+  const appearance = onAppear(focusDestination);
   const trigger = (
     <SwiftUIButton
-      label={t('drafts.link.edit')}
+      label={t(link?.href === '' ? 'drafts.link.add' : 'drafts.link.edit')}
       modifiers={[
         labelStyle('iconOnly'),
         buttonStyle('plain'),
@@ -554,15 +584,20 @@ export function LinkEditor({
           setEditing(link);
           setText(link.text);
           setDestination(link.href);
+          setChecked(false);
           show(true);
         }
       }}
     />
   );
   const fields = {
+    destinationInput,
     text,
     destination,
     applicable,
+    adding: editing?.href === '',
+    invalid,
+    onCheck: check,
     onText: setText,
     onDestination: setDestination,
     onApply: apply,
@@ -576,9 +611,11 @@ export function LinkEditor({
         onIsPresentedChange={show}>
         <Popover.Trigger>{trigger}</Popover.Trigger>
         <Popover.Content>
-          <RNHostView matchContents>
-            <LinkPopover {...fields} />
-          </RNHostView>
+          <Group modifiers={[appearance]}>
+            <RNHostView matchContents>
+              <LinkPopover {...fields} />
+            </RNHostView>
+          </Group>
         </Popover.Content>
       </Popover>
     </Host>
@@ -589,7 +626,7 @@ export function LinkEditor({
         <BottomSheet
           isPresented={shown}
           onIsPresentedChange={show}>
-          <Group modifiers={[presentationDetents(['medium'])]}>
+          <Group modifiers={[presentationDetents(['medium']), appearance]}>
             <RNHostView>
               <LinkSheet
                 {...fields}
@@ -606,9 +643,15 @@ export function LinkEditor({
 }
 
 type LinkFields = Readonly<{
+  destinationInput: RefObject<TextInput | null>;
   text: string;
   destination: string;
   applicable: boolean;
+  // A new link: titled Add Link, with nothing to remove.
+  adding: boolean;
+  // Return or leaving Link found a destination it cannot apply.
+  invalid: boolean;
+  onCheck: () => void;
   onText: (text: string) => void;
   onDestination: (destination: string) => void;
   onApply: () => void;
@@ -617,9 +660,13 @@ type LinkFields = Readonly<{
 
 // iPad "Link Editor" frame.
 function LinkPopover({
+  destinationInput,
   text,
   destination,
   applicable,
+  adding,
+  invalid,
+  onCheck,
   onText,
   onDestination,
   onApply,
@@ -639,8 +686,12 @@ function LinkPopover({
           autoCapitalize={url ? 'none' : 'sentences'}
           autoCorrect={!url}
           keyboardType={url ? 'url' : 'default'}
+          onBlur={url ? onCheck : undefined}
           onChangeText={url ? onDestination : onText}
           onSubmitEditing={onApply}
+          placeholder={url ? t('drafts.link.placeholder') : undefined}
+          placeholderTextColor={colors.textSecondary}
+          ref={url ? destinationInput : undefined}
           style={[
             styles.linkInput,
             { backgroundColor: colors.fillQuiet, color: colors.textPrimary },
@@ -654,19 +705,25 @@ function LinkPopover({
     <View style={styles.linkPopover}>
       {field(false)}
       {field(true)}
-      <Text style={[styles.linkPopoverHint, { color: colors.textSecondary }]}>
-        {t('drafts.link.hint')}
+      <Text
+        style={[
+          styles.linkPopoverHint,
+          { color: invalid ? colors.statusDestructive : colors.textSecondary },
+        ]}>
+        {t(invalid ? 'drafts.link.invalid' : 'drafts.link.hint')}
       </Text>
       <View style={styles.linkActions}>
-        <Host matchContents>
-          <SwiftUIButton
-            label={t('drafts.link.remove')}
-            modifiers={[buttonStyle('bordered')]}
-            // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
-            role="destructive"
-            onPress={onRemove}
-          />
-        </Host>
+        {adding ? null : (
+          <Host matchContents>
+            <SwiftUIButton
+              label={t('drafts.link.remove')}
+              modifiers={[buttonStyle('bordered')]}
+              // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+              role="destructive"
+              onPress={onRemove}
+            />
+          </Host>
+        )}
         <Host matchContents>
           <SwiftUIButton
             label={t('drafts.link.apply')}
@@ -685,9 +742,13 @@ function LinkPopover({
 
 // iPhone "Sheet · Edit Link" frame.
 function LinkSheet({
+  destinationInput,
   text,
   destination,
   applicable,
+  adding,
+  invalid,
+  onCheck,
   onText,
   onDestination,
   onApply,
@@ -708,8 +769,12 @@ function LinkSheet({
           autoCapitalize={url ? 'none' : 'sentences'}
           autoCorrect={!url}
           keyboardType={url ? 'url' : 'default'}
+          onBlur={url ? onCheck : undefined}
           onChangeText={url ? onDestination : onText}
           onSubmitEditing={onApply}
+          placeholder={url ? t('drafts.link.placeholder') : undefined}
+          placeholderTextColor={colors.textSecondary}
+          ref={url ? destinationInput : undefined}
           style={[styles.linkRowInput, { color: colors.textPrimary }]}
           value={url ? destination : text}
         />
@@ -735,7 +800,7 @@ function LinkSheet({
         <Text
           accessibilityRole="header"
           style={[styles.linkSheetTitle, { color: colors.textPrimary }]}>
-          {t('drafts.link.edit')}
+          {t(adding ? 'drafts.link.add' : 'drafts.link.edit')}
         </Text>
         <Host matchContents>
           <SwiftUIButton
@@ -761,28 +826,37 @@ function LinkSheet({
         />
         {row(true)}
       </View>
-      <Text style={[styles.linkSheetHint, { color: colors.textSecondary }]}>
-        {t('drafts.link.hint')}
+      <Text
+        style={[
+          styles.linkSheetHint,
+          { color: invalid ? colors.statusDestructive : colors.textSecondary },
+        ]}>
+        {t(invalid ? 'drafts.link.invalid' : 'drafts.link.hint')}
       </Text>
-      <View
-        style={[styles.linkGroup, { backgroundColor: colors.surfaceContent }]}>
-        <Host matchContents={{ vertical: true }}>
-          <SwiftUIButton
-            // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
-            role="destructive"
-            onPress={onRemove}>
-            <HStack
-              modifiers={[
-                padding({ horizontal: spacing.l }),
-                frame({ minHeight: 48 }),
-                contentShape(shapes.rectangle()),
-              ]}>
-              <SwiftUIText>{t('drafts.link.remove')}</SwiftUIText>
-              <Spacer />
-            </HStack>
-          </SwiftUIButton>
-        </Host>
-      </View>
+      {adding ? null : (
+        <View
+          style={[
+            styles.linkGroup,
+            { backgroundColor: colors.surfaceContent },
+          ]}>
+          <Host matchContents={{ vertical: true }}>
+            <SwiftUIButton
+              // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+              role="destructive"
+              onPress={onRemove}>
+              <HStack
+                modifiers={[
+                  padding({ horizontal: spacing.l }),
+                  frame({ minHeight: 48 }),
+                  contentShape(shapes.rectangle()),
+                ]}>
+                <SwiftUIText>{t('drafts.link.remove')}</SwiftUIText>
+                <Spacer />
+              </HStack>
+            </SwiftUIButton>
+          </Host>
+        </View>
+      )}
     </View>
   );
 }

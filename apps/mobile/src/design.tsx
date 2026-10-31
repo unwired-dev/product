@@ -390,6 +390,7 @@ const NativeMenuButton = requireNativeComponent<
         items: readonly NativeMenuItem[];
       }>
     >;
+    readonly enabled: boolean;
     readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
   }
 >('UnwiredMenuButton');
@@ -398,20 +399,26 @@ const NativeMenuButton = requireNativeComponent<
 // the native button receives every touch and carries the accessibility label.
 export function MenuButton({
   sections,
+  disabled = false,
   children,
   style,
   ...props
-}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+}: ViewProps & {
+  readonly sections: readonly MenuSection[];
+  readonly disabled?: boolean;
+}) {
   const menu = menuState(sections);
   return (
     <NativeMenuButton
       {...props}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      enabled={!disabled}
       sections={menu.sections}
       onSelect={({ nativeEvent }) => {
         void menu.runs.get(nativeEvent.id)?.();
       }}
-      style={[styles.menuButton, style]}>
+      style={[styles.menuButton, { opacity: disabled ? 0.4 : 1 }, style]}>
       <View
         collapsable={false}
         pointerEvents="none">

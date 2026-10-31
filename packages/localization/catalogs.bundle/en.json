@@ -849,10 +849,13 @@
       "code": "Code block"
     },
     "link": {
+      "add": "Add Link",
       "edit": "Edit Link",
       "text": "Text",
       "destination": "Link",
-      "hint": "Enter an HTTP, HTTPS, email, or telephone link for the selected text.",
+      "placeholder": "https://example.com",
+      "hint": "Enter a web, email or phone link for the selected text.",
+      "invalid": "Enter a valid web, email or phone link.",
       "remove": "Remove Link",
       "apply": "Apply"
     },

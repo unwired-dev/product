@@ -102,6 +102,19 @@ excludes every source above, plus committed review artifacts under
 supported; tree/blob selectors are rejected because they bypass root exclusions.
 Pattern files (`-f`/`--file`), pagers (`-O`/`--open-files-in-pager`) and textconv
 helpers are rejected because they can print excluded files. Pass patterns with `-e`.
+`git show`, `git diff` and `git log -p` print those sources as well, so the
+implementer reads commits and diffs with `scripts/implementer-show` (`git show`
+arguments, or `--diff` first for `git diff`; pathspecs after `--`). It applies
+the same exclusions, then lists the reviewer-only paths those revisions change
+by name only. Both scripts read the list from `scripts/reviewer-only-paths`.
+Use explicit commit revisions with `implementer-show`; indirect object inputs
+such as `--default`, `--stdin`, `--all`, `--tags` and `--indexed-objects` are rejected because
+they can select trees or blobs outside the path exclusions.
+Required option operands, such as `-G 'old:public'`, are forwarded as attached
+values. Use `--` before pathspecs; `--end-of-options`, `--output` and NUL-delimited output
+(`-z`, including short-option clusters) are unsupported. The reviewer-only path
+inventory omits tag annotations, path rotation/skipping and presentation formatting,
+lists one path per line even for combined merges, and remains visible with `--quiet`.
 Operational guides, coding conventions, vocabulary and product requirements are
 separate files that the implementer can read in full. Keep architecture and design rationale in
 `docs/architecture/` or ADRs rather than embedding them in implementer-facing
@@ -225,7 +238,7 @@ over generic skill examples for both roles.
    simplicity pass. Other reviewers retain the original baseline and prior reports
    to assess the delta and affected interactions. Later-reviewer fixes return to
    the implementer for invalidation assessment and any required earlier passes
-   before delivery. An unavailable or incomplete required pass blocks delivery.
+   before delivery; the implementer reads them with `scripts/implementer-show`. An unavailable or incomplete required pass blocks delivery.
 
 A final report ends reviewer and child-agent write ownership. Reviewers do not
 start PR watchers or schedules, and a notification does not renew ownership. Stop

@@ -216,13 +216,29 @@ jest.mock('@expo/ui/swift-ui', () => {
   }
   Popover.Trigger = Passthrough;
   Popover.Content = Content;
+  // Substitute only the native appearance event; it is separate from RN layout.
+  function Group({ modifiers, children }) {
+    return React.createElement(
+      View,
+      {
+        onAppear: () => {
+          for (const modifier of modifiers ?? []) {
+            if (modifier.$type === 'onAppear') {
+              modifier.eventListener({});
+            }
+          }
+        },
+      },
+      children,
+    );
+  }
   return {
     Alert,
     BottomSheet,
     Button,
     Form: Passthrough,
     Popover,
-    Group: Passthrough,
+    Group,
     Host: Passthrough,
     HStack: Passthrough,
     Label: Labeled,
@@ -248,6 +264,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   frame: (params) => ({ $type: 'frame', ...params }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
   monospacedDigit: () => ({ $type: 'monospacedDigit' }),
+  onAppear: (eventListener) => ({ $type: 'onAppear', eventListener }),
   padding: (params) => ({ $type: 'padding', ...params }),
   pickerStyle: (style) => ({ $type: 'pickerStyle', style }),
   scrollContentBackground: (visible) => ({

@@ -1008,6 +1008,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Exercise omission separately from an unreadable listed record. Otherwise
   removal can tombstone a Profile that still owns live mail and project it into
   Default.
+- `mail-profiles.ts.readProfile` replacing an unpublished Profile's edited style
+  with its delayed first publication. Retain durable pending style until an
+  authenticated record matches it, including after relaunch and a retry's CAS
+  loss, while a tombstone clears it. Exercise editing the pending Profile after
+  losing its first publication reply; otherwise reconciliation silently restores
+  the earlier Color and Icon and discards the person's newer choice.
 - `mail-profiles.ts.remove` forgetting an unpublished Profile after a capability
   fence refuses its tombstone. An unanswered first publication can still commit
   after the fence lifts. Retain durable pending removal, keep it hidden through

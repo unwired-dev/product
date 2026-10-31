@@ -85,10 +85,9 @@ function ProfilePopUp({
   const colors = usePalette();
   return (
     <MenuButton
-      style={[styles.menu, disabled && { opacity: 0.4 }]}
-      pointerEvents={disabled ? 'none' : undefined}
+      style={styles.menu}
+      disabled={disabled}
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled }}
       accessibilityValue={{ text: nameOf(current) }}
       sections={[
         {
@@ -262,10 +261,11 @@ export function MailProfilesSettings({
       refused(t, 'move', failure);
     }
   };
-  // Duplicate copies only the name into a new Profile, then opens it for renaming.
+  // Duplicate copies the name, Color and Icon into a new Profile, then opens it for renaming.
   const duplicate = async () => {
     const created = store.createProfile(
       t('profiles.copyName', { name: nameOf(selected) }),
+      profiles.find(({ id }) => id === selected),
     );
     const failure = await change({ control: 'duplicate' }, () => created);
     if (failure !== undefined) {

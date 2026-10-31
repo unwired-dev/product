@@ -47,7 +47,13 @@ import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
-import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
+import {
+  chooseMenuItem,
+  chooseSubmenuItem,
+  dismissMenu,
+  menuItems,
+  submenuItems,
+} from './native-menu.ts';
 
 // The shared CI runner takes seconds to warm up the first composer journey.
 jest.setTimeout(30_000);
@@ -341,6 +347,26 @@ const press = async (name: string) => {
 const saveAndClose = async () => {
   await press('Close');
   await answer('Save');
+};
+
+// Chooses `title` in the format bar's Writing tools menu, or `language` in its Translate To
+// submenu.
+const writingTool = async (title: string, language?: string) => {
+  await press('Writing tools');
+  await (language === undefined
+    ? chooseMenuItem(title)
+    : chooseSubmenuItem(title, language));
+};
+
+// The Writing tools menu's item titled `title`; undefined while the menu is not offered.
+const writingToolsItem = async (title: string) => {
+  if (screen.queryByRole('button', { name: 'Writing tools' }) === null) {
+    return undefined;
+  }
+  await press('Writing tools');
+  const item = menuItems().find((each) => each.title === title);
+  await dismissMenu();
+  return item;
 };
 
 // Choosing a message leaves the open composer for the reader.
@@ -1648,6 +1674,107 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it('adds a link to selected text with the Link Editor as one Undo step', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const id: string = created;
+    const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(draft);
+    const lease = 'https://docs.example.invalid/lease';
+    await drafts.update(
+      {
+        ...draft,
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Read ' },
+              { text: 'the lease', marks: ['bold'] },
+              { text: ' today' },
+            ],
+          },
+        ],
+      },
+      draft,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+        initialDraft={id}
+      />,
+    );
+    const body = await screen.findByLabelText('Message body');
+    // Linked text shows underlined.
+    const bodyNow = () => shownBody()[0];
+    const select = async (start: number, end: number) => {
+      await fireEvent(body, 'selectionChange', {
+        nativeEvent: { selection: { start, end } },
+      });
+    };
+    // A caret has no text to link.
+    await select(8, 8);
+    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
+    await select(5, 14);
+    await press('Add Link');
+    const destination = screen.getByLabelText('Link');
+    expect(screen.getByLabelText('Text')).toHaveProp('value', 'the lease');
+    expect(destination).toHaveProp('value', '');
+    expect(destination).toHaveProp('placeholder', 'https://example.com');
+    // Fabric applies this on gaining the popover's window, rather than during layout.
+    expect(destination).toHaveProp('autoFocus', true);
+    expect(screen.queryByRole('button', { name: 'Remove Link' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    const reason = 'Enter a valid web, email or phone link.';
+    // Leaving the empty Link keeps the starting hint.
+    await fireEvent(destination, 'blur');
+    expect(screen.queryByText(reason)).toBeNull();
+    // Leaving Link with a destination that cannot be applied says why, and VoiceOver hears it.
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await fireEvent.changeText(destination, 'ftp://docs.example.invalid/lease');
+    expect(screen.queryByText(reason)).toBeNull();
+    await fireEvent(destination, 'blur');
+    expect(screen.getByText(reason)).toBeOnTheScreen();
+    expect(announce.mock.calls).toStrictEqual([[reason]]);
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(bodyNow()?.[1]).toHaveProperty('marks', ['bold']);
+    await fireEvent.changeText(destination, lease);
+    expect(
+      screen.getByText(
+        'Enter a web, email or phone link for the selected text.',
+      ),
+    ).toBeOnTheScreen();
+    await press('Apply');
+    expect(bodyNow()).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the lease', marks: ['bold', 'underline'] },
+      { text: ' today' },
+    ]);
+    // The new link opens as one to edit.
+    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeEnabled();
+    await press('Undo');
+    expect(bodyNow()?.[1]).toStrictEqual({
+      text: 'the lease',
+      marks: ['bold'],
+    });
+    await press('Redo');
+    expect(bodyNow()?.[1]).toHaveProperty('marks', ['bold', 'underline']);
+    await saveAndClose();
+    expect(
+      draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
+        ?.spans[1],
+    ).toStrictEqual({ text: 'the lease', marks: ['bold'], link: lease });
+  });
+
   it('keeps a stale editor on its own conflicting copy', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -2650,9 +2777,10 @@ describe('composing Drafts', () => {
     const body = screen.getByLabelText('Message body');
     await fireEvent.changeText(body, 'Hola. Nos vemos el viernes.');
     // Only selected text can be translated.
-    expect(
-      screen.getByRole('button', { name: 'Translate the selected text' }),
-    ).toBeDisabled();
+    await expect(writingToolsItem('Translate To')).resolves.toMatchObject({
+      accessibilityLabel: 'Translate the selected text',
+      disabled: true,
+    });
     const select = async (start: number, end: number) => {
       await fireEvent(
         screen.getByLabelText('Message body'),
@@ -2663,8 +2791,7 @@ describe('composing Drafts', () => {
       );
     };
     const translateSelection = async () => {
-      await press('Translate the selected text');
-      await chooseMenuItem('English');
+      await writingTool('Translate To', 'English');
     };
     await select(6, 27);
     await translateSelection();
@@ -2722,10 +2849,7 @@ describe('composing Drafts', () => {
     const supersededReplace = queuedPress(
       'Replace the selected text with this translation',
     );
-    const chooseLanguage = queuedPress(
-      'Translate the selected text',
-      'onSelect',
-    );
+    const chooseLanguage = queuedPress('Writing tools', 'onSelect');
     await act(() => {
       chooseLanguage({ nativeEvent: { id: 'language:de' } });
       supersededReplace();
@@ -2768,7 +2892,7 @@ describe('composing Drafts', () => {
     expect(cancelled).toStrictEqual([asked[4]?.request]);
     asked[4]?.answer.resolve({ source: 'es', text: 'Hello!' });
     await expect(
-      screen.findByLabelText('Translate the selected text'),
+      screen.findByLabelText('Writing tools'),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByText('Hello!')).toBeNull();
     expect(screen.getByLabelText('Message body')).toHaveTextContent(
@@ -2811,15 +2935,16 @@ describe('composing Drafts', () => {
       name: 'To: maya@example.com',
     });
     // Nothing to rewrite in an empty body.
-    expect(
-      screen.getByRole('button', { name: 'Rewrite the message body' }),
-    ).toBeDisabled();
+    await expect(writingToolsItem('Rewrite')).resolves.toMatchObject({
+      accessibilityLabel: 'Rewrite the message body',
+      disabled: true,
+    });
     const original = 'lets meet friday. thanks';
     await fireEvent.changeText(screen.getByLabelText('Message body'), original);
     const body = () => screen.getByLabelText('Message body');
 
     // With nothing selected, the whole authored body is rewritten.
-    await press('Rewrite the message body');
+    await writingTool('Rewrite');
     expect(asked[0]?.operation).toBe('rewrite');
     expect(parseJson(asked[0]!.input)).toStrictEqual({
       operation: 'rewrite',
@@ -2852,7 +2977,10 @@ describe('composing Drafts', () => {
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 0, end: 17 } },
     });
-    await press('Rewrite the selected text');
+    await expect(writingToolsItem('Rewrite')).resolves.toMatchObject({
+      accessibilityLabel: 'Rewrite the selected text',
+    });
+    await writingTool('Rewrite');
     expect(parseJson(asked[1]!.input)).toStrictEqual({
       operation: 'rewrite',
       authoredText: 'lets meet friday.',
@@ -2869,7 +2997,7 @@ describe('composing Drafts', () => {
     expect(body()).toHaveTextContent(original, { exact: true });
 
     // A refusal leaves the text unchanged and offers no retry.
-    await press('Rewrite the selected text');
+    await writingTool('Rewrite');
     await act(async () => {
       asked[2]?.answer.reject(
         Object.assign(new Error('refused'), { code: 'refused' }),
@@ -2888,7 +3016,7 @@ describe('composing Drafts', () => {
     await press('Keep your text and close this suggestion');
 
     // Cancelling stops the native request; Try again asks once more.
-    await press('Rewrite the selected text');
+    await writingTool('Rewrite');
     await press('Cancel writing help');
     expect(cancelled).toStrictEqual([asked[3]?.request]);
     await screen.findByText('Cancelled. Your text is unchanged.');
@@ -2902,7 +3030,7 @@ describe('composing Drafts', () => {
     expect(cancelled).toStrictEqual([asked[3]?.request, asked[4]?.request]);
     asked[4]?.answer.resolve('Too late.');
     await expect(
-      screen.findByRole('button', { name: 'Rewrite the selected text' }),
+      screen.findByRole('button', { name: 'Writing tools' }),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByText('Too late.')).toBeNull();
     expect(body()).toHaveTextContent('lets meet saturday. thanks', {
@@ -2910,8 +3038,8 @@ describe('composing Drafts', () => {
     });
 
     // Account replacement retires the composer and its pending assistance, even with the same mailbox.
-    await press('Rewrite the selected text');
-    const oldRewrite = queuedPress('Rewrite the selected text');
+    await writingTool('Rewrite');
+    const oldWritingTools = queuedPress('Writing tools', 'onSelect');
     await act(() => {
       registration.change({
         ...connected(['alex@example.invalid']),
@@ -2919,7 +3047,7 @@ describe('composing Drafts', () => {
       });
     });
     await act(() => {
-      oldRewrite();
+      oldWritingTools({ nativeEvent: { id: 'rewrite' } });
     });
     asked[5]?.answer.resolve('Late for the old account.');
     await act(async () => {
@@ -2974,25 +3102,26 @@ describe('composing Drafts', () => {
         },
       );
       // Opening a Draft stays quiet; the menu itself names the failure.
-      await press('Translate the selected text');
-      expect(menuItems()).toContainEqual(
+      await press('Writing tools');
+      expect(submenuItems('Translate To')).toContainEqual(
         expect.objectContaining({
           title: 'Translation languages couldn’t be loaded.',
           disabled: true,
         }),
       );
       expect(announce).not.toHaveBeenCalled();
-      await chooseMenuItem('Try Again');
+      await chooseSubmenuItem('Translate To', 'Try Again');
       await waitFor(() => {
         expect(announce.mock.calls).toStrictEqual([
           ['Translation languages couldn’t be loaded.'],
         ]);
       });
 
-      await press('Translate the selected text');
-      await chooseMenuItem('Try Again');
-      await press('Translate the selected text');
-      expect(menuItems().map(({ title }) => title)).toContain('English');
+      await writingTool('Translate To', 'Try Again');
+      await press('Writing tools');
+      expect(submenuItems('Translate To').map(({ title }) => title)).toContain(
+        'English',
+      );
       await dismissMenu();
       expect(announce.mock.calls).toStrictEqual([
         ['Translation languages couldn’t be loaded.'],
@@ -3040,25 +3169,24 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Message body'),
       'lets meet friday. thanks',
     );
-    expect(
-      screen.queryByRole('button', { name: 'Rewrite the message body' }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Translate the selected text' }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Writing tools' })).toBeNull();
 
     await act(async () => {
       await enablement.setEnabled(owner, 'default', true);
     });
-    await press('Rewrite the message body');
+    await writingTool('Rewrite');
     await screen.findByLabelText('Cancel writing help');
     // Turning it off cancels the request and closes its panel.
     await act(async () => {
       const off = enablement.setEnabled(owner, 'default', false);
       // Cancellation precedes both storage completion and React's hidden-panel commit.
       expect(cancelled).toStrictEqual([asked[0]?.request]);
-      fireEvent.press(
-        screen.getByRole('button', { name: 'Rewrite the message body' }),
+      fireEvent(
+        screen.getByRole('button', { name: 'Writing tools' }),
+        'select',
+        {
+          nativeEvent: { id: 'rewrite' },
+        },
       );
       await off;
     });
@@ -3068,9 +3196,9 @@ describe('composing Drafts', () => {
     await act(async () => {
       await enablement.setEnabled(owner, 'default', true);
     });
-    expect(
-      screen.getByRole('button', { name: 'Rewrite the message body' }),
-    ).toBeOnTheScreen();
+    await expect(writingToolsItem('Rewrite')).resolves.toMatchObject({
+      disabled: false,
+    });
     expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
     expect(asked).toHaveLength(1);
   });
@@ -3135,13 +3263,11 @@ describe('composing Drafts', () => {
         'lets meet friday. thanks',
       );
       // The Default Profile's consent does not reach a Draft sending from the Work Profile.
-      expect(
-        screen.queryByRole('button', { name: 'Rewrite the message body' }),
-      ).toBeNull();
+      await expect(writingToolsItem('Rewrite')).resolves.toBeUndefined();
       await act(async () => {
         await enablement.setEnabled(owner, 'work', true);
       });
-      await press('Rewrite the message body');
+      await writingTool('Rewrite');
       await screen.findByLabelText('Cancel writing help');
 
       // A move retires the request even when the destination Profile also permits assistance.
@@ -3151,10 +3277,7 @@ describe('composing Drafts', () => {
       expect(cancelled).toStrictEqual([asked[0]?.request]);
       expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
       expect(asked).toHaveLength(1);
-      expect(
-        screen.queryByRole('button', { name: 'Rewrite the message body' }) !==
-          null,
-      ).toBe(offered);
+      expect((await writingToolsItem('Rewrite')) !== undefined).toBe(offered);
     },
   );
   /* oxlint-enable vitest/max-expects */
@@ -3295,8 +3418,7 @@ describe('adding files and images to a Draft', () => {
       [5, 6],
     ] as const) {
       await select(start, end);
-      await press('Translate the selected text');
-      await chooseMenuItem('English');
+      await writingTool('Translate To', 'English');
       await screen.findByText(guidance);
       expect(shownBody()).toStrictEqual(before);
       await press('Keep the original text and close the translation');
@@ -3308,8 +3430,7 @@ describe('adding files and images to a Draft', () => {
       [7, 12],
     ] as const) {
       await select(start, end);
-      await press('Translate the selected text');
-      await chooseMenuItem('English');
+      await writingTool('Translate To', 'English');
       await screen.findByLabelText(
         'Replace the selected text with this translation',
       );
@@ -4285,7 +4406,7 @@ describe('replying to and forwarding from the reader', () => {
       screen.getByLabelText('Message body'),
       oversized,
     );
-    await press('Suggest a reply to the quoted message');
+    await writingTool('Suggest reply');
     await expect(
       screen.findByText(
         'Your reply is too long for a suggestion. Up to 6,000 characters can be read.',
@@ -4298,7 +4419,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(gmail.requests).toHaveLength(requests);
     await press('Keep your text and close this suggestion');
     await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes');
-    await press('Suggest a reply to the quoted message');
+    await writingTool('Suggest reply');
     // Only display names, the authored text and the quoted message already in the Draft are read.
     expect(asked[0]?.operation).toBe('reply');
     expect(parseJson(asked[0]!.input)).toMatchObject({
@@ -4328,7 +4449,7 @@ describe('replying to and forwarding from the reader', () => {
     });
 
     // Recipient edits retire the captured reply input even when Undo restores it before commit.
-    await press('Suggest a reply to the quoted message');
+    await writingTool('Suggest reply');
     asked[1]?.answer.resolve('Ready for the old recipients.');
     await screen.findByText('Ready for the old recipients.');
     const apply = queuedPress('Replace your reply with this suggestion');
@@ -4345,7 +4466,7 @@ describe('replying to and forwarding from the reader', () => {
     });
 
     // A pending request is also cancelled on recipient editing; its late result stays hidden.
-    await press('Suggest a reply to the quoted message');
+    await writingTool('Suggest reply');
     await press('To: Bob <bob@example.invalid>');
     asked[2]?.answer.resolve('Late for the old recipients.');
     await act(async () => {
@@ -4357,7 +4478,7 @@ describe('replying to and forwarding from the reader', () => {
     await press('Undo');
 
     // Closing the Draft while a suggestion is pending cancels it.
-    await press('Suggest a reply to the quoted message');
+    await writingTool('Suggest reply');
     await screen.findByLabelText('Cancel writing help');
     await saveAndClose();
     await waitFor(() => {

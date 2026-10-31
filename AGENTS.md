@@ -29,6 +29,8 @@ for every implementation, including later implementation fixes.
 - Search the repository as the implementer with `scripts/implementer-grep`
   (`git grep` arguments, pathspecs after `--`), which always excludes those
   sources. Do not use `grep -r`, `rg` or bare `git grep` across the checkout.
+  Read commits and diffs, including reviewer fixes, with `scripts/implementer-show`
+  rather than bare `git show`, `git diff` or `git log -p`.
 - Before implementing, load and apply the workflow's
   [simplicity skills](docs/agents/implementation-review.md#simplicity-skills).
   For React, React Native or Expo work, use
