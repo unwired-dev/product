@@ -1557,6 +1557,69 @@ describe('the mobile Profile Switcher', () => {
     }
   });
 
+  it('shows each Mail Profile’s styled monogram in the switcher and its menu', async () => {
+    expect.hasAssertions();
+    const { registration, work } = await createTwoProfileRegistration();
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    const monograms = () =>
+      screen
+        .getByLabelText(/^Mail Profile, /u)
+        .props.sections[0].items.map(
+          ({ title, monogram }: { title: string; monogram: unknown }) => [
+            title,
+            monogram,
+          ],
+        );
+    try {
+      savedPreferences(new Map([['window-profile', work]]));
+      showMail(work);
+      route.setParams({});
+      await render(<RootLayout />);
+      const switcher = await screen.findByLabelText('Mail Profile, Work');
+      // The Primary Profile and an unstyled Profile show Graphite and their first letter.
+      expect(
+        within(switcher).getByText('W', { includeHiddenElements: true }),
+      ).toHaveStyle({ color: '#FFFFFF' });
+      expect(monograms()).toStrictEqual([
+        ['Primary Profile', { color: '#15171B', symbol: '', letter: 'P' }],
+        ['Work', { color: '#15171B', symbol: '', letter: 'W' }],
+      ]);
+      await registration.restyleProfile(work, {
+        color: 'teal',
+        icon: 'laptop',
+      });
+      await waitFor(() => {
+        expect(monograms()).toStrictEqual([
+          ['Primary Profile', { color: '#15171B', symbol: '', letter: 'P' }],
+          ['Work', { color: '#0E7490', symbol: 'laptopcomputer', letter: 'W' }],
+        ]);
+      });
+      // The switcher draws Work's Icon in place of its letter.
+      expect(
+        within(screen.getByLabelText('Mail Profile, Work')).queryByText('W', {
+          includeHiddenElements: true,
+        }),
+      ).toBeNull();
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
   it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
     expect.hasAssertions();

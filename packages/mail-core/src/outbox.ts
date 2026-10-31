@@ -5,7 +5,7 @@ import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
 import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
-import type { Drafts } from './drafts.ts';
+import type { AssetPreview, Drafts } from './drafts.ts';
 import type { SendOutcome } from './gmail-inbox.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
 import type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
@@ -76,6 +76,10 @@ export type SendRefusal =
   | 'too-large'
   | 'changed'
   | 'storage';
+
+// The files Send is checking, by identifier: undefined while a file is read, then what the read
+// found. The check stops at the first file that does not verify.
+export type SendCheck = ReadonlyMap<string, AssetPreview['kind'] | undefined>;
 
 // The person's Check Again of an unknown message, for the Send it was asked about and the Product
 // Account it belongs to.
@@ -700,13 +704,23 @@ export function createOutbox({
   };
 
   // Whether every file is on this device with bytes matching its digest.
-  const verified = async (draft: Draft) => {
-    for (const asset of assetsOf(draft)) {
-      if (asset.state === 'complete') {
-        const read = await drafts.readAsset(asset, { preview: false });
-        if (read.kind !== 'verified') {
-          return false;
-        }
+  const verified = async (
+    draft: Draft,
+    report: ((check: SendCheck) => void) | undefined,
+  ) => {
+    const complete = assetsOf(draft).filter(
+      (asset) => asset.state === 'complete',
+    );
+    let check: SendCheck = new Map(
+      complete.map((asset) => [asset.id, undefined]),
+    );
+    report?.(check);
+    for (const asset of complete) {
+      const read = await drafts.readAsset(asset, { preview: false });
+      check = new Map(check).set(asset.id, read.kind);
+      report?.(check);
+      if (read.kind !== 'verified') {
+        return false;
       }
     }
     return true;
@@ -1042,14 +1056,17 @@ export function createOutbox({
       return snapshot;
     },
     // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends.
-    // Resolves why it was refused, or undefined once admitted.
-    send: async (expected: () => Draft): Promise<SendRefusal | undefined> => {
+    // Resolves why it was refused, or undefined once admitted. `report` follows the file check.
+    send: async (
+      expected: () => Draft,
+      report?: (check: SendCheck) => void,
+    ): Promise<SendRefusal | undefined> => {
       const draft = expected();
       const refusal = refusalOf(draft);
       if (refusal !== undefined) {
         return refusal;
       }
-      if (!(await verified(draft))) {
+      if (!(await verified(draft, report))) {
         return 'assets';
       }
       // The sending mailbox can change while files are read; it is checked again before admission.

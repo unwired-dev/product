@@ -1,3 +1,5 @@
+import type { SendCheck } from '@private-email/mail-core/outbox';
+
 import * as Schema from 'effect/Schema';
 import PostalMime from 'postal-mime';
 
@@ -865,9 +867,18 @@ describe('sending a Draft through the Outbox', () => {
       uri: 'file:///notes.txt',
     });
     sending.storage.damage(notes.id);
-    await expect(sending.outbox.send(() => sending.draft(id))).resolves.toBe(
-      'assets',
-    );
+    const checks: SendCheck[] = [];
+    await expect(
+      sending.outbox.send(
+        () => sending.draft(id),
+        (check) => checks.push(check),
+      ),
+    ).resolves.toBe('assets');
+    // The file reads as checking, then as what its read found.
+    expect(checks).toStrictEqual([
+      new Map([[notes.id, undefined]]),
+      new Map([[notes.id, 'damaged']]),
+    ]);
     // A version another editor changed since is not sent.
     await expect(send({ ...draft, subject: 'Stale' })).resolves.toBe('changed');
     expect(sending.drafts.getOutbox()).toStrictEqual([]);

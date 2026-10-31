@@ -24,8 +24,8 @@ export type MenuItem = Readonly<{
   // An action shown but unavailable now, and a spoken name fuller than its title.
   disabled?: boolean;
   accessibilityLabel?: string;
-  // A Mail Profile monogram in place of the symbol on the Mac: its symbol, or with none its
-  // letter, in white on a circle of its hex color.
+  // A Mail Profile monogram in place of the symbol: its symbol, or with none its letter, in white
+  // on a circle of its hex color.
   monogram?: Monogram;
 }> &
   (

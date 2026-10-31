@@ -331,6 +331,208 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('shows Checking… on each file Send checks, keeps a damaged one to remove and sends only when asked again', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Contracts');
+      sender.storage.addFile('file:///plan.pdf', 'plan');
+      sender.storage.addFile('file:///scan.pdf', 'scan');
+      sender.storage.pickNext('files', [
+        { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+        { uri: 'file:///scan.pdf', name: 'scan.pdf', type: 'application/pdf' },
+      ]);
+      const originalRead = sender.storage.native.readDraftAsset;
+      // An older verified preview must not replace a newer Send refusal.
+      let finishPreview: (() => void) | undefined = undefined;
+      // oxlint-disable-next-line promise/avoid-new -- Deliver an older read after the Send result.
+      const preview = new Promise<undefined>((resolve) => {
+        finishPreview = () => resolve(undefined);
+      });
+      jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockImplementationOnce(async (...args) => {
+          const result = await originalRead(...args);
+          await preview;
+          return result;
+        });
+      await press('Attach Files…');
+      await screen.findByLabelText('plan.pdf, 4 bytes');
+      await screen.findByLabelText('scan.pdf, 4 bytes');
+      // A refused check can succeed on the next Send without a separate preview retry.
+      const locked = jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('Storage locked'), { code: 'locked' }),
+        );
+      await press('Send');
+      await screen.findByLabelText(
+        'plan.pdf, 4 bytes · Not checked while private storage is locked',
+      );
+      await act(async () => {
+        ok(finishPreview, 'Expected the earlier file preview');
+        finishPreview();
+        await preview;
+      });
+      expect(
+        screen.getByLabelText(
+          'plan.pdf, 4 bytes · Not checked while private storage is locked',
+        ),
+      ).toBeOnTheScreen();
+      locked.mockRestore();
+      announce.mockClear();
+      // Each file's check finishes only when the test lets it.
+      const read = sender.storage.native.readDraftAsset;
+      const reads: Array<Readonly<{ id: string; finish: () => void }>> = [];
+      const held = jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockImplementation(async (...args) => {
+          // oxlint-disable-next-line promise/avoid-new -- Hold each check until the test finishes it.
+          await new Promise((resolve) => {
+            reads.push({ id: args[1].id, finish: () => resolve(undefined) });
+          });
+          return read(...args);
+        });
+      const finishRead = async () => {
+        const next = reads.shift();
+        ok(next, 'Expected a file being checked');
+        await act(async () => {
+          next.finish();
+          await Promise.resolve();
+        });
+      };
+
+      await press('Send');
+
+      await expect(
+        screen.findByLabelText('plan.pdf, Checking…'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('scan.pdf, Checking…')).toBeOnTheScreen();
+      for (const name of ['Send', 'Remove plan.pdf', 'Remove scan.pdf']) {
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      }
+      expect(screen.getByLabelText('Subject')).toBeDisabled();
+      expect(announce).toHaveBeenCalledWith('Checking attachments');
+
+      await finishRead();
+      await expect(
+        screen.findByLabelText('plan.pdf, 4 bytes'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('scan.pdf, Checking…')).toBeOnTheScreen();
+      expect(
+        screen.getByRole('button', { name: 'Remove scan.pdf' }),
+      ).toBeDisabled();
+
+      const [scan] = reads;
+      ok(scan, 'Expected scan.pdf being checked');
+      sender.storage.damage(scan.id);
+      await finishRead();
+      await expect(
+        screen.findByLabelText('scan.pdf, 4 bytes · Damaged on this device'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('plan.pdf, 4 bytes')).toBeOnTheScreen();
+      for (const name of ['Send', 'Remove plan.pdf', 'Remove scan.pdf']) {
+        expect(screen.getByRole('button', { name })).toBeEnabled();
+      }
+      expect(
+        announce.mock.calls.filter(
+          ([words]) => words === 'Checking attachments',
+        ),
+      ).toHaveLength(1);
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toStrictEqual([]);
+      expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+
+      held.mockRestore();
+      await press('Remove scan.pdf');
+      expect(screen.queryByLabelText(/^scan\.pdf/u)).toBeNull();
+      await press('Send');
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toHaveLength(1);
+      expect(sender.gmail.sends[0]?.raw).toContain('plan.pdf');
+      expect(sender.gmail.sends[0]?.raw).not.toContain('scan.pdf');
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('shows an inline image again once Send verifies it after a locked check', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    let finishThumbnail: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Verify status before the thumbnail read finishes.
+    const thumbnail = new Promise<undefined>((resolve) => {
+      finishThumbnail = () => resolve(undefined);
+    });
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Charts');
+      sender.storage.addFile('file:///chart.png', 'chart');
+      sender.storage.addFile('file:///photo.png', 'photo');
+      const locked = jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('Storage locked'), { code: 'locked' }),
+        );
+      sender.storage.pickNext('photos', [
+        { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+      ]);
+      await press('Insert Image…');
+      await screen.findByLabelText(
+        'chart.png, 5 bytes · Not checked while private storage is locked',
+      );
+      locked.mockRestore();
+      sender.storage.pickNext('photos', [
+        { uri: 'file:///photo.png', name: 'photo.png', type: 'image/png' },
+      ]);
+      await press('Insert Image…');
+      await screen.findByLabelText('Inline image photo.png');
+      // Send verifies chart.png, then refuses the damaged photo.png that follows it.
+      const read = sender.storage.native.readDraftAsset;
+      jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockImplementation(async (...args) => {
+          await thumbnail;
+          return read(...args);
+        })
+        .mockImplementationOnce(read)
+        .mockImplementationOnce(async (...args) => {
+          sender.storage.damage(args[1].id);
+          return read(...args);
+        });
+
+      await press('Send');
+
+      await expect(
+        screen.findByLabelText('photo.png, 5 bytes · Damaged on this device'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('chart.png, 5 bytes')).toBeOnTheScreen();
+      await act(async () => {
+        finishThumbnail();
+        await thumbnail;
+      });
+      await expect(
+        screen.findByLabelText('Inline image chart.png'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('chart.png, 5 bytes')).toBeOnTheScreen();
+    } finally {
+      finishThumbnail();
+      sender.outbox.dispose();
+    }
+  });
+
   it.each([
     {
       purpose: 'rewrite',

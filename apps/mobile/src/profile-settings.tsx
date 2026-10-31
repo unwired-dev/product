@@ -13,6 +13,7 @@ import {
   profileConnections,
   profileIcons,
   profileIconSymbol,
+  profileLetter,
   profileName,
   profileRefusalText,
   profileRemoval,
@@ -59,21 +60,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  // iPhone's 30pt monogram, iPad's 28pt. The frames draw it 4pt into the row's leading inset, with
-  // its title 10pt (iPad 8pt) after it, in line with the mailbox rows' titles.
-  monogram: {
-    width: settingsColumns ? 28 : 30,
-    height: settingsColumns ? 28 : 30,
-    borderRadius: settingsColumns ? 14 : 15,
-    marginLeft: -4,
-    marginRight: settingsColumns ? -4 : -2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  monogramText: {
-    fontSize: settingsColumns ? 13 : 14,
-    fontWeight: '600',
-  },
+  // The frames draw the monogram 4pt into the row's leading inset, with its title 10pt (iPad 8pt)
+  // after it, in line with the mailbox rows' titles.
+  monogramInset: { marginLeft: -4, marginRight: settingsColumns ? -4 : -2 },
+  monogram: { alignItems: 'center', justifyContent: 'center' },
+  monogramText: { fontWeight: '600' },
 });
 
 // Explains why a Mail Profile change did not complete.
@@ -170,12 +161,15 @@ function ProfilePopUp({
 }
 
 // A Mail Profile's monogram: its Color filling the circle under its Icon, or its name's first letter.
-function ProfileMonogram({
+// The glyph scales with the circle: a 12pt symbol and 14pt letter at 30pt, 12pt and 13pt at 28pt.
+export function ProfileMonogram({
   name,
   style: { color = 'graphite', icon },
+  size,
 }: {
   readonly name: string;
   readonly style: ProfileStyle;
+  readonly size: number;
 }) {
   const colors = usePalette();
   const fills = useProfilePalette();
@@ -183,15 +177,27 @@ function ProfileMonogram({
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.monogram, { backgroundColor: fills[color] }]}>
+      style={[
+        styles.monogram,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: fills[color],
+        },
+      ]}>
       {icon === undefined ? (
-        <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
-          {[...name][0]?.toLocaleUpperCase() ?? ''}
+        <Text
+          style={[
+            styles.monogramText,
+            { color: colors.brandOnDeep, fontSize: Math.ceil(size * 0.45) },
+          ]}>
+          {profileLetter(name)}
         </Text>
       ) : (
         <SFSymbol
           name={profileIconSymbol[icon]}
-          size={12}
+          size={Math.ceil(size * 0.4)}
           color={colors.brandOnDeep}
         />
       )}
@@ -433,10 +439,13 @@ export function MailProfilesSettings({
                 ) : null}
                 <SettingsRow
                   icon={
-                    <ProfileMonogram
-                      name={nameOf(id)}
-                      style={styleOf(id)}
-                    />
+                    <View style={styles.monogramInset}>
+                      <ProfileMonogram
+                        name={nameOf(id)}
+                        style={styleOf(id)}
+                        size={settingsColumns ? 28 : 30}
+                      />
+                    </View>
                   }
                   title={nameOf(id)}
                   subtitle={profileConnections(t, mailboxes, id)}>

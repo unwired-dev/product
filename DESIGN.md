@@ -517,8 +517,10 @@ content.
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
   the glyph scales with the circle: 24pt in Settings with a 10pt symbol or an
   11pt semibold letter, 22pt in the Profile Switcher with 9pt or 10pt, and 20pt
-  in the Profile Menu with 8pt or 9pt. iPhone Settings' is 30pt with a 12pt
-  symbol and 14pt letter, and iPad's 28pt with a 12pt symbol and 13pt letter.
+  in the Profile Menu with 8pt or 9pt. On iPhone and iPad the symbol is 40% and
+  the semibold letter 45% of the circle, rounded up: 30pt in iPhone Settings, 28pt
+  in iPad Settings and in the Profile Switcher, and in the Profile Menu 28pt on
+  iPhone and 24pt on iPad.
   Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
@@ -603,8 +605,9 @@ form accessories, keyboards, status bar).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Suggest reply, Proofread, Break into Paragraphs, Translate, Expand
-  Text, Shorten Text and the tone tools (on Mac also Generate a Draft…, whose
-  prompt popover follows the Generate a Draft frames), in the
+  Text, Shorten Text, the tone tools and Generate a Draft…, whose prompt
+  follows the Generate a Draft frames: a popover on Mac and iPad, a sheet on
+  iPhone, without the prompt-history control, in the
   [grouped order](docs/draft-assistance.md#behavior)), the file controls and
   Templates; no glass on iPad and Mac),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,

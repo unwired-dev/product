@@ -2,8 +2,9 @@ import { ok } from 'node:assert/strict';
 
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { TextStyle } from 'react-native';
+import type { TextStyle, useColorScheme } from 'react-native';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
@@ -17,6 +18,7 @@ import {
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
+import { palette } from '@private-email/mail-core/theme';
 import {
   act,
   fireEvent,
@@ -352,6 +354,31 @@ const press = async (name: string) => {
     await fireEvent.press(button);
   });
 };
+
+// Each body line's alignment and its spans' flattened styles.
+const shownFormatting = (body: ReturnType<typeof screen.getByLabelText>) =>
+  body.children.flatMap((line) =>
+    typeof line === 'string'
+      ? []
+      : [
+          {
+            align: StyleSheet.flatten<TextStyle>(line.props.style).textAlign,
+            spans: line.children.flatMap((span) =>
+              typeof span === 'string'
+                ? []
+                : [
+                    {
+                      color: StyleSheet.flatten<TextStyle>([
+                        body.props.style,
+                        line.props.style,
+                      ]).color,
+                      ...StyleSheet.flatten<TextStyle>(span.props.style),
+                    },
+                  ],
+            ),
+          },
+        ],
+  );
 
 // Stores the composer's version with Close and Save, closing it.
 const saveAndClose = async () => {
@@ -1706,6 +1733,164 @@ describe('composing Drafts', () => {
       { text: ' today' },
     ]);
   });
+
+  it.each([
+    {
+      appearance: 'light',
+      colors: ['#941751', '#000000', '#ff0000', '#1f3864', '#c00000'],
+    },
+    // Dark lightens a color below 4.5:1 along its hue and shows near-black as the text color.
+    {
+      appearance: 'dark',
+      colors: [
+        '#bf7497',
+        palette.dark.textPrimary,
+        '#ff3333',
+        '#7988a2',
+        '#d96666',
+      ],
+    },
+  ] as const)(
+    "shows a Draft's stored alignment, fonts and colors in $appearance appearance without changing them",
+    async ({ appearance, colors }) => {
+      expect.hasAssertions();
+      const scheme = jest
+        .spyOn(
+          jest.requireActual<{ useColorScheme: typeof useColorScheme }>(
+            'react-native',
+          ),
+          'useColorScheme',
+        )
+        .mockReturnValue(appearance);
+      try {
+        const registration = account(connected(['alex@example.invalid']));
+        const storage = createSyntheticDrafts(
+          () => 'synthetic-product-account',
+        );
+        const drafts = createDrafts(storage.native, registration);
+        await drafts.load();
+        const created = await drafts.create({
+          id: alex,
+          address: 'alex@example.invalid',
+        });
+        ok(created);
+        const id: string = created;
+        const draft = draftsOf(drafts.getSnapshot()).find(
+          (each) => each.id === id,
+        );
+        ok(draft);
+        // Apple Mail, Gmail and Outlook formatting, with the colors the design adapts for Dark.
+        const body: SemanticDocument = [
+          {
+            kind: 'quote',
+            spans: [
+              {
+                text: 'Quoted ink',
+                color: '#000000',
+                font: 'Georgia',
+                size: 18,
+                marks: ['code', 'italic', 'strikethrough'],
+                link: 'https://example.invalid',
+              },
+              { text: ' code', marks: ['code'] },
+            ],
+            align: 'justify',
+          },
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Housewarming', font: 'Georgia', size: 20 }],
+            align: 'center',
+          },
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Ring twice', color: '#941751' },
+              { text: ' or ', color: '#000000' },
+              { text: 'call', color: '#ff0000', marks: ['bold'] },
+            ],
+            align: 'center',
+          },
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Keys', background: '#ffff00' },
+              { text: ' Friday', color: '#1f3864', font: 'arial, sans-serif' },
+              { text: ' now', color: '#c00000', font: '"Aptos", sans-serif' },
+            ],
+            align: 'right',
+          },
+        ];
+        await drafts.update({ ...draft, body }, draft);
+        await render(
+          <App
+            drafts={drafts}
+            registration={registration}
+            initialDraft={id}
+          />,
+        );
+        const field = await screen.findByLabelText('Message body');
+        const shown = shownFormatting(field);
+        expect(shown.map(({ align }) => align)).toStrictEqual([
+          'justify',
+          'center',
+          'center',
+          'right',
+        ]);
+        // Explicit near-black must override the quote's secondary ink in Dark.
+        expect(shown[0]?.spans[0]).toHaveProperty('color', colors[1]);
+        expect(shown[0]?.spans[0]).toMatchObject({
+          fontFamily: 'Georgia',
+          fontSize: 18,
+          lineHeight: 24,
+          fontStyle: 'italic',
+          textDecorationLine: 'underline line-through',
+        });
+        expect(shown[0]?.spans[1]).toHaveProperty('fontFamily', 'Menlo');
+        expect(shown[1]?.spans[0]).toMatchObject({
+          fontFamily: 'Georgia',
+          fontSize: 20,
+          lineHeight: 27,
+        });
+        expect(shown[2]?.spans.map(({ color }) => color)).toStrictEqual(
+          colors.slice(0, 3),
+        );
+        expect(shown[2]?.spans[2]).toHaveProperty('fontWeight', '700');
+        // A highlight keeps its background and Light ink; a missing font falls back by family.
+        expect(shown[3]?.spans).toStrictEqual([
+          { backgroundColor: '#ffff00', color: palette.light.textPrimary },
+          { color: colors[3], fontFamily: 'arial' },
+          { color: colors[4], fontFamily: 'Aptos' },
+        ]);
+
+        // Typing into a formatted run keeps the authored values, which the store keeps on Save.
+        await fireEvent.changeText(
+          field,
+          'Quoted ink code\nHousewarming\nRing twice or call\nKeys Friday now!',
+        );
+        await saveAndClose();
+        const reopened = createDrafts(storage.native, registration);
+        await reopened.load();
+        expect(
+          draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body,
+        ).toStrictEqual([
+          body[0],
+          body[1],
+          body[2],
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Keys', background: '#ffff00' },
+              { text: ' Friday', color: '#1f3864', font: 'arial, sans-serif' },
+              { text: ' now!', color: '#c00000', font: '"Aptos", sans-serif' },
+            ],
+            align: 'right',
+          },
+        ]);
+      } finally {
+        scheme.mockRestore();
+      }
+    },
+  );
 
   it('adds a link to selected text with the Link Editor as one Undo step', async () => {
     expect.hasAssertions();
