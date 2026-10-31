@@ -3515,6 +3515,15 @@ describe('composing Drafts', () => {
       screen.queryByLabelText('Replace your text with this rewrite'),
     ).toBeNull();
     expect(body()).toHaveTextContent(original, { exact: true });
+    // Keep original carries the accent tint of the main action; using the changes does not.
+    expect(
+      screen.getByLabelText('Keep your text and close this suggestion').props,
+    ).toHaveProperty('tint', expect.any(Number));
+    expect(
+      screen.getByLabelText(
+        'Replace your text with this rewrite, including its changed details',
+      ).props,
+    ).not.toHaveProperty('tint', expect.any(Number));
 
     // Keeping the original changes nothing; applying the changes is a separate, explicit choice.
     await press('Keep your text and close this suggestion');

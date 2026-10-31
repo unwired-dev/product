@@ -37,11 +37,20 @@ export type DetailCheck = Readonly<{
   changes: readonly DetailChange[];
 }>;
 
-const weekday =
-  '(?:[Mm]on|[Tt]ues|[Ww]ednes|[Tt]hurs|[Ff]ri|[Ss]atur|[Ss]un)day';
-const month = String.raw`(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)(?:\.(?=,?\s\d))?`;
+// Names match in any letter case without the `i` flag, which would also loosen currency codes.
+const anyCase = (words: string) =>
+  words.replaceAll(
+    /\p{L}/gu,
+    (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`,
+  );
+const weekday = anyCase('(?:mon|tues|wednes|thurs|fri|satur|sun)day');
+const month = `${anyCase('(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)')}(?:\\.(?=,?\\s\\d))?`;
 const day = String.raw`\d{1,2}(?:st|nd|rd|th)?`;
-const figure = String.raw`\d+(?:[.,]\d+)*`;
+const unsigned = String.raw`(?:\d+(?:[.,]\d+)*|[.,]\d+)`;
+// A sign belongs to its number: `-40` and `40` differ.
+const sign = '[-−+]';
+const figure = `${sign}?${unsigned}`;
+const linkEnd = String.raw`[^\s<>"“”«»]`;
 const currency = String.raw`\p{Sc}|\b[A-Z]{3}\b|Kč`;
 const edge = String.raw`(?![\p{L}\p{N}])`;
 
@@ -49,9 +58,17 @@ const edge = String.raw`(?![\p{L}\p{N}])`;
 // amount's number or a date's day is not counted again. Quotes are read separately because they
 // may hold other details.
 const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
-  ['link', String.raw`(?:https?://|www\.)[^\s<>"“”«»]+`],
+  [
+    'link',
+    // A bare address ends in a label of letters, as in link inspection, and is not an email's
+    // local part.
+    `https?://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+\\p{L}{2,}(?![@\\p{L}\\p{N}-])(?:[/?#]${linkEnd}*)?`,
+  ],
   ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
-  ['amount', `(?:${currency})\\s?${figure}|${figure}\\s?(?:${currency})`],
+  [
+    'amount',
+    `${sign}?(?:${currency})\\s?${unsigned}|${figure}\\s?(?:${currency})`,
+  ],
   [
     'date',
     [
@@ -59,7 +76,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
       `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
       `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
       weekday,
-      '[Tt]oday|[Tt]omorrow|[Tt]onight|[Yy]esterday',
+      anyCase('today|tomorrow|tonight|yesterday'),
     ].join('|'),
   ],
   ['time', `\\d{1,2}(?::\\d{2})?\\s?[aApP]\\.?[mM]\\.?${edge}|\\d{1,2}:\\d{2}`],
@@ -72,10 +89,10 @@ const pattern = new RegExp(
 );
 const quote = /"[^"\n]+"|“[^”\n]+”|„[^“”\n]+[“”]|«[^»\n]+»/gu;
 
-// A written link ends before sentence punctuation or a closing quote, and before a closing
-// parenthesis it did not open.
+// A written link ends before a closing quote, a full stop, comma, colon or semicolon, and before a
+// closing parenthesis it did not open. `!` and `?` can end an address, so they stay part of it.
 const trimLink = (link: string): string => {
-  const trimmed = link.replace(/[.,;:!?'"’”»]+$/u, '');
+  const trimmed = link.replace(/[.,;:'"’”»]+$/u, '');
   return trimmed.endsWith(')') &&
     trimmed.split(')').length > trimmed.split('(').length
     ? trimLink(trimmed.slice(0, -1))
@@ -94,8 +111,9 @@ const keyOf = (kind: DetailKind, value: string) => {
     return spaced.toLowerCase().replaceAll('.', '');
   }
   if (kind === 'amount') {
-    const number = new RegExp(figure, 'u').exec(spaced)?.[0] ?? '';
-    return `${spaced.replace(number, '')} ${number}`;
+    const number = new RegExp(unsigned, 'u').exec(spaced)?.[0] ?? '';
+    const signed = new RegExp(sign, 'u').exec(spaced)?.[0] ?? '';
+    return `${spaced.replace(number, '').replace(signed, '')} ${signed}${number}`;
   }
   return spaced;
 };
@@ -128,8 +146,8 @@ const detailsIn = (text: string): Detail[] => {
   ).map(([, each]) => each);
 };
 
-// A link whose destination its words do not show is still a detail: plain result text cannot
-// carry it, so it is removed unless the result writes the destination out.
+// A link whose destination its words do not show exactly is still a detail: plain result text
+// cannot carry it, so it is removed unless the result writes the destination out.
 const hiddenLinks = (document: SemanticDocument, selection: Selection) =>
   selectedLinks(document, selection).flatMap(({ text, href }) => {
     const address = href.startsWith('mailto:')
@@ -140,7 +158,12 @@ const hiddenLinks = (document: SemanticDocument, selection: Selection) =>
         ? []
         : [detail('email', address, text)];
     }
-    return text.includes(href) ? [] : [detail('link', href, text)];
+    // Linked words may show the destination without its scheme, as link inspection does.
+    const shown = href.replace(/^https?:\/\//u, '').replace(/\/$/u, '');
+    return trimLink(href) === href &&
+      (text.includes(href) || text.includes(shown))
+      ? []
+      : [detail('link', href, text)];
   });
 
 // Removes and returns the first detail that matches.

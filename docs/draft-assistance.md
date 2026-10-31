@@ -81,17 +81,21 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   result is verified or safe: every finished result ends with a note that the
   checks compare details only and that meaning, questions and commitments need
   the person's own reading. Reply suggestions and Generate a Draft are not checked.
-  - Checked details are links (written web addresses, and the destination of
-    linked words whose text does not show it), email addresses (including
+  - Checked details are links (written web addresses, with a scheme or as a
+    bare domain such as `example.com/r`, and the destination of linked words
+    whose text does not show it exactly), email addresses (including
     `mailto:` links), amounts (a number with a currency symbol, a three-letter
-    code or Kč), numbers, dates, times and quoted text in straight, curly, low
+    code or Kč), numbers with their sign or leading decimal point (`-40`, `.5`),
+    dates in any letter case, times and quoted text in straight, curly, low
     and angle quotes.
   - A detail is kept only when the result writes an unambiguous equivalent: the
     same text apart from spacing, letter case for email addresses, dates and
     times (`8 P.M.` and `8pm`), the currency on either side of an amount
     (`40 €` and `€40`), the quote style around the same quoted words, and
-    sentence punctuation after a link (`example.com/r.`), which is not part of
-    it. Nothing else is interpreted, so `3` rewritten as `three` is removed, a
+    a full stop, comma, colon, semicolon or closing quote after a written link
+    (`example.com/r.`), which is not part of it. `!` and `?` can end an address,
+    so they stay part of the link, and a linked word's own destination decides
+    even when its text shows the address with such punctuation. Nothing else is interpreted, so `3` rewritten as `three` is removed, a
     reformatted date (`2026-11-01` as `1 November 2026`) or a date that gains a
     day (`Saturday` as `Saturday, 1 Nov`) is changed, and `1,000` as `1000`
     is changed.
@@ -101,7 +105,9 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     changed date says it can't be confirmed as the same date) and lists the
     kept details. The apply action then becomes **Use rewrite with changes**,
     so applying them is an explicit choice; **Keep original** and **Try again**
-    stay. VoiceOver reads each row as one element and hears the count after
+    stay. A checked result's actions are push buttons in the frames' order: the
+    accent tint marks **Keep original** when details differ and **Replace text**
+    when none do. The accent button is not yet the window's Return-key default. VoiceOver reads each row as one element and hears the count after
     the result.
 - A result belongs to the text it was captured from. Any edit to the Draft body, or to the To/Cc recipients
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
@@ -181,8 +187,10 @@ allow-listed native code or decode path, never Draft or generated text.
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.
 - `packages/mail-core/test/draft-details.test.ts` checks the detail rules: kept,
   changed, removed and added details of each kind, the accepted equivalents,
-  `3` and `three`, regrouped numbers, reformatted dates and quotes, trailing
-  link punctuation, and hidden link and `mailto:` destinations.
+  `3` and `three`, regrouped numbers, signed and leading-decimal numbers and
+  amounts, reformatted dates and quotes, dates in capitals, bare addresses,
+  trailing link punctuation including `!`, and hidden, scheme-less and
+  `mailto:` link destinations.
 - The composer tests in `apps/mobile/test/composer.test.tsx` and
   `apps/macos/test/composer.test.tsx` rewrite the whole body and a selection,
   check the Writing tools groups, symbols and per-tool requests, panels and Replace,

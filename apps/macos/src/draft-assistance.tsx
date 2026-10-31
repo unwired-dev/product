@@ -19,7 +19,12 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import { OnDeviceMarker, SFSymbol, useOutcomeAnnouncement } from './design.tsx';
+import {
+  Button,
+  OnDeviceMarker,
+  SFSymbol,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -405,6 +410,60 @@ export function DraftAssistance({
   }
   // A prompted draft has no original text to keep.
   const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
+  // A checked result offers push buttons, as its frames do: Keep original carries the main action
+  // when details differ, and the rewrite when none do.
+  const control = ({
+    main = false,
+    ...props
+  }: Readonly<{
+    label: string;
+    accessibilityLabel: string;
+    onPress: () => void;
+    main?: boolean;
+  }>) =>
+    check === undefined ? (
+      <Action {...props} />
+    ) : (
+      <Button
+        fill={main ? 'accent' : 'quiet'}
+        {...props}
+      />
+    );
+  const differs = check !== undefined && check.changes.length > 0;
+  const applyAction =
+    state.kind === 'ready'
+      ? control({
+          label: t(`assistance.${action}`),
+          accessibilityLabel: t(`assistance.${action}Label`),
+          onPress: () => {
+            act(() => {
+              onApply(state.text);
+            });
+          },
+          main: !differs,
+        })
+      : null;
+  const retryAction =
+    finished(state) && canRetryAssistance(state)
+      ? control({
+          label: t('common.retry'),
+          accessibilityLabel: t('assistance.retryLabel'),
+          onPress: () => {
+            act((request, captured) => {
+              void request.start(captured);
+            });
+          },
+        })
+      : null;
+  const closeAction = control({
+    label: t(`assistance.${close}`),
+    accessibilityLabel: t(`assistance.${close}Label`),
+    onPress: () => {
+      store.discard();
+      onClose();
+    },
+    main: differs,
+  });
   return (
     <View
       accessibilityLabel={t(`assistance.${purpose}Region`)}
@@ -434,36 +493,19 @@ export function DraftAssistance({
         />
       )}
       <View style={styles.row}>
-        {state.kind === 'ready' ? (
-          <Action
-            label={t(`assistance.${action}`)}
-            accessibilityLabel={t(`assistance.${action}Label`)}
-            onPress={() => {
-              act(() => {
-                onApply(state.text);
-              });
-            }}
-          />
-        ) : null}
-        {finished(state) && canRetryAssistance(state) ? (
-          <Action
-            label={t('common.retry')}
-            accessibilityLabel={t('assistance.retryLabel')}
-            onPress={() => {
-              act((request, captured) => {
-                void request.start(captured);
-              });
-            }}
-          />
-        ) : null}
-        <Action
-          label={t(`assistance.${close}`)}
-          accessibilityLabel={t(`assistance.${close}Label`)}
-          onPress={() => {
-            store.discard();
-            onClose();
-          }}
-        />
+        {check === undefined ? (
+          <>
+            {applyAction}
+            {retryAction}
+            {closeAction}
+          </>
+        ) : (
+          <>
+            {applyAction}
+            {closeAction}
+            {retryAction}
+          </>
+        )}
       </View>
     </View>
   );

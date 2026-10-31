@@ -89,6 +89,63 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('compares whole numbers, bare addresses and link punctuation', () => {
+    expect.hasAssertions();
+    const changes = (original: string, result: string) =>
+      checkDetails(whole(original), result).changes;
+    expect(changes('Balance: -40.', 'Balance: 40.')).toStrictEqual([
+      { kind: 'number', status: 'changed', original: '-40', result: '40' },
+    ]);
+    expect(
+      changes('Refund -€40 and .5 mg', 'Refund €40 and 5 mg'),
+    ).toStrictEqual([
+      { kind: 'amount', status: 'changed', original: '-€40', result: '€40' },
+      { kind: 'number', status: 'changed', original: '.5', result: '5' },
+    ]);
+    expect(
+      changes('See example.com/old.', 'See example.com/new.'),
+    ).toStrictEqual([
+      {
+        kind: 'link',
+        status: 'changed',
+        original: 'example.com/old',
+        result: 'example.com/new',
+      },
+    ]);
+    expect(
+      changes(
+        'See https://example.com/approve!',
+        'See https://example.com/approve',
+      ),
+    ).toStrictEqual([
+      {
+        kind: 'link',
+        status: 'changed',
+        original: 'https://example.com/approve!',
+        result: 'https://example.com/approve',
+      },
+    ]);
+  });
+
+  it('compares dates in any letter case', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Meet MONDAY, 3 NOV.'), 'Meet TUESDAY, 3 NOV.')
+        .changes,
+    ).toStrictEqual([
+      {
+        kind: 'date',
+        status: 'changed',
+        original: 'MONDAY, 3 NOV',
+        result: 'TUESDAY, 3 NOV',
+      },
+    ]);
+    // The same signed amount on either side of its currency, and a date in another case, are equal.
+    expect(
+      checkDetails(whole('Refund -€40 on Monday.'), 'Refund -40 € on MONDAY.'),
+    ).toStrictEqual({ kept: ['-€40', 'Monday'], changes: [] });
+  });
+
   it('keeps the destinations of selected links that their words do not show', () => {
     expect.hasAssertions();
     const body: SemanticDocument = [
@@ -147,6 +204,44 @@ describe('the Writing tools detail check', () => {
       kept: ['https://tabernadagraca.pt/r/4821', 'reservas@tabernadagraca.pt'],
       changes: [],
     });
+  });
+
+  it("decides by a link's own destination", () => {
+    expect.hasAssertions();
+    // Even where its words show the address without its scheme, or with punctuation that written
+    // text would end before.
+    const linked = (spans: SemanticDocument[number]['spans']) => {
+      const words = spans.map((span) => span.text).join('');
+      return whole(words, [{ kind: 'paragraph', spans }]);
+    };
+    expect(
+      checkDetails(
+        linked([
+          { text: 'See ' },
+          { text: 'example.com', link: 'https://example.com/' },
+        ]),
+        'See example.com',
+      ),
+    ).toStrictEqual({ kept: ['example.com'], changes: [] });
+    expect(
+      checkDetails(
+        linked([
+          { text: 'See ' },
+          {
+            text: 'https://example.com/approve.',
+            link: 'https://example.com/approve.',
+          },
+        ]),
+        'See https://example.com/approve',
+      ).changes,
+    ).toStrictEqual([
+      {
+        kind: 'link',
+        status: 'removed',
+        label: 'https://example.com/approve.',
+        original: 'https://example.com/approve.',
+      },
+    ]);
   });
 
   it('finds nothing to compare in text without details', () => {
