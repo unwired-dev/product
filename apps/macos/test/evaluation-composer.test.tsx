@@ -426,6 +426,11 @@ describe('the Tiptap evaluation composer', () => {
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
       { kind: 'paragraph', spans: [{ text: 'Hello' }] },
     ]);
+    // Close then has nothing to ask about.
+    await press('Close');
+    expect(sheetShown()).toBeUndefined();
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
   });
 
   it('retires a reviewed rewrite on a Profile change without losing the page’s unsaved body', async () => {

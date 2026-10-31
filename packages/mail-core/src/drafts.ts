@@ -987,10 +987,18 @@ export function createDrafts(
   const keepOf = (drafts: readonly Draft[], messages = outbox) => {
     const keep = new Set<string>();
     // A queued message keeps its files until its outcome is final.
-    for (const draft of [...drafts, ...messages.map((entry) => entry.draft)]) {
-      for (const id of held.get(draft.id) ?? []) {
+    // An open editor keeps its Draft's assets too, so a Save after removal elsewhere has them.
+    const holders = [
+      ...drafts.map((draft) => draft.id),
+      ...messages.map((entry) => entry.draft.id),
+      ...editors.keys(),
+    ];
+    for (const holder of holders) {
+      for (const id of held.get(holder) ?? []) {
         keep.add(id);
       }
+    }
+    for (const draft of [...drafts, ...messages.map((entry) => entry.draft)]) {
       for (const asset of assetsOf(draft)) {
         if (asset.state === 'complete') {
           keep.add(asset.id);
@@ -2378,6 +2386,11 @@ export function createDrafts(
           }
         },
       );
+    },
+    // Binds an editor to the Draft it opened before it stores anything, so the editor moves with
+    // that Draft and keeps its assets while open.
+    hold: (id: string, moved: (id: string) => void) => {
+      bindEditor(id, moved);
     },
     // Stops moving an editor that unmounted; its unsaved edits stay in memory for the next save.
     release: (moved: (id: string) => void) => {

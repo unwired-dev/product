@@ -1158,9 +1158,13 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(subject.waitForExistence(timeout: 10))
     subject.click()
     subject.typeText("Warm composer")
-    // The Inbox lists the Draft once its edit is saved.
+    // Close asks to save the edit, and the Inbox lists the Draft once Save stores it (#1609).
+    window.buttons["Close"].click()
+    let save = window.sheets.firstMatch.buttons["Save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.click()
+    XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
     XCTAssertTrue(row("Draft. Warm composer").waitForExistence(timeout: 10))
-    close()
     measure("warm-composer", budget: 200, count: 10) { _ in
       let start = uptime()
       row("Warm composer").click()
@@ -1428,13 +1432,19 @@ final class WindowTests: XCTestCase {
     assertProviderActionsSettled(window, provider: "Microsoft")
     XCTAssertEqual(typed.value as? String, "Keyboard replyKeyboard reply")
     // The composer hides the search field; Search Mail shows it again. Clearing the query lists
-    // the Inbox, with the saved Draft.
+    // the Inbox, with the Draft.
     runCommand("Search Mail", in: app)
     waitForFocus(search)
     app.typeKey("a", modifierFlags: .command)
     app.typeKey(.delete, modifierFlags: [])
     let draft = row("Draft. Re: Outlook update 003")
     XCTAssertTrue(draft.waitForExistence(timeout: 15))
+    // Only Save stores the reply (#1609); Close asks first.
+    window.buttons["Close"].click()
+    let save = window.sheets.firstMatch.buttons["Save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.click()
+    XCTAssertTrue(typed.waitForNonExistence(timeout: 10))
     app.terminate()
     app.launch()
     XCTAssertTrue(draft.waitForExistence(timeout: 30))
@@ -1496,23 +1506,31 @@ final class WindowTests: XCTestCase {
     assertPaletteDrawn(in: composer, beneath: query, over: composerClosed)
     composer.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
-    // Both native exits must reach the regular editor's recipient/save guard.
+    // Both native exits must reach the regular editor's save question and recipient guard (#1609).
     let to = composer.textFields.matching(NSPredicate(format: "label == %@", "To")).firstMatch
     XCTAssertTrue(to.waitForExistence(timeout: 10))
     to.click()
     to.typeText("unfinished")
     waitUntil { to.value as? String == "unfinished" }
+    let question = composer.sheets.firstMatch
     composer.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(question.buttons["Save"].waitForExistence(timeout: 10))
+    question.buttons["Save"].click()
     let invalid = text("Correct or remove the invalid address to close this Draft.", in: composer)
     XCTAssertTrue(invalid.waitForExistence(timeout: 10))
+    // Quit asks too, and Cancel keeps the app running with the Draft open.
     composer.typeKey("q", modifierFlags: .command)
-    XCTAssertTrue(invalid.exists)
+    XCTAssertTrue(question.buttons["Cancel"].waitForExistence(timeout: 10))
+    question.buttons["Cancel"].click()
+    XCTAssertTrue(question.waitForNonExistence(timeout: 10))
     XCTAssertEqual(app.state, .runningForeground)
     to.click()
     composer.typeKey("a", modifierFlags: .command)
     composer.typeKey(.delete, modifierFlags: [])
     waitUntil { (to.value as? String ?? "").isEmpty }
     composer.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(question.buttons["Save"].waitForExistence(timeout: 10))
+    question.buttons["Save"].click()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
     // A composer unmount aborted the host within seconds before (#1174).
     Thread.sleep(forTimeInterval: 5)
