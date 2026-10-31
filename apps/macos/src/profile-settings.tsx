@@ -117,7 +117,7 @@ function ProfileMonogram({
       ) : (
         <SFSymbol
           name={profileIconSymbol[icon]}
-          size={12}
+          size={10}
           color={colors.brandOnDeep}
         />
       )}
