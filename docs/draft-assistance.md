@@ -82,7 +82,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
   checks compare details only and that meaning, questions and commitments need
   the person's own reading. Reply suggestions and Generate a Draft are not checked.
   - Checked details are links (written web addresses, with a scheme or as a
-    bare domain such as `example.com/r`, and the destination of linked words
+    bare domain such as `example.com/r` or `example.com:8080/r`, and the destination of linked words
     whose text does not show it exactly), email addresses (including
     `mailto:` links without query fields; mail links with query fields remain
     flagged with their complete destination), amounts (a number with a currency

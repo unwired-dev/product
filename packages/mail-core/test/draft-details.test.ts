@@ -142,6 +142,29 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('compares complete bare addresses with ports', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('See example.com:8080/old and www.example.com:8080/old.'),
+        'See example.com:8080/new and www.example.com:8080/new.',
+      ).changes,
+    ).toStrictEqual([
+      {
+        kind: 'link',
+        status: 'changed',
+        original: 'example.com:8080/old',
+        result: 'example.com:8080/new',
+      },
+      {
+        kind: 'link',
+        status: 'changed',
+        original: 'www.example.com:8080/old',
+        result: 'www.example.com:8080/new',
+      },
+    ]);
+  });
+
   it('keeps a plain difference changed and a possible equivalent uncertain', () => {
     expect.hasAssertions();
     expect(

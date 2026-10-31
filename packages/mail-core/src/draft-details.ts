@@ -63,7 +63,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
     'link',
     // A bare address ends in a label of letters, as in link inspection, and is not an email's
     // local part.
-    `https?://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+\\p{L}{2,}(?![@\\p{L}\\p{N}-])(?:[/?#]${linkEnd}*)?`,
+    `https?://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+\\p{L}{2,}(?![@\\p{L}\\p{N}-])(?::\\d+)?(?:[/?#]${linkEnd}*)?`,
   ],
   ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
   [
