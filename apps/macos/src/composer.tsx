@@ -228,6 +228,8 @@ const styles = StyleSheet.create({
   assetName: { ...textStyles.bodyEmphasized },
   assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
+  // The small indicator's 20 pt box fits the 14 pt status line, so a checking chip keeps its height.
+  assetChecking: { marginVertical: -3 },
   thumbnail: { width: 28, height: 28, borderRadius: radius.control },
   fields: { paddingHorizontal: fieldInset, paddingBottom: 6 },
   field: {
@@ -1046,6 +1048,7 @@ function AssetStatus({
         <ActivityIndicator
           size="small"
           color={colors.textSecondary}
+          style={styles.assetChecking}
         />
       ) : null}
       <Text
