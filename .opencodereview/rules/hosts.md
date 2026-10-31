@@ -29,6 +29,21 @@ replaces it.
 
 #### The host stays thin
 
+- `invitation.tsx.Responding` completing mailbox sign-in while a recorded
+  invitation response remains in `authentication`. Trace the provider recovery
+  through the shared response store and the rendered card, including cancelled
+  or refused sign-in. Restore explicit response choices after successful repair
+  without submitting or queueing a response, and preserve sending, confirmed and
+  unknown outcomes; otherwise Sign In remains the only action after authorization
+  succeeds or recovery can duplicate a response.
+
+- `invitation.tsx.useWhen` formatting a DATE-valued meeting as only its start
+  day or treating its exclusive DTEND as an included day. Preserve the complete
+  inclusive display range using the parser's date-only representation, including
+  single-day and multi-day meetings across month, year and clock changes;
+  otherwise the card omits meeting days or shows one extra day. Keep date-only
+  values independent of the Mac's local time zone.
+
 - Process-owned notification action followers started only in a Router layout,
   component or window. Trace `index.js` imports to `followNotificationActions`
   on both hosts, including mobile headless launches that mount no layout. Exercise
