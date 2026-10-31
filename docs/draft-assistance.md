@@ -107,7 +107,8 @@ iPhone and iPad composer.
     slash form such as `11/01` or `1/2` is compared whole as a date
     even when it could be a fraction; its interpretation is never inferred.
     Times retain seconds, fractional seconds and a written zone such as `UTC`,
-    `PST` or `+01:00`. Quoted text in straight double, curly, low and angle quotes
+    `PST` or `+01:00`, including after `pm.` or `p.m.`. A sentence-ending full stop
+    after `pm` does not change its time. Quoted text in straight double, curly, low and angle quotes
     may cross line breaks; a straight inch mark after a number cannot open a quote.
     A run of spaces or a line break reads as one space, so wrapping never splits
     a detail (`3  November` is one date).

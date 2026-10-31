@@ -1233,6 +1233,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   matching occurrences. Normalizing keys after extraction cannot repair a date
   split into unchanged day/month fragments; audit quotes, amounts and grouped
   numbers when changing shared whitespace normalization too.
+  Distinguish sentence punctuation from a detail's own abbreviation, and retain
+  a written time zone after `pm.` as well as `p.m.`; reducing punctuation warnings
+  must not let a changed or removed zone disappear behind a kept clock value.
+  For root-only web destinations, audit every allowed combination of a written
+  scheme and omitted root slash against the semantic target. Keep different
+  paths, queries and ambiguous spellings visible; otherwise a missing written
+  form produces a false removal or a broad normalization conceals a destination.
 
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit

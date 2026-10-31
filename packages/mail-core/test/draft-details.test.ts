@@ -908,6 +908,39 @@ describe('the Writing tools detail check', () => {
     ).toStrictEqual({ kept: ['https://example.com'], changes: [] });
   });
 
+  it.each([
+    ['8 am.', '8am'],
+    ['8 pm.', '8pm'],
+    ['8 AM.', '8am'],
+    ['8 PM.', '8pm'],
+    ['8 a.m.', '8am'],
+    ['8 p.m.', '8pm'],
+    ['8:30 pm.', '8:30pm'],
+    ['8:30:05.2 PM.', '8:30:05.2pm'],
+  ])('retains a zone after the meridiem full stop in %s', (written, plain) => {
+    expect.hasAssertions();
+    const original = `${written} UTC`;
+    expect(checkDetails(whole(original), `${written} PST`)).toStrictEqual({
+      kept: [],
+      changes: [
+        {
+          kind: 'time',
+          status: 'changed',
+          original,
+          result: `${written} PST`,
+        },
+      ],
+    });
+    expect(checkDetails(whole(original), `${plain} UTC`)).toStrictEqual({
+      kept: [original],
+      changes: [],
+    });
+    expect(checkDetails(whole(original), plain)).toStrictEqual({
+      kept: [],
+      changes: [{ kind: 'time', status: 'changed', original, result: plain }],
+    });
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

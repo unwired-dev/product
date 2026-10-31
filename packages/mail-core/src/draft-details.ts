@@ -107,7 +107,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   ],
   [
     'time',
-    `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}\\s?${meridiem})(?:\\s?(?:${zone}))?`,
+    `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}\\s?${meridiem})(?:\\.?\\s?(?:${zone}))?`,
   ],
   // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
   [
@@ -150,7 +150,7 @@ const keys: Partial<Record<DetailKind, (spaced: string) => string>> = {
   time: (spaced) =>
     spaced
       .toLowerCase()
-      .replaceAll(/(?<period>[ap])\.m\.?/gu, '$<period>m')
+      .replaceAll(/(?<period>[ap])\.?m\.?/gu, '$<period>m')
       .replaceAll(' ', ''),
   number: (spaced) =>
     spaced.replaceAll(/\s*(?<separator>[/–—−:%-])\s*/gu, '$<separator>'),
