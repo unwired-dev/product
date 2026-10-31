@@ -594,6 +594,12 @@ function createInvitationResponses(
       choice: InvitationChoice,
       copy: ResponseCopy,
     ) => send(invitation, { choice, copy }, true),
+    // Lets the person respond again once the mailbox is signed in after Gmail refused authorization.
+    signedIn: (invitation: Invitation) => {
+      if (stateOf(invitation).kind === 'authentication') {
+        set(invitation, unanswered);
+      }
+    },
     // Looks in Sent for a response whose delivery is unknown; it stays unknown unless found.
     check: async (invitation: Invitation) => {
       const current = stateOf(invitation);

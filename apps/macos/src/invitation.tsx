@@ -61,6 +61,7 @@ type InvitationInbox = Pick<
 >;
 
 const choices = ['accepted', 'tentative', 'declined'] as const;
+const day = 24 * 60 * 60 * 1000;
 
 const choiceKeys = {
   accepted: 'accept',
@@ -98,7 +99,17 @@ function useWhen(details: InvitationDetails) {
   );
   const { start, end } = details;
   if (start.allDay) {
-    return t('invitation.allDay', { date: formats.allDay.format(start.at) });
+    // An all-day end is exclusive: the meeting's last day is the one before it.
+    const last = end?.allDay === true ? end.at - day : start.at;
+    return t('invitation.allDay', {
+      date:
+        last > start.at
+          ? t('invitation.dateRange', {
+              start: formats.allDay.format(start.at),
+              end: formats.allDay.format(last),
+            })
+          : formats.allDay.format(start.at),
+    });
   }
   const at = (time: InvitationTime) =>
     t('invitation.dateTime', {
@@ -417,6 +428,15 @@ function Responding({
       await responses.respondAgain(invitation, choice, copy(choice));
     }
   };
+  const signIn = async (
+    { authorizeMailbox }: NonNullable<typeof account>,
+    mailbox: string,
+  ) => {
+    if (current()) {
+      await authorizeMailbox(mailbox);
+      responses.signedIn(invitation);
+    }
+  };
   if (blocked === 'authentication' || recorded.kind === 'authentication') {
     return (
       <Status {...shown}>
@@ -424,9 +444,7 @@ function Responding({
           <Button
             label={t('invitation.signIn')}
             onPress={() => {
-              if (current()) {
-                void account.authorizeMailbox(connection);
-              }
+              void signIn(account, connection);
             }}
           />
         )}

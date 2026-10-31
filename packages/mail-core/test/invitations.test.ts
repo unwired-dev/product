@@ -63,6 +63,17 @@ const replyOf = (send: Readonly<{ raw: string }> | undefined) => {
   return Buffer.from(match?.groups?.data ?? '', 'base64').toString('utf8');
 };
 
+// A Gmail mailbox whose separately stored attachments cannot be fetched.
+const withoutAttachments = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+): ReturnType<typeof createSyntheticGmail>['native'] => ({
+  ...native,
+  gmailRequest: (path, query, request) =>
+    path.includes('/attachments/')
+      ? Promise.resolve({ status: 404, body: '{}' })
+      : native.gmailRequest(path, query, request),
+});
+
 // An Inbox showing one received invitation and the mailbox's responses to it.
 async function invited() {
   const gmail = createSyntheticGmail();
@@ -404,6 +415,49 @@ describe('meeting invitations', () => {
       close();
     },
   );
+
+  it('lets the person respond again after signing in', async () => {
+    expect.hasAssertions();
+    const { gmail, invitation, responses, close } = await invited();
+    gmail.failSend({ status: 401 });
+    await responses.respond(invitation, 'accepted', copy);
+
+    responses.signedIn(invitation);
+    await responses.respond(invitation, 'accepted', copy);
+
+    expect(gmail.sends).toHaveLength(1);
+    expect(responses.state(invitation)).toMatchObject({ kind: 'sent' });
+
+    close();
+  });
+
+  it('keeps the message readable when its invitation cannot be fetched', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      from: 'Lena Fischer <lena@northwind.example>',
+      subject: 'Invitation: Q4 roadmap review',
+      content: {
+        text: 'Join us.',
+        attachments: [
+          {
+            filename: 'invite.ics',
+            mimeType: 'text/calendar',
+            bytes: [...Buffer.from(calendar(meeting))],
+          },
+        ],
+      },
+    });
+    const inbox = createGmailInbox(withoutAttachments(gmail.native));
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+
+    expect(inbox.responseSource(id)).toMatchObject({ text: 'Join us.' });
+    expect(inbox.responseSource(id)).not.toHaveProperty('calendar');
+
+    close();
+  });
 
   it('prevents simultaneous readers of one Inbox from sending twice', async () => {
     expect.hasAssertions();

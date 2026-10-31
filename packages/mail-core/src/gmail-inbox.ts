@@ -2724,6 +2724,18 @@ export function createGmailInbox(
     return { ...tally.result(), authentication: false };
   });
 
+  // The invitation text of a Gmail message. An unavailable invitation leaves the rest readable;
+  // Microsoft invitations are answered through their own journey.
+  const fetchCalendar = (
+    scope: MailboxScope,
+    id: string,
+    payload: GmailPart,
+  ) => {
+    const part = graph === undefined ? calendarPart(payload) : undefined;
+    return part === undefined
+      ? Effect.void
+      : fetchPart(scope, id, part).pipe(Effect.orElseSucceed(() => undefined));
+  };
   // An explicit open's body from Gmail: both readable alternatives and its inline images.
   const fetchBody = Effect.fnUntraced(function* (
     scope: MailboxScope,
@@ -2734,8 +2746,7 @@ export function createGmailInbox(
   > {
     const payload = yield* boundedMessage(scope, id);
     const { html, text, path } = bodyParts(payload);
-    // Microsoft invitations are answered through their own journey.
-    const calendar = graph === undefined ? calendarPart(payload) : undefined;
+    const calendar = yield* fetchCalendar(scope, id, payload);
     const document: BodyDocument = {
       version: 2,
       id,
@@ -2749,9 +2760,7 @@ export function createGmailInbox(
       ...(html === undefined
         ? {}
         : { html: yield* fetchPart(scope, id, html) }),
-      ...(calendar === undefined
-        ? {}
-        : { calendar: yield* fetchPart(scope, id, calendar) }),
+      ...(calendar === undefined ? {} : { calendar }),
     };
     if (payload.attachmentsPending === true) {
       return { document, authentication: payload.authentication === true };

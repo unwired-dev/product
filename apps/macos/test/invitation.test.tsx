@@ -179,6 +179,22 @@ describe('meeting invitations in the Mac reader', () => {
     }
   });
 
+  it('shows every day of a multi-day all-day meeting', async () => {
+    expect.hasAssertions();
+    const { app } = await opened(
+      invitation('alex@example.invalid')
+        .replace('DTSTART:20261106T130000Z', 'DTSTART;VALUE=DATE:20261106')
+        .replace('DTEND:20261106T140000Z', 'DTEND;VALUE=DATE:20261109'),
+    );
+    try {
+      await expect(
+        screen.findByText('Fri, Nov 6, 2026 – Sun, Nov 8, 2026, all day'),
+      ).resolves.toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();
     const { app } = await opened(
