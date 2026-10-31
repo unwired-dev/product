@@ -51,7 +51,7 @@ const unsigned = String.raw`(?:\d+(?:[.,]\d+)*|[.,]\d+)`;
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
 const linkEnd = String.raw`[^\s<>"“”«»]`;
-const currency = String.raw`\p{Sc}|\b[A-Z]{3}\b|Kč`;
+const currency = String.raw`\p{Sc}|[A-Z]{3}|Kč`;
 // A detail never ends inside a word or before the rest of a number, so `0.5` is not read as `0`.
 const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 

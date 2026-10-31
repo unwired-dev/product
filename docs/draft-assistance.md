@@ -86,7 +86,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     whose text does not show it exactly), email addresses (including
     `mailto:` links without query fields; mail links with query fields remain
     flagged with their complete destination), amounts (a number with a currency
-    symbol, a three-letter code or Kč), numbers with their sign or leading decimal
+    symbol, a three-letter code or Kč, including compact `USD40` and `40USD`), numbers with their sign or leading decimal
     point (`-40`, `.5`),
     dates in any letter case, times and quoted text in straight, curly, low
     and angle quotes.
