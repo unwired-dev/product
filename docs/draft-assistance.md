@@ -90,7 +90,8 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     symbol, a three-letter code or Kč, including compact `USD40` and `40USD`,
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
     point (`-40`, `.5`),
-    dates in any letter case, times and quoted text in straight, curly, low
+    dates in any letter case (including an ISO timestamp's complete `T`-joined
+    time, fractional seconds and zone), times and quoted text in straight, curly, low
     and angle quotes.
   - A detail is kept only when the result writes an unambiguous equivalent: the
     same text apart from spacing, letter case for email addresses, dates and

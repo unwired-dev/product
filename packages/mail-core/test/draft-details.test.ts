@@ -262,6 +262,21 @@ describe('the Writing tools detail check', () => {
     }
   });
 
+  it('compares the complete date, time and zone of an ISO timestamp', () => {
+    expect.hasAssertions();
+    for (const [original, result] of [
+      ['2026-11-01T12:30Z', '2026-11-01T13:30Z'],
+      ['2026-11-01T12:30+01:00', '2026-11-01T12:30+02:00'],
+      ['2026-11-01T12:30:00.125Z', '2026-11-01T12:30:00.126Z'],
+      ['2026-11-01t12:30z', '2026-11-01t13:30z'],
+    ] as const) {
+      expect(checkDetails(whole(original), result)).toStrictEqual({
+        kept: [],
+        changes: [{ kind: 'date', status: 'changed', original, result }],
+      });
+    }
+  });
+
   it('preserves complete amounts when dates take precedence', () => {
     expect.hasAssertions();
     for (const [original, result] of [
