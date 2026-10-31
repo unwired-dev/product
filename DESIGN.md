@@ -509,6 +509,9 @@ content.
   20pt. Glass groups take half their height.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
   control groups use 22pt corners and 18pt inset selections.
+- The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
+  220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
+  between 48pt `fill/quiet` capsules with centred Body labels.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
@@ -612,8 +615,8 @@ form accessories, keyboards, status bar).
   offers Attach Files… and Insert Image… plus paste/drop. Attachment Chips show
   name, size, Remove, import progress/Cancel and failure state; Inline Images retain
   their authored position, with explicit conversion actions between images and
-  attachments. Keep reasons for blocked Send visible, and on iPhone and iPad
-  unsaved state too; the Mac shows no save status and asks on Close, per
+  attachments. Keep reasons for blocked Send visible. No client shows save status: iPhone
+  and iPad ask through the Close question and the Mac asks on Close, per
   [Draft saving and asset availability](docs/drafts.md#saving).
 - **Compose recipients and sender:** Recipient Suggestions appear beneath the
   active To/Cc/Bcc field; recipients are removable tokens. Invalid entries stay

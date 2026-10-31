@@ -10,6 +10,7 @@ export const radius = {
   card: 10,
   menu: 12,
   formatPanel: 34,
+  closeQuestion: 36,
   alertMac: 22,
   alertTouch: 32,
   window: 16,
