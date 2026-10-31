@@ -71,6 +71,7 @@ describe('window Profiles', () => {
             checked: false,
             disabled: undefined,
             accessibilityLabel: undefined,
+            monogram: undefined,
           },
           {
             id: `profile\n${workId}`,
@@ -81,6 +82,7 @@ describe('window Profiles', () => {
             checked: true,
             disabled: undefined,
             accessibilityLabel: undefined,
+            monogram: undefined,
           },
         ],
       },
@@ -96,6 +98,7 @@ describe('window Profiles', () => {
             checked: undefined,
             disabled: undefined,
             accessibilityLabel: undefined,
+            monogram: undefined,
           },
           {
             id: 'profile\nmanage',
@@ -106,6 +109,7 @@ describe('window Profiles', () => {
             checked: undefined,
             disabled: undefined,
             accessibilityLabel: undefined,
+            monogram: undefined,
           },
         ],
       },

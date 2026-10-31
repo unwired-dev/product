@@ -9,6 +9,8 @@ import { mergeCommands } from './commands.ts';
 // a live update, never another action, and nothing once the action is gone.
 export type MenuAction = () => void | Promise<void>;
 
+type Monogram = Readonly<{ color: string; symbol: string; letter: string }>;
+
 // A context menu item: an action, or a submenu of further items, optionally in groups.
 export type MenuItem = Readonly<{
   title: string;
@@ -20,6 +22,9 @@ export type MenuItem = Readonly<{
   // An action shown but unavailable now, and a spoken name fuller than its title.
   disabled?: boolean;
   accessibilityLabel?: string;
+  // A Mail Profile monogram in place of the symbol on the Mac: its symbol, or with none its
+  // letter, in white on a circle of its hex color.
+  monogram?: Monogram;
 }> &
   (
     | Readonly<{ key: string; run: MenuAction }>
@@ -42,6 +47,7 @@ export type NativeMenuItem = Readonly<{
   checked?: boolean | undefined;
   disabled?: boolean | undefined;
   accessibilityLabel?: string | undefined;
+  monogram?: Monogram | undefined;
   items?: readonly NativeMenuItem[];
   sections?: ReadonlyArray<Readonly<{ items: readonly NativeMenuItem[] }>>;
 }>;
@@ -53,7 +59,8 @@ export const menuState = (sections: readonly MenuSection[]) => {
     const { title, symbol, destructive } = item;
     if ('run' in item) {
       runs.set(item.key, item.run);
-      const { subtitle, checked, disabled, accessibilityLabel } = item;
+      const { subtitle, checked, disabled, accessibilityLabel, monogram } =
+        item;
       return {
         id: item.key,
         title,
@@ -63,6 +70,7 @@ export const menuState = (sections: readonly MenuSection[]) => {
         checked,
         disabled,
         accessibilityLabel,
+        monogram,
       };
     }
     return 'items' in item

@@ -512,7 +512,9 @@ content.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
-  Settings' 24pt monogram the symbol is 10pt and the letter 11pt semibold. Message list rows show a real contact photo
+  the monogram is 24pt in Settings and 22pt in the Profile Switcher, with a 10pt
+  symbol or an 11pt semibold letter, and 20pt in the Profile Menu, with a 9pt
+  symbol or a 10pt semibold letter. Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
@@ -550,9 +552,10 @@ form accessories, keyboards, status bar).
   The menu lists Mail Profiles with their Mailbox Connections, unread counts and
   a checkmark, then New Mail Profile… and Manage Mail Profiles…, which opens
   [Settings › Mail Profiles](https://github.com/unwired-dev/product/issues/1038). It is the system
-  menu, so each Profile's connections and unread count share its subtitle and the
-  checkmark leads; the reference frames' monograms and trailing counts are not
-  drawn. The Default Profile is named Primary Profile.
+  menu, so each Profile's connections and unread count share its subtitle, the
+  checkmark leads and the Profile's monogram is the item image; the reference
+  frames' trailing counts are not drawn. The Default Profile is named Primary
+  Profile.
 - **Mail View Chip (Figma: Category Chip):** the `category-chip` token recipes
   style each header chip with an icon, label and unread-Thread count badge capped
   at 99+. Selected chips are graphite with an emphasized label; others use the quiet fill.

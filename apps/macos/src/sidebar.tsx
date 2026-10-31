@@ -15,8 +15,8 @@ import {
 } from '@private-email/mail-core/mailboxes';
 import {
   profileMenu,
-  profileMonogram,
   profileName,
+  profileStyle,
 } from '@private-email/mail-core/profile-windows';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { Fragment, use, useState, useSyncExternalStore } from 'react';
@@ -33,9 +33,9 @@ import {
   useProfile,
   useReloadMailboxes,
 } from './mailbox.tsx';
-import { promptNewProfile } from './profile-settings.tsx';
+import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, usePalette, useProfilePalette } from './theme.ts';
 
 // What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, or a
 // Unified Mailbox of every mailbox. The Inbox folder is the default of a mailbox.
@@ -87,14 +87,6 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     paddingHorizontal: spacing.xs,
   },
-  monogram: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  monogramText: { ...textStyles.subheadline, fontWeight: '600' },
   switcherName: { ...textStyles.bodyEmphasized, flex: 1 },
 });
 
@@ -109,6 +101,7 @@ function ProfileSwitcher({
   const profile = useProfile();
   const mailboxes = useAllMailboxes();
   const colors = usePalette();
+  const fills = useProfilePalette();
   const { t } = useLocalization();
   if (account === undefined) {
     return null;
@@ -130,15 +123,15 @@ function ProfileSwitcher({
         onManage: () => {
           account.openAccount('profiles');
         },
+        fills,
       })}
       style={[styles.switcher, { backgroundColor: colors.fillQuiet }]}>
       <View style={styles.switcherRow}>
-        <View
-          style={[styles.monogram, { backgroundColor: colors.brandMonogram }]}>
-          <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
-            {profileMonogram(name)}
-          </Text>
-        </View>
+        <ProfileMonogram
+          name={name}
+          style={profileStyle(profiles, profile)}
+          size={22}
+        />
         <Text
           numberOfLines={1}
           style={[styles.switcherName, { color: colors.textPrimary }]}>

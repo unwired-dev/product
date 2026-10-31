@@ -71,6 +71,7 @@ import {
 import {
   chooseMenuItem,
   chooseSubmenuItem,
+  dismissMenu,
   menuItems,
   submenuItems,
 } from './native-menu.ts';
@@ -1934,7 +1935,7 @@ describe('mac windows of different Mail Profiles', () => {
           account,
           profiles:
             account === 'synthetic-product-account'
-              ? [{ id: 'work', name: 'Work' }]
+              ? [{ id: 'work', name: 'Work', color: 'teal', icon: 'laptop' }]
               : [],
           createProfile: () => Promise.resolve(undefined),
         }}>
@@ -1942,6 +1943,35 @@ describe('mac windows of different Mail Profiles', () => {
       </AccountContext>
     );
   }
+
+  it('shows each Profile’s monogram in the Profile Switcher and Profile Menu', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <WithWork>
+        <InboxWindow windowId="primary" />
+      </WithWork>,
+    );
+    // The Default Profile keeps Graphite and its name's first letter.
+    const switcher = await app.findByLabelText('Mail Profile, Primary Profile');
+    expect(
+      within(switcher).getByText('P', { includeHiddenElements: true }),
+    ).toHaveStyle({ color: palette.light.brandOnDeep });
+    await fireEvent.press(switcher);
+    expect(
+      menuItems().map(({ title, monogram }) => [title, monogram]),
+    ).toStrictEqual([
+      [
+        'Primary Profile',
+        { color: palette.light.brandMonogram, symbol: '', letter: 'P' },
+      ],
+      ['Work', { color: '#0E7490', symbol: 'laptopcomputer', letter: 'W' }],
+      ['New Mail Profile…', undefined],
+      ['Manage Mail Profiles…', undefined],
+    ]);
+    await dismissMenu();
+  });
 
   it('clears selection and search when a reused window leaves and returns to its Profile', async () => {
     expect.hasAssertions();
