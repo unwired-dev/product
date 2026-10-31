@@ -1274,17 +1274,13 @@ export function WritingTools({
   readonly onGenerate: (prompt: string) => void;
 }) {
   const { t } = useLocalization();
-  const colors = usePalette();
   const assistance = use(AssistanceContext);
+  // Each opening of Generate a Draft is a new prompt; none outlives Mail Assistance.
   const [prompting, setPrompting] = useState(false);
-  const [prompt, setPrompt] = useState('');
-  const generable = !disabled && canGenerate(prompt);
-  const generate = () => {
-    if (generable) {
-      setPrompting(false);
-      onGenerate(prompt);
-    }
-  };
+  const [openings, setOpenings] = useState(0);
+  if (prompting && assistance === undefined) {
+    setPrompting(false);
+  }
   const translation = use(TranslationContext);
   const targetLanguages = useTargetLanguages(
     translation,
@@ -1324,7 +1320,7 @@ export function WritingTools({
                     symbol: 'square.and.pencil',
                     accessibilityLabel: t('assistance.generateLabel'),
                     run: () => {
-                      setPrompt('');
+                      setOpenings(openings + 1);
                       setPrompting(true);
                     },
                   },
@@ -1368,63 +1364,99 @@ export function WritingTools({
       />
       <Popover
         below
-        shown={prompting && assistance !== undefined}
+        shown={prompting}
         onClose={() => {
           setPrompting(false);
         }}>
-        <View style={styles.generate}>
-          <View style={styles.generateTitle}>
-            <SFSymbol
-              name="sparkles"
-              color={colors.textPrimary}
-              size={13}
-            />
-            <Text
-              accessibilityRole="header"
-              style={[
-                styles.title,
-                styles.grow,
-                { color: colors.textPrimary },
-              ]}>
-              {t('assistance.generatePromptTitle')}
-            </Text>
-            <ToolbarButton
-              icon="xmark"
-              label={t('assistance.closeGenerate')}
-              onPress={() => {
-                setPrompting(false);
-              }}
-            />
-          </View>
-          <TextInput
-            multiline
-            accessibilityLabel={t('assistance.generatePromptLabel')}
-            // oxlint-disable-next-line jsx-a11y/no-autofocus -- The person opened the popover to type a prompt; it focuses once AppKit gives it a window.
-            autoFocus
-            onChangeText={setPrompt}
-            // AppKit reports Escape in a text input as a key press; it closes like the Close button.
-            onKeyPress={({ nativeEvent }) => {
-              if (nativeEvent.key === 'Escape') {
-                setPrompting(false);
-              }
-            }}
-            onSubmitEditing={generate}
-            placeholder={t('assistance.generatePrompt')}
-            placeholderTextColor={colors.textSecondary}
-            style={[styles.generatePrompt, { color: colors.textPrimary }]}
-            value={prompt}
-          />
-          <View style={styles.generateActions}>
-            <Button
-              disabled={!generable}
-              fill="accent"
-              label={t('assistance.generateAction')}
-              accessibilityLabel={t('assistance.generateActionLabel')}
-              onPress={generate}
-            />
-          </View>
-        </View>
+        {/* A closed prompt stays while AppKit fades it out; the next opening starts empty. */}
+        <GeneratePrompt
+          key={openings}
+          disabled={disabled}
+          onClose={() => {
+            setPrompting(false);
+          }}
+          onGenerate={onGenerate}
+        />
       </Popover>
+    </View>
+  );
+}
+
+// One opening of Generate a Draft. Close, Escape and Generate settle it once, so a handler
+// already queued from a closed prompt cannot generate it.
+function GeneratePrompt({
+  disabled,
+  onClose,
+  onGenerate,
+}: {
+  readonly disabled: boolean;
+  readonly onClose: () => void;
+  readonly onGenerate: (prompt: string) => void;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const [prompt, setPrompt] = useState('');
+  const settled = useRef(false);
+  const generable = !disabled && canGenerate(prompt);
+  const close = () => {
+    if (!settled.current) {
+      settled.current = true;
+      onClose();
+    }
+  };
+  const generate = () => {
+    if (generable && !settled.current) {
+      close();
+      onGenerate(prompt);
+    }
+  };
+  return (
+    <View style={styles.generate}>
+      <View style={styles.generateTitle}>
+        <SFSymbol
+          name="sparkles"
+          color={colors.textPrimary}
+          size={13}
+        />
+        <Text
+          accessibilityRole="header"
+          style={[styles.title, styles.grow, { color: colors.textPrimary }]}>
+          {t('assistance.generatePromptTitle')}
+        </Text>
+        <ToolbarButton
+          icon="xmark"
+          label={t('assistance.closeGenerate')}
+          onPress={close}
+        />
+      </View>
+      <TextInput
+        multiline
+        submitBehavior="submit"
+        accessibilityLabel={t('assistance.generatePromptLabel')}
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- The person opened the popover to type a prompt; it focuses once AppKit gives it a window.
+        autoFocus
+        onChangeText={setPrompt}
+        // AppKit reports Escape in a text input as a key press; it closes like the Close button.
+        onKeyPress={({ nativeEvent }) => {
+          if (nativeEvent.key === 'Escape') {
+            close();
+          }
+        }}
+        onSubmitEditing={generate}
+        placeholder={t('assistance.generatePrompt')}
+        placeholderTextColor={colors.textSecondary}
+        style={[styles.generatePrompt, { color: colors.textPrimary }]}
+        value={prompt}
+      />
+      <View style={styles.generateActions}>
+        <Button
+          disabled={!generable}
+          fill="accent"
+          label={t('assistance.generateAction')}
+          accessibilityLabel={t('assistance.generateActionLabel')}
+          onPress={generate}
+        />
+      </View>
     </View>
   );
 }

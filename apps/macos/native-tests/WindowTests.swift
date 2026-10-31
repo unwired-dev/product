@@ -579,7 +579,7 @@ final class WindowTests: XCTestCase {
       // The prompt field has keyboard focus when the popover opens.
       app.typeText("confirm Thursday")
       waitUntil { generate.isEnabled }
-      generate.click()
+      app.typeText("\r")
     }
     assistanceRoundTrips(app, result: "Synthetic translation of local mail.", apply: "Replace the selected text with this translation", boldAfterApply: false) {
       firstWord().doubleClick()

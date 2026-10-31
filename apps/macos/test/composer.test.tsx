@@ -3216,10 +3216,24 @@ describe('composing Drafts', () => {
 
     // Close and Escape dismiss the popover without asking the model or changing the Draft.
     await fireEvent.changeText(prompt(), 'thank Maya');
-    await press('Close Generate a Draft');
+    const dismissedGenerate = queuedPress(
+      'Generate a draft from this description',
+    );
+    const closeGenerate = queuedPress('Close Generate a Draft');
+    const dismissedTyping = queuedPress('What to write', 'onChangeText');
+    await act(() => {
+      closeGenerate();
+      dismissedTyping('a late edit');
+      dismissedGenerate();
+    });
+    expect(asked).toHaveLength(0);
     await expect(popover()).resolves.toHaveProp('shown', false);
     await writingTool('Generate a Draft…');
     expect(prompt()).toHaveProp('value', '');
+    await act(() => {
+      dismissedGenerate();
+    });
+    expect(asked).toHaveLength(0);
     await fireEvent.changeText(prompt(), 'thank Maya');
     await fireEvent(prompt(), 'keyPress', { nativeEvent: { key: 'Escape' } });
     await expect(popover()).resolves.toHaveProp('shown', false);
@@ -3569,6 +3583,23 @@ describe('composing Drafts', () => {
       disabled: false,
     });
     expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+    expect(asked).toHaveLength(1);
+
+    // Turning assistance off also destroys an unfinished prompt instead of reopening it on On.
+    await writingTool('Generate a Draft…');
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
+    await act(async () => {
+      await enablement.setEnabled(owner, 'default', false);
+    });
+    await act(async () => {
+      await enablement.setEnabled(owner, 'default', true);
+    });
+    expect(screen.queryByLabelText('What to write')).toBeNull();
+    await writingTool('Generate a Draft…');
+    expect(screen.getByLabelText('What to write')).toHaveProp('value', '');
     expect(asked).toHaveLength(1);
   });
 
