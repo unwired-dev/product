@@ -933,6 +933,34 @@ const sendPreview = (
   return kind === 'verified' && preview?.kind === 'ready' ? preview : { kind };
 };
 
+// What a Send check changes on a file: verified bytes carry no thumbnail, so an inline image
+// without one is read again to show it.
+const afterSend = (
+  asset: Asset,
+  {
+    inline,
+    kind,
+    shown,
+    attempt,
+  }: Readonly<{
+    inline: boolean;
+    kind: AssetPreview['kind'] | undefined;
+    shown: AssetPreview | undefined;
+    attempt: number;
+  }>,
+) => {
+  if (asset.state !== 'complete') {
+    return undefined;
+  }
+  if (inline && kind === 'verified' && shown?.kind !== 'ready') {
+    return 'reload';
+  }
+  const preview = sendPreview(kind, shown);
+  return preview === undefined
+    ? undefined
+    : { id: asset.id, digest: asset.digest, attempt, preview };
+};
+
 // A complete asset's bytes checked against its digest, read again when it completes or changes;
 // an inline image's are also returned to show. A check refused while storage was locked runs
 // again when the app becomes active, or when asked. A Send check updates the same status.
@@ -1014,14 +1042,16 @@ function usePreview(
   const [found, setFound] = useState(checked);
   if (found !== checked) {
     setFound(checked);
-    const next = sendPreview(checked, shown);
-    if (complete !== undefined && next !== undefined) {
-      setPreview({
-        id: complete.id,
-        digest: complete.digest,
-        attempt,
-        preview: next,
-      });
+    const next = afterSend(asset, {
+      inline,
+      kind: checked,
+      shown,
+      attempt,
+    });
+    if (next === 'reload') {
+      retry();
+    } else if (next !== undefined) {
+      setPreview(next);
     }
   }
   return {

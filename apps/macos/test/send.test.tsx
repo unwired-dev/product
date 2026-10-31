@@ -465,6 +465,59 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('shows an inline image again once Send verifies it after a locked check', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Charts');
+      sender.storage.addFile('file:///chart.png', 'chart');
+      sender.storage.addFile('file:///photo.png', 'photo');
+      const locked = jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('Storage locked'), { code: 'locked' }),
+        );
+      sender.storage.pickNext('photos', [
+        { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+      ]);
+      await press('Insert Image…');
+      await screen.findByLabelText(
+        'chart.png, 5 bytes · Not checked while private storage is locked',
+      );
+      locked.mockRestore();
+      sender.storage.pickNext('photos', [
+        { uri: 'file:///photo.png', name: 'photo.png', type: 'image/png' },
+      ]);
+      await press('Insert Image…');
+      await screen.findByLabelText('Inline image photo.png');
+      // Send verifies chart.png, then refuses the damaged photo.png that follows it.
+      const read = sender.storage.native.readDraftAsset;
+      jest
+        .spyOn(sender.storage.native, 'readDraftAsset')
+        .mockImplementationOnce(read)
+        .mockImplementationOnce(async (...args) => {
+          sender.storage.damage(args[1].id);
+          return read(...args);
+        });
+
+      await press('Send');
+
+      await expect(
+        screen.findByLabelText('photo.png, 5 bytes · Damaged on this device'),
+      ).resolves.toBeOnTheScreen();
+      await expect(
+        screen.findByLabelText('Inline image chart.png'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('chart.png, 5 bytes')).toBeOnTheScreen();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
   it.each([
     {
       purpose: 'rewrite',
