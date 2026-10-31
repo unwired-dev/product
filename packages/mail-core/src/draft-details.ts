@@ -55,7 +55,8 @@ const unsigned = String.raw`(?:(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
-const meridiem = String.raw`[aApP]\.?[mM]\.?`;
+// A full stop after `pm` ends the sentence; only `p.m.` takes its own.
+const meridiem = String.raw`[aApP](?:\.[mM]\.?|[mM])`;
 const clock = String.raw`\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?`;
 const zone = `(?:${anyCase('UTC|GMT|CEST|CET|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|IST|JST|AEST|AEDT|ACST|ACDT|AWST|NZST|NZDT')})(?:[-+]\\d{1,2}(?::?\\d{2})?)?|[zZ]|[-+]\\d{2}(?::?\\d{2})?`;
 // An apostrophe can join an address's local part, but a leading one is a quotation mark.
@@ -216,6 +217,7 @@ const hiddenLinks = (document: SemanticDocument, selection: Selection) =>
       href,
       shown,
       shown.replace(/^(?<host>[^/?#]+)\/$/u, '$<host>'),
+      href.replace(/^(?<root>https?:\/\/[^/?#]+)\/$/u, '$<root>'),
     ]);
     return trimLink(href) === href &&
       written.some((each) => each.kind === 'link' && forms.has(each.value))

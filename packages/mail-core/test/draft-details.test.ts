@@ -882,6 +882,32 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('leaves a sentence end off a time and accepts a link written without its root slash', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Meet at 8 pm. Bring food at 9 p.m.'),
+        'Meet at 8 pm, and bring food at 9 p.m.',
+      ),
+    ).toStrictEqual({ kept: ['8 pm', '9 p.m.'], changes: [] });
+    // The selection starts before the link, so the result must write its destination out.
+    const text = 'See https://example.com';
+    expect(
+      checkDetails(
+        whole(text, [
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'See ' },
+              { text: 'https://example.com', link: 'https://example.com/' },
+            ],
+          },
+        ]),
+        text,
+      ),
+    ).toStrictEqual({ kept: ['https://example.com'], changes: [] });
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

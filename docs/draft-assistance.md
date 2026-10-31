@@ -68,7 +68,8 @@ iPhone and iPad composer.
   remains and the request is declined. Requests that leave no room for quoted text are declined
   before inference.
 - The result is an ephemeral preview, marked as written on this device, possibly
-  inaccurate and not saved. The Draft is unchanged until **Replace text** (rewrite)
+  inaccurate and not saved. The Draft is unchanged until **Replace text** (rewrite
+  with no differing details; **Use rewrite with changes** when details differ)
   or **Use reply** (reply suggestion). That replaces exactly the captured text as
   one edit that one **Undo** reverts, keeping the capture's own leading and
   trailing whitespace. Line and list formatting is kept where the result keeps the
