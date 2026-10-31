@@ -67,7 +67,7 @@ import {
   historyOf,
   imageCharacter,
   imagesOf,
-  linkAt,
+  editableLinkAt,
   marksAt,
   clip,
   previewOf,
@@ -2143,7 +2143,7 @@ function Editor({
         }}>
         <LinkEditor
           disabled={sending}
-          link={linkAt(draft.body, selection)}
+          link={editableLinkAt(draft.body, selection)}
           onChange={(link, text, href) => {
             fromControl();
             editLink(link, text, href);

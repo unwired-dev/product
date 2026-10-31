@@ -1535,6 +1535,103 @@ describe('composing Drafts', () => {
     ).toStrictEqual(bodyNow());
   });
 
+  it('adds a link to selected text with the Link Editor as one Undo step', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const id: string = created;
+    const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(draft);
+    const lease = 'https://docs.example.invalid/lease';
+    await drafts.update(
+      {
+        ...draft,
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Read ' },
+              { text: 'the lease', marks: ['bold'] },
+              { text: ' today' },
+            ],
+          },
+        ],
+      },
+      draft,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+        initialDraft={id}
+      />,
+    );
+    const body = await screen.findByLabelText('Message body');
+    const bodyNow = () =>
+      draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
+        ?.spans;
+    const select = async (start: number, end: number) => {
+      await fireEvent(body, 'selectionChange', {
+        nativeEvent: { selection: { start, end } },
+      });
+    };
+    // A caret has no text to link.
+    await select(8, 8);
+    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
+    await select(5, 14);
+    await press('Add Link');
+    const destination = screen.getByLabelText('Link');
+    expect(screen.getByLabelText('Text')).toHaveProp('value', 'the lease');
+    expect(destination).toHaveProp('value', '');
+    expect(destination).toHaveProp('placeholder', 'https://example.com');
+    // Fabric applies this on gaining the popover's window, rather than during layout.
+    expect(destination).toHaveProp('autoFocus', true);
+    expect(screen.queryByRole('button', { name: 'Remove Link' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    const reason = 'Enter a valid web, email or phone link.';
+    // Leaving the empty Link keeps the starting hint.
+    await fireEvent(destination, 'blur');
+    expect(screen.queryByText(reason)).toBeNull();
+    // Leaving Link with a destination that cannot be applied says why, and VoiceOver hears it.
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await fireEvent.changeText(destination, 'ftp://docs.example.invalid/lease');
+    expect(screen.queryByText(reason)).toBeNull();
+    await fireEvent(destination, 'blur');
+    expect(screen.getByText(reason)).toBeOnTheScreen();
+    expect(announce.mock.calls).toStrictEqual([[reason]]);
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(bodyNow()?.[1]).not.toHaveProperty('link');
+    await fireEvent.changeText(destination, lease);
+    expect(
+      screen.getByText(
+        'Enter a web, email or phone link for the selected text.',
+      ),
+    ).toBeOnTheScreen();
+    await press('Apply');
+    expect(bodyNow()).toStrictEqual([
+      { text: 'Read ' },
+      { text: 'the lease', marks: ['bold'], link: lease },
+      { text: ' today' },
+    ]);
+    // The new link opens as one to edit.
+    expect(screen.getByRole('button', { name: 'Edit Link' })).toBeEnabled();
+    await press('Undo');
+    expect(bodyNow()?.[1]).toStrictEqual({
+      text: 'the lease',
+      marks: ['bold'],
+    });
+    await press('Redo');
+    expect(bodyNow()?.[1]).toHaveProperty('link', lease);
+  });
+
   it('keeps a stale editor on its own conflicting copy', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

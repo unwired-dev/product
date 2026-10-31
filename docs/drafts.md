@@ -174,10 +174,17 @@ inside one, the format bar's **Edit Link** control opens the Link Editor, a
 popover on Mac and iPad and an **Edit Link** sheet on iPhone, with the link's
 text and destination. **Apply** replaces both and is available only while the
 text is not empty, contains no line break or inline-image placeholder, and the
-destination is one a Draft may keep; **Remove Link**
+destination is one a Draft may keep; after Return, or on leaving the Link field,
+an entered destination it cannot keep is named as invalid and announced to
+VoiceOver. **Remove Link**
 keeps the text without the link, and closing the editor changes nothing. Each
-change is one Undo step. The control is unavailable away from a link: composers
-cannot yet link unlinked text
+change is one Undo step. With unlinked text selected inside one block, without a
+line break or inline image, the control is **Add Link** instead: the same editor,
+titled **Add Link** on iPhone and without **Remove Link**, opens with the
+selection as its text and an empty, focused Link field, and **Apply** links the
+text as one Undo step. The control is unavailable otherwise, including for a
+caret away from a link or a selection that is partly linked. The Tiptap
+evaluation editor cannot yet link unlinked text
 ([#878](https://github.com/unwired-dev/product/issues/878)), and the Slash
 Command Menu and recipient suggestions are later slices.
 
