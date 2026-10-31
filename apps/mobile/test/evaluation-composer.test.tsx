@@ -498,12 +498,12 @@ describe('the Tiptap evaluation composer', () => {
     expect(lastCommand()).toBe(commandScript({ type: 'blur' }));
   });
 
-  // iPhone keeps Edit Link in the Format panel; iPad keeps it in the format bar.
+  // iPhone keeps the Link control in the Format panel; iPad keeps it in the format bar.
   it.each([
     ['compact', 'bottom-sheet', ['Format']],
     ['regular', 'popover', []],
   ] as const)(
-    'edits and removes a link through the Link Editor on %s as one page edit each',
+    'adds, edits and removes a link through the Link Editor on %s as one page edit each',
     async (size, presenter, controls) => {
       expect.hasAssertions();
       injectedScripts.length = 0;
@@ -612,6 +612,52 @@ describe('the Tiptap evaluation composer', () => {
       const moved = injectedScripts.length;
       await press('Apply');
       expect(injectedScripts).toHaveLength(moved);
+
+      // Selected unlinked text opens Add Link, titled so on iPhone, with nothing to remove.
+      await report({ selection: { start: 19, end: 24 } });
+      await press('Add Link');
+      expect(screen.getByLabelText('Text')).toHaveProp('value', 'today');
+      expect(screen.getByLabelText('Link')).toHaveProp('value', '');
+      expect(screen.queryByText('Remove Link')).toBeNull();
+      expect(screen.queryByRole('header', { name: 'Add Link' }) !== null).toBe(
+        size === 'compact',
+      );
+      // A selection the page has changed since the editor opened stays unlinked.
+      await fireEvent.changeText(screen.getByLabelText('Link'), lease);
+      await report({ selection: { start: 19, end: 22 } });
+      const changed = injectedScripts.length;
+      await press('Apply');
+      expect(injectedScripts).toHaveLength(changed);
+      await report({ selection: { start: 19, end: 24 } });
+      await press('Add Link');
+      await fireEvent.changeText(screen.getByLabelText('Link'), lease);
+      await press('Apply');
+      const linked: SemanticDocument = [
+        {
+          kind: 'paragraph',
+          spans: [
+            { text: 'New Read ' },
+            { text: 'the lease', marks: ['bold'], link: lease },
+            { text: ' ' },
+            { text: 'today', link: lease },
+          ],
+        },
+      ];
+      expect(lastCommand()).toBe(
+        commandScript({
+          type: 'replace',
+          revision: revision(),
+          document: linked,
+          selection: { start: 24, end: 24 },
+        }),
+      );
+      // The page's next update carries the link, which Save Draft stores for reopening.
+      await report({ document: linked });
+      await press('Close');
+      await press('Save Draft');
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(draftsOf(reopened.getSnapshot())[0]?.body).toStrictEqual(linked);
     },
   );
 

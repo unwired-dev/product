@@ -110,11 +110,11 @@ blocks, with bold, italic, underline, strikethrough and inline code. Its rules a
 the current composer's:
 
 - **Controls.** On iPad and Mac the current composer's format bar: the text style
-  menu, the four marks, lists, **Edit Link**, **Undo** and **Redo**, **Writing
+  menu, the four marks, lists, the Link control, **Undo** and **Redo**, **Writing
   tools** and the file controls. On iPhone a floating Liquid Glass pill with
   **Format** and **Add files**, and a separate **Writing tools** button, sit above
   the keyboard. **Format** replaces the keyboard with the Format panel: **Undo**,
-  **Redo**, the three headings and **Body**, the five marks, **Edit Link**, lists,
+  **Redo**, the three headings and **Body**, the five marks, the Link control, lists,
   quote and code block; closing it, or tapping into the body, brings the keyboard
   back. **Writing tools** lists today's **Rewrite**,
   **Translate** and **Suggest reply** while
@@ -163,15 +163,16 @@ The page keeps a Draft's links through editing, saving and reopening, and shows
 linked text in the link color; it never opens a link, because the host refuses
 every navigation. Text typed inside a link joins it, and text typed at either
 edge, including after Return splits it, stays unlinked. Replacing selected text
-keeps the first replaced character's link. **Edit Link** opens the current
-composer's Link Editor for the link at the caret or selection, and is unavailable
-where no link is. **Apply** and **Remove Link** each reach the page as one
+keeps the first replaced character's link. As in the current composer, the Link
+control is **Edit Link**, opening the Link Editor for the link at the caret or
+selection, or **Add Link** for selected unlinked text in one block without a line
+break or an image: Text holds the selection, Link starts empty and focused, and
+there is no **Remove Link**; on iPhone the editor is titled **Add Link**. It is
+unavailable anywhere else. **Apply** and **Remove Link** each reach the page as one
 replacement of the body revision it reported, so each is one **Undo** step and a
-page that has moved on refuses it. A link that the page has moved or changed since
-the editor opened stays as it is. On iPhone the Format panel stays open while the
-Link Editor is shown. The page cannot yet link unlinked text:
-[#878](https://github.com/unwired-dev/product/issues/878) owns link creation for
-both composers and blocks the adoption decision in #823.
+page that has moved on refuses it. A link or selection that the page has moved or
+changed since the editor opened stays as it is. On iPhone the Format panel stays
+open while the Link Editor is shown.
 
 The page does not keep block alignment, text color, background color or fonts:
 editing a body here drops them

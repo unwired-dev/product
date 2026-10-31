@@ -10,7 +10,7 @@ import {
 } from '@private-email/mail-core/assistance';
 import {
   clip,
-  linkAt,
+  editableLinkAt,
   selectedText,
 } from '@private-email/mail-core/semantic-document';
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -381,7 +381,7 @@ export function FormatPanel({
                 <View style={styles.formatChoice}>
                   <LinkEditor
                     disabled={false}
-                    link={linkAt(draft.body, page.selection)}
+                    link={editableLinkAt(draft.body, page.selection)}
                     popover={false}
                     onChange={onLink}
                     onShown={setLinking}
@@ -601,7 +601,7 @@ export function PadFormatBar({
         }}>
         <LinkEditor
           disabled={false}
-          link={linkAt(draft.body, page.selection)}
+          link={editableLinkAt(draft.body, page.selection)}
           popover
           onChange={onLink}
         />

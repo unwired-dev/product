@@ -10,7 +10,7 @@ import {
   canSuggestReply,
 } from '@private-email/mail-core/assistance';
 import {
-  linkAt,
+  editableLinkAt,
   selectedText,
 } from '@private-email/mail-core/semantic-document';
 import {
@@ -85,7 +85,7 @@ export function PageFormatBar({
       }}>
       <LinkEditor
         disabled={false}
-        link={linkAt(draft.body, page.selection)}
+        link={editableLinkAt(draft.body, page.selection)}
         onChange={onLink}
       />
       <View style={[s.divider, { backgroundColor: colors.separator }]} />
