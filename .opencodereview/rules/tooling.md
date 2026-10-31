@@ -28,12 +28,28 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
   delegates through the real Expo mod, including repeated generation; otherwise
   incremental prebuild can omit the notification delegate while fresh builds pass.
 
-- `scripts/implementer-grep` forwarding an option whose operand or external
+- `scripts/implementer-grep` or `scripts/implementer-show` forwarding an option whose operand or external
   helper can read reviewer-only content outside the searched pathspecs. Audit
   Git's accepted short clusters, attached values and long abbreviations as well
   as ordinary matches: pattern files, pager commands, textconv helpers and
   tree/blob selectors can disclose excluded text despite correct root exclusions.
-  Verify rejection before Git reads them, and retain ordinary pattern operands.
+  For `implementer-show`, include indirect revision inputs such as `--default`, `--stdin`,
+  ref expansion and `--indexed-objects`, which can select blobs without a positional selector.
+  Verify rejection before Git reads them. Distinguish required option operands
+  from revisions, including patterns, dates and object-filter values; preserve
+  their separate and attached forms without skipping the following revision.
+  Git's earlier log-option pass must not reinterpret an operand such as
+  `--source` and leave a skipped blob as a revision. Optional values must not
+  hide a positional tree/blob selector. Verify the names pass independently of
+  the readable-content pass: annotated tags and presentation options such as
+  `--log-size`, graph/prefix formatting and NUL delimiters must not add metadata
+  or corrupt the reviewer-only path inventory. `--format=` alone does not
+  suppress every kind of `git show` output. Path rotation/skipping must not
+  omit protected names or fail on a readable-only target; combined-merge parent
+  columns must not turn the inventory into duplicate tab-separated paths.
+  Reject output sinks such as `--output` before either pass can open a file.
+  Output suppression such as `--quiet` must not silence the names pass or prevent
+  the readable-content pass and its exit status from running.
 
 - Both hosts' `scripts/verify-native.ts` accepting a pinned revision found under
   another package in `Package.resolved`. Decode the pins and require the URL and

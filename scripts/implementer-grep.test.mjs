@@ -86,6 +86,46 @@ test('never searches reviewer-only sources, even inside caller pathspecs', (t) =
   ]);
 });
 
+test('implementer-show rejects indirect object inputs before they can print reviewer-only blobs', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  const blob = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD:docs/architecture/README.md'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  for (const ref of [
+    'refs/tags/protected-blob',
+    'refs/tags/-Gprotected',
+    'refs/remotes/test/protected-blob',
+    'refs/bisect/bad',
+  ]) {
+    execFileSync('git', ['update-ref', ref, blob], { cwd });
+  }
+  for (const args of [
+    ['--default', '-Gprotected'],
+    ['--stdin'],
+    ['--all'],
+    ['--tags'],
+    ['--tags=*'],
+    ['--remotes'],
+    ['--remotes=*'],
+    ['--glob=refs/tags/*'],
+    ['--glob', 'refs/tags/*'],
+    ['--bisect'],
+    ['--indexed-objects'],
+  ]) {
+    const result = spawnSync(show, args, {
+      cwd,
+      encoding: 'utf8',
+      input: `${blob}\n`,
+    });
+    assert.equal(result.status, 2, `${args.join(' ')}: ${result.stdout}`);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /indirect object inputs/u);
+  }
+});
+
 test('keeps the exclusions when run from a subdirectory', (t) => {
   const { grep } = repository(t);
   assert.deepEqual(grep(['-l', 'needle'], 'docs'), ['guide.md']);
@@ -315,5 +355,255 @@ test('implementer-conflicts names reviewer-only conflicts without their content'
       .filter((line) => line.startsWith('diff --cc '))
       .toSorted(),
     readable.map((file) => `diff --cc ${file}`).toSorted(),
+  );
+});
+
+test('implementer-show binds option-looking operands before Git parses log options', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  const blob = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD:docs/architecture/README.md'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  for (const args of [
+    ['-G', '--source', '-G', blob],
+    ['--author', '--source', '-G', blob],
+  ]) {
+    const result = spawnSync(show, args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '', args.join(' '));
+  }
+});
+
+test('implementer-show reads a reviewer fix commit and names its reviewer-only paths', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  for (const file of [...reviewerOnly, ...readable]) {
+    writeFileSync(path.join(cwd, file), 'reviewer fix\n');
+  }
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '-qam',
+      'reviewer fix',
+    ],
+    { cwd },
+  );
+  const run = (args, from = '.') =>
+    spawnSync(show, args, { cwd: path.join(cwd, from), encoding: 'utf8' });
+  const heading = 'Reviewer-only paths (names only; do not open):';
+  for (const [args, from, shown] of [
+    [['HEAD'], '.', readable],
+    [
+      ['--pickaxe-all', '-S', 'fix', 'HEAD', '--', 'docs'],
+      '.',
+      ['docs/guide.md'],
+    ],
+    [['-s', 'HEAD'], '.', []],
+    [
+      ['--skip-to', 'docs/architecture/README.md', 'HEAD'],
+      '.',
+      ['docs/guide.md', 'src/app.ts'],
+    ],
+    [['--rotate-to', 'docs/guide.md', 'HEAD'], '.', readable],
+    [
+      ['--diff', '--skip-to=docs/guide.md', 'HEAD~', 'HEAD'],
+      '.',
+      ['docs/guide.md', 'src/app.ts'],
+    ],
+    [['--diff', '--rotate-to=docs/guide.md', 'HEAD~', 'HEAD'], '.', readable],
+    [['HEAD~..HEAD', '--', 'docs', '.patterns'], '.', ['docs/guide.md']],
+    [['-G', 'reviewer:|fix', 'HEAD'], '.', readable],
+    [['-I', 'old:public', 'HEAD'], '.', readable],
+    [['-wI', 'old:public', 'HEAD'], '.', readable],
+    [['-wG', 'reviewer:|fix', 'HEAD'], '.', readable],
+    [['-G', '--source', '-G', 'fix', 'HEAD'], '.', readable],
+    [['-G', '--', '-G', 'fix', 'HEAD'], '.', readable],
+    [['--ignore-matching-lines', 'old:public', 'HEAD'], '.', readable],
+    [['--word-diff-regex', '[[:alnum:]]+', 'HEAD'], '.', readable],
+    [['--anchored', 'old:public', 'HEAD'], '.', readable],
+    [['--since', '2000-01-01 00:00', 'HEAD'], '.', readable],
+    [['--since-as-filter', '2000-01-01 00:00', 'HEAD'], '.', readable],
+    [['--date', 'format:%H:%M', 'HEAD'], '.', readable],
+    [['--decorate-refs', 'refs/tags:*', 'HEAD'], '.', readable],
+    [
+      ['--find-object', 'HEAD:docs/architecture/README.md', 'HEAD'],
+      '.',
+      readable,
+    ],
+    [['--diff', 'HEAD~', 'HEAD'], '.', readable],
+    [['--diff', '-I', 'old:public', 'HEAD~', 'HEAD'], '.', readable],
+    [
+      ['--diff', '--word-diff-regex', '[[:alnum:]]+', 'HEAD~', 'HEAD'],
+      '.',
+      readable,
+    ],
+    [['--diff', '--pickaxe-all', '-S', 'fix', 'HEAD~', 'HEAD'], '.', readable],
+    [['--diff', 'HEAD~..HEAD', '--', '.'], 'docs', ['docs/guide.md']],
+  ]) {
+    const result = run(args, from);
+    assert.equal(result.status, 0, result.stderr);
+    const [output, names] = result.stdout.split(`${heading}\n`);
+    assert.deepEqual(
+      output
+        .split('\n')
+        .filter((line) => line.startsWith('diff --git '))
+        .toSorted(),
+      shown.map((file) => `diff --git a/${file} b/${file}`).toSorted(),
+    );
+    assert.deepEqual(
+      names.trim().split('\n').toSorted(),
+      [...reviewerOnly].toSorted(),
+    );
+  }
+  const exitCode = run(['--diff', '--exit-code', 'HEAD~', 'HEAD']);
+  assert.equal(exitCode.status, 1, exitCode.stderr);
+  assert.ok(exitCode.stdout.includes(heading), exitCode.stdout);
+  const quiet = run(['--diff', '--quiet', 'HEAD~', 'HEAD']);
+  assert.equal(quiet.status, 1, quiet.stderr);
+  assert.ok(quiet.stdout.includes(heading), quiet.stdout);
+  const blob = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD:docs/architecture/README.md'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  for (const args of [
+    ['HEAD:docs/architecture/README.md'],
+    [blob],
+    ['--diff', `${blob}..HEAD`],
+    ['--full-diff', 'HEAD', '--', 'docs/guide.md'],
+    ['--diff', '--no-index', 'docs/architecture/README.md', 'docs/guide.md'],
+    ['--textconv', 'HEAD'],
+    ['-G', 'old:public', blob],
+    ['-I', 'old:public', blob],
+    ['-Gfix', blob],
+    ['-wIold:public', blob],
+    ['--since-as-filter', '2000-01-01 00:00', blob],
+    ['--word-diff-regex', '[[:alnum:]]+', blob],
+    ['--src-prefix', 'old:', blob],
+    ['--find-object', blob, blob],
+    ['--color-words', blob],
+    ['-wM', blob],
+    ['--default', blob],
+    ['--end-of-options', 'HEAD'],
+    ['--output', 'out.txt', 'HEAD'],
+    ['--output=out.txt', 'HEAD'],
+    ['-G'],
+  ]) {
+    const result = run(args);
+    assert.equal(result.status, 2, `${args.join(' ')}: ${result.stdout}`);
+    assert.equal(result.stdout, '');
+  }
+});
+
+test('implementer-show keeps tag and presentation output outside its path inventory', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.invalid',
+      '-c',
+      'tag.gpgsign=false',
+      'tag',
+      '-am',
+      'tag description',
+      'reviewed',
+    ],
+    { cwd },
+  );
+  const annotated = spawnSync(show, ['reviewed'], { cwd, encoding: 'utf8' });
+  assert.equal(annotated.stdout.split('tag description').length - 1, 1);
+  const heading = 'Reviewer-only paths (names only; do not open):\n';
+  for (const file of reviewerOnly) {
+    writeFileSync(path.join(cwd, file), 'changed\n');
+  }
+  execFileSync('git', ['add', '.'], { cwd });
+  for (const args of [
+    ['reviewed'],
+    ['reviewed^{tag}'],
+    ['--line-prefix=prefix:', 'HEAD'],
+    ['--log-size', 'HEAD'],
+    ['--graph', '--do-walk', 'HEAD'],
+    ['--diff', '--line-prefix=prefix:', '--cached'],
+  ]) {
+    const result = spawnSync(show, args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const [, names] = result.stdout.split(heading);
+    assert.ok(names, result.stdout);
+    assert.deepEqual(
+      names.trim().split('\n').toSorted(),
+      [...reviewerOnly].toSorted(),
+      args.join(' '),
+    );
+  }
+  for (const args of [
+    ['-z', 'HEAD'],
+    ['-pz', 'HEAD'],
+    ['-wzG', 'needle', 'HEAD'],
+  ]) {
+    const result = spawnSync(show, args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 2, result.stdout);
+    assert.match(result.stderr, /NUL-delimited/u);
+    assert.equal(result.stdout, '');
+  }
+});
+
+test('implementer-show lists each protected path once for combined merge output', (t) => {
+  const { cwd } = repository(t);
+  const show = fileURLToPath(new URL('implementer-show', import.meta.url));
+  const git = (args) =>
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        ...args,
+      ],
+      { cwd, encoding: 'utf8' },
+    ).trim();
+  const otherParent = git(['commit-tree', 'HEAD^{tree}', '-m', 'other parent']);
+  for (const file of reviewerOnly) {
+    writeFileSync(path.join(cwd, file), 'merge result\n');
+  }
+  git(['add', '.']);
+  const merge = git([
+    'commit-tree',
+    git(['write-tree']),
+    '-p',
+    'HEAD',
+    '-p',
+    otherParent,
+    '-m',
+    'merge',
+  ]);
+  const result = spawnSync(show, ['--cc', '--combined-all-paths', merge], {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const [, names] = result.stdout.split(
+    'Reviewer-only paths (names only; do not open):\n',
+  );
+  assert.deepEqual(
+    names.trim().split('\n').toSorted(),
+    [...reviewerOnly].toSorted(),
   );
 });
