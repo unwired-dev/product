@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ViewProps } from 'react-native';
 
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { palette, radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
@@ -279,14 +279,18 @@ export function Welcome({
                 }}
                 onPress={onPrivacy}
                 focusable={!restoring}
-                style={[
+                style={({ pressed }) => [
                   styles.continue,
                   styles.privacy,
-                  // On the deep page the focus ring takes the page's ink, as the Outbox toast's does.
+                  // On the deep page the focus ring takes the page's ink, as the Outbox toast's does,
+                  // and the pressed fill the Dark value, the page being deep in both appearances.
                   {
                     outlineColor: privacyFocused
                       ? colors.brandOnDeep
                       : 'transparent',
+                  },
+                  pressed && {
+                    backgroundColor: palette.dark.accentSelectionSubtle,
                   },
                 ]}>
                 <Text style={[textStyles.body, ink]}>

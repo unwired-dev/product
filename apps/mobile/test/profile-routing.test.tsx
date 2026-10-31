@@ -33,6 +33,7 @@ import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createTwoProfileRegistration } from '@private-email/mail-core/testing/registration-scenarios';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
+import { palette } from '@private-email/mail-core/theme';
 import {
   act,
   cleanup,
@@ -221,6 +222,20 @@ const split = jest.requireMock<{
   shown: string[];
   commands: { registry?: CommandRegistry };
 }>('react-native-screens/experimental');
+
+const touch = {
+  persist: () => undefined,
+  currentTarget: 1,
+  nativeEvent: { pageX: 0, pageY: 0, locationX: 0, locationY: 0, timestamp: 0 },
+};
+
+// Selection fills drawn in a row: its own and any stacked over it.
+function fills(row: ReturnType<typeof screen.getByRole>) {
+  const filled = (node: typeof row) =>
+    StyleSheet.flatten(node.props.style)?.backgroundColor ===
+    palette.light.accentSelectionSubtle;
+  return [row, ...row.queryAll(filled)].filter(filled).length;
+}
 
 function showMail(profile: string) {
   const gmail = createSyntheticGmail();
@@ -1268,6 +1283,22 @@ describe('the mobile Profile Switcher', () => {
       // The Primary Profile keeps its name.
       expect(screen.queryByDisplayValue('Primary Profile')).toBeNull();
       await fireEvent.press(work);
+      // The selected Profile keeps the subtle fill; a press stacks a second until release or cancel.
+      const primary = screen.getByRole('button', { name: 'Primary Profile' });
+      expect([fills(work), fills(primary)]).toStrictEqual([1, 0]);
+      expect(work).toBeSelected();
+      await fireEvent(work, 'responderGrant', touch);
+      expect(fills(work)).toBe(2);
+      await fireEvent(work, 'responderRelease', touch);
+      await waitFor(() => {
+        expect(fills(work)).toBe(1);
+      });
+      await fireEvent(primary, 'responderGrant', touch);
+      expect(fills(primary)).toBe(1);
+      await fireEvent(primary, 'responderTerminate', touch);
+      await waitFor(() => {
+        expect(fills(primary)).toBe(0);
+      });
       const name = screen.getByDisplayValue('Work');
       expect(name).toHaveProp('accessibilityLabel', 'Name');
       await fireEvent.changeText(name, '  Office ');
