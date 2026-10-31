@@ -1,6 +1,7 @@
 import * as Schema from 'effect/Schema';
 
 import { vettedHref } from './link-inspection.ts';
+import { palette } from './theme.ts';
 
 export type { History } from './editor-history.ts';
 export { historyOf, record, redo, undo } from './editor-history.ts';
@@ -261,15 +262,17 @@ export type DisplayLine = Readonly<{
   kind: BlockKind;
   marker: string;
   spans: Block['spans'];
+  align?: typeof AlignmentSchema.Type;
 }>;
 
 // What the editor shows for a document, line by line, and as one text.
 export function displayOf(document: SemanticDocument) {
   const markers = markersOf(document);
-  const lines: DisplayLine[] = document.map(({ kind, spans }, i) => ({
+  const lines: DisplayLine[] = document.map(({ kind, spans, align }, i) => ({
     kind,
     marker: markers[i] ?? '',
     spans,
+    ...(align === undefined ? {} : { align }),
   }));
   return {
     lines,
@@ -278,6 +281,75 @@ export function displayOf(document: SemanticDocument) {
         ({ marker, spans }) => marker + spans.map(({ text }) => text).join(''),
       )
       .join('\n'),
+  };
+}
+
+const channelsOf = (color: string) =>
+  [1, 3, 5].map((at) => Number.parseInt(color.slice(at, at + 2), 16));
+
+// WCAG relative luminance of 8-bit sRGB channels.
+const luminanceOf = (channels: readonly number[]) => {
+  const [red = 0, green = 0, blue = 0] = channels.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+};
+
+const darkSurface = luminanceOf(channelsOf(palette.dark.surfaceContent));
+
+// An authored text color as Dark shows it on `surface/content`, undefined for near-black, which
+// follows the theme's text color. Below 4.5:1 it lightens toward white a tenth at a time.
+const darkTextColor = (color: string) => {
+  const channels = channelsOf(color);
+  if (luminanceOf(channels) < 0.02) {
+    return undefined;
+  }
+  for (let tenths = 0; ; tenths += 1) {
+    const shown = channels.map((channel) =>
+      Math.round(channel + ((255 - channel) * tenths) / 10),
+    );
+    if ((luminanceOf(shown) + 0.05) / (darkSurface + 0.05) >= 4.5) {
+      return `#${shown.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+    }
+  }
+};
+
+// CSS generic families show in the matching system design.
+const genericFamilies = new Map([
+  ['serif', 'ui-serif'],
+  ['sans-serif', 'system-ui'],
+  ['monospace', 'ui-monospace'],
+]);
+
+// The first family of a stored list; a host shows its system font when that one is missing.
+const familyOf = (font: string) => {
+  const { 0: name = font, groups } =
+    /^"(?<quoted>[^"]+)"|^[^,]+/u.exec(font) ?? {};
+  return groups?.quoted ?? genericFamilies.get(name.toLowerCase()) ?? name;
+};
+
+// How a span's stored font and colors show. Light shows authored colors as stored; Dark adapts
+// text colors, except on an authored background, whose text keeps Light ink. Nothing is stored.
+export function formatStyleOf(span: Span, appearance: 'light' | 'dark') {
+  if ('image' in span) {
+    return {};
+  }
+  const { background, font, size } = span;
+  let { color } = span;
+  if (background !== undefined) {
+    color ??= palette.light.textPrimary;
+  } else if (appearance === 'dark' && color !== undefined) {
+    color = darkTextColor(color);
+  }
+  return {
+    ...(color === undefined ? {} : { color }),
+    ...(background === undefined ? {} : { backgroundColor: background }),
+    ...(font === undefined ? {} : { fontFamily: familyOf(font) }),
+    // The approved frames lead sized text at 1.35.
+    ...(size === undefined
+      ? {}
+      : { fontSize: size, lineHeight: Math.round(size * 1.35) }),
   };
 }
 

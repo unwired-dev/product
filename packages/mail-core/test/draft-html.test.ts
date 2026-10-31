@@ -8,8 +8,10 @@ import { documentFromHtml } from '@private-email/mail-core/draft-html';
 import { outgoingMessage } from '@private-email/mail-core/outgoing-message';
 import {
   BlockKindSchema,
+  formatStyleOf,
   MarkSchema,
 } from '@private-email/mail-core/semantic-document';
+import { palette } from '@private-email/mail-core/theme';
 import PostalMime from 'postal-mime';
 
 const sentHtml = async (body: SemanticDocument) => {
@@ -1012,4 +1014,69 @@ describe('a Semantic Message Document from Draft HTML', () => {
       expect(documentFromHtml(html)).toStrictEqual({ unsupported: ['color'] });
     }
   });
+});
+
+// The approved Dark A rule (#1267): composers show authored colors on screen only.
+describe('stored formatting as a composer shows it', () => {
+  it.each([
+    ['#ff0000', '#ff3333'],
+    ['#941751', '#bf7497'],
+    ['#1f3864', '#7988a2'],
+    ['#c00000', '#d96666'],
+    ['#ffffff', '#ffffff'],
+  ])('shows %s as %s in Dark and as stored in Light', (color, dark) => {
+    expect.hasAssertions();
+    expect(formatStyleOf({ text: 'a', color }, 'dark')).toStrictEqual({
+      color: dark,
+    });
+    expect(formatStyleOf({ text: 'a', color }, 'light')).toStrictEqual({
+      color,
+    });
+  });
+
+  it('shows near-black in the theme text color and highlights with Light ink', () => {
+    expect.hasAssertions();
+    expect(
+      formatStyleOf({ text: 'a', color: '#000000' }, 'dark'),
+    ).toStrictEqual({});
+    expect(
+      formatStyleOf({ text: 'a', background: '#ffff00' }, 'dark'),
+    ).toStrictEqual({
+      color: palette.light.textPrimary,
+      backgroundColor: '#ffff00',
+    });
+    expect(
+      formatStyleOf(
+        { text: 'a', color: '#ff0000', background: '#ffff00' },
+        'dark',
+      ),
+    ).toStrictEqual({ color: '#ff0000', backgroundColor: '#ffff00' });
+    const image = {
+      id: 'image0001',
+      name: 'map.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    expect(formatStyleOf({ text: '\uFFFC', image }, 'dark')).toStrictEqual({});
+  });
+
+  it.each([
+    ['"Aptos", sans-serif', 'Aptos'],
+    ['arial, sans-serif', 'arial'],
+    ['sans-serif', 'system-ui'],
+    ['Serif', 'ui-serif'],
+    ['monospace', 'ui-monospace'],
+  ])(
+    'shows the first family of %s as %s at the stored size',
+    (font, family) => {
+      expect.hasAssertions();
+      expect(
+        formatStyleOf({ text: 'a', font, size: 20 }, 'light'),
+      ).toStrictEqual({
+        fontFamily: family,
+        fontSize: 20,
+        lineHeight: 27,
+      });
+    },
+  );
 });
