@@ -190,8 +190,17 @@ const styles = StyleSheet.create({
     zIndex: 4,
     top: 56,
     left: spacing.l,
-    minWidth: 240,
+    width: 220,
   },
+  closeQuestionPanel: { padding: spacing.m, gap: spacing.s },
+  closeChoice: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.l,
+    borderRadius: 24,
+  },
+  closeChoiceText: { ...textStyles.body },
   fromRow: { zIndex: 2, paddingHorizontal: inset, paddingBottom: spacing.xs },
   alerts: {
     gap: spacing.s,
@@ -1303,6 +1312,15 @@ export function CloseQuestion({
   readonly onSave: () => void;
 }) {
   const { t } = useLocalization();
+  const colors = usePalette();
+  const choice = (label: string, color: string, onPress: () => void) => (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.closeChoice, { backgroundColor: colors.fillQuiet }]}>
+      <Text style={[styles.closeChoiceText, { color }]}>{label}</Text>
+    </Pressable>
+  );
   return (
     <View
       accessibilityRole="menu"
@@ -1310,19 +1328,12 @@ export function CloseQuestion({
       pointerEvents={open ? 'box-none' : 'none'}
       style={styles.closeQuestion}>
       <GlassPanel
+        cornerRadius={radius.closeQuestion}
         open={open}
-        origin="top left">
-        <MenuItem
-          destructive
-          label={t('drafts.deleteDraft')}
-          selected={false}
-          onPress={onDelete}
-        />
-        <MenuItem
-          label={t('drafts.saveDraft')}
-          selected={false}
-          onPress={onSave}
-        />
+        origin="top left"
+        style={styles.closeQuestionPanel}>
+        {choice(t('drafts.deleteDraft'), colors.statusDestructive, onDelete)}
+        {choice(t('drafts.saveDraft'), colors.textPrimary, onSave)}
       </GlassPanel>
     </View>
   );

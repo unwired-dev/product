@@ -487,6 +487,9 @@ content.
   20pt. Glass groups take half their height.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
   control groups use 22pt corners and 18pt inset selections.
+- The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
+  220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
+  between 48pt `fill/quiet` capsules with centred Body labels.
 - Monograms and avatars are circles. Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
