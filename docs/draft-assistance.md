@@ -85,14 +85,20 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     bare domain such as `example.com/r`, `example.com:8080/r` or `shop.xn--p1ai/r`,
     recognizing web schemes and punycode prefixes in any letter case, and the
     destination of linked words whose text does not show it exactly), email addresses (including
-    address punctuation such as `o'connor@`, `mailto:` links without query fields; mail links with query fields remain
+    address punctuation such as `o'connor@`, `a!!b@` and `!bob@`, and `mailto:` links without query fields; written or linked mail links with query fields remain
     flagged with their complete destination), amounts (a number with a currency
     symbol, a three-letter code or Kč, including compact `USD40` and `40USD`,
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
-    point (`-40`, `.5`),
-    dates in any letter case (including an ISO timestamp's complete `T`-joined
-    time, fractional seconds and zone, and a yearless day and month such as `11/01`), times and quoted text in straight, curly, low
-    and angle quotes, including quotes across line breaks.
+    point (`-40`, `.5`), percentages (`10%`), grouped figures (`1 500`), fractions,
+    ratios and ranges (`100/200`, `100:200`, `1–2`),
+    dates in any letter case (including abbreviated weekdays, month names with
+    or without a year, year-first dates with hyphens, dots or slashes, and an ISO
+    timestamp's complete `T`-joined time, fractional seconds and zone). A short
+    slash form such as `11/01` or `1/2` is compared whole as a date
+    even when it could be a fraction; its interpretation is never inferred.
+    Times retain seconds, fractional seconds and a written zone such as `UTC`,
+    `PST` or `+01:00`. Quoted text in straight double, curly, low and angle quotes
+    may cross line breaks; a straight inch mark after a number cannot open a quote.
   - A detail is kept only when the result writes an unambiguous equivalent: the
     same text apart from spacing, letter case for email addresses, dates and
     times (`8 P.M.` and `8pm`), the currency on either side of an amount
@@ -101,7 +107,9 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     (`example.com/r.`), which is not part of it. `!` and `?` can end an address,
     so they stay part of the link, and a linked word's own destination decides
     even when its text shows the address with such punctuation. Its complete
-    address must be written out; a substring is insufficient. Written linked
+    address must be written out; a substring is insufficient. A bare domain
+    followed by a path or query is a link even when it contains `@`, so its
+    case-sensitive destination is never normalized as an email address. Written linked
     text may omit the web scheme or root slash, but a slash after a path stays
     part of the destination. A number beside a unit (`0.5s`, `3rd`) is compared
     by its figures, and an exponent (`1e3`) is part of its number. An exponent's
@@ -111,7 +119,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     uncertain, never kept: a date that gains or loses a part (`Saturday` as
     `Saturday, 1 Nov` or `3 Nov` as `3 Nov 2026`, but not `3 Nov` as `13 Nov`) or is in figures on one side only (`2026-11-01` as
     `1 November 2026`), a number or amount that differs only by a thousands
-    separator (`1,000` as `1000`), and a link that differs only by `!` or `?`
+    separator (`1,000` or `1 000` as `1000`), and a link that differs only by `!` or `?`
     at its end. Any other pair, such as `Monday` as `Tuesday` or `.5` as `5`,
     is changed.
   - Details that differ are paired in order within each kind as changed, and
@@ -119,7 +127,10 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     original and rewritten value (a changed link says it goes somewhere else; an
     uncertain one says it can't be confirmed as the same date, number, amount
     or link) and lists the
-    kept details. The apply action then becomes **Use rewrite with changes**,
+    kept details. Matching preserves occurrence counts and the order inside each
+    complete detail; it ignores the order of separate details. Reassigning the
+    same values to different people or sentences still needs the person's reading.
+    The apply action then becomes **Use rewrite with changes**,
     so applying them is an explicit choice; **Keep original** and **Try again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**

@@ -43,15 +43,25 @@ const anyCase = (words: string) =>
     /\p{L}/gu,
     (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`,
   );
-const weekday = anyCase('(?:mon|tues|wednes|thurs|fri|satur|sun)day');
+const weekday = anyCase(
+  '(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day|mon|tues?|wed|thurs?|thu|fri|sat|sun)',
+);
 const month = `${anyCase('(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)')}(?:\\.(?=,?\\s\\d))?`;
 const day = `\\d{1,2}(?:${anyCase('st|nd|rd|th')})?`;
 // An exponent belongs to its number: `1e3` and `1e4` differ.
-const unsigned = String.raw`(?:\d+(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
+const unsigned = String.raw`(?:(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
+const meridiem = String.raw`[aApP]\.?[mM]\.?`;
+const clock = String.raw`\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?`;
+const zone = `(?:${anyCase('UTC|GMT|CEST|CET|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|IST|JST|AEST|AEDT|ACST|ACDT|AWST|NZST|NZDT')})(?:[-+]\\d{1,2}(?::?\\d{2})?)?|[zZ]|[-+]\\d{2}(?::?\\d{2})?`;
+// An apostrophe can join an address's local part, but a leading one is a quotation mark.
+const emailStart = String.raw`[\p{L}\p{N}._%+!#$&*/=?^\x60{|}~-]`;
+const emailRest = String.raw`[\p{L}\p{N}._%+!#$&'*/=?^\x60{|}~-]*`;
 const linkEnd = String.raw`[^\s<>"“”«»]`;
+const host = `(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|${anyCase('xn')}--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])`;
+const web = `${host}(?::\\d+)?`;
 const currency = String.raw`\p{Sc}|[A-Z]{3}|Kč`;
 // A detail never ends inside a word or before the rest of a number, so `0.5` is not read as `0`.
 const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
@@ -60,27 +70,27 @@ const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 // amount's number or a date's day is not counted again. Quotes are read separately because they
 // may hold other details.
 const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
-  // Before links, so a dotted local part (`first.last+tag@`) is not read as a bare address.
-  // A local part may hold other address punctuation between letters (`o'connor@`).
-  [
-    'email',
-    String.raw`[\p{L}\p{N}._%+-]+(?:[!#$&'*/=?^\x60{|}~][\p{L}\p{N}._%+-]+)*@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`,
-  ],
+  // A path/query can contain an email address; its case-sensitive destination wins first.
   [
     'link',
-    // A bare address ends in a label of letters or a punycode label, as in link inspection, and
-    // is not an email's local part.
-    `${anyCase('https?')}://${linkEnd}+|(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|${anyCase('xn')}--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])(?::\\d+)?(?:[/?#]${linkEnd}*)?`,
+    `${anyCase('mailto')}:${linkEnd}+\\?${linkEnd}*|${anyCase('https?')}://${linkEnd}+|${web}[/?#]${linkEnd}*`,
   ],
+  // Before bare domains, so a dotted local part is not split. Apostrophes may occur inside it.
+  [
+    'email',
+    String.raw`${emailStart}${emailRest}@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`,
+  ],
+  ['link', web],
   [
     'date',
     [
-      String.raw`\d{4}-\d{1,2}-\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
+      String.raw`\d{4}[./-]\d{1,2}[./-]\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
       `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
       // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
       `\\d{1,2}/\\d{1,2}`,
       `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
       weekday,
+      `${month}(?:\\s\\d{4})?`,
       anyCase('today|tomorrow|tonight|yesterday'),
     ].join('|'),
   ],
@@ -89,16 +99,23 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
     // After dates, so an all-caps month after a day (`3 NOV`) is not read as a currency code.
     `${sign}?(?:${currency})\\s?${figure}(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`,
   ],
-  ['time', `\\d{1,2}(?::\\d{2})?\\s?[aApP]\\.?[mM]\\.?${edge}|\\d{1,2}:\\d{2}`],
+  [
+    'time',
+    `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}\\s?${meridiem})(?:\\s?(?:${zone}))?`,
+  ],
   // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
-  ['number', String.raw`${figure}(?![.,]?\p{N})`],
+  [
+    'number',
+    String.raw`${figure}(?:\s*[/–—−:-]\s*${figure})*(?:\s?%)?(?![.,]?\p{N})`,
+  ],
 ];
 const kinds = patterns.map(([kind]) => kind);
 const pattern = new RegExp(
   `(?:^|[^\\p{L}\\p{N}])(?:${patterns.map(([kind, source]) => `(${source})${kind === 'number' ? '' : edge}`).join('|')})`,
   'gu',
 );
-const quote = /"[^"]+"|“[^”]+”|„[^“”]+[“”]|«[^»]+»/gu;
+const quote =
+  /(?<![\p{L}\p{N}])"[^"]+"(?![\p{L}\p{N}])|“[^”]+”|„[^“”]+[“”]|«[^»]+»/gu;
 
 // A written link ends before a closing quote, a full stop, comma, colon or semicolon, and before a
 // closing parenthesis it did not open. `!` and `?` can end an address, so they stay part of it.
@@ -119,18 +136,24 @@ const amountKey = (amount: string) => {
   const number = first(unsigned, amount);
   const affixes = amount.replace(number, '');
   const signed = first(sign, affixes);
-  return `${affixes.replace(signed, '')} ${signed}${number}`;
+  return `${affixes.replace(signed, '').replaceAll(/\s/gu, '')} ${signed}${number}`;
 };
 const keys: Partial<Record<DetailKind, (spaced: string) => string>> = {
   email: (spaced) => spaced.toLowerCase(),
   date: (spaced) => spaced.toLowerCase(),
-  time: (spaced) => spaced.toLowerCase().replaceAll('.', ''),
+  time: (spaced) =>
+    spaced
+      .toLowerCase()
+      .replaceAll(/(?<period>[ap])\.m\.?/gu, '$<period>m')
+      .replaceAll(' ', ''),
+  number: (spaced) =>
+    spaced.replaceAll(/\s*(?<separator>[/–—−:%-])\s*/gu, '$<separator>'),
   amount: amountKey,
 };
 const keyOf = (kind: DetailKind, value: string) => {
   const spaced = value.replaceAll(
     /\s+/gu,
-    kind === 'quote' || kind === 'date' ? ' ' : '',
+    kind === 'email' || kind === 'link' ? '' : ' ',
   );
   return keys[kind]?.(spaced) ?? spaced;
 };
@@ -206,7 +229,7 @@ const take = (details: Detail[], matches: (other: Detail) => boolean) => {
 // (`1,000` and `1000`), and a link that differs only by punctuation at its end.
 // Only a separator before a group of three digits can be grouping.
 const ungrouped = (key: string) =>
-  key.replaceAll(/(?<digit>\d)[.,](?=\d{3}(?!\d))/gu, '$<digit>');
+  key.replaceAll(/(?<digit>\d)[., ](?=\d{3}(?!\d))/gu, '$<digit>');
 // Keep date spacing above so an added year stays separate from a day. `3 Nov` is not in `13 Nov`.
 const within = (whole: string, part: string) =>
   new RegExp(

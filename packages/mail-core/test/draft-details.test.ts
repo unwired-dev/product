@@ -262,6 +262,148 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it.each([
+    { kind: 'email', original: 'a!!b@example.com', result: 'c!!b@example.com' },
+    { kind: 'email', original: '!bob@example.com', result: '?bob@example.com' },
+    {
+      kind: 'link',
+      original: 'mailto:bob@example.com?subject=Approve',
+      result: 'mailto:bob@example.com?subject=Reject',
+    },
+    { kind: 'time', original: '12:30 UTC', result: '12:30 PST' },
+    { kind: 'time', original: '12:30+01:00', result: '12:30-01:00' },
+    { kind: 'time', original: '12:30:45.5', result: '12:30:45.6' },
+    { kind: 'date', original: '2026/11/01', result: '2026/01/11' },
+    {
+      kind: 'link',
+      original: 'example.com/A@b.com',
+      result: 'example.com/a@b.com',
+    },
+    {
+      kind: 'link',
+      original: 'example.com/?x=A@b.com',
+      result: 'example.com/?x=a@b.com',
+    },
+    { kind: 'date', original: 'Mon', result: 'Tue' },
+    { kind: 'date', original: 'November', result: 'December' },
+    { kind: 'number', original: '100/200', result: '200/100' },
+    { kind: 'number', original: '1.5/2.5', result: '2.5/1.5' },
+    { kind: 'number', original: '1–2', result: '2–1' },
+    { kind: 'number', original: '11-01', result: '01-11' },
+    { kind: 'number', original: '100:200', result: '200:100' },
+    { kind: 'number', original: '10%', result: '10' },
+  ] satisfies ReadonlyArray<{
+    kind: DetailChange['kind'];
+    original: string;
+    result: string;
+  }>)(
+    'compares the complete $kind detail $original',
+    ({ kind, original, result }) => {
+      expect.hasAssertions();
+      expect(checkDetails(whole(original), result)).toStrictEqual({
+        kept: [],
+        changes: [{ kind, status: 'changed', original, result }],
+      });
+    },
+  );
+
+  it('compares each month and year as one date before matching occurrences', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('November 2026 and December 2027'),
+        'November 2027 and December 2026',
+      ),
+    ).toStrictEqual({
+      kept: [],
+      changes: [
+        {
+          kind: 'date',
+          status: 'changed',
+          original: 'November 2026',
+          result: 'November 2027',
+        },
+        {
+          kind: 'date',
+          status: 'changed',
+          original: 'December 2027',
+          result: 'December 2026',
+        },
+      ],
+    });
+  });
+
+  it('keeps grouping separate from ordinary spacing when comparing numbers and amounts', () => {
+    expect.hasAssertions();
+    expect(checkDetails(whole('1 500'), '500 1').changes).not.toStrictEqual([]);
+    expect(checkDetails(whole('1 500'), '1500').changes).toStrictEqual([
+      {
+        kind: 'number',
+        status: 'uncertain',
+        original: '1 500',
+        result: '1500',
+      },
+    ]);
+    expect(checkDetails(whole('€1\u202F500'), '€1500').changes).toStrictEqual([
+      {
+        kind: 'amount',
+        status: 'uncertain',
+        original: '€1\u202F500',
+        result: '€1500',
+      },
+    ]);
+    expect(
+      checkDetails(
+        whole('1 / 200 and 12:30 P.M. UTC and 10 %'),
+        '1/200 and 12:30pm UTC and 10%',
+      ).changes,
+    ).toStrictEqual([]);
+  });
+
+  it('does not let an inch mark consume the next quoted passage across lines', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Use 12" pipe.\nHe said "approve".'),
+        'Use 12" pipe.\nHe said "reject".',
+      ),
+    ).toStrictEqual({
+      kept: ['12'],
+      changes: [
+        {
+          kind: 'quote',
+          status: 'changed',
+          original: 'approve',
+          result: 'reject',
+        },
+      ],
+    });
+    expect(
+      checkDetails(
+        whole('Use 12" pipe.\nThen 6" pipe.'),
+        'Use 12" pipe.\nThen 6" pipe.',
+      ).kept,
+    ).toStrictEqual(['12', '6']);
+  });
+
+  it.each(['" approve "', '"\napprove\n"'])(
+    'compares quoted words with whitespace at their edges: %s',
+    (original) => {
+      expect.hasAssertions();
+      expect(
+        checkDetails(whole(original), original.replace('approve', 'reject'))
+          .changes,
+      ).toStrictEqual([
+        {
+          kind: 'quote',
+          status: 'changed',
+          original: 'approve',
+          result: 'reject',
+        },
+      ]);
+    },
+  );
+
   it('compares a whole email address whose local part has dots', () => {
     expect.hasAssertions();
     expect(
