@@ -696,7 +696,6 @@ describe('profile-scoped mobile routes', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Expand' }));
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
       await fireEvent.press(screen.getByRole('button', { name: 'Collapse' }));
-      await fireEvent.press(screen.getByRole('button', { name: 'Text style' }));
       // A landscape phone can be wide while UIKit still collapses its split view.
       await fireEvent(
         screen.getByTestId('mail-split', { includeHiddenElements: true }),
@@ -709,9 +708,9 @@ describe('profile-scoped mobile routes', () => {
           .props.onDidAppear();
       });
       expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull();
-      // The keyed format bar moves without retiring its open menu.
-      expect(screen.getByRole('button', { name: 'Heading 1' })).toBeVisible();
-      await fireEvent.press(screen.getByRole('button', { name: 'Text style' }));
+      // The compact composer trades the format bar for the floating pill.
+      expect(screen.queryByRole('button', { name: 'Text style' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Format' })).toBeVisible();
       await fireEvent(
         screen.getByTestId('mail-split', { includeHiddenElements: true }),
         'expand',
@@ -746,6 +745,7 @@ describe('profile-scoped mobile routes', () => {
       expect(
         screen.getByTestId('composer-overlay', { includeHiddenElements: true }),
       ).not.toHaveStyle({ paddingBottom: insets.bottom });
+      await fireEvent.press(screen.getByRole('button', { name: 'Format' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
       expect(screen.getByLabelText('To')).toHaveProp('value', '');
       await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
