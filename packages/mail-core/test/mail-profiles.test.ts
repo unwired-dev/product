@@ -833,6 +833,74 @@ describe('mail profiles', () => {
     expect(owners(published)).toStrictEqual([work]);
   });
 
+  it('synchronizes a Profile’s Color and Icon and keeps a style this client does not know', async () => {
+    expect.hasAssertions();
+    const { flow, sync, mailboxId } = await connected();
+    const { id } = profileNamed(
+      await flow.createProfile('Work', { color: 'teal', icon: 'laptop' }),
+      'Work',
+    );
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      {
+        kind: 'profile',
+        id,
+        version: 1,
+        name: 'Work',
+        color: 'teal',
+        icon: 'laptop',
+      },
+    ]);
+    // A new style replaces the old one; First Letter is stored as no icon.
+    expect(
+      listed(await flow.restyleProfile(id, { color: 'blue' })),
+    ).toStrictEqual([{ id, name: 'Work', color: 'blue' }]);
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 2, name: 'Work', color: 'blue' },
+    ]);
+
+    // A newer client's style reads as the default here and survives this client's rewrites.
+    storeProfile(sync, account, {
+      kind: 'profile',
+      id,
+      version: 3,
+      name: 'Work',
+      color: 'sunset',
+      icon: 'rocket',
+    });
+    await flow.renameProfile(id, 'Office');
+    expect(
+      listed(await flow.moveMailbox(await mailboxId(), id)),
+    ).toStrictEqual([{ id, name: 'Office' }]);
+    expect(storedProfiles(sync, account)).toContainEqual({
+      kind: 'profile',
+      id,
+      version: 5,
+      name: 'Office',
+      color: 'sunset',
+      icon: 'rocket',
+    });
+  });
+
+  it('keeps the style chosen for a Profile named offline and publishes it with the name', async () => {
+    expect.hasAssertions();
+    const { flow, sync } = await connected();
+    sync.offline = true;
+    const { id } = profileNamed(
+      await flow.createProfile('Home', { icon: 'airplane' }),
+      'Home',
+    );
+    expect(
+      listed(await flow.restyleProfile(id, { color: 'green' })),
+    ).toStrictEqual([{ id, name: 'Home', color: 'green', pending: true }]);
+    sync.offline = false;
+    expect(listed(await flow.refreshPrivateSync())).toStrictEqual([
+      { id, name: 'Home', color: 'green' },
+    ]);
+    expect(storedProfiles(sync, account)).toStrictEqual([
+      { kind: 'profile', id, version: 1, name: 'Home', color: 'green' },
+    ]);
+  });
+
   it('keeps a removal it read when the ownership listing then fails', async () => {
     expect.hasAssertions();
     const { flow, vault, sync, records, relaunch } = await connected();

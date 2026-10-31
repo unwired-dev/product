@@ -16,6 +16,7 @@ import type {
 import type {
   MailProvider,
   PrivateSyncStateSchema,
+  ProfileStyle,
 } from './registration-snapshot.ts';
 import type {
   MailboxChange,
@@ -897,17 +898,21 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     synchronize,
     ...devices,
     // Refused while an older client is fenced in; offline, the Profile waits to publish.
-    createProfile: (name: string) =>
+    createProfile: (name: string, style: ProfileStyle) =>
       fenced.pipe(
         Effect.catchIf(
           ({ code }) => code === 'offline',
           () => Effect.succeed(false),
         ),
         Effect.flatMap((refused) =>
-          refused ? failWith('upgrade-required') : profiles.create(name),
+          refused
+            ? failWith('upgrade-required')
+            : profiles.create(name, style),
         ),
       ),
     renameProfile: profiles.rename,
+    restyleProfile: (id: string, style: ProfileStyle) =>
+      rotating(() => profiles.restyle(id, style)),
     removeProfile: (id: string) => rotating(() => profiles.remove(id)),
     moveMailbox: (
       value: RegistrationRecord,

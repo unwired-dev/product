@@ -2290,7 +2290,7 @@ describe('mac windows of different Mail Profiles', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
-  it('duplicates a Mail Profile into a selected copy without its mailboxes', async () => {
+  it('duplicates a Mail Profile into a selected copy with its style, without its mailboxes', async () => {
     expect.hasAssertions();
     const { vault, work } = await createTwoProfileRegistration();
     const store = createRegistration({
@@ -2299,6 +2299,7 @@ describe('mac windows of different Mail Profiles', () => {
       recordProfiles: (next) => vault.recordProfiles(next),
     });
     await store.restore();
+    await store.restyleProfile(work, { color: 'teal', icon: 'laptop' });
     const replaced = jest.replaceProperty(
       jest.requireMock<{ registration: typeof store }>(
         '../src/registration.ts',
@@ -2374,7 +2375,12 @@ describe('mac windows of different Mail Profiles', () => {
         ]),
       }).toStrictEqual({
         created: 'Family',
-        copy: { id: copy?.id, name: 'Work Copy' },
+        copy: {
+          id: copy?.id,
+          name: 'Work Copy',
+          color: 'teal',
+          icon: 'laptop',
+        },
         owners: [
           ['alex@example.invalid', defaultProfile],
           ['other@example.invalid', work],
