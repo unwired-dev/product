@@ -559,8 +559,9 @@ export function SettingsRow({
   );
 }
 
-// A row that acts when clicked: the subtle selection fill while pressed and, on keyboard focus,
-// the 2pt accent/ink ring in place of the system focus ring, drawn over the row so layout holds.
+// A row that acts when clicked: the subtle selection fill while pressed, stacked on the same fill
+// a selected row keeps, and, on keyboard focus, the 2pt accent/ink ring in place of the system
+// focus ring, drawn over the row so layout holds.
 export function SettingsRowButton({
   children,
   ...props
@@ -569,6 +570,7 @@ export function SettingsRowButton({
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
+  const fill = { backgroundColor: colors.accentSelectionSubtle };
   return (
     <Pressable
       {...props}
@@ -580,20 +582,29 @@ export function SettingsRowButton({
       onFocus={() => {
         setFocused(true);
       }}
-      style={({ pressed }) =>
-        pressed && { backgroundColor: colors.accentSelectionSubtle }
-      }>
-      {children}
-      {focused ? (
-        <View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            styles.rowFocus,
-            { borderColor: colors.accentInk },
-          ]}
-        />
-      ) : null}
+      // The selected state VoiceOver reads is the one drawn.
+      style={props.accessibilityState?.selected === true && fill}>
+      {({ pressed }) => (
+        <>
+          {pressed ? (
+            <View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFill, fill]}
+            />
+          ) : null}
+          {children}
+          {focused ? (
+            <View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFill,
+                styles.rowFocus,
+                { borderColor: colors.accentInk },
+              ]}
+            />
+          ) : null}
+        </>
+      )}
     </Pressable>
   );
 }

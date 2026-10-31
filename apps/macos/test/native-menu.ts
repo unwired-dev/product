@@ -8,6 +8,11 @@ interface Item {
   readonly checked?: boolean;
   readonly disabled?: boolean;
   readonly destructive?: boolean;
+  readonly monogram?: Readonly<{
+    color: string;
+    symbol: string;
+    letter: string;
+  }>;
   readonly items?: readonly Item[];
   readonly sections?: ReadonlyArray<{ readonly items: readonly Item[] }>;
 }

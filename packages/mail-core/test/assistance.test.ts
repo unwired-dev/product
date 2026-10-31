@@ -8,6 +8,7 @@ import {
   canRetryAssistance,
   canRewrite,
   captureDraftText,
+  capturePrompt,
   createDraftAssistance,
   createMessageSummary,
   replyInput,
@@ -695,6 +696,44 @@ describe('on-device Draft rewrites and reply suggestions', () => {
       });
       expect(rewriteInput('"'.repeat(3000), tool)).toBeUndefined();
     }
+  });
+
+  it('generates from the prompt alone and inserts after a selection without replacing it', () => {
+    expect.hasAssertions();
+    const draft: Draft = {
+      id: 'draft',
+      connection: 'connection',
+      from: 'alex@example.invalid',
+      to: [],
+      cc: [],
+      bcc: [],
+      subject: 'Plans',
+      body: [{ kind: 'paragraph', spans: [{ text: 'lets meet friday ok' }] }],
+      updatedAt: 0,
+    };
+    const capture = capturePrompt(
+      draft,
+      { start: 10, end: 16 },
+      ' confirm Thursday ',
+    );
+    expect(capture).toMatchObject({
+      purpose: 'generate',
+      selection: { start: 16, end: 16 },
+      text: '',
+      issue: undefined,
+    });
+    expect(parseRequest(admitted(capture.input).text)).toStrictEqual({
+      operation: 'generate',
+      prompt: 'confirm Thursday',
+    });
+    // A blank prompt asks for nothing; an escaped prompt past the bound is refused as too long.
+    expect(capturePrompt(draft, { start: 0, end: 0 }, ' \n ')).toMatchObject({
+      input: undefined,
+      issue: undefined,
+    });
+    expect(
+      capturePrompt(draft, { start: 0, end: 0 }, '"'.repeat(3000)),
+    ).toMatchObject({ input: undefined, issue: 'too-long' });
   });
 
   it('finds rewritable text without scanning past the first visible span', () => {

@@ -7,6 +7,7 @@ import type { MenuSection } from './context-menu.ts';
 import type {
   MailboxConnection,
   MailProfile,
+  ProfileStyle,
 } from './registration-snapshot.ts';
 import type { ProfileFailure } from './registration.ts';
 
@@ -64,6 +65,16 @@ export const profileMonogram = (name: string) =>
     .map((word) => [...word][0] ?? '')
     .join('')
     .toLocaleUpperCase();
+
+// A Mail Profile's Color and Icon; the Default Profile has no record, so it keeps neither.
+export const profileStyle = (
+  profiles: readonly MailProfile[],
+  profile: string,
+): ProfileStyle => profiles.find(({ id }) => id === profile) ?? {};
+
+// The letter a Mail Profile's monogram shows without an Icon.
+export const profileLetter = (name: string) =>
+  [...name][0]?.toLocaleUpperCase() ?? '';
 
 // The Colors and Icons a Mail Profile can choose, in menu order. A Profile without a Color shows
 // Graphite, and one without an Icon shows its name's first letter.
@@ -162,6 +173,7 @@ export const profileMenu = (
     onSwitch,
     onCreate,
     onManage,
+    fills,
   }: Readonly<{
     profiles: readonly MailProfile[];
     connections: readonly MailboxConnection[];
@@ -171,6 +183,8 @@ export const profileMenu = (
     onCreate: () => void;
     // Opens Settings › Mail Profiles.
     onManage: () => void;
+    // The Profile Colors in the current appearance; with them, each Profile shows its monogram.
+    fills?: Readonly<Record<(typeof profileColors)[number], string>>;
   }>,
 ): readonly MenuSection[] => [
   {
@@ -181,10 +195,21 @@ export const profileMenu = (
         profile: id,
         view: {},
       });
+      const title = profileName(t, id, profiles);
+      const { color = 'graphite', icon } = profileStyle(profiles, id);
       return {
         key: `profile\n${id}`,
-        title: profileName(t, id, profiles),
+        title,
         symbol: '',
+        ...(fills === undefined
+          ? {}
+          : {
+              monogram: {
+                color: fills[color],
+                symbol: icon === undefined ? '' : profileIconSymbol[icon],
+                letter: profileLetter(title),
+              },
+            }),
         subtitle: t(
           profileMailboxes(connections, id).some(
             ({ state }) => state === 'authorization',

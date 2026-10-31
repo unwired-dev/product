@@ -414,31 +414,46 @@ export function MailProfilesSettings({
             onPress={() => {
               setChosen(id);
             }}
-            style={({ pressed }) =>
-              pressed && {
+            style={
+              id === selected && {
                 backgroundColor: colors.accentSelectionSubtle,
               }
             }>
-            <SettingsRow
-              icon={
-                <ProfileMonogram
-                  name={nameOf(id)}
-                  style={styleOf(id)}
-                />
-              }
-              title={nameOf(id)}
-              subtitle={profileConnections(t, mailboxes, id)}>
-              {id === startup && choices !== undefined ? (
-                <Text style={[styles.value, { color: colors.textSecondary }]}>
-                  {t('profiles.startup')}
-                </Text>
-              ) : null}
-              <SFSymbol
-                name="chevron.right"
-                size={12}
-                color={colors.textSecondary}
-              />
-            </SettingsRow>
+            {({ pressed }) => (
+              <>
+                {/* Pressed stacks on the selected fill, as the approved frames draw it. */}
+                {pressed ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      StyleSheet.absoluteFill,
+                      { backgroundColor: colors.accentSelectionSubtle },
+                    ]}
+                  />
+                ) : null}
+                <SettingsRow
+                  icon={
+                    <ProfileMonogram
+                      name={nameOf(id)}
+                      style={styleOf(id)}
+                    />
+                  }
+                  title={nameOf(id)}
+                  subtitle={profileConnections(t, mailboxes, id)}>
+                  {id === startup && choices !== undefined ? (
+                    <Text
+                      style={[styles.value, { color: colors.textSecondary }]}>
+                      {t('profiles.startup')}
+                    </Text>
+                  ) : null}
+                  <SFSymbol
+                    name="chevron.right"
+                    size={12}
+                    color={colors.textSecondary}
+                  />
+                </SettingsRow>
+              </>
+            )}
           </Pressable>
         ))}
         <Pressable

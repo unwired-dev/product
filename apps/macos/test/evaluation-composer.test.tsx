@@ -433,7 +433,7 @@ describe('the Tiptap evaluation composer', () => {
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
   });
 
-  it('retires a reviewed rewrite on a Profile change without losing the page’s unsaved body', async () => {
+  it('retires a reviewed rewrite and unfinished prompt on a Profile change without losing the page’s unsaved body', async () => {
     expect.hasAssertions();
     const mock = createMockMailSession('open-read-relaunch');
     const drafts = createDrafts(
@@ -455,8 +455,19 @@ describe('the Tiptap evaluation composer', () => {
     await press('Writing tools');
     await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
+    await press('Writing tools');
+    await chooseMenuItem('Generate a Draft…');
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
     await app.rerender(view('personal'));
     expect(screen.queryByText(syntheticRewrite)).toBeNull();
+    expect(screen.queryByLabelText('What to write')).toBeNull();
+    await press('Writing tools');
+    await chooseMenuItem('Generate a Draft…');
+    expect(screen.getByLabelText('What to write')).toHaveProp('value', '');
+    await press('Close Generate a Draft');
     expect(screen.getByTestId('message-webview')).toBeOnTheScreen();
     await press('Close', false);
     await page.report({ frozen: true });
@@ -583,14 +594,39 @@ describe('the Tiptap evaluation composer', () => {
         selection: { start: replaced.length, end: replaced.length },
       }),
     );
-    // The page's next update carries the replacement, which Save Draft stores like any edit.
+    // Generate inserts after the selection only on Insert, through the same page edit boundary.
     await report({
       document: [{ kind: 'quote', spans: [{ text: replaced }] }],
+      selection: { start: 5, end: replaced.length },
+    });
+    const beforeGenerate = lastCommand();
+    await press('Writing tools');
+    await chooseMenuItem('Generate a Draft…');
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
+    await press('Generate a draft from this description');
+    await screen.findByText(syntheticRewrite);
+    expect(lastCommand()).toBe(beforeGenerate);
+    await press('Insert this draft at the cursor');
+    const inserted = `${replaced}${syntheticRewrite}`;
+    expect(lastCommand()).toBe(
+      sent({
+        type: 'replace',
+        revision: revision(),
+        document: [{ kind: 'quote', spans: [{ text: inserted }] }],
+        selection: { start: inserted.length, end: inserted.length },
+      }),
+    );
+    // The page's next update carries the insertion, which Save Draft stores like any edit.
+    await report({
+      document: [{ kind: 'quote', spans: [{ text: inserted }] }],
     });
     await press('Close');
     await answer('Save');
     expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual([
-      { kind: 'quote', spans: [{ text: replaced }] },
+      { kind: 'quote', spans: [{ text: inserted }] },
     ]);
   });
 

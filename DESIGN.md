@@ -509,12 +509,17 @@ content.
   20pt. Glass groups take half their height.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
   control groups use 22pt corners and 18pt inset selections.
+- The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
+  220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
+  between 48pt `fill/quiet` capsules with centred Body labels.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
-  Settings' 24pt monogram the symbol is 10pt and the letter 11pt semibold; iPhone
-  Settings' is 30pt with a 12pt symbol and 14pt letter, and iPad's 28pt with a
-  12pt symbol and 13pt letter. Message list rows show a real contact photo
+  the glyph scales with the circle: 24pt in Settings with a 10pt symbol or an
+  11pt semibold letter, 22pt in the Profile Switcher with 9pt or 10pt, and 20pt
+  in the Profile Menu with 8pt or 9pt. iPhone Settings' is 30pt with a 12pt
+  symbol and 14pt letter, and iPad's 28pt with a 12pt symbol and 13pt letter.
+  Message list rows show a real contact photo
   only when the contact-images preference is on and a photo exists, and never
   generate initials. Catch Up bubbles and the Thread view show the contact photo
   or neutral initials.
@@ -552,9 +557,10 @@ form accessories, keyboards, status bar).
   The menu lists Mail Profiles with their Mailbox Connections, unread counts and
   a checkmark, then New Mail Profile… and Manage Mail Profiles…, which opens
   [Settings › Mail Profiles](https://github.com/unwired-dev/product/issues/1038). It is the system
-  menu, so each Profile's connections and unread count share its subtitle and the
-  checkmark leads; the reference frames' monograms and trailing counts are not
-  drawn. The Default Profile is named Primary Profile.
+  menu, so each Profile's connections and unread count share its subtitle, the
+  checkmark leads and the Profile's monogram is the item image; the reference
+  frames' trailing counts are not drawn. The Default Profile is named Primary
+  Profile.
 - **Mail View Chip (Figma: Category Chip):** the `category-chip` token recipes
   style each header chip with an icon, label and unread-Thread count badge capped
   at 99+. Selected chips are graphite with an emphasized label; others use the quiet fill.
@@ -597,7 +603,8 @@ form accessories, keyboards, status bar).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Suggest reply, Proofread, Break into Paragraphs, Translate, Expand
-  Text, Shorten Text and the tone tools, in the
+  Text, Shorten Text and the tone tools (on Mac also Generate a Draft…, whose
+  prompt popover follows the Generate a Draft frames), in the
   [grouped order](docs/draft-assistance.md#behavior)), the file controls and
   Templates; no glass on iPad and Mac),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,
@@ -614,8 +621,8 @@ form accessories, keyboards, status bar).
   offers Attach Files… and Insert Image… plus paste/drop. Attachment Chips show
   name, size, Remove, import progress/Cancel and failure state; Inline Images retain
   their authored position, with explicit conversion actions between images and
-  attachments. Keep reasons for blocked Send visible, and on iPhone and iPad
-  unsaved state too; the Mac shows no save status and asks on Close, per
+  attachments. Keep reasons for blocked Send visible. No client shows save status: iPhone
+  and iPad ask through the Close question and the Mac asks on Close, per
   [Draft saving and asset availability](docs/drafts.md#saving).
 - **Compose recipients and sender:** Recipient Suggestions appear beneath the
   active To/Cc/Bcc field; recipients are removable tokens. Invalid entries stay

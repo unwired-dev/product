@@ -1,5 +1,8 @@
 import type { Command } from '@private-email/draft-editor/messages';
-import type { CapturedDraftText } from '@private-email/mail-core/assistance';
+import type {
+  CapturedDraftText,
+  DraftTextPurpose,
+} from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
 import type { Link } from '@private-email/mail-core/semantic-document';
@@ -47,9 +50,9 @@ import { WebView } from 'react-native-webview';
 import type { Closing } from './composer.tsx';
 import type { Open, PageState } from './evaluation-composer-controls.tsx';
 
-import { MenuItem } from './composer-controls.tsx';
 import {
   CapturedAssistance,
+  CloseQuestion,
   Composer,
   ComposerLayoutContext,
   ComposerNotices,
@@ -58,7 +61,6 @@ import {
   retires,
   SendingMailbox,
 } from './composer.tsx';
-import { GlassPanel } from './design.tsx';
 import {
   FormatPanel,
   PhoneControls,
@@ -94,13 +96,6 @@ const styles = StyleSheet.create({
   // Menus float over the content below or above their control.
   controls: { zIndex: 4 },
   padControls: { zIndex: 1 },
-  closeMenu: {
-    position: 'absolute',
-    zIndex: 4,
-    top: 56,
-    left: spacing.l,
-    minWidth: 240,
-  },
 });
 
 // The Tiptap evaluation editor for one Draft, in the current composer's layout: the packaged page
@@ -328,7 +323,7 @@ function EvaluationEditor({
       });
     }
   }, [ready, run]);
-  const capture = (purpose: CapturedDraftText['purpose']) => {
+  const capture = (purpose: DraftTextPurpose) => {
     setOpen(undefined);
     const reported = pageNow.current;
     if (
@@ -630,32 +625,15 @@ function EvaluationEditor({
               void send();
             }}
           />
-          {/* Delete Draft and Save Draft grow out of Close. */}
-          <View
-            accessibilityRole="menu"
-            accessibilityElementsHidden={open !== 'close'}
-            pointerEvents={open === 'close' ? 'box-none' : 'none'}
-            style={styles.closeMenu}>
-            <GlassPanel
-              open={open === 'close'}
-              origin="top left">
-              <MenuItem
-                destructive
-                label={t('drafts.deleteDraft')}
-                selected={false}
-                onPress={() => {
-                  void deleteDraft();
-                }}
-              />
-              <MenuItem
-                label={t('drafts.saveDraft')}
-                selected={false}
-                onPress={() => {
-                  void saveDraft();
-                }}
-              />
-            </GlassPanel>
-          </View>
+          <CloseQuestion
+            open={open === 'close'}
+            onDelete={() => {
+              void deleteDraft();
+            }}
+            onSave={() => {
+              void saveDraft();
+            }}
+          />
           {retained.pad === undefined ? null : (
             <View
               style={styles.padControls}
@@ -926,10 +904,22 @@ type ComposerProps = Readonly<{
 export function DraftComposer(props: ComposerProps) {
   const draft = draftOf(useDrafts(), props.id);
   const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  // An editor outlives its Draft's removal elsewhere, so it keeps the sender it opened with.
+  const [owner, setOwner] = useState({
+    id: props.id,
+    connection: draft?.connection,
+  });
+  if (
+    draft !== undefined &&
+    (owner.id !== props.id || owner.connection !== draft.connection)
+  ) {
+    setOwner({ id: props.id, connection: draft.connection });
+  }
+  const connection =
+    owner.id === props.id ? owner.connection : draft?.connection;
   // Assistance for a Draft follows the consent of the Mail Profile that owns its sender.
   return (
-    <ProfileMailAssistanceGate
-      profile={profileOf(draft?.connection, mailboxes)}>
+    <ProfileMailAssistanceGate profile={profileOf(connection, mailboxes)}>
       {editorPage === undefined ? (
         <Composer {...props} />
       ) : (

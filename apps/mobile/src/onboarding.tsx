@@ -103,6 +103,13 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   regularAction: { minHeight: 44, borderRadius: radius.control },
+  privacy: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
   regularSignInAction: { minHeight: 46 },
   actionLabel: { ...textStyles.headline },
   ipadActionLabel: { ...typography.ipadList.body },
@@ -222,11 +229,11 @@ export function Welcome({
         disabled={restoring}
         focusable={!restoring}
         onPress={onPrivacy}
-        style={{
-          minHeight: 44,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
+        // The page is deep in both appearances, so the pressed fill takes the Dark value.
+        style={({ pressed }) => [
+          styles.privacy,
+          pressed && { backgroundColor: palette.dark.accentSelectionSubtle },
+        ]}>
         <Text style={[textStyles.subheadline, ink]}>
           {t('settings.destinations.privacy')}
         </Text>

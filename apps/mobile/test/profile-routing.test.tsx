@@ -33,6 +33,7 @@ import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createTwoProfileRegistration } from '@private-email/mail-core/testing/registration-scenarios';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
+import { palette } from '@private-email/mail-core/theme';
 import {
   act,
   cleanup,
@@ -221,6 +222,20 @@ const split = jest.requireMock<{
   shown: string[];
   commands: { registry?: CommandRegistry };
 }>('react-native-screens/experimental');
+
+const touch = {
+  persist: () => undefined,
+  currentTarget: 1,
+  nativeEvent: { pageX: 0, pageY: 0, locationX: 0, locationY: 0, timestamp: 0 },
+};
+
+// Selection fills drawn in a row: its own and any stacked over it.
+function fills(row: ReturnType<typeof screen.getByRole>) {
+  const filled = (node: typeof row) =>
+    StyleSheet.flatten(node.props.style)?.backgroundColor ===
+    palette.light.accentSelectionSubtle;
+  return [row, ...row.queryAll(filled)].filter(filled).length;
+}
 
 function showMail(profile: string) {
   const gmail = createSyntheticGmail();
@@ -708,7 +723,8 @@ describe('profile-scoped mobile routes', () => {
       expect(screen.getByLabelText('Message body')).toHaveTextContent(
         'Keep this draft.',
       );
-      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      // Selecting a message asks about the changed Draft; its unfinished recipient keeps it open.
+      await fireEvent.press(screen.getByRole('button', { name: 'Save Draft' }));
       expect(
         screen.getByText(
           'Correct or remove the invalid address to close this Draft.',
@@ -750,6 +766,7 @@ describe('profile-scoped mobile routes', () => {
       waitingForSave = pendingSave;
       await fireEvent.press(screen.getByRole('button', { name: 'Redo' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Save Draft' }));
       // Reader input and native save completion can arrive before the next render.
       await act(async () => {
         await fireEvent.press(
@@ -776,18 +793,25 @@ describe('profile-scoped mobile routes', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  // A Draft with content asks before leaving; leaving removes an untouched one at once.
   it.each([
-    { draft: 'with content', body: 'Keep this draft.', command: 'Inbox' },
+    {
+      draft: 'with content',
+      body: 'Keep this draft.',
+      command: 'Inbox',
+      answers: ['Save Draft'],
+    },
     // Leaving removes the empty Draft, which unmounts its editor before it finishes closing.
-    { draft: 'untouched', body: '', command: 'Inbox' },
+    { draft: 'untouched', body: '', command: 'Inbox', answers: [] },
     {
       draft: 'expanded via Search Mail',
       body: 'Keep this draft.',
       command: 'Search Mail',
+      answers: ['Save Draft'],
     },
   ])(
     'leaves an expanded iPad composer $draft for the Inbox from the Command Palette',
-    async ({ body, command }) => {
+    async ({ body, command, answers }) => {
       expect.hasAssertions();
       split.shown.length = 0;
       const dimensions = jest
@@ -870,6 +894,11 @@ describe('profile-scoped mobile routes', () => {
             }),
           );
         });
+        for (const name of answers) {
+          await act(async () => {
+            await fireEvent.press(screen.getByRole('button', { name }));
+          });
+        }
         expect(screen.queryByLabelText('Message body')).toBeNull();
         expect(screen.queryByText('This Draft is not available.')).toBeNull();
         expect(screen.queryByText('Synthetic garden body.')).toBeNull();
@@ -1254,6 +1283,22 @@ describe('the mobile Profile Switcher', () => {
       // The Primary Profile keeps its name.
       expect(screen.queryByDisplayValue('Primary Profile')).toBeNull();
       await fireEvent.press(work);
+      // The selected Profile keeps the subtle fill; a press stacks a second until release or cancel.
+      const primary = screen.getByRole('button', { name: 'Primary Profile' });
+      expect([fills(work), fills(primary)]).toStrictEqual([1, 0]);
+      expect(work).toBeSelected();
+      await fireEvent(work, 'responderGrant', touch);
+      expect(fills(work)).toBe(2);
+      await fireEvent(work, 'responderRelease', touch);
+      await waitFor(() => {
+        expect(fills(work)).toBe(1);
+      });
+      await fireEvent(primary, 'responderGrant', touch);
+      expect(fills(primary)).toBe(1);
+      await fireEvent(primary, 'responderTerminate', touch);
+      await waitFor(() => {
+        expect(fills(primary)).toBe(0);
+      });
       const name = screen.getByDisplayValue('Work');
       expect(name).toHaveProp('accessibilityLabel', 'Name');
       await fireEvent.changeText(name, '  Office ');

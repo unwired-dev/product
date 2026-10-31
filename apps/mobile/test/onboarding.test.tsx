@@ -1,8 +1,9 @@
-import { act, render, screen } from '@testing-library/react-native';
+import { palette } from '@private-email/mail-core/theme';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { Restoring } from '../src/onboarding.tsx';
+import { Restoring, Welcome } from '../src/onboarding.tsx';
 
 // The system reports a Reduce Motion change to every registered listener. The mock's own types
 // keep only the last event overload.
@@ -65,5 +66,42 @@ describe('restoring', () => {
     expect(
       screen.getByText('Opening your mail…', { includeHiddenElements: true }),
     ).toBe(status);
+  });
+});
+
+describe('welcome', () => {
+  it('fills Privacy & Data with the deep page’s Dark selection while pressed, in Light appearance too', async () => {
+    expect.hasAssertions();
+    const touch = {
+      persist: () => undefined,
+      currentTarget: 1,
+      nativeEvent: {
+        pageX: 0,
+        pageY: 0,
+        locationX: 0,
+        locationY: 0,
+        timestamp: 0,
+      },
+    };
+    await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 393, height: 852 },
+          insets: { top: 59, bottom: 34, left: 0, right: 0 },
+        }}>
+        <Welcome
+          onContinue={() => undefined}
+          onPrivacy={() => undefined}
+        />
+      </SafeAreaProvider>,
+    );
+    const privacy = screen.getByRole('button', { name: 'Privacy & Data' });
+    expect(privacy).not.toHaveStyle({
+      backgroundColor: palette.dark.accentSelectionSubtle,
+    });
+    await fireEvent(privacy, 'responderGrant', touch);
+    expect(privacy).toHaveStyle({
+      backgroundColor: palette.dark.accentSelectionSubtle,
+    });
   });
 });

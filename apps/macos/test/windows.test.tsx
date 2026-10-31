@@ -47,6 +47,7 @@ import {
   DeviceEventEmitter,
   processColor,
   ScrollView,
+  StyleSheet,
   TurboModuleRegistry,
   View,
 } from 'react-native';
@@ -71,6 +72,7 @@ import {
 import {
   chooseMenuItem,
   chooseSubmenuItem,
+  dismissMenu,
   menuItems,
   submenuItems,
 } from './native-menu.ts';
@@ -127,6 +129,20 @@ const chooseProfile = async (
   await fireEvent.press(switcher);
   await chooseMenuItem(title);
 };
+
+const touch = {
+  persist: () => undefined,
+  currentTarget: 1,
+  nativeEvent: { pageX: 0, pageY: 0, locationX: 0, locationY: 0, timestamp: 0 },
+};
+
+// Selection fills drawn in a Settings row: its own and any stacked over it.
+function fills(row: Parameters<typeof fireEvent.press>[0]) {
+  const filled = (node: typeof row) =>
+    StyleSheet.flatten(node.props.style)?.backgroundColor ===
+    palette.light.accentSelectionSubtle;
+  return [row, ...row.queryAll(filled)].filter(filled).length;
+}
 
 const maya = 'Unread. Maya Chen. A little more room to think';
 const oliver = 'Unread. Oliver Park. Saturday, by the river?';
@@ -1934,7 +1950,7 @@ describe('mac windows of different Mail Profiles', () => {
           account,
           profiles:
             account === 'synthetic-product-account'
-              ? [{ id: 'work', name: 'Work' }]
+              ? [{ id: 'work', name: 'Work', color: 'teal', icon: 'laptop' }]
               : [],
           createProfile: () => Promise.resolve(undefined),
         }}>
@@ -1942,6 +1958,35 @@ describe('mac windows of different Mail Profiles', () => {
       </AccountContext>
     );
   }
+
+  it('shows each Profile’s monogram in the Profile Switcher and Profile Menu', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    const app = await render(
+      <WithWork>
+        <InboxWindow windowId="primary" />
+      </WithWork>,
+    );
+    // The Default Profile keeps Graphite and its name's first letter.
+    const switcher = await app.findByLabelText('Mail Profile, Primary Profile');
+    expect(
+      within(switcher).getByText('P', { includeHiddenElements: true }),
+    ).toHaveStyle({ color: palette.light.brandOnDeep });
+    await fireEvent.press(switcher);
+    expect(
+      menuItems().map(({ title, monogram }) => [title, monogram]),
+    ).toStrictEqual([
+      [
+        'Primary Profile',
+        { color: palette.light.brandMonogram, symbol: '', letter: 'P' },
+      ],
+      ['Work', { color: '#0E7490', symbol: 'laptopcomputer', letter: 'W' }],
+      ['New Mail Profile…', undefined],
+      ['Manage Mail Profiles…', undefined],
+    ]);
+    await dismissMenu();
+  });
 
   it('clears selection and search when a reused window leaves and returns to its Profile', async () => {
     expect.hasAssertions();
@@ -2241,6 +2286,22 @@ describe('mac windows of different Mail Profiles', () => {
       // The Primary Profile keeps its name.
       expect(settings.queryByDisplayValue('Primary Profile')).toBeNull();
       await fireEvent.press(work);
+      // The selected Profile keeps the subtle fill; a press stacks a second until release or cancel.
+      const primary = settings.getByRole('button', { name: 'Primary Profile' });
+      expect([fills(work), fills(primary)]).toStrictEqual([1, 0]);
+      expect(work).toBeSelected();
+      await fireEvent(work, 'responderGrant', touch);
+      expect(fills(work)).toBe(2);
+      await fireEvent(work, 'responderRelease', touch);
+      await waitFor(() => {
+        expect(fills(work)).toBe(1);
+      });
+      await fireEvent(primary, 'responderGrant', touch);
+      expect(fills(primary)).toBe(1);
+      await fireEvent(primary, 'responderTerminate', touch);
+      await waitFor(() => {
+        expect(fills(primary)).toBe(0);
+      });
       const name = settings.getByDisplayValue('Work');
       expect(name).toHaveProp('accessibilityLabel', 'Name');
       await fireEvent.changeText(name, 'Office');
