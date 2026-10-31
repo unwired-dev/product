@@ -528,6 +528,10 @@ function EvaluationEditor({
       if (refusal === undefined) {
         return true;
       }
+      // A refused Send still stored the version shown; Close asks only if saving it failed.
+      if (await store.save()) {
+        unsaved.current = false;
+      }
       setClosing(undefined);
       setRefused(refusal);
       return false;

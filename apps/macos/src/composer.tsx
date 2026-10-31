@@ -2149,6 +2149,10 @@ function Editor({
         id: authored.current.id,
         ...(authored.current.conflict ? { conflict: true as const } : {}),
       }));
+      // A refused Send still stored the version shown; Close asks only if saving it failed.
+      if (refusal !== undefined && (await store.save())) {
+        unsaved.current = false;
+      }
     } catch {
       // An unexpected rejection keeps the Draft open to send again.
     }

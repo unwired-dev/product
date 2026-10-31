@@ -32,7 +32,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
-import { chooseSheetButton } from './native-alert.ts';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 import { chooseMenuItem } from './native-menu.ts';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -449,6 +449,31 @@ describe('sending a Draft', () => {
       }
     },
   );
+
+  it('closes a Draft its refused Send stored without asking to save it', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lunch');
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      await press('To: sam@example.invalid');
+      await press('Send');
+      await screen.findByRole('alert', {
+        name: 'Add a recipient before sending.',
+      });
+      await press('Close');
+      expect(sheetShown()).toBeUndefined();
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      expect(sender.storage.stored()?.document).toContain('Lunch');
+    } finally {
+      sender.storage.release();
+      sender.outbox.dispose();
+    }
+  });
 
   it('restores editing after refused admission and saves the next edits', async () => {
     expect.hasAssertions();

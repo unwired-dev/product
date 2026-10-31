@@ -285,7 +285,8 @@ saves as Mail does:
 - **Editing** stores nothing and shows no save status. The Draft is stored only when
   the person chooses **Save** on **Close** or sends it.
 - **Close** closes an unchanged Draft at once, even while another window's save is
-  failing, and removes an empty one without asking. Otherwise the window's alert sheet asks **Do you want to save this message
+  failing, and removes an empty one without asking. A refused **Send** stores the shown
+  version, so Close then asks only if storing it failed. Otherwise the window's alert sheet asks **Do you want to save this message
   as a draft?** with **Save**, **Don’t Save** and **Cancel**. AppKit keeps keyboard
   focus and VoiceOver in the sheet, and Escape chooses **Cancel**. **Don’t Save**
   deletes the Draft, as the sheet says; **Cancel** keeps editing. A sheet whose
