@@ -187,3 +187,8 @@ The [owner-session results](https://github.com/unwired-dev/product/issues/625#is
 accept Rewrite/Suggest reply with acceptance and Undo on both physical mobile
 devices and waive the Mac manual checks. Each unobserved unavailable reason
 remains a release check. Compilation alone is not evidence of model behavior.
+
+The iPhone sheet and iPad popover for **Generate a Draft…**
+([#1635](https://github.com/unwired-dev/product/issues/1635)) have no native
+evidence yet. Their native captures, keyboard, focus, VoiceOver, Dynamic Type
+and real-model checks remain release checks.
