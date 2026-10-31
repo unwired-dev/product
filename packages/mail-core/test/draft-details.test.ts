@@ -1,6 +1,6 @@
-import type { SemanticDocument } from '../src/semantic-document.ts';
+import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 
-import { checkDetails } from '../src/assistance.ts';
+import { checkDetails } from '@private-email/mail-core/assistance';
 
 const whole = (
   text: string,
