@@ -2597,6 +2597,8 @@ export function Composer({
   });
   if (editor.followed !== id) {
     setEditor({ key: id, followed: id, opened: draft });
+  } else if (state.kind !== 'ready' && editor.opened !== undefined) {
+    setEditor({ ...editor, opened: undefined });
   } else if (editor.opened === undefined && draft !== undefined) {
     setEditor({ ...editor, opened: draft });
   }

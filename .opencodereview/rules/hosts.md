@@ -543,10 +543,9 @@ still applies. See `docs/architecture/macos-client.md`.
 
 - `evaluation-composer.tsx.EvaluationEditor` or `composer.tsx.Editor` retaining
   failed-Close feedback after accepting another authored edit. Retire the stale
-  notice and its recovery controls on every accepted editing path, while keeping
-  the current save status visible. Malformed messages and retired-owner callbacks
+  notice and its recovery controls on every accepted editing path. Malformed messages and retired-owner callbacks
   must not clear feedback. Exercise blocked Close, resumed editing and notice
-  removal on each affected host; otherwise successful autosave can appear beside
+  removal on each affected host; otherwise resumed editing can appear beside
   an obsolete save-failure notice and Retry action.
 
 - `evaluation-composer.tsx` or another host view reusing notice copy that promises
@@ -779,6 +778,26 @@ still applies. See `docs/architecture/macos-client.md`.
   recipient notice. Exercise held storage followed by both invalid input and a
   valid unfinished address, then reopen the saved Draft; otherwise Save Draft
   closes over invalid input or stores uncompleted recipient text.
+- `composer.tsx.Composer` or `evaluation-composer.tsx.DraftComposer` deriving an
+  open editor's lifetime solely from its stored Draft's presence. Keep the opened
+  version and sender connection through removal elsewhere, retain its assets with
+  `store.hold` before the first edit is stored, and release them with the editor's
+  operation lifetime. Retire the retained opened version when storage leaves
+  ready so another Product Account cannot revive it after loading; hiding it
+  only during loading is insufficient. Preserve the sender Profile's assistance
+  consent. Exercise removal followed by Save with an asset,
+  disabled sender-Profile consent with Default consent enabled, and account
+  replacement; otherwise removal loses edits or bytes, or enables assistance
+  under another Profile's consent.
+- Mobile `composer.tsx.Editor.close` deciding that an empty Draft may close only
+  before awaiting its removal. Recheck accepted authored content after deletion
+  succeeds and ask when typing arrived meanwhile; otherwise slow storage closes
+  over local text that was never saved.
+- Mobile `composer.tsx.Editor.send` keeping its pre-update stored baseline after
+  `store.update` synchronously rebinds the editor to a conflict copy. Advance the
+  baseline to the rebound authored version as Save Draft does. Exercise refused
+  Send from a stale editor followed by editing and Save Draft; otherwise the
+  retry creates another conflicting copy of that editor's own version.
 - `composer.tsx.Editor` or `evaluation-composer.tsx.EvaluationEditor` putting
   variable-height save status, errors, confirmations or assistance reviews outside
   its single outer content scroll. Verify failed saving, refusal, Discard and
@@ -868,15 +887,12 @@ still applies. See `docs/architecture/macos-client.md`.
   authored payload too; pairing a fresh save baseline with a stale render payload
   silently erases edits from another field before React renders.
 
-- Mac `Recipients` or `Editor` keeping unfinished recipient text only in component
-  state instead of the autosaved Draft. Verify interruption recovery without
-  blur, Close or navigation, and include unfinished entries in content equality,
-  conflict preservation, empty-Draft disposal and Undo/Redo. Otherwise authored
-  addresses disappear after termination despite a saved Draft, or a stale empty
-  editor deletes another window's work.
-  The regular iPhone and iPad composer intentionally keeps edits local until
-  Save Draft or Send under #1612; do not require autosave or interruption recovery
-  for edits that have not been explicitly saved there.
+- `Recipients` or `Editor` omitting unfinished recipient text from its authored
+  Draft, content equality, conflict preservation, empty-Draft disposal or
+  Undo/Redo. Verify that explicitly saved entries reopen and that a stale empty
+  editor preserves another writer's completed content. The regular composers
+  keep edits local until Save or Send under #1609 and #1612; interruption recovery
+  applies to stored content, not edits that were never explicitly saved.
 
 - Composer text editing that infers a replacement solely from identical display
   text instead of using the selection and deletion direction, or coalesces Undo across fields or caret
@@ -917,10 +933,13 @@ still applies. See `docs/architecture/macos-client.md`.
 - A voluntary destination change that unmounts the Inbox or replaces its composer
   without awaiting the guard returned by `useLeaveComposer`: trace Account/RegistrationGate,
   mobile route replacements, Mac pane changes, New Message and Draft/message
-  selection through the registered editor close callback. It must finish pending
-  recipient text and wait for durable saving, holding the destination on invalid
-  input or failed storage; otherwise unfinished addresses and unsaved edits are
-  lost. Distinguish forced account/device invalidation, which must purge private
+  selection through the registered editor close callback. Apply the Draft guide's
+  platform Close choice: Save completes recipients and waits for durable saving,
+  Delete waits for deletion, and dismissal keeps editing. Preserve the requested
+  destination through successful removal instead of treating the editor's own
+  unmount as cancellation; invalid input or failed storage refuses navigation.
+  Otherwise edits are lost or the destination is abandoned after Delete.
+  Distinguish forced account/device invalidation, which must purge private
   state, and AppKit window destruction from voluntary navigation. Cover invalid
   entry and failed saving through the affected exit, not only the Close button.
   `createComposerNavigation.leave` must also release its pending guard when the

@@ -1703,6 +1703,14 @@ describe('composing Drafts', () => {
       />,
     );
     await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Saved in old account',
+    );
+    await saveDraft();
+    await press(
+      'Draft. Saved in old account. No recipients. From alex@example.invalid',
+    );
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Old account');
     owner = 'replacement-product-account';
     await act(() => {
@@ -1715,6 +1723,7 @@ describe('composing Drafts', () => {
       expect(drafts.getSnapshot().kind).toBe('ready');
     });
     expect(screen.queryByDisplayValue('Old account')).toBeNull();
+    expect(screen.queryByDisplayValue('Saved in old account')).toBeNull();
   });
 
   it('asks on Close when typing reaches an empty Draft while it is removed', async () => {
