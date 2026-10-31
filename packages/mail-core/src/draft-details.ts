@@ -61,7 +61,11 @@ const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 // may hold other details.
 const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   // Before links, so a dotted local part (`first.last+tag@`) is not read as a bare address.
-  ['email', String.raw`[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`],
+  // A local part may hold other address punctuation between letters (`o'connor@`).
+  [
+    'email',
+    String.raw`[\p{L}\p{N}._%+-]+(?:[!#$&'*/=?^\x60{|}~][\p{L}\p{N}._%+-]+)*@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`,
+  ],
   [
     'link',
     // A bare address ends in a label of letters or a punycode label, as in link inspection, and
@@ -73,6 +77,8 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
     [
       String.raw`\d{4}-\d{1,2}-\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
       `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
+      // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
+      `\\d{1,2}/\\d{1,2}`,
       `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
       weekday,
       anyCase('today|tomorrow|tonight|yesterday'),
@@ -92,7 +98,7 @@ const pattern = new RegExp(
   `(?:^|[^\\p{L}\\p{N}])(?:${patterns.map(([kind, source]) => `(${source})${kind === 'number' ? '' : edge}`).join('|')})`,
   'gu',
 );
-const quote = /"[^"\n]+"|“[^”\n]+”|„[^“”\n]+[“”]|«[^»\n]+»/gu;
+const quote = /"[^"]+"|“[^”]+”|„[^“”]+[“”]|«[^»]+»/gu;
 
 // A written link ends before a closing quote, a full stop, comma, colon or semicolon, and before a
 // closing parenthesis it did not open. `!` and `?` can end an address, so they stay part of it.

@@ -224,6 +224,44 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('compares yearless dates, addresses with apostrophes and quotes across lines whole', () => {
+    expect.hasAssertions();
+    const changes = (original: string, result: string) =>
+      checkDetails(whole(original), result).changes;
+    expect(changes('Meet on 11/01.', 'Meet on 01/11.')).toStrictEqual([
+      { kind: 'date', status: 'changed', original: '11/01', result: '01/11' },
+    ]);
+    expect(
+      changes(
+        "Write to o'connor@example.com.",
+        "Write to d'connor@example.com.",
+      ),
+    ).toStrictEqual([
+      {
+        kind: 'email',
+        status: 'changed',
+        original: "o'connor@example.com",
+        result: "d'connor@example.com",
+      },
+    ]);
+    expect(
+      changes("Write to 'bob@example.com'.", 'Write to bob@example.com.'),
+    ).toStrictEqual([]);
+    expect(
+      changes(
+        'He said “Please approve\nthe full budget”.',
+        'He said “Please reject\nthe full budget”.',
+      ),
+    ).toStrictEqual([
+      {
+        kind: 'quote',
+        status: 'changed',
+        original: 'Please approve\nthe full budget',
+        result: 'Please reject\nthe full budget',
+      },
+    ]);
+  });
+
   it('compares a whole email address whose local part has dots', () => {
     expect.hasAssertions();
     expect(

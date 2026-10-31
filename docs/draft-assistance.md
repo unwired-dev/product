@@ -85,14 +85,14 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     bare domain such as `example.com/r`, `example.com:8080/r` or `shop.xn--p1ai/r`,
     recognizing web schemes and punycode prefixes in any letter case, and the
     destination of linked words whose text does not show it exactly), email addresses (including
-    `mailto:` links without query fields; mail links with query fields remain
+    address punctuation such as `o'connor@`, `mailto:` links without query fields; mail links with query fields remain
     flagged with their complete destination), amounts (a number with a currency
     symbol, a three-letter code or Kč, including compact `USD40` and `40USD`,
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
     point (`-40`, `.5`),
     dates in any letter case (including an ISO timestamp's complete `T`-joined
-    time, fractional seconds and zone), times and quoted text in straight, curly, low
-    and angle quotes.
+    time, fractional seconds and zone, and a yearless day and month such as `11/01`), times and quoted text in straight, curly, low
+    and angle quotes, including quotes across line breaks.
   - A detail is kept only when the result writes an unambiguous equivalent: the
     same text apart from spacing, letter case for email addresses, dates and
     times (`8 P.M.` and `8pm`), the currency on either side of an amount
