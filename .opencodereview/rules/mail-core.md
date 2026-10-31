@@ -1212,6 +1212,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   day/year figures while keeping added or removed date parts uncertain. Retain
   complete joined date/time tokens too; dropping a timestamp's hour or zone can
   hide a changed appointment behind unchanged date fragments.
+  When filtering ordinary words such as `may` or `sat`, retain unambiguous full
+  calendar names and explicit day/month/year combinations in any letter case. Exercise real
+  calendar changes alongside prose, or reducing false warnings can hide dates.
 
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit

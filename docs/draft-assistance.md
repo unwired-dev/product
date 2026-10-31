@@ -96,10 +96,13 @@ iPhone and iPad composer.
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
     point (`-40`, `.5`), percentages (`10%`), grouped figures (`1 500`), fractions,
     ratios and ranges (`100/200`, `100:200`, `1–2`),
-    dates in any letter case (including abbreviated weekdays, month names with
-    or without a year — a weekday or month name on its own only when capitalized, so
-    `you may` stays a word — year-first dates with hyphens, dots or slashes, and an ISO
-    timestamp's complete `T`-joined time, fractional seconds and zone). A short
+    dates in any letter case, including full weekday names, unambiguous full month
+    names, a month with a day or
+    year, year-first dates with hyphens, dots or slashes, and an ISO
+    timestamp's complete `T`-joined time, fractional seconds and zone.
+    Standalone abbreviated names and the ambiguous month names May, March and
+    August need a capital first letter, so `you may`, `march on`, `an august guest`
+    and `sat down` stay words. A short
     slash form such as `11/01` or `1/2` is compared whole as a date
     even when it could be a fraction; its interpretation is never inferred.
     Times retain seconds, fractional seconds and a written zone such as `UTC`,

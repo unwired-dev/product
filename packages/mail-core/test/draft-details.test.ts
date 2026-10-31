@@ -224,12 +224,14 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
-  it('reads a lowercase month or weekday name on its own as a word', () => {
+  it('reads ambiguous lowercase standalone names as words', () => {
     expect.hasAssertions();
     expect(
       checkDetails(
-        whole('You may want to march on, sat by the sun.'),
-        'You might want to go on.',
+        whole(
+          'You may want to march on, sat by the sun. An august guest watched.',
+        ),
+        'You might want to go on. An esteemed guest watched.',
       ).changes,
     ).toStrictEqual([]);
     expect(
@@ -237,6 +239,67 @@ describe('the Writing tools detail check', () => {
     ).toStrictEqual([
       { kind: 'date', status: 'changed', original: 'May', result: 'June' },
     ]);
+  });
+
+  it.each([
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
+    'sunday',
+  ])('flags a removed lowercase full weekday: %s', (weekday) => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole(`Meet on ${weekday}.`), 'Meet soon.').changes,
+    ).toStrictEqual([{ kind: 'date', status: 'removed', original: weekday }]);
+    expect(
+      checkDetails(
+        whole(`Meet on ${weekday}.`),
+        `Meet on ${weekday.toUpperCase()}.`,
+      ),
+    ).toStrictEqual({ kept: [weekday], changes: [] });
+  });
+
+  it('compares a lowercase month with its year as a complete date', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Due in may 2026.'), 'Due in june 2026.').changes,
+    ).toStrictEqual([
+      {
+        kind: 'date',
+        status: 'changed',
+        original: 'may 2026',
+        result: 'june 2026',
+      },
+    ]);
+    expect(
+      checkDetails(whole('Due in november 2026.'), 'Due in November 2026.'),
+    ).toStrictEqual({ kept: ['november 2026'], changes: [] });
+  });
+
+  it.each([
+    'january',
+    'february',
+    'april',
+    'june',
+    'july',
+    'september',
+    'october',
+    'november',
+    'december',
+  ])('flags a removed unambiguous lowercase month: %s', (month) => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole(`Meet in ${month}.`), 'Meet soon.').changes,
+    ).toStrictEqual([{ kind: 'date', status: 'removed', original: month }]);
+    expect(
+      checkDetails(
+        whole(`Meet in ${month}.`),
+        `Meet in ${month.toUpperCase()}.`,
+      ),
+    ).toStrictEqual({ kept: [month], changes: [] });
   });
 
   it('compares yearless dates, addresses with apostrophes and quotes across lines whole', () => {
@@ -300,6 +363,9 @@ describe('the Writing tools detail check', () => {
       result: 'example.com/?x=a@b.com',
     },
     { kind: 'date', original: 'Mon', result: 'Tue' },
+    { kind: 'date', original: 'NOV', result: 'DEC' },
+    { kind: 'date', original: 'MAY 3', result: 'MAY 4' },
+    { kind: 'date', original: '3 may', result: '4 may' },
     { kind: 'date', original: 'November', result: 'December' },
     { kind: 'number', original: '100/200', result: '200/100' },
     { kind: 'number', original: '1.5/2.5', result: '2.5/1.5' },
