@@ -3,11 +3,15 @@ import type {
   MailboxConnection,
   MailProfile,
   ProfileFailure,
+  ProfileStyle,
   Registration,
 } from '@private-email/mail-core/registration';
 
 import {
+  profileColors,
   profileConnections,
+  profileIcons,
+  profileIconSymbol,
   profileName,
   profileRefusalText,
   profileRemoval,
@@ -22,6 +26,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
@@ -29,7 +34,7 @@ import { SFSymbol, useConfirmation } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
 import { SettingsGroup, SettingsRow, SettingsRowButton } from './settings.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, usePalette, useProfilePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   value: { ...textStyles.body },
@@ -40,6 +45,14 @@ const styles = StyleSheet.create({
     marginVertical: -spacing.s,
     textAlign: 'right',
   },
+  monogram: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramText: { ...textStyles.subheadline, fontWeight: '600' },
 });
 
 // Explains why a Mail Profile change did not complete.
@@ -79,6 +92,36 @@ export function promptNewProfile(
     ],
     'plain-text',
     [{ placeholder: t('profiles.name') }],
+  );
+}
+
+// A Mail Profile's monogram: its Icon, or its name's first letter, in white on its Color.
+function ProfileMonogram({
+  name,
+  style: { color = 'graphite', icon },
+}: {
+  readonly name: string;
+  readonly style: ProfileStyle;
+}) {
+  const colors = usePalette();
+  const fills = useProfilePalette();
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.monogram, { backgroundColor: fills[color] }]}>
+      {icon === undefined ? (
+        <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
+          {[...name][0]?.toLocaleUpperCase() ?? ''}
+        </Text>
+      ) : (
+        <SFSymbol
+          name={profileIconSymbol[icon]}
+          size={12}
+          color={colors.brandOnDeep}
+        />
+      )}
+    </View>
   );
 }
 
@@ -148,6 +191,7 @@ export function MailProfilesSettings({
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const fills = useProfilePalette();
   const { t } = useLocalization();
   const [chosen, setChosen] = useState(defaultProfile);
   const { anchor, confirm } = useConfirmation();
@@ -162,6 +206,10 @@ export function MailProfilesSettings({
   const selected = ids.includes(chosen) ? chosen : defaultProfile;
   const startup = windowProfile({ startup: choices?.startup, profiles });
   const nameOf = (id: string) => profileName(t, id, profiles);
+  // The Default Profile has no record, so it keeps Graphite and its first letter.
+  const styleOf = (id: string): ProfileStyle =>
+    profiles.find((profile) => profile.id === id) ?? {};
+  const { color = 'graphite', icon } = styleOf(selected);
   const owned = mailboxes.filter(({ profile }) => profile === selected);
   const [pending, setPending] = useState<readonly Pending[]>([]);
   const busy = pending.length > 0;
@@ -190,6 +238,15 @@ export function MailProfilesSettings({
     );
     if (failure !== undefined) {
       refused(t, 'move', failure);
+    }
+  };
+  // Choosing a Color or an Icon replaces the whole style, so it keeps the other choice.
+  const restyle = async (control: string, style: ProfileStyle) => {
+    const failure = await change({ control }, () =>
+      store.restyleProfile(selected, style),
+    );
+    if (failure !== undefined) {
+      refused(t, 'restyle', failure);
     }
   };
   // Duplicate copies the name, Color and Icon into a new Profile, then opens it for renaming.
@@ -254,7 +311,12 @@ export function MailProfilesSettings({
               setChosen(id);
             }}>
             <SettingsRow
-              icon="person.crop.rectangle.stack"
+              icon={
+                <ProfileMonogram
+                  name={nameOf(id)}
+                  style={styleOf(id)}
+                />
+              }
               title={nameOf(id)}
               subtitle={profileConnections(t, mailboxes, id)}>
               {id === startup && choices !== undefined ? (
@@ -304,6 +366,64 @@ export function MailProfilesSettings({
               )
             }
           />
+        </SettingsRow>
+        <SettingsRow title={t('profiles.color')}>
+          {progress('color')}
+          {selected === defaultProfile ? (
+            <Text style={[styles.value, { color: colors.textSecondary }]}>
+              {t(`profiles.colors.${color}`)}
+            </Text>
+          ) : (
+            <PopUp
+              accessibilityLabel={t('profiles.color')}
+              disabled={busy}
+              label={t(`profiles.colors.${color}`)}
+              items={profileColors.map((each) => ({
+                key: each,
+                title: t(`profiles.colors.${each}`),
+                symbol: 'circle.fill',
+                symbolColor: fills[each],
+                checked: each === color,
+                run: () => {
+                  if (each !== color) {
+                    void restyle('color', {
+                      color: each,
+                      ...(icon === undefined ? {} : { icon }),
+                    });
+                  }
+                },
+              }))}
+            />
+          )}
+        </SettingsRow>
+        <SettingsRow title={t('profiles.icon')}>
+          {progress('icon')}
+          {selected === defaultProfile ? (
+            <Text style={[styles.value, { color: colors.textSecondary }]}>
+              {t('profiles.icons.firstLetter')}
+            </Text>
+          ) : (
+            <PopUp
+              accessibilityLabel={t('profiles.icon')}
+              disabled={busy}
+              label={t(`profiles.icons.${icon ?? 'firstLetter'}`)}
+              items={[undefined, ...profileIcons].map((each) => ({
+                key: each ?? 'firstLetter',
+                title: t(`profiles.icons.${each ?? 'firstLetter'}`),
+                symbol:
+                  each === undefined ? 'character' : profileIconSymbol[each],
+                checked: each === icon,
+                run: () => {
+                  if (each !== icon) {
+                    void restyle('icon', {
+                      color,
+                      ...(each === undefined ? {} : { icon: each }),
+                    });
+                  }
+                },
+              }))}
+            />
+          )}
         </SettingsRow>
       </SettingsGroup>
       {mailboxes.length === 0 ? null : (
