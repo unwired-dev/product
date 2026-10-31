@@ -943,6 +943,34 @@ static UIColor *UnwiredHexColor(NSString *hex)
                           blue:(rgb & 0xFF) / 255.0 alpha:1];
 }
 
+// A Mail Profile's monogram as a menu item image, 28pt on iPhone and 24pt on iPad: its `symbol`, or
+// with none its `letter`, in white on a circle of its hex `color`. The glyph scales with the circle.
+static UIImage *UnwiredMonogram(NSDictionary *monogram)
+{
+  CGFloat size = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 24 : 28;
+  NSString *symbol = monogram[@"symbol"];
+  UIImage *glyph = symbol.length == 0 ? nil : [[UIImage systemImageNamed:symbol
+      withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:ceil(size * 0.4)
+                                                                         weight:UIImageSymbolWeightRegular]]
+      imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+  NSAttributedString *letter = [[NSAttributedString alloc] initWithString:monogram[@"letter"]
+      attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:ceil(size * 0.45) weight:UIFontWeightSemibold],
+                   NSForegroundColorAttributeName: UIColor.whiteColor}];
+  CGSize content = glyph != nil ? glyph.size : letter.size;
+  CGRect centered = CGRectMake((size - content.width) / 2, (size - content.height) / 2, content.width, content.height);
+  UIImage *image = [[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(size, size)]
+      imageWithActions:^(__unused UIGraphicsImageRendererContext *context) {
+        [UnwiredHexColor(monogram[@"color"]) setFill];
+        [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(0, 0, size, size)] fill];
+        if (glyph != nil) {
+          [glyph drawInRect:centered];
+        } else {
+          [letter drawInRect:centered];
+        }
+      }];
+  return [image imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+}
+
 static UIMenuElement *UnwiredMenuElement(NSDictionary *item, void (^select)(NSString *identifier))
 {
   NSString *symbol = item[@"symbol"];
@@ -952,6 +980,7 @@ static UIMenuElement *UnwiredMenuElement(NSDictionary *item, void (^select)(NSSt
   if (image != nil && symbolColor.length == 7) {
     image = [image imageWithTintColor:UnwiredHexColor(symbolColor) renderingMode:UIImageRenderingModeAlwaysOriginal];
   }
+  if (item[@"monogram"] != nil) image = UnwiredMonogram(item[@"monogram"]);
   NSArray<NSDictionary *> *sections = item[@"sections"];
   if (sections != nil) {
     return [UIMenu menuWithTitle:item[@"title"] image:image identifier:nil options:0

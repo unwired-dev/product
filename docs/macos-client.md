@@ -181,6 +181,12 @@ text view, which has no enabled attribute, so XCTest reports the composer body a
 not enabled, as it does for any AppKit text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
 
+The renderer patch also preserves italic when a Draft's stored font is not
+installed. Fabric's missing-family fallback uses its standard system-font helper
+at the stored size and weight, including the italic trait. Remove this hunk when
+the supported renderer preserves those traits itself. The focused AppKit font
+check does not replace packaged composer qualification.
+
 The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
 Shift-Command-Z history.
 

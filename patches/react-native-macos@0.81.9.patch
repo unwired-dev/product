@@ -126,3 +126,14 @@ index e7254907271b70783e886d378c7824df46e04e93..55f66005c367296a8487fde8eba45ee7
    }
  #endif // macOS]
  }
+diff --git a/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTFontUtils.mm b/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTFontUtils.mm
+--- a/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTFontUtils.mm
++++ b/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTFontUtils.mm
+@@ -358,6 +358,6 @@ UIFont *RCTFontWithFontProperties(RCTFontProperties fontProperties)
+         fontWeight = fontWeight ?: RCTGetFontWeight(font);
+       } else {
+         // Failback to system font.
+-        font = [UIFont systemFontOfSize:effectiveFontSize weight:fontProperties.weight];
++        font = RCTDefaultFontWithFontProperties(fontProperties);
+       }
+     }

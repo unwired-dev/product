@@ -13,7 +13,7 @@ import type {
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
-import type { SendRefusal } from '@private-email/mail-core/outbox';
+import type { SendCheck, SendRefusal } from '@private-email/mail-core/outbox';
 import type {
   MailboxConnection,
   MailProvider,
@@ -68,6 +68,7 @@ import {
   applyText,
   blockKindAt,
   displayOf,
+  formatStyleOf,
   historyOf,
   imageCharacter,
   imagesOf,
@@ -114,6 +115,7 @@ import {
   Text,
   TextInput,
   View,
+  useColorScheme,
 } from 'react-native';
 
 import type { PopUpItem } from './composer-controls.tsx';
@@ -134,6 +136,7 @@ import {
   Popover,
   SFSymbol,
   ToolbarButton,
+  useOutcomeAnnouncement,
 } from './design.tsx';
 import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
@@ -240,7 +243,10 @@ const styles = StyleSheet.create({
   },
   assetMeta: { flexShrink: 1 },
   assetName: { ...textStyles.bodyEmphasized },
-  assetStatus: { ...textStyles.subheadline },
+  assetStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  assetStatus: { ...textStyles.subheadline, flexShrink: 1 },
+  // The small indicator's 20 pt box fits the 14 pt status line, so a checking chip keeps its height.
+  assetChecking: { marginVertical: -3 },
   thumbnail: { width: 28, height: 28, borderRadius: radius.control },
   fields: { paddingHorizontal: fieldInset, paddingBottom: 6 },
   field: {
@@ -860,13 +866,18 @@ const assetStatus = (
   {
     asset,
     running,
+    checking,
     preview,
   }: Readonly<{
     asset: Asset;
     running: boolean;
+    checking: boolean;
     preview: AssetPreview | undefined;
   }>,
 ) => {
+  if (checking) {
+    return t('drafts.assets.status.checking');
+  }
   if (asset.state === 'complete') {
     if (
       preview?.kind === 'damaged' ||
@@ -928,10 +939,44 @@ const transferred = (
     source: { kind: uri.startsWith('data:') ? 'data' : 'file', uri },
   }));
 
+// A verify-only Send check updates availability without replacing an inline thumbnail.
+const sendPreview = (
+  kind: AssetPreview['kind'] | undefined,
+  preview: AssetPreview | undefined,
+): AssetPreview | undefined => {
+  if (kind === undefined || kind === 'ready') {
+    return undefined;
+  }
+  return kind === 'verified' && preview?.kind === 'ready' ? preview : { kind };
+};
+
+// A Send result replaces the row's previous availability for this asset revision.
+const afterSend = (
+  asset: Asset,
+  {
+    kind,
+    shown,
+    attempt,
+  }: Readonly<{
+    kind: AssetPreview['kind'] | undefined;
+    shown: AssetPreview | undefined;
+    attempt: number;
+  }>,
+) => {
+  const preview = sendPreview(kind, shown);
+  return asset.state !== 'complete' || preview === undefined
+    ? undefined
+    : { id: asset.id, digest: asset.digest, attempt, preview };
+};
+
 // A complete asset's bytes checked against its digest, read again when it completes or changes;
 // an inline image's are also returned to show. A check refused while storage was locked runs
-// again when the app becomes active, or when asked.
-function usePreview(asset: Asset, inline: boolean) {
+// again when the app becomes active, or when asked. A Send check updates the same status.
+function usePreview(
+  asset: Asset,
+  inline: boolean,
+  check: SendCheck | undefined,
+) {
   const store = useDraftStore();
   const complete = asset.state === 'complete' ? asset : undefined;
   const id = complete?.id;
@@ -950,6 +995,13 @@ function usePreview(asset: Asset, inline: boolean) {
   const retry = useCallback(() => {
     setAttempt((current) => current + 1);
   }, []);
+  const checked = check?.get(asset.id);
+  const sendResult = useRef<AssetPreview['kind']>(undefined);
+  useLayoutEffect(() => {
+    if (checked !== undefined) {
+      sendResult.current = checked;
+    }
+  }, [checked]);
   const shown =
     preview?.id === id && preview?.digest === digest
       ? preview?.preview
@@ -974,13 +1026,20 @@ function usePreview(asset: Asset, inline: boolean) {
       return undefined;
     }
     let showing = true;
+    // New reads can recover; an older read must preserve the newer Send result and any thumbnail.
+    sendResult.current = undefined;
     const read = async () => {
       const next = await store.readAsset(
         { id, digest, type },
         { preview: inline },
       );
       if (showing) {
-        setPreview({ id, digest, attempt, preview: next });
+        setPreview({
+          id,
+          digest,
+          attempt,
+          preview: sendPreview(sendResult.current, next) ?? next,
+        });
       }
     };
     void read();
@@ -988,7 +1047,60 @@ function usePreview(asset: Asset, inline: boolean) {
       showing = false;
     };
   }, [store, id, digest, type, inline, attempt]);
-  return { preview: shown, retry };
+  const [found, setFound] = useState(checked);
+  if (found !== checked) {
+    setFound(checked);
+    const next = afterSend(asset, { kind: checked, shown, attempt });
+    if (next !== undefined) {
+      setPreview(next);
+      // Send verified the bytes; a missing inline thumbnail can load separately.
+      if (inline && next.preview.kind === 'verified') {
+        retry();
+      }
+    }
+  }
+  return {
+    preview: shown,
+    retry,
+    checking: check?.has(asset.id) === true && checked === undefined,
+  };
+}
+
+// A file's status; while Send reads it, Checking… beside an indeterminate spinner.
+function AssetStatus({
+  checking,
+  preview,
+  status,
+}: Readonly<{
+  checking: boolean;
+  preview: AssetPreview | undefined;
+  status: string;
+}>) {
+  const colors = usePalette();
+  return (
+    <View style={styles.assetStatusRow}>
+      {checking ? (
+        <ActivityIndicator
+          size="small"
+          color={colors.textSecondary}
+          style={styles.assetChecking}
+        />
+      ) : null}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.assetStatus,
+          {
+            color:
+              preview?.kind === 'damaged' && !checking
+                ? colors.statusDestructive
+                : colors.textSecondary,
+          },
+        ]}>
+        {status}
+      </Text>
+    </View>
+  );
 }
 
 function AssetRow({
@@ -996,6 +1108,7 @@ function AssetRow({
   editable,
   inline,
   running,
+  check,
   onRemove,
   onCancel,
   onConvert,
@@ -1005,6 +1118,7 @@ function AssetRow({
   readonly inline: boolean;
   readonly running: boolean;
   readonly editable: boolean;
+  readonly check: SendCheck | undefined;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
@@ -1017,7 +1131,7 @@ function AssetRow({
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
     [settings.locale],
   );
-  const { preview, retry } = usePreview(asset, inline);
+  const { preview, retry, checking } = usePreview(asset, inline, check);
   const uri = inline && preview?.kind === 'ready' ? preview.uri : undefined;
   useEffect(() => {
     if (inline) {
@@ -1027,6 +1141,7 @@ function AssetRow({
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
+    checking,
     preview,
   });
   const toAttachment = inline ? 'toAttachment' : 'toInline';
@@ -1077,11 +1192,11 @@ function AssetRow({
           style={[styles.assetName, { color: colors.textPrimary }]}>
           {asset.name}
         </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.assetStatus, { color: colors.textSecondary }]}>
-          {status}
-        </Text>
+        <AssetStatus
+          checking={checking}
+          preview={preview}
+          status={status}
+        />
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
@@ -1154,6 +1269,7 @@ function AssetRow({
 export function DraftAssets({
   draft,
   editable,
+  check,
   onRemove,
   onCancel,
   onConvert,
@@ -1161,6 +1277,8 @@ export function DraftAssets({
 }: {
   readonly draft: Draft;
   readonly editable: boolean;
+  // The files Send is checking; each shows Checking… until its read finishes.
+  readonly check?: SendCheck | undefined;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
@@ -1187,6 +1305,7 @@ export function DraftAssets({
       <AssetRow
         key={asset.id}
         asset={asset}
+        check={check}
         editable={editable}
         inline={inline}
         onCancel={onCancel}
@@ -1769,6 +1888,13 @@ function Editor({
   const [closing, setClosing] = useState<Closing>();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
+  const [check, setCheck] = useState<SendCheck>();
+  useOutcomeAnnouncement(
+    check !== undefined && check.size > 0
+      ? t('drafts.assets.checking')
+      : undefined,
+    false,
+  );
   // While Save or Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [paused, setPaused] = useState(false);
   // Native callbacks can arrive before the disabled props commit.
@@ -1794,6 +1920,7 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
+  const appearance = useColorScheme() === 'dark' ? 'dark' : 'light';
 
   // Holds edits and finishing while Discard or Send runs.
   const discarded = useRef(false);
@@ -2306,11 +2433,14 @@ function Editor({
     let refusal: SendRefusal | undefined = 'storage';
     try {
       storeShown();
-      refusal = await outbox.send(() => ({
-        ...shown,
-        id: authored.current.id,
-        ...(authored.current.conflict ? { conflict: true as const } : {}),
-      }));
+      refusal = await outbox.send(
+        () => ({
+          ...shown,
+          id: authored.current.id,
+          ...(authored.current.conflict ? { conflict: true as const } : {}),
+        }),
+        setCheck,
+      );
       // A refused Send still stored the version shown; Close asks only if saving it failed.
       if (refusal !== undefined && (await store.save())) {
         unsaved.current = false;
@@ -2322,6 +2452,7 @@ function Editor({
       pausedNow.current = false;
       discarded.current = false;
     }
+    setCheck(undefined);
     finishOperation();
     if (lifetime.current.mounted) {
       if (refusal === undefined) {
@@ -2631,13 +2762,17 @@ function Editor({
               style={[
                 kindStyles[line.kind],
                 line.kind === 'quote' ? { color: colors.textSecondary } : null,
+                line.align === undefined ? null : { textAlign: line.align },
               ]}>
               {line.marker}
               {line.spans.map((span, at) => (
                 <Text
                   // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
                   key={at}
-                  style={markStyle(span.marks, 'link' in span)}>
+                  style={[
+                    markStyle(span.marks, 'link' in span),
+                    formatStyleOf(span, appearance),
+                  ]}>
                   {span.text}
                 </Text>
               ))}
@@ -2649,6 +2784,7 @@ function Editor({
           <QuotedText quoted={draft.quoted} />
         )}
         <DraftAssets
+          check={check}
           draft={draft}
           editable={!paused}
           onCancel={(id) => {

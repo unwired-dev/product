@@ -56,16 +56,6 @@ export const profileName = (
     ? t('profiles.primary')
     : (profiles.find(({ id }) => id === profile)?.name ?? '');
 
-// The switcher's monogram: the first letters of the name's first two words.
-export const profileMonogram = (name: string) =>
-  name
-    .trim()
-    .split(/\s+/u)
-    .slice(0, 2)
-    .map((word) => [...word][0] ?? '')
-    .join('')
-    .toLocaleUpperCase();
-
 // A Mail Profile's Color and Icon; the Default Profile has no record, so it keeps neither.
 export const profileStyle = (
   profiles: readonly MailProfile[],

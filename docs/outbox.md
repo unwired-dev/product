@@ -109,6 +109,13 @@ it.
   formatting and Discard wait until the message is admitted or Send is refused.
   Send dismisses any translation or writing-help preview and prevents new requests;
   a refused Send restores editing and assistance actions.
+- On Mac, while Send checks the Draft's files, each file not yet checked shows
+  **Checking…** beside an activity indicator, and VoiceOver hears **Checking
+  attachments** once. A checked file returns to its size. The check stops at the
+  first file that does not verify; that file shows why, such as **Damaged on this
+  device**, and nothing sends until Send is pressed again. iPhone and iPad
+  do not show this yet; they remain a follow-up of
+  [#1092](https://github.com/unwired-dev/product/issues/1092).
 - If a mailbox changes its address, **From** keeps the Draft's original address
   visible with an explanation. Choose that mailbox again to use its current
   address, or choose another mailbox.
