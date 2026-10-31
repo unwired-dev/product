@@ -2594,14 +2594,23 @@ export function Composer({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const state = useDrafts();
-  // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
-  const [editor, setEditor] = useState({ key: id, followed: id });
+  const draft = draftOf(state, id);
+  // The editor stays mounted when it moves to its own copy, and remounts for another Draft. It
+  // also outlives removal of its stored Draft, keeping its edits for Save Draft, but not a change
+  // of Product Account, which leaves the Drafts no longer ready.
+  const [editor, setEditor] = useState({
+    key: id,
+    followed: id,
+    opened: draft,
+  });
   if (editor.followed !== id) {
-    setEditor({ key: id, followed: id });
+    setEditor({ key: id, followed: id, opened: draft });
+  } else if (editor.opened === undefined && draft !== undefined) {
+    setEditor({ ...editor, opened: draft });
   }
   const rebind = useCallback(
     (copy: string) => {
-      setEditor((current) => ({ key: current.key, followed: copy }));
+      setEditor((current) => ({ ...current, followed: copy }));
       onRebind(copy);
     },
     [onRebind],
@@ -2624,12 +2633,13 @@ export function Composer({
     },
     [onClose],
   );
-  const draft = draftOf(state, id);
-  if (draft !== undefined) {
+  const opened =
+    editor.followed === id && state.kind === 'ready' ? editor.opened : draft;
+  if (opened !== undefined) {
     return (
       <Editor
         key={editor.key}
-        initial={draft}
+        initial={opened}
         expanded={expanded}
         onClose={onClose}
         onClosedAfterRemoval={closedAfterRemoval}

@@ -1172,14 +1172,33 @@ describe('composing Drafts', () => {
     await press(row);
     await press('Close');
     expect(screen.queryByLabelText('Subject')).toBeNull();
-    // Delete Draft removes a changed one.
+    // A Draft removed elsewhere while open keeps the editor's version for Save Draft.
     await press(row);
-    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Gone');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Kept');
+    const stored = draftsOf(drafts.getSnapshot()).map(({ id }) => id);
+    await act(() => Promise.all(stored.map((id) => drafts.discard(id))));
+    expect(subjects()).toStrictEqual([]);
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Kept');
     await press('Close');
+    await press('Save Draft');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+    });
+    expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+      { subject: 'Kept', conflict: true },
+    ]);
+    // Delete Draft removes a changed one and continues to the requested New Message.
+    await fireEvent.press(screen.getByRole('button', { name: /Kept/u }));
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Gone');
+    await press('New Message');
     await press('Delete Draft');
+    await waitFor(() => {
+      expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+    });
+    expect(subjects()).toStrictEqual(['']);
+    await press('Close');
     expect(screen.queryByLabelText('Subject')).toBeNull();
     expect(subjects()).toStrictEqual([]);
-    expect(screen.queryByRole('button', { name: row })).toBeNull();
   });
 
   // The password repair opens Settings on Email Accounts.
