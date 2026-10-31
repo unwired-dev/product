@@ -1207,6 +1207,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   equivalent visible text. Preserve occurrence counts and expose ambiguous
   equivalence through the documented review outcome; otherwise the plain apply
   action can hide changed values or lost destinations.
+  Audit overlapping token kinds and their boundaries too: all-caps months must
+  not become currency codes, and partial-date matching must preserve separate
+  day/year figures while keeping added or removed date parts uncertain.
 
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit

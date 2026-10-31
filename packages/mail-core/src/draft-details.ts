@@ -121,7 +121,10 @@ const keys: Partial<Record<DetailKind, (spaced: string) => string>> = {
   amount: amountKey,
 };
 const keyOf = (kind: DetailKind, value: string) => {
-  const spaced = value.replaceAll(/\s+/gu, kind === 'quote' ? ' ' : '');
+  const spaced = value.replaceAll(
+    /\s+/gu,
+    kind === 'quote' || kind === 'date' ? ' ' : '',
+  );
   return keys[kind]?.(spaced) ?? spaced;
 };
 
@@ -197,7 +200,7 @@ const take = (details: Detail[], matches: (other: Detail) => boolean) => {
 // Only a separator before a group of three digits can be grouping.
 const ungrouped = (key: string) =>
   key.replaceAll(/(?<digit>\d)[.,](?=\d{3}(?!\d))/gu, '$<digit>');
-// A shorter date is contained only as whole figures, so `3nov` is not within `13nov`.
+// Keep date spacing above so an added year stays separate from a day. `3 Nov` is not in `13 Nov`.
 const within = (whole: string, part: string) =>
   new RegExp(
     `(?:^|\\D)${part.replaceAll(/[.*+?^${}()|[\]\\/]/gu, String.raw`\$&`)}(?!\\d)`,

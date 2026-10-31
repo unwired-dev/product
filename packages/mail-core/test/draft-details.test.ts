@@ -245,6 +245,37 @@ describe('the Writing tools detail check', () => {
     );
   });
 
+  it('keeps an added or removed year uncertain without matching part of a day or year', () => {
+    expect.hasAssertions();
+    for (const [original, result, status] of [
+      ['3 Nov', '3 Nov 2026', 'uncertain'],
+      ['3 Nov 2026', '3 Nov', 'uncertain'],
+      ['Nov 3', 'Nov 3 2026', 'uncertain'],
+      ['Nov 3 2026', 'Nov 3', 'uncertain'],
+      ['Nov 3', 'Nov 31', 'changed'],
+      ['3 Nov 2026', '3 Nov 2027', 'changed'],
+    ] as const) {
+      expect(checkDetails(whole(original), result)).toStrictEqual({
+        kept: [],
+        changes: [{ kind: 'date', status, original, result }],
+      });
+    }
+  });
+
+  it('preserves complete amounts when dates take precedence', () => {
+    expect.hasAssertions();
+    for (const [original, result] of [
+      ['€1.50', '€1.60'],
+      ['1.500 CZK', '1.600 CZK'],
+      ['12.10 EUR', '12.20 EUR'],
+    ] as const) {
+      expect(checkDetails(whole(original), result)).toStrictEqual({
+        kept: [],
+        changes: [{ kind: 'amount', status: 'changed', original, result }],
+      });
+    }
+  });
+
   it('compares numbers with exponents and addresses with punycode labels', () => {
     expect.hasAssertions();
     const changes = (original: string, result: string) =>

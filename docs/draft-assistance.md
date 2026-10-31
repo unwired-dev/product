@@ -108,7 +108,7 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     Nothing else is interpreted, so `3` rewritten as `three` is removed.
   - A difference that may be another way to write the same detail is
     uncertain, never kept: a date that gains or loses a part (`Saturday` as
-    `Saturday, 1 Nov`, but not `3 Nov` as `13 Nov`) or is in figures on one side only (`2026-11-01` as
+    `Saturday, 1 Nov` or `3 Nov` as `3 Nov 2026`, but not `3 Nov` as `13 Nov`) or is in figures on one side only (`2026-11-01` as
     `1 November 2026`), a number or amount that differs only by a thousands
     separator (`1,000` as `1000`), and a link that differs only by `!` or `?`
     at its end. Any other pair, such as `Monday` as `Tuesday` or `.5` as `5`,
