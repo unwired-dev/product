@@ -43,9 +43,10 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -56,6 +57,7 @@ import {
 
 import {
   Glass,
+  GlassPanel,
   SFSymbol,
   ToolbarButton,
   useMenuMotion,
@@ -144,6 +146,37 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
+  formatPanel: { margin: spacing.s, marginTop: 0 },
+  formatContent: { padding: spacing.l, gap: spacing.m },
+  formatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  formatTitle: { ...textStyles.title3Emphasized, flex: 1 },
+  formatClose: { borderRadius: radius.insetGroup },
+  formatRow: {
+    flexDirection: 'row',
+    gap: spacing.s,
+  },
+  formatStyles: {
+    flexDirection: 'row',
+    padding: spacing.xs,
+    borderRadius: radius.insetGroup,
+  },
+  formatGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    borderRadius: radius.insetGroup,
+    overflow: 'hidden',
+  },
+  formatChoice: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.insetGroup - spacing.xs,
+  },
   // Keeps an open menu above the content that follows it.
   menuAnchor: { zIndex: 1 },
   popUp: {
@@ -174,7 +207,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   menuBelow: { top: '100%', marginTop: spacing.xs },
-  menuAbove: { bottom: '100%', marginBottom: spacing.xs },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -246,6 +278,16 @@ const textStyleKinds: readonly BlockKind[] = [
   'quote',
   'code',
 ];
+// The iPhone Format panel's rows: text styles, marks, then lists, quotes and code blocks.
+const headings = ['heading1', 'heading2', 'heading3', 'paragraph'] as const;
+const markGroups = {
+  marks: markControls.slice(0, 4),
+  code: markControls.slice(4),
+};
+const blockGroups = {
+  lists: blockControls.slice(3, 5),
+  text: blockControls.slice(5),
+};
 
 // A pop-up control whose menu opens in flow beside it; the menu lists its children.
 // shortcut: the menu closes only from its control or an item, not from a tap elsewhere;
@@ -258,7 +300,6 @@ export function PopUp({
   quiet = false,
   disabled = false,
   selected = false,
-  above = false,
   open,
   onToggle,
   children,
@@ -271,7 +312,6 @@ export function PopUp({
   readonly disabled?: boolean;
   // Whether the shown choice is in effect, as a chosen sender is and a retained one is not.
   readonly selected?: boolean;
-  readonly above?: boolean;
   readonly open: boolean;
   readonly onToggle: () => void;
   readonly children: ReactNode;
@@ -327,12 +367,12 @@ export function PopUp({
             motion.style,
             styles.menu,
             label === undefined ? styles.menuTrailing : null,
-            above ? styles.menuAbove : styles.menuBelow,
+            styles.menuBelow,
             {
               backgroundColor: colors.surfaceContent,
               borderColor: colors.separator,
               boxShadow: colors.menuShadow,
-              transformOrigin: `${above ? 'bottom' : 'top'} ${label === undefined ? 'right' : 'left'}`,
+              transformOrigin: `top ${label === undefined ? 'right' : 'left'}`,
             },
           ]}>
           <Glass cornerRadius={radius.card} />
@@ -432,7 +472,6 @@ export function FormatBar({
   active,
   kind,
   disabled,
-  above = false,
   onBlock,
   onMark,
   children,
@@ -440,7 +479,6 @@ export function FormatBar({
   readonly active: readonly Mark[];
   readonly kind: BlockKind;
   readonly disabled: boolean;
-  readonly above?: boolean;
   readonly onBlock: (kind: BlockKind) => void;
   readonly onMark: (mark: Mark) => void;
   readonly children: ReactNode;
@@ -454,7 +492,6 @@ export function FormatBar({
       accessibilityRole="toolbar"
       style={[styles.formatBar, { borderColor: colors.separator }]}>
       <PopUp
-        above={above}
         accessibilityLabel={t('drafts.textStyle')}
         disabled={disabled}
         icon="textformat"
@@ -516,6 +553,230 @@ export function FormatBar({
         {children}
       </ScrollView>
     </View>
+  );
+}
+
+// One choice in the Format panel, filled while it applies at the selection.
+function FormatChoice({
+  name,
+  selected,
+  disabled,
+  onPress,
+  children,
+}: {
+  readonly name: string;
+  readonly selected: boolean;
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+  readonly children: (color: string) => ReactNode;
+}) {
+  const colors = usePalette();
+  return (
+    <Pressable
+      accessibilityLabel={name}
+      accessibilityRole="button"
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        styles.formatChoice,
+        selected && { backgroundColor: colors.accentFill },
+        disabled && { opacity: 0.4 },
+      ]}>
+      {children(selected ? colors.accentOnFill : colors.textPrimary)}
+    </Pressable>
+  );
+}
+
+// The iPhone Format panel, which replaces the keyboard: Undo and Redo, text styles, marks, the
+// Link Editor and the remaining block kinds, as the format bar offers them.
+export function FormatPanel({
+  open,
+  active,
+  kind,
+  link,
+  undo,
+  redo,
+  disabled,
+  onUndo,
+  onRedo,
+  onBlock,
+  onMark,
+  onLink,
+  onClose,
+  onHide,
+}: {
+  readonly open: boolean;
+  readonly active: readonly Mark[];
+  readonly kind: BlockKind;
+  readonly link: Link | undefined;
+  // Whether there is an edit to undo or redo.
+  readonly undo: boolean;
+  readonly redo: boolean;
+  readonly disabled: boolean;
+  readonly onUndo: () => void;
+  readonly onRedo: () => void;
+  readonly onBlock: (kind: BlockKind) => void;
+  readonly onMark: (mark: Mark) => void;
+  readonly onLink: (link: Link, text: string, href?: string) => void;
+  // Closes the panel and resumes typing; `onHide` only closes it.
+  readonly onClose: () => void;
+  readonly onHide: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  // Typing in the Link Editor shows the keyboard too, and its sheet lives in this panel.
+  const [linking, setLinking] = useState(false);
+  // Tapping into the body again brings the keyboard back in place of the panel.
+  useEffect(() => {
+    if (!open || linking) {
+      return;
+    }
+    const shown = Keyboard.addListener('keyboardWillShow', onHide);
+    return () => {
+      shown.remove();
+    };
+  }, [linking, onHide, open]);
+  const rowFill = { backgroundColor: colors.fillQuiet };
+  return (
+    <GlassPanel
+      open={open}
+      style={styles.formatPanel}
+      cornerRadius={radius.formatPanel}>
+      <View
+        accessibilityLabel={t('drafts.formatting')}
+        accessibilityRole="toolbar"
+        style={styles.formatContent}>
+        <View style={styles.formatHeader}>
+          <Text
+            accessibilityRole="header"
+            style={[styles.formatTitle, { color: colors.textPrimary }]}>
+            {t('drafts.format')}
+          </Text>
+          <ToolbarButton
+            disabled={disabled || !undo}
+            icon="arrow.uturn.backward"
+            label={t('drafts.undo')}
+            onPress={onUndo}
+          />
+          <ToolbarButton
+            disabled={disabled || !redo}
+            icon="arrow.uturn.forward"
+            label={t('drafts.redo')}
+            onPress={onRedo}
+          />
+          <View style={[styles.formatClose, rowFill]}>
+            <ToolbarButton
+              icon="xmark"
+              label={t('drafts.closeFormat')}
+              onPress={onClose}
+            />
+          </View>
+        </View>
+        <View style={[styles.formatStyles, rowFill]}>
+          {headings.map((value) => {
+            const name = t(blockNames[value]);
+            return (
+              <FormatChoice
+                key={value}
+                disabled={disabled}
+                name={name}
+                selected={kind === value}
+                onPress={() => {
+                  onBlock(value);
+                }}>
+                {(color) => (
+                  <Text style={[textStyles.subheadline, { color }]}>
+                    {name}
+                  </Text>
+                )}
+              </FormatChoice>
+            );
+          })}
+        </View>
+        <View style={styles.formatRow}>
+          {Object.entries(markGroups).map(([key, group]) => (
+            <View
+              key={key}
+              style={[
+                styles.formatGroup,
+                rowFill,
+                { minWidth: (key === 'code' ? 2 : group.length) * 44 },
+              ]}>
+              {group.map(([mark, , name]) => (
+                <FormatChoice
+                  key={mark}
+                  disabled={disabled}
+                  name={t(name)}
+                  selected={active.includes(mark)}
+                  onPress={() => {
+                    onMark(mark);
+                  }}>
+                  {(color) => (
+                    <SFSymbol
+                      name={markIcons[mark]}
+                      size={20}
+                      color={color}
+                    />
+                  )}
+                </FormatChoice>
+              ))}
+              {/* The Link control follows Code, as in the iPhone Format frame. */}
+              {key === 'code' ? (
+                <View style={styles.formatChoice}>
+                  <LinkEditor
+                    disabled={disabled}
+                    link={link}
+                    popover={false}
+                    onChange={onLink}
+                    onShown={setLinking}
+                  />
+                </View>
+              ) : null}
+            </View>
+          ))}
+        </View>
+        <View style={styles.formatRow}>
+          {/* Lists, quotes and code blocks follow the three headings. */}
+          {Object.entries(blockGroups).map(([key, group]) => (
+            <View
+              key={key}
+              style={[styles.formatGroup, rowFill]}>
+              {group.map(([value, , name]) => (
+                <FormatChoice
+                  key={value}
+                  disabled={disabled}
+                  name={t(name)}
+                  selected={kind === value}
+                  onPress={() => {
+                    onBlock(value);
+                  }}>
+                  {(color) =>
+                    value === 'bulleted' || value === 'numbered' ? (
+                      <SFSymbol
+                        name={
+                          value === 'bulleted' ? 'list.bullet' : 'list.number'
+                        }
+                        size={20}
+                        color={color}
+                      />
+                    ) : (
+                      <SFSymbol
+                        name={
+                          value === 'quote' ? 'quote.opening' : 'curlybraces'
+                        }
+                        size={20}
+                        color={color}
+                      />
+                    )
+                  }
+                </FormatChoice>
+              ))}
+            </View>
+          ))}
+        </View>
+      </View>
+    </GlassPanel>
   );
 }
 
