@@ -1216,6 +1216,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   equivalent visible text. Preserve occurrence counts and expose ambiguous
   equivalence through the documented review outcome; otherwise the plain apply
   action can hide changed values or lost destinations.
+  Compare result destinations against the document that the composer's exact
+  `draftReplacement`/`replaceSelection` path creates, including inherited links
+  within the inserted range. Check partial and reversed selections, list markers
+  and multiline results; a plain result string can claim a carried destination
+  changed or disappeared even though acceptance keeps it.
   Audit overlapping token kinds and their boundaries too: all-caps months must
   not become currency codes, and partial-date matching must preserve separate
   day/year figures while keeping added or removed date parts uncertain. Retain
@@ -1224,6 +1229,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   When filtering ordinary words such as `may` or `sat`, retain unambiguous full
   calendar names and explicit day/month/year combinations in any letter case. Exercise real
   calendar changes alongside prose, or reducing false warnings can hide dates.
+  Keep complete details together across whitespace runs and wrapped lines before
+  matching occurrences. Normalizing keys after extraction cannot repair a date
+  split into unchanged day/month fragments; audit quotes, amounts and grouped
+  numbers when changing shared whitespace normalization too.
 
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit
