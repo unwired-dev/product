@@ -1,4 +1,5 @@
 import type { Translate } from '@private-email/localization';
+import type { MenuItem } from '@private-email/mail-core/context-menu';
 import type {
   MailboxConnection,
   MailProfile,
@@ -6,8 +7,6 @@ import type {
   ProfileStyle,
   Registration,
 } from '@private-email/mail-core/registration';
-
-import type { MenuItem } from '@private-email/mail-core/context-menu';
 
 import {
   profileColors,
