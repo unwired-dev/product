@@ -1723,7 +1723,7 @@ function Editor({
   );
   // Files become attachments; images placed inline go at the caret, replacing any selection.
   const addFiles = (files: readonly PickedFile[], inline: boolean) => {
-    if (files.length === 0 || discarded.current) {
+    if (files.length === 0 || discarded.current || pausedNow.current) {
       return;
     }
     const prepared = prepareFiles(authored.current, {

@@ -1130,6 +1130,28 @@ describe('composing Drafts', () => {
       await act(() => {
         queuedPress('Subject', 'onChangeText')('Typed while saving');
       });
+      // A file dropped while saving is not attached or imported. The handler is called directly,
+      // as AppKit delivers a drop.
+      storage.addFile('/Users/alex/Desktop/brief.txt', 'brief');
+      await act(() => {
+        queuedPress(
+          'Subject',
+          'onDrop',
+        )({
+          nativeEvent: {
+            dataTransfer: {
+              files: [
+                {
+                  name: 'brief.txt',
+                  type: 'text/plain',
+                  uri: '/Users/alex/Desktop/brief.txt',
+                },
+              ],
+            },
+          },
+        });
+      });
+      expect(storage.assets()).toHaveLength(0);
       expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await act(() => {
@@ -1145,6 +1167,7 @@ describe('composing Drafts', () => {
       expect(draftsOf(drafts.getSnapshot())).toMatchObject([
         { subject: 'Saving on Close' },
       ]);
+      expect(storage.assets()).toHaveLength(0);
     } finally {
       storage.release();
     }
