@@ -113,6 +113,7 @@ import {
 } from './mailbox-read.ts';
 import {
   bodyParts,
+  calendarPart,
   contentIdsOf,
   decodeAttachment,
   decodeBodyDocument,
@@ -2733,6 +2734,8 @@ export function createGmailInbox(
   > {
     const payload = yield* boundedMessage(scope, id);
     const { html, text, path } = bodyParts(payload);
+    // Microsoft invitations are answered through their own journey.
+    const calendar = graph === undefined ? calendarPart(payload) : undefined;
     const document: BodyDocument = {
       version: 2,
       id,
@@ -2746,6 +2749,9 @@ export function createGmailInbox(
       ...(html === undefined
         ? {}
         : { html: yield* fetchPart(scope, id, html) }),
+      ...(calendar === undefined
+        ? {}
+        : { calendar: yield* fetchPart(scope, id, calendar) }),
     };
     if (payload.attachmentsPending === true) {
       return { document, authentication: payload.authentication === true };

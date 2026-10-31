@@ -189,6 +189,8 @@ const BodyDocumentSchema = Schema.Struct({
       }),
     ),
   ),
+  // The decoded iCalendar text of a Gmail meeting invitation, for responding to it.
+  calendar: Schema.optionalKey(Schema.String),
   // The message's own addressing and threading headers, for Reply, Reply All and Forward; absent
   // in bodies cached before they were kept.
   headers: Schema.optionalKey(
@@ -596,6 +598,20 @@ const attachmentLeaves = (
         attachmentLeaves(child, [...locator, index]),
       );
 };
+
+// The largest iCalendar part read for a meeting invitation.
+const calendarLimit = 256 * 1024;
+
+// The message's meeting invitation part outside attached messages: its first `text/calendar` leaf,
+// or else an `application/ics` attachment, when it fits the limit.
+export function calendarPart(payload: GmailPart) {
+  const leaves = attachmentLeaves(payload, [0]).map(({ part }) => part);
+  const found =
+    leaves.find((part) => mimeType(part) === 'text/calendar') ??
+    leaves.find((part) => mimeType(part) === 'application/ics');
+  const size = found?.body?.size;
+  return size === undefined || size > calendarLimit ? undefined : found;
+}
 
 const namedOrAttached = (part: GmailPart) =>
   (part.filename ?? '') !== '' || isAttachment(part);
