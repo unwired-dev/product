@@ -1717,6 +1717,46 @@ describe('composing Drafts', () => {
     expect(screen.queryByDisplayValue('Old account')).toBeNull();
   });
 
+  it('asks on Close when typing reaches an empty Draft while it is removed', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const base = createDrafts(
+      createSyntheticDrafts(() => 'synthetic-product-account').native,
+      registration,
+    );
+    const slow = deferred();
+    const drafts = {
+      ...base,
+      discard: async (...args: Parameters<typeof base.discard>) => {
+        await slow.promise;
+        return base.discard(...args);
+      },
+    };
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await press('Close');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Late');
+    await act(async () => {
+      slow.resolve(undefined);
+      await slow.promise;
+    });
+    // The typed version is not lost: Close asks, and Save Draft keeps it as a copy of the removed
+    // Draft.
+    await press('Save Draft');
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+    expect(
+      draftsOf(base.getSnapshot()).map(({ subject, conflict }) => ({
+        subject,
+        conflict,
+      })),
+    ).toStrictEqual([{ subject: 'Late', conflict: true }]);
+  });
+
   it('keeps a stale editor on one conflicting copy after a refused Send', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

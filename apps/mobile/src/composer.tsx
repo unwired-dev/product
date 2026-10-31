@@ -2041,12 +2041,15 @@ function Editor({
   const close = () =>
     finish(async () => {
       if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
-        return store.discard(() => authored.current.id, {
+        const removed = await store.discard(() => authored.current.id, {
           onlyIfEmpty: true,
           expected: () => stored.current,
         });
-      }
-      if (
+        // Typing while the empty Draft was removed asks rather than closing over it.
+        if (!removed || isEmptyDraft(authored.current)) {
+          return removed;
+        }
+      } else if (
         authored.current === stored.current &&
         state.kind === 'ready' &&
         state.save === 'saved'
