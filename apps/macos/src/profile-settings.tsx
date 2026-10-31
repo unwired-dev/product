@@ -91,7 +91,8 @@ export function promptNewProfile(
   );
 }
 
-// A Mail Profile's monogram: its Icon, or its name's first letter, in white on its Color.
+// A Mail Profile's monogram: its Icon, or its name's first letter, in white on its Color. The
+// glyph scales with the circle: a 10pt symbol or 11pt letter at 24pt.
 export function ProfileMonogram({
   name,
   style: { color = 'graphite', icon },
@@ -117,13 +118,20 @@ export function ProfileMonogram({
         },
       ]}>
       {icon === undefined ? (
-        <Text style={[styles.monogramText, { color: colors.brandOnDeep }]}>
+        <Text
+          style={[
+            styles.monogramText,
+            {
+              color: colors.brandOnDeep,
+              fontSize: Math.round((size * 11) / 24),
+            },
+          ]}>
           {profileLetter(name)}
         </Text>
       ) : (
         <SFSymbol
           name={profileIconSymbol[icon]}
-          size={10}
+          size={Math.round((size * 10) / 24)}
           color={colors.brandOnDeep}
         />
       )}

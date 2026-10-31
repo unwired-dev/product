@@ -847,10 +847,10 @@ static NSImage *UnwiredMonogram(NSDictionary *monogram)
                                       alpha:1];
   NSString *symbol = monogram[@"symbol"];
   NSImage *glyph = symbol.length == 0 ? nil : [[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil]
-      imageWithSymbolConfiguration:[[NSImageSymbolConfiguration configurationWithPointSize:9 weight:NSFontWeightRegular]
+      imageWithSymbolConfiguration:[[NSImageSymbolConfiguration configurationWithPointSize:8 weight:NSFontWeightRegular]
           configurationByApplyingConfiguration:[NSImageSymbolConfiguration configurationWithPaletteColors:@[NSColor.whiteColor]]]];
   NSAttributedString *letter = [[NSAttributedString alloc] initWithString:monogram[@"letter"]
-      attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold],
+      attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:9 weight:NSFontWeightSemibold],
                    NSForegroundColorAttributeName: NSColor.whiteColor}];
   return [NSImage imageWithSize:NSMakeSize(20, 20) flipped:NO drawingHandler:^BOOL(NSRect rect) {
     [fill setFill];
