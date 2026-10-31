@@ -177,10 +177,10 @@ function Note({
 }
 
 const statusOf = ({ kind, status }: DetailChange) => {
-  if (status === 'changed' && (kind === 'link' || kind === 'date')) {
-    return kind === 'link' ? 'linkChanged' : 'dateChanged';
+  if (status === 'changed' && kind === 'link') {
+    return 'linkChanged';
   }
-  return status;
+  return status === 'uncertain' ? (`uncertain.${kind}` as const) : status;
 };
 
 // The details a Writing tools result changed, removed or added, side by side with the original,
@@ -410,8 +410,8 @@ export function DraftAssistance({
   }
   // A prompted draft has no original text to keep.
   const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
-  // A checked result offers push buttons, as its frames do: Keep original carries the main action
-  // when details differ, and the rewrite when none do.
+  // A checked result offers push buttons, as its frames do: Keep original is the default button,
+  // answering Return, when details differ, and the rewrite when none do.
   const control = ({
     main = false,
     ...props
@@ -426,6 +426,7 @@ export function DraftAssistance({
     ) : (
       <Button
         fill={main ? 'accent' : 'quiet'}
+        isDefault={main}
         {...props}
       />
     );

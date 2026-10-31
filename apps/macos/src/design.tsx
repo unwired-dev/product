@@ -52,6 +52,7 @@ const NativePushButton = requireNativeComponent<
     readonly focusColor: ReturnType<typeof processColor>;
     readonly destructive: boolean;
     readonly enabled: boolean;
+    readonly returnKey: boolean;
     readonly onPress: () => void;
   }
 >('UnwiredPushButton');
@@ -685,13 +686,15 @@ export function Notice({
 }
 
 // A push button, 28pt tall, that AppKit draws: the accent tint carries the view's main action and
-// the brand tint Welcome's Continue; the others take the standard bezel.
+// the brand tint Welcome's Continue; the others take the standard bezel. The default button also
+// answers Return.
 export function Button({
   label,
   onPress,
   fill = 'quiet',
   disabled = false,
   destructive = false,
+  isDefault = false,
   accessibilityLabel,
 }: {
   readonly label: string;
@@ -699,6 +702,7 @@ export function Button({
   readonly fill?: 'accent' | 'brand' | 'quiet';
   readonly disabled?: boolean;
   readonly destructive?: boolean;
+  readonly isDefault?: boolean;
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
@@ -729,6 +733,7 @@ export function Button({
         enabled={!disabled}
         focusColor={dark ? processColor(colors.accentInk) : undefined}
         onPress={onPress}
+        returnKey={isDefault}
         style={StyleSheet.absoluteFill}
         label={accessibilityLabel ?? label}
         text={label}

@@ -100,19 +100,26 @@ composer's **Generate a Draft…**, which writes new text from a prompt.
     even when its text shows the address with such punctuation. Its complete
     address must be written out; a substring is insufficient. Written linked
     text may omit the web scheme or root slash, but a slash after a path stays
-    part of the destination. Nothing else is interpreted, so `3` rewritten as `three` is removed, a
-    reformatted date (`2026-11-01` as `1 November 2026`) or a date that gains a
-    day (`Saturday` as `Saturday, 1 Nov`) is changed, and `1,000` as `1000`
+    part of the destination. Nothing else is interpreted, so `3` rewritten as `three` is removed.
+  - A difference that may be another way to write the same detail is
+    uncertain, never kept: a date that gains or loses a part (`Saturday` as
+    `Saturday, 1 Nov`) or is in figures on one side only (`2026-11-01` as
+    `1 November 2026`), a number or amount that differs only by a thousands
+    separator (`1,000` as `1000`), and a link that differs only by `!` or `?`
+    at its end. Any other pair, such as `Monday` as `Tuesday` or `.5` as `5`,
     is changed.
   - Details that differ are paired in order within each kind as changed, and
     the rest are removed or added. The panel counts them, lists each with its
-    original and rewritten value (a changed link says it goes somewhere else; a
-    changed date says it can't be confirmed as the same date) and lists the
+    original and rewritten value (a changed link says it goes somewhere else; an
+    uncertain one says it can't be confirmed as the same date, number, amount
+    or link) and lists the
     kept details. The apply action then becomes **Use rewrite with changes**,
     so applying them is an explicit choice; **Keep original** and **Try again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**
-    when none do. The accent button is not yet the window's Return-key default. VoiceOver reads each row as one element and hears the count after
+    when none do. The accent button is the window's default button: Return presses it
+    unless the focused view takes the key, as the Draft body does for a new
+    line. VoiceOver reads each row as one element and hears the count after
     the result.
 - A result belongs to the text it was captured from. Any edit to the Draft body, or to the To/Cc recipients
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
@@ -191,7 +198,7 @@ allow-listed native code or decode path, never Draft or generated text.
   refusal, unavailability and failure without logging Draft text, retry rules, an
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.
 - `packages/mail-core/test/draft-details.test.ts` checks the detail rules: kept,
-  changed, removed and added details of each kind, the accepted equivalents,
+  changed, uncertain, removed and added details of each kind, the accepted equivalents,
   `3` and `three`, regrouped numbers, signed and leading-decimal numbers and
   amounts, reformatted dates and quotes, dates in capitals, bare addresses,
   trailing link punctuation including `!`, and hidden, scheme-less and

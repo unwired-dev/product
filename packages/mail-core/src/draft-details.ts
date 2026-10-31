@@ -26,7 +26,7 @@ type Detail = Readonly<{
 
 export type DetailChange = Readonly<{
   kind: DetailKind;
-  status: 'changed' | 'removed' | 'added';
+  status: 'changed' | 'uncertain' | 'removed' | 'added';
   label?: string;
   original?: string;
   result?: string;
@@ -185,9 +185,36 @@ const take = (details: Detail[], matches: (other: Detail) => boolean) => {
   return index === -1 ? undefined : details.splice(index, 1)[0];
 };
 
+// Differences that may be another way to write the same detail stay visible as uncertain rather
+// than kept: a date that gains or loses a part (`Saturday` and `Saturday, 1 Nov`) or is written in
+// figures on one side only (`2026-11-01` and `1 November 2026`), a regrouped number or amount
+// (`1,000` and `1000`), and a link that differs only by punctuation at its end.
+// Only a separator before a group of three digits can be grouping.
+const ungrouped = (key: string) =>
+  key.replaceAll(/(?<digit>\d)[.,](?=\d{3}(?!\d))/gu, '$<digit>');
+const named = (key: string) => /\p{L}/u.test(key);
+const similar: Partial<
+  Record<DetailKind, (one: string, other: string) => boolean>
+> = {
+  date: (one, other) =>
+    one.includes(other) || other.includes(one) || named(one) !== named(other),
+  number: (one, other) => ungrouped(one) === ungrouped(other),
+  amount: (one, other) => ungrouped(one) === ungrouped(other),
+  link: (one, other) =>
+    one.replace(/[!?]+$/u, '') === other.replace(/[!?]+$/u, ''),
+};
+const statusOf = (each: Detail, paired: Detail | undefined) => {
+  if (paired === undefined) {
+    return 'removed';
+  }
+  return similar[each.kind]?.(each.key, paired.key) === true
+    ? 'uncertain'
+    : 'changed';
+};
+
 const changeOf = (each: Detail, paired: Detail | undefined): DetailChange => ({
   kind: each.kind,
-  status: paired === undefined ? 'removed' : 'changed',
+  status: statusOf(each, paired),
   ...(each.label === undefined ? {} : { label: each.label }),
   original: each.value,
   ...(paired === undefined ? {} : { result: paired.value }),

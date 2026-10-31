@@ -22,7 +22,7 @@ describe('the Writing tools detail check', () => {
       changes: [
         {
           kind: 'date',
-          status: 'changed',
+          status: 'uncertain',
           original: 'Saturday',
           result: 'Saturday, 1 Nov',
         },
@@ -62,8 +62,8 @@ describe('the Writing tools detail check', () => {
       ],
       changes: [],
     });
-    // A number written as a word, a regrouped number, a reformatted date and an edited quote
-    // stay to compare.
+    // A number written as a word is removed; a regrouped number and a reformatted date may be the
+    // same and stay uncertain; an edited quote changed.
     expect(
       checkDetails(whole('We need 3 rooms.'), 'We need three rooms.').changes,
     ).toStrictEqual([{ kind: 'number', status: 'removed', original: '3' }]);
@@ -73,10 +73,15 @@ describe('the Writing tools detail check', () => {
         'For 1000 guests on 1 November 2026, “the team”.',
       ).changes,
     ).toStrictEqual([
-      { kind: 'number', status: 'changed', original: '1,000', result: '1000' },
+      {
+        kind: 'number',
+        status: 'uncertain',
+        original: '1,000',
+        result: '1000',
+      },
       {
         kind: 'date',
-        status: 'changed',
+        status: 'uncertain',
         original: '2026-11-01',
         result: '1 November 2026',
       },
@@ -120,9 +125,39 @@ describe('the Writing tools detail check', () => {
     ).toStrictEqual([
       {
         kind: 'link',
-        status: 'changed',
+        status: 'uncertain',
         original: 'https://example.com/approve!',
         result: 'https://example.com/approve',
+      },
+    ]);
+  });
+
+  it('keeps a plain difference changed and a possible equivalent uncertain', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Pay €1,500 or 1.5 units on Monday at example.com/pay?'),
+        'Pay €1500 or 2 units on Tuesday at example.com/pay',
+      ).changes,
+    ).toStrictEqual([
+      {
+        kind: 'amount',
+        status: 'uncertain',
+        original: '€1,500',
+        result: '€1500',
+      },
+      { kind: 'number', status: 'changed', original: '1.5', result: '2' },
+      {
+        kind: 'date',
+        status: 'changed',
+        original: 'Monday',
+        result: 'Tuesday',
+      },
+      {
+        kind: 'link',
+        status: 'uncertain',
+        original: 'example.com/pay?',
+        result: 'example.com/pay',
       },
     ]);
   });

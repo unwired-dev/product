@@ -637,7 +637,15 @@
     "detailStatus": {
       "changed": "Changed",
       "linkChanged": "Link goes somewhere else",
-      "dateChanged": "Can’t confirm it’s the same date",
+      "uncertain": {
+        "link": "Can’t confirm it’s the same link",
+        "email": "Can’t confirm it’s the same email address",
+        "quote": "Can’t confirm it’s the same quote",
+        "date": "Can’t confirm it’s the same date",
+        "time": "Can’t confirm it’s the same time",
+        "amount": "Can’t confirm it’s the same amount",
+        "number": "Can’t confirm it’s the same number"
+      },
       "removed": "Removed",
       "added": "Added"
     },
