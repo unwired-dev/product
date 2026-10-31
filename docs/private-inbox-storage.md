@@ -260,8 +260,8 @@ rows as system pull-down menus, each Color with its swatch, and list each
 Profile with its monogram
 ([#1628](https://github.com/unwired-dev/product/issues/1628)).
 The Primary Profile shows Graphite and First Letter without pop-ups. The iPhone
-and iPad Profile Switcher and Profile Menu do not show the style yet; they follow in
-[#1039](https://github.com/unwired-dev/product/issues/1039).
+and iPad Profile Switcher and Profile Menu show each Profile's styled monogram
+([#1636](https://github.com/unwired-dev/product/issues/1636)).
 Every Profile except the Primary Profile offers **Remove Mail
 Profile…**, which asks first in a system alert. For a Profile that owns
 connections, the question names them, and confirming removes them from Unwired

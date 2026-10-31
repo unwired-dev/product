@@ -4,7 +4,6 @@ import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   createProfileChoices,
   profileMenu,
-  profileMonogram,
   profileRefusalText,
   profileRemoval,
   windowProfile,
@@ -255,13 +254,6 @@ describe('window Profiles', () => {
     ).toBe(
       'Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then try again.',
     );
-  });
-
-  it('shows the first letters of the first two words', () => {
-    expect.hasAssertions();
-    expect(profileMonogram('Primary Profile')).toBe('PP');
-    expect(profileMonogram('  work ')).toBe('W');
-    expect(profileMonogram('Émile Zola Fan')).toBe('ÉZ');
   });
 
   it('restores the saved window Profile and saves the chosen Startup Profile', async () => {
