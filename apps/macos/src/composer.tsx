@@ -179,9 +179,15 @@ const styles = StyleSheet.create({
   },
   title: { ...textStyles.bodyEmphasized },
   // The Generate a Draft popover, per the Mac Compose Generate a Draft frames.
-  generate: { width: 360, gap: spacing.s, padding: spacing.l },
+  // Its insets match the Link Editor popover's; the prompt is a control, so it uses Body.
+  generate: {
+    width: 360,
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.l,
+  },
   generateTitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
-  generatePrompt: { ...textStyles.subheadline, minHeight: 28 },
+  generatePrompt: { ...textStyles.body, minHeight: 32 },
   generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
   alerts: {
     gap: spacing.s,
