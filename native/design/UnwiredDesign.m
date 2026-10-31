@@ -931,10 +931,24 @@ static NSMenu *UnwiredMenuOf(NSString *title, NSArray<NSDictionary *> *sections,
 #else
 static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSString *identifier));
 
+// A `#RRGGBB` color.
+static UIColor *UnwiredHexColor(NSString *hex)
+{
+  unsigned int rgb = 0;
+  [[NSScanner scannerWithString:[hex substringFromIndex:1]] scanHexInt:&rgb];
+  return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0 green:((rgb >> 8) & 0xFF) / 255.0
+                          blue:(rgb & 0xFF) / 255.0 alpha:1];
+}
+
 static UIMenuElement *UnwiredMenuElement(NSDictionary *item, void (^select)(NSString *identifier))
 {
   NSString *symbol = item[@"symbol"];
   UIImage *image = symbol.length > 0 ? [UIImage systemImageNamed:symbol] : nil;
+  // A colored symbol, such as a swatch, keeps its color instead of the menu's tint.
+  NSString *symbolColor = item[@"symbolColor"];
+  if (image != nil && symbolColor.length == 7) {
+    image = [image imageWithTintColor:UnwiredHexColor(symbolColor) renderingMode:UIImageRenderingModeAlwaysOriginal];
+  }
   NSArray<NSDictionary *> *sections = item[@"sections"];
   if (sections != nil) {
     return [UIMenu menuWithTitle:item[@"title"] image:image identifier:nil options:0
