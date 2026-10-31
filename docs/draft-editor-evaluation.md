@@ -76,8 +76,9 @@ their controls stop accepting input and leave VoiceOver immediately.
   window closes after **Save** or **Don’t Save**. Quit continues through any other
   open editors and then stops the app; **Cancel** or a failed finish cancels Quit.
   **Account** follows the separate [Settings navigation contract](gmail-inbox.md#settings).
-- **Removal elsewhere.** A Draft deleted on another device while open keeps this
-  editor's version; **Save Draft** stores it as a conflicting copy.
+- **Removal elsewhere.** A Draft deleted on another device or in another window while
+  open keeps this editor's version and its attachment and image bytes; **Save Draft**
+  stores it as a conflicting copy.
 - **Two windows.** When two Mac windows edit one Draft and one saves first, **Save**
   in the other keeps its version as a conflicting copy. That window stays on the
   copy with the same page and Undo history, even when storage refuses the save, and
@@ -571,8 +572,8 @@ simulated at the host boundary.
 
 Outstanding for #821: the Mac two-window journey and the Command-W, window close and
 **Quit** questions natively, which need a signed mock profile; and edits lost when
-the app ends before **Save Draft**. The regular iPhone and iPad composer now uses
-the same save model; the regular Mac composer still autosaves. On iPhone both composers cover the
+the app ends before **Save Draft**. The regular iPhone, iPad and Mac composers now
+use the same save model. On iPhone both composers cover the
 Inbox and reader, so system **Back** cannot leave them
 ([#778](https://github.com/unwired-dev/product/issues/778)).
 

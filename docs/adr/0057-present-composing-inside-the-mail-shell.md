@@ -4,6 +4,22 @@ status: accepted
 
 # Present composing inside the mail shell
 
+## Mac save decision amendment, 2026-10-30
+
+The owner-approved [#991 design](https://github.com/unwired-dev/product/issues/991)
+and [#1609 slice](https://github.com/unwired-dev/product/issues/1609) supersede the
+Mac autosave and automatic parking clauses below. The regular Mac composer keeps
+authored edits local until Save on Close or Send stores them. Close asks before
+abandoning changed content; Don’t Save deletes the Draft. Expand retains its
+explicit save before handing the Draft to a new window. The
+[Draft guide](../drafts.md#saving) owns the complete close and navigation contract.
+
+This accepts loss of edits if the app ends before they are stored, matching the
+Mac evaluation composer's save model. Encrypted
+storage, account and Profile ownership, conflict preservation and durable Outbox
+admission remain unchanged. This amendment chooses no provider Draft transport
+or replacement body editor and does not qualify native sheet behavior.
+
 ## iPhone and iPad saving amendment, 2026-10-31
 
 The owner-approved [#1612](https://github.com/unwired-dev/product/issues/1612)
@@ -14,8 +30,8 @@ and closes an unchanged stored one; otherwise it offers **Delete Draft** and
 editing. Failed saving or invalid recipient entry keeps the composer open.
 This supersedes the mobile autosave clauses below and in
 [ADR 0025](0025-use-semantic-rich-text-drafts-with-encrypted-assets.md).
-The [Draft guide](../drafts.md#saving) owns the observable contract. Mac saving,
-composer placement, ownership, encryption, conflict preservation and delivery remain unchanged.
+The [Draft guide](../drafts.md#saving) owns the observable contract. The Mac
+amendment above covers Mac saving; composer placement, ownership, encryption, conflict preservation and delivery remain unchanged.
 
 ## Mac composer window amendment, 2026-10-24
 

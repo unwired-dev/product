@@ -63,11 +63,10 @@ export const styles = StyleSheet.create({
   attachmentName: { ...textStyles.subheadline, fontWeight: '600' },
   link: { textDecorationLine: 'underline' },
   linkControl: {
-    borderWidth: 2,
     borderRadius: radius.control,
     minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: spacing.s,
+    paddingHorizontal: 10,
   },
   rich: { width: '100%' },
   hidden: { opacity: 0 },

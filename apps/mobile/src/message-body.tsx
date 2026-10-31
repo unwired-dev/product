@@ -108,7 +108,6 @@ function LinkConfirmation({
   const colors = usePalette();
   const { t } = useLocalization();
   const reasons = inspectLink(link.href, link.text);
-  const [focused, setFocused] = useState<string>();
   const proceed = () => {
     onDone();
     if (current()) {
@@ -132,21 +131,8 @@ function LinkConfirmation({
       key={label}
       accessibilityRole="button"
       focusable
-      onFocus={() => {
-        setFocused(label);
-      }}
-      onBlur={() => {
-        setFocused(undefined);
-      }}
       onPress={onPress}
-      style={[
-        styles.choice,
-        {
-          backgroundColor: tones[tone].fill,
-          borderWidth: 2,
-          borderColor: focused === label ? colors.accentInk : 'transparent',
-        },
-      ]}>
+      style={[styles.choice, { backgroundColor: tones[tone].fill }]}>
       <Text
         style={[
           styles.choiceLabel,
@@ -297,7 +283,6 @@ function MessageLinks({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [focused, setFocused] = useState<number>();
   return links.map((link, index) => (
     <ContextMenu
       // Links of one body never reorder, and a destination may repeat.
@@ -331,12 +316,6 @@ function MessageLinks({
         accessibilityLabel={link.text === '' ? link.href : link.text}
         accessibilityHint={link.href}
         focusable
-        onFocus={() => {
-          setFocused(index);
-        }}
-        onBlur={() => {
-          setFocused(undefined);
-        }}
         onPress={() => {
           onChoose(link);
         }}
@@ -346,8 +325,6 @@ function MessageLinks({
             backgroundColor: pressed
               ? colors.accentSelectionSubtle
               : 'transparent',
-            borderColor:
-              focused === index ? colors.accentInk : colors.surfaceContent,
           },
         ]}>
         <Text

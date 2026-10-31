@@ -77,7 +77,7 @@ transport and known native exit gaps.
   new editor and Undo history. Each window has one composer.
   The floating search and New Message bar hides while composing. On Mac,
   **Search Mail** reveals it without closing the Draft; New Message remains
-  available through the Command Palette and finishes saving before switching the
+  available through the Command Palette and asks before switching the
   editor.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. If its mailbox stops being able to send, or the Product
@@ -279,24 +279,31 @@ of the body editor for comparison with this composer; it does not change it.
 
 ## Saving
 
-On Mac, every edit is saved as it happens, in order: an edit made while an earlier one is
-being written is saved after it, never dropped. Successful saving shows no status,
-so typing never flickers between saving and saved; the composer shows only why the
-latest edit is not saved. Unsaved edits stay in
-the composer and are saved by the next edit or **Try again**.
-An editor whose content is unchanged creates no conflict copy when another editor
-has saved newer content; any earlier unsaved work still finishes saving.
+On Mac ([#1609](https://github.com/unwired-dev/product/issues/1609)), the composer
+saves as Mail does:
 
-Conflicting edits from separate Mac windows or storage writers are preserved as
-separate Drafts labelled **DRAFT · CONFLICT**. Independent Drafts survive a
-concurrent save. The newer stored version keeps its identity; the stale editor
-follows its own conflicting copy, including its Undo and Redo history. Further
-edits, Close and Discard affect that editor's version. An edit racing a deletion
-survives as a conflicting copy while the deleted identity stays removed. Review a
-conflicting copy and discard it explicitly when it is no longer needed.
-This also applies to authored edits arriving after an empty Draft was closed;
-an empty late edit creates no copy. A completed explicit discard suppresses
-later events from the editor that discarded it.
+- **Editing** stores nothing and shows no save status. The Draft is stored only when
+  the person chooses **Save** on **Close** or sends it.
+- **Close** closes an unchanged Draft at once, even while another window's save is
+  failing, and removes an empty one without asking. A refused **Send** stores the shown
+  version, so Close then asks only if storing it failed. Otherwise the window's alert sheet asks **Do you want to save this message
+  as a draft?** with **Save**, **Don’t Save** and **Cancel**. AppKit keeps keyboard
+  focus and VoiceOver in the sheet, and Escape chooses **Cancel**. **Don’t Save**
+  deletes the Draft, as the sheet says; **Cancel** keeps editing. A sheet whose
+  composer goes away closes without an answer.
+- **Save** first turns any address still being typed into a recipient; an invalid
+  address keeps the composer open. Editing pauses while saving. When storage refuses,
+  the composer stays open with **Try again**, and its edits still ask on the next
+  **Close**.
+- **Leaving.** Opening another Draft, **New Message**, received mail on compact
+  layouts, Command-W, the window's close button and **Quit** ask the same question first;
+  they continue once the Draft is saved, deleted or unchanged.
+- **Durability.** Edits live only in the open composer until **Save** or **Send**
+  stores them; ending the app loses them, and reopening shows the stored version.
+  **Expand** stores the shown version before moving it into its own window. A change
+  of Product Account closes the composer without storing its edits. An open composer
+  keeps its attachment and image bytes while its Draft is deleted in another window, so
+  its **Save** stores a usable copy.
 
 On iPhone and iPad nothing is saved while editing and no save status is shown, as in
 Mail: the Draft is stored only on **Save Draft** or **Send**. **Close** removes an
@@ -309,20 +316,30 @@ then closes once the Draft is stored; when that fails the composer stays open wi
 changed elsewhere while open keeps this composer's version, and **Save Draft** stores
 it as a conflicting copy.
 
-On Mac, **Close** first turns any address still being typed into a recipient; text that
-is not a valid address keeps the composer open until it is corrected or removed.
-It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. Mac window close and **Quit** use this same leave guard. On iPhone
-the composer covers the Inbox and reader, so their system **Back** and edge swipe cannot leave it.
+On both, the conflict, discard and removal rules below apply to the stored version.
+An editor whose content is unchanged creates no conflict copy when another editor
+has saved newer content.
+
+Conflicting edits from separate Mac windows or storage writers are preserved as
+separate Drafts labelled **DRAFT · CONFLICT**. Independent Drafts survive a
+concurrent save. The newer stored version keeps its identity; the stale editor
+follows its own conflicting copy, including its Undo and Redo history. Further
+edits, Close and Discard affect that editor's version. An edit racing a deletion
+survives as a conflicting copy while the deleted identity stays removed. Review a
+conflicting copy and discard it explicitly when it is no longer needed.
+This also applies to authored edits arriving after an empty Draft was closed;
+an empty late edit creates no copy. A completed explicit discard suppresses
+later events from the editor that discarded it.
+
+On iPhone the composer covers the Inbox and reader, so their system **Back** and edge swipe cannot leave it.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
 If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
 Switching to another Draft, starting **New Message**, or selecting received mail on compact layouts
-asks the same question on iPhone and iPad, and leaves once the Draft is saved, deleted
-or unchanged. On Mac it finishes recipient entry and waits for saving; invalid entry or
-a save failure keeps the current composer open. **Account** follows the separate
+asks the same question first, and leaves once the Draft is saved, deleted or
+unchanged. **Account** follows the separate
 [Settings navigation contract](gmail-inbox.md#settings).
 A failed discard keeps the Draft visible and can
 be retried. A concurrent save from another storage writer is recovered once;
@@ -528,7 +545,7 @@ locked** with **Try again**. Logs carry no Draft content.
 Native Apple code owns [that storage](private-inbox-storage.md#draft-storage):
 encryption and its key, the Product Account owner and revision checks, the
 **Outgoing Content Store**'s 100 MB limit and the purge. The TypeScript Draft store in `@private-email/mail-core/drafts`
-owns ordered autosave, rebasing onto a newer revision and conflicting copies; it
+owns ordered saving, rebasing onto a newer revision and conflicting copies; it
 never handles key material.
 
 A Draft's files and inline images are stored as separate [Draft Assets](private-inbox-storage.md#draft-storage).
@@ -578,11 +595,14 @@ Also measure peak and retained memory across 100 independent history entries of
 a changed long block with several composers and large admitted documents.
 
 The mobile and Mac component journeys create a Draft, enter recipients, format and
-undo, store it (on Mac by autosave, on iPhone and iPad only on **Save Draft**), finish
+undo, store it on **Save Draft** (iPhone and iPad) or **Save** (Mac), finish
 or refuse unfinished recipient text on Close or Save Draft, reopen the
 Draft after a remount, keep a Draft open while saving fails,
 and choose another sender after its mailbox is removed; the Mac journey also uses
-the keyboard shortcuts. These are rendered component tests, not native E2E.
+the keyboard shortcuts. The Mac journeys check the Close sheet's buttons, **Cancel**,
+**Don’t Save** deleting a stored Draft, an unchanged or empty Draft closing without
+asking, the sheet withdrawn when its composer unmounts, and window close reaching
+the question. These are rendered component tests, not native E2E.
 Feedback regressions also reject a New Message identifier after account
 invalidation and recover failed or locked saves from the Inbox without a mounted
 composer, then reopen the content through a fresh Draft store. The mobile journey

@@ -301,6 +301,9 @@ describe('mac window selection with the shared mock mailbox', () => {
           name: 'New Message',
         }),
       );
+      await act(async () => {
+        chooseSheetButton('Cancel');
+      });
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: oliver }));
       expect(app.getByLabelText('Message body')).toHaveTextContent(
@@ -314,6 +317,9 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).resolves.toBeVisible();
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      await act(async () => {
+        chooseSheetButton('Save');
+      });
       expect(
         app.getByRole('alert', {
           name: 'Correct or remove the invalid address to close this Draft.',
@@ -399,10 +405,17 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).toBeVisible();
       expect(window.getAllByRole('button', { name: 'Send' })).toHaveLength(1);
       // Native Close and Quit must reach this editor's leave guard, including unfinished entries.
+      await fireEvent.changeText(
+        window.getByLabelText('Subject'),
+        'In a window',
+      );
       await act(async () => {
         DeviceEventEmitter.emit('windowShouldClose', {
           window: 'composer-window-1',
         });
+      });
+      await act(async () => {
+        chooseSheetButton('Save');
       });
       expect(
         window.getByRole('alert', {
@@ -421,6 +434,9 @@ describe('mac window selection with the shared mock mailbox', () => {
           window: 'composer-window-1',
         });
       });
+      await act(async () => {
+        chooseSheetButton('Save');
+      });
       expect(
         window.getByText(
           'This Draft could not be saved, so it stays open. Try again, or discard it.',
@@ -432,6 +448,9 @@ describe('mac window selection with the shared mock mailbox', () => {
         DeviceEventEmitter.emit('windowShouldClose', {
           window: 'composer-window-1',
         });
+      });
+      await act(async () => {
+        chooseSheetButton('Save');
       });
       await waitFor(() => {
         expect(closedWindows()).toContain('composer-window-1');
