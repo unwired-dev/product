@@ -224,6 +224,21 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('reads a lowercase month or weekday name on its own as a word', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('You may want to march on, sat by the sun.'),
+        'You might want to go on.',
+      ).changes,
+    ).toStrictEqual([]);
+    expect(
+      checkDetails(whole('See you in May.'), 'See you in June.').changes,
+    ).toStrictEqual([
+      { kind: 'date', status: 'changed', original: 'May', result: 'June' },
+    ]);
+  });
+
   it('compares yearless dates, addresses with apostrophes and quotes across lines whole', () => {
     expect.hasAssertions();
     const changes = (original: string, result: string) =>

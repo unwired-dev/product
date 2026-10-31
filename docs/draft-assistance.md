@@ -78,8 +78,11 @@ iPhone and iPad composer.
   attachments, threading and delivery state are never changed. **Keep original**
   closes the panel.
 - On Mac, a finished Writing tools result (Rewrite, Proofread, Break into
-  Paragraphs, Expand, Shorten and the tones) is checked mechanically against the
-  captured text, using `checkDetails` from the assistance core. It never says a
+  Paragraphs, Expand Text, Shorten Text, Make More Friendly and Make More Neutral) is checked mechanically against the
+  captured text, using `checkDetails` from the assistance core. The
+  `packages/mail-core` TypeScript layer owns detail extraction and the equivalence
+  rules; the Mac host renders the review, and its native push button adapter makes
+  the main button the window's Return default. It never says a
   result is verified or safe: every finished result ends with a note that the
   checks compare details only and that meaning, questions and commitments need
   the person's own reading. Reply suggestions and Generate a Draft are not checked.
@@ -94,7 +97,8 @@ iPhone and iPad composer.
     point (`-40`, `.5`), percentages (`10%`), grouped figures (`1 500`), fractions,
     ratios and ranges (`100/200`, `100:200`, `1–2`),
     dates in any letter case (including abbreviated weekdays, month names with
-    or without a year, year-first dates with hyphens, dots or slashes, and an ISO
+    or without a year — a weekday or month name on its own only when capitalized, so
+    `you may` stays a word — year-first dates with hyphens, dots or slashes, and an ISO
     timestamp's complete `T`-joined time, fractional seconds and zone). A short
     slash form such as `11/01` or `1/2` is compared whole as a date
     even when it could be a fraction; its interpretation is never inferred.

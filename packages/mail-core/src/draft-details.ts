@@ -89,8 +89,8 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
       // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
       `\\d{1,2}/\\d{1,2}`,
       `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
-      weekday,
-      `${month}(?:\\s\\d{4})?`,
+      // A name on its own is a date only when capitalized, so `you may` and `sat down` are words.
+      `(?=\\p{Lu})(?:${weekday}|${month}(?:\\s\\d{4})?)`,
       anyCase('today|tomorrow|tonight|yesterday'),
     ].join('|'),
   ],
