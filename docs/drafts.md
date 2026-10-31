@@ -77,7 +77,7 @@ transport and known native exit gaps.
   new editor and Undo history. Each window has one composer.
   The floating search and New Message bar hides while composing. On Mac,
   **Search Mail** reveals it without closing the Draft; New Message remains
-  available through the Command Palette and finishes saving before switching the
+  available through the Command Palette and asks before switching the
   editor.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. If its mailbox stops being able to send, or the Product
@@ -287,7 +287,7 @@ saves as Mail does:
   address keeps the composer open. Editing pauses while saving. When storage refuses,
   the composer stays open with **Try again**, and its edits still ask on the next
   **Close**.
-- **Leaving.** Opening another Draft, **New Message**, received mail, **Expand**,
+- **Leaving.** Opening another Draft, **New Message**, received mail,
   Command-W, the window's close button and **Quit** ask the same question first;
   they continue once the Draft is saved, deleted or unchanged.
 - **Durability.** Edits live only in the open composer until **Save** or **Send**
@@ -321,7 +321,7 @@ later events from the editor that discarded it.
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. Mac window close and **Quit** use this same leave guard. On iPhone
+composer stays open and says so. On iPhone
 the composer covers the Inbox and reader, so their system **Back** and edge swipe cannot leave it.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
