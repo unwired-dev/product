@@ -1485,7 +1485,6 @@ function Editor({
   readonly renderToolbar?: Toolbar | undefined;
 }) {
   const store = useDraftStore();
-  const state = useDrafts();
   const colors = usePalette();
   const { t } = useLocalization();
   const [history, setHistory] = useState(() => historyOf(initial));
@@ -1510,6 +1509,8 @@ function Editor({
   const getDraft = useCallback(() => authored.current, []);
   // The version the store holds: the Draft as opened, until Save or Send stores this one.
   const stored = useRef(initial);
+  // Whether storage may not hold the stored version yet, because its Save is pending or failed.
+  const unsaved = useRef(false);
   const keepIdentity = useCallback((next: typeof history) => {
     if (next.present.id === authored.current.id) {
       return next;
@@ -1555,6 +1556,7 @@ function Editor({
   useLayoutEffect(() => {
     const { current } = lifetime;
     current.mounted = true;
+    store.hold(authored.current.id, rebind);
     return () => {
       current.mounted = false;
       // A pending Close or Discard still resolves its target through authored.current.
@@ -1657,8 +1659,17 @@ function Editor({
     if (authored.current !== stored.current) {
       void store.update(authored.current, stored.current, rebind);
       stored.current = authored.current;
+      unsaved.current = true;
     }
   }, [rebind, store]);
+  const storeAndSave = useCallback(async () => {
+    storeShown();
+    const saved = await store.save();
+    if (saved) {
+      unsaved.current = false;
+    }
+    return saved;
+  }, [store, storeShown]);
   const change = (next: Draft, word = false, field?: string) => {
     if (pausedNow.current) {
       return;
@@ -1986,10 +1997,7 @@ function Editor({
       answerLeave(false);
       return false;
     }
-    return finishing(() => {
-      storeShown();
-      return store.save();
-    });
+    return finishing(storeAndSave);
   };
   // Close asks to save changes, including ones a failed Save left unsaved; an empty Draft is
   // removed and an unchanged one closes.
@@ -2006,11 +2014,8 @@ function Editor({
         }),
       );
     }
-    if (
-      authored.current === stored.current &&
-      state.kind === 'ready' &&
-      state.save === 'saved'
-    ) {
+    // Another window's failed save leaves this editor's untouched Draft alone.
+    if (authored.current === stored.current && !unsaved.current) {
       onClose();
       return true;
     }
@@ -2052,15 +2057,9 @@ function Editor({
     if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
-    await finishing(
-      () => {
-        storeShown();
-        return store.save();
-      },
-      () => {
-        onExpand?.(authored.current.id);
-      },
-    );
+    await finishing(storeAndSave, () => {
+      onExpand?.(authored.current.id);
+    });
   };
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     deletion.current = undefined;

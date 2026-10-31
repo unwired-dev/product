@@ -1869,6 +1869,125 @@ describe('composing Drafts', () => {
     ).toStrictEqual([[id, 'First window']]);
   });
 
+  it('closes an untouched Draft at once while another window cannot save', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const [opened] = draftsOf(drafts.getSnapshot());
+    ok(opened);
+    await drafts.update({ ...opened, subject: 'Opened' }, opened);
+    await drafts.save();
+    const editor = (name: string) => (
+      <View testID={name}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={created}
+        />
+      </View>
+    );
+    await render(
+      <>
+        {editor('first')}
+        {editor('second')}
+      </>,
+    );
+    const first = within(screen.getByTestId('first'));
+    const second = within(screen.getByTestId('second'));
+    await fireEvent.changeText(first.getByLabelText('Subject'), 'Unsaved');
+    storage.setLocked(true);
+    await act(async () => {
+      await fireEvent.press(first.getByRole('button', { name: 'Close' }));
+    });
+    await answer('Save');
+    expect(
+      first.getByText(
+        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+      ),
+    ).toBeOnTheScreen();
+    // The other window changed nothing, so its Close neither asks nor offers to delete.
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Close' }));
+    });
+    expect(sheetShown()).toBeUndefined();
+    expect(second.queryByLabelText('Subject')).toBeNull();
+    expect(first.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
+  });
+
+  it('keeps attachment bytes for an editor whose Draft another window deletes', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const composing = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await press('Attach Files…');
+    await screen.findByLabelText('plan.pdf, 4 bytes');
+    await saveAndClose();
+    await composing.unmount();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    const editor = (name: string) => (
+      <View testID={name}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={saved.id}
+        />
+      </View>
+    );
+    await render(
+      <>
+        {editor('first')}
+        {editor('second')}
+      </>,
+    );
+    const first = within(screen.getByTestId('first'));
+    const second = within(screen.getByTestId('second'));
+    await fireEvent.changeText(second.getByLabelText('Subject'), 'Kept');
+    await act(async () => {
+      await fireEvent.press(
+        first.getByRole('button', { name: 'Compose actions' }),
+      );
+    });
+    await chooseMenuItem('Discard');
+    await act(async () => {
+      await fireEvent.press(
+        first.getByRole('button', { name: 'Discard Draft' }),
+      );
+    });
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    // The surviving editor still holds the attachment's bytes, so Save keeps a usable copy.
+    expect(storage.assets()).toHaveLength(1);
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Close' }));
+    });
+    await answer('Save');
+    expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+      {
+        subject: 'Kept',
+        attachments: [{ name: 'plan.pdf', state: 'complete' }],
+      },
+    ]);
+    expect(storage.assets()).toHaveLength(1);
+  });
+
   it('undoes subject typing a word at a time wherever the caret is', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -2143,9 +2262,14 @@ describe('composing Drafts', () => {
     await press('New Message');
     await answer('Save');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Kept');
-    // The next attempt is not blocked by the failed one; the Draft storage already holds closes.
+    // The next attempt is not blocked by the failed one; it asks again, and saving now closes.
     await press('New Message');
+    await answer('Save');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+    expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+      { subject: '' },
+      { subject: 'Kept' },
+    ]);
   });
 
   it('steps back once for each Undo, even before the editor renders again', async () => {

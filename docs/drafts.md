@@ -284,8 +284,8 @@ saves as Mail does:
 
 - **Editing** stores nothing and shows no save status. The Draft is stored only when
   the person chooses **Save** on **Close** or sends it.
-- **Close** closes an unchanged Draft at once and removes an empty one without
-  asking. Otherwise the window's alert sheet asks **Do you want to save this message
+- **Close** closes an unchanged Draft at once, even while another window's save is
+  failing, and removes an empty one without asking. Otherwise the window's alert sheet asks **Do you want to save this message
   as a draft?** with **Save**, **Don’t Save** and **Cancel**. AppKit keeps keyboard
   focus and VoiceOver in the sheet, and Escape chooses **Cancel**. **Don’t Save**
   deletes the Draft, as the sheet says; **Cancel** keeps editing. A sheet whose
@@ -300,7 +300,9 @@ saves as Mail does:
 - **Durability.** Edits live only in the open composer until **Save** or **Send**
   stores them; ending the app loses them, and reopening shows the stored version.
   **Expand** stores the shown version before moving it into its own window. A change
-  of Product Account closes the composer without storing its edits.
+  of Product Account closes the composer without storing its edits. An open composer
+  keeps its attachment and image bytes while its Draft is deleted in another window, so
+  its **Save** stores a usable copy.
 
 The rest of this section describes the iPhone and iPad composer, which still saves
 every edit; on Mac its conflict, discard and removal rules apply to the stored

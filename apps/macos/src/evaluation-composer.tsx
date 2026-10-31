@@ -103,7 +103,6 @@ function EvaluationEditor({
   readonly renderToolbar?: Toolbar | undefined;
 }) {
   const store = useDraftStore();
-  const state = useDrafts();
   const outbox = useOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
@@ -112,6 +111,8 @@ function EvaluationEditor({
   const getDraft = useCallback(() => authored.current, []);
   // The version the store holds: the Draft as opened, until Save or Send stores this one.
   const stored = useRef(initial);
+  // Whether storage may not hold the stored version yet, because its Save is pending or failed.
+  const unsaved = useRef(false);
   const [draft, setDraft] = useState(initial);
   // Undefined until the page reports that it is ready for commands.
   const [pageState, setPageState] = useState<PageState>();
@@ -156,6 +157,7 @@ function EvaluationEditor({
   }, []);
   useLayoutEffect(() => {
     mounted.current = true;
+    store.hold(authored.current.id, rebind);
     return () => {
       mounted.current = false;
       paused.current?.(false);
@@ -462,6 +464,18 @@ function EvaluationEditor({
     }
     return closed;
   };
+  const storeAndSave = async () => {
+    if (authored.current !== stored.current) {
+      void store.update(authored.current, stored.current, rebind);
+      stored.current = authored.current;
+      unsaved.current = true;
+    }
+    const saved = await store.save();
+    if (saved) {
+      unsaved.current = false;
+    }
+    return saved;
+  };
   // Stores this editor's version, then saves it; a Draft that changed elsewhere since it was
   // opened becomes a conflicting copy.
   const saveDraft = () =>
@@ -470,22 +484,13 @@ function EvaluationEditor({
         setClosing('recipients');
         return false;
       }
-      void store.update(authored.current, stored.current, rebind);
-      stored.current = authored.current;
-      return store.save();
+      return storeAndSave();
     });
   // Expand saves this editor's version as Save does, then moves the Draft into its own window.
   const expand = () =>
-    finishing(
-      async () => {
-        void store.update(authored.current, stored.current, rebind);
-        stored.current = authored.current;
-        return store.save();
-      },
-      () => {
-        onExpand?.(authored.current.id);
-      },
-    );
+    finishing(storeAndSave, () => {
+      onExpand?.(authored.current.id);
+    });
   const deleteDraft = () =>
     finishing(async () => {
       if (
@@ -510,8 +515,11 @@ function EvaluationEditor({
       forget();
       setSending(true);
       const shown = authored.current;
-      void store.update(shown, stored.current, rebind);
-      stored.current = shown;
+      if (shown !== stored.current) {
+        void store.update(shown, stored.current, rebind);
+        stored.current = shown;
+        unsaved.current = true;
+      }
       const refusal = await outbox.send(() => ({
         ...shown,
         id: authored.current.id,
@@ -537,11 +545,8 @@ function EvaluationEditor({
           expected: () => stored.current,
         });
       }
-      if (
-        authored.current === stored.current &&
-        state.kind === 'ready' &&
-        state.save === 'saved'
-      ) {
+      // Another window's failed save leaves this editor's untouched Draft alone.
+      if (authored.current === stored.current && !unsaved.current) {
         return true;
       }
       setClosing(undefined);

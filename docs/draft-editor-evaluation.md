@@ -76,8 +76,9 @@ their controls stop accepting input and leave VoiceOver immediately.
   window closes after **Save** or **Don’t Save**. Quit continues through any other
   open editors and then stops the app; **Cancel** or a failed finish cancels Quit.
   **Account** follows the separate [Settings navigation contract](gmail-inbox.md#settings).
-- **Removal elsewhere.** A Draft deleted on another device while open keeps this
-  editor's version; **Save Draft** stores it as a conflicting copy.
+- **Removal elsewhere.** A Draft deleted on another device or in another window while
+  open keeps this editor's version and its attachment and image bytes; **Save Draft**
+  stores it as a conflicting copy.
 - **Two windows.** When two Mac windows edit one Draft and one saves first, **Save**
   in the other keeps its version as a conflicting copy. That window stays on the
   copy with the same page and Undo history, even when storage refuses the save, and
