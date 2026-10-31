@@ -29,8 +29,8 @@ import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   AppState,
+  DeviceEventEmitter,
   Dimensions,
-  Keyboard,
   StyleSheet,
   TextInput,
   View,
@@ -2256,7 +2256,6 @@ describe('composing Drafts', () => {
         ['Paste Image', 'doc.on.clipboard', undefined],
       ],
     ]);
-    const listen = jest.spyOn(Keyboard, 'addListener');
     await press('Format');
     expect(screen.getByLabelText('Formatting')).toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Format' })).toBeNull();
@@ -2271,19 +2270,14 @@ describe('composing Drafts', () => {
     expect(shownSpans()).toStrictEqual([{ text: 'Plan', marks: ['bold'] }]);
     // Tapping into the body brings the keyboard back in place of the panel.
     await act(async () => {
-      for (const [, listener] of listen.mock.calls.filter(
-        ([event]) => event === 'keyboardWillShow',
-      )) {
-        listener({
-          duration: 0,
-          easing: 'keyboard',
-          isEventFromThisApp: true,
-          startCoordinates: { screenX: 0, screenY: 874, width: 402, height: 0 },
-          endCoordinates: { screenX: 0, screenY: 542, width: 402, height: 332 },
-        });
-      }
+      DeviceEventEmitter.emit('keyboardWillShow', {
+        duration: 0,
+        easing: 'keyboard',
+        isEventFromThisApp: true,
+        startCoordinates: { screenX: 0, screenY: 874, width: 402, height: 0 },
+        endCoordinates: { screenX: 0, screenY: 542, width: 402, height: 332 },
+      });
     });
-    listen.mockRestore();
     expect(screen.queryByLabelText('Formatting')).toBeNull();
     expect(screen.getByRole('button', { name: 'Format' })).toBeOnTheScreen();
     // Undo in the panel steps back the heading but keeps the bold text.

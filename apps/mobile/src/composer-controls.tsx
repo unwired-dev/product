@@ -667,6 +667,7 @@ export function FormatPanel({
           />
           <View style={[styles.formatClose, rowFill]}>
             <ToolbarButton
+              disabled={disabled}
               icon="xmark"
               label={t('drafts.closeFormat')}
               onPress={onClose}

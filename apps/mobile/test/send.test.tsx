@@ -306,6 +306,7 @@ describe('sending a Draft', () => {
       }
       for (const name of [
         'Close',
+        'Close Format',
         'Undo',
         'Redo',
         'Compose actions',
