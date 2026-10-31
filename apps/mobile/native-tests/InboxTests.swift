@@ -1819,6 +1819,13 @@ final class InboxTests: XCTestCase {
     press("Keyboard reply", in: app)
     waitUntil { body.value as? String == "Keyboard reply" }
 
+    // #1612: edits are stored only on Save Draft; Close asks first.
+    app.buttons["Close"].tap()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    XCTAssertTrue(subject.waitForNonExistence(timeout: 10))
+
     // Relaunch lists the saved Draft, which reopens with both edits.
     app.terminate()
     app.launch()

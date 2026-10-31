@@ -615,8 +615,8 @@ form accessories, keyboards, status bar).
   offers Attach Files… and Insert Image… plus paste/drop. Attachment Chips show
   name, size, Remove, import progress/Cancel and failure state; Inline Images retain
   their authored position, with explicit conversion actions between images and
-  attachments. Keep reasons for blocked Send visible, and on iPhone and iPad
-  unsaved state too; the Mac shows no save status and asks on Close, per
+  attachments. Keep reasons for blocked Send visible. No client shows save status: iPhone
+  and iPad ask through the Close question and the Mac asks on Close, per
   [Draft saving and asset availability](docs/drafts.md#saving).
 - **Compose recipients and sender:** Recipient Suggestions appear beneath the
   active To/Cc/Bcc field; recipients are removable tokens. Invalid entries stay

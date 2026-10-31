@@ -337,8 +337,8 @@ body content or attachments discards it only if no other window has completed it
 asks before deleting a Draft from this device.
 If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
-Switching to another Draft, starting **New Message**, or selecting received mail on compact layouts
-asks the same question first, and leaves once the Draft is saved, deleted or
+Switching to another Draft, starting **New Message**, selecting received mail, or choosing
+another destination from the Command Palette asks the same question first, and leaves once the Draft is saved, deleted or
 unchanged. **Account** follows the separate
 [Settings navigation contract](gmail-inbox.md#settings).
 A failed discard keeps the Draft visible and can

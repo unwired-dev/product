@@ -1688,6 +1688,35 @@ describe('composing Drafts', () => {
     ).toStrictEqual([[id, 'First window']]);
   });
 
+  it("does not reopen another Product Account's editor once the new account is ready", async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    let owner = 'synthetic-product-account';
+    const drafts = createDrafts(
+      createSyntheticDrafts(() => owner).native,
+      registration,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Old account');
+    owner = 'replacement-product-account';
+    await act(() => {
+      registration.change({
+        ...connected(['alex@example.invalid']),
+        productAccountId: 'replacement-product-account',
+      });
+    });
+    await waitFor(() => {
+      expect(drafts.getSnapshot().kind).toBe('ready');
+    });
+    expect(screen.queryByDisplayValue('Old account')).toBeNull();
+  });
+
   it('keeps a stale editor on one conflicting copy after a refused Send', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
