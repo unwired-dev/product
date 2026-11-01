@@ -37,7 +37,7 @@ export type DetailCheck = Readonly<{
   changes: readonly DetailChange[];
 }>;
 
-// Names match in any letter case without the `i` flag, which would also loosen currency codes.
+// Calendar names match in any letter case without loosening surrounding token boundaries.
 const anyCase = (words: string) =>
   words.replaceAll(
     /\p{L}/gu,
@@ -57,7 +57,8 @@ const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
 // A full stop after `pm` ends the sentence; only `p.m.` takes its own.
 const meridiem = String.raw`[aApP](?:\.[mM]\.?|[mM])`;
-const clock = String.raw`\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?`;
+const clock = String.raw`\d{1,2}[:hH]\d{2}(?::\d{2}(?:[.,]\d+)?)?`;
+const dottedClock = String.raw`\d{1,2}\.\d{2}(?:\.\d{2}(?:[.,]\d+)?)?`;
 const zone = `(?:${anyCase('UTC|GMT|CEST|CET|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|IST|JST|AEST|AEDT|ACST|ACDT|AWST|NZST|NZDT')})(?:[-+]\\d{1,2}(?::?\\d{2})?)?|[zZ]|[-+]\\d{2}(?::?\\d{2})?`;
 // An apostrophe can join an address's local part, but a leading one is a quotation mark.
 const emailStart = String.raw`[\p{L}\p{N}._%+!#$&*/=?^\x60{|}~-]`;
@@ -66,7 +67,11 @@ const linkEnd = String.raw`[^\s<>"“”«»]`;
 const host = `(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|${anyCase('xn')}--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])`;
 const web = `${host}(?::\\d+)?`;
 // A qualified symbol (`C$`, `US$`, `R$`) names a different currency than the bare symbol.
-const currency = String.raw`[A-Z]{0,2}\p{Sc}|[A-Z]{3}|Kč`;
+// Known codes admit lowercase without treating every three-letter word (`for`) as a currency.
+const currencyCode = anyCase(
+  'AED|AFN|ALL|AMD|ANG|AOA|ARS|AUD|AWG|AZN|BAM|BBD|BDT|BGN|BHD|BIF|BMD|BND|BOB|BRL|BSD|BTN|BWP|BYN|BZD|CAD|CDF|CHF|CLP|CNY|COP|CRC|CUC|CUP|CVE|CZK|DJF|DKK|DOP|DZD|EGP|ERN|ETB|EUR|FJD|FKP|GBP|GEL|GHS|GIP|GMD|GNF|GTQ|GYD|HKD|HNL|HRK|HTG|HUF|IDR|ILS|INR|IQD|IRR|ISK|JMD|JOD|JPY|KES|KGS|KHR|KMF|KPW|KRW|KWD|KYD|KZT|LAK|LBP|LKR|LRD|LSL|LYD|MAD|MDL|MGA|MKD|MMK|MNT|MOP|MRU|MUR|MVR|MWK|MXN|MYR|MZN|NAD|NGN|NIO|NOK|NPR|NZD|OMR|PAB|PEN|PGK|PHP|PKR|PLN|PYG|QAR|RON|RSD|RUB|RWF|SAR|SBD|SCR|SDG|SEK|SGD|SHP|SLE|SLL|SOS|SRD|SSP|STN|SVC|SYP|SZL|THB|TJS|TMT|TND|TOP|TRY|TTD|TWD|TZS|UAH|UGX|USD|UYU|UZS|VES|VND|VUV|WST|XAF|XCD|XCG|XDR|XOF|XPF|XSU|YER|ZAR|ZMW|ZWG|ZWL',
+);
+const currency = `[A-Za-z]{0,2}\\p{Sc}|[A-Z]{3}|${currencyCode}|${anyCase(String.raw`Kč|S/|zł|Fr\.|kr`)}`;
 // A detail never ends inside a word or before the rest of a number, so `0.5` is not read as `0`.
 const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 const rangeKinds = new Set<DetailKind>(['date', 'time', 'amount', 'number']);
@@ -75,6 +80,21 @@ const joinsRange = (previous: Detail, each: Detail, join: string) =>
   rangeKinds.has(previous.kind) &&
   rangeKinds.has(each.kind) &&
   rangeJoin.test(join);
+
+const date = [
+  String.raw`\d{4}[./-]\d{1,2}[./-]\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
+  `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
+  // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
+  `\\d{1,2}/\\d{1,2}`,
+  `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
+  weekdayName,
+  `${month}\\s\\d{4}`,
+  unambiguousMonth,
+  // Ambiguous standalone names need capitals, so `you may` and `sat down` are words.
+  `(?=\\p{Lu})(?:${weekday}|${month})`,
+  anyCase('today|tomorrow|tonight|yesterday'),
+].join('|');
+const time = `(?:${clock}(?:\\s?${meridiem})?|(?:${dottedClock}|\\d{1,2})\\s?${meridiem}|${dottedClock}(?=\\.?\\s?(?:${zone})${edge}))(?:\\.?\\s?(?:${zone}))?`;
 
 // A detail starts and ends outside a word. Earlier alternatives win where details overlap, so an
 // amount's number or a date's day is not counted again. Quotes are read separately because they
@@ -91,30 +111,13 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
     String.raw`${emailStart}${emailRest}@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+`,
   ],
   ['link', web],
-  [
-    'date',
-    [
-      String.raw`\d{4}[./-]\d{1,2}[./-]\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
-      `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
-      // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
-      `\\d{1,2}/\\d{1,2}`,
-      `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
-      weekdayName,
-      `${month}\\s\\d{4}`,
-      unambiguousMonth,
-      // Ambiguous standalone names need capitals, so `you may` and `sat down` are words.
-      `(?=\\p{Lu})(?:${weekday}|${month})`,
-      anyCase('today|tomorrow|tonight|yesterday'),
-    ].join('|'),
-  ],
+  // An explicit meridiem or zone distinguishes a dotted clock with seconds from a numeric date.
+  ['time', time],
+  ['date', date],
   [
     'amount',
-    // After dates, so an all-caps month after a day (`3 NOV`) is not read as a currency code.
-    `${sign}?(?:${currency})\\s?${figure}(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`,
-  ],
-  [
-    'time',
-    `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}(?:\\.\\d{2})?\\s?${meridiem})(?:\\.?\\s?(?:${zone}))?`,
+    // A code can also be prose (`try 8 pm`); keep the complete numeric date or time with it.
+    `${sign}?(?:${currency})\\s?(?:${sign}?(?=\\d)(?:${time}|${date})|${figure})(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`,
   ],
   // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
   [

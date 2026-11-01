@@ -1054,6 +1054,88 @@ describe('the Writing tools detail check', () => {
     ).toStrictEqual({ kept: ['C$40', '8.30 am'], changes: [] });
   });
 
+  it.each([
+    ['S/40', 'S$40'],
+    ['40 S/', '40 S$'],
+    ['40 zł', '40 kr'],
+    ['zł40', 'kr40'],
+    ['40 Fr.', '40 kr'],
+    ['Fr.40', 'kr40'],
+    ['usd40', 'eur40'],
+    ['40 usd', '40 eur'],
+    ['US$40', 'HK$40'],
+    ['R$40', '$40'],
+    ['₹40', '$40'],
+  ])('retains the complete currency marker in %s', (original, result) => {
+    expect.hasAssertions();
+    expect(checkDetails(whole(original), result)).toStrictEqual({
+      kept: [],
+      changes: [{ kind: 'amount', status: 'changed', original, result }],
+    });
+  });
+
+  it.each([
+    ['8h30', '8h45'],
+    ['8h30 am', '8h30 pm'],
+    ['8h30 CEST', '8h30 AEDT'],
+    ['8.30pm', '8.30am'],
+    ['20.30 CEST', '20.30 AEDT'],
+    ['8.30.45 pm', '8.30.45 am'],
+    ['8.30.45.5pm CEST', '8.30.45.5pm AEDT'],
+    ['20.30.45 CEST', '20.30.45 AEDT'],
+    ['8h30 a.m.–9h30 a.m.', '9h30 a.m.–8h30 a.m.'],
+    ['8.30 a.m.–9.30 a.m.', '9.30 a.m.–8.30 a.m.'],
+    ['8:30 a.m.–9:30 a.m.', '9:30 a.m.–8:30 a.m.'],
+  ])('retains every time part and range endpoint in %s', (original, result) => {
+    expect.hasAssertions();
+    expect(checkDetails(whole(original), result)).toStrictEqual({
+      kept: [],
+      changes: [{ kind: 'time', status: 'changed', original, result }],
+    });
+  });
+
+  it('keeps a currency symbol separate from preceding spaced capitals', () => {
+    expect.hasAssertions();
+    for (const [prefix, marker] of [
+      ['I ', '$'],
+      ['PAY ', '$'],
+      ['OK', 'OK$'],
+    ] satisfies Array<readonly [string, string]>) {
+      expect(checkDetails(whole(`${prefix}$40`), `${prefix}$45`)).toStrictEqual(
+        {
+          kept: [],
+          changes: [
+            {
+              kind: 'amount',
+              status: 'changed',
+              original: `${marker}40`,
+              result: `${marker}45`,
+            },
+          ],
+        },
+      );
+    }
+  });
+
+  it('preserves a complete date or time after a word that is also a currency code', () => {
+    expect.hasAssertions();
+    for (const [original, result] of [
+      ['Try 8.30 am', 'Try 8.30 pm'],
+      ['Try 8.30.45 pm', 'Try 8.30.45 am'],
+      ['try 8 pm', 'try 8 am'],
+      ['all 3 November and 4 December', 'all 4 November and 3 December'],
+      ['TRY8h30', 'USD8h30'],
+    ] satisfies Array<readonly [string, string]>) {
+      expect(checkDetails(whole(original), result).changes).not.toHaveLength(0);
+    }
+    expect(checkDetails(whole('for 8 pm'), 'for 8 am')).toStrictEqual({
+      kept: [],
+      changes: [
+        { kind: 'time', status: 'changed', original: '8 pm', result: '8 am' },
+      ],
+    });
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(
