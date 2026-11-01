@@ -65,7 +65,8 @@ const emailRest = String.raw`[\p{L}\p{N}._%+!#$&'*/=?^\x60{|}~-]*`;
 const linkEnd = String.raw`[^\s<>"“”«»]`;
 const host = `(?:[\\p{L}\\p{N}-]+\\.)+(?:\\p{L}{2,}|${anyCase('xn')}--[\\p{L}\\p{N}-]+)(?![@\\p{L}\\p{N}-])`;
 const web = `${host}(?::\\d+)?`;
-const currency = String.raw`\p{Sc}|[A-Z]{3}|Kč`;
+// A qualified symbol (`C$`, `US$`, `R$`) names a different currency than the bare symbol.
+const currency = String.raw`[A-Z]{0,2}\p{Sc}|[A-Z]{3}|Kč`;
 // A detail never ends inside a word or before the rest of a number, so `0.5` is not read as `0`.
 const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 const rangeKinds = new Set<DetailKind>(['date', 'time', 'amount', 'number']);
@@ -113,7 +114,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   ],
   [
     'time',
-    `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}\\s?${meridiem})(?:\\.?\\s?(?:${zone}))?`,
+    `(?:${clock}(?:\\s?${meridiem})?|\\d{1,2}(?:\\.\\d{2})?\\s?${meridiem})(?:\\.?\\s?(?:${zone}))?`,
   ],
   // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
   [

@@ -1032,6 +1032,28 @@ describe('the Writing tools detail check', () => {
     },
   );
 
+  it('compares a qualified currency symbol and a dotted time with its meridiem', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Pay C$40 or US$30 at 8.30 am.'),
+        'Pay A$40 or $30 at 8.30 pm.',
+      ).changes.map(({ kind, status, original, result }) => [
+        kind,
+        status,
+        original,
+        result,
+      ]),
+    ).toStrictEqual([
+      ['amount', 'changed', 'C$40', 'A$40'],
+      ['amount', 'changed', 'US$30', '$30'],
+      ['time', 'changed', '8.30 am', '8.30 pm'],
+    ]);
+    expect(
+      checkDetails(whole('Pay C$40 at 8.30 am.'), 'Pay 40 C$ at 8.30am.'),
+    ).toStrictEqual({ kept: ['C$40', '8.30 am'], changes: [] });
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

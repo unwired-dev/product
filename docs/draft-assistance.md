@@ -93,7 +93,7 @@ iPhone and iPad composer.
     destination of linked words whose text does not show it exactly), email addresses (including
     address punctuation such as `o'connor@`, `a!!b@` and `!bob@`, and `mailto:` links without query fields; written or linked mail links with query fields remain
     flagged with their complete destination), amounts (a number with a currency
-    symbol, a three-letter code or Kč, including compact `USD40` and `40USD`,
+    symbol, a qualified symbol such as `C$` or `US$`, a three-letter code or Kč, including compact `USD40` and `40USD`,
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
     point (`-40`, `.5`), percentages (`10%`), grouped figures (`1 500`), fractions,
     ratios and ranges (`100/200`, `100:200`, `1–2`). Adjacent numbers, amounts,
@@ -104,7 +104,8 @@ iPhone and iPad composer.
     dates in any letter case, including full weekday names, unambiguous full month
     names, a month with a day or
     year, year-first dates with hyphens, dots or slashes, and an ISO
-    timestamp's complete `T`-joined time, fractional seconds and zone.
+    timestamp's complete `T`-joined time, fractional seconds and zone. A time with
+    a dot between hour and minutes counts as a time when a meridiem follows (`8.30 am`).
     Standalone abbreviated names and the ambiguous month names May, March and
     August need a capital first letter, so `you may`, `march on`, `an august guest`
     and `sat down` stay words. A short
