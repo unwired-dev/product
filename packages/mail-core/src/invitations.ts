@@ -263,33 +263,39 @@ const organizerOf = (event: readonly Line[]) => {
     : { line, recipient };
 };
 
-const duration =
-  /^\+?P(?:(?<weeks>\d+)W|(?<days>\d+)D|(?:(?<timedDays>\d+)D)?T(?:(?<hours>\d+)H)?(?:(?<minutes>\d+)M)?(?:(?<seconds>\d+)S)?)$/u;
+const second = 1000;
+const day = 24 * 60 * 60 * second;
 
-// The end a positive DURATION gives `start`. An all-day meeting lasts whole days, and a timed one
-// only hours, minutes and seconds, whose length doesn't change across a daylight-saving shift.
+// An all-day meeting lasts whole weeks or days; a timed one only hours, minutes and seconds,
+// whose length doesn't change across a daylight-saving shift.
+const durations = {
+  allDay: {
+    pattern: /^\+?P(?:(?<weeks>\d+)W|(?<days>\d+)D)$/u,
+    units: [7 * day, day],
+  },
+  timed: {
+    pattern:
+      /^\+?PT(?:(?<hours>\d+)H)?(?:(?<minutes>\d+)M)?(?:(?<seconds>\d+)S)?$/u,
+    units: [60 * 60 * second, 60 * second, second],
+  },
+};
+
+// The end a DURATION gives `start`.
 const durationEnd = (
   line: Line,
   start: InvitationTime,
 ): InvitationTime | undefined => {
-  const match = duration.exec(line.value.trim());
-  if (match === null) {
-    return undefined;
-  }
-  const [, weeks, days, timedDays, hours, minutes, seconds] = match;
-  const day = 24 * 60 * 60 * 1000;
-  const whole = (Number(weeks ?? 0) * 7 + Number(days ?? 0)) * day;
-  const timed =
-    (Number(hours ?? 0) * 60 * 60 +
-      Number(minutes ?? 0) * 60 +
-      Number(seconds ?? 0)) *
-    1000;
-  const valid = start.allDay
-    ? timedDays === undefined && timed === 0
-    : whole === 0 && timedDays === undefined;
-  return valid
-    ? { at: start.at + whole + timed, allDay: start.allDay }
-    : undefined;
+  const { pattern, units } = start.allDay ? durations.allDay : durations.timed;
+  const match = pattern.exec(line.value.trim());
+  return match === null
+    ? undefined
+    : {
+        at: units.reduce(
+          (at, unit, index) => at + Number(match[index + 1] ?? 0) * unit,
+          start.at,
+        ),
+        allDay: start.allDay,
+      };
 };
 
 // The meeting's end from DTEND or DURATION, never both; `null` when it has neither.
