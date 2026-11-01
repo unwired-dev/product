@@ -1136,6 +1136,24 @@ describe('the Writing tools detail check', () => {
     });
   });
 
+  it('keeps a date and time beside each other separate and compares range ends one by one', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Meet Monday: 9am.'), 'Meet Monday at 9am.'),
+    ).toStrictEqual({ kept: ['Monday', '9am'], changes: [] });
+    expect(
+      checkDetails(whole('Stay 3 Nov–4 Nov.'), 'Stay 3 November–4 November.')
+        .changes,
+    ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
+    expect(
+      checkDetails(whole('Stay 3 Nov–4 Nov.'), 'Stay 3 November–5 November.')
+        .changes,
+    ).toMatchObject([{ kind: 'date', status: 'changed' }]);
+    expect(
+      checkDetails(whole('Stay 3–5 Nov.'), 'Stay 5–3 Nov.').changes,
+    ).toMatchObject([{ status: 'changed' }]);
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

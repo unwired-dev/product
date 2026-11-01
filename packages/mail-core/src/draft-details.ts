@@ -76,9 +76,14 @@ const currency = `[A-Za-z]{0,2}\\p{Sc}|[A-Z]{3}|${currencyCode}|${anyCase(String
 const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 const rangeKinds = new Set<DetailKind>(['date', 'time', 'amount', 'number']);
 const rangeJoin = /^\s*(?:[/–—−:-]|to|until|through|till)\s*$/iu;
+// Endpoints of one kind, or a bare number beside another kind (`3–5 Nov`), make a range; a date
+// and a time (`Monday: 9am`) stay separate details.
 const joinsRange = (previous: Detail, each: Detail, join: string) =>
   rangeKinds.has(previous.kind) &&
   rangeKinds.has(each.kind) &&
+  (previous.kind === each.kind ||
+    previous.kind === 'number' ||
+    each.kind === 'number') &&
   rangeJoin.test(join);
 
 const date = [
@@ -273,8 +278,9 @@ const within = (whole: string, part: string) =>
     'u',
   ).test(whole);
 const named = (key: string) => /\p{L}/u.test(key);
+// Keyed by kind name, so a range key's own kind parts can look up their predicate.
 const similar: Partial<
-  Record<DetailKind, (one: string, other: string) => boolean>
+  Record<string, (one: string, other: string) => boolean>
 > = {
   date: (one, other) =>
     within(one, other) || within(other, one) || named(one) !== named(other),
@@ -282,6 +288,23 @@ const similar: Partial<
   amount: (one, other) => ungrouped(one) === ungrouped(other),
   link: (one, other) =>
     one.replace(/[!?]+$/u, '') === other.replace(/[!?]+$/u, ''),
+};
+// A range key holds its first endpoint's key, then a join, kind and key for every later endpoint.
+// Ranges compare endpoint by endpoint: possible equivalents everywhere else leave it uncertain.
+const alike = (kind: DetailKind, one: string, other: string) => {
+  const ones = one.split('\0');
+  const others = other.split('\0');
+  return (
+    ones.length === others.length &&
+    ones.every((part, index) => {
+      const partKind = index === 0 ? kind : (ones[index - 1] ?? '');
+      return (
+        part === others[index] ||
+        (index % 3 === 0 &&
+          similar[partKind]?.(part, others[index] ?? '') === true)
+      );
+    })
+  );
 };
 const changeOf = (each: Detail, paired: Detail | undefined): DetailChange => {
   const original = {
@@ -293,10 +316,9 @@ const changeOf = (each: Detail, paired: Detail | undefined): DetailChange => {
     ? { ...original, status: 'removed' }
     : {
         ...original,
-        status:
-          similar[each.kind]?.(each.key, paired.key) === true
-            ? 'uncertain'
-            : 'changed',
+        status: alike(each.kind, each.key, paired.key)
+          ? 'uncertain'
+          : 'changed',
         result: paired.value,
       };
 };
