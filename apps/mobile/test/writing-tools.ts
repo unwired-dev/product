@@ -21,16 +21,18 @@ const isMenu = (props: unknown): props is WritingToolsMenu =>
   Predicate.hasProperty(props, 'sections') &&
   Predicate.hasProperty(props, 'onSelect');
 
-const menu = () => {
-  const props: unknown = screen.queryByLabelText('Writing tools')?.props;
+const menu = (label = 'Writing tools') => {
+  const props: unknown = screen.queryByLabelText(label)?.props;
   return isMenu(props) ? props : undefined;
 };
 
-// The Writing tools groups, in order, as each item's title, symbol and whether it is disabled.
-export const writingToolGroups = () =>
-  menu()?.sections.map(({ items }) =>
+// A native menu's groups, in order, as each item's title, symbol and whether it is disabled.
+export const menuGroups = (label = 'Writing tools') =>
+  menu(label)?.sections.map(({ items }) =>
     items.map(({ title, symbol, disabled }) => [title, symbol, disabled]),
   );
+
+export const writingToolGroups = () => menuGroups();
 
 // The composer's Writing tools item with this spoken name, if the menu offers it now.
 export const writingTool = (name: string) =>
@@ -60,4 +62,17 @@ export const chooseWritingTool = async (name: string) => {
   await act(async () => {
     choose();
   });
+};
+
+// The iPhone Add files menu's item with this title, chosen as the system menu does, if it offers one.
+export const addFilesChoice = (title: string) => {
+  const files = menu('Add files');
+  const item = files?.sections
+    .flatMap(({ items }) => items)
+    .find((candidate) => candidate.title === title);
+  return files === undefined || item === undefined
+    ? undefined
+    : () => {
+        files.onSelect({ nativeEvent: { id: item.id } });
+      };
 };

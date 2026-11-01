@@ -115,8 +115,13 @@ transport and known native exit gaps.
   Close, the title and a Compose actions menu with Discard, and the format bar (text style, bold, italic,
   underline, strikethrough, inline code, lists, Undo, Redo, Translate, Rewrite
   and the file and image controls; on iPhone, iPad and Mac a Writing tools menu
-  holds Rewrite, Translate and Suggest reply) sits under the header on Mac and iPad and
-  above the keyboard on iPhone. On touch layouts, Text style stays at the leading
+  holds Rewrite, Translate and Suggest reply) sits under the header on Mac and iPad.
+  On iPhone, a floating Liquid Glass pill offers Format and Add files, with a
+  separate Writing tools button. Format dismisses the keyboard and shows the
+  formatting controls in its place. Focusing the body closes the Format panel;
+  Close Format closes it and resumes typing. Add files opens the system menu for
+  Attach File, Attach Photo, Insert Image and Paste Image. The controls are
+  unavailable while sending. In the iPad format bar, Text style stays at the leading
   edge while the remaining controls scroll horizontally at their full touch size.
   In the Mac overlay, **From** and **Send** share the bottom row; in its New
   Message window they share the toolbar row above the format bar;

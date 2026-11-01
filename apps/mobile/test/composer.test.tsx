@@ -29,6 +29,7 @@ import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   AppState,
+  DeviceEventEmitter,
   Dimensions,
   StyleSheet,
   TextInput,
@@ -55,7 +56,9 @@ import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { targetChoice, translateInto } from './translation-menu.tsx';
 import {
+  addFilesChoice,
   chooseWritingTool,
+  menuGroups,
   writingTool,
   writingToolChoice,
   writingToolGroups,
@@ -321,6 +324,15 @@ function App({
   );
 }
 
+const formatPanelControls = new Set([
+  'Undo',
+  'Redo',
+  'Bold',
+  'Italic',
+  'Add Link',
+  'Edit Link',
+  'Heading 1',
+]);
 const press = async (name: string) => {
   if (
     name === 'New Message' &&
@@ -332,10 +344,46 @@ const press = async (name: string) => {
       { nativeEvent: { actionName: 'openCommandPalette' } },
     );
   }
+  // iPhone offers its file controls in the Add files menu, and Undo, Redo and formatting in the
+  // Format panel the pill opens.
+  const choice = addFilesChoice(name);
+  if (choice !== undefined) {
+    await act(async () => {
+      choice();
+    });
+    return;
+  }
+  const formatting =
+    formatPanelControls.has(name) &&
+    screen.queryByRole('button', { name }) === null &&
+    screen.queryByRole('button', { name: 'Format' }) !== null;
+  if (formatting) {
+    await press('Format');
+  }
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
   });
+  // Closing the panel brings back the pill and Writing tools; a Link sheet keeps it open.
+  if (formatting && !name.endsWith('Link')) {
+    await press('Close Format');
+  }
+};
+
+// On iPhone, keeps the Format panel's controls on screen until closeFormat.
+const openFormat = async (on: Pick<typeof screen, 'queryByRole'> = screen) => {
+  const format = on.queryByRole('button', { name: 'Format' });
+  if (format !== null) {
+    await act(async () => {
+      await fireEvent.press(format);
+    });
+  }
+};
+
+const closeFormat = async () => {
+  if (screen.queryByRole('button', { name: 'Close Format' }) !== null) {
+    await press('Close Format');
+  }
 };
 
 // Close asks about a changed Draft; Save Draft stores it and closes.
@@ -784,8 +832,7 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Message body'),
       '• Notes',
     );
-    // The new pop-up applies a semantic block change and closes without losing history.
-    await press('Text style');
+    // The Format panel applies a semantic block change and closes without losing history.
     await press('Heading 1');
     expect(screen.getByLabelText('Message body')).not.toHaveTextContent('•');
     expect(screen.queryByRole('button', { name: 'Heading 1' })).toBeNull();
@@ -1655,6 +1702,7 @@ describe('composing Drafts', () => {
       second.getByRole('button', { name: /^Draft\. First window\./u }),
     ).toHaveProp('accessibilityState', { selected: false });
     // Following the copy retains the mounted editor's history, not just its saved payload.
+    await openFormat(second);
     await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
     expect(second.getByLabelText('Subject')).toHaveProp('value', 'Second');
     await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
@@ -2155,6 +2203,7 @@ describe('composing Drafts', () => {
     await fireEvent.changeText(subject, 'One ');
     await fireEvent.changeText(subject, 'One Two ');
     await fireEvent.changeText(subject, 'One Two Three');
+    await openFormat();
     const undoButton = screen.getByRole('button', { name: 'Undo' });
     // Accessibility activations reach Pressability without nested async act scopes.
     await act(() => {
@@ -2179,6 +2228,63 @@ describe('composing Drafts', () => {
       'value',
       'One Two Three',
     );
+  });
+
+  it('formats in the Format panel the iPhone pill opens in place of the keyboard, and adds files from its menu', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <ComposerLayoutContext
+        value={{ size: 'compact', avoidKeyboard: true, top: 0 }}>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </ComposerLayoutContext>,
+    );
+    await press('New Message');
+    const body = await screen.findByLabelText('Message body');
+    await fireEvent.changeText(body, 'Plan');
+    // The pill holds Format and Add files in place of the format bar.
+    expect(screen.queryByRole('button', { name: 'Bold' })).toBeNull();
+    expect(menuGroups('Add files')).toStrictEqual([
+      [
+        ['Attach File', 'doc', undefined],
+        ['Attach Photo', 'photo', undefined],
+        ['Insert Image', 'photo.on.rectangle', undefined],
+        ['Paste Image', 'doc.on.clipboard', undefined],
+      ],
+    ]);
+    await press('Format');
+    expect(screen.getByLabelText('Formatting')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Format' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Body' })).toBeSelected();
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await press('Bold');
+    expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
+    await press('Heading 1');
+    expect(screen.getByRole('button', { name: 'Heading 1' })).toBeSelected();
+    expect(shownSpans()).toStrictEqual([{ text: 'Plan', marks: ['bold'] }]);
+    // Tapping into the body brings the keyboard back in place of the panel.
+    await act(async () => {
+      DeviceEventEmitter.emit('keyboardWillShow', {
+        duration: 0,
+        easing: 'keyboard',
+        isEventFromThisApp: true,
+        startCoordinates: { screenX: 0, screenY: 874, width: 402, height: 0 },
+        endCoordinates: { screenX: 0, screenY: 542, width: 402, height: 332 },
+      });
+    });
+    expect(screen.queryByLabelText('Formatting')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Format' })).toBeOnTheScreen();
+    // Undo in the panel steps back the heading but keeps the bold text.
+    await openFormat();
+    await press('Undo');
+    expect(screen.getByRole('button', { name: 'Body' })).toBeSelected();
+    expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
   });
 
   it.each([
@@ -2234,6 +2340,7 @@ describe('composing Drafts', () => {
           nativeEvent: { selection: { start: at, end: at } },
         });
       };
+      await openFormat();
       // Away from a link there is nothing to edit.
       await caret(2);
       expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
@@ -2369,6 +2476,7 @@ describe('composing Drafts', () => {
           nativeEvent: { selection: { start, end } },
         });
       };
+      await openFormat();
       // A caret has no text to link.
       await select(8, 8);
       expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
@@ -2547,6 +2655,7 @@ describe('composing Drafts', () => {
     await press('New Message');
     const body = await screen.findByLabelText('Message body');
     await fireEvent.changeText(body, 'aa');
+    await openFormat();
     await fireEvent(body, 'selectionChange', {
       nativeEvent: { selection: { start: 0, end: 1 } },
     });
@@ -3170,6 +3279,7 @@ describe('composing Drafts', () => {
     const editedReplace = queuedPress(
       'Replace the selected text with this translation',
     );
+    await openFormat();
     const undoEdit = queuedPress('Undo');
     const editBody = queuedPress('Message body', 'onChangeText');
     await act(() => {
@@ -3177,6 +3287,7 @@ describe('composing Drafts', () => {
       undoEdit();
       editedReplace();
     });
+    await closeFormat();
     expect(screen.getByLabelText('Message body')).toHaveTextContent(
       'Hola. Nos vemos el viernes.',
       { exact: true },
@@ -5312,12 +5423,14 @@ describe('replying to and forwarding from the reader', () => {
     await screen.findByText('Ready for the old recipients.');
     const apply = queuedPress('Replace your reply with this suggestion');
     const removeBob = queuedPress('To: Bob <bob@example.invalid>');
+    await openFormat();
     const undo = queuedPress('Undo');
     await act(() => {
       removeBob();
       undo();
       apply();
     });
+    await closeFormat();
     expect(screen.queryByText('Ready for the old recipients.')).toBeNull();
     expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes', {
       exact: true,

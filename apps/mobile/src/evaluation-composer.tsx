@@ -50,6 +50,7 @@ import { WebView } from 'react-native-webview';
 import type { Closing } from './composer.tsx';
 import type { Open, PageState } from './evaluation-composer-controls.tsx';
 
+import { FormatPanel } from './composer-controls.tsx';
 import {
   CapturedAssistance,
   CloseQuestion,
@@ -62,7 +63,6 @@ import {
   SendingMailbox,
 } from './composer.tsx';
 import {
-  FormatPanel,
   PhoneControls,
   phoneControlsInset,
   useRetainedControls,
@@ -809,10 +809,25 @@ function EvaluationEditor({
         </View>
         {retained.phone === undefined ? null : (
           <FormatPanel
-            draft={draft}
             open={open === 'format'}
-            page={retained.phone}
-            run={run}
+            active={retained.phone.marks}
+            kind={retained.phone.kind}
+            link={editableLinkAt(draft.body, retained.phone.selection)}
+            undo={retained.phone.undo}
+            redo={retained.phone.redo}
+            disabled={false}
+            onUndo={() => {
+              run({ type: 'undo' });
+            }}
+            onRedo={() => {
+              run({ type: 'redo' });
+            }}
+            onBlock={(kind) => {
+              run({ type: 'block', kind });
+            }}
+            onMark={(mark) => {
+              run({ type: 'mark', mark });
+            }}
             onLink={editLink}
             onClose={() => {
               setOpen(undefined);

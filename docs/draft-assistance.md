@@ -18,7 +18,7 @@ iPhone and iPad composer.
 
 ## Behavior
 
-- **Rewrite** sits in the format bar's **Writing tools** (sparkles) menu with the
+- **Rewrite** sits in the composer's **Writing tools** (sparkles) menu with the
   other actions listed below, which is unavailable while sending. With text
   selected it rewrites the selection; with nothing selected it rewrites the whole
   authored body. It is disabled while that text is blank.
