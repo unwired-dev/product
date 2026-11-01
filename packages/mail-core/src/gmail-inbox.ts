@@ -2848,7 +2848,7 @@ export function createGmailInbox(
         )
       : { document, authentication: false };
     const withList = invitation.document;
-    if (!needsImages) {
+    if (!needsImages || invitation.authentication) {
       return {
         document: withList,
         changed: true,

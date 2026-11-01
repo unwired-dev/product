@@ -246,6 +246,10 @@ describe('meeting invitations', () => {
       calendar([...withoutEnd, 'DURATION:P1D']),
     ],
     ['a negative duration', calendar([...withoutEnd, 'DURATION:-PT1H'])],
+    [
+      'a duration beyond the supported date range',
+      calendar([...withoutEnd, 'DURATION:PT99999999999999999H']),
+    ],
     ['a truncated event', calendar(meeting).replace('END:VEVENT\r\n', '')],
     [
       'a mismatched ending',
@@ -504,6 +508,53 @@ describe('meeting invitations', () => {
       close();
     },
   );
+
+  it('keeps a cached invitation readable and asks for sign-in before fetching more parts', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      from: 'Lena Fischer <lena@northwind.example>',
+      subject: 'Invitation',
+      content: {
+        html: '<p>Join us.</p><img src="cid:logo">',
+        images: [{ contentId: 'logo', mimeType: 'image/png', bytes: [1] }],
+        attachments: [
+          {
+            filename: 'invite.ics',
+            mimeType: 'text/calendar',
+            bytes: [...Buffer.from(calendar(meeting))],
+          },
+        ],
+      },
+    });
+    const native = { ...withoutAttachments(gmail.native, 503) };
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    const first = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+    first();
+    const requests: string[] = [];
+    native.gmailRequest = (path, query, request) => {
+      requests.push(path);
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the calendar is refused; a successful image read must not hide the rejected grant.
+      return path.endsWith('/attachments/file-0')
+        ? Promise.resolve({ status: 401, body: '{}' })
+        : gmail.native.gmailRequest(path, query, request);
+    };
+    const second = inbox.retainMessage(id);
+    try {
+      await inbox.readMessage(id);
+
+      expect(inbox.responseSource(id)?.html).toContain('Join us.');
+      expect(inbox.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        sync: 'authentication',
+      });
+      expect(requests).not.toContain(`messages/${id}/attachments/image-0`);
+    } finally {
+      second();
+    }
+  });
 
   it('shows the invitation once Gmail can send it after an earlier open failed', async () => {
     expect.hasAssertions();

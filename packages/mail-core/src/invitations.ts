@@ -313,7 +313,10 @@ const endOf = (
     return undefined;
   }
   const end = length === undefined ? timeOf(dtend) : durationEnd(length, start);
-  return end === undefined || end.allDay !== start.allDay || end.at <= start.at
+  return end === undefined ||
+    end.allDay !== start.allDay ||
+    end.at <= start.at ||
+    Option.isNone(DateTime.make(end.at))
     ? undefined
     : end;
 };
