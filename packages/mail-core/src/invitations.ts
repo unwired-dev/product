@@ -263,16 +263,61 @@ const organizerOf = (event: readonly Line[]) => {
     : { line, recipient };
 };
 
+const duration =
+  /^\+?P(?:(?<weeks>\d+)W|(?<days>\d+)D|(?:(?<timedDays>\d+)D)?T(?:(?<hours>\d+)H)?(?:(?<minutes>\d+)M)?(?:(?<seconds>\d+)S)?)$/u;
+
+// The end a positive DURATION gives `start`. An all-day meeting lasts whole days, and a timed one
+// only hours, minutes and seconds, whose length doesn't change across a daylight-saving shift.
+const durationEnd = (
+  line: Line,
+  start: InvitationTime,
+): InvitationTime | undefined => {
+  const match = duration.exec(line.value.trim());
+  if (match === null) {
+    return undefined;
+  }
+  const [, weeks, days, timedDays, hours, minutes, seconds] = match;
+  const day = 24 * 60 * 60 * 1000;
+  const whole = (Number(weeks ?? 0) * 7 + Number(days ?? 0)) * day;
+  const timed =
+    (Number(hours ?? 0) * 60 * 60 +
+      Number(minutes ?? 0) * 60 +
+      Number(seconds ?? 0)) *
+    1000;
+  const valid = start.allDay
+    ? timedDays === undefined && timed === 0
+    : whole === 0 && timedDays === undefined;
+  return valid
+    ? { at: start.at + whole + timed, allDay: start.allDay }
+    : undefined;
+};
+
+// The meeting's end from DTEND or DURATION, never both; `null` when it has neither.
+const endOf = (
+  event: readonly Line[],
+  start: InvitationTime,
+): InvitationTime | null | undefined => {
+  const dtend = find(event, 'DTEND');
+  const length = find(event, 'DURATION');
+  if (dtend === undefined && length === undefined) {
+    return null;
+  }
+  if (dtend !== undefined && length !== undefined) {
+    return undefined;
+  }
+  const end = length === undefined ? timeOf(dtend) : durationEnd(length, start);
+  return end === undefined || end.allDay !== start.allDay || end.at <= start.at
+    ? undefined
+    : end;
+};
+
 const detailsOf = (
   event: readonly Line[],
   start: InvitationTime,
   organizer: Recipient,
 ): InvitationDetails | undefined => {
-  const end = timeOf(find(event, 'DTEND'));
-  if (
-    find(event, 'DTEND') !== undefined &&
-    (end === undefined || end.allDay !== start.allDay || end.at <= start.at)
-  ) {
+  const end = endOf(event, start);
+  if (end === undefined) {
     return undefined;
   }
   const summary = find(event, 'SUMMARY');
@@ -280,7 +325,7 @@ const detailsOf = (
   return {
     ...(summary === undefined ? {} : { summary: text(summary.value) }),
     start,
-    ...(end === undefined ? {} : { end }),
+    ...(end === null ? {} : { end }),
     ...(location === undefined ? {} : { location: text(location.value) }),
     organizer,
   };
@@ -298,6 +343,7 @@ const meetingOf = (event: readonly Line[]) => {
     'SEQUENCE',
     'DTSTART',
     'DTEND',
+    'DURATION',
     'ORGANIZER',
     'SUMMARY',
     'LOCATION',
@@ -489,11 +535,22 @@ const outcomeState = (
 const keyOf = (invitation: Invitation) =>
   `${invitation.address.toLowerCase()}\u0000${invitation.uid}`;
 
+const replySubject = (subject: string) =>
+  /^\s*re:/iu.test(subject) ? subject : `Re: ${subject}`;
+
 // The response message: a reply to the invitation, from the invited mailbox to the organizer,
 // carrying the calendar reply beside its text.
 const responseMessage = (
   invitation: Invitation,
-  { choice, copy }: Readonly<{ choice: InvitationChoice; copy: ResponseCopy }>,
+  {
+    choice,
+    copy,
+    received,
+  }: Readonly<{
+    choice: InvitationChoice;
+    copy: ResponseCopy;
+    received: string | undefined;
+  }>,
   at: number,
 ) => {
   const boundary = Math.random().toString(36).slice(2, 14);
@@ -505,7 +562,8 @@ const responseMessage = (
     to: [invitation.details.organizer],
     cc: [],
     bcc: [],
-    subject: copy.subject,
+    // Gmail keeps a reply in the invitation's conversation only when its subject matches.
+    subject: received === undefined ? copy.subject : replySubject(received),
     body: [{ kind: 'paragraph', spans: [{ text: copy.text }] }],
     response: {
       kind: 'reply',
@@ -541,12 +599,12 @@ function createInvitationResponses(
   };
   const stateOf = (invitation: Invitation) =>
     states.get(keyOf(invitation)) ?? unanswered;
-  const threadOf = (message: string) => {
+  const receivedOf = (message: string) => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready'
       ? [...state.messages, ...(state.found ?? [])].find(
           ({ id }) => id === message,
-        )?.threadId
+        )
       : undefined;
   };
   const send = async (
@@ -563,9 +621,14 @@ function createInvitationResponses(
     ) {
       return;
     }
-    const { segments, boundary } = responseMessage(invitation, chosen, now());
+    const received = receivedOf(invitation.message);
+    const thread = received?.threadId;
+    const { segments, boundary } = responseMessage(
+      invitation,
+      { ...chosen, received: received?.subject },
+      now(),
+    );
     set(invitation, { kind: 'sending', choice: chosen.choice });
-    const thread = threadOf(invitation.message);
     const outcome = await inbox
       .send({ segments, ...(thread === undefined ? {} : { threadId: thread }) })
       .catch((): SendOutcome => ({ kind: 'unknown' }));

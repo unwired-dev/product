@@ -188,6 +188,32 @@ describe('meeting invitations', () => {
     });
   });
 
+  const withoutEnd = meeting.filter((line) => !line.startsWith('DTEND'));
+
+  it.each([
+    [
+      'a timed meeting',
+      [...withoutEnd, 'DURATION:PT1H30M'],
+      { at: Date.UTC(2026, 10, 6, 14, 30), allDay: false },
+    ],
+    [
+      'an all-day meeting',
+      [
+        ...withoutEnd.map((line) =>
+          line.replace(
+            'DTSTART;TZID=Europe/Prague:20261106T140000',
+            'DTSTART;VALUE=DATE:20261106',
+          ),
+        ),
+        'DURATION:P3D',
+      ],
+      { at: Date.UTC(2026, 10, 9), allDay: true },
+    ],
+  ])('ends %s after its DURATION', (_, event, end) => {
+    expect.hasAssertions();
+    expect(offered(calendar(event)).details.end).toStrictEqual(end);
+  });
+
   it.each([
     ['a recurring meeting', calendar([...meeting, 'RRULE:FREQ=WEEKLY'])],
     ['a cancellation', calendar(meeting, 'CANCEL')],
@@ -214,6 +240,12 @@ describe('meeting invitations', () => {
       'an unsupported calendar version',
       calendar(meeting).replace('VERSION:2.0', 'VERSION:1.0'),
     ],
+    ['both an end and a duration', calendar([...meeting, 'DURATION:PT1H'])],
+    [
+      'a timed meeting lasting whole days',
+      calendar([...withoutEnd, 'DURATION:P1D']),
+    ],
+    ['a negative duration', calendar([...withoutEnd, 'DURATION:-PT1H'])],
     ['a truncated event', calendar(meeting).replace('END:VEVENT\r\n', '')],
     [
       'a mismatched ending',
@@ -334,6 +366,7 @@ describe('meeting invitations', () => {
     expect(sent?.raw).toContain('From: alex@example.invalid');
     expect(sent?.raw).toContain('To: "Fischer, Lena" <lena@northwind.example>');
     expect(sent?.raw).toContain('In-Reply-To: <invite-1@northwind.example>');
+    expect(sent?.raw).toContain('Subject: Re: Invitation: Q4 roadmap review');
     expect(replyOf(sent)).toContain(
       'ATTENDEE;CN=Alex;PARTSTAT=ACCEPTED:mailto:Alex@example.invalid',
     );

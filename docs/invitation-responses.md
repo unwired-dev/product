@@ -13,7 +13,8 @@ separately.
 - An opened Gmail message whose `text/calendar` part (up to 256 KiB) is an
   iCalendar `METHOD:REQUEST` with exactly one meeting shows an invitation card
   above the message body: the organizer, title, **When** in this Mac's time zone,
-  **Where**, **Organizer** and **Invited**. The calendar attachment stays listed
+  **Where**, **Organizer** and **Invited**. The end comes from `DTEND` or
+  `DURATION`. The calendar attachment stays listed
   below the body.
 - The card offers **Accept**, **Maybe** and **Decline** only when the invitation
   names the opened mailbox's address as an attendee. Nothing is sent until the
@@ -21,7 +22,8 @@ separately.
   here** and names the invited addresses.
 - Choosing a response sends one iCalendar `METHOD:REPLY` from the invited
   address to the organizer, in the invitation's Gmail thread, as a reply to the
-  invitation message. The reply carries the event's UID, SEQUENCE and organizer,
+  invitation message, with the invitation's subject prefixed `Re:` so Gmail keeps
+  it in that conversation. The reply carries the event's UID, SEQUENCE and organizer,
   and the attendee line with only its participation status changed. A second
   press while sending, or the same choice after Gmail confirmed it, sends
   nothing. Choosing another response sends that one.
@@ -34,8 +36,8 @@ separately.
   **Delivery unknown** and never sends it again on its own. **Check Again** looks
   for the message in Gmail's Sent; **Respond Again…** asks first, because a second
   response could reach the organizer.
-- Recurring meetings, cancellations, floating or unknown time zones and damaged
-  calendar text show **Unwired can’t read this invitation**, with no response.
+- Recurring meetings, cancellations, floating or unknown time zones, a timed
+  meeting whose `DURATION` counts days, and damaged calendar text show **Unwired can’t read this invitation**, with no response.
 
 ## Limitations
 
