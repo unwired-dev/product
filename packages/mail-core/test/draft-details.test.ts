@@ -242,6 +242,22 @@ describe('the Writing tools detail check', () => {
   });
 
   it.each([
+    ['3 Nov–4 Nov', '3 Nov to 4 Nov'],
+    ['3 Nov–4 Nov', '3 Nov–4 Nov–5 Nov'],
+    ['3 Nov–4 Nov', '3 Nov–4pm'],
+    ['1,000–2,000', '1000–3000'],
+    ['3–5 Nov', '5–3 Nov'],
+    ['€40–50', '€50–40'],
+    ['Nov 3–5', 'Nov 5–3'],
+    ['40–€50', '50–€40'],
+  ])('keeps a definite range change visible in %s', (original, result) => {
+    expect.hasAssertions();
+    const { changes } = checkDetails(whole(original), result);
+    expect(changes).not.toHaveLength(0);
+    expect(changes.map(({ status }) => status)).not.toContain('uncertain');
+  });
+
+  it.each([
     'monday',
     'tuesday',
     'wednesday',
@@ -1153,6 +1169,32 @@ describe('the Writing tools detail check', () => {
       checkDetails(whole('Stay 3–5 Nov.'), 'Stay 5–3 Nov.').changes,
     ).toMatchObject([{ status: 'changed' }]);
   });
+
+  it.each([
+    ['9–5pm', '9–5am'],
+    ['9-5pm', '9-5am'],
+    ['9:5pm', '9:5am'],
+    ['9–5:30pm', '9–5:30am'],
+    ['9–5h30 UTC', '9–5h30 PST'],
+    ['9–5.30pm', '9–5.30am'],
+    ['9–5 pm.', '9–5 am.'],
+    ['40–50€', '40–50$'],
+    ['40-50 usd', '40-50 eur'],
+    ['40–50 Kč', '40–50 kr'],
+    ['40–50%', '40–60%'],
+    ['3–5 Nov', '3–5 Dec'],
+    ['3–5–7pm', '3–5–7am'],
+  ])(
+    'retains a typed endpoint after a bare number in %s',
+    (original, result) => {
+      expect.hasAssertions();
+      expect(checkDetails(whole(original), result).changes).not.toHaveLength(0);
+      expect(checkDetails(whole(original), original)).toStrictEqual({
+        kept: [original.replace(/\.$/u, '')],
+        changes: [],
+      });
+    },
+  );
 
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();

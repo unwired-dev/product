@@ -100,6 +100,8 @@ const date = [
   anyCase('today|tomorrow|tonight|yesterday'),
 ].join('|');
 const time = `(?:${clock}(?:\\s?${meridiem})?|(?:${dottedClock}|\\d{1,2})\\s?${meridiem}|${dottedClock}(?=\\.?\\s?(?:${zone})${edge}))(?:\\.?\\s?(?:${zone}))?`;
+// A code can also be prose (`try 8 pm`); keep the complete numeric date or time with it.
+const amountPattern = `${sign}?(?:${currency})\\s?(?:${sign}?(?=\\d)(?:${time}|${date})|${figure})(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`;
 
 // A detail starts and ends outside a word. Earlier alternatives win where details overlap, so an
 // amount's number or a date's day is not counted again. Quotes are read separately because they
@@ -119,15 +121,12 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   // An explicit meridiem or zone distinguishes a dotted clock with seconds from a numeric date.
   ['time', time],
   ['date', date],
-  [
-    'amount',
-    // A code can also be prose (`try 8 pm`); keep the complete numeric date or time with it.
-    `${sign}?(?:${currency})\\s?(?:${sign}?(?=\\d)(?:${time}|${date})|${figure})(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`,
-  ],
+  ['amount', amountPattern],
   // A number may carry a unit (`0.5s`, `3rd`); only its figures are compared.
   [
     'number',
-    String.raw`${figure}(?:\s*[/–—−:-]\s*${figure})*(?:\s?%)?(?![.,]?\p{N})`,
+    // Let a typed endpoint (`9–5pm`, `40–50€`) match in full before joining it as a range.
+    String.raw`${figure}(?:\s*[/–—−:-]\s*(?!(?:${time}|${date}|${amountPattern})${edge})${figure})*(?:\s?%)?(?![.,]?\p{N})`,
   ],
 ];
 const kinds = patterns.map(([kind]) => kind);
