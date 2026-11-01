@@ -466,6 +466,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Errors and diagnostics
 
+- `gmail-inbox.ts.fetchBody` making readable text depend on an optional calendar
+  part or another independently fetched message enhancement. Recover missing,
+  damaged and transiently unavailable optional parts without hiding the body,
+  while preserving lifecycle-changing failures through the owning Inbox recovery.
+  A rejected grant must publish the owner-fenced sign-in notice and stop further
+  part reads, as `resolveImages` does; otherwise an unavailable invitation hides
+  ordinary mail or a best-effort fallback conceals lost mailbox authorization.
+
 - A failure modelled as a thrown `Error`, a string or a boolean where callers need to tell cases apart; use `Schema.TaggedError`, with a foreign error carried as `cause: Schema.Defect()`.
 - An expected state (locked storage, cancelled or declined sign-in, enrollment waiting) logged as an error, or an unexpected failure recovered without `Effect.logError`.
 - A log, annotation or error message that carries `cause`, `error.message`, `String(error)`, a payload, an email address, a token or an account, device or message identifier. Any field of a host or provider error can hold mail or account data; log only what `rejectionDiagnostic` and `decodeDiagnostic` in `src/diagnostics.ts` produce.

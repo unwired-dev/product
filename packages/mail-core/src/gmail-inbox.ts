@@ -113,6 +113,7 @@ import {
 } from './mailbox-read.ts';
 import {
   bodyParts,
+  calendarPart,
   contentIdsOf,
   decodeAttachment,
   decodeBodyDocument,
@@ -2723,6 +2724,31 @@ export function createGmailInbox(
     return { ...tally.result(), authentication: false };
   });
 
+  // The invitation text of a Gmail message. An unavailable invitation leaves the rest readable;
+  // Microsoft invitations are answered through their own journey.
+  const fetchCalendar = (
+    scope: MailboxScope,
+    id: string,
+    payload: GmailPart,
+  ) => {
+    const part = graph === undefined ? calendarPart(payload) : undefined;
+    return part === undefined
+      ? Effect.succeed({ calendar: undefined, authentication: false })
+      : fetchPart(scope, id, part).pipe(
+          Effect.map((calendar) => ({ calendar, authentication: false })),
+          Effect.catchIf(
+            (failure) =>
+              failure instanceof GmailNotFound ||
+              failure.kind === 'retry' ||
+              failure.kind === 'authentication',
+            (failure) =>
+              Effect.succeed({
+                calendar: undefined,
+                authentication: rejectedGrant(failure),
+              }),
+          ),
+        );
+  };
   // An explicit open's body from Gmail: both readable alternatives and its inline images.
   const fetchBody = Effect.fnUntraced(function* (
     scope: MailboxScope,
@@ -2733,7 +2759,7 @@ export function createGmailInbox(
   > {
     const payload = yield* boundedMessage(scope, id);
     const { html, text, path } = bodyParts(payload);
-    const document: BodyDocument = {
+    const alternatives: BodyDocument = {
       version: 2,
       id,
       ...(payload.attachmentsPending === true
@@ -2747,16 +2773,22 @@ export function createGmailInbox(
         ? {}
         : { html: yield* fetchPart(scope, id, html) }),
     };
-    if (payload.attachmentsPending === true) {
-      return { document, authentication: payload.authentication === true };
-    }
-    const references = contentIdsOf(document);
-    if (references.length === 0) {
+    const { calendar, authentication } = yield* fetchCalendar(
+      scope,
+      id,
+      payload,
+    );
+    const document: BodyDocument = {
+      ...alternatives,
+      ...(calendar === undefined ? {} : { calendar }),
+    };
+    if (authentication || payload.attachmentsPending === true) {
       return {
-        document: { ...document, images: { admitted: [], refused: [] } },
-        authentication: false,
+        document,
+        authentication: authentication || payload.authentication === true,
       };
     }
+    const references = contentIdsOf(document);
     const resolved = yield* resolveImages(scope, id, { path, references });
     return {
       document: resolved.complete
