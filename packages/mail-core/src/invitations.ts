@@ -5,6 +5,7 @@ import type { Draft, Recipient } from './draft-model.ts';
 import type { GmailInbox, SendOutcome } from './gmail-inbox.ts';
 import type { BodyDocument } from './message-body.ts';
 
+import { listedMessage } from './gmail-inbox.ts';
 import { boundaryOf, outgoingMessage } from './outgoing-message.ts';
 
 // The response a person chooses for a meeting invitation, as its iCalendar participation status.
@@ -608,9 +609,8 @@ function createInvitationResponses(
   const receivedOf = (message: string) => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready'
-      ? [...state.messages, ...(state.found ?? [])].find(
-          ({ id }) => id === message,
-        )
+      ? (listedMessage(state, message) ??
+          state.found?.find(({ id }) => id === message))
       : undefined;
   };
   const send = async (

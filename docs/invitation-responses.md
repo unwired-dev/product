@@ -10,7 +10,8 @@ separately.
 
 ## Behavior
 
-- An opened Gmail message whose `text/calendar` part (up to 256 KiB) is an
+- An opened Gmail message whose `text/calendar` part (or, without one, its
+  `application/ics` part; up to 256 KiB) is an
   iCalendar `METHOD:REQUEST` with exactly one meeting shows an invitation card
   above the message body: the organizer, title, **When** in this Mac's time zone,
   **Where**, **Organizer** and **Invited**. The end comes from `DTEND` or

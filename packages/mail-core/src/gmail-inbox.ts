@@ -2724,8 +2724,9 @@ export function createGmailInbox(
     return { ...tally.result(), authentication: false };
   });
 
-  // The invitation text of a Gmail message. An unavailable invitation leaves the rest readable;
-  // Microsoft invitations are answered through their own journey.
+  // The invitation text of a Gmail message. An unavailable invitation leaves the rest readable,
+  // and one Gmail can still answer later is `pending`; Microsoft invitations are answered through
+  // their own journey.
   const fetchCalendar = (
     scope: MailboxScope,
     id: string,
@@ -2733,9 +2734,17 @@ export function createGmailInbox(
   ) => {
     const part = graph === undefined ? calendarPart(payload) : undefined;
     return part === undefined
-      ? Effect.succeed({ calendar: undefined, authentication: false })
+      ? Effect.succeed({
+          calendar: undefined,
+          pending: false,
+          authentication: false,
+        })
       : fetchPart(scope, id, part).pipe(
-          Effect.map((calendar) => ({ calendar, authentication: false })),
+          Effect.map((calendar) => ({
+            calendar,
+            pending: false,
+            authentication: false,
+          })),
           Effect.catchIf(
             (failure) =>
               failure instanceof GmailNotFound ||
@@ -2744,6 +2753,7 @@ export function createGmailInbox(
             (failure) =>
               Effect.succeed({
                 calendar: undefined,
+                pending: !(failure instanceof GmailNotFound),
                 authentication: rejectedGrant(failure),
               }),
           ),
@@ -2759,10 +2769,16 @@ export function createGmailInbox(
   > {
     const payload = yield* boundedMessage(scope, id);
     const { html, text, path } = bodyParts(payload);
-    const alternatives: BodyDocument = {
+    const { calendar, pending, authentication } = yield* fetchCalendar(
+      scope,
+      id,
+      payload,
+    );
+    const document: BodyDocument = {
       version: 2,
       id,
-      ...(payload.attachmentsPending === true
+      // A pending invitation leaves the attachment list out too, so a later open completes both.
+      ...(payload.attachmentsPending === true || pending
         ? {}
         : { attachments: attachmentMetadata(payload) }),
       headers: responseHeadersOf(payload),
@@ -2772,14 +2788,6 @@ export function createGmailInbox(
       ...(html === undefined
         ? {}
         : { html: yield* fetchPart(scope, id, html) }),
-    };
-    const { calendar, authentication } = yield* fetchCalendar(
-      scope,
-      id,
-      payload,
-    );
-    const document: BodyDocument = {
-      ...alternatives,
       ...(calendar === undefined ? {} : { calendar }),
     };
     if (authentication || payload.attachmentsPending === true) {
@@ -2799,7 +2807,7 @@ export function createGmailInbox(
   });
 
   // A cached body opened explicitly before its inline images were resolved, or before its
-  // attachment metadata was kept, completes them now when Gmail answers; offline, it opens with
+  // attachment metadata or pending invitation was kept, completes them now when Gmail answers; offline, it opens with
   // placeholders and no attachment list.
   const completeImages = Effect.fnUntraced(function* (
     scope: MailboxScope,
@@ -2816,15 +2824,31 @@ export function createGmailInbox(
     const payload = yield* boundedMessage(scope, document.id).pipe(
       Effect.flatMap(requireAttachments),
     );
+    const invitation =
+      needsAttachments && document.calendar === undefined
+        ? yield* fetchCalendar(scope, document.id, payload)
+        : { calendar: undefined, pending: false, authentication: false };
     const withList = needsAttachments
       ? {
           ...document,
-          attachments: document.attachments ?? attachmentMetadata(payload),
+          ...(invitation.pending
+            ? {}
+            : {
+                attachments:
+                  document.attachments ?? attachmentMetadata(payload),
+              }),
+          ...(invitation.calendar === undefined
+            ? {}
+            : { calendar: invitation.calendar }),
           headers: responseHeadersOf(payload),
         }
       : document;
     if (!needsImages) {
-      return { document: withList, changed: true, authentication: false };
+      return {
+        document: withList,
+        changed: true,
+        authentication: invitation.authentication,
+      };
     }
     const resolved = yield* resolveImages(scope, document.id, {
       path: bodyParts(payload).path,
@@ -2839,7 +2863,7 @@ export function createGmailInbox(
       : {
           document: withList,
           changed: needsAttachments,
-          authentication: resolved.authentication,
+          authentication: resolved.authentication || invitation.authentication,
         };
   });
 

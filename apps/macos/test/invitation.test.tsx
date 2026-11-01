@@ -3,6 +3,7 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { MessageBody } from '../src/message-body.tsx';
+import { AccountContext } from '../src/registration-gate.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
 
 // The application callback that a queued native button event would deliver.
@@ -43,7 +44,11 @@ const invitation = (attendee: string, extra: readonly string[] = []) =>
 
 // The reader showing a received invitation from a synthetic Gmail mailbox. Only WebKit and the
 // AppKit controls are substituted.
-async function opened(calendar: string) {
+async function opened(
+  calendar: string,
+  authorizeMailbox: (connection: string) => Promise<void> = () =>
+    Promise.resolve(),
+) {
   const gmail = createSyntheticGmail();
   const id = gmail.deliver({
     from: 'Lena Fischer <lena@northwind.example>',
@@ -62,10 +67,22 @@ async function opened(calendar: string) {
   const inbox = createGmailInbox(gmail.native);
   await inbox.load();
   const app = await render(
-    <MessageBody
-      inbox={inbox}
-      id={id}
-    />,
+    <AccountContext
+      value={{
+        mailboxes: [],
+        openAccount: () => undefined,
+        authorizeMailbox,
+        refreshInbox: (load) => load(),
+        account: 'synthetic-product-account',
+        profiles: [],
+        createProfile: () => Promise.resolve(undefined),
+      }}>
+      <MessageBody
+        inbox={inbox}
+        id={id}
+        connection="gmail-connection"
+      />
+    </AccountContext>,
   );
   return { gmail, app };
 }
@@ -114,6 +131,43 @@ describe('meeting invitations in the Mac reader', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Accepted' }));
 
       expect(gmail.sends).toHaveLength(1);
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('offers responses again only once Gmail accepts the sign-in', async () => {
+    expect.hasAssertions();
+    const authorizations: string[] = [];
+    const { gmail, app } = await opened(
+      invitation('alex@example.invalid'),
+      (connection) => {
+        authorizations.push(connection);
+        return Promise.resolve();
+      },
+    );
+    try {
+      gmail.failSend({ status: 401 });
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Accept' }),
+      );
+      await expect(
+        screen.findByText('Gmail needs you to sign in again'),
+      ).resolves.toBeOnTheScreen();
+
+      // The person cancels signing in, so Gmail still refuses the mailbox.
+      gmail.fail({ status: 401 });
+      await fireEvent.press(screen.getByRole('button', { name: 'Sign In…' }));
+
+      expect(authorizations).toStrictEqual(['gmail-connection']);
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Sign In…' }));
+
+      await expect(
+        screen.findByRole('button', { name: 'Accept' }),
+      ).resolves.toBeOnTheScreen();
+      expect(gmail.sends).toHaveLength(0);
     } finally {
       await app.unmount();
     }

@@ -505,6 +505,44 @@ describe('meeting invitations', () => {
     },
   );
 
+  it('shows the invitation once Gmail can send it after an earlier open failed', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      from: 'Lena Fischer <lena@northwind.example>',
+      subject: 'Invitation: Q4 roadmap review',
+      content: {
+        text: 'Join us.',
+        attachments: [
+          {
+            filename: 'invite.ics',
+            mimeType: 'text/calendar',
+            bytes: [...Buffer.from(calendar(meeting))],
+          },
+        ],
+      },
+    });
+    const failing = withoutAttachments(gmail.native, 503);
+    const native = { ...gmail.native };
+    const inbox = createGmailInbox(native);
+    native.gmailRequest = failing.gmailRequest;
+    await inbox.load();
+    const first = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+    const missing = inbox.responseSource(id)?.calendar;
+    first();
+    native.gmailRequest = gmail.native.gmailRequest;
+    const second = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+
+    expect(missing).toBeUndefined();
+    expect(inbox.responseSource(id)?.calendar).toContain(
+      'UID:roadmap-42@northwind.example',
+    );
+
+    second();
+  });
+
   it('prevents simultaneous readers of one Inbox from sending twice', async () => {
     expect.hasAssertions();
     const { inbox, invitation, gmail, responses, close } = await invited();

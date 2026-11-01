@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
 
 type InvitationInbox = Pick<
   GmailInbox,
-  'send' | 'findSent' | 'getSnapshot' | 'subscribe' | 'responseSource'
+  'send' | 'findSent' | 'getSnapshot' | 'subscribe' | 'responseSource' | 'load'
 >;
 
 const choices = ['accepted', 'tentative', 'declined'] as const;
@@ -131,16 +131,23 @@ function useWhen(details: InvitationDetails) {
       });
 }
 
+// React Native macOS doesn't expose plain Text to VoiceOver, so each row is one element that speaks
+// its label and values.
 function DetailRow({
   label,
+  spoken,
   children,
 }: {
   readonly label: string;
+  readonly spoken: readonly string[];
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
   return (
-    <View style={styles.row}>
+    <View
+      accessible
+      accessibilityLabel={[label, ...spoken].join(', ')}
+      style={styles.row}>
       <Text style={[styles.label, { color: colors.textSecondary }]}>
         {label}
       </Text>
@@ -154,51 +161,86 @@ function Details({
   invited,
 }: {
   readonly details: InvitationDetails;
-  readonly invited: ReactNode;
+  // Who was invited, then a secondary line about them.
+  readonly invited: readonly [string, string];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const when = useWhen(details);
+  const from = t('invitation.from', { name: nameOf(details) });
+  const title = details.summary ?? t('invitation.untitled');
+  const organizer = [
+    nameOf(details),
+    ...(details.organizer.name === undefined
+      ? []
+      : [details.organizer.address]),
+  ];
   return (
     <>
-      <View style={styles.heading}>
+      <View
+        accessible
+        accessibilityLabel={from}
+        style={styles.heading}>
         <SFSymbol
           name="calendar"
           color={colors.accentInk}
         />
         <Text style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
-          {t('invitation.from', { name: nameOf(details) })}
+          {from}
         </Text>
       </View>
-      <Text
+      <View
+        accessible
         accessibilityRole="header"
-        style={[styles.title, { color: colors.textPrimary }]}>
-        {details.summary ?? t('invitation.untitled')}
-      </Text>
+        accessibilityLabel={title}>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          {title}
+        </Text>
+      </View>
       <View style={styles.details}>
-        <DetailRow label={t('invitation.when')}>
+        <DetailRow
+          label={t('invitation.when')}
+          spoken={[when]}>
           <Text style={[styles.text, { color: colors.textPrimary }]}>
             {when}
           </Text>
         </DetailRow>
         {details.location === undefined ? null : (
-          <DetailRow label={t('invitation.where')}>
+          <DetailRow
+            label={t('invitation.where')}
+            spoken={[details.location]}>
             <Text style={[styles.text, { color: colors.textPrimary }]}>
               {details.location}
             </Text>
           </DetailRow>
         )}
-        <DetailRow label={t('invitation.organizer')}>
-          <Text style={[styles.text, { color: colors.textPrimary }]}>
-            {nameOf(details)}
-          </Text>
-          {details.organizer.name === undefined ? null : (
-            <Text style={[styles.text, { color: colors.textSecondary }]}>
-              {details.organizer.address}
+        <DetailRow
+          label={t('invitation.organizer')}
+          spoken={organizer}>
+          {organizer.map((line, index) => (
+            <Text
+              key={line}
+              style={[
+                styles.text,
+                {
+                  color:
+                    index === 0 ? colors.textPrimary : colors.textSecondary,
+                },
+              ]}>
+              {line}
             </Text>
-          )}
+          ))}
         </DetailRow>
-        <DetailRow label={t('invitation.invited')}>{invited}</DetailRow>
+        <DetailRow
+          label={t('invitation.invited')}
+          spoken={invited}>
+          <Text style={[styles.text, { color: colors.textPrimary }]}>
+            {invited[0]}
+          </Text>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>
+            {invited[1]}
+          </Text>
+        </DetailRow>
       </View>
     </>
   );
@@ -232,10 +274,12 @@ function Status({
             color={iconColor ?? colors.textSecondary}
           />
         )}
-        <View style={styles.statusText}>
-          <Text
-            accessibilityLiveRegion="polite"
-            style={[styles.emphasized, { color: colors.textPrimary }]}>
+        <View
+          accessible
+          accessibilityLabel={`${title}. ${detail}`}
+          accessibilityLiveRegion="polite"
+          style={styles.statusText}>
+          <Text style={[styles.emphasized, { color: colors.textPrimary }]}>
             {title}
           </Text>
           <Text style={[styles.text, { color: colors.textSecondary }]}>
@@ -432,8 +476,21 @@ function Responding({
     { authorizeMailbox }: NonNullable<typeof account>,
     mailbox: string,
   ) => {
-    if (current()) {
-      await authorizeMailbox(mailbox);
+    if (!current()) {
+      return;
+    }
+    // Authorization also resolves when the person cancels it, so the buttons return only once the
+    // reloaded mailbox no longer needs signing in.
+    const signedIn = await authorizeMailbox(mailbox)
+      .then(() => inbox.load())
+      .then(
+        () => {
+          const state = inbox.getSnapshot();
+          return state.kind === 'ready' && state.sync !== 'authentication';
+        },
+        () => false,
+      );
+    if (signedIn && current()) {
       responses.signedIn(invitation);
     }
   };
@@ -563,16 +620,7 @@ export function InvitationCard({
       <View style={card}>
         <Details
           details={offer.details}
-          invited={
-            <>
-              <Text style={[styles.text, { color: colors.textPrimary }]}>
-                {offer.invited.join(', ')}
-              </Text>
-              <Text style={[styles.text, { color: colors.textSecondary }]}>
-                {t('invitation.notYours')}
-              </Text>
-            </>
-          }
+          invited={[offer.invited.join(', '), t('invitation.notYours')]}
         />
         <Status
           icon="person.crop.circle.badge.exclamationmark"
@@ -589,19 +637,10 @@ export function InvitationCard({
     <View style={card}>
       <Details
         details={offer.details}
-        invited={
-          <>
-            <Text style={[styles.text, { color: colors.textPrimary }]}>
-              {t('invitation.you')}
-            </Text>
-            <Text style={[styles.text, { color: colors.textSecondary }]}>
-              {t('invitation.yourAddress', {
-                address: offer.address,
-                provider,
-              })}
-            </Text>
-          </>
-        }
+        invited={[
+          t('invitation.you'),
+          t('invitation.yourAddress', { address: offer.address, provider }),
+        ]}
       />
       <Responding
         inbox={inbox}
