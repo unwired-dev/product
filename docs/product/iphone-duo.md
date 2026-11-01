@@ -10,10 +10,10 @@ implemented features, UI design approval, or passing qualification.
 - Deliver an optimized mail experience on iPhone Duo, alongside the existing
   [power-user launch](power-user-launch.md), with a separate Duo readiness gate.
   Duo work does not block every existing launch issue.
-- Extend the shared adaptive iPhone and iPad workspace. Choose columns and
+- Extend the shared adaptive iPhone and iPad interface. Choose columns and
   controls from available space and native layout behavior, rather than treating
   an iPhone as permanently compact or introducing separate Duo navigation.
-- Keep one mail workspace. Independent app windows remain under
+- Keep one [Mail Profile Window](../domain/identity.md#language). Independent app windows remain under
   [#1200](https://github.com/unwired-dev/product/issues/1200).
 - Include dedicated tabletop reading and replying layouts.
 - Investigate simultaneous inner and outer display mail through supported public
@@ -37,9 +37,9 @@ Draft below. Keep essential content and controls clear of the folding region.
 When no Thread is selected or a new Draft has no referenced Thread, retain the
 existing empty or compose state without selecting mail or inventing context.
 
-Folding rearranges the current workspace. It does not create or switch a Draft,
+Folding rearranges the current window's layout. It does not create or switch a Draft,
 save or send mail, grant content access, or start assistance. Leaving tabletop
-returns the same workspace to the layout appropriate for the available space.
+returns the same window to the layout appropriate for the available space.
 When space is constrained by multitasking, the keyboard, or accessibility text
 sizes, keep the active task and actions usable without forcing both panes to fit.
 
@@ -78,8 +78,11 @@ follow the existing mail contracts and exit guards.
 
 Preserve Back, Close, Compose, Send, search, filtering, and reader actions when
 native bars change between horizontal and vertical presentation or overflow.
-Native containers own their standard navigation, presentations, and transitions;
-record a concrete supported-API gap before retaining a custom interaction.
+Native containers own their standard navigation, presentations, and transitions.
+The app owns the mail state and actions these transitions preserve, including the
+current Mail Profile, selected Thread, Draft, and pending operations. Follow
+[native component selection](../agents/native-components.md#choose-the-provided-implementation)
+and record a concrete supported-API gap before retaining a custom interaction.
 
 Handle left and right safe areas, folding regions, active camera occlusions, and
 keyboard geometry. Menus, sheets, popovers, assistance panels, and attachment
@@ -88,7 +91,7 @@ previews remain visible and usable when their anchor or available region changes
 Qualify Dynamic Type, VoiceOver, hardware-keyboard focus and shortcuts, Reduce
 Motion, Reduce Transparency, and long localized strings in both appearances.
 Keep all actions available when a layout collapses. No fold-specific permission
-or additional setup is required for the shared adaptive workspace.
+or additional setup is required for the shared adaptive interface.
 
 ## Build and qualification gate
 
@@ -110,9 +113,13 @@ package versions. Do not infer production readiness from an experimental
 navigation example or assume scene lifecycle support supplies independent windows.
 
 Record app build, linked SDK, package versions, runtime, device, appearance, pose,
-and input settings with evidence. Cover closed, partially folded, flat, book,
+and input settings with evidence under the
+[readiness gate #1659](https://github.com/unwired-dev/product/issues/1659).
+Cover closed, partially folded, flat, book,
 tabletop, and tent use; both orientations; multitasking in both app positions;
-and transitions while reading, searching, composing, or presenting a panel.
+and transitions while reading, searching, composing, completing setup, editing
+Settings, or presenting a panel. Include offline work, cancellation, retry, and
+late results, preserving the lifecycle and ownership requirements above.
 Include ordinary iPhone and iPad regression checks when shared layout changes.
 
 Extend existing native journeys and evidence tooling. Component tests may prove
