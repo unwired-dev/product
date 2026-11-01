@@ -240,7 +240,7 @@ const hiddenLinks = (document: SemanticDocument, selection: Selection) =>
       href,
       shown,
       shown.replace(/^(?<host>[^/?#]+)\/$/u, '$<host>'),
-      href.replace(/^(?<root>https?:\/\/[^/?#]+)\/$/u, '$<root>'),
+      href.replace(/^(?<root>https?:\/\/[^/?#]+)\/$/iu, '$<root>'),
     ]);
     return trimLink(href) === href &&
       written.some((each) => each.kind === 'link' && forms.has(each.value))

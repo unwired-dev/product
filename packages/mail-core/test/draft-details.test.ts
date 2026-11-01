@@ -906,6 +906,21 @@ describe('the Writing tools detail check', () => {
         text,
       ),
     ).toStrictEqual({ kept: ['https://example.com'], changes: [] });
+    const capitals = 'See HTTPS://example.com';
+    expect(
+      checkDetails(
+        whole(capitals, [
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'See ' },
+              { text: 'HTTPS://example.com', link: 'HTTPS://example.com/' },
+            ],
+          },
+        ]),
+        capitals,
+      ),
+    ).toStrictEqual({ kept: ['HTTPS://example.com'], changes: [] });
   });
 
   it.each([
