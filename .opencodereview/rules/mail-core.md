@@ -1210,6 +1210,43 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Carry the builder's diagnosis to both panels, or a refused reply shows generic
   failure for encoded overflow or asks to shorten even an empty authored body.
 
+- `draft-details.ts` treating a numeric suffix or a destination substring as a
+  kept detail. Compare complete numeric tokens and authoritative semantic link
+  targets, including path slashes and mail-link query fields, before declaring
+  equivalent visible text. Preserve occurrence counts and expose ambiguous
+  equivalence through the documented review outcome; otherwise the plain apply
+  action can hide changed values or lost destinations.
+  Compare result destinations against the document that the composer's exact
+  `draftReplacement`/`replaceSelection` path creates, including inherited links
+  within the inserted range. Check partial and reversed selections, list markers
+  and multiline results; a plain result string can claim a carried destination
+  changed or disappeared even though acceptance keeps it.
+  Audit overlapping token kinds and their boundaries too: all-caps months must
+  not become currency codes, and partial-date matching must preserve separate
+  day/year figures while keeping added or removed date parts uncertain. Retain
+  complete joined date/time tokens too; dropping a timestamp's hour or zone can
+  hide a changed appointment behind unchanged date fragments.
+  When filtering ordinary words such as `may` or `sat`, retain unambiguous full
+  calendar names and explicit day/month/year combinations in any letter case. Exercise real
+  calendar changes alongside prose, or reducing false warnings can hide dates.
+  Keep complete details together across whitespace runs and wrapped lines before
+  matching occurrences. Normalizing keys after extraction cannot repair a date
+  split into unchanged day/month fragments; audit quotes, amounts and grouped
+  numbers when changing shared whitespace normalization too.
+  Distinguish sentence punctuation from a detail's own abbreviation, and retain
+  a written time zone after `pm.` as well as `p.m.`; reducing punctuation warnings
+  must not let a changed or removed zone disappear behind a kept clock value.
+  Preserve endpoint order in joined numeric, amount, date and time details,
+  including dashed ranges, ratios and word joins such as `to` or `until`.
+  Exercise endpoint reversals and sign/zone swaps across kinds, not only a
+  reported spelling; order-free occurrence matching must not mark a reversed
+  range as kept. Normalize each endpoint without moving its sign or splitting
+  ISO timestamps, offsets, numeric dates or phone-like figures.
+  For root-only web destinations, audit every allowed combination of a written
+  scheme and omitted root slash against the semantic target. Keep different
+  paths, queries and ambiguous spellings visible; otherwise a missing written
+  form produces a false removal or a broad normalization conceals a destination.
+
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit
   operation and distinct fields for each admitted context source,

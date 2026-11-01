@@ -18,6 +18,9 @@ import {
   selectedText,
 } from './semantic-document.ts';
 
+export { checkDetails, draftReplacement } from './draft-details.ts';
+export type { DetailChange, DetailCheck, DetailKind } from './draft-details.ts';
+
 // The host's on-device Apple model. It reads only the text it is given and has no cloud fallback.
 export interface NativeAssistance {
   readonly availability: () => Promise<unknown>;
@@ -499,11 +502,6 @@ export const draftTextIssue = (
   }
   return undefined;
 };
-
-// The text that replaces captured Draft text: the result, trimmed for the preview, between the
-// capture's own leading and trailing whitespace so neighbouring words stay separated.
-export const draftReplacement = (selected: string, replacement: string) =>
-  `${/^\s*/u.exec(selected)?.[0] ?? ''}${replacement.trim()}${/\s*$/u.exec(selected)?.[0] ?? ''}`;
 
 export type DraftAssistanceInput = Readonly<
   SummaryInput & { purpose: TextTool | 'reply' | 'generate' }

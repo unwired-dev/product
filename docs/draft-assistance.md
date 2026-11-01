@@ -68,7 +68,8 @@ iPhone and iPad composer.
   remains and the request is declined. Requests that leave no room for quoted text are declined
   before inference.
 - The result is an ephemeral preview, marked as written on this device, possibly
-  inaccurate and not saved. The Draft is unchanged until **Replace text** (rewrite)
+  inaccurate and not saved. The Draft is unchanged until **Replace text** (rewrite
+  with no differing details; **Use rewrite with changes** when details differ)
   or **Use reply** (reply suggestion). That replaces exactly the captured text as
   one edit that one **Undo** reverts, keeping the capture's own leading and
   trailing whitespace. Line and list formatting is kept where the result keeps the
@@ -77,6 +78,95 @@ iPhone and iPad composer.
   plain text. The preview says so. Recipients, the sender, the subject, quoted text,
   attachments, threading and delivery state are never changed. **Keep original**
   closes the panel.
+- On Mac, a finished Writing tools result (Rewrite, Proofread, Break into
+  Paragraphs, Expand Text, Shorten Text, Make More Friendly and Make More Neutral) is checked mechanically against the
+  captured text, using `checkDetails` from the assistance core. The
+  `packages/mail-core` TypeScript layer owns detail extraction and the equivalence
+  rules; the Mac host renders the review, and its native push button adapter makes
+  the main button the window's Return default. It never says a
+  result is verified or safe: every finished result ends with a note that the
+  checks compare details only and that meaning, questions and commitments need
+  the person's own reading. Reply suggestions and Generate a Draft are not checked.
+  - Checked details are links (written web addresses, with a scheme or as a
+    bare domain such as `example.com/r`, `example.com:8080/r` or `shop.xn--p1ai/r`,
+    recognizing web schemes and punycode prefixes in any letter case, and the
+    destination of linked words whose text does not show it exactly), email addresses (including
+    address punctuation such as `o'connor@`, `a!!b@` and `!bob@`, and `mailto:` links without query fields; written or linked mail links with query fields remain
+    flagged with their complete destination), amounts (a number with a currency
+    symbol, a qualified symbol such as `C$` or `US$`, an uppercase three-letter code,
+    a known currency code in any letter case (`usd`, `eur`), or a marker such as
+    Kč, `S/`, `zł`, `Fr.` or `kr`, including compact `USD40` and `40USD`,
+    combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
+    point (`-40`, `.5`), percentages (`10%`), grouped figures (`1 500`), fractions,
+    ratios and ranges (`100/200`, `100:200`, `1–2`). Adjacent numbers, amounts,
+    dates or times joined by a dash, slash, colon, `to`, `until`, `through` or `till`
+    are compared in order as one detail (`€40–€50`, `09:00–17:00`, `Mon–Fri`,
+    `from 9 to 5`), so reversing their ends is a change. Each endpoint keeps its
+    own sign, date/time parts and equivalence rules. The check also reads
+    dates in any letter case, including full weekday names, unambiguous full month
+    names, a month with a day or
+    year, year-first dates with hyphens, dots or slashes, and an ISO
+    timestamp's complete `T`-joined time, fractional seconds and zone. Times can
+    separate hour and minutes with a colon or `h` (`8h30`). A dotted time keeps
+    its meridiem or zone (`8.30 am`, `20.30 CEST`); without either, its complete
+    figure is compared as a number (`20.30`).
+    Standalone abbreviated names and the ambiguous month names May, March and
+    August need a capital first letter, so `you may`, `march on`, `an august guest`
+    and `sat down` stay words. A short
+    slash form such as `11/01` or `1/2` is compared whole as a date
+    even when it could be a fraction; its interpretation is never inferred.
+    Times retain seconds, fractional seconds and a written zone such as `UTC`,
+    `PST` or `+01:00`, including after `pm.` or `p.m.`. A sentence-ending full stop
+    after `pm` does not change its time. Quoted text in straight double, curly, low and angle quotes
+    may cross line breaks; a straight inch mark after a number cannot open a quote.
+    A run of spaces or a line break reads as one space, so wrapping never splits
+    a detail (`3  November` is one date).
+    Currency codes that also spell words can cause conservative warnings (`try 8 pm`);
+    the complete following date or time stays together, so a changed meridiem or
+    swapped date part remains visible.
+  - The result side is the Draft the result would make: replaced text keeps the
+    link of its first replaced character, so a result typed over a link still
+    carries that link's destination and the check compares it rather than the
+    plain result alone.
+  - A detail is kept only when the result writes an unambiguous equivalent: the
+    same text apart from spacing, letter case for email addresses, dates and
+    times (`8 P.M.` and `8pm`), the currency on either side of an amount
+    (`40 €` and `€40`), the quote style around the same quoted words, and
+    a full stop, comma, colon, semicolon or closing quote after a written link
+    (`example.com/r.`), which is not part of it. `!` and `?` can end an address,
+    so they stay part of the link, and a linked word's own destination decides
+    even when its text shows the address with such punctuation. Its complete
+    address must be written out; a substring is insufficient. A bare domain
+    followed by a path or query is a link even when it contains `@`, so its
+    case-sensitive destination is never normalized as an email address. Written linked
+    text may omit the web scheme or root slash, but a slash after a path stays
+    part of the destination. A number beside a unit (`0.5s`, `3rd`) is compared
+    by its figures, and an exponent (`1e3`) is part of its number. An exponent's
+    sign stays separate from an amount's sign (`$1e-3` differs from `-$1e-3`).
+    Nothing else is interpreted, so `3` rewritten as `three` is removed.
+  - A difference that may be another way to write the same detail is
+    uncertain, never kept: a date that gains or loses a part (`Saturday` as
+    `Saturday, 1 Nov` or `3 Nov` as `3 Nov 2026`, but not `3 Nov` as `13 Nov`) or is in figures on one side only (`2026-11-01` as
+    `1 November 2026`), a number or amount that differs only by a thousands
+    separator (`1,000` or `1 000` as `1000`), and a link that differs only by `!` or `?`
+    at its end. Any other pair, such as `Monday` as `Tuesday` or `.5` as `5`,
+    is changed.
+  - Details that differ are paired in order within each kind as changed, and
+    the rest are removed or added. The panel counts them, lists each with its
+    original and rewritten value (a changed link says it goes somewhere else; an
+    uncertain one says it can't be confirmed as the same date, number, amount
+    or link) and lists the
+    kept details. Matching preserves occurrence counts and the order inside each
+    complete detail; it ignores the order of separate details. Reassigning the
+    same values to different people or sentences still needs the person's reading.
+    The apply action then becomes **Use rewrite with changes**,
+    so applying them is an explicit choice; **Keep original** and **Try again**
+    stay. A checked result's actions are push buttons in the frames' order: the
+    accent tint marks **Keep original** when details differ and **Replace text**
+    when none do. The accent button is the window's default button: Return presses it
+    unless the focused view takes the key, as the Draft body does for a new
+    line. VoiceOver reads each row as one element and hears the count after
+    the result.
 - A result belongs to the text it was captured from. Any edit to the Draft body, or to the To/Cc recipients
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
   offered or applied. Closing the Draft cancels the request. Controls rendered for
@@ -152,6 +242,14 @@ allow-listed native code or decode path, never Draft or generated text.
   inserted after a selection and its blank and too-long prompts,
   refusal, unavailability and failure without logging Draft text, retry rules, an
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.
+- `packages/mail-core/test/draft-details.test.ts` checks the detail rules: kept,
+  changed, uncertain, removed and added details of each kind, the accepted equivalents,
+  `3` and `three`, regrouped numbers, signed and leading-decimal numbers and
+  amounts, decimals beside a unit, reformatted dates and quotes, dates and
+  ordinals in capitals, bare addresses,
+  trailing link punctuation including `!`, and hidden, scheme-less and
+  `mailto:` link destinations, including address substrings, path slashes and
+  mail links with query fields.
 - The composer tests in `apps/mobile/test/composer.test.tsx` and
   `apps/macos/test/composer.test.tsx` rewrite the whole body and a selection,
   check the Writing tools groups, symbols and per-tool requests, panels and Replace,
@@ -160,7 +258,10 @@ allow-listed native code or decode path, never Draft or generated text.
   review and apply the whole-body result as one undoable edit without touching recipients, keep the
   original against a queued apply, show reply-length guidance without inference when the encoded authored
   reply leaves no room for context, show a refusal, cancel and retry, and drop a
-  pending result when the body is edited or the Product Account changes. From the real reader with a synthetic
+  pending result when the body is edited or the Product Account changes. The Mac tests also show the
+  details note on every rewrite, and a rewrite with changed details: its count and announcement, one
+  readable row per change, the kept details, no plain Replace, Keep original, then **Use rewrite with
+  changes** and Undo. From the real reader with a synthetic
   Gmail mailbox, they request a reply suggestion for a Reply All Draft, check its
   admitted input and that no Gmail request is made, apply it to the authored body
   only, undo it, invalidate recipient edits even when Undo precedes a queued apply,

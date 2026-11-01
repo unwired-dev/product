@@ -813,6 +813,28 @@ export function selectedText(
   return text;
 }
 
+// The selected linked text and its destination, one entry per run of a link within a block.
+export function selectedLinks(
+  document: SemanticDocument,
+  selection: Selection,
+): ReadonlyArray<Readonly<{ text: string; href: string }>> {
+  const links: Array<{ text: string; href: string }> = [];
+  for (const [index, [first, last]] of covered(document, selection).entries()) {
+    let continues = false;
+    for (const span of sliceSpans(document[index]?.spans ?? [], first, last)) {
+      const href = linkOf(span);
+      const previous = links.at(-1);
+      if (href !== undefined && continues && previous?.href === href) {
+        previous.text += span.text;
+      } else if (href !== undefined) {
+        links.push({ text: span.text, href });
+      }
+      continues = href !== undefined;
+    }
+  }
+  return links;
+}
+
 // Replaces the text a selection covers with `text` as one edit. List markers inside the
 // selection stay, and the inserted text takes the marks, colors and font of the text before it.
 export function replaceSelection(

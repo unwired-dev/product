@@ -185,6 +185,7 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 @property (nonatomic, copy) NSColor *focusColor;
 @property (nonatomic) BOOL destructive;
 @property (nonatomic) BOOL enabled;
+@property (nonatomic) BOOL returnKey;
 @property (nonatomic, copy) RCTDirectEventBlock onPress;
 @end
 
@@ -216,6 +217,8 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 - (void)setFocusColor:(NSColor *)focusColor { _focusColor = [focusColor copy]; _button.focusColor = focusColor; }
 - (void)setDestructive:(BOOL)destructive { _destructive = destructive; _button.hasDestructiveAction = destructive; }
 - (void)setEnabled:(BOOL)enabled { _enabled = enabled; [self render]; }
+// Return presses the window's default button when the focused view does not take the key itself.
+- (void)setReturnKey:(BOOL)returnKey { _returnKey = returnKey; _button.keyEquivalent = returnKey ? @"\r" : @""; }
 - (void)render
 {
   _button.enabled = self.enabled;
@@ -1400,6 +1403,7 @@ RCT_EXPORT_VIEW_PROPERTY(textColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(focusColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(returnKey, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }
 @end
