@@ -2868,7 +2868,7 @@ export function createGmailInbox(
       : {
           document: withList,
           changed: needsAttachments,
-          authentication: resolved.authentication || invitation.authentication,
+          authentication: resolved.authentication,
         };
   });
 

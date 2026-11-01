@@ -290,13 +290,18 @@ const durationEnd = (
   const match = pattern.exec(line.value.trim());
   return match === null
     ? undefined
-    : {
-        at: units.reduce(
+    : DateTime.make(
+        units.reduce(
           (at, unit, index) => at + Number(match[index + 1] ?? 0) * unit,
           start.at,
         ),
-        allDay: start.allDay,
-      };
+      ).pipe(
+        Option.map((end) => ({
+          at: DateTime.toEpochMillis(end),
+          allDay: start.allDay,
+        })),
+        Option.getOrUndefined,
+      );
 };
 
 // The meeting's end from DTEND or DURATION, never both; `null` when it has neither.
@@ -313,10 +318,7 @@ const endOf = (
     return undefined;
   }
   const end = length === undefined ? timeOf(dtend) : durationEnd(length, start);
-  return end === undefined ||
-    end.allDay !== start.allDay ||
-    end.at <= start.at ||
-    Option.isNone(DateTime.make(end.at))
+  return end === undefined || end.allDay !== start.allDay || end.at <= start.at
     ? undefined
     : end;
 };
