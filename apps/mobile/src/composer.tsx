@@ -57,6 +57,7 @@ import {
   applyText,
   blockKindAt,
   displayOf,
+  formatStyleOf,
   historyOf,
   imageCharacter,
   imagesOf,
@@ -103,6 +104,7 @@ import {
   Text,
   TextInput,
   View,
+  useColorScheme,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -1752,6 +1754,7 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
+  const appearance = useColorScheme() === 'dark' ? 'dark' : 'light';
 
   // Set while Discard or Send finishes, which take the Draft as it was then.
   const discarded = useRef(false);
@@ -2471,13 +2474,17 @@ function Editor({
                   line.kind === 'quote'
                     ? { color: colors.textSecondary }
                     : null,
+                  line.align === undefined ? null : { textAlign: line.align },
                 ]}>
                 {line.marker}
                 {line.spans.map((span, at) => (
                   <Text
                     // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
                     key={at}
-                    style={markStyle(span.marks, 'link' in span)}>
+                    style={[
+                      markStyle(span.marks, 'link' in span),
+                      formatStyleOf(span, appearance),
+                    ]}>
                     {span.text}
                   </Text>
                 ))}
