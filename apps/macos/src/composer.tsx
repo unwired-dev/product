@@ -1540,6 +1540,7 @@ function GeneratePrompt({
   return (
     <Popover
       below
+      title={t('assistance.generatePromptTitle')}
       shown={shown}
       onClose={close}>
       <View style={styles.generate}>
@@ -1878,6 +1879,10 @@ function Editor({
   const selectionNow = useRef(selection);
   // Where the editor must place the caret after a change it did not type itself.
   const [placed, setPlaced] = useState<Selection>();
+  const bodyInput = useRef<TextInput>(null);
+  // The Link Editor's fields take focus from the body, which then drops its selection; the
+  // selection is kept, and Escape, Apply or Remove Link put it back with focus.
+  const linking = useRef(false);
   // Marks toggled at a caret apply to the text typed there next.
   const [typing, setTyping] = useState<readonly Mark[]>();
   const typingNow = useRef(typing);
@@ -2622,6 +2627,13 @@ function Editor({
             fromControl();
             editLink(link, text, href);
           }}
+          onShown={(shown, returning) => {
+            linking.current = shown;
+            if (returning === true) {
+              bodyInput.current?.focus();
+              setPlaced({ ...selectionNow.current });
+            }
+          }}
         />
         <View style={[styles.divider, { backgroundColor: colors.separator }]} />
         <ToolbarButton
@@ -2736,6 +2748,9 @@ function Editor({
           onChangeText={edit}
           onKeyDown={keyDown}
           onSelectionChange={({ nativeEvent }) => {
+            if (linking.current) {
+              return;
+            }
             const next = nativeEvent.selection;
             // Moving the caret anywhere but past typed text ends marks toggled for typing.
             if (next.start !== next.end || next.start !== caret.current) {
@@ -2749,6 +2764,7 @@ function Editor({
           }}
           placeholder={t('drafts.bodyPlaceholder')}
           placeholderTextColor={colors.textSecondary}
+          ref={bodyInput}
           scrollEnabled={false}
           selection={placed}
           style={[styles.body, { color: colors.textPrimary }]}

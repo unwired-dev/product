@@ -45,7 +45,7 @@ builtin cd -q "$probe_dir"
 "${RUBY:-ruby}" create-project.rb
 journey=${2:-testIndependentWindowsCloseReopenAndQuit}
 # The performance journey relaunches the app for each of its many samples; the keyboard journey
-# runs five accessibility audits; the Draft editor journey relaunches for each assistance round trip.
+# runs accessibility audits; the Draft editor journey relaunches for each assistance round trip.
 allowance=120
 [[ "$journey" == testWarmCachePerformance ]] && allowance=1200
 [[ "$journey" == testKeyboardAndAccessibility* ]] && allowance=600

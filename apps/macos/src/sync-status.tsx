@@ -293,6 +293,7 @@ export function SyncStatusCapsule({
         }}
       />
       <Popover
+        title={t('syncStatus.title')}
         shown={details}
         onClose={() => {
           setDetails(false);
