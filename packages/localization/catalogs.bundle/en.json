@@ -281,6 +281,8 @@
     "notIncludedDetail_iphone": "Its server doesn’t identify a folder that can be used for {{view}}. Its folders are still listed under it in Mailboxes.",
     "notIncludedAllMail": "Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in the sidebar.",
     "notIncludedAllMail_iphone": "Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in Mailboxes.",
+    "notIncludedSpamTrash": "Its server doesn’t say which folders hold Spam and Trash, so All Mail can’t leave them out. Its folders are still listed under it in the sidebar.",
+    "notIncludedSpamTrash_iphone": "Its server doesn’t say which folders hold Spam and Trash, so All Mail can’t leave them out. Its folders are still listed under it in Mailboxes.",
     "sentItems": "Sent Items",
     "archive": "Archive",
     "junkEmail": "Junk Email",

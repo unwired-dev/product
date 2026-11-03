@@ -13,6 +13,7 @@ import {
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import {
   mailboxSidebar,
+  notIncludedDetail,
   profileMailboxes,
   unifiedFolders,
   unifiedMailbox,
@@ -221,6 +222,7 @@ describe('unified mailboxes across connections', () => {
     const imap = createSyntheticImap();
     imap.addFolder('Archive', ['archive', 'all']);
     imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Deleted Messages', ['trash']);
     imap.addFolder('Everything', ['all'], false);
     const inbox = createImapInbox(imap.native);
     await inbox.load();
@@ -229,6 +231,12 @@ describe('unified mailboxes across connections', () => {
     // Archive is also the server's readable All folder, so neither mailbox includes it.
     expect(unifiedFolders(mailbox, 'ARCHIVE')).toBeUndefined();
     expect(unifiedFolders(mailbox, allMail)).toBeUndefined();
+    expect(notIncludedDetail(mailbox, allMail)).toBe(
+      'mailboxes.notIncludedAllMail',
+    );
+    expect(notIncludedDetail(mailbox, 'ARCHIVE')).toBe(
+      'mailboxes.notIncludedDetail',
+    );
     imap.addFolder('Archive', ['archive']);
     await inbox.load();
     const [refreshed] = snapshot([{ id: 'imap', provider: 'imap', inbox }]);
@@ -238,6 +246,45 @@ describe('unified mailboxes across connections', () => {
     expect(unifiedFolders(refreshed, allMail)).toStrictEqual([
       'INBOX',
       'Archive',
+    ]);
+  });
+
+  it('leaves an IMAP connection out of All Mail until its server marks one Junk and one Trash folder', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Junk', ['junk']);
+    // Named like Trash but not marked as it, so it is never guessed to be one.
+    imap.addFolder('Trash');
+    imap.addFolder('Flagged', ['flagged']);
+    const inbox = createImapInbox(imap.native);
+    const read = async () => {
+      await inbox.load();
+      const [mailbox] = snapshot([{ id: 'imap', provider: 'imap', inbox }]);
+      assert.ok(mailbox !== undefined);
+      return mailbox;
+    };
+
+    // Without a marked Trash folder All Mail would list deleted mail, so the connection is left
+    // out with its reason; Spam still lists its marked Junk folder.
+    const unmarked = await read();
+    expect(unifiedMailbox([unmarked], allMail).missing).toStrictEqual([
+      unmarked,
+    ]);
+    expect(notIncludedDetail(unmarked, allMail)).toBe(
+      'mailboxes.notIncludedSpamTrash',
+    );
+    expect(unifiedFolders(unmarked, 'SPAM')).toStrictEqual(['Junk']);
+
+    // Two folders marked as Trash leave the role ambiguous, so the connection stays left out.
+    imap.addFolder('Trash', ['trash']);
+    imap.addFolder('Bin', ['trash']);
+    expect(unifiedFolders(await read(), allMail)).toBeUndefined();
+
+    // Once one Junk and one Trash folder are marked, All Mail reads every other real folder.
+    imap.addFolder('Bin');
+    expect(unifiedFolders(await read(), allMail)).toStrictEqual([
+      'INBOX',
+      'Bin',
     ]);
   });
 
