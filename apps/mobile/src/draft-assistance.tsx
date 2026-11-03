@@ -78,6 +78,7 @@ const styles = StyleSheet.create({
   value: { ...textStyles.reading.body, flex: 3 },
   status: { ...textStyles.footnote, fontWeight: '600', flex: 2 },
   trailing: { flex: 0, flexShrink: 1, textAlign: 'right' },
+  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
 });
 
 type Purpose = DraftAssistanceInput['purpose'];
@@ -457,7 +458,8 @@ export function DraftAssistance({
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
-  // iPhone stacks a checked result's buttons; iPad sets them out side by side.
+  // iPhone stacks a checked result's buttons; iPad sets them out side by side and wraps any that do
+  // not fit a narrow composer.
   const stacked = !ipad;
   const check =
     state.kind === 'ready' && isTextTool(purpose)
@@ -548,24 +550,22 @@ export function DraftAssistance({
     </View>
   );
   if (check !== undefined) {
-    actions = (
-      <Host matchContents={stacked ? { vertical: true } : true}>
-        {stacked ? (
-          <VStack spacing={spacing.s}>
-            {applyAction}
-            <HStack spacing={spacing.s}>
-              {closeAction}
-              {retryAction}
-            </HStack>
-          </VStack>
-        ) : (
+    actions = stacked ? (
+      <Host matchContents={{ vertical: true }}>
+        <VStack spacing={spacing.s}>
+          {applyAction}
           <HStack spacing={spacing.s}>
-            {applyAction}
             {closeAction}
             {retryAction}
           </HStack>
-        )}
+        </VStack>
       </Host>
+    ) : (
+      <View style={styles.buttons}>
+        {applyAction && <Host matchContents>{applyAction}</Host>}
+        <Host matchContents>{closeAction}</Host>
+        {retryAction && <Host matchContents>{retryAction}</Host>}
+      </View>
     );
   }
   return (
