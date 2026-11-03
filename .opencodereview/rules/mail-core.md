@@ -487,6 +487,8 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   it, without treating a permanent missing part as pending forever. Otherwise
   the first failed read permanently hides an invitation behind a complete cache
   entry. Preserve rejected-grant feedback before any later successful part read.
+  Check an active refresh as well as reopen: access closure must retire its
+  already-shown body rather than preserve it as an ordinary failed refresh.
 
 - A failure modelled as a thrown `Error`, a string or a boolean where callers need to tell cases apart; use `Schema.TaggedError`, with a foreign error carried as `cause: Schema.Defect()`.
 - An expected state (locked storage, cancelled or declined sign-in, enrollment waiting) logged as an error, or an unexpected failure recovered without `Effect.logError`.

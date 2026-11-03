@@ -595,7 +595,7 @@ describe('meeting invitations', () => {
   });
 
   it.each(['locked', 'mailbox-revoked', 'mailbox-invalidated'])(
-    'hides a cached invitation when its calendar retry discovers %s',
+    'hides a shown invitation when its cached calendar retry discovers %s',
     async (code) => {
       expect.hasAssertions();
       const gmail = createSyntheticGmail();
@@ -616,20 +616,18 @@ describe('meeting invitations', () => {
       const native = { ...withoutAttachments(gmail.native, 503) };
       const inbox = createGmailInbox(native);
       await inbox.load();
-      const first = inbox.retainMessage(id);
+      const close = inbox.retainMessage(id);
       await inbox.readMessage(id);
-      first();
       native.gmailRequest = withoutAttachments(gmail.native, {
         code,
       }).gmailRequest;
-      const second = inbox.retainMessage(id);
       try {
-        await inbox.readMessage(id);
+        await inbox.readMessage(id, { refresh: true });
 
         expect(inbox.responseSource(id)).toBeUndefined();
         expect(inbox.messageBody(id)).toMatchObject({ kind: 'unavailable' });
       } finally {
-        second();
+        close();
       }
     },
   );

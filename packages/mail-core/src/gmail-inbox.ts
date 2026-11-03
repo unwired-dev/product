@@ -3249,7 +3249,22 @@ export function createGmailInbox(
               kind === 'locked'
                 ? Effect.void
                 : Effect.logError('Message body failed:', diagnostic)
-            ).pipe(Effect.as(bodyFailure(kind)));
+            ).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  if (
+                    owner === reading &&
+                    readable(id) &&
+                    ['locked', 'revoked', 'invalidated'].includes(kind)
+                  ) {
+                    // A refresh may retain text after an ordinary failure, but never after access closes.
+                    releaseBody(id);
+                    setBody(id, bodyFailure(kind));
+                  }
+                }),
+              ),
+              Effect.as(bodyFailure(kind)),
+            );
           },
         }),
         Effect.flatMap((next) =>
