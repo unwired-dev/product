@@ -522,7 +522,8 @@ final class InboxTests: XCTestCase {
     for other in others {
       XCTAssertTrue(app.buttons[other].exists, "\(popUp.label) lists no \(other)")
     }
-    let menu = XCTAttachment(screenshot: app.screenshot())
+    // App captures clip iPad's landscape menus; retain the whole screen as the pixel check does.
+    let menu = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     menu.name = "\(popUp.label) pop-up menu"
     menu.lifetime = .keepAlways
     add(menu)
@@ -540,7 +541,7 @@ final class InboxTests: XCTestCase {
       pixels(app, at: line).contains { rgba in
         zip(rgba, blue).allSatisfy { abs(Int($0) - $1) <= 24 }
       }, "\(place) shows no Blue monogram")
-    let shot = XCTAttachment(screenshot: app.screenshot())
+    let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     shot.name = place
     shot.lifetime = .keepAlways
     add(shot)
