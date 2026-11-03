@@ -55,8 +55,10 @@ const styles = StyleSheet.create({
   title: { ...textStyles.subheadline, fontWeight: '600' },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.subheadline },
-  note: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  count: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  note: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.s },
+  // Centres a note's symbol on the first line of its footnote text.
+  icon: { height: textStyles.footnote.lineHeight, justifyContent: 'center' },
+  count: { ...textStyles.footnote, fontWeight: '600', flex: 1 },
   noteText: { ...textStyles.footnote, flex: 1 },
   table: {
     paddingHorizontal: spacing.m,
@@ -75,6 +77,7 @@ const styles = StyleSheet.create({
   name: { ...textStyles.footnote, fontWeight: '600', flex: 2 },
   value: { ...textStyles.reading.body, flex: 3 },
   status: { ...textStyles.footnote, fontWeight: '600', flex: 2 },
+  trailing: { flex: 0, flexShrink: 1, textAlign: 'right' },
 });
 
 type Purpose = DraftAssistanceInput['purpose'];
@@ -174,11 +177,13 @@ function Note({
   const colors = usePalette();
   return (
     <View style={styles.note}>
-      <SFSymbol
-        name={icon}
-        size={12}
-        color={colors.textSecondary}
-      />
+      <View style={styles.icon}>
+        <SFSymbol
+          name={icon}
+          size={12}
+          color={colors.textSecondary}
+        />
+      </View>
       <Text
         selectable
         style={[styles.noteText, { color: colors.textSecondary }]}>
@@ -219,11 +224,13 @@ function Checks({ check }: { readonly check: DetailCheck }) {
       {check.changes.length > 0 ? (
         <>
           <View style={styles.note}>
-            <SFSymbol
-              name="exclamationmark.triangle.fill"
-              size={12}
-              color={colors.statusWarning}
-            />
+            <View style={styles.icon}>
+              <SFSymbol
+                name="exclamationmark.triangle.fill"
+                size={12}
+                color={colors.statusWarning}
+              />
+            </View>
             <Text
               selectable
               style={[styles.count, { color: colors.textPrimary }]}>
@@ -269,7 +276,12 @@ function Checks({ check }: { readonly check: DetailCheck }) {
               const original = change.original ?? none;
               const result = change.result ?? none;
               const status = (
-                <Text style={[styles.status, { color: colors.statusWarning }]}>
+                <Text
+                  style={[
+                    styles.status,
+                    stacked && styles.trailing,
+                    { color: colors.statusWarning },
+                  ]}>
                   {t(`assistance.detailStatus.${statusOf(change)}`)}
                 </Text>
               );
@@ -285,9 +297,10 @@ function Checks({ check }: { readonly check: DetailCheck }) {
                     result,
                     status: t(`assistance.detailStatus.${statusOf(change)}`),
                   })}
+                  // iPhone's comparison line needs no rule above the first row; iPad's header does.
                   style={[
                     stacked ? styles.stackedRow : styles.tableRow,
-                    divider,
+                    (!stacked || index > 0) && divider,
                   ]}>
                   {stacked ? (
                     <>
