@@ -981,10 +981,10 @@ export function Inbox({
                 message={t('mailboxes.notIncluded', {
                   mailbox: mailbox.address ?? mailbox.id,
                 })}
-                detail={t(
-                  notIncludedDetail(mailbox, view.unified),
-                  { view: folderName, ...(ipad ? {} : { context: 'iphone' }) },
-                )}
+                detail={t(notIncludedDetail(mailbox, view.unified), {
+                  view: folderName,
+                  ...(ipad ? {} : { context: 'iphone' }),
+                })}
               />
             ))}
             {shown.map((mailbox) => (
