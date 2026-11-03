@@ -105,7 +105,11 @@ enrollment and recovery only with the latest confirmed key. The two-Profile sess
 `createTwoProfileRegistration`, connects alex@example.invalid in the Default
 Profile and other@example.invalid in a published Work Profile, for the Profile
 Switcher journeys. Native builds cannot select it yet. The native registration
-journey opens the Profile Menu and New Mail Profile prompt, then cancels. On iPhone it
+journey opens the Profile Menu and creates a **Work** Mail Profile. In Settings › Mail
+Profiles it checks that the Primary Profile's Color and Icon are read-only, chooses
+Blue and Airplane for Work from their menus, audits the page, and samples Work's blue
+monogram there, in the Profile Menu and in the switcher
+([#1800](https://github.com/unwired-dev/product/issues/1800)). On iPhone it
 then opens Settings from the Mailboxes header's Account, returns with the list's Back
 to Mailboxes, and closes a New Message started there back to Mailboxes. Creating
 and switching after relaunch remain deferred under [#1188](https://github.com/unwired-dev/product/issues/1188)
