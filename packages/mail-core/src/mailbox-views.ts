@@ -418,11 +418,8 @@ const imapRoles = {
   TRASH: 'trash',
 } as const;
 
-const imapHoldsAll = (folders: readonly ImapFolder[], name: string) =>
-  folders.some(
-    (folder) =>
-      folder.name === name && folder.selectable && folder.roles.includes('all'),
-  );
+const imapHoldsAll = (folder: ImapFolder) =>
+  folder.selectable && folder.roles.includes('all');
 
 // An IMAP mailbox's folders with the role. A server's readable \All folder may hold Junk and
 // Trash, and mail found nowhere else, so it is never taken for a role and a connection with one
@@ -435,12 +432,13 @@ const imapUnifiedFolders = (
 ): readonly string[] | undefined => {
   if (role !== allMail) {
     const name = imapRoleFolder(folders, imapRoles[role]);
-    return name === undefined || imapHoldsAll(folders, name)
+    return name === undefined ||
+      folders.some((folder) => folder.name === name && imapHoldsAll(folder))
       ? undefined
       : [name];
   }
   if (
-    folders.some(({ name }) => imapHoldsAll(folders, name)) ||
+    folders.some(imapHoldsAll) ||
     imapRoleFolder(folders, 'junk') === undefined ||
     imapRoleFolder(folders, 'trash') === undefined
   ) {
@@ -506,8 +504,7 @@ export const notIncludedDetail = (
     return 'mailboxes.notIncludedDetail' as const;
   }
   const { state } = mailbox;
-  return 'folders' in state &&
-    state.folders.some(({ name }) => imapHoldsAll(state.folders, name))
+  return 'folders' in state && state.folders.some(imapHoldsAll)
     ? ('mailboxes.notIncludedAllMail' as const)
     : ('mailboxes.notIncludedSpamTrash' as const);
 };
