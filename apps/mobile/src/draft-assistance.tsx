@@ -1,5 +1,7 @@
 import type {
   CapturedDraftText,
+  DetailChange,
+  DetailCheck,
   DraftAssistance as DraftAssistanceStore,
   DraftAssistanceInput,
   DraftAssistanceState,
@@ -8,14 +10,22 @@ import type {
 
 import {
   canRetryAssistance,
+  checkDetails,
   createDraftAssistance,
+  isTextTool,
 } from '@private-email/mail-core/assistance';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import { OnDeviceMarker, useOutcomeAnnouncement } from './design.tsx';
+import {
+  Button,
+  OnDeviceMarker,
+  SFSymbol,
+  useOutcomeAnnouncement,
+} from './design.tsx';
+import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -36,6 +46,30 @@ const styles = StyleSheet.create({
   title: { ...textStyles.subheadline, fontWeight: '600' },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.subheadline },
+  // A checked result's push buttons sit 8pt apart; on iPhone they share the panel's width.
+  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  stackedButtons: { gap: spacing.s },
+  shared: { flex: 1 },
+  note: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  count: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  noteText: { ...textStyles.footnote, flex: 1 },
+  table: {
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.row,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.s,
+    paddingVertical: spacing.s,
+  },
+  stackedRow: { gap: spacing.xs, paddingVertical: spacing.s },
+  line: { flexDirection: 'row', gap: spacing.s },
+  heading: { ...textStyles.footnote },
+  name: { ...textStyles.footnote, fontWeight: '600', flex: 2 },
+  value: { ...textStyles.reading.body, flex: 3 },
+  status: { ...textStyles.footnote, fontWeight: '600', flex: 2 },
 });
 
 type Purpose = DraftAssistanceInput['purpose'];
@@ -124,14 +158,194 @@ function Refusal({
   );
 }
 
+// An icon and a line of small secondary text below a Writing tools result.
+function Note({
+  icon,
+  children,
+}: {
+  readonly icon: string;
+  readonly children: string;
+}) {
+  const colors = usePalette();
+  return (
+    <View style={styles.note}>
+      <SFSymbol
+        name={icon}
+        size={12}
+        color={colors.textSecondary}
+      />
+      <Text
+        selectable
+        style={[styles.noteText, { color: colors.textSecondary }]}>
+        {children}
+      </Text>
+    </View>
+  );
+}
+
+const statusOf = ({ kind, status }: DetailChange) => {
+  if (status === 'changed' && kind === 'link') {
+    return 'linkChanged';
+  }
+  return status === 'uncertain' ? (`uncertain.${kind}` as const) : status;
+};
+
+// The details a Writing tools result changed, removed or added, compared with the original, and
+// those it kept. The check compares details only, which the closing note says every time.
+function Checks({ check }: { readonly check: DetailCheck }) {
+  // iPhone stacks each compared detail; iPad sets the comparison out as a table.
+  const stacked = !ipad;
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const none = t('assistance.noDetail');
+  const name = ({ kind, label }: DetailChange) =>
+    label === undefined
+      ? t(`assistance.detail.${kind}`)
+      : t('assistance.detailNamed', {
+          detail: t(`assistance.detail.${kind}`),
+          text: label,
+        });
+  const divider = {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+  };
+  return (
+    <>
+      {check.changes.length > 0 ? (
+        <>
+          <View style={styles.note}>
+            <SFSymbol
+              name="exclamationmark.triangle.fill"
+              size={12}
+              color={colors.statusWarning}
+            />
+            <Text
+              selectable
+              style={[styles.count, { color: colors.textPrimary }]}>
+              {t('assistance.detailsDiffer', { count: check.changes.length })}
+            </Text>
+          </View>
+          <View
+            style={[styles.table, { backgroundColor: colors.surfaceContent }]}>
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.tableRow}>
+              {stacked ? (
+                <Text style={[styles.heading, { color: colors.textSecondary }]}>
+                  {t('assistance.comparison')}
+                </Text>
+              ) : (
+                <>
+                  <Text style={[styles.name, { color: colors.textSecondary }]}>
+                    {t('assistance.detailColumn')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.value,
+                      styles.heading,
+                      { color: colors.textSecondary },
+                    ]}>
+                    {t('assistance.originalColumn')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.value,
+                      styles.heading,
+                      { color: colors.textSecondary },
+                    ]}>
+                    {t('assistance.resultColumn')}
+                  </Text>
+                  <View style={styles.status} />
+                </>
+              )}
+            </View>
+            {check.changes.map((change, index) => {
+              const original = change.original ?? none;
+              const result = change.result ?? none;
+              const status = (
+                <Text style={[styles.status, { color: colors.statusWarning }]}>
+                  {t(`assistance.detailStatus.${statusOf(change)}`)}
+                </Text>
+              );
+              return (
+                <View
+                  // Changes have no identity of their own; the list is rebuilt with each result.
+                  // eslint-disable-next-line react/no-array-index-key
+                  key={index}
+                  accessible
+                  accessibilityLabel={t('assistance.detailRow', {
+                    detail: name(change),
+                    original,
+                    result,
+                    status: t(`assistance.detailStatus.${statusOf(change)}`),
+                  })}
+                  style={[
+                    stacked ? styles.stackedRow : styles.tableRow,
+                    divider,
+                  ]}>
+                  {stacked ? (
+                    <>
+                      <View style={styles.line}>
+                        <Text
+                          style={[
+                            styles.name,
+                            { color: colors.textSecondary },
+                          ]}>
+                          {name(change)}
+                        </Text>
+                        {status}
+                      </View>
+                      <Text
+                        style={[styles.text, { color: colors.textPrimary }]}>
+                        {t('assistance.detailChange', { original, result })}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text
+                        style={[styles.name, { color: colors.textSecondary }]}>
+                        {name(change)}
+                      </Text>
+                      <Text
+                        style={[styles.value, { color: colors.textPrimary }]}>
+                        {original}
+                      </Text>
+                      <Text
+                        style={[styles.value, { color: colors.textPrimary }]}>
+                        {result}
+                      </Text>
+                      {status}
+                    </>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
+      {check.kept.length > 0 || check.changes.length === 0 ? (
+        <Note icon="text.badge.checkmark">
+          {check.kept.length > 0
+            ? t('assistance.detailsKept', { details: check.kept.join(' · ') })
+            : t('assistance.noDetails')}
+        </Note>
+      ) : null}
+      <Note icon="info.circle">{t('assistance.detailsOnly')}</Note>
+    </>
+  );
+}
+
 // Progress with Cancel, the finished result, or why there is none.
 function Status({
   purpose,
   state,
+  check,
   onCancel,
 }: {
   readonly purpose: Purpose;
   readonly state: DraftAssistanceState;
+  readonly check: DetailCheck | undefined;
   readonly onCancel: () => void;
 }) {
   const colors = usePalette();
@@ -142,9 +356,13 @@ function Status({
       : t(
           `assistance.${state.kind === 'unavailable' ? state.reason : state.kind}`,
         );
+  const differ =
+    check === undefined || check.changes.length === 0
+      ? ''
+      : `\n${t('assistance.detailsDiffer', { count: check.changes.length })}`;
   useOutcomeAnnouncement(
     state.kind === 'ready'
-      ? `${t(`assistance.${purpose}Title`)}\n${state.text}`
+      ? `${t(`assistance.${purpose}Title`)}\n${state.text}${differ}`
       : failure,
     state.kind === 'ready',
   );
@@ -189,6 +407,7 @@ function Status({
           {t('assistance.omitted')}
         </Text>
       ) : null}
+      {check === undefined ? null : <Checks check={check} />}
       <OnDeviceMarker label={t('assistance.disclaimer')} />
     </>
   );
@@ -197,9 +416,11 @@ function Status({
 // Review of an explicitly requested rewrite, reply suggestion or generated draft for captured
 // Draft text. Opening it is the request. The Draft changes only when the person applies the
 // result; the owner then replaces exactly the captured text, or inserts a generated draft at the
-// caret, as one undoable edit. Nothing is saved or sent.
+// caret, as one undoable edit. A Writing tools result shows which details of the original it
+// changed. Nothing is saved or sent.
 export function DraftAssistance({
   native,
+  original,
   purpose,
   issue,
   input,
@@ -207,6 +428,7 @@ export function DraftAssistance({
   onClose,
 }: {
   readonly native: NativeAssistance;
+  readonly original: CapturedDraftText;
   readonly purpose: Purpose;
   // Why the captured text was refused, when the person can act on it.
   readonly issue: CapturedDraftText['issue'];
@@ -217,10 +439,103 @@ export function DraftAssistance({
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
+  // iPhone stacks a checked result's buttons; iPad sets them out side by side.
+  const stacked = !ipad;
+  const check =
+    state.kind === 'ready' && isTextTool(purpose)
+      ? checkDetails(original, state.text)
+      : undefined;
+  const differs = check !== undefined && check.changes.length > 0;
   const verbs = { reply: 'useReply', generate: 'insert' } as const;
-  const apply =
-    purpose === 'reply' || purpose === 'generate' ? verbs[purpose] : 'replace';
+  let apply: 'useReply' | 'insert' | 'replace' | 'replaceWithChanges' = differs
+    ? 'replaceWithChanges'
+    : 'replace';
+  if (purpose === 'reply' || purpose === 'generate') {
+    apply = verbs[purpose];
+  }
   const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
+  // A checked result offers push buttons, as its frames do: Keep original carries the accent fill
+  // when details differ, and the rewrite when none do.
+  const control = ({
+    main = false,
+    ...props
+  }: Readonly<{
+    label: string;
+    accessibilityLabel: string;
+    onPress: () => void;
+    main?: boolean;
+  }>) =>
+    check === undefined ? (
+      <Action {...props} />
+    ) : (
+      <Button
+        fill={main ? 'accent' : 'quiet'}
+        wide={stacked}
+        {...props}
+      />
+    );
+  const applyAction =
+    state.kind === 'ready'
+      ? control({
+          label: t(`assistance.${apply}`),
+          accessibilityLabel: t(`assistance.${apply}Label`),
+          onPress: () => {
+            act(() => {
+              onApply(state.text);
+            });
+          },
+          main: !differs,
+        })
+      : null;
+  const retryAction =
+    finished(state) && canRetryAssistance(state)
+      ? control({
+          label: t('common.retry'),
+          accessibilityLabel: t('assistance.retryLabel'),
+          onPress: () => {
+            act((request, captured) => {
+              void request.start(captured);
+            });
+          },
+        })
+      : null;
+  const closeAction = control({
+    label: t(`assistance.${close}`),
+    accessibilityLabel: t(`assistance.${close}Label`),
+    onPress: () => {
+      store.discard();
+      onClose();
+    },
+    main: differs,
+  });
+  let actions = (
+    <View style={styles.row}>
+      {applyAction}
+      {retryAction}
+      {closeAction}
+    </View>
+  );
+  if (check !== undefined && stacked) {
+    actions = (
+      <View style={styles.stackedButtons}>
+        {applyAction}
+        <View style={styles.buttons}>
+          <View style={styles.shared}>{closeAction}</View>
+          {retryAction === null ? null : (
+            <View style={styles.shared}>{retryAction}</View>
+          )}
+        </View>
+      </View>
+    );
+  } else if (check !== undefined) {
+    actions = (
+      <View style={styles.buttons}>
+        {applyAction}
+        {closeAction}
+        {retryAction}
+      </View>
+    );
+  }
   return (
     <View
       accessibilityLabel={t(`assistance.${purpose}Region`)}
@@ -241,6 +556,7 @@ export function DraftAssistance({
         <Status
           purpose={purpose}
           state={state}
+          check={check}
           onCancel={() => {
             act((request) => {
               request.cancel();
@@ -248,38 +564,7 @@ export function DraftAssistance({
           }}
         />
       )}
-      <View style={styles.row}>
-        {state.kind === 'ready' ? (
-          <Action
-            label={t(`assistance.${apply}`)}
-            accessibilityLabel={t(`assistance.${apply}Label`)}
-            onPress={() => {
-              act(() => {
-                onApply(state.text);
-              });
-            }}
-          />
-        ) : null}
-        {finished(state) && canRetryAssistance(state) ? (
-          <Action
-            label={t('common.retry')}
-            accessibilityLabel={t('assistance.retryLabel')}
-            onPress={() => {
-              act((request, captured) => {
-                void request.start(captured);
-              });
-            }}
-          />
-        ) : null}
-        <Action
-          label={t(`assistance.${close}`)}
-          accessibilityLabel={t(`assistance.${close}Label`)}
-          onPress={() => {
-            store.discard();
-            onClose();
-          }}
-        />
-      </View>
+      {actions}
     </View>
   );
 }
