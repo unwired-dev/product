@@ -1210,6 +1210,23 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'date', status: 'changed' }]);
   });
 
+  it('reads a dotted weekday as part of its date', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Meet Mon., 2 Nov and Tue., 3 Nov.'),
+        'Meet Tue., 2 Nov and Mon., 3 Nov.',
+      ).changes.map(({ status, original, result }) => [
+        status,
+        original,
+        result,
+      ]),
+    ).toStrictEqual([
+      ['changed', 'Mon., 2 Nov', 'Tue., 2 Nov'],
+      ['changed', 'Tue., 3 Nov', 'Mon., 3 Nov'],
+    ]);
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

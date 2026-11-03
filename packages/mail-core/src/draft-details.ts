@@ -93,7 +93,7 @@ const date = [
   `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
   // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
   `\\d{1,2}/\\d{1,2}`,
-  `(?:${weekday},?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
+  `(?:${weekday}\\.?,?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
   weekdayName,
   `${month}\\s\\d{4}`,
   unambiguousMonth,

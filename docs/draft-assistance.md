@@ -106,7 +106,7 @@ iPhone and iPad composer.
     differ only by possible equivalents (`3 Nov–4 Nov` and `3 November–4 November`)
     is uncertain. Only ends of one kind, or a bare number beside another kind
     (`3–5 Nov`, `9–5pm`, `40–50€`), make a range: a date and a time (`Monday: 9am`) stay separate details, and a colon followed by a space labels the next detail (`Slot 1: 9am`) unless both sides are one kind. The check also reads
-    dates in any letter case, including full weekday names, unambiguous full month
+    dates in any letter case, including full weekday names, a weekday with its period (`Mon., 2 Nov`), unambiguous full month
     names, a month with a day or
     year, year-first dates with hyphens, dots or slashes, and an ISO
     timestamp's complete `T`-joined time, fractional seconds and zone. Times can
