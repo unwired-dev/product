@@ -569,18 +569,12 @@ function inboxSections<M>({
   ];
 }
 
-// A Profile without mailboxes has no mail to wait for.
 const hasNoMail = ({
-  unconnected,
   ready,
   syncing,
   count,
-}: Readonly<{
-  unconnected: boolean;
-  ready: boolean;
-  syncing: boolean;
-  count: number;
-}>) => unconnected || (ready && !syncing && count === 0);
+}: Readonly<{ ready: boolean; syncing: boolean; count: number }>) =>
+  ready && !syncing && count === 0;
 
 // A signed-in window's Profile that owns no mailbox has no Inbox, only a way to manage Profiles.
 const unconnectedProfile = (
@@ -645,6 +639,7 @@ const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
 
 // Below the Inbox: its empty state, loading rows and the storage note.
 function InboxFooter({
+  unconnected,
   empty,
   syncing,
   connected,
@@ -654,6 +649,8 @@ function InboxFooter({
   now,
   children,
 }: {
+  // A Profile without mailboxes shows only its empty state, with no mail to wait for or keep.
+  readonly unconnected: boolean;
   readonly empty: boolean;
   readonly syncing: boolean;
   // Whether a signed-in account's mail, rather than sample messages, is listed.
@@ -669,6 +666,9 @@ function InboxFooter({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  if (unconnected) {
+    return children;
+  }
   return (
     <>
       {empty ? children : null}
@@ -1175,17 +1175,13 @@ export function Inbox({
                 />
               ) : (
                 <InboxFooter
+                  unconnected={unconnected !== undefined}
                   connected={gmail}
                   limited={limited}
                   downloading={downloading}
                   oldest={listed.at(-1)}
                   now={now}
-                  empty={hasNoMail({
-                    unconnected: unconnected !== undefined,
-                    ready,
-                    syncing,
-                    count: inboxRows.length,
-                  })}
+                  empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
                   syncing={syncing}>
                   {empty}
                 </InboxFooter>

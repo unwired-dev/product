@@ -1287,6 +1287,7 @@ describe('the mobile Profile Switcher', () => {
           screen.findByRole('button', { name: /Garden plan/u }),
         ).resolves.toBeVisible();
         expect(screen.getByText('Gmail · garden')).toBeVisible();
+        expect(screen.getByText('Encrypted on this device')).toBeVisible();
         await choose('Mail Profile, Primary Profile', `profile\n${family}`);
         await expect(screen.findByText(subtitle)).resolves.toBeVisible();
         // The sidebar keeps Favorites only. No provider or sync status names the Inbox's scope, and
@@ -1303,6 +1304,8 @@ describe('the mobile Profile Switcher', () => {
           ),
         ).toBeVisible();
         expect(screen.queryByText('No Mail')).toBeNull();
+        // Nothing is stored on this device for a Profile without mailboxes.
+        expect(screen.queryByText('Encrypted on this device')).toBeNull();
         expect(
           screen.queryByRole('button', { name: /Add Mailbox/u }),
         ).toBeNull();
