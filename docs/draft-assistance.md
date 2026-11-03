@@ -174,7 +174,7 @@ results for changed details on Mac, and on iPhone and iPad.
     so applying them is an explicit choice; **Keep original** and **Try again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**
-    when none do. The accent button is the window's default button: Return presses it
+    when none do. On Mac, the accent button is the window's default button: Return presses it
     unless the focused view takes the key, as the Draft body does for a new
     line. VoiceOver reads each row as one element and hears the count after
     the result.
