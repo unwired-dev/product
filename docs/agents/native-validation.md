@@ -333,7 +333,9 @@ The audit handler permits these known findings:
 - an email address used as a label: a sender's, or the Apple relay address
   that names the signed-in account;
 - the reader's sender monogram, whose initials repeat the sender name beside it
-  and for which the handler permits at most one unlocated-text finding.
+  and for which the handler permits at most one unlocated-text finding;
+- the contrast of a disabled button, which WCAG does not require, such as the
+  iPad Link Editor's Apply before a link is entered.
 
 Other findings fail the journey. On iPad the composer and its Link Editor are
 audited expanded:

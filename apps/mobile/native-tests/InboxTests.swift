@@ -2005,6 +2005,9 @@ final class InboxTests: XCTestCase {
     where issue.element?.elementType == .staticText
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
+    // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
+    case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
+      return "inactive control"
     // Undiagnosed: the same unlocated text while iPad's system Filters popover is open, and while
     // the Sync Status details' sheet or popover is open, whose elements are all labelled.
     case .elementDetection
