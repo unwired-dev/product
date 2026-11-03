@@ -221,8 +221,10 @@ readback. It runs Reply from the palette,
 types into the reply and pastes into it. It then selects the reply and clicks
 **Add Link** ([#1792](https://github.com/unwired-dev/product/issues/1792)): the
 Link Editor popover opens with the selection as its Text, Link focused and empty,
-Apply disabled and no Remove Link, and passes the audit; the capture is kept as an
-`Add Link` attachment. An invalid destination shows its reason after Return,
+Apply disabled and no Remove Link. Its audit completes with two exceptions: the
+tracked contrast gap [#1794](https://github.com/unwired-dev/product/issues/1794)
+and the hint's false "Label duplicates role description" finding. The capture is
+kept as an `Add Link` attachment. An invalid destination shows its reason after Return,
 Escape closes the popover keeping the text and selection, and a valid destination
 applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
 Edit Link then offers Remove Link with the saved destination, and Escape closes
@@ -255,15 +257,18 @@ the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
-Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
-`xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
+Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader,
+composer and Link Editor, and prints each issue as an `ACCESSIBILITY` JSON line
+in `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are secondary-text
 contrast on Dark sidebar glass ([#1574](https://github.com/unwired-dev/product/issues/1574)),
+the Link Editor hint on popover glass ([#1794](https://github.com/unwired-dev/product/issues/1794)),
 labels the contrast audit flags although their captured pixels pass, that
 fail only while another window or an AppKit sheet dims their window, or that sit
 on the Command Palette's glass panel
 ([#1550](https://github.com/unwired-dev/product/issues/1550)),
-AppKit's text Touch Bar, and email or web addresses used as labels. The contrast gaps list
+AppKit's text Touch Bar, email or web addresses used as labels, and the Link Editor
+hint's false "Label duplicates role description" finding. The contrast gaps list
 the labels each owner covers in either appearance. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
