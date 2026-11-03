@@ -308,6 +308,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `invitations.ts.detailsOf` or another calendar parser ignoring a supplied
+  `DURATION` and displaying a meeting without its end. Derive the end using the
+  supported DATE or DATE-TIME semantics, or reject the invitation as unsupported;
+  reject conflicting DTEND/DURATION, nonpositive lengths and computed instants
+  outside the date formatter's supported range. Check nominal day/week durations
+  across clock changes separately from exact hours/minutes/seconds. Otherwise a
+  valid duration loses meeting time or malformed arithmetic reaches Intl and
+  crashes the reader instead of showing the unreadable state.
+
 - `draft-html.ts.otherProperty` accepting a quote border without checking whether
   it draws a line. Audit shorthand defaults, every width spelling including
   exponent notation, transparent colors and unvetted functions. Preserve token
@@ -473,6 +482,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   A rejected grant must publish the owner-fenced sign-in notice and stop further
   part reads, as `resolveImages` does; otherwise an unavailable invitation hides
   ordinary mail or a best-effort fallback conceals lost mailbox authorization.
+  Trace cached completion through `completeImages` too: a transiently missing
+  calendar must retain a retry signal until a later explicit open can complete
+  it, without treating a permanent missing part as pending forever. Otherwise
+  the first failed read permanently hides an invitation behind a complete cache
+  entry. Preserve rejected-grant feedback before any later successful part read.
 
 - A failure modelled as a thrown `Error`, a string or a boolean where callers need to tell cases apart; use `Schema.TaggedError`, with a foreign error carried as `cause: Schema.Defect()`.
 - An expected state (locked storage, cancelled or declined sign-in, enrollment waiting) logged as an error, or an unexpected failure recovered without `Effect.logError`.
@@ -745,6 +759,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A service identifier that does not follow `@private-email/<package>/<Name>`; identifiers key the context, and a collision silently resolves the wrong service.
 
 #### Product behavior the stores own
+
+- `invitations.ts.responseMessage` or another Gmail reply combining a received
+  thread ID with a newly invented subject. Resolve the source from every readable
+  metadata location, including opened views and online results, and retain its
+  subject and RFC reply headers together with its mailbox-scoped thread ID.
+  Exercise the outgoing request through the store; otherwise Gmail can put an
+  explicit invitation response in a separate conversation despite a thread ID.
 
 - `graph-inbox.ts.history` fetching a discovered folder's total before saving
   that folder as pending. Refuse its first total request after other folders

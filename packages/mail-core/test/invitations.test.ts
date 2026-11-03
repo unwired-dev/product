@@ -594,6 +594,46 @@ describe('meeting invitations', () => {
     second();
   });
 
+  it.each(['locked', 'mailbox-revoked', 'mailbox-invalidated'])(
+    'hides a cached invitation when its calendar retry discovers %s',
+    async (code) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        from: 'Lena Fischer <lena@northwind.example>',
+        subject: 'Invitation',
+        content: {
+          text: 'Join us.',
+          attachments: [
+            {
+              filename: 'invite.ics',
+              mimeType: 'text/calendar',
+              bytes: [...Buffer.from(calendar(meeting))],
+            },
+          ],
+        },
+      });
+      const native = { ...withoutAttachments(gmail.native, 503) };
+      const inbox = createGmailInbox(native);
+      await inbox.load();
+      const first = inbox.retainMessage(id);
+      await inbox.readMessage(id);
+      first();
+      native.gmailRequest = withoutAttachments(gmail.native, {
+        code,
+      }).gmailRequest;
+      const second = inbox.retainMessage(id);
+      try {
+        await inbox.readMessage(id);
+
+        expect(inbox.responseSource(id)).toBeUndefined();
+        expect(inbox.messageBody(id)).toMatchObject({ kind: 'unavailable' });
+      } finally {
+        second();
+      }
+    },
+  );
+
   it('prevents simultaneous readers of one Inbox from sending twice', async () => {
     expect.hasAssertions();
     const { inbox, invitation, gmail, responses, close } = await invited();

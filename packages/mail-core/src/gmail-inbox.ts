@@ -3054,11 +3054,18 @@ export function createGmailInbox(
             authentication: true,
           }),
         ),
-        Effect.orElseSucceed(() => ({
-          document: stored.value,
-          changed: false,
-          authentication: false,
-        })),
+        // Cached text survives unavailable enhancements, but not a closed storage or mailbox scope.
+        Effect.catchIf(
+          (failure) =>
+            failure instanceof GmailNotFound ||
+            ['retry', 'failed', 'conflict'].includes(failure.kind),
+          () =>
+            Effect.succeed({
+              document: stored.value,
+              changed: false,
+              authentication: false,
+            }),
+        ),
       );
       if (completed.authentication) {
         yield* askForGmail(reading, id);
