@@ -324,10 +324,18 @@ const sameFigures = (namedKey: string, numeric: string) => {
     numbers.splice(-1, 1, year);
   }
   const monthAt = monthNumber(namedKey);
-  return (
-    (monthAt === 0 || numbers.includes(monthAt)) &&
-    parts.every((each) => numbers.includes(each))
-  );
+  if (monthAt !== 0) {
+    parts.push(monthAt);
+  }
+  // Each field needs its own occurrence: `11 Nov` needs two 11s, not one in `12/11`.
+  return parts.every((each) => {
+    const at = numbers.indexOf(each);
+    if (at === -1) {
+      return false;
+    }
+    numbers.splice(at, 1);
+    return true;
+  });
 };
 // Keyed by kind name, so a range key's own kind parts can look up their predicate.
 const similar: Partial<

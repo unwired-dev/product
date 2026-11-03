@@ -1336,6 +1336,28 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
   });
 
+  it('compares the day and month separately when they have the same number', () => {
+    expect.hasAssertions();
+    for (const [original, result] of [
+      ['11 Nov 2026', '12/11/26'],
+      ['11 Nov 2026', '11/12/26'],
+      ['11 Nov 2026', '2026-11-12'],
+      ['11 Nov 2026', '2026-12-11'],
+      ['11 Nov 2026 to 12 Dec 2026', '12/11/26 to 12/12/26'],
+      ['11 Nov 2026 to 12 Dec 2026', '11/11/26 to 12/11/26'],
+    ] satisfies ReadonlyArray<readonly [string, string]>) {
+      expect(checkDetails(whole(original), result).changes).toMatchObject([
+        { kind: 'date', status: 'changed' },
+      ]);
+      expect(checkDetails(whole(result), original).changes).toMatchObject([
+        { kind: 'date', status: 'changed' },
+      ]);
+    }
+    expect(
+      checkDetails(whole('11 Nov 2026'), '11/11/26').changes,
+    ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
+  });
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {

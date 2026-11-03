@@ -151,7 +151,7 @@ iPhone and iPad composer.
   - A difference that may be another way to write the same detail is
     uncertain, never kept: a date that gains or loses a part (`Saturday` as
     `Saturday, 1 Nov` or `3 Nov` as `3 Nov 2026`, but not `3 Nov` as `13 Nov`) or is in figures on one side only with the same day, month and year, a year also as a trailing two-digit year (`2026-11-01` or `01/11/26` as
-    `1 November 2026`, but not `26 Nov 2026` as `26/11/25` or `01/11/26`, `15 Nov 2026` as `15/12/26`, or `3` as `20 Dec`), a number or amount that differs only by a thousands
+    `1 November 2026`, but not `26 Nov 2026` as `26/11/25` or `01/11/26`, `15 Nov 2026` as `15/12/26`, `11 Nov 2026` as `12/11/26`, or `3` as `20 Dec`), a number or amount that differs only by a thousands
     separator (`1,000` or `1 000` as `1000`), and a link that differs only by `!` or `?`
     at its end. Any other pair, such as `Monday` as `Tuesday` or `.5` as `5`,
     is changed.
