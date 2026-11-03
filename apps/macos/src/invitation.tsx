@@ -598,9 +598,14 @@ export function InvitationCard({
   if (offer.kind === 'unreadable') {
     return (
       <View style={card}>
-        <Text style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
-          {t('invitation.heading')}
-        </Text>
+        <View
+          accessible
+          accessibilityLabel={t('invitation.heading')}>
+          <Text
+            style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
+            {t('invitation.heading')}
+          </Text>
+        </View>
         <Status
           icon="exclamationmark.triangle.fill"
           iconColor={colors.statusWarning}

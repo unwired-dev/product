@@ -460,6 +460,22 @@ describe('meeting invitations', () => {
     close();
   });
 
+  it('asks again for a revised meeting after answering the earlier one', async () => {
+    expect.hasAssertions();
+    const { gmail, invitation, responses, close } = await invited();
+    await responses.respond(invitation, 'accepted', copy);
+    const revised = { ...invitation, sequence: invitation.sequence + 1 };
+
+    expect(responses.state(revised)).toStrictEqual({ kind: 'unanswered' });
+
+    await responses.respond(revised, 'accepted', copy);
+
+    expect(gmail.sends).toHaveLength(2);
+    expect(replyOf(gmail.sends[1])).toContain('SEQUENCE:3');
+
+    close();
+  });
+
   it('never sends again on its own after an unknown delivery', async () => {
     expect.hasAssertions();
     const { gmail, invitation, responses, close } = await invited();

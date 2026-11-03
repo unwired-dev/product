@@ -276,6 +276,8 @@ describe('meeting invitations in the Mac reader', () => {
         screen.findByText('Unwired can’t read this invitation'),
       ).resolves.toBeOnTheScreen();
 
+      // VoiceOver skips plain Text on macOS, so the heading needs its own label.
+      expect(screen.getByLabelText('Invitation')).toBeOnTheScreen();
       expect(screen.getByText('invite.ics')).toBeOnTheScreen();
     } finally {
       await app.unmount();

@@ -547,8 +547,9 @@ const outcomeState = (
     : { kind: 'refused', choice };
 };
 
+// A revision of the meeting is a new invitation to answer, so its sequence is part of the key.
 const keyOf = (invitation: Invitation) =>
-  `${invitation.address.toLowerCase()}\u0000${invitation.uid}`;
+  `${invitation.address.toLowerCase()}\u0000${invitation.uid}\u0000${invitation.sequence}`;
 
 const replySubject = (subject: string) =>
   /^\s*re:/iu.test(subject) ? subject : `Re: ${subject}`;
