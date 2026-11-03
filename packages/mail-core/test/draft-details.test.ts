@@ -1263,6 +1263,18 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'time', status: 'changed' }]);
   });
 
+  it('reads thousands grouped by any space character as one amount', () => {
+    expect.hasAssertions();
+    for (const space of ['\u2009', '\u2007', '\u202F']) {
+      expect(
+        checkDetails(
+          whole(`Pay €1${space}500 and €2${space}000.`),
+          `Pay €2${space}500 and €1${space}000.`,
+        ).changes.map(({ status }) => status),
+      ).toStrictEqual(['changed', 'changed']);
+    }
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

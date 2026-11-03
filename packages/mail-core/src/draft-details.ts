@@ -53,7 +53,8 @@ const month = `(?:${unambiguousMonth}|${anyCase('march|may|august|jan|feb|mar|ap
 const calendarGap = String.raw`(?:,?\s|(?<=\.),?)`;
 const day = `\\d{1,2}(?:${anyCase('st|nd|rd|th')})?`;
 // An exponent belongs to its number: `1e3` and `1e4` differ.
-const unsigned = String.raw`(?:(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
+// Any space character may group thousands: plain, no-break, thin, narrow or figure spaces.
+const unsigned = String.raw`(?:(?:\d{1,3}(?:\p{Zs}\d{3})+|\d+)(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;

@@ -97,7 +97,7 @@ iPhone and iPad composer.
     a known currency code in any letter case (`usd`, `eur`), or a marker such as
     Kč, `S/`, `zł`, `Fr.` or `kr`, including compact `USD40` and `40USD`,
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
-    point (`-40`, `.5`), percentages (`10%`), grouped figures (`1 500`), fractions,
+    point (`-40`, `.5`), percentages (`10%`), grouped figures with any space between thousands (`1 500`), fractions,
     ratios and ranges (`100/200`, `100:200`, `1–2`). Adjacent numbers, amounts,
     dates or times joined by a dash, slash, colon, `to`, `until`, `through` or `till`
     are compared in order as one detail (`€40–€50`, `09:00–17:00`, `Mon–Fri`,
