@@ -212,8 +212,9 @@ const detailsIn = (source: string): Detail[] => {
       found.pop();
       found.push([
         previous[0],
+        // A bare number takes the kind of the endpoint it ranges to (`3–5 Nov` is a date).
         {
-          kind: previous[1].kind,
+          kind: previous[1].kind === 'number' ? kind : previous[1].kind,
           value: text.slice(previous[0], at + written.length),
           key: `${previous[1].key}\0${join.trim().toLowerCase()}\0${kind}\0${each.key}`,
         },

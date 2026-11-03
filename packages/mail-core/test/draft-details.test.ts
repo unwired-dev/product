@@ -1246,6 +1246,23 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it('gives a range from a bare number the kind of its typed end', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Stay 3–5 Nov.'), 'Stay 3 Nov–5 Nov.').changes,
+    ).toMatchObject([
+      { kind: 'date', status: 'uncertain', original: '3–5 Nov' },
+    ]);
+    expect(
+      checkDetails(whole('Pay 40–50€.'), 'Pay 40€–50€.').changes,
+    ).toMatchObject([
+      { kind: 'amount', original: '40–50€', result: '40€–50€' },
+    ]);
+    expect(
+      checkDetails(whole('Open 9–5pm.'), 'Open 9–6pm.').changes,
+    ).toMatchObject([{ kind: 'time', status: 'changed' }]);
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(
