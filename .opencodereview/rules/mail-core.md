@@ -308,6 +308,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `invitations.ts.contentLines` or another synchronous reader parser using
+  overlapping regex repetitions or a delimiter split that rescans the remaining
+  suffix for every match. Check damaged inputs as well as valid delimiter-heavy
+  lines within the admitted size budget. Keep token/value alternatives disjoint
+  and total scanning work linear; a bounded message can still block the reader
+  for seconds through quadratic backtracking or repeated quote balancing.
+
 - `invitations.ts.detailsOf` or another calendar parser ignoring a supplied
   `DURATION` and displaying a meeting without its end. Derive the end using the
   supported DATE or DATE-TIME semantics, or reject the invitation as unsupported;
