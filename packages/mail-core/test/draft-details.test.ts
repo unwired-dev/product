@@ -1309,6 +1309,20 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'amount', status: 'changed' }]);
   });
 
+  it('preserves a leading decimal after another complete detail', () => {
+    expect.hasAssertions();
+    for (const prefix of ['40€', '40Fr.', '8a.m.', '8am', '9:30Z']) {
+      expect(
+        checkDetails(whole(`${prefix}.50€`), `${prefix} 50€`).changes,
+      ).toContainEqual({
+        kind: 'amount',
+        status: 'changed',
+        original: '.50€',
+        result: '50€',
+      });
+    }
+  });
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {

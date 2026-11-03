@@ -76,7 +76,7 @@ const currencyCode = anyCase(
 );
 const currency = `[A-Za-z]{0,2}\\p{Sc}|[A-Z]{3}|${currencyCode}|${anyCase(String.raw`Kč|S/|zł|Fr\.|kr`)}`;
 // A detail never ends inside a word or, after a figure, before the rest of a number, so `0.5` is not
-// read as `0`. After a letter, as in `8am,9am`, a comma or point only separates the next detail.
+// read as `0`. A comma after `8am` starts another detail rather than continuing the hour.
 const edge = String.raw`(?![\p{L}\p{N}]|(?<=\p{N})[.,]\p{N})`;
 const rangeKinds = new Set<DetailKind>(['date', 'time', 'amount', 'number']);
 // A bare number takes the kind of the endpoint it ranges to (`3–5 Nov` is a date).
@@ -142,8 +142,9 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   ],
 ];
 const kinds = patterns.map(([kind]) => kind);
+// Keep a leading decimal in the match, even after a word. Only dates and times skip list separators.
 const pattern = new RegExp(
-  `(?:^|[^\\p{L}\\p{N}])(?:${patterns.map(([kind, source]) => `(${source})${kind === 'number' ? '' : edge}`).join('|')})`,
+  `(?:(?<![\\p{L}\\p{N}])|(?=[.,]\\d))(?:${patterns.map(([kind, source]) => `${kind === 'date' || kind === 'time' ? '[.,]?' : ''}(${source})${kind === 'number' ? '' : edge}`).join('|')})`,
   'gu',
 );
 const quote =

@@ -144,7 +144,8 @@ iPhone and iPad composer.
     case-sensitive destination is never normalized as an email address. Written linked
     text may omit the web scheme or root slash, but a slash after a path stays
     part of the destination. A number beside a unit (`0.5s`, `3rd`) is compared
-    by its figures, and an exponent (`1e3`) is part of its number. An exponent's
+    by its figures. A leading decimal point stays with an adjacent amount
+    (`40€.50€` differs from `40€ 50€`). An exponent (`1e3`) is part of its number. An exponent's
     sign stays separate from an amount's sign (`$1e-3` differs from `-$1e-3`).
     Nothing else is interpreted, so `3` rewritten as `three` is removed.
   - A difference that may be another way to write the same detail is
