@@ -274,7 +274,7 @@ describe('sending a Draft', () => {
         await sender.drafts.save();
       });
       // These callbacks were dispatched before native received the read-only props.
-      await press('Text style');
+      await press('Format');
       await press('Send from alex@example.invalid');
       const changeSubject = screen.getByLabelText('Subject').props.onChangeText;
       const changeBody =
@@ -306,13 +306,13 @@ describe('sending a Draft', () => {
       }
       for (const name of [
         'Close',
+        'Close Format',
         'Undo',
         'Redo',
         'Compose actions',
         'Send',
         'Bold',
         'Show Cc and Bcc',
-        'Text style',
         'Body',
         'Heading 1',
       ]) {
@@ -593,7 +593,10 @@ describe('sending a Draft', () => {
       expect(
         screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
       ).toBeOnTheScreen();
+      // On iPhone, Undo is in the Format panel.
+      await press('Format');
       await press('Undo');
+      await press('Close Format');
       expect(
         screen.getByRole('button', { name: 'To: sam@example.invalid' }),
       ).toBeOnTheScreen();

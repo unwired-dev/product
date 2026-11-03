@@ -97,6 +97,7 @@ import {
   ActivityIndicator,
   AppState,
   Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -112,6 +113,7 @@ import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
+  FormatPanel,
   GeneratePrompt,
   LinkEditor,
   MenuItem,
@@ -122,6 +124,7 @@ import {
   Button,
   ContextMenu,
   Glass,
+  GlassGroup,
   GlassPanel,
   MenuButton,
   SFSymbol,
@@ -160,6 +163,15 @@ export const ComposerLayoutContext = createContext<{
   readonly top: number;
 }>({ size: 'compact', avoidKeyboard: true, top: 0 });
 
+// The composer's file controls: the system pickers, and images on the pasteboard placed inline.
+// Native code reads the chosen files.
+export const assetPickers = [
+  ['drafts.assets.attachFile', 'files', false, 'paperclip'],
+  ['drafts.assets.attachPhoto', 'photos', false, 'photo'],
+  ['drafts.assets.insertImage', 'photos', true, 'photo.on.rectangle'],
+  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
+] as const;
+
 // The body and fields sit 20pt in, with an 80pt right-aligned label column.
 const inset = 20;
 const fieldInset = 16;
@@ -169,7 +181,20 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1 },
   // The same 44-point target as the format bar's icon buttons.
-  writingTools: { minWidth: 44, minHeight: 44, alignItems: 'center' },
+  menuControl: { minWidth: 44, minHeight: 44, alignItems: 'center' },
+  // iPhone's controls float at the trailing edge above the keyboard; the editor scrolls its last
+  // field above their 44pt buttons and insets.
+  pill: {
+    position: 'absolute',
+    right: spacing.l,
+    bottom: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pillGroup: { borderRadius: 26 },
+  // The Format pill is 104pt wide in the frame: its two 44pt buttons sit 8pt from each end.
+  formatPill: { paddingHorizontal: spacing.s },
+  pillInset: { paddingBottom: 44 + 2 * spacing.xs + 2 * spacing.s },
   // Open menus stack header over From over the format bar, whose layout-only rows Fabric
   // flattens into this column, so each menu opens over the rows that follow it.
   header: {
@@ -1552,7 +1577,7 @@ function WritingTools({
         tools('expand', 'shorten'),
         tools('friendly', 'neutral'),
       ].flatMap((items) => (items.length === 0 ? [] : [{ items }]))}
-      style={styles.writingTools}>
+      style={styles.menuControl}>
       <SFSymbol
         name="sparkles"
         size={20}
@@ -1566,7 +1591,14 @@ function WritingTools({
       shown={prompting}
       opening={openings}
       disabled={sending}
-      trigger={menu}
+      // On iPhone the menu floats in its own glass beside the pill.
+      trigger={
+        popover ? (
+          menu
+        ) : (
+          <GlassGroup style={styles.pillGroup}>{menu}</GlassGroup>
+        )
+      }
       onClose={() => {
         setPrompting(false);
       }}
@@ -1725,9 +1757,17 @@ function Editor({
   const asked = useRef(false);
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
-  // iPad keeps the format bar at the top; iPhone keeps it above the keyboard.
+  // iPad keeps the format bar at the top; iPhone floats its controls above the keyboard, and its
+  // Format panel takes the keyboard's place.
   const layout = use(ComposerLayoutContext);
   const regular = layout.size === 'regular';
+  const [formatting, setFormatting] = useState(false);
+  const hideFormat = () => {
+    setFormatting(false);
+  };
+  // The Format panel takes the pill's place too.
+  const pillShown = !regular && !formatting;
+  const bodyInput = useRef<TextInput>(null);
   // While Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [sending, setSending] = useState(false);
   // Native callbacks can arrive before the disabled props commit.
@@ -2207,20 +2247,63 @@ function Editor({
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
 
-  // The key keeps its menu mounted when adaptation moves the bar above or below the editor.
+  const writingTools = (
+    <WritingTools
+      // A prompt belongs to the Mail Profile it was opened in.
+      key={profile}
+      assistance={assistance !== undefined}
+      translation={translation !== undefined}
+      reply={canSuggestReply(draft)}
+      body={draft.body}
+      selection={selection}
+      sending={sending}
+      popover={regular}
+      onGenerate={(prompt) => {
+        if (lifetime.current.mounted) {
+          capture((latest) =>
+            capturePrompt(latest, selectionNow.current, prompt),
+          );
+        }
+      }}
+      onTextTool={(tool) => {
+        const at = selectionNow.current;
+        if (lifetime.current.mounted && canRewrite(authored.current.body, at)) {
+          capture((latest) => captureDraftText(tool, latest, at));
+        }
+      }}
+      onTranslate={() => {
+        const at = selectionNow.current;
+        const { body } = authored.current;
+        const text = selectedText(body, at, translationInputLimit + 1);
+        if (
+          sendingNow.current ||
+          !lifetime.current.mounted ||
+          !hasTranslatableText(text)
+        ) {
+          return;
+        }
+        capture((latest) => captureDraftText('translate', latest, at));
+      }}
+      onReply={() => {
+        if (lifetime.current.mounted) {
+          capture((latest) =>
+            captureDraftText('reply', latest, selectionNow.current),
+          );
+        }
+      }}
+    />
+  );
   const formatBar = (
     <FormatBar
-      key="format-bar"
       active={active}
       kind={kind}
       disabled={sending}
-      above={!regular}
       onBlock={block}
       onMark={format}>
       <LinkEditor
         disabled={sending}
         link={editableLinkAt(draft.body, selection)}
-        popover={regular}
+        popover
         onChange={editLink}
       />
       <View style={[styles.divider, { backgroundColor: colors.separator }]} />
@@ -2241,90 +2324,64 @@ function Editor({
         }}
       />
       <View style={styles.grow} />
-      <WritingTools
-        // A prompt belongs to the Mail Profile it was opened in.
-        key={profile}
-        assistance={assistance !== undefined}
-        translation={translation !== undefined}
-        reply={canSuggestReply(draft)}
-        body={draft.body}
-        selection={selection}
-        sending={sending}
-        popover={regular}
-        onGenerate={(prompt) => {
-          if (lifetime.current.mounted) {
-            capture((latest) =>
-              capturePrompt(latest, selectionNow.current, prompt),
-            );
-          }
-        }}
-        onTextTool={(tool) => {
-          const at = selectionNow.current;
-          if (
-            lifetime.current.mounted &&
-            canRewrite(authored.current.body, at)
-          ) {
-            capture((latest) => captureDraftText(tool, latest, at));
-          }
-        }}
-        onTranslate={() => {
-          const at = selectionNow.current;
-          const { body } = authored.current;
-          const text = selectedText(body, at, translationInputLimit + 1);
-          if (
-            sendingNow.current ||
-            !lifetime.current.mounted ||
-            !hasTranslatableText(text)
-          ) {
-            return;
-          }
-          capture((latest) => captureDraftText('translate', latest, at));
-        }}
-        onReply={() => {
-          if (lifetime.current.mounted) {
-            capture((latest) =>
-              captureDraftText('reply', latest, selectionNow.current),
-            );
-          }
-        }}
-      />
+      {writingTools}
       <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-      <ToolbarButton
-        disabled={sending}
-        icon="paperclip"
-        label={t('drafts.assets.attachFile')}
-        onPress={() => {
-          void choose('files', false);
-        }}
-      />
-      <ToolbarButton
-        disabled={sending}
-        icon="photo"
-        label={t('drafts.assets.attachPhoto')}
-        onPress={() => {
-          void choose('photos', false);
-        }}
-      />
-      <ToolbarButton
-        disabled={sending}
-        icon="photo.on.rectangle"
-        label={t('drafts.assets.insertImage')}
-        onPress={() => {
-          void choose('photos', true);
-        }}
-      />
-      <ToolbarButton
-        disabled={sending}
-        icon="doc.on.clipboard"
-        label={t('drafts.assets.pasteImage')}
-        onPress={() => {
-          void choose('paste', true);
-        }}
-      />
+      {assetPickers.map(([label, from, inline, icon]) => (
+        <ToolbarButton
+          key={label}
+          disabled={sending}
+          icon={icon}
+          label={t(label)}
+          onPress={() => {
+            void choose(from, inline);
+          }}
+        />
+      ))}
     </FormatBar>
   );
+  // iPhone's Format and Attach controls in one glass pill, with Writing tools beside it.
+  const pill = (
+    <View
+      pointerEvents="box-none"
+      style={styles.pill}>
+      <GlassGroup style={[styles.pillGroup, styles.formatPill]}>
+        <ToolbarButton
+          disabled={sending}
+          icon="textformat"
+          label={t('drafts.format')}
+          onPress={() => {
+            Keyboard.dismiss();
+            setFormatting(true);
+          }}
+        />
+        <MenuButton
+          accessibilityLabel={t('drafts.assets.toolbar')}
+          disabled={sending}
+          sections={[
+            {
+              items: assetPickers.map(([label, from, inline, icon]) => ({
+                key: label,
+                title: t(label),
+                // The paperclip opens this menu, so its Attach File row shows a document.
+                symbol: from === 'files' ? 'doc' : icon,
+                run: () => {
+                  void choose(from, inline);
+                },
+              })),
+            },
+          ]}
+          style={styles.menuControl}>
+          <SFSymbol
+            name="paperclip"
+            size={20}
+            color={colors.textPrimary}
+          />
+        </MenuButton>
+      </GlassGroup>
+      {writingTools}
+    </View>
+  );
 
-  const [topBar, bottomBar] = regular ? [formatBar, null] : [null, formatBar];
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
@@ -2404,192 +2461,225 @@ function Editor({
             />
           </View>
         </View>
-        {topBar}
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled">
-          <ComposerNotices
-            closing={closing}
-            draft={draft}
-            refused={refused}
-            onClose={() => {
-              void saveDraft();
-            }}
-            onDiscard={() => {
-              void discard();
-            }}
-            onKeepEditing={() => {
-              setClosing(undefined);
-            }}
-          />
-          {captured === undefined ? null : (
-            <View style={styles.review}>
-              <CapturedAssistance
-                key={captured.id}
-                captured={captured}
-                assistance={assistance}
-                translation={translation}
-                onApply={applyCaptured}
-                onClose={closeCaptured}
-              />
-            </View>
-          )}
-          <TextInput
-            accessibilityLabel={t('drafts.body')}
-            editable={!sending}
-            accessibilityState={{ disabled: sending }}
-            multiline
-            onChange={({ nativeEvent }: BodyChangeEvent) => {
-              changedSelection.current = nativeEvent.selection;
-            }}
-            onChangeText={edit}
-            onSelectionChange={({ nativeEvent }) => {
-              const next = nativeEvent.selection;
-              // Moving the caret anywhere but past typed text ends marks toggled for typing.
-              if (next.start !== next.end || next.start !== caret.current) {
-                placeTyping(undefined);
-                commitHistory((current) => ({ ...current, typing: false }));
-              }
-              caret.current = undefined;
-              setPlaced(undefined);
-              selectionNow.current = next;
-              setSelection(next);
-            }}
-            placeholder={t('drafts.bodyPlaceholder')}
-            placeholderTextColor={colors.textSecondary}
-            scrollEnabled={false}
-            selection={placed}
-            style={[styles.body, { color: colors.textPrimary }]}
-            textAlignVertical="top">
-            {display.lines.map((line, index) => (
-              <Text
-                // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
-                key={index}
-                style={[
-                  kindStyles[line.kind],
-                  line.kind === 'quote'
-                    ? { color: colors.textSecondary }
-                    : null,
-                ]}>
-                {line.marker}
-                {line.spans.map((span, at) => (
-                  <Text
-                    // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
-                    key={at}
-                    style={markStyle(span.marks, 'link' in span)}>
-                    {span.text}
-                  </Text>
-                ))}
-                {index < display.lines.length - 1 ? '\n' : ''}
-              </Text>
-            ))}
-          </TextInput>
-          {draft.quoted === undefined ? null : (
-            <QuotedText quoted={draft.quoted} />
-          )}
-          <DraftAssets
-            draft={draft}
-            editable={!sending}
-            onCancel={(id) => {
-              if (!sendingNow.current) {
-                void store.cancelImport(id);
-              }
-            }}
-            onRemove={removeAsset}
-          />
-          <View style={styles.fields}>
-            <View style={[styles.field, { borderTopColor: colors.separator }]}>
-              <Text
-                style={[styles.fieldLabel, { color: colors.textSecondary }]}>
-                {`${t('drafts.subject')}:`}
-              </Text>
-              <TextInput
-                accessibilityLabel={t('drafts.subject')}
-                editable={!sending}
-                accessibilityState={{ disabled: sending }}
-                onChangeText={(subject) => {
-                  const previous = authored.current.subject;
-                  subjectCaret.current =
-                    subjectSelection.current.end +
-                    subject.length -
-                    previous.length;
-                  // One character added at the caret continues a typing step until a word ends.
-                  const added =
-                    subjectSelection.current.start ===
-                      subjectSelection.current.end &&
-                    subject.length === previous.length + 1;
-                  const typed = subject[subjectSelection.current.start] ?? ' ';
-                  change(
-                    { ...authored.current, subject },
-                    added && !/\s/u.test(typed),
-                    'subject',
-                  );
-                }}
-                onSelectionChange={({ nativeEvent }) => {
-                  const next = nativeEvent.selection;
-                  if (
-                    next.start !== next.end ||
-                    next.start !== subjectCaret.current
-                  ) {
-                    commitHistory((current) => ({
-                      ...current,
-                      typing: false,
-                    }));
-                  }
-                  subjectCaret.current = undefined;
-                  subjectSelection.current = next;
-                }}
-                placeholder={t('drafts.subject')}
-                placeholderTextColor={colors.textSecondary}
-                style={[styles.input, { color: colors.textPrimary }]}
-                value={draft.subject}
-              />
-            </View>
-            <Recipients
+        {regular ? formatBar : null}
+        <View style={styles.fill}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.content,
+              pillShown && styles.pillInset,
+            ]}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled">
+            <ComposerNotices
+              closing={closing}
               draft={draft}
-              getDraft={getDraft}
-              editable={!sending}
-              field="to"
-              onChange={change}
-              onCaretMove={breakTyping}
-              trailing={
-                copiesShown ? undefined : (
-                  <Action
-                    variant="composer"
-                    disabled={sending}
-                    accessibilityLabel={t('drafts.showCcBcc')}
-                    label={t('drafts.ccBcc')}
-                    onPress={() => {
-                      change({ ...authored.current, copies: true });
-                    }}
-                  />
-                )
-              }
+              refused={refused}
+              onClose={() => {
+                void saveDraft();
+              }}
+              onDiscard={() => {
+                void discard();
+              }}
+              onKeepEditing={() => {
+                setClosing(undefined);
+              }}
             />
-            {copiesShown ? (
-              <>
-                <Recipients
-                  draft={draft}
-                  getDraft={getDraft}
-                  editable={!sending}
-                  field="cc"
-                  onChange={change}
-                  onCaretMove={breakTyping}
+            {captured === undefined ? null : (
+              <View style={styles.review}>
+                <CapturedAssistance
+                  key={captured.id}
+                  captured={captured}
+                  assistance={assistance}
+                  translation={translation}
+                  onApply={applyCaptured}
+                  onClose={closeCaptured}
                 />
-                <Recipients
-                  draft={draft}
-                  getDraft={getDraft}
+              </View>
+            )}
+            <TextInput
+              ref={bodyInput}
+              accessibilityLabel={t('drafts.body')}
+              editable={!sending}
+              accessibilityState={{ disabled: sending }}
+              multiline
+              onChange={({ nativeEvent }: BodyChangeEvent) => {
+                changedSelection.current = nativeEvent.selection;
+              }}
+              onChangeText={edit}
+              onSelectionChange={({ nativeEvent }) => {
+                const next = nativeEvent.selection;
+                // Moving the caret anywhere but past typed text ends marks toggled for typing.
+                if (next.start !== next.end || next.start !== caret.current) {
+                  placeTyping(undefined);
+                  commitHistory((current) => ({ ...current, typing: false }));
+                }
+                caret.current = undefined;
+                setPlaced(undefined);
+                selectionNow.current = next;
+                setSelection(next);
+              }}
+              placeholder={t('drafts.bodyPlaceholder')}
+              placeholderTextColor={colors.textSecondary}
+              scrollEnabled={false}
+              selection={placed}
+              style={[styles.body, { color: colors.textPrimary }]}
+              textAlignVertical="top">
+              {display.lines.map((line, index) => (
+                <Text
+                  // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+                  key={index}
+                  style={[
+                    kindStyles[line.kind],
+                    line.kind === 'quote'
+                      ? { color: colors.textSecondary }
+                      : null,
+                  ]}>
+                  {line.marker}
+                  {line.spans.map((span, at) => (
+                    <Text
+                      // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+                      key={at}
+                      style={markStyle(span.marks, 'link' in span)}>
+                      {span.text}
+                    </Text>
+                  ))}
+                  {index < display.lines.length - 1 ? '\n' : ''}
+                </Text>
+              ))}
+            </TextInput>
+            {draft.quoted === undefined ? null : (
+              <QuotedText quoted={draft.quoted} />
+            )}
+            <DraftAssets
+              draft={draft}
+              editable={!sending}
+              onCancel={(id) => {
+                if (!sendingNow.current) {
+                  void store.cancelImport(id);
+                }
+              }}
+              onRemove={removeAsset}
+            />
+            <View style={styles.fields}>
+              <View
+                style={[styles.field, { borderTopColor: colors.separator }]}>
+                <Text
+                  style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                  {`${t('drafts.subject')}:`}
+                </Text>
+                <TextInput
+                  accessibilityLabel={t('drafts.subject')}
                   editable={!sending}
-                  field="bcc"
-                  onChange={change}
-                  onCaretMove={breakTyping}
+                  accessibilityState={{ disabled: sending }}
+                  onChangeText={(subject) => {
+                    const previous = authored.current.subject;
+                    subjectCaret.current =
+                      subjectSelection.current.end +
+                      subject.length -
+                      previous.length;
+                    // One character added at the caret continues a typing step until a word ends.
+                    const added =
+                      subjectSelection.current.start ===
+                        subjectSelection.current.end &&
+                      subject.length === previous.length + 1;
+                    const typed =
+                      subject[subjectSelection.current.start] ?? ' ';
+                    change(
+                      { ...authored.current, subject },
+                      added && !/\s/u.test(typed),
+                      'subject',
+                    );
+                  }}
+                  onSelectionChange={({ nativeEvent }) => {
+                    const next = nativeEvent.selection;
+                    if (
+                      next.start !== next.end ||
+                      next.start !== subjectCaret.current
+                    ) {
+                      commitHistory((current) => ({
+                        ...current,
+                        typing: false,
+                      }));
+                    }
+                    subjectCaret.current = undefined;
+                    subjectSelection.current = next;
+                  }}
+                  placeholder={t('drafts.subject')}
+                  placeholderTextColor={colors.textSecondary}
+                  style={[styles.input, { color: colors.textPrimary }]}
+                  value={draft.subject}
                 />
-              </>
-            ) : null}
-          </View>
-        </ScrollView>
-        {bottomBar}
+              </View>
+              <Recipients
+                draft={draft}
+                getDraft={getDraft}
+                editable={!sending}
+                field="to"
+                onChange={change}
+                onCaretMove={breakTyping}
+                trailing={
+                  copiesShown ? undefined : (
+                    <Action
+                      variant="composer"
+                      disabled={sending}
+                      accessibilityLabel={t('drafts.showCcBcc')}
+                      label={t('drafts.ccBcc')}
+                      onPress={() => {
+                        change({ ...authored.current, copies: true });
+                      }}
+                    />
+                  )
+                }
+              />
+              {copiesShown ? (
+                <>
+                  <Recipients
+                    draft={draft}
+                    getDraft={getDraft}
+                    editable={!sending}
+                    field="cc"
+                    onChange={change}
+                    onCaretMove={breakTyping}
+                  />
+                  <Recipients
+                    draft={draft}
+                    getDraft={getDraft}
+                    editable={!sending}
+                    field="bcc"
+                    onChange={change}
+                    onCaretMove={breakTyping}
+                  />
+                </>
+              ) : null}
+            </View>
+          </ScrollView>
+          {pillShown ? pill : null}
+        </View>
+        {regular ? null : (
+          <FormatPanel
+            open={formatting}
+            active={active}
+            kind={kind}
+            link={editableLinkAt(draft.body, selection)}
+            undo={history.past.length > 0}
+            redo={history.future.length > 0}
+            disabled={sending}
+            onUndo={() => {
+              travel(undo);
+            }}
+            onRedo={() => {
+              travel(redo);
+            }}
+            onBlock={block}
+            onMark={format}
+            onLink={editLink}
+            onClose={() => {
+              setFormatting(false);
+              bodyInput.current?.focus();
+            }}
+            onHide={hideFormat}
+          />
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
