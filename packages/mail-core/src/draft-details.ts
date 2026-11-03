@@ -78,13 +78,14 @@ const rangeKinds = new Set<DetailKind>(['date', 'time', 'amount', 'number']);
 // An abbreviation's period (`Mon.–Fri.`) may sit before the join.
 const rangeJoin = /^\.?\s*(?:[/–—−:-]|to|until|through|till)\s*$/iu;
 // Endpoints of one kind, or a bare number beside another kind (`3–5 Nov`), make a range; a date
-// and a time (`Monday: 9am`) stay separate details.
+// and a time (`Monday: 9am`) stay separate details. A spaced colon labels the next detail
+// (`Slot 1: 9am`), so only endpoints of one kind join across it.
 const joinsRange = (previous: Detail, each: Detail, join: string) =>
   rangeKinds.has(previous.kind) &&
   rangeKinds.has(each.kind) &&
   (previous.kind === each.kind ||
-    previous.kind === 'number' ||
-    each.kind === 'number') &&
+    ((previous.kind === 'number' || each.kind === 'number') &&
+      !/:\s/u.test(join))) &&
   rangeJoin.test(join);
 
 const date = [

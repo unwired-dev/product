@@ -1157,6 +1157,9 @@ describe('the Writing tools detail check', () => {
     expect(
       checkDetails(whole('Meet Monday: 9am.'), 'Meet Monday at 9am.'),
     ).toStrictEqual({ kept: ['Monday', '9am'], changes: [] });
+    expect(checkDetails(whole('Slot 1: 9am.'), 'Slot 1 at 9am.')).toStrictEqual(
+      { kept: ['1', '9am'], changes: [] },
+    );
     expect(
       checkDetails(whole('Stay 3 Nov–4 Nov.'), 'Stay 3 November–4 November.')
         .changes,
