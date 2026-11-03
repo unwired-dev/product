@@ -23,7 +23,6 @@ import {
   inboxMessages,
   messageDateSections,
   motionIdentityOf,
-  notIncludedDetail,
   organizingWork,
   profileMailboxes,
   resultKey,
@@ -1037,7 +1036,7 @@ export function Inbox({
               messageRole="alert"
             />
           )}
-          {missing.map((mailbox) => (
+          {missing.map(({ mailbox, detail }) => (
             <Notice
               key={`missing\n${mailbox.id}`}
               icon="exclamationmark.triangle.fill"
@@ -1045,7 +1044,7 @@ export function Inbox({
               message={t('mailboxes.notIncluded', {
                 mailbox: mailbox.address ?? mailbox.id,
               })}
-              detail={t(notIncludedDetail(mailbox, view.unified), {
+              detail={t(detail, {
                 view: folderTitle,
               })}
             />

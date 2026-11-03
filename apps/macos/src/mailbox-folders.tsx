@@ -10,6 +10,7 @@ import {
   gmailMailbox,
   gmailViewRow,
   mailboxFolder,
+  notIncludedDetail,
   unifiedFolders,
   unifiedMailbox,
   unifiedRow,
@@ -202,8 +203,11 @@ export function useListedMailbox<E>(
         }
       }
     },
-    // Mailboxes whose provider marks no folder with the role, which the list names as left out.
-    missing: unified.missing,
+    // Mailboxes left out of the role, which the list names with the reason.
+    missing: unified.missing.map((mailbox) => ({
+      mailbox,
+      detail: notIncludedDetail(mailbox, role),
+    })),
     folderOf: (mailbox: string, id: string) =>
       rowFolder.get(`${mailbox}\n${id}`) ?? inboxFolder,
   };
