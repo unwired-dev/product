@@ -1227,6 +1227,22 @@ describe('the Writing tools detail check', () => {
     ]);
   });
 
+  it.each([
+    ['Mon., 11/2 and Tue., 11/3', 'Tue., 11/2 and Mon., 11/3'],
+    [
+      'Mon. 2026-11-02 and Tue. 2026-11-03',
+      'Tue. 2026-11-02 and Mon. 2026-11-03',
+    ],
+    ['Mon. Nov. 2026 and Tue. Dec. 2026', 'Tue. Nov. 2026 and Mon. Dec. 2026'],
+    ['Nov., 2 and Sept., 3', 'Sept., 2 and Nov., 3'],
+  ])('keeps abbreviated calendar parts together in %s', (original, result) => {
+    expect.hasAssertions();
+    expect(checkDetails(whole(original), result).changes).toMatchObject([
+      { kind: 'date', status: 'changed' },
+      { kind: 'date', status: 'changed' },
+    ]);
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(

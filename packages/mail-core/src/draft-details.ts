@@ -88,14 +88,17 @@ const joinsRange = (previous: Detail, each: Detail, join: string) =>
       !/:\s/u.test(join))) &&
   rangeJoin.test(join);
 
-const date = [
+const calendarDate = [
   String.raw`\d{4}[./-]\d{1,2}[./-]\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
   `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
   // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
   `\\d{1,2}/\\d{1,2}`,
-  `(?:${weekday}\\.?,?\\s)?(?:${day}\\s${month}|${month}\\s${day})(?:,?\\s\\d{4})?`,
-  weekdayName,
+  `(?:${day}\\s${month}|${month},?\\s${day})(?:,?\\s\\d{4})?`,
   `${month}\\s\\d{4}`,
+].join('|');
+const date = [
+  `(?:${weekday}\\.?,?\\s)?(?:${calendarDate})`,
+  weekdayName,
   unambiguousMonth,
   // Ambiguous standalone names need capitals, so `you may` and `sat down` are words.
   `(?=\\p{Lu})(?:${weekday}|${month})`,
