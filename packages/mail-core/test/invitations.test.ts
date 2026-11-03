@@ -340,28 +340,45 @@ describe('meeting invitations', () => {
     ).toBe(kind);
   });
 
-  it('keeps component scope work linear for nested calendar data', () => {
+  it.each([
+    [
+      'nested calendar data',
+      calendar([
+        ...meeting,
+        ...Array.from({ length: 1000 }, () => 'BEGIN:X'),
+        'X-NOTE:nested',
+        ...Array.from({ length: 1000 }, () => 'END:X'),
+      ]),
+    ],
+    [
+      'a long extension component name',
+      calendar(meeting).replace(
+        'END:VCALENDAR',
+        [
+          `BEGIN:X-${'A'.repeat(1000)}`,
+          ...Array.from({ length: 1000 }, () => 'X-NOTE:x'),
+          `END:X-${'A'.repeat(1000)}`,
+          'END:VCALENDAR',
+        ].join('\r\n'),
+      ),
+    ],
+  ])('keeps component scope work linear for %s', (_, input) => {
     expect.hasAssertions();
-    const nested = calendar([
-      ...meeting,
-      ...Array.from({ length: 1000 }, () => 'BEGIN:X'),
-      'X-NOTE:nested',
-      ...Array.from({ length: 1000 }, () => 'END:X'),
-    ]);
     const { join } = Array.prototype;
-    let joinedEntries = 0;
+    let joinedCharacters = 0;
     const spy = vi
       .spyOn(Array.prototype, 'join')
-      .mockImplementation(function countJoinedEntries(
+      .mockImplementation(function countJoinedCharacters(
         this: unknown[],
         separator?: string,
       ) {
-        joinedEntries += this.length;
-        return join.call(this, separator);
+        const result = join.call(this, separator);
+        joinedCharacters += result.length;
+        return result;
       });
     try {
-      expect(invitationOf(documentOf(nested), me)?.kind).toBe('invited');
-      expect(joinedEntries).toBeLessThanOrEqual(nested.length);
+      expect(invitationOf(documentOf(input), me)?.kind).toBe('invited');
+      expect(joinedCharacters).toBeLessThanOrEqual(input.length);
     } finally {
       spy.mockRestore();
     }

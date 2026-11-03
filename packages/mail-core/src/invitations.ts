@@ -201,13 +201,13 @@ const scoped = (lines: readonly Line[]) => {
     }
     return stack.length > 0;
   };
-  const properties: Array<{ path: string; line: Line }> = [];
-  const components: string[] = [];
+  const properties: Array<{ path: readonly string[]; line: Line }> = [];
+  const components: Array<readonly string[]> = [];
   for (const line of lines) {
     if (!advance(line)) {
       return undefined;
     }
-    const path = stack.length <= 2 ? stack.join('/') : '';
+    const path = stack.length <= 2 ? [...stack] : [];
     if (line.name === 'BEGIN') {
       components.push(path);
     } else if (line.name !== 'END') {
@@ -215,10 +215,10 @@ const scoped = (lines: readonly Line[]) => {
     }
   }
   return stack.length === 0 &&
-    components.filter((path) => path === 'VCALENDAR').length === 1
+    components.filter((path) => path.length === 1).length === 1
     ? {
         properties,
-        events: components.filter((path) => path === 'VCALENDAR/VEVENT').length,
+        events: components.filter((path) => path[1] === 'VEVENT').length,
       }
     : undefined;
 };
@@ -231,17 +231,17 @@ const requestedEvent = (lines: readonly Line[] | undefined) => {
   }
   const { properties, events } = calendar;
   const methods = properties
-    .filter(({ path, line }) => path === 'VCALENDAR' && line.name === 'METHOD')
+    .filter(({ path, line }) => path.length === 1 && line.name === 'METHOD')
     .map(({ line }) => line.value.trim().toUpperCase());
   const versions = properties.filter(
-    ({ path, line }) => path === 'VCALENDAR' && line.name === 'VERSION',
+    ({ path, line }) => path.length === 1 && line.name === 'VERSION',
   );
   return methods.join(',') === 'REQUEST' &&
     events === 1 &&
     versions.length === 1 &&
     versions[0]?.line.value === '2.0'
     ? properties
-        .filter(({ path }) => path === 'VCALENDAR/VEVENT')
+        .filter(({ path }) => path[1] === 'VEVENT')
         .map(({ line }) => line)
     : undefined;
 };
