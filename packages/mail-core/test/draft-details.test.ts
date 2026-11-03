@@ -1266,6 +1266,16 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'date', status: 'changed' }]);
   });
 
+  it('keeps a two-digit year that may be the same date uncertain', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Due 1 Nov 2026.'), 'Due 01/11/26.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
+    expect(
+      checkDetails(whole('Due 1 Nov 2026.'), 'Due 01/11/25.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'changed' }]);
+  });
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {

@@ -289,10 +289,15 @@ const within = (whole: string, part: string) =>
   ).test(whole);
 const named = (key: string) => /\p{L}/u.test(key);
 const figures = (key: string) => (key.match(/\d+/gu) ?? []).map(Number);
-// A named date may equal a numeric one only if each of its figures appears there: `1 November 2026`
-// and `2026-11-01` may match, `20 Dec` and `3` differ.
+// A named date may equal a numeric one only if each of its figures appears there, a year also as its
+// last two digits: `1 November 2026` may match `2026-11-01` or `01/11/26`, `20 Dec` and `3` differ.
 const sameFigures = (namedKey: string, numeric: string) =>
-  figures(namedKey).every((each) => figures(numeric).includes(each));
+  figures(namedKey).every((each) =>
+    figures(numeric).some(
+      (other) =>
+        other === each || (each >= 1000 && other < 100 && each % 100 === other),
+    ),
+  );
 // Keyed by kind name, so a range key's own kind parts can look up their predicate.
 const similar: Partial<
   Record<string, (one: string, other: string) => boolean>
