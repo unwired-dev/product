@@ -340,6 +340,33 @@ describe('meeting invitations', () => {
     ).toBe(kind);
   });
 
+  it('keeps component scope work linear for nested calendar data', () => {
+    expect.hasAssertions();
+    const nested = calendar([
+      ...meeting,
+      ...Array.from({ length: 1000 }, () => 'BEGIN:X'),
+      'X-NOTE:nested',
+      ...Array.from({ length: 1000 }, () => 'END:X'),
+    ]);
+    const { join } = Array.prototype;
+    let joinedEntries = 0;
+    const spy = vi
+      .spyOn(Array.prototype, 'join')
+      .mockImplementation(function countJoinedEntries(
+        this: unknown[],
+        separator?: string,
+      ) {
+        joinedEntries += this.length;
+        return join.call(this, separator);
+      });
+    try {
+      expect(invitationOf(documentOf(nested), me)?.kind).toBe('invited');
+      expect(joinedEntries).toBeLessThanOrEqual(nested.length);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('shows no invitation for a message without a calendar part', () => {
     expect.hasAssertions();
     expect(invitationOf(documentOf(undefined), me)).toBeUndefined();

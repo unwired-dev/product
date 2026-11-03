@@ -314,6 +314,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   lines within the admitted size budget. Keep token/value alternatives disjoint
   and total scanning work linear; a bounded message can still block the reader
   for seconds through quadratic backtracking or repeated quote balancing.
+  In `scoped`, classify only the component levels consumers use instead of
+  rebuilding and retaining every complete nested path; repeated stack joins
+  otherwise amplify a small calendar into quadratic work and retained text.
 
 - `invitations.ts.detailsOf` or another calendar parser ignoring a supplied
   `DURATION` and displaying a meeting without its end. Derive the end using the

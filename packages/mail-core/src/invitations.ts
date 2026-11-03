@@ -183,8 +183,8 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
 
 const recurring = new Set(['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID']);
 
-// Each property line with the components it sits in, such as `VCALENDAR/VEVENT`, and how many
-// top-level events the calendar has.
+// Each property line's calendar or top-level component scope, and how many top-level events the
+// calendar has. Deeper components cannot supply meeting properties.
 const scoped = (lines: readonly Line[]) => {
   const stack: string[] = [];
   // Advance only through matching components in one outer calendar.
@@ -207,7 +207,7 @@ const scoped = (lines: readonly Line[]) => {
     if (!advance(line)) {
       return undefined;
     }
-    const path = stack.join('/');
+    const path = stack.length <= 2 ? stack.join('/') : '';
     if (line.name === 'BEGIN') {
       components.push(path);
     } else if (line.name !== 'END') {
