@@ -357,6 +357,8 @@ const sameFigures = (namedKey: string, numeric: string) => {
 // `3 Nov 26` may be `3 Nov 2026`: the same date with only its year's century left out.
 const shortYear = (long: string, short: string) =>
   /(?<!\d)\d{4}$/u.test(long) && long.replace(/\d{2}(?=\d{2}$)/u, '') === short;
+const namedAsFigures = (one: string, other: string) =>
+  named(one) && !named(other) && sameFigures(one, other);
 // Keyed by kind name, so a range key's own kind parts can look up their predicate.
 const similar: Partial<
   Record<string, (one: string, other: string) => boolean>
@@ -366,8 +368,8 @@ const similar: Partial<
     within(other, one) ||
     shortYear(one, other) ||
     shortYear(other, one) ||
-    (named(one) && !named(other) && sameFigures(one, other)) ||
-    (named(other) && !named(one) && sameFigures(other, one)),
+    namedAsFigures(one, other) ||
+    namedAsFigures(other, one),
   number: (one, other) => ungrouped(one) === ungrouped(other),
   amount: (one, other) => ungrouped(one) === ungrouped(other),
   link: (one, other) =>
