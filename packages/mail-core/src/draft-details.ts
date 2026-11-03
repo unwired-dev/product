@@ -48,7 +48,9 @@ const weekday = `(?:${weekdayName}|${anyCase('mon|tues?|wed|thurs?|thu|fri|sat|s
 const unambiguousMonth = anyCase(
   'january|february|april|june|july|september|october|november|december',
 );
-const month = `(?:${unambiguousMonth}|${anyCase('march|may|august|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec')})(?:\\.(?=,?\\s\\d))?`;
+const month = `(?:${unambiguousMonth}|${anyCase('march|may|august|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec')})(?:\\.(?=,?\\s?\\d))?`;
+// An abbreviation's period separates calendar parts even without a following space.
+const calendarGap = String.raw`(?:,?\s|(?<=\.),?)`;
 const day = `\\d{1,2}(?:${anyCase('st|nd|rd|th')})?`;
 // An exponent belongs to its number: `1e3` and `1e4` differ.
 const unsigned = String.raw`(?:(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
@@ -93,11 +95,11 @@ const calendarDate = [
   `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
   // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
   `\\d{1,2}/\\d{1,2}`,
-  `(?:${day}\\s${month}|${month},?\\s${day})(?:,?\\s\\d{4})?`,
-  `${month}\\s\\d{4}`,
+  `(?:${day}\\s${month}|${month}${calendarGap}${day})(?:${calendarGap}\\d{4})?`,
+  `${month}${calendarGap}\\d{4}`,
 ].join('|');
 const date = [
-  `(?:${weekday}\\.?,?\\s)?(?:${calendarDate})`,
+  `(?:${weekday}\\.?${calendarGap})?(?:${calendarDate})`,
   weekdayName,
   unambiguousMonth,
   // Ambiguous standalone names need capitals, so `you may` and `sat down` are words.

@@ -1235,6 +1235,9 @@ describe('the Writing tools detail check', () => {
     ],
     ['Mon. Nov. 2026 and Tue. Dec. 2026', 'Tue. Nov. 2026 and Mon. Dec. 2026'],
     ['Nov., 2 and Sept., 3', 'Sept., 2 and Nov., 3'],
+    ['Mon.2 Nov and Tue.3 Nov', 'Tue.2 Nov and Mon.3 Nov'],
+    ['2 Nov.2026 and 3 Dec.2027', '2 Nov.2027 and 3 Dec.2026'],
+    ['Nov.2 and Sept.3', 'Sept.2 and Nov.3'],
   ])('keeps abbreviated calendar parts together in %s', (original, result) => {
     expect.hasAssertions();
     expect(checkDetails(whole(original), result).changes).toMatchObject([
