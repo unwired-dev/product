@@ -115,8 +115,13 @@ transport and known native exit gaps.
   Close, the title and a Compose actions menu with Discard, and the format bar (text style, bold, italic,
   underline, strikethrough, inline code, lists, Undo, Redo, Translate, Rewrite
   and the file and image controls; on iPhone, iPad and Mac a Writing tools menu
-  holds Rewrite, Translate and Suggest reply) sits under the header on Mac and iPad and
-  above the keyboard on iPhone. On touch layouts, Text style stays at the leading
+  holds Rewrite, Translate and Suggest reply) sits under the header on Mac and iPad.
+  On iPhone, a floating Liquid Glass pill offers Format and Add files, with a
+  separate Writing tools button. Format dismisses the keyboard and shows the
+  formatting controls in its place. Focusing the body closes the Format panel;
+  Close Format closes it and resumes typing. Add files opens the system menu for
+  Attach File, Attach Photo, Insert Image and Paste Image. The controls are
+  unavailable while sending. In the iPad format bar, Text style stays at the leading
   edge while the remaining controls scroll horizontally at their full touch size.
   In the Mac overlay, **From** and **Send** share the bottom row; in its New
   Message window they share the toolbar row above the format bar;
@@ -194,9 +199,8 @@ or synchronized. A line break keeps the alignment of the block it splits, joinin
 two blocks keeps the first block's, and typing, formatting, block kinds, inline
 images, replacements and Undo keep it. Sent mail aligns headings, paragraphs, list
 items and quotes; code lines share one `<pre>` and are sent without their alignment.
-The Mac composer shows a Draft's alignment; the iPhone and iPad composer does
-not yet. No composer sets one, and no Draft holds one until Drafts from other
-mail clients open
+Every composer shows a Draft's alignment. No composer sets one, and no Draft
+holds one until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
 Text can also carry a color and a background color, each stored as lowercase
@@ -221,9 +225,10 @@ included; plain text is unchanged. No composer sets fonts, and no Draft holds on
 until Drafts from other mail clients open
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
-The Mac composer shows stored colors and fonts
-([#1639](https://github.com/unwired-dev/product/issues/1639)); the iPhone and iPad
-composer does not yet. Light shows colors as stored. Dark changes only what is on
+Every composer shows stored colors and fonts, the Mac composer since
+[#1639](https://github.com/unwired-dev/product/issues/1639) and the iPhone and
+iPad composer since [#1646](https://github.com/unwired-dev/product/issues/1646).
+Light shows colors as stored. Dark changes only what is on
 screen: near-black text (relative luminance below 0.02) shows in `text/primary`,
 including inside quotes, and a color below 4.5:1 against the content surface
 `#1E1E1E` lightens

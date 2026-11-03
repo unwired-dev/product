@@ -113,6 +113,7 @@ import {
 } from './mailbox-read.ts';
 import {
   bodyParts,
+  calendarPart,
   contentIdsOf,
   decodeAttachment,
   decodeBodyDocument,
@@ -2723,6 +2724,69 @@ export function createGmailInbox(
     return { ...tally.result(), authentication: false };
   });
 
+  // The invitation text of a Gmail message. An unavailable invitation leaves the rest readable,
+  // and one Gmail can still answer later is `pending`; Microsoft invitations are answered through
+  // their own journey.
+  const fetchCalendar = (
+    scope: MailboxScope,
+    id: string,
+    payload: GmailPart,
+  ) => {
+    const part = graph === undefined ? calendarPart(payload) : undefined;
+    return part === undefined
+      ? Effect.succeed({
+          calendar: undefined,
+          pending: false,
+          authentication: false,
+        })
+      : partData(scope, id, part).pipe(
+          // Calendar data that cannot decode never will, so the attachment list still loads.
+          Effect.flatMap(({ data }) =>
+            partText(part, data, part.body?.size).pipe(
+              Effect.orElseSucceed(() => undefined),
+            ),
+          ),
+          Effect.map((calendar) => ({
+            calendar,
+            pending: false,
+            authentication: false,
+          })),
+          Effect.catchIf(
+            (failure) =>
+              failure instanceof GmailNotFound ||
+              failure.kind === 'retry' ||
+              failure.kind === 'authentication',
+            (failure) =>
+              Effect.succeed({
+                calendar: undefined,
+                pending: !(failure instanceof GmailNotFound),
+                authentication: rejectedGrant(failure),
+              }),
+          ),
+        );
+  };
+  // The calendar a body is missing. A pending invitation leaves the attachment list out too, so a
+  // later open completes both.
+  const withInvitation = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    document: BodyDocument,
+    payload: GmailPart & Readonly<{ attachmentsPending?: boolean }>,
+  ) {
+    const { calendar, pending, authentication } =
+      document.calendar === undefined
+        ? yield* fetchCalendar(scope, document.id, payload)
+        : { calendar: undefined, pending: false, authentication: false };
+    const completed: BodyDocument = {
+      ...document,
+      ...(pending || payload.attachmentsPending === true
+        ? {}
+        : {
+            attachments: document.attachments ?? attachmentMetadata(payload),
+          }),
+      ...(calendar === undefined ? {} : { calendar }),
+    };
+    return { document: completed, authentication };
+  });
   // An explicit open's body from Gmail: both readable alternatives and its inline images.
   const fetchBody = Effect.fnUntraced(function* (
     scope: MailboxScope,
@@ -2733,30 +2797,28 @@ export function createGmailInbox(
   > {
     const payload = yield* boundedMessage(scope, id);
     const { html, text, path } = bodyParts(payload);
-    const document: BodyDocument = {
-      version: 2,
-      id,
-      ...(payload.attachmentsPending === true
-        ? {}
-        : { attachments: attachmentMetadata(payload) }),
-      headers: responseHeadersOf(payload),
-      ...(text === undefined
-        ? {}
-        : { text: yield* fetchPart(scope, id, text) }),
-      ...(html === undefined
-        ? {}
-        : { html: yield* fetchPart(scope, id, html) }),
-    };
-    if (payload.attachmentsPending === true) {
-      return { document, authentication: payload.authentication === true };
-    }
-    const references = contentIdsOf(document);
-    if (references.length === 0) {
+    const { document, authentication } = yield* withInvitation(
+      scope,
+      {
+        version: 2,
+        id,
+        headers: responseHeadersOf(payload),
+        ...(text === undefined
+          ? {}
+          : { text: yield* fetchPart(scope, id, text) }),
+        ...(html === undefined
+          ? {}
+          : { html: yield* fetchPart(scope, id, html) }),
+      },
+      payload,
+    );
+    if (authentication || payload.attachmentsPending === true) {
       return {
-        document: { ...document, images: { admitted: [], refused: [] } },
-        authentication: false,
+        document,
+        authentication: authentication || payload.authentication === true,
       };
     }
+    const references = contentIdsOf(document);
     const resolved = yield* resolveImages(scope, id, { path, references });
     return {
       document: resolved.complete
@@ -2767,8 +2829,8 @@ export function createGmailInbox(
   });
 
   // A cached body opened explicitly before its inline images were resolved, or before its
-  // attachment metadata was kept, completes them now when Gmail answers; offline, it opens with
-  // placeholders and no attachment list.
+  // attachment metadata or pending invitation was kept, completes them now when Gmail answers;
+  // offline, it opens with placeholders and no attachment list.
   const completeImages = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: BodyDocument,
@@ -2784,15 +2846,20 @@ export function createGmailInbox(
     const payload = yield* boundedMessage(scope, document.id).pipe(
       Effect.flatMap(requireAttachments),
     );
-    const withList = needsAttachments
-      ? {
-          ...document,
-          attachments: document.attachments ?? attachmentMetadata(payload),
-          headers: responseHeadersOf(payload),
-        }
-      : document;
-    if (!needsImages) {
-      return { document: withList, changed: true, authentication: false };
+    const invitation = needsAttachments
+      ? yield* withInvitation(
+          scope,
+          { ...document, headers: responseHeadersOf(payload) },
+          payload,
+        )
+      : { document, authentication: false };
+    const withList = invitation.document;
+    if (!needsImages || invitation.authentication) {
+      return {
+        document: withList,
+        changed: true,
+        authentication: invitation.authentication,
+      };
     }
     const resolved = yield* resolveImages(scope, document.id, {
       path: bodyParts(payload).path,
@@ -2993,11 +3060,18 @@ export function createGmailInbox(
             authentication: true,
           }),
         ),
-        Effect.orElseSucceed(() => ({
-          document: stored.value,
-          changed: false,
-          authentication: false,
-        })),
+        // Cached text survives unavailable enhancements, but not a closed storage or mailbox scope.
+        Effect.catchIf(
+          (failure) =>
+            failure instanceof GmailNotFound ||
+            ['retry', 'failed', 'conflict'].includes(failure.kind),
+          () =>
+            Effect.succeed({
+              document: stored.value,
+              changed: false,
+              authentication: false,
+            }),
+        ),
       );
       if (completed.authentication) {
         yield* askForGmail(reading, id);
@@ -3181,7 +3255,22 @@ export function createGmailInbox(
               kind === 'locked'
                 ? Effect.void
                 : Effect.logError('Message body failed:', diagnostic)
-            ).pipe(Effect.as(bodyFailure(kind)));
+            ).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  if (
+                    owner === reading &&
+                    readable(id) &&
+                    ['locked', 'revoked', 'invalidated'].includes(kind)
+                  ) {
+                    // A refresh may retain text after an ordinary failure, but never after access closes.
+                    releaseBody(id);
+                    setBody(id, bodyFailure(kind));
+                  }
+                }),
+              ),
+              Effect.as(bodyFailure(kind)),
+            );
           },
         }),
         Effect.flatMap((next) =>

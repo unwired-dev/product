@@ -156,7 +156,10 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   server's `\All` folder, the mailbox shows as not included. All Mail lists every
   selectable folder outside Junk, Trash and a virtual `\Flagged` folder. A server
   with a selectable `\All` folder is not included there, since that folder may hold
-  Junk, Trash and mail found nowhere else. After the refreshed list is saved successfully, a folder it no
+  Junk, Trash and mail found nowhere else. A server that doesn't mark exactly one
+  selectable `\Junk` and one `\Trash` folder is not included either, with a notice
+  that it doesn't say which folders hold Spam and Trash; a folder named like one is
+  never taken for it. After the refreshed list is saved successfully, a folder it no
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 LIST responses, preserves the

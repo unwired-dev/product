@@ -418,26 +418,30 @@ const imapRoles = {
   TRASH: 'trash',
 } as const;
 
+const imapHoldsAll = (folder: ImapFolder) =>
+  folder.selectable && folder.roles.includes('all');
+
 // An IMAP mailbox's folders with the role. A server's readable \All folder may hold Junk and
 // Trash, and mail found nowhere else, so it is never taken for a role and a connection with one
-// is not included in All Mail. Otherwise All Mail reads every real folder outside Junk and Trash;
-// a virtual \Flagged folder may gather Junk and Trash too.
+// is not included in All Mail. Otherwise All Mail reads every real folder outside Junk and Trash,
+// so a connection whose server marks no single Junk or Trash folder is not included either; a
+// virtual \Flagged folder may gather Junk and Trash too.
 const imapUnifiedFolders = (
   folders: readonly ImapFolder[],
   role: UnifiedRole,
 ): readonly string[] | undefined => {
-  const holdsAll = (name: string) =>
-    folders.some(
-      (folder) =>
-        folder.name === name &&
-        folder.selectable &&
-        folder.roles.includes('all'),
-    );
   if (role !== allMail) {
     const name = imapRoleFolder(folders, imapRoles[role]);
-    return name === undefined || holdsAll(name) ? undefined : [name];
+    return name === undefined ||
+      folders.some((folder) => folder.name === name && imapHoldsAll(folder))
+      ? undefined
+      : [name];
   }
-  if (folders.some(({ name }) => holdsAll(name))) {
+  if (
+    folders.some(imapHoldsAll) ||
+    imapRoleFolder(folders, 'junk') === undefined ||
+    imapRoleFolder(folders, 'trash') === undefined
+  ) {
     return undefined;
   }
   return folders
@@ -489,6 +493,20 @@ export const unifiedFolders = (
     return role === allMail ? [inboxFolder] : [];
   }
   return providerUnifiedFolders(gmail, role);
+};
+
+// Why a mailbox `missing` from a Unified Mailbox is not included there.
+export const notIncludedDetail = (
+  mailbox: BrowsableMailbox,
+  role: UnifiedRole,
+) => {
+  if (role !== allMail) {
+    return 'mailboxes.notIncludedDetail' as const;
+  }
+  const { state } = mailbox;
+  return 'folders' in state && state.folders.some(imapHoldsAll)
+    ? ('mailboxes.notIncludedAllMail' as const)
+    : ('mailboxes.notIncludedSpamTrash' as const);
 };
 
 // One window's retained Unified Mailbox views. Store identity is part of ownership, so repairing

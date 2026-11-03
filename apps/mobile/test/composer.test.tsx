@@ -2,7 +2,9 @@ import { ok } from 'node:assert/strict';
 
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
+import type { TextStyle, useColorScheme } from 'react-native';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
@@ -16,6 +18,7 @@ import {
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
+import { palette } from '@private-email/mail-core/theme';
 import {
   act,
   fireEvent,
@@ -29,6 +32,7 @@ import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   AppState,
+  DeviceEventEmitter,
   Dimensions,
   StyleSheet,
   TextInput,
@@ -55,7 +59,9 @@ import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { targetChoice, translateInto } from './translation-menu.tsx';
 import {
+  addFilesChoice,
   chooseWritingTool,
+  menuGroups,
   writingTool,
   writingToolChoice,
   writingToolGroups,
@@ -321,6 +327,15 @@ function App({
   );
 }
 
+const formatPanelControls = new Set([
+  'Undo',
+  'Redo',
+  'Bold',
+  'Italic',
+  'Add Link',
+  'Edit Link',
+  'Heading 1',
+]);
 const press = async (name: string) => {
   if (
     name === 'New Message' &&
@@ -332,10 +347,46 @@ const press = async (name: string) => {
       { nativeEvent: { actionName: 'openCommandPalette' } },
     );
   }
+  // iPhone offers its file controls in the Add files menu, and Undo, Redo and formatting in the
+  // Format panel the pill opens.
+  const choice = addFilesChoice(name);
+  if (choice !== undefined) {
+    await act(async () => {
+      choice();
+    });
+    return;
+  }
+  const formatting =
+    formatPanelControls.has(name) &&
+    screen.queryByRole('button', { name }) === null &&
+    screen.queryByRole('button', { name: 'Format' }) !== null;
+  if (formatting) {
+    await press('Format');
+  }
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
   });
+  // Closing the panel brings back the pill and Writing tools; a Link sheet keeps it open.
+  if (formatting && !name.endsWith('Link')) {
+    await press('Close Format');
+  }
+};
+
+// On iPhone, keeps the Format panel's controls on screen until closeFormat.
+const openFormat = async (on: Pick<typeof screen, 'queryByRole'> = screen) => {
+  const format = on.queryByRole('button', { name: 'Format' });
+  if (format !== null) {
+    await act(async () => {
+      await fireEvent.press(format);
+    });
+  }
+};
+
+const closeFormat = async () => {
+  if (screen.queryByRole('button', { name: 'Close Format' }) !== null) {
+    await press('Close Format');
+  }
 };
 
 // Close asks about a changed Draft; Save Draft stores it and closes.
@@ -384,6 +435,30 @@ const shownLines = () =>
       spans: leaves(line).map(spanOf),
     }));
 const shownSpans = () => shownLines().flatMap(({ spans }) => spans);
+// Each body line's alignment and its spans' flattened styles, the span color over the line's.
+const shownFormatting = (body: Shown) =>
+  body.children.flatMap((line) =>
+    typeof line === 'string'
+      ? []
+      : [
+          {
+            align: StyleSheet.flatten<TextStyle>(line.props.style).textAlign,
+            spans: line.children.flatMap((span) =>
+              typeof span === 'string'
+                ? []
+                : [
+                    {
+                      color: StyleSheet.flatten<TextStyle>([
+                        body.props.style,
+                        line.props.style,
+                      ]).color,
+                      ...StyleSheet.flatten<TextStyle>(span.props.style),
+                    },
+                  ],
+            ),
+          },
+        ],
+  );
 
 // With the compact Reply picker open, its choice shares the toolbar button's name and renders last.
 const pressLast = async (name: string) => {
@@ -784,8 +859,7 @@ describe('composing Drafts', () => {
       screen.getByLabelText('Message body'),
       '• Notes',
     );
-    // The new pop-up applies a semantic block change and closes without losing history.
-    await press('Text style');
+    // The Format panel applies a semantic block change and closes without losing history.
     await press('Heading 1');
     expect(screen.getByLabelText('Message body')).not.toHaveTextContent('•');
     expect(screen.queryByRole('button', { name: 'Heading 1' })).toBeNull();
@@ -1655,6 +1729,7 @@ describe('composing Drafts', () => {
       second.getByRole('button', { name: /^Draft\. First window\./u }),
     ).toHaveProp('accessibilityState', { selected: false });
     // Following the copy retains the mounted editor's history, not just its saved payload.
+    await openFormat(second);
     await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
     expect(second.getByLabelText('Subject')).toHaveProp('value', 'Second');
     await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
@@ -2155,6 +2230,7 @@ describe('composing Drafts', () => {
     await fireEvent.changeText(subject, 'One ');
     await fireEvent.changeText(subject, 'One Two ');
     await fireEvent.changeText(subject, 'One Two Three');
+    await openFormat();
     const undoButton = screen.getByRole('button', { name: 'Undo' });
     // Accessibility activations reach Pressability without nested async act scopes.
     await act(() => {
@@ -2179,6 +2255,63 @@ describe('composing Drafts', () => {
       'value',
       'One Two Three',
     );
+  });
+
+  it('formats in the Format panel the iPhone pill opens in place of the keyboard, and adds files from its menu', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <ComposerLayoutContext
+        value={{ size: 'compact', avoidKeyboard: true, top: 0 }}>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </ComposerLayoutContext>,
+    );
+    await press('New Message');
+    const body = await screen.findByLabelText('Message body');
+    await fireEvent.changeText(body, 'Plan');
+    // The pill holds Format and Add files in place of the format bar.
+    expect(screen.queryByRole('button', { name: 'Bold' })).toBeNull();
+    expect(menuGroups('Add files')).toStrictEqual([
+      [
+        ['Attach File', 'doc', undefined],
+        ['Attach Photo', 'photo', undefined],
+        ['Insert Image', 'photo.on.rectangle', undefined],
+        ['Paste Image', 'doc.on.clipboard', undefined],
+      ],
+    ]);
+    await press('Format');
+    expect(screen.getByLabelText('Formatting')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Format' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Body' })).toBeSelected();
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await press('Bold');
+    expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
+    await press('Heading 1');
+    expect(screen.getByRole('button', { name: 'Heading 1' })).toBeSelected();
+    expect(shownSpans()).toStrictEqual([{ text: 'Plan', marks: ['bold'] }]);
+    // Tapping into the body brings the keyboard back in place of the panel.
+    await act(async () => {
+      DeviceEventEmitter.emit('keyboardWillShow', {
+        duration: 0,
+        easing: 'keyboard',
+        isEventFromThisApp: true,
+        startCoordinates: { screenX: 0, screenY: 874, width: 402, height: 0 },
+        endCoordinates: { screenX: 0, screenY: 542, width: 402, height: 332 },
+      });
+    });
+    expect(screen.queryByLabelText('Formatting')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Format' })).toBeOnTheScreen();
+    // Undo in the panel steps back the heading but keeps the bold text.
+    await openFormat();
+    await press('Undo');
+    expect(screen.getByRole('button', { name: 'Body' })).toBeSelected();
+    expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
   });
 
   it.each([
@@ -2234,6 +2367,7 @@ describe('composing Drafts', () => {
           nativeEvent: { selection: { start: at, end: at } },
         });
       };
+      await openFormat();
       // Away from a link there is nothing to edit.
       await caret(2);
       expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
@@ -2369,6 +2503,7 @@ describe('composing Drafts', () => {
           nativeEvent: { selection: { start, end } },
         });
       };
+      await openFormat();
       // A caret has no text to link.
       await select(8, 8);
       expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
@@ -2547,6 +2682,7 @@ describe('composing Drafts', () => {
     await press('New Message');
     const body = await screen.findByLabelText('Message body');
     await fireEvent.changeText(body, 'aa');
+    await openFormat();
     await fireEvent(body, 'selectionChange', {
       nativeEvent: { selection: { start: 0, end: 1 } },
     });
@@ -2632,6 +2768,164 @@ describe('composing Drafts', () => {
       { text: 'ac' },
     ]);
   });
+
+  it.each([
+    {
+      appearance: 'light',
+      colors: ['#941751', '#000000', '#ff0000', '#1f3864', '#c00000'],
+    },
+    // Dark lightens a color below 4.5:1 along its hue and shows near-black as the text color.
+    {
+      appearance: 'dark',
+      colors: [
+        '#bf7497',
+        palette.dark.textPrimary,
+        '#ff3333',
+        '#7988a2',
+        '#d96666',
+      ],
+    },
+  ] as const)(
+    "shows a Draft's stored alignment, fonts and colors in $appearance appearance without changing them",
+    async ({ appearance, colors }) => {
+      expect.hasAssertions();
+      const scheme = jest
+        .spyOn(
+          jest.requireActual<{ useColorScheme: typeof useColorScheme }>(
+            'react-native',
+          ),
+          'useColorScheme',
+        )
+        .mockReturnValue(appearance);
+      try {
+        const registration = account(connected(['alex@example.invalid']));
+        const storage = createSyntheticDrafts(
+          () => 'synthetic-product-account',
+        );
+        const drafts = createDrafts(storage.native, registration);
+        await drafts.load();
+        const created = await drafts.create({
+          id: alex,
+          address: 'alex@example.invalid',
+        });
+        ok(created);
+        const id: string = created;
+        const draft = draftsOf(drafts.getSnapshot()).find(
+          (each) => each.id === id,
+        );
+        ok(draft);
+        // Apple Mail, Gmail and Outlook formatting, with the colors the design adapts for Dark.
+        const body: SemanticDocument = [
+          {
+            kind: 'quote',
+            spans: [
+              {
+                text: 'Quoted ink',
+                color: '#000000',
+                font: 'Georgia',
+                size: 18,
+                marks: ['code', 'italic', 'strikethrough'],
+                link: 'https://example.invalid',
+              },
+              { text: ' code', marks: ['code'] },
+            ],
+            align: 'justify',
+          },
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Housewarming', font: 'Georgia', size: 20 }],
+            align: 'center',
+          },
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Ring twice', color: '#941751' },
+              { text: ' or ', color: '#000000' },
+              { text: 'call', color: '#ff0000', marks: ['bold'] },
+            ],
+            align: 'center',
+          },
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Keys', background: '#ffff00' },
+              { text: ' Friday', color: '#1f3864', font: 'arial, sans-serif' },
+              { text: ' now', color: '#c00000', font: '"Aptos", sans-serif' },
+            ],
+            align: 'right',
+          },
+        ];
+        await drafts.update({ ...draft, body }, draft);
+        await render(
+          <App
+            drafts={drafts}
+            registration={registration}
+            initialDraft={id}
+          />,
+        );
+        const field = await screen.findByLabelText('Message body');
+        const shown = shownFormatting(field);
+        expect(shown.map(({ align }) => align)).toStrictEqual([
+          'justify',
+          'center',
+          'center',
+          'right',
+        ]);
+        // Explicit near-black must override the quote's secondary ink in Dark.
+        expect(shown[0]?.spans[0]).toHaveProperty('color', colors[1]);
+        expect(shown[0]?.spans[0]).toMatchObject({
+          fontFamily: 'Georgia',
+          fontSize: 18,
+          lineHeight: 24,
+          fontStyle: 'italic',
+          textDecorationLine: 'underline line-through',
+        });
+        expect(shown[0]?.spans[1]).toHaveProperty('fontFamily', 'Menlo');
+        expect(shown[1]?.spans[0]).toMatchObject({
+          fontFamily: 'Georgia',
+          fontSize: 20,
+          lineHeight: 27,
+        });
+        expect(shown[2]?.spans.map(({ color }) => color)).toStrictEqual(
+          colors.slice(0, 3),
+        );
+        expect(shown[2]?.spans[2]).toHaveProperty('fontWeight', '700');
+        // A highlight keeps its background and Light ink; a missing font falls back by family.
+        expect(shown[3]?.spans).toStrictEqual([
+          { backgroundColor: '#ffff00', color: palette.light.textPrimary },
+          { color: colors[3], fontFamily: 'arial' },
+          { color: colors[4], fontFamily: 'Aptos' },
+        ]);
+
+        // Typing into a formatted run keeps the authored values, which the store keeps on Save.
+        await fireEvent.changeText(
+          field,
+          'Quoted ink code\nHousewarming\nRing twice or call\nKeys Friday now!',
+        );
+        await saveDraft();
+        const reopened = createDrafts(storage.native, registration);
+        await reopened.load();
+        expect(
+          draftsOf(reopened.getSnapshot()).find((each) => each.id === id)?.body,
+        ).toStrictEqual([
+          body[0],
+          body[1],
+          body[2],
+          {
+            kind: 'paragraph',
+            spans: [
+              { text: 'Keys', background: '#ffff00' },
+              { text: ' Friday', color: '#1f3864', font: 'arial, sans-serif' },
+              { text: ' now!', color: '#c00000', font: '"Aptos", sans-serif' },
+            ],
+            align: 'right',
+          },
+        ]);
+      } finally {
+        scheme.mockRestore();
+      }
+    },
+  );
 
   it('hides the Drafts heading while a search lists received mail alone', async () => {
     expect.hasAssertions();
@@ -3170,6 +3464,7 @@ describe('composing Drafts', () => {
     const editedReplace = queuedPress(
       'Replace the selected text with this translation',
     );
+    await openFormat();
     const undoEdit = queuedPress('Undo');
     const editBody = queuedPress('Message body', 'onChangeText');
     await act(() => {
@@ -3177,6 +3472,7 @@ describe('composing Drafts', () => {
       undoEdit();
       editedReplace();
     });
+    await closeFormat();
     expect(screen.getByLabelText('Message body')).toHaveTextContent(
       'Hola. Nos vemos el viernes.',
       { exact: true },
@@ -5312,12 +5608,14 @@ describe('replying to and forwarding from the reader', () => {
     await screen.findByText('Ready for the old recipients.');
     const apply = queuedPress('Replace your reply with this suggestion');
     const removeBob = queuedPress('To: Bob <bob@example.invalid>');
+    await openFormat();
     const undo = queuedPress('Undo');
     await act(() => {
       removeBob();
       undo();
       apply();
     });
+    await closeFormat();
     expect(screen.queryByText('Ready for the old recipients.')).toBeNull();
     expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes', {
       exact: true,

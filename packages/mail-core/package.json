@@ -51,7 +51,8 @@
     "./commands": "./src/commands.ts",
     "./context-menu": "./src/context-menu.ts",
     "./inline-style": "./src/inline-style.ts",
-    "./draft-html": "./src/draft-html.ts"
+    "./draft-html": "./src/draft-html.ts",
+    "./invitations": "./src/invitations.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

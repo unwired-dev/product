@@ -13,31 +13,19 @@ import {
   editableLinkAt,
   selectedText,
 } from '@private-email/mail-core/semantic-document';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { spacing } from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
-import { use, useEffect, useState } from 'react';
-import {
-  Keyboard,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { use } from 'react';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
+import { FormatBar, LinkEditor, MenuItem } from './composer-controls.tsx';
 import {
-  blockControls,
-  FormatBar,
-  LinkEditor,
-  markControls,
-  MenuItem,
-} from './composer-controls.tsx';
-import {
+  assetPickers,
   CloseButton,
   ComposerLayoutContext,
   composerStyles,
@@ -48,13 +36,12 @@ import {
 import {
   GlassGroup,
   GlassPanel,
-  SFSymbol,
   ToolbarButton,
   useMenuMotion,
 } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { AssistanceContext } from './message-summary.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
 const s = composerStyles;
@@ -75,15 +62,6 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
   },
   sender: { flexShrink: 1 },
-  // The iPhone controls float at the trailing edge above the keyboard, with their menus above.
-  pill: {
-    position: 'absolute',
-    right: spacing.l,
-    bottom: spacing.s,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  pillGroup: { borderRadius: 26 },
   // Above the content below it, so the Writing tools menu opens over the body.
   padBar: { zIndex: 1 },
   padMenu: {
@@ -99,37 +77,6 @@ const styles = StyleSheet.create({
     bottom: 64,
     minWidth: 240,
   },
-  format: { margin: spacing.s, marginTop: 0 },
-  formatContent: { padding: spacing.l, gap: spacing.m },
-  formatHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  formatTitle: { ...textStyles.title3Emphasized, flex: 1 },
-  formatClose: { borderRadius: radius.insetGroup },
-  formatRow: {
-    flexDirection: 'row',
-    gap: spacing.s,
-  },
-  formatStyles: {
-    flexDirection: 'row',
-    padding: spacing.xs,
-    borderRadius: radius.insetGroup,
-  },
-  formatGroup: {
-    flex: 1,
-    flexDirection: 'row',
-    borderRadius: radius.insetGroup,
-    overflow: 'hidden',
-  },
-  formatChoice: {
-    flex: 1,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.insetGroup - spacing.xs,
-  },
 });
 
 export type PageState = Omit<Update, 'type' | 'document' | 'attachments'>;
@@ -138,24 +85,6 @@ export type Open = 'close' | 'attach' | 'tools' | 'format';
 type Add = (source: PickSource, inline: boolean) => void;
 type Capture = (purpose: DraftTextPurpose) => void;
 type EditLink = (link: Link, text: string, href?: string) => void;
-
-// The current composer's file controls: the system pickers, and images on the pasteboard placed
-// inline. Native code reads the chosen files.
-const pickers = [
-  ['drafts.assets.attachFile', 'files', false, 'paperclip'],
-  ['drafts.assets.attachPhoto', 'photos', false, 'photo'],
-  ['drafts.assets.insertImage', 'photos', true, 'photo.on.rectangle'],
-  ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
-] as const;
-const headings = ['heading1', 'heading2', 'heading3', 'paragraph'] as const;
-const markGroups = {
-  marks: markControls.slice(0, 4),
-  code: markControls.slice(4),
-};
-const blockGroups = {
-  lists: blockControls.slice(3, 5),
-  text: blockControls.slice(5),
-};
 
 // The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest reply.
 function WritingTools({
@@ -218,219 +147,6 @@ function useOffersTools() {
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
   return assistance !== undefined || translation !== undefined;
-}
-
-// One choice in the Format panel, filled while it applies at the selection.
-function FormatChoice({
-  name,
-  selected,
-  command,
-  run,
-  children,
-}: {
-  readonly name: string;
-  readonly selected: boolean;
-  readonly command: Command;
-  readonly run: (command: Command) => void;
-  readonly children: (color: string) => ReactNode;
-}) {
-  const colors = usePalette();
-  return (
-    <Pressable
-      accessibilityLabel={name}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={() => {
-        run(command);
-      }}
-      style={[
-        styles.formatChoice,
-        selected && { backgroundColor: colors.accentFill },
-      ]}>
-      {children(selected ? colors.accentOnFill : colors.textPrimary)}
-    </Pressable>
-  );
-}
-
-// The iPhone Format panel, which replaces the keyboard: Undo and Redo, text styles, marks, the
-// Link Editor and the remaining block kinds, each one page command.
-export function FormatPanel({
-  draft,
-  open,
-  page,
-  run,
-  onLink,
-  onClose,
-  onHide,
-}: {
-  readonly draft: Draft;
-  readonly open: boolean;
-  readonly page: PageState;
-  readonly run: (command: Command) => void;
-  readonly onLink: EditLink;
-  // Closes the panel and resumes typing; `onHide` only closes it.
-  readonly onClose: () => void;
-  readonly onHide: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  // Typing in the Link Editor shows the keyboard too, and its sheet lives in this panel.
-  const [linking, setLinking] = useState(false);
-  // Tapping into the body again brings the keyboard back in place of the panel.
-  useEffect(() => {
-    if (!open || linking) {
-      return;
-    }
-    const shown = Keyboard.addListener('keyboardWillShow', onHide);
-    return () => {
-      shown.remove();
-    };
-  }, [linking, onHide, open]);
-  const rowFill = { backgroundColor: colors.fillQuiet };
-  return (
-    <GlassPanel
-      open={open}
-      style={styles.format}
-      cornerRadius={radius.formatPanel}>
-      <View
-        accessibilityLabel={t('drafts.formatting')}
-        accessibilityRole="toolbar"
-        style={styles.formatContent}>
-        <View style={styles.formatHeader}>
-          <Text
-            accessibilityRole="header"
-            style={[styles.formatTitle, { color: colors.textPrimary }]}>
-            {t('drafts.format')}
-          </Text>
-          <ToolbarButton
-            disabled={!page.undo}
-            icon="arrow.uturn.backward"
-            label={t('drafts.undo')}
-            onPress={() => {
-              run({ type: 'undo' });
-            }}
-          />
-          <ToolbarButton
-            disabled={!page.redo}
-            icon="arrow.uturn.forward"
-            label={t('drafts.redo')}
-            onPress={() => {
-              run({ type: 'redo' });
-            }}
-          />
-          <View style={[styles.formatClose, rowFill]}>
-            <ToolbarButton
-              icon="xmark"
-              label={t('drafts.closeFormat')}
-              onPress={onClose}
-            />
-          </View>
-        </View>
-        <View style={[styles.formatStyles, rowFill]}>
-          {headings.map((kind) => {
-            const name = t(
-              `drafts.blocks.${kind === 'paragraph' ? 'body' : kind}`,
-            );
-            return (
-              <FormatChoice
-                key={kind}
-                command={{ type: 'block', kind }}
-                name={name}
-                run={run}
-                selected={page.kind === kind}>
-                {(color) => (
-                  <Text style={[textStyles.subheadline, { color }]}>
-                    {name}
-                  </Text>
-                )}
-              </FormatChoice>
-            );
-          })}
-        </View>
-        <View style={styles.formatRow}>
-          {Object.entries(markGroups).map(([key, group]) => (
-            <View
-              key={key}
-              style={[
-                styles.formatGroup,
-                rowFill,
-                { minWidth: (key === 'code' ? 2 : group.length) * 44 },
-              ]}>
-              {group.map(([mark, , name]) => (
-                <FormatChoice
-                  key={mark}
-                  command={{ type: 'mark', mark }}
-                  name={t(name)}
-                  run={run}
-                  selected={page.marks.includes(mark)}>
-                  {(color) => (
-                    <SFSymbol
-                      name={
-                        mark === 'code'
-                          ? 'chevron.left.forwardslash.chevron.right'
-                          : mark
-                      }
-                      size={20}
-                      color={color}
-                    />
-                  )}
-                </FormatChoice>
-              ))}
-              {/* The Link control follows Code, as in the iPhone Format frame. */}
-              {key === 'code' ? (
-                <View style={styles.formatChoice}>
-                  <LinkEditor
-                    disabled={false}
-                    link={editableLinkAt(draft.body, page.selection)}
-                    popover={false}
-                    onChange={onLink}
-                    onShown={setLinking}
-                  />
-                </View>
-              ) : null}
-            </View>
-          ))}
-        </View>
-        <View style={styles.formatRow}>
-          {/* Lists, quotes and code blocks follow the three headings. */}
-          {Object.entries(blockGroups).map(([key, group]) => (
-            <View
-              key={key}
-              style={[styles.formatGroup, rowFill]}>
-              {group.map(([kind, , name]) => (
-                <FormatChoice
-                  key={kind}
-                  command={{ type: 'block', kind }}
-                  name={t(name)}
-                  run={run}
-                  selected={page.kind === kind}>
-                  {(color) =>
-                    kind === 'bulleted' || kind === 'numbered' ? (
-                      <SFSymbol
-                        name={
-                          kind === 'bulleted' ? 'list.bullet' : 'list.number'
-                        }
-                        size={20}
-                        color={color}
-                      />
-                    ) : (
-                      <SFSymbol
-                        name={
-                          kind === 'quote' ? 'quote.opening' : 'curlybraces'
-                        }
-                        size={20}
-                        color={color}
-                      />
-                    )
-                  }
-                </FormatChoice>
-              ))}
-            </View>
-          ))}
-        </View>
-      </View>
-    </GlassPanel>
-  );
 }
 
 // Finishing retires input immediately while the controls' menus complete their exit.
@@ -496,7 +212,7 @@ export function PhoneControls({
         <GlassPanel
           open={open === 'attach'}
           origin="bottom right">
-          {pickers.map(([label, from, inline]) => (
+          {assetPickers.map(([label, from, inline]) => (
             <MenuItem
               key={label}
               label={t(label)}
@@ -526,8 +242,8 @@ export function PhoneControls({
       {open === 'format' ? null : (
         <View
           pointerEvents="box-none"
-          style={styles.pill}>
-          <GlassGroup style={styles.pillGroup}>
+          style={s.pill}>
+          <GlassGroup style={s.pillGroup}>
             <ToolbarButton
               icon="textformat"
               label={t('drafts.format')}
@@ -546,7 +262,7 @@ export function PhoneControls({
             />
           </GlassGroup>
           {offersTools ? (
-            <GlassGroup style={styles.pillGroup}>
+            <GlassGroup style={s.pillGroup}>
               <ToolbarButton
                 expanded={open === 'tools'}
                 icon="sparkles"
@@ -634,7 +350,7 @@ export function PadFormatBar({
           />
         ) : null}
         <View style={[s.divider, { backgroundColor: colors.separator }]} />
-        {pickers.map(([label, from, inline, icon]) => (
+        {assetPickers.map(([label, from, inline, icon]) => (
           <ToolbarButton
             key={label}
             icon={icon}

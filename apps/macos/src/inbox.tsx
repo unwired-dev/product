@@ -12,7 +12,6 @@ import { lastUpdated } from '@private-email/localization';
 import { inboxCommands } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
-  allMail,
   leavesView,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
@@ -1037,7 +1036,7 @@ export function Inbox({
               messageRole="alert"
             />
           )}
-          {missing.map((mailbox) => (
+          {missing.map(({ mailbox, detail }) => (
             <Notice
               key={`missing\n${mailbox.id}`}
               icon="exclamationmark.triangle.fill"
@@ -1045,12 +1044,9 @@ export function Inbox({
               message={t('mailboxes.notIncluded', {
                 mailbox: mailbox.address ?? mailbox.id,
               })}
-              detail={t(
-                view.unified === allMail
-                  ? 'mailboxes.notIncludedAllMail'
-                  : 'mailboxes.notIncludedDetail',
-                { view: folderTitle },
-              )}
+              detail={t(detail, {
+                view: folderTitle,
+              })}
             />
           ))}
           {shown.map((mailbox) => (

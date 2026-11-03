@@ -409,11 +409,14 @@ export function outgoingMessage(
     boundary,
     messageId,
     withoutFiles = false,
+    calendar,
   }: Readonly<{
     date: number;
     boundary: string;
     messageId?: string;
     withoutFiles?: boolean;
+    // An iTIP reply's iCalendar text, sent as the message's calendar alternative.
+    calendar?: string;
   }>,
 ): OutgoingMessage {
   const body = [...draft.body, ...(draft.quoted ?? [])];
@@ -424,6 +427,9 @@ export function outgoingMessage(
       'text/html',
       `<!DOCTYPE html><html><body>${htmlOf(body)}</body></html>`,
     ),
+    ...(calendar === undefined
+      ? []
+      : [textPart('text/calendar; method=REPLY', calendar)]),
   ]);
   const related = nested('related', `=_${boundary}_r`, [
     alternative,
