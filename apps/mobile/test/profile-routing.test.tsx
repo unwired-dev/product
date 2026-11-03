@@ -1245,6 +1245,90 @@ describe('the mobile Profile Switcher', () => {
     }
   });
 
+  /* oxlint-disable vitest/max-expects -- One journey switches to a Profile without mailboxes and manages it. */
+  it.each([
+    { isPad: false, subtitle: 'Family · No mailboxes' },
+    { isPad: true, subtitle: 'No mailboxes' },
+  ])(
+    'shows No Mailboxes for a Profile without mailboxes and opens Mail Profiles (isPad=$isPad)',
+    async ({ isPad, subtitle }) => {
+      expect.hasAssertions();
+      const { registration } = await createTwoProfileRegistration();
+      await registration.createProfile('Family');
+      const family = profilesOf(registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Family',
+      )?.id;
+      ok(family !== undefined);
+      const mode = jest.replaceProperty(
+        jest.requireMock<{ previewInbox: boolean }>(
+          '@private-email/mail-core/registration-mode',
+        ),
+        'previewInbox',
+        false,
+      );
+      const store = jest.replaceProperty(
+        jest.requireMock<{ registration: typeof registration }>(
+          '../src/registration.ts',
+        ),
+        'registration',
+        registration,
+      );
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        savedPreferences(new Map());
+        showMail(defaultProfile);
+        route.setParams({});
+        await render(<RootLayout />);
+        await expect(
+          screen.findByRole('button', { name: /Garden plan/u }),
+        ).resolves.toBeVisible();
+        expect(screen.getByText('Gmail · garden')).toBeVisible();
+        await choose('Mail Profile, Primary Profile', `profile\n${family}`);
+        await expect(screen.findByText(subtitle)).resolves.toBeVisible();
+        // The sidebar keeps Favorites only. No provider or sync status names the Inbox's scope, and
+        // Primary's mail is gone.
+        expect(screen.getByText('Favorites')).toBeVisible();
+        expect(screen.queryByText(/Gmail|unread/u)).toBeNull();
+        expect(
+          screen.queryByRole('button', { name: /Garden plan/u }),
+        ).toBeNull();
+        expect(screen.getByText('No Mailboxes')).toBeVisible();
+        expect(
+          screen.getByText(
+            'Move a mailbox into Family from its current Mail Profile.',
+          ),
+        ).toBeVisible();
+        expect(screen.queryByText('No Mail')).toBeNull();
+        expect(
+          screen.queryByRole('button', { name: /Add Mailbox/u }),
+        ).toBeNull();
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Manage Mail Profiles…' }),
+        );
+        // Settings opens on Mail Profiles, which lists the Profile without mailboxes.
+        await waitFor(() => {
+          expect(
+            screen.getByRole('button', { name: 'Family' }).props
+              .accessibilityHint,
+          ).toBe('No mailboxes');
+        });
+        expect(
+          screen.getByRole('button', { name: 'Primary Profile' }),
+        ).toHaveAccessibilityValue({ text: 'Startup Profile' });
+      } finally {
+        platform.restore();
+        store.restore();
+        mode.restore();
+        jest.restoreAllMocks();
+      }
+    },
+  );
+  /* oxlint-enable vitest/max-expects */
+
   /* oxlint-disable vitest/max-expects -- One journey opens, renames, adds and picks the Startup Profile. */
   it('manages Mail Profiles in Settings through the real registration', async () => {
     expect.hasAssertions();

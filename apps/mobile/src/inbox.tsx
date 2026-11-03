@@ -27,6 +27,7 @@ import {
   profileMailboxes,
   resultKey,
 } from '@private-email/mail-core/mailboxes';
+import { profileName } from '@private-email/mail-core/profile-windows';
 import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
@@ -439,6 +440,24 @@ function scopeOf(
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
 }
 
+// The heading's scope and status. A Mail Profile without mailboxes says so instead; iPad's sidebar
+// Profile Switcher names the Profile, and iPhone's heading names it too.
+const subtitleOf = (
+  t: Translate,
+  unconnected: Readonly<{ name: string }> | undefined,
+  label: Readonly<{ scope: string; status: string }>,
+) => {
+  if (unconnected === undefined) {
+    return t('inbox.subtitleLabel', label);
+  }
+  return ipad
+    ? t('profiles.noMailboxes')
+    : t('inbox.subtitleLabel', {
+        scope: unconnected.name,
+        status: t('profiles.noMailboxes'),
+      });
+};
+
 // The subtitle's status: checking the server, cut off from it, how much of All Mail's history has
 // downloaded, or how much is unread and, on iPad, when the shown Inboxes were last brought up to
 // date. iPhone's one-line heading has no room for it; its Sync Status details show it instead.
@@ -550,12 +569,75 @@ function inboxSections<M>({
   ];
 }
 
+// A Profile without mailboxes has no mail to wait for.
 const hasNoMail = ({
+  unconnected,
   ready,
   syncing,
   count,
-}: Readonly<{ ready: boolean; syncing: boolean; count: number }>) =>
-  ready && !syncing && count === 0;
+}: Readonly<{
+  unconnected: boolean;
+  ready: boolean;
+  syncing: boolean;
+  count: number;
+}>) => unconnected || (ready && !syncing && count === 0);
+
+// A signed-in window's Profile that owns no mailbox has no Inbox, only a way to manage Profiles.
+const unconnectedProfile = (
+  t: Translate,
+  account: ContextType<typeof AccountContext>,
+  profile: string,
+) =>
+  account === undefined ||
+  profileMailboxes(account.mailboxes, profile).length > 0
+    ? undefined
+    : {
+        name: profileName(t, profile, account.profiles),
+        manage: () => {
+          account.openAccount('profiles');
+        },
+      };
+
+// The empty Inbox: no mail arrived or Filter hides it all, or its Profile has no mailbox to list.
+function EmptyInbox({
+  detail,
+  unconnected,
+}: {
+  readonly detail: string;
+  readonly unconnected: ReturnType<typeof unconnectedProfile>;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <SFSymbol
+          name="tray.2"
+          size={emptySymbolSize}
+          color={colors.textSecondary}
+        />
+      </View>
+      <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
+        {unconnected === undefined ? t('inbox.empty') : t('inbox.noMailboxes')}
+      </Text>
+      <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+        {unconnected === undefined
+          ? detail
+          : t('inbox.noMailboxesDetail', { profile: unconnected.name })}
+      </Text>
+      {unconnected === undefined ? null : (
+        <View style={styles.emptyAction}>
+          <Button
+            label={t('profiles.manage')}
+            onPress={() => {
+              unconnected.manage();
+            }}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
 
 // A mail server an explicit online search could not reach, which the subtitle reports as Offline.
 const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
@@ -686,6 +768,7 @@ export function Inbox({
   const shown = mailboxes.filter(
     ({ id }) => scope === undefined || id === scope,
   );
+  const unconnected = unconnectedProfile(t, account, profile);
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
@@ -918,23 +1001,14 @@ export function Inbox({
     return [];
   };
   const empty = (
-    <View style={styles.empty}>
-      <View style={styles.emptyIcon}>
-        <SFSymbol
-          name="tray.2"
-          size={emptySymbolSize}
-          color={colors.textSecondary}
-        />
-      </View>
-      <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
-        {t('inbox.empty')}
-      </Text>
-      <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-        {filtering.hidesAll
+    <EmptyInbox
+      unconnected={unconnected}
+      detail={
+        filtering.hidesAll
           ? t('filters.emptyDetail')
-          : t('inbox.emptyDetail', { scope: folderName ?? scopeName })}
-      </Text>
-    </View>
+          : t('inbox.emptyDetail', { scope: folderName ?? scopeName })
+      }
+    />
   );
   return (
     // The surface fills the safe area's margins too, behind the status bar and home indicator.
@@ -957,7 +1031,7 @@ export function Inbox({
               <HeadingTitle
                 bar={bar}
                 title={title}
-                subtitle={t('inbox.subtitleLabel', {
+                subtitle={subtitleOf(t, unconnected, {
                   scope: scopeName,
                   status,
                 })}
@@ -1106,7 +1180,12 @@ export function Inbox({
                   downloading={downloading}
                   oldest={listed.at(-1)}
                   now={now}
-                  empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
+                  empty={hasNoMail({
+                    unconnected: unconnected !== undefined,
+                    ready,
+                    syncing,
+                    count: inboxRows.length,
+                  })}
                   syncing={syncing}>
                   {empty}
                 </InboxFooter>
