@@ -313,6 +313,27 @@ describe('meeting invitations', () => {
     });
   });
 
+  it.each([
+    [
+      'a damaged line of unquoted lists',
+      `ATTENDEE;CN=${'a,'.repeat(60_000)}":mailto:${me}`,
+      'unreadable',
+    ],
+    [
+      'a line of many parameters',
+      `X-NOTE${';a=b'.repeat(30_000)}:x`,
+      'invited',
+    ],
+  ])('reads %s without stalling', (_, line, kind) => {
+    expect.hasAssertions();
+    const started = performance.now();
+
+    expect(
+      invitationOf(documentOf(calendar([...meeting, line])), me)?.kind,
+    ).toBe(kind);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('shows no invitation for a message without a calendar part', () => {
     expect.hasAssertions();
     expect(invitationOf(documentOf(undefined), me)).toBeUndefined();

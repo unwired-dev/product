@@ -56,7 +56,9 @@ export type InvitationOffer =
 
 const unreadable = { kind: 'unreadable' } as const;
 
-// Unfolded content lines; a parameter value may quote `;`, `:` and `,`.
+// Unfolded content lines; a parameter value may quote `;`, `:` and `,`. Parameter names are
+// tokens and unquoted values hold no comma, so no alternatives overlap and a damaged line
+// fails in linear time.
 const contentLines = (text: string): readonly Line[] | undefined => {
   const lines: Line[] = [];
   for (const raw of text
@@ -64,7 +66,7 @@ const contentLines = (text: string): readonly Line[] | undefined => {
     .trimEnd()
     .split(/\r?\n/u)) {
     const match =
-      /^(?<name>[A-Za-z0-9-]+)(?<parameters>(?:;[^:";]+=(?:"[^"]*"|[^:";]*)(?:,(?:"[^"]*"|[^:";,]*))*)*):(?<value>.*)$/u.exec(
+      /^(?<name>[A-Za-z0-9-]+)(?<parameters>(?:;[A-Za-z0-9-]+=(?:"[^"]*"|[^:";,]*)(?:,(?:"[^"]*"|[^:";,]*))*)*):(?<value>.*)$/u.exec(
         raw,
       );
     if (match === null || raw.includes('\r') || raw.includes('\0')) {
@@ -72,9 +74,10 @@ const contentLines = (text: string): readonly Line[] | undefined => {
     }
     lines.push({
       name: (match[1] ?? '').toUpperCase(),
-      parameters: (match[2] ?? '')
-        .split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/u)
-        .slice(1),
+      parameters: Array.from(
+        (match[2] ?? '').matchAll(/;(?<parameter>[^";]*(?:"[^"]*"[^";]*)*)/gu),
+        (parameter) => parameter[1] ?? '',
+      ),
       value: match[3] ?? '',
     });
   }
