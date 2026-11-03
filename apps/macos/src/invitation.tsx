@@ -169,12 +169,7 @@ function Details({
   const when = useWhen(details);
   const from = t('invitation.from', { name: nameOf(details) });
   const title = details.summary ?? t('invitation.untitled');
-  const organizer = [
-    nameOf(details),
-    ...(details.organizer.name === undefined
-      ? []
-      : [details.organizer.address]),
-  ];
+  const organizer = [...new Set([nameOf(details), details.organizer.address])];
   return (
     <>
       <View

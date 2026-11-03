@@ -2739,7 +2739,13 @@ export function createGmailInbox(
           pending: false,
           authentication: false,
         })
-      : fetchPart(scope, id, part).pipe(
+      : partData(scope, id, part).pipe(
+          // Calendar data that cannot decode never will, so the attachment list still loads.
+          Effect.flatMap(({ data }) =>
+            partText(part, data, part.body?.size).pipe(
+              Effect.orElseSucceed(() => undefined),
+            ),
+          ),
           Effect.map((calendar) => ({
             calendar,
             pending: false,

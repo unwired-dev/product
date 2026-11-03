@@ -249,6 +249,23 @@ describe('meeting invitations in the Mac reader', () => {
     }
   });
 
+  it('names an organizer once when the name is the address', async () => {
+    expect.hasAssertions();
+    const { app } = await opened(
+      invitation('alex@example.invalid').replace(
+        'CN=Lena Fischer',
+        'CN=lena@northwind.example',
+      ),
+    );
+    try {
+      await expect(
+        screen.findAllByText('lena@northwind.example'),
+      ).resolves.toHaveLength(1);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();
     const { app } = await opened(

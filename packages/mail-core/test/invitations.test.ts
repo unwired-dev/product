@@ -563,6 +563,38 @@ describe('meeting invitations', () => {
     },
   );
 
+  it('lists the attachments of a message whose calendar part cannot decode', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const bytes = [...Buffer.from(calendar(meeting))];
+    const id = gmail.deliver({
+      from: 'Lena Fischer <lena@northwind.example>',
+      subject: 'Invitation',
+      content: {
+        text: 'Join us.',
+        attachments: [
+          {
+            filename: 'invite.ics',
+            mimeType: 'text/calendar',
+            bytes,
+            size: bytes.length + 1,
+          },
+        ],
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+
+    expect(inbox.responseSource(id)?.calendar).toBeUndefined();
+    expect(inbox.messageAttachments(id)).toContainEqual(
+      expect.objectContaining({ name: 'invite.ics' }),
+    );
+
+    close();
+  });
+
   it('keeps a cached invitation readable and asks for sign-in before fetching more parts', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
