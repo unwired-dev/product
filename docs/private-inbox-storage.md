@@ -194,7 +194,11 @@ Profile Switcher shows the Profile's monogram and name, and the Default Profile
 appears as **Primary Profile**. The switcher opens the system menu: every Profile
 with its connections' providers, a sign-in notice and its unread count, the
 window's own checked, then **New Mail Profile…**. Choosing a Profile switches only
-that window. New Mail Profile… asks for a name and creates the Profile through the
+that window. On iPhone and iPad, the Inbox of a Profile that owns no mailbox is
+subtitled **No mailboxes**, which iPhone prefixes with the Profile's name, and shows
+**No Mailboxes** with **Manage Mail Profiles…**, which opens Settings › Mail
+Profiles; its sidebar keeps Favorites only
+([#1789](https://github.com/unwired-dev/product/issues/1789)). New Mail Profile… asks for a name and creates the Profile through the
 fenced store without switching to it. When another Trusted Device's client cannot
 keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
 asks to try again. Creating, renaming, moving, removing and notification changes

@@ -163,6 +163,8 @@ export const styles = StyleSheet.create({
       : textStyles.title3Emphasized),
   },
   emptyText: { ...body, textAlign: 'center' },
+  // With the stack's gaps, 16pt more separate the message from its action.
+  emptyAction: { marginTop: spacing.l },
   notices: { gap: spacing.s, paddingHorizontal: spacing.l },
   footer: { ...textStyles.footnote, padding: spacing.xl },
   // Within the rows' leading inset, the spinner and its text 12pt apart (10pt scaled on iPad).

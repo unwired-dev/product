@@ -23,6 +23,8 @@
     "about": "{{address}}: {{text}}",
     "subtitleLabel": "{{scope}} · {{status}}",
     "emptyDetail": "New messages in {{scope}} will appear here.",
+    "noMailboxes": "No Mailboxes",
+    "noMailboxesDetail": "Move a mailbox into {{profile}} from its current Mail Profile.",
     "today": "Today",
     "yesterday": "Yesterday",
     "lastWeek": "Last Week",
