@@ -155,6 +155,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### React correctness
 
+- `composer.tsx.Editor` or another presenter caller restoring focus on every
+  native close. Trace `LinkEditor` and `Popover` through explicit Escape,
+  Apply/Remove and outside-click dismissal. Clear presentation bookkeeping on
+  every close, but return focus and selection only for actions that request it;
+  preserve the field and caret chosen by an outside click. Otherwise a delayed
+  close steals focus and subsequent typing can replace the old body selection.
+  Keep component callback evidence distinct from native pointer/focus evidence.
+
 - `inbox.tsx` starting a connection reload and its selected IMAP folder read
   concurrently because their store programs share a semaphore. Trace synchronous
   state changes before permit acquisition as well as the serialized programs:

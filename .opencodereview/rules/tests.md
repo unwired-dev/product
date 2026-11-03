@@ -25,6 +25,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- `WindowTests.linkEditorJourney` or a save/reopen journey asserting only that
+  an action is enabled or an editor exists when claiming preserved semantic
+  state. Reopen the editor and check the values that distinguish the contract:
+  captured Text after cancellation and the destination after Save and relaunch.
+  Otherwise a wrong retained selection or saved URL passes the journey despite
+  an available Add Link or Edit Link control. Keep unavailable native execution
+  deferred rather than treating the added assertions as passing evidence.
+
 - A timed-feedback matcher such as `WindowTests.reportPerformance` crediting an
   observation to an input by timestamp alone. Verify the observed state still
   contains that input's expected result, including text and per-character marks

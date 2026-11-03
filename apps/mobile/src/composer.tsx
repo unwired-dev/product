@@ -1282,6 +1282,7 @@ export function CapturedAssistance({
   return assistance === undefined ? null : (
     <DraftAssistance
       native={assistance}
+      original={captured}
       purpose={captured.purpose}
       issue={captured.issue}
       input={captured.input}

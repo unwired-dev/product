@@ -3553,6 +3553,13 @@ describe('composing Drafts', () => {
     await screen.findByLabelText('Cancel writing help');
     asked[0]?.answer.resolve('Let us meet on Friday. Thanks!');
     await screen.findByText('Let us meet on Friday. Thanks!');
+    // Every finished rewrite says what the checks cover and leave to the person.
+    expect(screen.getByText('Kept: friday')).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        'These checks compare details only. Read the rewrite for meaning, questions and commitments before you use it.',
+      ),
+    ).toBeOnTheScreen();
     const announce = jest.mocked(
       AccessibilityInfo.announceForAccessibilityWithOptions,
     );
@@ -3659,6 +3666,92 @@ describe('composing Drafts', () => {
       asked[5]?.request,
     ]);
   });
+
+  it.each([false, true])(
+    'flags the details a rewrite changed and applies it only when chosen with its changes (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        const registration = account(connected(['alex@example.invalid']));
+        const storage = createSyntheticDrafts(
+          () => 'synthetic-product-account',
+        );
+        const { native, asked } = scriptedDraftAssistance();
+        await render(
+          <AssistanceContext value={native}>
+            <App
+              drafts={createDrafts(storage.native, registration)}
+              registration={registration}
+            />
+          </AssistanceContext>,
+        );
+        await press('New Message');
+        const original =
+          'Dinner at 8 pm on Saturday. Pay the €40 deposit by 5:30 at https://example.com/r/4821.';
+        const rewrite =
+          'Dinner at 8 pm on Saturday, 1 Nov. Pay the €45 deposit at https://example.com/r/4812. Ask reservas@example.com.';
+        await fireEvent.changeText(
+          screen.getByLabelText('Message body'),
+          original,
+        );
+        const body = () => screen.getByLabelText('Message body');
+
+        await chooseWritingTool('Rewrite the message body');
+        asked[0]?.answer.resolve(rewrite);
+        await screen.findByText(rewrite);
+        const differ =
+          '5 details differ from your original. Compare them before using this rewrite.';
+        expect(screen.getByText(differ)).toBeOnTheScreen();
+        expect(
+          jest.mocked(AccessibilityInfo.announceForAccessibilityWithOptions),
+        ).toHaveBeenLastCalledWith(`Rewrite\n${rewrite}\n${differ}`, {
+          queue: true,
+        });
+        // Each row reads as one element: the detail, both versions and what happened to it.
+        for (const row of [
+          'Date. Original: Saturday. Rewrite: Saturday, 1 Nov. Can’t confirm it’s the same date',
+          'Amount. Original: €40. Rewrite: €45. Changed',
+          'Time. Original: 5:30. Rewrite: —. Removed',
+          'Link. Original: https://example.com/r/4821. Rewrite: https://example.com/r/4812. Link goes somewhere else',
+          'Email address. Original: —. Rewrite: reservas@example.com. Added',
+        ]) {
+          expect(screen.getByLabelText(row)).toBeOnTheScreen();
+        }
+        // iPhone reads each change as one line; iPad sets the versions out in columns.
+        expect(screen.queryByText('€40 → €45') !== null).toBe(!isPad);
+        // The column headings are left to sight: each row's label already names both versions.
+        expect(
+          screen.queryByText('Original', { includeHiddenElements: true }) !==
+            null,
+        ).toBe(isPad);
+        expect(screen.getByText('Kept: 8 pm')).toBeOnTheScreen();
+        // A rewrite with changed details is never applied by the plain Replace action.
+        expect(
+          screen.queryByLabelText('Replace your text with this rewrite'),
+        ).toBeNull();
+        expect(body()).toHaveTextContent(original, { exact: true });
+
+        // Keeping the original changes nothing; applying the changes is a separate, explicit choice.
+        await press('Keep your text and close this suggestion');
+        expect(body()).toHaveTextContent(original, { exact: true });
+        await chooseWritingTool('Rewrite the message body');
+        asked[1]?.answer.resolve(rewrite);
+        await press(
+          'Replace your text with this rewrite, including its changed details',
+        );
+        expect(body()).toHaveTextContent(rewrite, { exact: true });
+        await press('Undo');
+        expect(body()).toHaveTextContent(original, { exact: true });
+      } finally {
+        platform.restore();
+      }
+    },
+  );
 
   it.each([
     ['compact', 'bottom-sheet'],
