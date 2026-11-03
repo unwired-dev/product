@@ -53,8 +53,8 @@ const month = `(?:${unambiguousMonth}|${anyCase('march|may|august|jan|feb|mar|ap
 const calendarGap = String.raw`(?:,?\s|(?<=\.),?)`;
 const day = `\\d{1,2}(?:${anyCase('st|nd|rd|th')})?`;
 // An exponent belongs to its number: `1e3` and `1e4` differ.
-// Any space character may group thousands: plain, no-break, thin, narrow or figure spaces.
-const unsigned = String.raw`(?:(?:\d{1,3}(?:\p{Zs}\d{3})+|\d+)(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
+// Any space character or an apostrophe (`1'500`, `1’500`) may group thousands.
+const unsigned = String.raw`(?:(?:\d{1,3}(?:[\p{Zs}'’]\d{3})+|\d+)(?:[.,]\d+)*|[.,]\d+)(?:[eE][-+]?\d+)?`;
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
@@ -111,7 +111,8 @@ const calendarDate = [
   `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
   // A day and month in figures without a year are written with a slash; `11.01` is a decimal.
   `\\d{1,2}/\\d{1,2}`,
-  `(?:${day}\\s${month}|${month}${calendarGap}${day})(?:${calendarGap}\\d{4})?`,
+  // A two-digit year is part of a named date (`3 Nov 26`), so a changed year is not a separate number.
+  `(?:${day}\\s${month}|${month}${calendarGap}${day})(?:${calendarGap}(?:\\d{4}|\\d{2}))?`,
   `${month}${calendarGap}\\d{4}`,
 ].join('|');
 const date = [
@@ -298,7 +299,7 @@ const take = (details: Detail[], matches: (other: Detail) => boolean) => {
 // (`1,000` and `1000`), and a link that differs only by punctuation at its end.
 // Only a separator before a group of three digits can be grouping.
 const ungrouped = (key: string) =>
-  key.replaceAll(/(?<digit>\d)[., ](?=\d{3}(?!\d))/gu, '$<digit>');
+  key.replaceAll(/(?<digit>\d)[., '’](?=\d{3}(?!\d))/gu, '$<digit>');
 // Keep date spacing above so an added year stays separate from a day. `3 Nov` is not in `13 Nov`.
 const within = (whole: string, part: string) =>
   new RegExp(
@@ -353,6 +354,9 @@ const sameFigures = (namedKey: string, numeric: string) => {
     return true;
   });
 };
+// `3 Nov 26` may be `3 Nov 2026`: the same date with only its year's century left out.
+const shortYear = (long: string, short: string) =>
+  /(?<!\d)\d{4}$/u.test(long) && long.replace(/\d{2}(?=\d{2}$)/u, '') === short;
 // Keyed by kind name, so a range key's own kind parts can look up their predicate.
 const similar: Partial<
   Record<string, (one: string, other: string) => boolean>
@@ -360,6 +364,8 @@ const similar: Partial<
   date: (one, other) =>
     within(one, other) ||
     within(other, one) ||
+    shortYear(one, other) ||
+    shortYear(other, one) ||
     (named(one) && !named(other) && sameFigures(one, other)) ||
     (named(other) && !named(one) && sameFigures(other, one)),
   number: (one, other) => ungrouped(one) === ungrouped(other),

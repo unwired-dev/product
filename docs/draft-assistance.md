@@ -97,7 +97,7 @@ iPhone and iPad composer.
     a known currency code in any letter case (`usd`, `eur`), or a marker such as
     Kč, `S/`, `zł`, `Fr.` or `kr`, including compact `USD40` and `40USD`,
     combined `$40USD` and a sign after the code in `USD-40`), numbers with their sign or leading decimal
-    point (`-40`, `.5`), percentages (`10%`), grouped figures with any space between thousands (`1 500`), fractions,
+    point (`-40`, `.5`), percentages (`10%`), grouped figures with any space or an apostrophe between thousands (`1 500`, `1'500`), fractions,
     ratios and ranges (`100/200`, `100:200`, `1–2`). Adjacent numbers, amounts,
     dates or times joined by a dash, slash, colon, `to`, `until`, `through` or `till`
     are compared in order as one detail (`€40–€50`, `09:00–17:00`, `Mon–Fri`,
@@ -108,7 +108,7 @@ iPhone and iPad composer.
     (`3–5 Nov`, `9–5pm`, `40–50€`), make a range of the typed end's kind: a date and a time (`Monday: 9am`) stay separate details, and a colon followed by a space labels the next detail (`Slot 1: 9am`) unless both sides are one kind. The check also reads
     dates in any letter case, including full weekday names, a weekday with its period before a named or numeric date (`Mon., 2 Nov`, `Mon., 11/2`), unambiguous full month
     names, a month with a day or
-    year (including abbreviated months with a period or comma, as in `Nov., 2`). An abbreviation's period can touch the following number (`Mon.2 Nov`, `Nov.2`, `2 Nov.2026`). It also reads year-first dates with hyphens, dots or slashes, and an ISO
+    year, a day and month with a four- or two-digit year (`3 Nov 26`) (including abbreviated months with a period or comma, as in `Nov., 2`). An abbreviation's period can touch the following number (`Mon.2 Nov`, `Nov.2`, `2 Nov.2026`). It also reads year-first dates with hyphens, dots or slashes, and an ISO
     timestamp's complete `T`-joined time, fractional seconds and zone. Times can
     separate hour and minutes with a colon or `h` (`8h30`). A dotted time keeps
     its meridiem or zone (`8.30 am`, `20.30 CEST`); without either, its complete
@@ -151,7 +151,7 @@ iPhone and iPad composer.
   - A difference that may be another way to write the same detail is
     uncertain, never kept: a date that gains or loses a part (`Saturday` as
     `Saturday, 1 Nov` or `3 Nov` as `3 Nov 2026`, but not `3 Nov` as `13 Nov`) or is in figures on one side only with the same day, month and year, a year also as a trailing two-digit year (`2026-11-01` or `01/11/26` as
-    `1 November 2026`, but not `26 Nov 2026` as `26/11/25` or `01/11/26`, `15 Nov 2026` as `15/12/26`, `11 Nov 2026` as `12/11/26`, or `3` as `20 Dec`), a number or amount that differs only by a thousands
+    `1 November 2026`, `3 Nov 26` as `3 Nov 2026`, but not `26 Nov 2026` as `26/11/25` or `01/11/26`, `15 Nov 2026` as `15/12/26`, `11 Nov 2026` as `12/11/26`, or `3` as `20 Dec`), a number or amount that differs only by a thousands
     separator (`1,000` or `1 000` as `1000`), and a link that differs only by `!` or `?`
     at its end. Any other pair, such as `Monday` as `Tuesday` or `.5` as `5`,
     is changed.

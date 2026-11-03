@@ -1419,6 +1419,37 @@ describe('the Writing tools detail check', () => {
     }
   });
 
+  it('reads thousands grouped by an apostrophe as one amount', () => {
+    expect.hasAssertions();
+    for (const apostrophe of ["'", '’']) {
+      expect(
+        checkDetails(
+          whole(`Pay CHF 1${apostrophe}500 and CHF 2${apostrophe}000.`),
+          `Pay CHF 2${apostrophe}500 and CHF 1${apostrophe}000.`,
+        ).changes.map(({ status }) => status),
+      ).toStrictEqual(['changed', 'changed']);
+    }
+    expect(
+      checkDetails(whole("Pay CHF 1'500."), 'Pay CHF 1500.').changes,
+    ).toMatchObject([{ kind: 'amount', status: 'uncertain' }]);
+  });
+
+  it('reads a two-digit year after a named date as part of the date', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Meet 3 Nov 26 and 4 Dec 27.'),
+        'Meet 3 Nov 27 and 4 Dec 26.',
+      ).changes.map(({ status }) => status),
+    ).toStrictEqual(['changed', 'changed']);
+    expect(
+      checkDetails(whole('Meet 3 Nov 26.'), 'Meet 03/11/26.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
+    expect(
+      checkDetails(whole('Meet 3 Nov 26.'), 'Meet 3 Nov 2026.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(
