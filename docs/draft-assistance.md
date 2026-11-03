@@ -15,6 +15,9 @@ iPhone and iPad composer, and
 composer's **Generate a Draft…**, which writes new text from a prompt, and
 [#1635](https://github.com/unwired-dev/product/issues/1635) adds it to the
 iPhone and iPad composer.
+[#1633](https://github.com/unwired-dev/product/issues/1633) and
+[#1793](https://github.com/unwired-dev/product/issues/1793) check Writing tools
+results for changed details on Mac, and on iPhone and iPad.
 
 ## Behavior
 
@@ -78,12 +81,16 @@ iPhone and iPad composer.
   plain text. The preview says so. Recipients, the sender, the subject, quoted text,
   attachments, threading and delivery state are never changed. **Keep original**
   closes the panel.
-- On Mac, a finished Writing tools result (Rewrite, Proofread, Break into
+- A finished Writing tools result (Rewrite, Proofread, Break into
   Paragraphs, Expand Text, Shorten Text, Make More Friendly and Make More Neutral) is checked mechanically against the
   captured text, using `checkDetails` from the assistance core. The
   `packages/mail-core` TypeScript layer owns detail extraction and the equivalence
-  rules; the Mac host renders the review, and its native push button adapter makes
-  the main button the window's Return default. It never says a
+  rules; each host renders the review. On Mac the native push button adapter makes
+  the main button the window's Return default. iPad sets the changes out as a table
+  with the push buttons in a row; iPhone shows each change as its detail, status and
+  a `original → rewrite` line, with **Use rewrite with changes** (or **Replace text**)
+  across the panel above Keep original and Try again. When details differ, Keep
+  original carries the accent fill. It never says a
   result is verified or safe: every finished result ends with a note that the
   checks compare details only and that meaning, questions and commitments need
   the person's own reading. Reply suggestions and Generate a Draft are not checked.
@@ -167,7 +174,7 @@ iPhone and iPad composer.
     so applying them is an explicit choice; **Keep original** and **Try again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**
-    when none do. The accent button is the window's default button: Return presses it
+    when none do. On Mac, the accent button is the window's default button: Return presses it
     unless the focused view takes the key, as the Draft body does for a new
     line. VoiceOver reads each row as one element and hears the count after
     the result.
@@ -262,7 +269,8 @@ allow-listed native code or decode path, never Draft or generated text.
   review and apply the whole-body result as one undoable edit without touching recipients, keep the
   original against a queued apply, show reply-length guidance without inference when the encoded authored
   reply leaves no room for context, show a refusal, cancel and retry, and drop a
-  pending result when the body is edited or the Product Account changes. The Mac tests also show the
+  pending result when the body is edited or the Product Account changes. The Mac tests, and the
+  `apps/mobile/test/composer.test.tsx` tests on iPhone and iPad layouts, also show the
   details note on every rewrite, and a rewrite with changed details: its count and announcement, one
   readable row per change, the kept details, no plain Replace, Keep original, then **Use rewrite with
   changes** and Undo. From the real reader with a synthetic
