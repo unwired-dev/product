@@ -9,6 +9,20 @@ import type {
 } from '@private-email/mail-core/assistance';
 
 import {
+  Host,
+  HStack,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+  VStack,
+} from '@expo/ui/swift-ui';
+import {
+  buttonStyle,
+  controlSize,
+  frame,
+  accessibilityLabel as spokenLabel,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
+import {
   canRetryAssistance,
   checkDetails,
   createDraftAssistance,
@@ -19,12 +33,7 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import {
-  Button,
-  OnDeviceMarker,
-  SFSymbol,
-  useOutcomeAnnouncement,
-} from './design.tsx';
+import { OnDeviceMarker, SFSymbol, useOutcomeAnnouncement } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -46,10 +55,6 @@ const styles = StyleSheet.create({
   title: { ...textStyles.subheadline, fontWeight: '600' },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.subheadline },
-  // A checked result's push buttons sit 8pt apart; on iPhone they share the panel's width.
-  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  stackedButtons: { gap: spacing.s },
-  shared: { flex: 1 },
   note: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   count: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
   noteText: { ...textStyles.footnote, flex: 1 },
@@ -454,11 +459,14 @@ export function DraftAssistance({
     apply = verbs[purpose];
   }
   const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
-  // A checked result offers push buttons, as its frames do: Keep original carries the accent fill
-  // when details differ, and the rewrite when none do.
+  // A checked result offers native push buttons, as its frames do: Keep original carries the
+  // accent fill when details differ, and the rewrite when none do. On iPhone each button takes the
+  // width it is given.
   const control = ({
+    label,
+    accessibilityLabel,
+    onPress,
     main = false,
-    ...props
   }: Readonly<{
     label: string;
     accessibilityLabel: string;
@@ -466,13 +474,24 @@ export function DraftAssistance({
     main?: boolean;
   }>) =>
     check === undefined ? (
-      <Action {...props} />
-    ) : (
-      <Button
-        fill={main ? 'accent' : 'quiet'}
-        wide={stacked}
-        {...props}
+      <Action
+        label={label}
+        accessibilityLabel={accessibilityLabel}
+        onPress={onPress}
       />
+    ) : (
+      <SwiftUIButton
+        onPress={onPress}
+        modifiers={[
+          buttonStyle(main ? 'borderedProminent' : 'bordered'),
+          controlSize('large'),
+          tint(main ? colors.accentFill : colors.textPrimary),
+          spokenLabel(accessibilityLabel),
+        ]}>
+        <SwiftUIText modifiers={stacked ? [frame({ maxWidth: Infinity })] : []}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
     );
   const applyAction =
     state.kind === 'ready'
@@ -515,25 +534,25 @@ export function DraftAssistance({
       {closeAction}
     </View>
   );
-  if (check !== undefined && stacked) {
+  if (check !== undefined) {
     actions = (
-      <View style={styles.stackedButtons}>
-        {applyAction}
-        <View style={styles.buttons}>
-          <View style={styles.shared}>{closeAction}</View>
-          {retryAction === null ? null : (
-            <View style={styles.shared}>{retryAction}</View>
-          )}
-        </View>
-      </View>
-    );
-  } else if (check !== undefined) {
-    actions = (
-      <View style={styles.buttons}>
-        {applyAction}
-        {closeAction}
-        {retryAction}
-      </View>
+      <Host matchContents={stacked ? { vertical: true } : true}>
+        {stacked ? (
+          <VStack spacing={spacing.s}>
+            {applyAction}
+            <HStack spacing={spacing.s}>
+              {closeAction}
+              {retryAction}
+            </HStack>
+          </VStack>
+        ) : (
+          <HStack spacing={spacing.s}>
+            {applyAction}
+            {closeAction}
+            {retryAction}
+          </HStack>
+        )}
+      </Host>
     );
   }
   return (

@@ -308,7 +308,6 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     paddingLeft: 16 + spacing.s,
   },
-  wide: { alignItems: 'center' },
   button: {
     minHeight: 44,
     justifyContent: 'center',
@@ -679,7 +678,6 @@ export function Notice({
 
 // A push button: the accent fill carries the view's main action, the quiet fill the rest. The
 // compact size is the 28pt pill of the compose format bar and banners inside a 44pt touch target.
-// A wide button takes the width its container gives it and centres its label.
 export function Button({
   label,
   onPress,
@@ -687,7 +685,6 @@ export function Button({
   size = 'regular',
   disabled = false,
   destructive = false,
-  wide = false,
   accessibilityLabel,
 }: {
   readonly label: string;
@@ -696,7 +693,6 @@ export function Button({
   readonly size?: 'regular' | 'compact';
   readonly disabled?: boolean;
   readonly destructive?: boolean;
-  readonly wide?: boolean;
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
@@ -727,7 +723,6 @@ export function Button({
       onPress={onPress}
       style={({ pressed }) => [
         compact ? styles.buttonTarget : [styles.button, fillOf(pressed)],
-        wide ? styles.wide : null,
         { opacity: disabled ? 0.4 : 1 },
       ]}>
       {({ pressed }) =>
