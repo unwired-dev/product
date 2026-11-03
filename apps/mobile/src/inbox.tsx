@@ -9,7 +9,7 @@ import type { ComponentProps, ContextType, ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
-import { buttonStyle, controlSize } from '@expo/ui/swift-ui/modifiers';
+import { buttonStyle, controlSize, tint } from '@expo/ui/swift-ui/modifiers';
 import { lastUpdated } from '@private-email/localization';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
@@ -626,7 +626,12 @@ function EmptyInbox({
           <Host matchContents>
             <SwiftUIButton
               label={t('profiles.manage')}
-              modifiers={[buttonStyle('bordered'), controlSize('large')]}
+              // A Secondary button: the quiet fill with primary text, not the system blue tint.
+              modifiers={[
+                buttonStyle('bordered'),
+                controlSize('large'),
+                tint(colors.textPrimary),
+              ]}
               onPress={() => {
                 unconnected.manage();
               }}
