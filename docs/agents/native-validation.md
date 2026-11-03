@@ -288,8 +288,15 @@ Each Command Palette command is typed and run with Return: Account opens Setting
 Inbox leaves it, and Search Mail focuses search. It types a query into search,
 then selects, cuts and pastes it back with Command-A, Command-X and Command-V,
 and Return submits it. Reply from the palette opens a Draft. Typing extends its
-subject, Tab moves focus to its recipients, and the body takes typing. After
-relaunch, the Inbox lists the saved Draft, which reopens with both edits.
+subject, Tab moves focus to its recipients, and the body takes typing.
+Shift-Option-Left selects the reply's last word for the Link Editor, opened from
+iPad's format bar as a popover and from iPhone's Format panel as a sheet. It
+opens as Add Link with Text from the selection and Link focused and empty, shows
+the invalid-link reason after Return, and leaves the body and selection as they
+were when dismissed. A valid destination applied with Return makes the control
+Edit Link, which offers Remove Link; one Undo removes the link and keeps the
+text, and Redo restores it. After relaunch, the Inbox lists the saved Draft,
+which reopens with both edits and the link's destination.
 
 These steps still use touch on iPhone and iPad:
 
@@ -297,13 +304,15 @@ These steps still use touch on iPhone and iPad:
   offers no Command-P without native key commands.
 - Opening a row.
 - Placing the caret in the reply. Reply focuses no field, and Tab does not
-  reach one from there.
+  reach one from there, and placing it again in the reopened Draft.
+- The Format panel and format bar controls, including Add Link, Edit Link,
+  Undo and Redo, and dismissing the Link Editor.
 - Closing the palette. A hardware Escape leaves it open.
 
 These gaps belong to [#849](https://github.com/unwired-dev/product/issues/849).
 
 It runs XCTest's accessibility audit on the Inbox, Mailboxes, Command Palette,
-Settings, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON
+Settings, reader, composer and Link Editor, and prints each issue as an `ACCESSIBILITY` JSON
 line in the test log, with a screenshot of each audited screen.
 The audit handler permits these known findings:
 
@@ -313,7 +322,8 @@ The audit handler permits these known findings:
 - the reader's sender monogram, whose initials repeat the sender name beside it
   and for which the handler permits at most one unlocated-text finding.
 
-Other findings fail the journey. On iPad the composer is audited expanded:
+Other findings fail the journey. On iPad the composer and its Link Editor are
+audited expanded:
 floating, it leaves the message visible behind it as a backdrop hidden from
 accessibility and touch, which the audit reports as text it cannot locate.
 CI does not run this scenario; it is local native evidence.

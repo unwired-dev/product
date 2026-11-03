@@ -1818,6 +1818,7 @@ final class InboxTests: XCTestCase {
     body.tap()
     press("Keyboard reply", in: app)
     waitUntil { body.value as? String == "Keyboard reply" }
+    try linkEditorJourney(app, body: body, pad: pad)
 
     // #1612: edits are stored only on Save Draft; Close asks first.
     app.buttons["Close"].tap()
@@ -1835,6 +1836,102 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(subject.waitForExistence(timeout: 15))
     XCTAssertEqual(subject.value as? String, "Re: Outlook update 003 by keyboard")
     XCTAssertEqual(body.value as? String, "Keyboard reply")
+    // The reopened Draft keeps the link and its destination. The caret goes after the reply's one
+    // line by touch, since the reopened body ignores the first hardware key presses, and the key
+    // press then selects the linked word.
+    body.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.14)).tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    app.typeKey(.leftArrow, modifierFlags: [.shift, .option])
+    // The composer learns the selection after the key press.
+    let edit = formatControl("Edit Link", in: app)
+    waitUntil { edit.isEnabled }
+    edit.tap()
+    let destination = app.textFields["Link"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    XCTAssertEqual(destination.value as? String, "https://example.com")
+  }
+
+  // #1795: the Link Editor links the selected word of the reply. It opens as Add Link with Text
+  // from the selection and Link empty and focused, explains an invalid destination after Return,
+  // keeps the selection when dismissed, and applies a valid one as one edit that Undo and Redo
+  // step through. iPad shows it in a popover from the format bar, iPhone in a sheet from the
+  // Format panel.
+  private func linkEditorJourney(_ app: XCUIApplication, body: XCUIElement, pad: Bool) throws {
+    // As for the composer's audit, iPad's floating composer would leave the message behind it as
+    // a backdrop the audit cannot locate.
+    if pad {
+      app.buttons["Expand"].tap()
+      XCTAssertTrue(app.buttons["Collapse"].waitForExistence(timeout: 10))
+    }
+    app.typeKey(.leftArrow, modifierFlags: [.shift, .option])
+    // The composer learns the selection after the key press.
+    let addLink = formatControl("Add Link", in: app)
+    XCTAssertTrue(addLink.waitForExistence(timeout: 20))
+    addLink.tap()
+    let text = app.textFields["Text"]
+    let destination = app.textFields["Link"]
+    let apply = app.buttons["Apply"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    waitForFocus(destination)
+    XCTAssertEqual(text.value as? String, "reply")
+    XCTAssertFalse(app.buttons["Remove Link"].exists)
+    XCTAssertFalse(apply.isEnabled)
+    if !pad {
+      XCTAssertTrue(app.staticTexts["Add Link"].exists)
+    }
+    try audit(app, "Link Editor")
+
+    press("not a link\n", in: app)
+    XCTAssertTrue(
+      self.text("Enter a valid web, email or phone link.", in: app).waitForExistence(timeout: 10))
+    XCTAssertFalse(apply.isEnabled)
+    let invalid = XCTAttachment(screenshot: app.screenshot())
+    invalid.name = "Link Editor with an invalid link"
+    invalid.lifetime = .keepAlways
+    add(invalid)
+
+    dismissLinkEditor(app, field: destination, pad: pad)
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
+
+    formatControl("Add Link", in: app).tap()
+    waitForFocus(destination)
+    press("https://example.com\n", in: app)
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    let edit = formatControl("Edit Link", in: app)
+    XCTAssertTrue(edit.waitForExistence(timeout: 10))
+    edit.tap()
+    XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
+    XCTAssertEqual(destination.value as? String, "https://example.com")
+    dismissLinkEditor(app, field: destination, pad: pad)
+
+    // One Undo removes the link and keeps its text; Redo restores it.
+    formatControl("Undo", in: app).tap()
+    XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    formatControl("Redo", in: app).tap()
+    XCTAssertTrue(formatControl("Edit Link", in: app).waitForExistence(timeout: 10))
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    if pad {
+      app.buttons["Collapse"].tap()
+      XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
+    } else {
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(app.buttons["Format"].waitForExistence(timeout: 10))
+    }
+  }
+
+  // Leaves the Link Editor without applying: iPad taps beside the popover, above the software
+  // keyboard; iPhone closes the sheet, whose Close sits below the composer's own.
+  private func dismissLinkEditor(_ app: XCUIApplication, field: XCUIElement, pad: Bool) {
+    if pad {
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.15)).tap()
+    } else {
+      app.buttons.matching(NSPredicate(format: "label == %@", "Close")).allElementsBoundByIndex
+        .max { $0.frame.minY < $1.frame.minY }?.tap()
+    }
+    XCTAssertTrue(field.waitForNonExistence(timeout: 10))
   }
 
   // Types with hardware key presses, one key per character; "\n" is Return and "\t" Tab.
