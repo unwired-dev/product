@@ -506,7 +506,8 @@ final class InboxTests: XCTestCase {
     choose(
       "Airplane", in: icon, checked: "First Letter",
       of: ["Person", "People", "Laptop", "Book", "Airplane", "Cart", "Paintbrush", "Star"], app)
-    try audit(app, "Mail Profiles")
+    // The iPad sidebar shows the account's monogram, which Light detects.
+    try audit(app, "Mail Profiles", monograms: 1)
     verifyBlueMonogram(app, in: work.frame, "Settings row of a styled Profile")
   }
 
