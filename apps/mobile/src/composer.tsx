@@ -104,7 +104,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   View,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -148,7 +147,7 @@ import {
 import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useAppearance, usePalette } from './theme.ts';
 import { DraftTranslation, TranslationContext } from './translation.tsx';
 
 // Fabric includes the post-edit selection; RN's Flow declaration has it, but its TS type omits it.
@@ -1794,7 +1793,7 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
-  const appearance = useColorScheme() === 'dark' ? 'dark' : 'light';
+  const appearance = useAppearance();
 
   // Set while Discard or Send finishes, which take the Draft as it was then.
   const discarded = useRef(false);
