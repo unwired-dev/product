@@ -11,7 +11,6 @@ import type { TextInput } from 'react-native';
 import { lastUpdated } from '@private-email/localization';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
-  allMail,
   leavesView,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
@@ -973,7 +972,7 @@ export function Inbox({
                 messageRole="alert"
               />
             )}
-            {missing.map((mailbox) => (
+            {missing.map(({ mailbox, detail }) => (
               <Notice
                 key={`missing\n${mailbox.id}`}
                 icon="exclamationmark.triangle.fill"
@@ -981,12 +980,10 @@ export function Inbox({
                 message={t('mailboxes.notIncluded', {
                   mailbox: mailbox.address ?? mailbox.id,
                 })}
-                detail={t(
-                  view.unified === allMail
-                    ? 'mailboxes.notIncludedAllMail'
-                    : 'mailboxes.notIncludedDetail',
-                  { view: folderName, ...(ipad ? {} : { context: 'iphone' }) },
-                )}
+                detail={t(detail, {
+                  view: folderName,
+                  ...(ipad ? {} : { context: 'iphone' }),
+                })}
               />
             ))}
             {shown.map((mailbox) => (

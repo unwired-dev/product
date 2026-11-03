@@ -67,6 +67,7 @@ implemented.
 ## All Mail
 
 - **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
+- A connection whose Spam and Trash folders are not both known unambiguously is left out of **All Mail** with a visible not-included notice, rather than listing its Spam and Trash; its folders stay listed under it
 
 ## Provider mailbox roles and navigation
 

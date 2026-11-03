@@ -332,9 +332,13 @@ describe('microsoft historical metadata backfill', () => {
     let refusal: number | undefined = 503;
     const interrupted = createInbox(refusingAfter(graph, 30, () => refusal));
     await interrupted.load();
-    await vi.waitFor(() => {
-      expect(progress(interrupted)?.paused).toBe(true);
-    });
+    // Thirty pages list before the refusal, longer than waitFor's default second on a slow runner.
+    await vi.waitFor(
+      () => {
+        expect(progress(interrupted)?.paused).toBe(true);
+      },
+      { timeout: 60_000 },
+    );
     interrupted.forget();
     refusal = undefined;
     const listedBefore = inboxPages(graph);
