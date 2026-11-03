@@ -1276,6 +1276,27 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'date', status: 'changed' }]);
   });
 
+  it.each([
+    ['26 Nov 2026', '26/11/25'],
+    ['26 Nov 2026', '01/11/26'],
+    ['11 Nov 2011', '01/12/11'],
+    ['1 Nov 2001', '01/11/02'],
+    ['11 Nov 2011', '11/11/12'],
+    ['1 Nov 2026', '01/11/026'],
+    ['1 Nov 2026', '01/11/0026'],
+  ])(
+    'keeps changed date parts in %s visible as changed',
+    (original, result) => {
+      expect.hasAssertions();
+      expect(checkDetails(whole(original), result).changes).toMatchObject([
+        { kind: 'date', status: 'changed' },
+      ]);
+      expect(checkDetails(whole(result), original).changes).toMatchObject([
+        { kind: 'date', status: 'changed' },
+      ]);
+    },
+  );
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {
