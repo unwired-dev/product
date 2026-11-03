@@ -155,8 +155,8 @@ iPhone and iPad composer.
     separator (`1,000` or `1 000` as `1000`), and a link that differs only by `!` or `?`
     at its end. Any other pair, such as `Monday` as `Tuesday` or `.5` as `5`,
     is changed.
-  - Details that differ are paired in order within each kind as changed, and
-    the rest are removed or added. The panel counts them, lists each with its
+  - Details that differ are paired in order within each kind; each pair is
+    changed or uncertain, and the rest are removed or added. The panel counts them, lists each with its
     original and rewritten value (a changed link says it goes somewhere else; an
     uncertain one says it can't be confirmed as the same date, number, amount
     or link) and lists the

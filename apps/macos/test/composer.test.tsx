@@ -3539,7 +3539,7 @@ describe('composing Drafts', () => {
     expect(screen.getByText('Kept: friday')).toBeOnTheScreen();
     expect(
       screen.getByText(
-        'These checks compare details only. Read it for meaning, questions and commitments before you use it.',
+        'These checks compare details only. Read the rewrite for meaning, questions and commitments before you use it.',
       ),
     ).toBeOnTheScreen();
     const announce = jest.mocked(

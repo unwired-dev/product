@@ -710,7 +710,7 @@
     "detailRow": "{{detail}}. Original: {{original}}. Rewrite: {{result}}. {{status}}",
     "detailsKept": "Kept: {{details}}",
     "noDetails": "No links, email addresses, numbers, dates or quotes to compare",
-    "detailsOnly": "These checks compare details only. Read it for meaning, questions and commitments before you use it.",
+    "detailsOnly": "These checks compare details only. Read the rewrite for meaning, questions and commitments before you use it.",
     "rewriteHasImage": "Select text without inline images to rewrite. Your images are unchanged.",
     "rewriteTooLong": "Select less text to rewrite. Up to 6,000 characters can be rewritten at once.",
     "proofreadHasImage": "Select text without inline images to proofread. Your images are unchanged.",
