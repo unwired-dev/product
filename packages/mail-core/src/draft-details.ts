@@ -94,6 +94,18 @@ const joinsRange = (previous: DetailKind, each: DetailKind, join: string) =>
     ((previous === 'number' || each === 'number') && !/:\s/u.test(join))) &&
   rangeJoin.test(join);
 
+// A dash touching the preceding endpoint joins the range, even after `Fr.` or `S/`.
+// Spaced signs and a plus remain part of their endpoint.
+const startsCompactRange = (
+  previous: readonly [number, Detail] | undefined,
+  kind: DetailKind,
+  [at, written]: readonly [number, string],
+) =>
+  previous !== undefined &&
+  previous[0] + previous[1].value.length === at &&
+  /^[-−]/u.test(written) &&
+  joinsRange(previous[1].kind, kind, written[0] ?? '');
+
 const calendarDate = [
   String.raw`\d{4}[./-]\d{1,2}[./-]\d{1,2}(?:[tT]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:[zZ]|[-+]\d{2}(?::?\d{2})?)?)?`,
   `\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}`,
@@ -207,17 +219,11 @@ const detailsIn = (source: string): Detail[] => {
     const kind = kinds[group] ?? 'number';
     let at = match.index + match[0].length - written.length;
     const previous = found.at(-1);
-    // A dash touching the preceding endpoint joins the range, even after `Fr.` or `S/`.
-    // Spaced signs and a plus remain part of their endpoint.
-    if (
-      previous !== undefined &&
-      previous[0] + previous[1].value.length === at &&
-      /^[-−]/u.test(written) &&
-      joinsRange(previous[1].kind, kind, written[0] ?? '')
-    ) {
-      written = written.slice(1);
-      at += 1;
-    }
+    const dashLength = Number(
+      startsCompactRange(previous, kind, [at, written]),
+    );
+    written = written.slice(dashLength);
+    at += dashLength;
     const each = detail(kind, kind === 'link' ? trimLink(written) : written);
     const join =
       previous === undefined
