@@ -772,6 +772,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `invitations.ts.keyOf` sharing response state across different meeting revisions.
+  Scope state to the owning mailbox, UID and SEQUENCE, and use that same identity
+  for reads, sends, delivery checks and sign-in recovery. Exercise the same choice
+  after an earlier revision was confirmed while retaining duplicate prevention
+  within one revision; otherwise a revised invitation inherits an earlier answer
+  and silently refuses the person's new response. This does not add ordering or
+  stale-revision handling beyond the supported invitation slice.
+
 - `invitations.ts.responseMessage` or another Gmail reply combining a received
   thread ID with a newly invented subject. Resolve the source from every readable
   metadata location, including opened views and online results, and retain its

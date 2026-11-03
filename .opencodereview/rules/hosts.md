@@ -29,11 +29,12 @@ replaces it.
 
 #### The host stays thin
 
-- Mac `invitation.tsx.Details`, `DetailRow` or `Status` exposing meeting text only
-  through non-selectable `Text`. Trace the installed renderer's accessibility
+- Mac `invitation.tsx.InvitationCard`, `Details`, `DetailRow` or `Status` exposing
+  meeting text only through non-selectable `Text`. Trace the installed renderer's accessibility
   element, and expose the heading, title, each label with its values and response
-  status through selectable text or accessible labeled wrappers. Keep actions
-  separately reachable and preserve status announcements; otherwise VoiceOver
+  status through selectable text or accessible labeled wrappers, including the
+  unreadable and elsewhere branches. Keep actions separately reachable and
+  preserve status announcements; otherwise VoiceOver
   reaches response buttons without the meeting or delivery context. Component
   text queries do not qualify native accessibility exposure.
 
