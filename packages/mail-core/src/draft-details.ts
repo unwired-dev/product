@@ -327,11 +327,25 @@ const monthNumber = (key: string) =>
   monthPrefixes.findIndex((prefix) =>
     new RegExp(`(?<!\\p{L})${prefix}`, 'u').test(key),
   ) + 1;
+// A named date's trailing two-digit year after its day (`3 Nov 26`) may be a numeric date's full
+// year (`2026-11-03`); a lone day (`Nov 26`) is never read as a year.
+const withFullYear = (
+  namedKey: string,
+  parts: readonly number[],
+  numbers: readonly number[],
+) => {
+  const full = numbers.find((each) => each >= 1000);
+  return full !== undefined &&
+    /\d\D+\d{2}$/u.test(namedKey) &&
+    parts.at(-1) === full % 100
+    ? [...parts.slice(0, -1), full]
+    : [...parts];
+};
 // Expand only a trailing two-digit year before comparing figures, so a shortened year cannot
 // stand in for a changed day or month, or a day or month for a changed year.
 const sameFigures = (namedKey: string, numeric: string) => {
-  const parts = figures(namedKey);
   const numbers = figures(numeric);
+  const parts = withFullYear(namedKey, figures(namedKey), numbers);
   const year = parts.find((each) => each >= 1000);
   if (
     year !== undefined &&

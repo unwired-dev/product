@@ -1284,6 +1284,9 @@ describe('the Writing tools detail check', () => {
     ['11 Nov 2011', '11/11/12'],
     ['1 Nov 2026', '01/11/026'],
     ['1 Nov 2026', '01/11/0026'],
+    ['3 Nov 26', '2026-11-04'],
+    ['3 Nov 26', '2025-11-03'],
+    ['Nov 26', '2026-11-05'],
   ])(
     'keeps changed date parts in %s visible as changed',
     (original, result) => {
@@ -1447,6 +1450,9 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
     expect(
       checkDetails(whole('Meet 3 Nov 26.'), 'Meet 3 Nov 2026.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
+    expect(
+      checkDetails(whole('Meet 3 Nov 26.'), 'Meet 2026-11-03.').changes,
     ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
   });
 
