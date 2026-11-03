@@ -29,7 +29,13 @@ import {
 } from '@testing-library/react-native';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, AppState, StyleSheet, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
@@ -1942,6 +1948,27 @@ describe('composing Drafts', () => {
     await select(8, 8);
     expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
     await select(5, 14);
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    await press('Add Link');
+    // Its fields take focus from the body, which drops its selection; closing puts it back.
+    await select(0, 0);
+    // Escape in a field closes it without a change.
+    await fireEvent(screen.getByLabelText('Link'), 'keyPress', {
+      nativeEvent: { key: 'Escape' },
+    });
+    const popover = popoverOf(screen.getByLabelText('Link'))!;
+    expect(popover).toHaveProp('shown', false);
+    focus.mockClear();
+    await fireEvent(popover, 'close');
+    expect(body).toHaveProp('selection', { start: 5, end: 14 });
+    // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+    expect(focus).toHaveBeenCalledTimes(1);
+    // A click elsewhere closes it too, and leaves focus with that click.
+    await press('Add Link');
+    focus.mockClear();
+    await fireEvent(popoverOf(screen.getByLabelText('Link'))!, 'close');
+    expect(focus).not.toHaveBeenCalled();
+    focus.mockRestore();
     await press('Add Link');
     const destination = screen.getByLabelText('Link');
     expect(screen.getByLabelText('Text')).toHaveProp('value', 'the lease');

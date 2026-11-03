@@ -218,11 +218,21 @@ menu closes with Escape and with a click outside, then Down and Return choose
 checks the moved-message notice and rejects refusal, unsaved, pending and unfinished
 save/sync states. This is a synthetic completion proxy, not provider destination
 readback. It runs Reply from the palette,
-types into the reply and pastes into it. With the reply docked, it clicks the
+types into the reply and pastes into it. It then selects the reply and clicks
+**Add Link** ([#1792](https://github.com/unwired-dev/product/issues/1792)): the
+Link Editor popover opens with the selection as its Text, Link focused and empty,
+Apply disabled and no Remove Link. Its audit completes with two exceptions: the
+tracked contrast gap [#1794](https://github.com/unwired-dev/product/issues/1794)
+and the hint's false "Label duplicates role description" finding. The capture is
+kept as an `Add Link` attachment. An invalid destination shows its reason after Return,
+Escape closes the popover keeping the text and selection, which reopening it
+prefills again, and a valid destination applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
+Edit Link then offers Remove Link with the saved destination, and Escape closes
+it. With the reply docked, it clicks the
 reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
 **Folders** opens its menu, which Escape closes, and the read toggle flips while the
 reply keeps its text. After relaunch, it checks that the
-saved Draft reopens with that text. Command-N opens a second Inbox with no
+saved Draft reopens with that text, and Edit Link with its saved destination. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there.
@@ -247,15 +257,18 @@ the desktop pasteboard. The journey restores its earlier contents only if
 nothing has written to it since the journey's last Cut or Copy.
 
 It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
-Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader and composer, and prints each issue as an `ACCESSIBILITY` JSON line in
-`xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
+Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader,
+composer and Link Editor, and prints each issue as an `ACCESSIBILITY` JSON line
+in `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are secondary-text
 contrast on Dark sidebar glass ([#1574](https://github.com/unwired-dev/product/issues/1574)),
+the Link Editor hint on popover glass ([#1794](https://github.com/unwired-dev/product/issues/1794)),
 labels the contrast audit flags although their captured pixels pass, that
 fail only while another window or an AppKit sheet dims their window, or that sit
 on the Command Palette's glass panel
 ([#1550](https://github.com/unwired-dev/product/issues/1550)),
-AppKit's text Touch Bar, and email or web addresses used as labels. The contrast gaps list
+AppKit's text Touch Bar, email or web addresses used as labels, and the Link Editor
+hint's false "Label duplicates role description" finding. The contrast gaps list
 the labels each owner covers in either appearance. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and

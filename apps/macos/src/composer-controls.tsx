@@ -360,15 +360,24 @@ export function LinkEditor({
   link,
   disabled,
   onChange,
+  onShown,
 }: {
   readonly link: Link | undefined;
   readonly disabled: boolean;
   readonly onChange: (link: Link, text: string, href?: string) => void;
+  // Reports the popover opening and, after any change, closing; `returning` when Escape, Apply or
+  // Remove Link closed it rather than a click elsewhere, which keeps that click's focus.
+  readonly onShown?: (shown: boolean, returning?: boolean) => void;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
   const [editing, setEditing] = useState<Link>();
   const [shown, setShown] = useState(false);
+  const returning = useRef(false);
+  const close = () => {
+    returning.current = true;
+    setShown(false);
+  };
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
   // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
@@ -381,7 +390,7 @@ export function LinkEditor({
   const applicable = href !== undefined && isLinkText(text);
   const adding = editing?.href === '';
   const finish = (next: string, nextHref?: string) => {
-    setShown(false);
+    close();
     if (editing !== undefined) {
       onChange(editing, next, nextHref);
     }
@@ -402,10 +411,16 @@ export function LinkEditor({
         <TextInput
           accessibilityLabel={label}
           autoCorrect={!url}
-          // oxlint-disable-next-line jsx-a11y/no-autofocus -- User-opened Add Link must focus Link when the popover gains its native window, after layout.
-          autoFocus={url && adding}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- A user-opened Link Editor must focus Link when the popover gains its native window, after layout, so it takes keys such as Escape.
+          autoFocus={url}
           onBlur={url ? check : undefined}
           onChangeText={url ? setDestination : setText}
+          // AppKit reports Escape in a text input as a key press; it closes without a change.
+          onKeyPress={({ nativeEvent }) => {
+            if (nativeEvent.key === 'Escape') {
+              close();
+            }
+          }}
           onSubmitEditing={apply}
           placeholder={url ? t('drafts.link.placeholder') : undefined}
           placeholderTextColor={colors.textSecondary}
@@ -436,15 +451,19 @@ export function LinkEditor({
             setText(link.text);
             setDestination(link.href);
             setChecked(false);
+            returning.current = false;
             setShown(true);
+            onShown?.(true);
           }
         }}
       />
       <Popover
         below
+        title={adding ? t('drafts.link.add') : t('drafts.link.edit')}
         shown={shown}
         onClose={() => {
           setShown(false);
+          onShown?.(false, returning.current);
         }}>
         <View style={styles.linkPopover}>
           {field(false)}

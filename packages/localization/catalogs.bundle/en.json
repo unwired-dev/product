@@ -681,6 +681,8 @@
     "detailColumn": "Detail",
     "originalColumn": "Original",
     "resultColumn": "Rewrite",
+    "comparison": "Your original → this rewrite",
+    "detailChange": "{{original}} → {{result}}",
     "noDetail": "—",
     "detail": {
       "link": "Link",
