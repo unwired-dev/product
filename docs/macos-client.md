@@ -88,8 +88,8 @@ as native buttons with a press action. A view's main action, such as Send, takes
 graphite `accent/fill` bezel tint with a semibold title. Welcome's Continue takes the
 cinnabar `brand/seal` tint. The others keep the standard bezel, and Destructive also
 draws its title in `status/destructive`. In Dark, an `accent/ink` ring replaces the
-system focus ring. No push button takes Return as its key equivalent, so Return never
-sends an open Draft. React Native macOS
+system focus ring. Only a Writing tools result's main push button takes Return as its key
+equivalent; no Send button does, so Return never sends an open Draft. React Native macOS
 0.81.9's `Button` is a `TouchableOpacity`. Remove the adapter when React Native macOS
 offers an `NSButton`.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.

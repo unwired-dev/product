@@ -538,7 +538,13 @@ describe('the Tiptap evaluation composer', () => {
     );
     await chooseMenuItem('Rewrite');
     await screen.findByText(syntheticRewrite);
-    await press('Replace your text with this rewrite');
+    // The synthetic rewrite drops the original's "friday", so applying it is the explicit choice.
+    expect(
+      screen.getByLabelText('Date. Original: friday. Rewrite: —. Removed'),
+    ).toBeOnTheScreen();
+    await press(
+      'Replace your text with this rewrite, including its changed details',
+    );
     expect(lastCommand()).toBe(
       sent({
         type: 'replace',
