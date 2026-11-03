@@ -57,6 +57,7 @@ import {
   applyText,
   blockKindAt,
   displayOf,
+  formatStyleOf,
   historyOf,
   imageCharacter,
   imagesOf,
@@ -146,7 +147,7 @@ import {
 import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useAppearance, usePalette } from './theme.ts';
 import { DraftTranslation, TranslationContext } from './translation.tsx';
 
 // Fabric includes the post-edit selection; RN's Flow declaration has it, but its TS type omits it.
@@ -1792,6 +1793,7 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
+  const appearance = useAppearance();
 
   // Set while Discard or Send finishes, which take the Draft as it was then.
   const discarded = useRef(false);
@@ -2533,13 +2535,17 @@ function Editor({
                     line.kind === 'quote'
                       ? { color: colors.textSecondary }
                       : null,
+                    line.align === undefined ? null : { textAlign: line.align },
                   ]}>
                   {line.marker}
                   {line.spans.map((span, at) => (
                     <Text
                       // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
                       key={at}
-                      style={markStyle(span.marks, 'link' in span)}>
+                      style={[
+                        markStyle(span.marks, 'link' in span),
+                        formatStyleOf(span, appearance),
+                      ]}>
                       {span.text}
                     </Text>
                   ))}

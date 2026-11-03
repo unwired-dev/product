@@ -103,6 +103,11 @@ frame. The pinned keyboard-controller patch clears its padding when avoidance
 is disabled, preserving the iPad composer's collapsed layout. Remove the patch
 when the supported upstream version clears that padding itself.
 
+The composer body shows a Draft's stored fonts through React Native's iOS font
+lookup, which already falls back to the system font at the stored size, weight
+and italic when a family is not installed. Unlike the Mac renderer, it needs no
+patch for this.
+
 Keep the Effect patcher, Oxlint and `oxlint-tsgolint` on the compatible catalog
 versions and update them together. TypeScript 7 is intentionally
 excluded from `expo install --check` because Expo recommends TypeScript 6 while
