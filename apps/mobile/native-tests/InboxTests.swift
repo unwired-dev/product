@@ -1874,6 +1874,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     waitForFocus(destination)
     XCTAssertEqual(text.value as? String, "reply")
+    let initialDestination = try XCTUnwrap(destination.value as? String)
+    XCTAssertTrue(initialDestination.isEmpty || initialDestination == destination.placeholderValue)
     XCTAssertFalse(app.buttons["Remove Link"].exists)
     XCTAssertFalse(apply.isEnabled)
     if !pad {
@@ -1896,6 +1898,8 @@ final class InboxTests: XCTestCase {
 
     formatControl("Add Link", in: app).tap()
     waitForFocus(destination)
+    XCTAssertEqual(text.value as? String, "reply")
+    XCTAssertEqual(destination.value as? String, initialDestination)
     press("https://example.com\n", in: app)
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
