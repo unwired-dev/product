@@ -1881,7 +1881,7 @@ function Editor({
   const [placed, setPlaced] = useState<Selection>();
   const bodyInput = useRef<TextInput>(null);
   // The Link Editor's fields take focus from the body, which then drops its selection; the
-  // selection is kept and put back when the editor closes.
+  // selection is kept, and Escape, Apply or Remove Link put it back with focus.
   const linking = useRef(false);
   // Marks toggled at a caret apply to the text typed there next.
   const [typing, setTyping] = useState<readonly Mark[]>();
@@ -2627,9 +2627,9 @@ function Editor({
             fromControl();
             editLink(link, text, href);
           }}
-          onShown={(shown) => {
+          onShown={(shown, returning) => {
             linking.current = shown;
-            if (!shown) {
+            if (returning === true) {
               bodyInput.current?.focus();
               setPlaced({ ...selectionNow.current });
             }

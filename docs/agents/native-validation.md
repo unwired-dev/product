@@ -225,14 +225,14 @@ Apply disabled and no Remove Link. Its audit completes with two exceptions: the
 tracked contrast gap [#1794](https://github.com/unwired-dev/product/issues/1794)
 and the hint's false "Label duplicates role description" finding. The capture is
 kept as an `Add Link` attachment. An invalid destination shows its reason after Return,
-Escape closes the popover keeping the text and selection, and a valid destination
-applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
+Escape closes the popover keeping the text and selection, which reopening it
+prefills again, and a valid destination applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
 Edit Link then offers Remove Link with the saved destination, and Escape closes
 it. With the reply docked, it clicks the
 reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
 **Folders** opens its menu, which Escape closes, and the read toggle flips while the
 reply keeps its text. After relaunch, it checks that the
-saved Draft reopens with that text and its link. Command-N opens a second Inbox with no
+saved Draft reopens with that text, and Edit Link with its saved destination. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there.

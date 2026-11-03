@@ -1478,7 +1478,14 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(typed.value as? String, "Keyboard replyKeyboard reply")
     typed.click()
     app.typeKey("a", modifierFlags: .command)
-    XCTAssertTrue(window.buttons["Edit Link"].waitForExistence(timeout: 10))
+    let edit = window.buttons["Edit Link"]
+    XCTAssertTrue(edit.waitForExistence(timeout: 10))
+    edit.click()
+    let destination = app.textFields["Link"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    XCTAssertEqual(destination.value as? String, "https://example.com/garden")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
 
     // Window commands: a new Inbox, cycling, Show Inbox and closing, each window with its own view.
     app.typeKey("n", modifierFlags: .command)
@@ -1609,6 +1616,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(addLink.isEnabled)
     addLink.click()
     waitForFocus(destination)
+    XCTAssertEqual(app.textFields["Text"].value as? String, body)
     app.typeText("https://example.com/garden")
     waitUntil { apply.isEnabled }
     apply.click()
