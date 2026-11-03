@@ -308,6 +308,25 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `invitations.ts.contentLines` or another synchronous reader parser using
+  overlapping regex repetitions or a delimiter split that rescans the remaining
+  suffix for every match. Check damaged inputs as well as valid delimiter-heavy
+  lines within the admitted size budget. Keep token/value alternatives disjoint
+  and total scanning work linear; a bounded message can still block the reader
+  for seconds through quadratic backtracking or repeated quote balancing.
+  In `scoped`, classify only the component levels consumers use instead of
+  rebuilding and retaining every complete nested path; repeated stack joins
+  otherwise amplify a small calendar into quadratic work and retained text.
+
+- `invitations.ts.detailsOf` or another calendar parser ignoring a supplied
+  `DURATION` and displaying a meeting without its end. Derive the end using the
+  supported DATE or DATE-TIME semantics, or reject the invitation as unsupported;
+  reject conflicting DTEND/DURATION, nonpositive lengths and computed instants
+  outside the date formatter's supported range. Check nominal day/week durations
+  across clock changes separately from exact hours/minutes/seconds. Otherwise a
+  valid duration loses meeting time or malformed arithmetic reaches Intl and
+  crashes the reader instead of showing the unreadable state.
+
 - `draft-html.ts.otherProperty` accepting a quote border without checking whether
   it draws a line. Audit shorthand defaults, every width spelling including
   exponent notation, transparent colors and unvetted functions. Preserve token
@@ -465,6 +484,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   a traversal guard, reject the host-facing read and leave the message loading.
 
 #### Errors and diagnostics
+
+- `gmail-inbox.ts.fetchBody` making readable text depend on an optional calendar
+  part or another independently fetched message enhancement. Recover missing,
+  damaged and transiently unavailable optional parts without hiding the body,
+  while preserving lifecycle-changing failures through the owning Inbox recovery.
+  A rejected grant must publish the owner-fenced sign-in notice and stop further
+  part reads, as `resolveImages` does; otherwise an unavailable invitation hides
+  ordinary mail or a best-effort fallback conceals lost mailbox authorization.
+  Trace cached completion through `completeImages` too: a transiently missing
+  calendar must retain a retry signal until a later explicit open can complete
+  it, without treating a permanent missing part as pending forever. Otherwise
+  the first failed read permanently hides an invitation behind a complete cache
+  entry. Preserve rejected-grant feedback before any later successful part read.
+  Check an active refresh as well as reopen: access closure must retire its
+  already-shown body rather than preserve it as an ordinary failed refresh.
 
 - A failure modelled as a thrown `Error`, a string or a boolean where callers need to tell cases apart; use `Schema.TaggedError`, with a foreign error carried as `cause: Schema.Defect()`.
 - An expected state (locked storage, cancelled or declined sign-in, enrollment waiting) logged as an error, or an unexpected failure recovered without `Effect.logError`.
@@ -737,6 +771,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A service identifier that does not follow `@private-email/<package>/<Name>`; identifiers key the context, and a collision silently resolves the wrong service.
 
 #### Product behavior the stores own
+
+- `invitations.ts.keyOf` sharing response state across different meeting revisions.
+  Scope state to the owning mailbox, UID and SEQUENCE, and use that same identity
+  for reads, sends, delivery checks and sign-in recovery. Exercise the same choice
+  after an earlier revision was confirmed while retaining duplicate prevention
+  within one revision; otherwise a revised invitation inherits an earlier answer
+  and silently refuses the person's new response. This does not add ordering or
+  stale-revision handling beyond the supported invitation slice.
+
+- `invitations.ts.responseMessage` or another Gmail reply combining a received
+  thread ID with a newly invented subject. Resolve the source from every readable
+  metadata location, including opened views and online results, and retain its
+  subject and RFC reply headers together with its mailbox-scoped thread ID.
+  Exercise the outgoing request through the store; otherwise Gmail can put an
+  explicit invitation response in a separate conversation despite a thread ID.
 
 - `graph-inbox.ts.history` fetching a discovered folder's total before saving
   that folder as pending. Refuse its first total request after other folders

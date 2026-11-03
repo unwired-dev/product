@@ -130,6 +130,7 @@ export const typography = {
     body: style(13, 16, '400'),
     bodyEmphasized: style(13, 16, '600'),
     subheadline: style(11, 14, '400'),
+    subheadlineEmphasized: style(11, 14, '600'),
   },
   ios: {
     largeTitle: style(34, 41, '700'),
