@@ -218,11 +218,19 @@ menu closes with Escape and with a click outside, then Down and Return choose
 checks the moved-message notice and rejects refusal, unsaved, pending and unfinished
 save/sync states. This is a synthetic completion proxy, not provider destination
 readback. It runs Reply from the palette,
-types into the reply and pastes into it. With the reply docked, it clicks the
+types into the reply and pastes into it. It then selects the reply and clicks
+**Add Link** ([#1792](https://github.com/unwired-dev/product/issues/1792)): the
+Link Editor popover opens with the selection as its Text, Link focused and empty,
+Apply disabled and no Remove Link, and passes the audit; the capture is kept as an
+`Add Link` attachment. An invalid destination shows its reason after Return,
+Escape closes the popover keeping the text and selection, and a valid destination
+applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
+Edit Link then offers Remove Link with the saved destination, and Escape closes
+it. With the reply docked, it clicks the
 reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
 **Folders** opens its menu, which Escape closes, and the read toggle flips while the
 reply keeps its text. After relaunch, it checks that the
-saved Draft reopens with that text. Command-N opens a second Inbox with no
+saved Draft reopens with that text and its link. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there.

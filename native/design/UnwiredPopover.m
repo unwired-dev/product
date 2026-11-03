@@ -8,13 +8,14 @@
 // An AppKit popover showing this view's React children, pointing up from this view's top edge, or
 // down from its bottom edge when `below`.
 // AppKit presents and animates it, closes it when the person clicks elsewhere or presses Escape,
-// and the view then reports `onClose`.
+// and the view then reports `onClose`. VoiceOver names the popover by `title`.
 // React Native macOS 0.81.9 has no popover; remove this view when it offers one.
 @interface UnwiredPopoverView : RCTView <NSPopoverDelegate>
 @property (nonatomic) BOOL shown;
 @property (nonatomic) BOOL below;
 @property (nonatomic) CGFloat contentWidth;
 @property (nonatomic) CGFloat contentHeight;
+@property (nonatomic, copy) NSString *title;
 @property (nonatomic, copy) RCTDirectEventBlock onClose;
 @end
 
@@ -66,11 +67,24 @@
     if (_popover.shown) _closing = YES;
     [_popover close];
   } else if (!_popover.shown && !_closing) {
-    // React Native's views are flipped, so their top edge is the minimum Y.
-    [_popover showRelativeToRect:self.bounds
+    // React Native's views are flipped, so their top edge is the minimum Y. AppKit does not show a
+    // popover from an empty rect, so the zero-height edge is given a point of height (#1792).
+    [_popover showRelativeToRect:NSInsetRect(self.bounds, 0, -0.5)
                           ofView:self
                    preferredEdge:self.below ? NSRectEdgeMaxY : NSRectEdgeMinY];
   }
+}
+- (void)popoverWillShow:(NSNotification *)notification
+{
+  NSWindow *window = _popover.contentViewController.view.window;
+  window.accessibilityLabel = self.title;
+  // An `autoFocus` input took focus when the content joined this window; AppKit would otherwise
+  // focus the first input as the window becomes key.
+  NSResponder *focused = window.firstResponder;
+  if ([focused isKindOfClass:NSTextView.class] && ((NSTextView *)focused).isFieldEditor) {
+    focused = (NSResponder *)((NSTextView *)focused).delegate;
+  }
+  if ([focused isKindOfClass:NSView.class]) window.initialFirstResponder = (NSView *)focused;
 }
 - (void)popoverDidClose:(NSNotification *)notification
 {
@@ -95,6 +109,7 @@ RCT_EXPORT_VIEW_PROPERTY(shown, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(below, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(contentWidth, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(contentHeight, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(title, NSString)
 RCT_EXPORT_VIEW_PROPERTY(onClose, RCTDirectEventBlock)
 - (RCTView *)view { return [UnwiredPopoverView new]; }
 @end

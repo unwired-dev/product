@@ -360,10 +360,13 @@ export function LinkEditor({
   link,
   disabled,
   onChange,
+  onShown,
 }: {
   readonly link: Link | undefined;
   readonly disabled: boolean;
   readonly onChange: (link: Link, text: string, href?: string) => void;
+  // Reports the popover opening and, after any change, closing.
+  readonly onShown?: (shown: boolean) => void;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
@@ -402,10 +405,16 @@ export function LinkEditor({
         <TextInput
           accessibilityLabel={label}
           autoCorrect={!url}
-          // oxlint-disable-next-line jsx-a11y/no-autofocus -- User-opened Add Link must focus Link when the popover gains its native window, after layout.
-          autoFocus={url && adding}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- A user-opened Link Editor must focus Link when the popover gains its native window, after layout, so it takes keys such as Escape.
+          autoFocus={url}
           onBlur={url ? check : undefined}
           onChangeText={url ? setDestination : setText}
+          // AppKit reports Escape in a text input as a key press; it closes without a change.
+          onKeyPress={({ nativeEvent }) => {
+            if (nativeEvent.key === 'Escape') {
+              setShown(false);
+            }
+          }}
           onSubmitEditing={apply}
           placeholder={url ? t('drafts.link.placeholder') : undefined}
           placeholderTextColor={colors.textSecondary}
@@ -437,14 +446,17 @@ export function LinkEditor({
             setDestination(link.href);
             setChecked(false);
             setShown(true);
+            onShown?.(true);
           }
         }}
       />
       <Popover
         below
+        title={adding ? t('drafts.link.add') : t('drafts.link.edit')}
         shown={shown}
         onClose={() => {
           setShown(false);
+          onShown?.(false);
         }}>
         <View style={styles.linkPopover}>
           {field(false)}

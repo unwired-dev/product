@@ -1943,6 +1943,17 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
     await select(5, 14);
     await press('Add Link');
+    // Its fields take focus from the body, which drops its selection; closing puts it back.
+    await select(0, 0);
+    // Escape in a field closes it without a change.
+    await fireEvent(screen.getByLabelText('Link'), 'keyPress', {
+      nativeEvent: { key: 'Escape' },
+    });
+    const popover = popoverOf(screen.getByLabelText('Link'))!;
+    expect(popover).toHaveProp('shown', false);
+    await fireEvent(popover, 'close');
+    expect(body).toHaveProp('selection', { start: 5, end: 14 });
+    await press('Add Link');
     const destination = screen.getByLabelText('Link');
     expect(screen.getByLabelText('Text')).toHaveProp('value', 'the lease');
     expect(destination).toHaveProp('value', '');

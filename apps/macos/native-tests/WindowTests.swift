@@ -1442,6 +1442,7 @@ final class WindowTests: XCTestCase {
     app.typeKey("v", modifierFlags: .command)
     waitUntil { typed.value as? String == "Keyboard replyKeyboard reply" }
     try audit(app, "Composer")
+    try linkEditorJourney(app, window: window, typed: typed, appearance: appearance)
     // #1211: the reader's toolbar above the docked reply takes clicks. Folders opens its menu and
     // the read toggle flips, and the reply keeps its text.
     move.click()
@@ -1463,7 +1464,7 @@ final class WindowTests: XCTestCase {
     app.typeKey(.delete, modifierFlags: [])
     let draft = row("Draft. Re: Outlook update 003")
     XCTAssertTrue(draft.waitForExistence(timeout: 15))
-    // Only Save stores the reply (#1609); Close asks first.
+    // Only Save stores the reply (#1609) and its link (#1792); Close asks first.
     window.buttons["Close"].click()
     let save = window.sheets.firstMatch.buttons["Save"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
@@ -1475,6 +1476,9 @@ final class WindowTests: XCTestCase {
     draft.click()
     XCTAssertTrue(typed.waitForExistence(timeout: 15))
     XCTAssertEqual(typed.value as? String, "Keyboard replyKeyboard reply")
+    typed.click()
+    app.typeKey("a", modifierFlags: .command)
+    XCTAssertTrue(window.buttons["Edit Link"].waitForExistence(timeout: 10))
 
     // Window commands: a new Inbox, cycling, Show Inbox and closing, each window with its own view.
     app.typeKey("n", modifierFlags: .command)
@@ -1570,6 +1574,64 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(quittingComposer.buttons["Send"].waitForExistence(timeout: 15))
     quittingComposer.typeKey("q", modifierFlags: .command)
     XCTAssertTrue(app.wait(for: .notRunning, timeout: 15))
+  }
+
+  // #1792: the format bar's Link control adds a link to the selected reply text in its native
+  // popover, Link focused; an invalid destination says why, Escape keeps the selection, and one
+  // Undo reverts the applied link.
+  private func linkEditorJourney(
+    _ app: XCUIApplication, window: XCUIElement, typed: XCUIElement, appearance: String
+  ) throws {
+    let body = typed.value as? String
+    app.typeKey("a", modifierFlags: .command)
+    let addLink = window.buttons["Add Link"]
+    waitUntil { addLink.isEnabled }
+    addLink.click()
+    let destination = app.textFields["Link"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    waitForFocus(destination)
+    XCTAssertEqual(app.textFields["Text"].value as? String, body)
+    XCTAssertFalse(app.buttons["Remove Link"].exists)
+    let apply = app.buttons["Apply"]
+    XCTAssertFalse(apply.isEnabled)
+    let capture = XCTAttachment(screenshot: app.screenshot())
+    capture.name = "Add Link \(appearance)"
+    capture.lifetime = .keepAlways
+    add(capture)
+    try audit(app, "Link Editor")
+    app.typeText("not a link\r")
+    let reason = text("Enter a valid web, email or phone link.", in: app)
+    XCTAssertTrue(reason.waitForExistence(timeout: 10))
+    XCTAssertFalse(apply.isEnabled)
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    XCTAssertEqual(typed.value as? String, body)
+    XCTAssertTrue(addLink.isEnabled)
+    addLink.click()
+    waitForFocus(destination)
+    app.typeText("https://example.com/garden")
+    waitUntil { apply.isEnabled }
+    apply.click()
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    let edit = window.buttons["Edit Link"]
+    XCTAssertTrue(edit.waitForExistence(timeout: 10))
+    XCTAssertEqual(typed.value as? String, body)
+    // An earlier move's notice offers its own Undo above the reply.
+    let undo = try XCTUnwrap(
+      window.buttons.matching(identifier: "Undo").allElementsBoundByIndex.first {
+        $0.frame.minY > edit.frame.minY
+      })
+    undo.click()
+    XCTAssertTrue(edit.waitForNonExistence(timeout: 10))
+    XCTAssertEqual(typed.value as? String, body)
+    window.buttons["Redo"].click()
+    XCTAssertTrue(edit.waitForExistence(timeout: 10))
+    edit.click()
+    XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
+    XCTAssertEqual(destination.value as? String, "https://example.com/garden")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    typed.click()
   }
 
   // Opens the key window's Command Palette, narrows it to one command and runs it with Return.
@@ -1669,6 +1731,8 @@ final class WindowTests: XCTestCase {
   // Text the contrast audit still flags after #1195's solid colours, by the issue that owns it. The
   // audits cover every open window, so these list labels rather than screens.
   private let contrastGaps: [String: Set<String>] = [
+    // Secondary text on popover glass, darkened where the popover overlaps a dark window behind.
+    "#1794": ["Enter a web, email or phone link for the selected text."],
     // Dark secondary text on sidebar glass, lightened by whatever is behind the window.
     "#1574": ["Accounts", "Application", "Automation", "Gmail · other@example.invalid"],
     // Their captured pixels pass, yet the audit flags them: the Inbox window's labels while
@@ -1681,8 +1745,8 @@ final class WindowTests: XCTestCase {
       "Go To", "Known Tracking Pixels stay blocked for every remote-content policy.",
       "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
       "Mailboxes", "Microsoft · casey@example.invalid", "On-device assistance is off.",
-      "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes", "Selected Message",
-      "September 2025",
+      "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
+      "Select a message to start reading.", "Selected Message", "September 2025",
       "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
       "casey@example.invalid, other@example.invalid are connected on this device.",
     ],
@@ -1715,6 +1779,10 @@ final class WindowTests: XCTestCase {
       && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
         .contains(label):
       return "email address"
+    // The Link Editor's hint is a sentence ending in "text", not a label repeating its role.
+    case _ where type == .staticText && issue.compactDescription == "Label duplicates role description"
+      && label == "Enter a web, email or phone link for the selected text.":
+      return "Link Editor hint"
     // A message link whose text is a web address reads as that address.
     case .sufficientElementDescription
     where type == .link

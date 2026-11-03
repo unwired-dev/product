@@ -73,6 +73,7 @@ const NativePopover = requireNativeComponent<
     readonly below?: boolean;
     readonly contentWidth: number;
     readonly contentHeight: number;
+    readonly title: string;
     readonly onClose: () => void;
   }
 >('UnwiredPopover');
@@ -800,11 +801,14 @@ export function AnnouncedAlert({
 }
 
 export function Popover({
+  title,
   shown,
   below = false,
   onClose,
   children,
 }: {
+  // VoiceOver's name for the popover.
+  readonly title: string;
   readonly shown: boolean;
   readonly below?: boolean;
   readonly onClose: () => void;
@@ -826,7 +830,8 @@ export function Popover({
         onClose();
       }}
       shown={shown && size.height > 0}
-      style={[styles.popoverHost, below && styles.popoverHostBelow]}>
+      style={[styles.popoverHost, below && styles.popoverHostBelow]}
+      title={title}>
       {presented ? (
         // The popover takes this one view as its content, so Fabric must not flatten it.
         <View
