@@ -1261,6 +1261,9 @@ describe('the Writing tools detail check', () => {
     expect(
       checkDetails(whole('Open 9–5pm.'), 'Open 9–6pm.').changes,
     ).toMatchObject([{ kind: 'time', status: 'changed' }]);
+    expect(
+      checkDetails(whole('Stay 3–5 Nov.'), 'Stay 20 Dec–5 Nov.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'changed' }]);
   });
 
   it('reads thousands grouped by any space character as one amount', () => {
