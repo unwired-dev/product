@@ -101,7 +101,7 @@ iPhone and iPad composer.
     ratios and ranges (`100/200`, `100:200`, `1–2`). Adjacent numbers, amounts,
     dates or times joined by a dash, slash, colon, `to`, `until`, `through` or `till`
     are compared in order as one detail (`€40–€50`, `09:00–17:00`, `Mon–Fri`,
-    `from 9 to 5`), so reversing their ends is a change. Each endpoint keeps its
+    `from 9 to 5`, `Mon.–Fri.`), so reversing their ends is a change. Each endpoint keeps its
     own sign, date/time parts and equivalence rules, and a range whose ends
     differ only by possible equivalents (`3 Nov–4 Nov` and `3 November–4 November`)
     is uncertain. Only ends of one kind, or a bare number beside another kind

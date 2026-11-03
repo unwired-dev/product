@@ -1196,6 +1196,17 @@ describe('the Writing tools detail check', () => {
     },
   );
 
+  it('joins a range of dotted abbreviations, so reversing it is a change', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Open Mon.–Fri.'), 'Open Fri.–Mon.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'changed' }]);
+    expect(
+      checkDetails(whole('Available 3 Nov.–4 Dec.'), 'Available 4 Dec.–3 Nov.')
+        .changes,
+    ).toMatchObject([{ kind: 'date', status: 'changed' }]);
+  });
+
   it('finds nothing to compare in text without details', () => {
     expect.hasAssertions();
     expect(
