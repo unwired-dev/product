@@ -8,6 +8,8 @@ import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ComponentProps, ContextType, ReactNode } from 'react';
 import type { TextInput } from 'react-native';
 
+import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import { buttonStyle, controlSize } from '@expo/ui/swift-ui/modifiers';
 import { lastUpdated } from '@private-email/localization';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
@@ -621,12 +623,15 @@ function EmptyInbox({
       </Text>
       {unconnected === undefined ? null : (
         <View style={styles.emptyAction}>
-          <Button
-            label={t('profiles.manage')}
-            onPress={() => {
-              unconnected.manage();
-            }}
-          />
+          <Host matchContents>
+            <SwiftUIButton
+              label={t('profiles.manage')}
+              modifiers={[buttonStyle('bordered'), controlSize('large')]}
+              onPress={() => {
+                unconnected.manage();
+              }}
+            />
+          </Host>
         </View>
       )}
     </View>
