@@ -1597,6 +1597,7 @@ final class WindowTests: XCTestCase {
     let destination = app.textFields["Link"]
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     waitForFocus(destination)
+    XCTAssertEqual(destination.value as? String, "")
     XCTAssertEqual(app.textFields["Text"].value as? String, body)
     XCTAssertFalse(app.buttons["Remove Link"].exists)
     let apply = app.buttons["Apply"]
