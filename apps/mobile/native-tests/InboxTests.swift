@@ -507,7 +507,9 @@ final class InboxTests: XCTestCase {
       "Airplane", in: icon, checked: "First Letter",
       of: ["Person", "People", "Laptop", "Book", "Airplane", "Cart", "Paintbrush", "Star"], app)
     // The iPad sidebar shows the account's monogram, which Light detects.
-    try audit(app, "Mail Profiles", monograms: 1)
+    let sidebarMonogram = UIDevice.current.userInterfaceIdiom == .pad
+      && ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE"] == "light"
+    try audit(app, "Mail Profiles", monograms: sidebarMonogram ? 1 : 0)
     verifyBlueMonogram(app, in: work.frame, "Settings row of a styled Profile")
   }
 
