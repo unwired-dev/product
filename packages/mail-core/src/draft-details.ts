@@ -77,6 +77,9 @@ const currency = `[A-Za-z]{0,2}\\p{Sc}|[A-Z]{3}|${currencyCode}|${anyCase(String
 // A detail never ends inside a word or before the rest of a number, so `0.5` is not read as `0`.
 const edge = String.raw`(?![\p{L}\p{N}]|[.,]\p{N})`;
 const rangeKinds = new Set<DetailKind>(['date', 'time', 'amount', 'number']);
+// A bare number takes the kind of the endpoint it ranges to (`3–5 Nov` is a date).
+const rangeKind = (first: DetailKind, last: DetailKind) =>
+  first === 'number' ? last : first;
 // An abbreviation's period (`Mon.–Fri.`) may sit before the join.
 const rangeJoin = /^\.?\s*(?:[/–—−:-]|to|until|through|till)\s*$/iu;
 // Endpoints of one kind, or a bare number beside another kind (`3–5 Nov`), make a range; a date
@@ -212,9 +215,8 @@ const detailsIn = (source: string): Detail[] => {
       found.pop();
       found.push([
         previous[0],
-        // A bare number takes the kind of the endpoint it ranges to (`3–5 Nov` is a date).
         {
-          kind: previous[1].kind === 'number' ? kind : previous[1].kind,
+          kind: rangeKind(previous[1].kind, kind),
           value: text.slice(previous[0], at + written.length),
           key: `${previous[1].key}\0${join.trim().toLowerCase()}\0${kind}\0${each.key}`,
         },
