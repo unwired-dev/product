@@ -503,13 +503,13 @@ export const notIncludedDetail = (
   role: UnifiedRole,
 ) => {
   if (role !== allMail) {
-    return 'mailboxes.notIncludedDetail';
+    return 'mailboxes.notIncludedDetail' as const;
   }
   const { state } = mailbox;
   return 'folders' in state &&
     state.folders.some(({ name }) => imapHoldsAll(state.folders, name))
-    ? 'mailboxes.notIncludedAllMail'
-    : 'mailboxes.notIncludedSpamTrash';
+    ? ('mailboxes.notIncludedAllMail' as const)
+    : ('mailboxes.notIncludedSpamTrash' as const);
 };
 
 // One window's retained Unified Mailbox views. Store identity is part of ownership, so repairing
