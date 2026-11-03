@@ -233,7 +233,7 @@ final class InboxTests: XCTestCase {
 
   // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
   // the first one, without Gmail; Gmail is added beside it with a Google grant.
-  private func appleRegistrationJourney(_ app: XCUIApplication) {
+  private func appleRegistrationJourney(_ app: XCUIApplication) throws {
     // On iPhone, Welcome's Privacy page shows the system navigation bar, whose Back returns to
     // Welcome, also after reopening it.
     if UIDevice.current.userInterfaceIdiom == .phone {
@@ -296,7 +296,7 @@ final class InboxTests: XCTestCase {
         NSPredicate(
           format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
       ).firstMatch.waitForExistence(timeout: 15))
-    profileSwitcherJourney(app)
+    try profileSwitcherJourney(app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -423,17 +423,9 @@ final class InboxTests: XCTestCase {
   // its connections and New Mail Profile…, whose prompt asks for a name and cancels without
   // change. #1188: after this journey's relaunch, creating a Profile signs in with Apple again
   // first, and the window then switches to the new Profile and back.
-  private func profileSwitcherJourney(_ app: XCUIApplication) {
+  private func profileSwitcherJourney(_ app: XCUIApplication) throws {
     let switcher = app.buttons["Mail Profile, Primary Profile"]
-    // The switcher sits in the Mailboxes column; on iPhone that column is one Back away.
-    if !switcher.waitForExistence(timeout: 5) || !switcher.isHittable {
-      if UIDevice.current.userInterfaceIdiom == .phone {
-        app.buttons["Back to Mailboxes"].tap()
-      } else {
-        app.navigationBars.buttons.firstMatch.tap()
-      }
-    }
-    XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+    revealSwitcher(app, switcher)
     switcher.tap()
     let create = app.buttons["New Mail Profile…"]
     XCTAssertTrue(create.waitForExistence(timeout: 10))
@@ -474,16 +466,7 @@ final class InboxTests: XCTestCase {
     work.tap()
     let switched = app.buttons["Mail Profile, Work"]
     // Switching remounts the shell on its Inbox column. Reveal Mailboxes before checking it.
-    if !switched.waitForExistence(timeout: 5) || !switched.isHittable {
-      if UIDevice.current.userInterfaceIdiom == .phone {
-        let back = app.buttons["Back to Mailboxes"]
-        XCTAssertTrue(back.waitForExistence(timeout: 10))
-        back.tap()
-      } else {
-        app.navigationBars.buttons.firstMatch.tap()
-      }
-    }
-    XCTAssertTrue(switched.waitForExistence(timeout: 10))
+    revealSwitcher(app, switched)
     let workWindow = XCTAttachment(screenshot: app.screenshot())
     workWindow.name = "Window switched to a Profile created after relaunch"
     workWindow.lifetime = .keepAlways
@@ -494,6 +477,77 @@ final class InboxTests: XCTestCase {
     ).firstMatch
     XCTAssertTrue(primary.waitForExistence(timeout: 10))
     primary.tap()
+    revealSwitcher(app, switcher)
+    try mailProfilesSettingsJourney(app, switcher: switcher)
+    // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
+    app.buttons["All inboxes"].tap()
+  }
+
+  // #1800: the Primary Profile's Color and Icon read Graphite and First Letter without a pop-up.
+  // Work's system pop-ups list the approved choices with its own checked; choosing Blue and
+  // Airplane styles its monogram.
+  private func profileStyleJourney(_ app: XCUIApplication) throws {
+    let color = app.buttons["Color"]
+    let icon = app.buttons["Icon"]
+    XCTAssertFalse(color.exists)
+    XCTAssertFalse(icon.exists)
+    XCTAssertTrue(text("Graphite", in: app).exists)
+    XCTAssertTrue(text("First Letter", in: app).exists)
+    let work = app.buttons["Work"].firstMatch
+    work.tap()
+    XCTAssertTrue(color.waitForExistence(timeout: 10))
+    for (popUp, value) in [(color, "Graphite"), (icon, "First Letter")] {
+      XCTAssertEqual(popUp.value as? String, value)
+      XCTAssertGreaterThanOrEqual(popUp.frame.height, 44)
+    }
+    choose(
+      "Blue", in: color, checked: "Graphite",
+      of: ["Blue", "Indigo", "Purple", "Pink", "Teal", "Green", "Brown"], app)
+    choose(
+      "Airplane", in: icon, checked: "First Letter",
+      of: ["Person", "People", "Laptop", "Book", "Airplane", "Cart", "Paintbrush", "Star"], app)
+    try audit(app, "Mail Profiles")
+    verifyBlueMonogram(app, in: work.frame, "Settings row of a styled Profile")
+  }
+
+  // Opens a system pop-up listing its checked value and the other choices, then picks one.
+  private func choose(
+    _ choice: String, in popUp: XCUIElement, checked: String, of others: [String],
+    _ app: XCUIApplication
+  ) {
+    popUp.tap()
+    let current = app.buttons[checked]
+    XCTAssertTrue(current.waitForExistence(timeout: 10))
+    XCTAssertTrue(current.isSelected, "\(checked) is not checked")
+    for other in others {
+      XCTAssertTrue(app.buttons[other].exists, "\(popUp.label) lists no \(other)")
+    }
+    let menu = XCTAttachment(screenshot: app.screenshot())
+    menu.name = "\(popUp.label) pop-up menu"
+    menu.lifetime = .keepAlways
+    add(menu)
+    app.buttons[choice].tap()
+    waitUntil { popUp.value as? String == choice }
+  }
+
+  // A monogram on the frame's centre line fills its circle with the approved Blue of the journey's
+  // appearance.
+  private func verifyBlueMonogram(_ app: XCUIApplication, in frame: CGRect, _ place: String) {
+    let light = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE"] == "light"
+    let blue = light ? [10, 88, 202] : [59, 111, 214]
+    let line = stride(from: frame.minX, to: frame.maxX, by: 2).map { CGPoint(x: $0, y: frame.midY) }
+    XCTAssertTrue(
+      pixels(app, at: line).contains { rgba in
+        zip(rgba, blue).allSatisfy { abs(Int($0) - $1) <= 24 }
+      }, "\(place) shows no Blue monogram")
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = place
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
+  // The switcher sits in the Mailboxes column; on iPhone that column is one Back away.
+  private func revealSwitcher(_ app: XCUIApplication, _ switcher: XCUIElement) {
     if !switcher.waitForExistence(timeout: 5) || !switcher.isHittable {
       if UIDevice.current.userInterfaceIdiom == .phone {
         let back = app.buttons["Back to Mailboxes"]
@@ -504,16 +558,13 @@ final class InboxTests: XCTestCase {
       }
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
-    mailProfilesSettingsJourney(app, switcher: switcher)
-    // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
-    app.buttons["All inboxes"].tap()
   }
 
   // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
   // the Startup Profile and offers Add Mail Profile…, the Startup Profile's system pop-up menu and
   // each mailbox's Mail Profile pop-up. Open Inbox shows the kept Inbox (#1069), whose Back returns
   // to the switcher's Mailboxes.
-  private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) {
+  private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) throws {
     switcher.tap()
     let manage = app.buttons["Manage Mail Profiles…"]
     XCTAssertTrue(manage.waitForExistence(timeout: 10))
@@ -574,6 +625,7 @@ final class InboxTests: XCTestCase {
     owner?.tap()
     waitUntil({ named.count == 1 }, timeout: 10)
     XCTAssertEqual(move.value as? String, "Primary Profile")
+    try profileStyleJourney(app)
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCUIDevice.shared.orientation = .portrait
       waitUntil({
@@ -590,6 +642,24 @@ final class InboxTests: XCTestCase {
       app.navigationBars.buttons.firstMatch.tap()
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
+    // #1800: the Profile Menu draws Work's monogram in full colour rather than tinted, and the
+    // switcher shows it once the window switches to Work.
+    switcher.tap()
+    let styled = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Work")).firstMatch
+    XCTAssertTrue(styled.waitForExistence(timeout: 10))
+    verifyBlueMonogram(app, in: styled.frame, "Profile Menu with a styled Profile")
+    try audit(app, "Profile Menu")
+    styled.tap()
+    let switched = app.buttons["Mail Profile, Work"]
+    revealSwitcher(app, switched)
+    verifyBlueMonogram(app, in: switched.frame, "Switcher on a styled Profile")
+    switched.tap()
+    let unstyled = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Primary Profile")
+    ).firstMatch
+    XCTAssertTrue(unstyled.waitForExistence(timeout: 10))
+    unstyled.tap()
+    revealSwitcher(app, switcher)
     if UIDevice.current.userInterfaceIdiom == .phone {
       // #1246: the header's Account opens Settings over Mailboxes, and the list's Back returns to
       // Mailboxes, not the Inbox. New Message composes over Mailboxes, and Close returns there.
@@ -1932,7 +2002,7 @@ final class InboxTests: XCTestCase {
     {
       XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 20))
       switch ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"] {
-      case "registration-apple": appleRegistrationJourney(app)
+      case "registration-apple": try appleRegistrationJourney(app)
       case "registration-link": linkJourney(app)
       case "registration-enrollment": enrollmentJourney(app)
       case "registration-recovery": recoveryJourney(app)
