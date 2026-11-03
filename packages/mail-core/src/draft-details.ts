@@ -58,6 +58,9 @@ const unsigned = String.raw`(?:(?:\d{1,3}(?:\p{Zs}\d{3})+|\d+)(?:[.,]\d+)*|[.,]\
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
+// A dash right after a figure, letter, currency or percent joins a compact range (`40€-50€`), so
+// it is not the next detail's sign.
+const leadingFigure = `(?:(?<![\\p{L}\\p{N}\\p{Sc}%])${sign})?${unsigned}`;
 // A full stop after `pm` ends the sentence; only `p.m.` takes its own.
 const meridiem = String.raw`[aApP](?:\.[mM]\.?|[mM])`;
 const clock = String.raw`\d{1,2}[:hH]\d{2}(?::\d{2}(?:[.,]\d+)?)?`;
@@ -113,7 +116,7 @@ const date = [
 ].join('|');
 const time = `(?:${clock}(?:\\s?${meridiem})?|(?:${dottedClock}|\\d{1,2})\\s?${meridiem}|${dottedClock}(?=\\.?\\s?(?:${zone})${edge}))(?:\\.?\\s?(?:${zone}))?`;
 // A code can also be prose (`try 8 pm`); keep the complete numeric date or time with it.
-const amountPattern = `${sign}?(?:${currency})\\s?(?:${sign}?(?=\\d)(?:${time}|${date})|${figure})(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`;
+const amountPattern = `(?:(?<![\\p{L}\\p{N}\\p{Sc}%])${sign})?(?:${currency})\\s?(?:${sign}?(?=\\d)(?:${time}|${date})|${figure})(?:\\s?(?:${currency}))?|${leadingFigure}\\s?(?:${currency})`;
 
 // A detail starts and ends outside a word. Earlier alternatives win where details overlap, so an
 // amount's number or a date's day is not counted again. Quotes are read separately because they
@@ -138,7 +141,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   [
     'number',
     // Let a typed endpoint (`9–5pm`, `40–50€`) match in full before joining it as a range.
-    String.raw`${figure}(?:\s*[/–—−:-]\s*(?!(?:${time}|${date}|${amountPattern})${edge})${figure})*(?:\s?%)?(?![.,]?\p{N})`,
+    String.raw`${leadingFigure}(?:\s*[/–—−:-]\s*(?!(?:${time}|${date}|${amountPattern})${edge})${figure})*(?:\s?%)?(?![.,]?\p{N})`,
   ],
 ];
 const kinds = patterns.map(([kind]) => kind);

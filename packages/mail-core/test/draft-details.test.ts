@@ -1358,6 +1358,22 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
   });
 
+  it('compares a compact range of amounts with trailing currency as one range', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(
+        whole('Pay 40€-50€ and 60€-70€.'),
+        'Pay 40€-70€ and 60€-50€.',
+      ).changes.map(({ kind, status }) => [kind, status]),
+    ).toStrictEqual([
+      ['amount', 'changed'],
+      ['amount', 'changed'],
+    ]);
+    expect(
+      checkDetails(whole('Pay 40€ -50€.'), 'Pay 40€ -60€.').changes,
+    ).toMatchObject([{ status: 'changed' }]);
+  });
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {
