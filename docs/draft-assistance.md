@@ -102,7 +102,7 @@ iPhone and iPad composer.
     dates or times joined by a dash, slash, colon, `to`, `until`, `through` or `till`
     are compared in order as one detail (`€40–€50`, `09:00–17:00`, `Mon–Fri`,
     `from 9 to 5`, `Mon.–Fri.`), so reversing their ends is a change. Each endpoint keeps its
-    own sign (a dash straight after an amount, as in `40€-50€`, joins a range instead), date/time parts and equivalence rules, and a range whose ends
+    own sign (a dash straight after an amount, as in `40€-50€`, joins a range instead; `+` remains a sign), date/time parts and equivalence rules, and a range whose ends
     differ only by possible equivalents (`3 Nov–4 Nov` and `3 November–4 November`)
     is uncertain. Only ends of one kind, or a bare number beside another kind
     (`3–5 Nov`, `9–5pm`, `40–50€`), make a range of the typed end's kind: a date and a time (`Monday: 9am`) stay separate details, and a colon followed by a space labels the next detail (`Slot 1: 9am`) unless both sides are one kind. The check also reads

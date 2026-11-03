@@ -1374,6 +1374,39 @@ describe('the Writing tools detail check', () => {
     ).toMatchObject([{ status: 'changed' }]);
   });
 
+  it.each([
+    ['40€+50€', '40€ 50€', 'amount'],
+    ['40€+$50', '40€ $50', 'amount'],
+    ['10%+20%', '10% 20%', 'number'],
+  ])(
+    'keeps the plus sign after another detail in %s',
+    (original, result, kind) => {
+      expect.hasAssertions();
+      expect(checkDetails(whole(original), result).changes).toMatchObject([
+        { kind, status: 'changed' },
+      ]);
+      expect(checkDetails(whole(result), original).changes).toMatchObject([
+        { kind, status: 'changed' },
+      ]);
+    },
+  );
+
+  it.each(['Fr.', 'S/'])(
+    'compares a compact range whose currency marker ends in punctuation: %s',
+    (marker) => {
+      expect.hasAssertions();
+      expect(
+        checkDetails(
+          whole(`40${marker}-50${marker} and 60${marker}-70${marker}`),
+          `40${marker}-70${marker} and 60${marker}-50${marker}`,
+        ).changes,
+      ).toMatchObject([
+        { kind: 'amount', status: 'changed' },
+        { kind: 'amount', status: 'changed' },
+      ]);
+    },
+  );
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {

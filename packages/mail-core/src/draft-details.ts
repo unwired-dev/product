@@ -58,9 +58,6 @@ const unsigned = String.raw`(?:(?:\d{1,3}(?:\p{Zs}\d{3})+|\d+)(?:[.,]\d+)*|[.,]\
 // A sign belongs to its number: `-40` and `40` differ.
 const sign = '[-−+]';
 const figure = `${sign}?${unsigned}`;
-// A dash right after a figure, letter, currency or percent joins a compact range (`40€-50€`), so
-// it is not the next detail's sign.
-const leadingFigure = `(?:(?<![\\p{L}\\p{N}\\p{Sc}%])${sign})?${unsigned}`;
 // A full stop after `pm` ends the sentence; only `p.m.` takes its own.
 const meridiem = String.raw`[aApP](?:\.[mM]\.?|[mM])`;
 const clock = String.raw`\d{1,2}[:hH]\d{2}(?::\d{2}(?:[.,]\d+)?)?`;
@@ -90,12 +87,11 @@ const rangeJoin = /^\.?\s*(?:[/–—−:-]|to|until|through|till)\s*$/iu;
 // Endpoints of one kind, or a bare number beside another kind (`3–5 Nov`), make a range; a date
 // and a time (`Monday: 9am`) stay separate details. A spaced colon labels the next detail
 // (`Slot 1: 9am`), so only endpoints of one kind join across it.
-const joinsRange = (previous: Detail, each: Detail, join: string) =>
-  rangeKinds.has(previous.kind) &&
-  rangeKinds.has(each.kind) &&
-  (previous.kind === each.kind ||
-    ((previous.kind === 'number' || each.kind === 'number') &&
-      !/:\s/u.test(join))) &&
+const joinsRange = (previous: DetailKind, each: DetailKind, join: string) =>
+  rangeKinds.has(previous) &&
+  rangeKinds.has(each) &&
+  (previous === each ||
+    ((previous === 'number' || each === 'number') && !/:\s/u.test(join))) &&
   rangeJoin.test(join);
 
 const calendarDate = [
@@ -116,7 +112,7 @@ const date = [
 ].join('|');
 const time = `(?:${clock}(?:\\s?${meridiem})?|(?:${dottedClock}|\\d{1,2})\\s?${meridiem}|${dottedClock}(?=\\.?\\s?(?:${zone})${edge}))(?:\\.?\\s?(?:${zone}))?`;
 // A code can also be prose (`try 8 pm`); keep the complete numeric date or time with it.
-const amountPattern = `(?:(?<![\\p{L}\\p{N}\\p{Sc}%])${sign})?(?:${currency})\\s?(?:${sign}?(?=\\d)(?:${time}|${date})|${figure})(?:\\s?(?:${currency}))?|${leadingFigure}\\s?(?:${currency})`;
+const amountPattern = `${sign}?(?:${currency})\\s?(?:${sign}?(?=\\d)(?:${time}|${date})|${figure})(?:\\s?(?:${currency}))?|${figure}\\s?(?:${currency})`;
 
 // A detail starts and ends outside a word. Earlier alternatives win where details overlap, so an
 // amount's number or a date's day is not counted again. Quotes are read separately because they
@@ -141,7 +137,7 @@ const patterns: ReadonlyArray<readonly [DetailKind, string]> = [
   [
     'number',
     // Let a typed endpoint (`9–5pm`, `40–50€`) match in full before joining it as a range.
-    String.raw`${leadingFigure}(?:\s*[/–—−:-]\s*(?!(?:${time}|${date}|${amountPattern})${edge})${figure})*(?:\s?%)?(?![.,]?\p{N})`,
+    String.raw`${figure}(?:\s*[/–—−:-]\s*(?!(?:${time}|${date}|${amountPattern})${edge})${figure})*(?:\s?%)?(?![.,]?\p{N})`,
   ],
 ];
 const kinds = patterns.map(([kind]) => kind);
@@ -207,17 +203,28 @@ const detailsIn = (source: string): Detail[] => {
   const found: Array<readonly [number, Detail]> = [];
   for (const match of text.matchAll(pattern)) {
     const group = match.slice(1).findIndex((each) => each !== undefined);
-    const written = match[group + 1] ?? '';
+    let written = match[group + 1] ?? '';
     const kind = kinds[group] ?? 'number';
-    const at = match.index + match[0].length - written.length;
-    const each = detail(kind, kind === 'link' ? trimLink(written) : written);
+    let at = match.index + match[0].length - written.length;
     const previous = found.at(-1);
+    // A dash touching the preceding endpoint joins the range, even after `Fr.` or `S/`.
+    // Spaced signs and a plus remain part of their endpoint.
+    if (
+      previous !== undefined &&
+      previous[0] + previous[1].value.length === at &&
+      /^[-−]/u.test(written) &&
+      joinsRange(previous[1].kind, kind, written[0] ?? '')
+    ) {
+      written = written.slice(1);
+      at += 1;
+    }
+    const each = detail(kind, kind === 'link' ? trimLink(written) : written);
     const join =
       previous === undefined
         ? ''
         : text.slice(previous[0] + previous[1].value.length, at);
     // Join extracted endpoints, so every kind keeps its own token boundaries and normalization.
-    if (previous !== undefined && joinsRange(previous[1], each, join)) {
+    if (previous !== undefined && joinsRange(previous[1].kind, kind, join)) {
       found.pop();
       found.push([
         previous[0],
