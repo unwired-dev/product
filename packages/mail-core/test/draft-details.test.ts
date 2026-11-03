@@ -1297,6 +1297,18 @@ describe('the Writing tools detail check', () => {
     },
   );
 
+  it('reads times listed with a comma and no space as separate times', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Available 8am,9am.'), 'Available 8pm,9am.').changes,
+    ).toMatchObject([
+      { kind: 'time', status: 'changed', original: '8am', result: '8pm' },
+    ]);
+    expect(
+      checkDetails(whole('Pay €0,50.'), 'Pay €0,60.').changes,
+    ).toMatchObject([{ kind: 'amount', status: 'changed' }]);
+  });
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {
