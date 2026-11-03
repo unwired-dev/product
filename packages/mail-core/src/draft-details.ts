@@ -291,6 +291,25 @@ const within = (whole: string, part: string) =>
   ).test(whole);
 const named = (key: string) => /\p{L}/u.test(key);
 const figures = (key: string) => (key.match(/\d+/gu) ?? []).map(Number);
+const monthPrefixes = [
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec',
+];
+// The number of a named month in a lowercase date key, so `nov` is compared as 11.
+const monthNumber = (key: string) =>
+  monthPrefixes.findIndex((prefix) =>
+    new RegExp(`(?<!\\p{L})${prefix}`, 'u').test(key),
+  ) + 1;
 // Expand only a trailing two-digit year before comparing figures, so a shortened year cannot
 // stand in for a changed day or month, or a day or month for a changed year.
 const sameFigures = (namedKey: string, numeric: string) => {
@@ -304,7 +323,11 @@ const sameFigures = (namedKey: string, numeric: string) => {
   ) {
     numbers.splice(-1, 1, year);
   }
-  return parts.every((each) => numbers.includes(each));
+  const monthAt = monthNumber(namedKey);
+  return (
+    (monthAt === 0 || numbers.includes(monthAt)) &&
+    parts.every((each) => numbers.includes(each))
+  );
 };
 // Keyed by kind name, so a range key's own kind parts can look up their predicate.
 const similar: Partial<

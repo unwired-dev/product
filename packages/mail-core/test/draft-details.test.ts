@@ -1323,6 +1323,19 @@ describe('the Writing tools detail check', () => {
     }
   });
 
+  it('reports a named month changed to another month in figures as changed', () => {
+    expect.hasAssertions();
+    expect(
+      checkDetails(whole('Due 15 Nov 2026.'), 'Due 15/12/26.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'changed' }]);
+    expect(
+      checkDetails(whole('Due 15 Nov 2026.'), 'Due 2026-12-15.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'changed' }]);
+    expect(
+      checkDetails(whole('Due 15 Nov 2026.'), 'Due 15/11/26.').changes,
+    ).toMatchObject([{ kind: 'date', status: 'uncertain' }]);
+  });
+
   it('reads thousands grouped by any space character as one amount', () => {
     expect.hasAssertions();
     for (const space of ['\u2009', '\u2007', '\u202F']) {
