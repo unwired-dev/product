@@ -32,6 +32,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   use effective roles for search admission, late results and retained-search
   validity. Exercise an Inbox choice through the public stores; otherwise a valid
   choice offers a move to itself or leaves Spam/Trash mail in search results.
+  Recognize a source folder by its effective roles, independently of unique
+  destination resolution: every server-marked Spam/Trash folder must offer Move
+  to Inbox even when several carry the role. Keep unique resolution for move
+  destinations; otherwise ambiguity hides Restore or selects an arbitrary target.
 
 - `mailbox-views.ts.unifiedFolders` treating an IMAP folder blacklist as proof
   of All Mail membership. An `all` folder can be the only source of archived
