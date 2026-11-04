@@ -79,11 +79,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  dividerLabel: {
-    ...textStyles.subheadline,
-    fontWeight: '600',
-    alignSelf: 'center',
-  },
+  dividerLabel: { ...textStyles.subheadline, alignSelf: 'center' },
   skeleton: {
     gap: spacing.s,
     paddingTop: spacing.m,

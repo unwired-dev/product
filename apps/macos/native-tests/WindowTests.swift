@@ -320,7 +320,7 @@ final class WindowTests: XCTestCase {
     }
     XCTAssertTrue(relaunched.buttons[starred].waitForExistence(timeout: 20))
     relaunched.buttons[starred].click()
-    relaunched.buttons["Account"].click()
+    relaunched.buttons["Settings"].click()
     let settings = app.windows["settings-window"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     XCTAssertTrue(text("connected on this device", in: settings).waitForExistence(timeout: 15))
@@ -427,7 +427,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(
       first.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
-    first.buttons["Account"].click()
+    first.buttons["Settings"].click()
     let settings = app.windows["settings-window"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     XCTAssertTrue(settings.buttons["Privacy & Data"].waitForExistence(timeout: 15))

@@ -198,7 +198,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.s,
   },
   divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
-  content: { paddingBottom: spacing.s },
+  // The body takes the height the fields leave, so they sit directly above the action row.
+  content: { flexGrow: 1, paddingBottom: spacing.s },
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -209,6 +210,7 @@ const styles = StyleSheet.create({
   review: { paddingHorizontal: fieldInset, paddingTop: spacing.m },
   body: {
     ...textStyles.reading.body,
+    flexGrow: 1,
     minHeight: 160,
     paddingHorizontal: bodyInset,
     paddingTop: spacing.m,
@@ -277,12 +279,13 @@ const styles = StyleSheet.create({
     paddingLeft: fieldLabelWidth + spacing.s,
     paddingBottom: spacing.xs,
   },
+  // Its text centred on the first 28pt line, level with the field's label.
   input: {
     ...textStyles.body,
     flex: 1,
     minWidth: 120,
     minHeight: 28,
-    paddingVertical: 0,
+    paddingVertical: 6,
   },
   // The whole 28pt row height removes the recipient; its chip stays compact.
   token: { minHeight: 28, justifyContent: 'center' },
@@ -307,13 +310,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing.l,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  sender: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-  },
-  senderPrefix: textStyles.body,
+  sender: { flexShrink: 1 },
   section: {
     ...textStyles.bodyEmphasized,
     paddingHorizontal: spacing.xl,
@@ -650,19 +647,12 @@ export function SendingMailbox({
       from,
     });
   }
-  const colors = usePalette();
   return (
     <View style={styles.sender}>
-      <Text
-        importantForAccessibility="no"
-        accessibilityElementsHidden
-        style={[styles.senderPrefix, { color: colors.textSecondary }]}>
-        {t('drafts.fromLabel')}
-      </Text>
       <PopUp
         accessibilityLabel={label}
         disabled={!editable}
-        label={from}
+        label={t('drafts.fromAddress', { address: from })}
         items={senders.map((mailbox) => ({
           key: mailbox.id,
           title: mailbox.address,

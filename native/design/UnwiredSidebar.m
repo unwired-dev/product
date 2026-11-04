@@ -58,9 +58,10 @@
   NSSplitViewItem *item = [NSSplitViewItem sidebarWithViewController:_pane];
   item.minimumThickness = self.thickness;
   item.maximumThickness = self.thickness;
-  // A window at most 900pt wide starts without the sidebar, and narrowing a window below that hides it.
+  // A window at most 900pt wide starts without the sidebar, and narrowing a window to 900pt hides it:
+  // beside the sidebar, the Inbox needs more than the rest of 900pt.
   item.collapsed = NSWidth(self.window.frame) <= 900;
-  split.splitViewItems.lastObject.minimumThickness = 900 - self.thickness;
+  split.splitViewItems.lastObject.minimumThickness = 901 - self.thickness;
   [item addObserver:self forKeyPath:@"collapsed" options:0 context:nil];
   [split insertSplitViewItem:item atIndex:0];
   _item = item;

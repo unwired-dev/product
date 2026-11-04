@@ -265,6 +265,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
+  // An 18pt slot, so names start 34pt into the row.
+  rowIcon: { width: 18, alignItems: 'center' },
   title: { ...textStyles.body, flex: 1 },
   // A command that cannot run keeps its name legible but recedes behind its reason.
   dimmed: { opacity: 0.35 },
@@ -616,6 +618,7 @@ export function CommandBar({
               <SFSymbol
                 name="command"
                 color={colors.textSecondary}
+                size={13}
               />
               {compact ? null : (
                 <>
@@ -998,6 +1001,7 @@ function QueryField({
       <SFSymbol
         name="command"
         color={colors.textPrimary}
+        size={13}
       />
       {choosing === undefined ? null : (
         <Text
@@ -1015,6 +1019,8 @@ function QueryField({
         accessibilityLabel={prompt}
         autoCapitalize="none"
         autoCorrect={false}
+        // The ring around the whole input shows its focus.
+        enableFocusRing={false}
         key={choosing === undefined ? 'commands' : 'choices'}
         keyDownEvents={handledKeys}
         onChangeText={onChangeText}
@@ -1159,10 +1165,11 @@ function CommandRow({
         pressed ? { backgroundColor: colors.accentSelectionSubtle } : null,
         highlighted ? { backgroundColor: colors.accentFill } : null,
       ]}>
-      <View style={dimmed}>
+      <View style={[styles.rowIcon, dimmed]}>
         <SFSymbol
           name={icon}
           color={color}
+          size={14}
         />
       </View>
       <Text

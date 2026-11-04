@@ -336,7 +336,7 @@ const continueToSignIn = async () => {
 };
 
 const openAccount = async () => {
-  const account = await screen.findByRole('button', { name: 'Account' });
+  const account = await screen.findByRole('button', { name: 'Settings' });
   await act(async () => {
     await fireEvent.press(account);
   });
@@ -1225,7 +1225,7 @@ describe('product registration', () => {
       // The Inbox palette's Account command reaches the same window, which keeps its place.
       await menu.choose('account');
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
+        await fireEvent.press(screen.getByRole('button', { name: 'Settings' }));
       });
       expect({
         windows: screen.getAllByTestId('settings-window'),
@@ -3090,7 +3090,7 @@ describe('product registration', () => {
     expect(screen.queryByText(recoveryKeyOf(synthetic))).toBeNull();
     await closeSettings();
     await expect(
-      screen.findByRole('button', { name: 'Account' }),
+      screen.findByRole('button', { name: 'Settings' }),
     ).resolves.toBeVisible();
   });
 
@@ -3454,7 +3454,7 @@ describe('product registration', () => {
       await read;
     });
     await expect(
-      screen.findByRole('button', { name: 'Account' }),
+      screen.findByRole('button', { name: 'Settings' }),
     ).resolves.toBeVisible();
   });
 

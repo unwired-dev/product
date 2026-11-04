@@ -244,6 +244,7 @@ function SidebarItem({
       <SFSymbol
         name={icon}
         color={colors.accentInk}
+        size={14}
       />
       <Text
         numberOfLines={1}

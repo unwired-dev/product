@@ -260,6 +260,7 @@ export function FloatingBar({
   const barOffset = use(BarOffsetContext);
   const offset = useSyncExternalStore(barOffset.subscribe, barOffset.get);
   const [width, setWidth] = useState(0);
+  const [searching, setSearching] = useState(false);
   const centered = { transform: [{ translateX: -offset }] };
   return (
     <>
@@ -283,7 +284,15 @@ export function FloatingBar({
           pointerEvents="box-none"
           style={[styles.field, fieldFrame(width, offset)]}>
           {ready ? (
-            <GlassGroup style={styles.searchBar}>
+            <GlassGroup
+              style={[
+                styles.searchBar,
+                // The capsule's accent/ink ring replaces the field's own focus ring.
+                searching && {
+                  outlineWidth: 2,
+                  outlineColor: colors.accentInk,
+                },
+              ]}>
               <SFSymbol
                 name="magnifyingglass"
                 color={colors.textSecondary}
@@ -294,7 +303,14 @@ export function FloatingBar({
                 autoCapitalize="none"
                 autoComplete="off"
                 autoCorrect={false}
+                enableFocusRing={false}
+                onBlur={() => {
+                  setSearching(false);
+                }}
                 onChangeText={onQuery}
+                onFocus={() => {
+                  setSearching(true);
+                }}
                 ref={search}
                 placeholder={t('search.placeholder')}
                 placeholderTextColor={colors.textSecondary}

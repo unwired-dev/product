@@ -171,6 +171,7 @@ const NativePopUpButton = requireNativeComponent<
     readonly symbol: string | undefined;
     readonly pullsDown: boolean;
     readonly toolbar: boolean;
+    readonly borderless: boolean;
     readonly label: string;
     readonly destructiveColor: ReturnType<typeof processColor>;
     readonly enabled: boolean;
@@ -194,8 +195,9 @@ export function PopUp({
   readonly accessibilityLabel: string;
   readonly icon?: string | undefined;
   readonly pullsDown?: boolean;
-  // A reader toolbar's pull-down is a symbol-only 32×28 button beside the toolbar's others.
-  readonly variant?: 'compact' | 'field' | 'toolbar';
+  // A reader toolbar's pull-down is a symbol-only 32×28 button beside the toolbar's others; an
+  // inline pop-up is a Settings row's value, drawn without a bezel.
+  readonly variant?: 'compact' | 'field' | 'inline' | 'toolbar';
   readonly disabled?: boolean;
   readonly items?: readonly PopUpItem[];
   // Groups of items set apart by separators, in place of `items`.
@@ -242,6 +244,7 @@ export function PopUp({
         enabled={!disabled}
         pullsDown={pullsDown ?? icon !== undefined}
         toolbar={variant === 'toolbar'}
+        borderless={variant === 'inline'}
         sections={groups.map((section) => ({
           items: nativeItems(section.items),
         }))}
@@ -311,6 +314,8 @@ export function FormatBar({
       <PopUp
         accessibilityLabel={t('drafts.textStyle')}
         disabled={disabled}
+        icon="textformat"
+        pullsDown={false}
         label={t(blockNames[kind])}
         items={textStyleKinds.map((value) => ({
           key: value,

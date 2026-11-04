@@ -53,6 +53,7 @@ const NativePushButton = requireNativeComponent<
     readonly destructive: boolean;
     readonly enabled: boolean;
     readonly returnKey: boolean;
+    readonly large: boolean;
     readonly onPress: () => void;
   }
 >('UnwiredPushButton');
@@ -119,6 +120,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
+  compactMarker: { alignItems: 'center' },
   markerText: { ...textStyles.subheadline, flex: 1 },
   notice: {
     gap: spacing.s,
@@ -147,6 +149,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
   },
+  // Welcome's Continue: AppKit's extra large rounded rectangle.
+  buttonLarge: { height: 36 },
   buttonSizing: { opacity: 0 },
 });
 
@@ -604,7 +608,7 @@ export function ToolbarButton({
       ]}>
       <SFSymbol
         name={icon}
-        size={16}
+        size={14}
         color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>
@@ -687,8 +691,8 @@ export function Notice({
 }
 
 // A push button, 28pt tall, that AppKit draws: the accent tint carries the view's main action and
-// the brand tint Welcome's Continue; the others take the standard bezel. The default button also
-// answers Return.
+// the brand tint Welcome's 36pt Continue; the others take the standard bezel. The default button
+// also answers Return.
 export function Button({
   label,
   onPress,
@@ -715,7 +719,7 @@ export function Button({
   } as const;
   const [tint, textColor] = tints[fill];
   return (
-    <View style={styles.button}>
+    <View style={[styles.button, fill === 'brand' && styles.buttonLarge]}>
       {/* The hidden title sizes the button, which AppKit draws over it. */}
       <Text
         style={[
@@ -735,6 +739,7 @@ export function Button({
         focusColor={dark ? processColor(colors.accentInk) : undefined}
         onPress={onPress}
         returnKey={isDefault}
+        large={fill === 'brand'}
         style={StyleSheet.absoluteFill}
         label={accessibilityLabel ?? label}
         text={label}
@@ -745,18 +750,26 @@ export function Button({
   );
 }
 
-// The existing disclosure stays beside unaccepted assistance output and disappears with it.
-export function OnDeviceMarker({ label }: { readonly label: string }) {
+// The existing disclosure stays beside unaccepted assistance output and disappears with it. A
+// Settings section header takes the compact one, its lock sized to the header's 11/14 text.
+export function OnDeviceMarker({
+  label,
+  compact = false,
+}: {
+  readonly label: string;
+  readonly compact?: boolean;
+}) {
   const colors = usePalette();
   return (
     <View
       accessible
       accessibilityLabel={label}
       accessibilityRole="text"
-      style={styles.marker}>
+      style={[styles.marker, compact && styles.compactMarker]}>
       <SFSymbol
         name="lock.fill"
         color={colors.onDeviceInk}
+        size={compact ? 9 : 16}
       />
       <Text
         selectable

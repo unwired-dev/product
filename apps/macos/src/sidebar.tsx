@@ -49,10 +49,10 @@ export type MailboxView = Readonly<{
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   // The window controls' row: AppKit draws them at its leading end, centered 26pt down the
-  // window, level with the toggle; the Profile Switcher follows 24pt below that center.
+  // window, level with the toggle; the Profile Switcher follows 32pt below that center.
   controls: {
     height: 36,
-    marginBottom: 6,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -384,7 +384,7 @@ function FolderRows({
 }
 
 // The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
-// its folders, and the account page last.
+// its folders, and Settings last.
 export function Mailboxes({
   view,
   onView,
@@ -552,7 +552,7 @@ export function Mailboxes({
           <View style={[styles.footer, { borderTopColor: colors.separator }]}>
             <Item
               icon="gearshape"
-              label={t('inbox.account')}
+              label={t('settings.title')}
               onPress={() => {
                 account.openAccount();
               }}

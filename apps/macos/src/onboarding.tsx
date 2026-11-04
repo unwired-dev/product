@@ -26,16 +26,24 @@ import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
+  // The frame's 420pt block, from the seal to Continue, sits 20pt below the window's centre; the
+  // top padding also balances Privacy & Data (44pt) hanging below it.
   welcome: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 160,
-    paddingVertical: 40,
+    paddingTop: 124,
+    paddingBottom: 40,
   },
   welcomeContent: { maxWidth: 520 },
   seal: { width: 18, height: 18, borderRadius: 9, marginBottom: 24 },
-  headline: { fontSize: 52, lineHeight: 58, fontWeight: '400' },
-  lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.8 },
+  headline: {
+    fontSize: 52,
+    lineHeight: 58,
+    fontWeight: '400',
+    letterSpacing: -1.04,
+  },
+  lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.78 },
   status: { fontSize: 15, lineHeight: 20, opacity: 0.78 },
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   restoringStatus: { position: 'absolute', top: 0, left: 0, right: 0 },
@@ -48,9 +56,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  points: { gap: 14, marginTop: 36, marginBottom: 28 },
-  point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  pointText: { fontSize: 15, lineHeight: 16, opacity: 0.85 },
+  points: { marginTop: 36, marginBottom: 28 },
+  // A 20pt line and 14pt below it, as each of the frame's 34pt rows.
+  point: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingBottom: 14,
+  },
+  pointText: { fontSize: 15, lineHeight: 20, opacity: 0.85 },
   continue: { alignSelf: 'flex-start', minWidth: 160 },
   split: { flex: 1, flexDirection: 'row' },
   brandPanel: {
@@ -62,8 +76,11 @@ const styles = StyleSheet.create({
   sealSmall: { width: 14, height: 14, borderRadius: 7, marginBottom: 12 },
   wordmark: { fontSize: 22, lineHeight: 26 },
   tagline: { ...textStyles.body, marginTop: spacing.s, opacity: 0.85 },
-  form: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  formContent: { width: '100%', maxWidth: 320, gap: spacing.m },
+  // The form keeps the frame's place, 200pt into its pane and 250pt down; anything the page adds
+  // follows below it.
+  form: { flexGrow: 1, paddingLeft: 200, paddingTop: 250, paddingBottom: 40 },
+  formContent: { width: 341, gap: spacing.m },
+  formActions: { width: 320, gap: spacing.m },
   title: { fontSize: 22, lineHeight: 26 },
   description: { ...textStyles.body },
   finePrint: { ...textStyles.subheadline, marginTop: spacing.m },
@@ -211,6 +228,7 @@ export function Welcome({
   const concealed = restoring ? styles.hidden : undefined;
   const points = [
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
+    { icon: 'tray.2', text: t('onboarding.welcome.mailProfiles') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
   ];
   return (
@@ -353,7 +371,7 @@ export function SignIn({
             {description}
           </Label>
           <View style={{ height: spacing.l }} />
-          {actions}
+          <View style={styles.formActions}>{actions}</View>
           {children}
         </View>
       </ScrollView>
@@ -401,6 +419,8 @@ export function OnboardingAction({
       style={({ pressed }) => [
         styles.action,
         {
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.separator,
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
             : colors.fillQuiet,

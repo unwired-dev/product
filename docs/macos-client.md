@@ -97,7 +97,7 @@ The Podfile check requires the mise-managed Ruby and accepts only literal pod na
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 (the window's [Profile Switcher](private-inbox-storage.md#mail-profiles),
 **All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
-**Account**), the message list and the reader, as in the Figma Inbox frames. The
+**Settings**), the message list and the reader, as in the Figma Inbox frames. The
 Inbox and Settings windows hide their title and draw a transparent title bar over
 full-size content, so the window controls sit on the sidebar's glass. The title
 stays for the Window menu and accessibility. The reader's toolbar row holds the Command input at its
@@ -114,7 +114,7 @@ button, at the trailing end of the sidebar's window-controls row or, while the
 sidebar is hidden, beside the window controls above the list title, asks AppKit
 to collapse or expand it, with the split
 view's animation; with Reduce Motion on, it collapses or expands at once. A window
-at most 900pt wide starts without it. Resizing a window below 900pt hides it,
+at most 900pt wide starts without it. Resizing a window to 900pt or narrower hides it,
 and widening that window again brings it back; the button's label follows each
 change. Expanding the sidebar in a narrower window widens the window. The
 account and registration pages show no sidebar. React Native macOS 0.81.9 has no
