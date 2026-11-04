@@ -1910,11 +1910,19 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(destination.value as? String, "https://example.com")
     dismissLinkEditor(app, field: destination, pad: pad)
 
-    // One Undo removes the link and keeps its text; Redo restores it.
-    formatControl("Undo", in: app).tap()
+    // One Undo removes the link and keeps its text; Redo restores it. iPad's keyboard shortcut bar
+    // repeats Undo and Redo.
+    func history(_ name: String) -> XCUIElement {
+      pad
+        ? app.buttons.matching(
+          NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'assistant')", name)
+        ).firstMatch
+        : formatControl(name, in: app)
+    }
+    history("Undo").tap()
     XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
-    formatControl("Redo", in: app).tap()
+    history("Redo").tap()
     XCTAssertTrue(formatControl("Edit Link", in: app).waitForExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
     if pad {
