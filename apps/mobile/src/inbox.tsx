@@ -1076,6 +1076,7 @@ export function Inbox({
                     connection={mailbox.id}
                     address={mailbox.address ?? mailbox.state.address}
                     folders={mailbox.state.folders}
+                    marked={mailbox.state.marked}
                   />
                 ) : null}
               </Notice>

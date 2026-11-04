@@ -17,7 +17,6 @@ import {
   presentationDetents,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { imapRoleFolder } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useState } from 'react';
@@ -75,10 +74,12 @@ export function FolderChoice({
   connection,
   address,
   folders,
+  marked,
 }: {
   readonly connection: string;
   readonly address: string;
   readonly folders: readonly ImapFolder[];
+  readonly marked: ChosenFolders;
 }) {
   const { t } = useLocalization();
   const account = use(AccountContext);
@@ -109,6 +110,7 @@ export function FolderChoice({
                 key={session}
                 address={address}
                 folders={folders}
+                marked={marked}
                 saved={saved}
                 onSave={(chosen) => account.chooseFolders(connection, chosen)}
                 onClose={() => {
@@ -126,23 +128,21 @@ export function FolderChoice({
 function FolderSheet({
   address,
   folders,
+  marked: server,
   saved,
   onSave,
   onClose,
 }: {
   readonly address: string;
   readonly folders: readonly ImapFolder[];
+  readonly marked: ChosenFolders;
   readonly saved: ChosenFolders | undefined;
   readonly onSave: (chosen: ChosenFolders) => Promise<boolean>;
   readonly onClose: () => void;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  // The listing carries saved choices as roles; a role still marked otherwise is the server's.
-  const marked = (role: Role) => {
-    const name = imapRoleFolder(folders, role);
-    return name === saved?.[role] ? undefined : name;
-  };
+  const marked = (role: Role) => server[role];
   const open = roles.filter((role) => marked(role) === undefined);
   const [picks, setPicks] = useState<ChosenFolders>(() =>
     Object.fromEntries(open.map((role) => [role, saved?.[role]])),

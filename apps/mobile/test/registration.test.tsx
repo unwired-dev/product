@@ -2903,6 +2903,17 @@ describe('product registration', () => {
     imap.addFolder('Replacement Spam', ['sent']);
     await act(connections.load);
     expect(save()).toBeDisabled();
+    // A server that later marks the saved Spam folder itself shows it as its own, not a choice.
+    imap.removeFolder('Deleted Messages');
+    imap.addFolder('Bulk Mail', ['junk']);
+    await act(connections.load);
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Choose Folders…' }),
+      );
+    });
+    expect(screen.getByText('Marked by its server')).toBeVisible();
+    expect(screen.queryByLabelText('Spam')).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 

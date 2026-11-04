@@ -343,6 +343,8 @@ export type ImapInboxState =
       // When the Inbox folder's last completed read began, as an ISO instant; absent before one.
       readonly synchronizedAt?: string;
       readonly folders: readonly ImapFolder[];
+      // The Spam and Trash folders the server itself marks, which chosen folders never replace.
+      readonly marked: ChosenFolders;
       // What the server advertised at its last listing; unknown before one was read.
       readonly capabilities: ImapCapabilities | undefined;
       // Changes saved on this device that the server has not applied yet.
@@ -832,6 +834,24 @@ export function createImapInbox(
     }
     return roled.folders;
   };
+  let marked = {
+    listed: [] as readonly ImapFolder[],
+    roles: {} as ChosenFolders,
+  };
+  const markedRoles = (listed: readonly ImapFolder[]) => {
+    if (marked.listed !== listed) {
+      marked = {
+        listed,
+        roles: Object.fromEntries(
+          (['junk', 'trash'] as const).flatMap((role) => {
+            const name = imapRoleFolder(listed, role);
+            return name === undefined ? [] : [[role, name]];
+          }),
+        ),
+      };
+    }
+    return marked.roles;
+  };
   let opened: (Scope & { revision: number }) | undefined = undefined;
   let document: ImapDocument | undefined = undefined;
   let forgotten = false;
@@ -1227,6 +1247,7 @@ export function createImapInbox(
       status: shownStatus,
       ...(synchronizedAt === undefined ? {} : { synchronizedAt }),
       folders: roleFolders(document.folders),
+      marked: markedRoles(document.folders),
       capabilities: document.capabilities,
       pending: changes().length,
       blocked: blockedChange()?.id,
