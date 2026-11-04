@@ -85,12 +85,24 @@ export function Glass({
   style = StyleSheet.absoluteFill,
   ...props
 }: ViewProps & { readonly cornerRadius: number }) {
+  const colors = usePalette();
+  const shape: StyleProp<ViewStyle> = [
+    style,
+    { borderRadius: cornerRadius, overflow: 'hidden' },
+  ];
   return (
-    <NativeGlass
-      {...props}
-      cornerRadius={cornerRadius}
-      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
-    />
+    <>
+      {/* AppKit's glass takes no dark tint, so Dark backs it with the frames' glass fill. */}
+      <View
+        pointerEvents="none"
+        style={[shape, { backgroundColor: colors.macGlassFill }]}
+      />
+      <NativeGlass
+        {...props}
+        cornerRadius={cornerRadius}
+        style={[shape, { opacity: colors.macGlassOpacity }]}
+      />
+    </>
   );
 }
 
