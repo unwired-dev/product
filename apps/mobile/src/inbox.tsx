@@ -56,6 +56,7 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
+import { FolderChoice } from './folder-choice.tsx';
 import {
   useBarIndicatorInsets,
   useListBottomInset,
@@ -1067,8 +1068,17 @@ export function Inbox({
                 detail={t(detail, {
                   view: folderName,
                   ...(ipad ? {} : { context: 'iphone' }),
-                })}
-              />
+                })}>
+                {detail === 'mailboxes.notIncludedSpamTrash' &&
+                mailbox.state.kind === 'ready' &&
+                'folders' in mailbox.state ? (
+                  <FolderChoice
+                    connection={mailbox.id}
+                    address={mailbox.address ?? mailbox.state.address}
+                    folders={mailbox.state.folders}
+                  />
+                ) : null}
+              </Notice>
             ))}
             {shown.map((mailbox) => (
               <MailboxScope

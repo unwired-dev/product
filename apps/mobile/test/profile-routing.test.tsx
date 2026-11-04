@@ -381,6 +381,7 @@ describe('profile-scoped mobile routes', () => {
           account: 'synthetic-product-account',
           profiles: [{ id: 'work', name: 'Work' }],
           createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
         }}>
         <RootLayout />
       </AccountContext>
@@ -513,6 +514,7 @@ describe('profile-scoped mobile routes', () => {
             account: 'synthetic-product-account',
             profiles: [{ id: 'work', name: 'Work' }],
             createProfile: () => Promise.resolve(undefined),
+            chooseFolders: () => Promise.resolve(true),
           }}>
           <RootLayout />
         </AccountContext>
@@ -863,6 +865,7 @@ describe('profile-scoped mobile routes', () => {
             account: 'synthetic-product-account',
             profiles: [],
             createProfile: () => Promise.resolve(undefined),
+            chooseFolders: () => Promise.resolve(true),
           }}>
           <RootLayout />
         </AccountContext>,
@@ -961,6 +964,7 @@ describe('profile-scoped mobile routes', () => {
           account: 'synthetic-product-account',
           profiles: [],
           createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
         }}>
         <RootLayout />
       </AccountContext>,
@@ -1201,6 +1205,7 @@ describe('the mobile Profile Switcher', () => {
         account,
         profiles: account === 'synthetic-product-account' ? [work] : [],
         createProfile,
+        chooseFolders: () => Promise.resolve(true),
       }}>
       <RootLayout />
     </AccountContext>

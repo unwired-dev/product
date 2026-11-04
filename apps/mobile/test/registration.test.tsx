@@ -2729,6 +2729,145 @@ describe('product registration', () => {
     );
   });
 
+  it('chooses Spam and Trash folders for an IMAP server that marks none from the All Mail notice, keeping the sheet open when saving fails and asking again for a removed folder', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept IMAP message' });
+    imap.addFolder('Sent Messages', ['sent']);
+    imap.addFolder('Bulk Mail');
+    imap.addFolder('Deleted Messages');
+    imap.deliver('Bulk Mail', { subject: 'Unwanted offer' });
+    const { synthetic, setup } = await signedIn();
+    const connection = await connectImap(setup);
+    await confirmRecoveryKey(setup);
+    const store = createRegistration(synthetic.relaunch());
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <InboxProvider
+          mailboxes={{
+            ...connections,
+            getSnapshot: connections.getConnections,
+          }}>
+          <Shell
+            onSelect={() => undefined}
+            selected={undefined}
+          />
+        </InboxProvider>
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByRole('button', { name: /Kept IMAP message/u }),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'All Mail. In All mailboxes',
+        }),
+      );
+    });
+    await expect(
+      screen.findByText('alex@example.invalid isn’t included'),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Choose Folders…' }),
+      );
+    });
+    const save = () => screen.getByRole('button', { name: 'Save' });
+    const choose = async (role: string, folder: string) => {
+      const menu = screen.getByLabelText(role);
+      const sections: ReadonlyArray<{
+        items: ReadonlyArray<{
+          id: string;
+          title: string;
+          subtitle?: string;
+          disabled?: boolean;
+        }>;
+      }> = menu.props.sections;
+      const item = sections
+        .flatMap(({ items }) => items)
+        .find(({ title }) => title === folder);
+      await act(async () => {
+        await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
+      });
+      return sections.map(({ items }) =>
+        items.map(({ title, subtitle, disabled }) =>
+          // An unavailable folder is dimmed, naming the role it already holds.
+          disabled === true ? `${title} (${subtitle ?? 'unavailable'})` : title,
+        ),
+      );
+    };
+    // Nothing is chosen for the person, and Save waits for both.
+    expect(screen.getAllByText('Choose a Folder')).toHaveLength(2);
+    expect(save()).toBeDisabled();
+    const spamMenu = await choose('Spam', 'Bulk Mail');
+    expect(save()).toBeDisabled();
+    // A folder chosen for Spam, or holding another role, is not offered for Trash.
+    const trashMenu = await choose('Trash', 'Deleted Messages');
+    synthetic.backend.offline = true;
+    await act(async () => {
+      await fireEvent.press(save());
+    });
+    await expect(
+      screen.findByText(
+        'Couldn’t save your folder choices. Check your connection and try again. Your previous folders are still in use.',
+      ),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText('alex@example.invalid isn’t included'),
+    ).toBeVisible();
+    synthetic.backend.offline = false;
+    await act(async () => {
+      await fireEvent.press(save());
+    });
+    // Saved, the connection joins All Mail without its Spam.
+    await waitFor(() => {
+      expect(
+        screen.queryByText('alex@example.invalid isn’t included'),
+      ).toBeNull();
+    });
+    await expect(screen.findByText('Kept IMAP message')).resolves.toBeVisible();
+    expect({
+      spamMenu,
+      trashMenu,
+      chosen: mailboxesOf(store.getSnapshot().snapshot)[0]?.folders,
+      spam: screen.queryByText('Unwanted offer'),
+    }).toStrictEqual({
+      spamMenu: [
+        ['Inbox (unavailable)', 'Sent Messages (Sent)'],
+        ['Bulk Mail', 'Deleted Messages'],
+      ],
+      trashMenu: [
+        ['Inbox (unavailable)', 'Sent Messages (Sent)', 'Bulk Mail (Spam)'],
+        ['Deleted Messages'],
+      ],
+      chosen: { junk: 'Bulk Mail', trash: 'Deleted Messages' },
+      spam: null,
+    });
+    // A chosen folder removed at the server leaves the connection out again, and its choice
+    // waits for another folder.
+    imap.removeFolder('Bulk Mail');
+    await act(connections.load);
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Choose Folders…' }),
+      );
+    });
+    expect(
+      screen.getByText(
+        'Bulk Mail is no longer on the server. Choose another folder for Spam. This account is not included in All Mail.',
+      ),
+    ).toBeVisible();
+    expect(screen.getByText('Folder unavailable')).toBeVisible();
+    expect(save()).toBeDisabled();
+  });
+
   it('keeps a mailbox’s New Mail Notifications off when Product Sync cannot save them, and links denied permission to the system', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
