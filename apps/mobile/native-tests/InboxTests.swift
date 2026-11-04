@@ -367,6 +367,10 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(move.waitForExistence(timeout: 10))
       move.tap()
       XCTAssertTrue(caption.waitForExistence(timeout: 10))
+      let reopened = XCTAttachment(screenshot: app.screenshot())
+      reopened.name = "Move sheet reopened after a downward swipe"
+      reopened.lifetime = .keepAlways
+      add(reopened)
       app.buttons["Close"].tap()
       XCTAssertTrue(caption.waitForNonExistence(timeout: 5))
     }
