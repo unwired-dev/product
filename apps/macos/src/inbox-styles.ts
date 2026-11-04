@@ -3,10 +3,22 @@ import { StyleSheet } from 'react-native';
 
 import { textStyles } from './theme.ts';
 
+export const listWidth = 340;
+
 // The Mac list: a 340pt column with a left-aligned title, 6pt row margins and 13pt rows under
 // centered day dividers.
 export const styles = StyleSheet.create({
   fill: { flex: 1 },
+  // The list column beside the reader, under the floating search bar that spans both.
+  panes: { flex: 1, flexDirection: 'row' },
+  column: { width: listWidth, borderRightWidth: StyleSheet.hairlineWidth },
+  // With the sidebar hidden, the window controls' row: its toggle follows AppKit's controls.
+  controls: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 84,
+  },
   headingRow: { flexDirection: 'row', alignItems: 'flex-start' },
   heading: {
     flex: 1,

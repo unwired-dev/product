@@ -124,9 +124,8 @@ const handledKeys = [
   { key: 'Escape' },
 ];
 
-const barHeight = 44;
 const inputHeight = 36;
-const inputWidth = 320;
+const inputWidth = 270;
 // A New Message window draws its toolbar row beneath the window controls, which end 88pt in.
 const toolbarHeight = 52;
 const toolbarInputHeight = 32;
@@ -134,16 +133,24 @@ const toolbarInputHeight = 32;
 const toolbarInputWidth = 192;
 const windowControlsWidth = 88;
 const panelWidth = 460;
+// Below this width the floating input shows only its symbol.
+const compactInputWidth = 140;
+// The Figma reader row's Command Input.
+export const floatingInputWidth = 301;
 // The focus ring sits 3pt outside the input.
 const ringWidth = 3;
 
 const styles = StyleSheet.create({
+  // An account page's or the Settings window's input, at the trailing end of the window
+  // controls' row and level with the page title.
   bar: {
-    height: barHeight,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    height: toolbarHeight + spacing.xs,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.m,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.l,
   },
   toolbar: {
     height: toolbarHeight,
@@ -156,6 +163,8 @@ const styles = StyleSheet.create({
     paddingRight: spacing.l,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  // In the reader's toolbar row, level with its glass groups.
+  floating: { position: 'absolute', top: spacing.m, height: inputHeight },
   windowTitle: { ...textStyles.bodyEmphasized, width: 120, flexShrink: 1 },
   field: { width: inputWidth },
   toolbarField: { flex: 1, minWidth: toolbarInputWidth, maxWidth: inputWidth },
@@ -173,6 +182,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing.s,
     borderCurve: 'continuous',
   },
+  compactPill: { paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
   focusRing: {
     position: 'absolute',
     top: -ringWidth,
@@ -207,7 +217,6 @@ const styles = StyleSheet.create({
   panel: {
     // Hangs 6pt beneath the input, outside the bar; still clickable, since the bar does not clip.
     position: 'absolute',
-    left: 0,
     width: panelWidth,
     maxHeight: 520,
     padding: 6,
@@ -396,18 +405,61 @@ export function OutsideClickLayer() {
 // belongs to the bar, so it leaves with the screen that shows it, as when the gate replaces the
 // window's screen. A New Message window's bar is its toolbar row: the window's title, the bar's
 // input and the composer's From, with its actions at the trailing edge.
+// A New Message window's toolbar row, the floating input in the Inbox window's reader row, or an
+// account page's input at the trailing end of the window controls' row.
+const barStyle = (
+  toolbar: boolean,
+  floating: { readonly left: number } | undefined,
+) => {
+  if (toolbar) {
+    return styles.toolbar;
+  }
+  return floating === undefined
+    ? styles.bar
+    : [styles.floating, { left: floating.left }];
+};
+
+// The bar's input: in a New Message window's toolbar it gives way to the title and From. Floating,
+// it keeps the given width, only its symbol when too narrow, and the query's full width while open.
+const fieldStyle = ({
+  toolbar,
+  height,
+  floating,
+  open,
+}: {
+  readonly toolbar: boolean;
+  readonly height: number;
+  readonly floating: { readonly width: number } | undefined;
+  readonly open: boolean;
+}) => {
+  if (floating === undefined) {
+    return toolbar ? styles.toolbarField : styles.field;
+  }
+  if (open) {
+    return { width: Math.max(floating.width, floatingInputWidth) };
+  }
+  return {
+    width: floating.width < compactInputWidth ? height : floating.width,
+  };
+};
+
 export function CommandBar({
   title,
   from,
   actions,
+  floating,
 }: {
   readonly title?: string | undefined;
   readonly from?: ReactNode;
   readonly actions?: ReactNode;
+  // The Inbox window's input floats in the reader's toolbar row, this far in and this wide.
+  readonly floating?: { readonly left: number; readonly width: number };
 }) {
   const { registry, identifier } = use(PaletteContext);
   const toolbar = title !== undefined;
   const height = toolbar ? toolbarInputHeight : inputHeight;
+  // Too narrow for its label, the floating input keeps only its symbol.
+  const compact = floating !== undefined && floating.width < compactInputWidth;
   const colors = usePalette();
   const { t } = useLocalization();
   // The commands as listed when the palette opened, while it is open.
@@ -502,12 +554,10 @@ export function CommandBar({
       )}
       <View
         style={[
-          toolbar ? styles.toolbar : styles.bar,
+          barStyle(toolbar, floating),
           styles.layer,
-          {
-            backgroundColor: toolbar
-              ? colors.surfaceContent
-              : colors.surfaceSidebar,
+          toolbar && {
+            backgroundColor: colors.surfaceContent,
             borderBottomColor: colors.separator,
           },
         ]}>
@@ -520,7 +570,13 @@ export function CommandBar({
             {title}
           </Text>
         ) : null}
-        <View style={toolbar ? styles.toolbarField : styles.field}>
+        <View
+          style={fieldStyle({
+            toolbar,
+            height,
+            floating,
+            open: opened !== undefined,
+          })}>
           {opened === undefined ? (
             <Pressable
               accessibilityLabel={t('commands.openPalette')}
@@ -535,6 +591,7 @@ export function CommandBar({
               ref={pill}
               style={[
                 styles.pill,
+                compact && styles.compactPill,
                 {
                   height,
                   borderRadius: height / 2,
@@ -546,19 +603,24 @@ export function CommandBar({
                 name="command"
                 color={colors.textSecondary}
               />
-              <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-                {t('commands.open')}
-              </Text>
-              <Text
-                style={[
-                  styles.key,
-                  {
-                    backgroundColor: colors.fillQuiet,
-                    color: colors.textSecondary,
-                  },
-                ]}>
-                {t('commands.shortcut')}
-              </Text>
+              {compact ? null : (
+                <>
+                  <Text
+                    style={[styles.pillText, { color: colors.textSecondary }]}>
+                    {t('commands.open')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.key,
+                      {
+                        backgroundColor: colors.fillQuiet,
+                        color: colors.textSecondary,
+                      },
+                    ]}>
+                    {t('commands.shortcut')}
+                  </Text>
+                </>
+              )}
             </Pressable>
           ) : null}
           {motion.shown && shown !== undefined ? (
@@ -569,6 +631,7 @@ export function CommandBar({
               open={opened !== undefined}
               opened={shown}
               style={motion.style}
+              trailing={!toolbar && floating === undefined}
             />
           ) : null}
         </View>
@@ -588,12 +651,15 @@ function Palette({
   close,
   height,
   style,
+  trailing,
 }: {
   readonly opened: readonly Command[];
   readonly open: boolean;
   readonly close: () => void;
   readonly height: number;
   readonly style: ReturnType<typeof useMenuMotion>['style'];
+  // Hangs from the input's trailing edge rather than its leading edge.
+  readonly trailing: boolean;
 }) {
   const { registry } = use(PaletteContext);
   const colors = usePalette();
@@ -748,6 +814,9 @@ function Palette({
           styles.panel,
           {
             top: height + 6,
+            // The account page's input sits at the window's trailing edge, so its panel hangs
+            // from there.
+            ...(trailing ? { right: 0 } : { left: 0 }),
             borderColor: colors.separator,
             boxShadow: colors.menuShadow,
           },

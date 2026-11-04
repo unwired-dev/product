@@ -175,9 +175,15 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   self.nextWindowNumber += 1;
   NSString *windowID = [NSString stringWithFormat:@"%lu", (unsigned long)self.nextWindowNumber];
   NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1040, 720)
-      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView
       backing:NSBackingStoreBuffered defer:NO];
   window.title = [UnwiredNativeText(@"windowTitle") stringByReplacingOccurrencesOfString:@"{{number}}" withString:windowID];
+  // The sidebar and panes run beneath the window controls; the reader's toolbar row shares their
+  // row, which the empty unified toolbar gives its height. The title stays for the Window menu.
+  window.titleVisibility = NSWindowTitleHidden;
+  window.titlebarAppearsTransparent = YES;
+  window.toolbar = [[NSToolbar alloc] initWithIdentifier:@"inbox-toolbar"];
+  window.toolbarStyle = NSWindowToolbarStyleUnified;
   window.identifier = [@"inbox-window-" stringByAppendingString:windowID];
   window.accessibilityIdentifier = window.identifier;
   window.minSize = NSMakeSize(760, 480);
@@ -258,9 +264,15 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   if ([sender isKindOfClass:NSNumber.class]) self.settingsRequestSerial = sender;
   if (window == nil) {
     window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 900, 720)
-        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView
         backing:NSBackingStoreBuffered defer:NO];
     window.title = UnwiredNativeText(@"settingsTitle");
+    // The glass sidebar holds the window controls; the page title and Command input share their
+    // row, which the empty unified toolbar gives its height.
+    window.titleVisibility = NSWindowTitleHidden;
+    window.titlebarAppearsTransparent = YES;
+    window.toolbar = [[NSToolbar alloc] initWithIdentifier:@"settings-toolbar"];
+    window.toolbarStyle = NSWindowToolbarStyleUnified;
     window.identifier = @"settings-window";
     window.restorable = NO;
     window.accessibilityIdentifier = window.identifier;

@@ -64,7 +64,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderCurve: 'continuous',
   },
-  sidebarList: { padding: spacing.s },
+  // Below the window controls, which AppKit draws on the glass.
+  sidebarList: { padding: spacing.s, paddingTop: 40 },
   account: {
     flexDirection: 'row',
     alignItems: 'center',
