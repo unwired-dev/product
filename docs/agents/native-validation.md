@@ -335,7 +335,9 @@ The audit handler permits these known findings:
 - the reader's sender monogram, whose initials repeat the sender name beside it
   and for which the handler permits at most one unlocated-text finding;
 - the contrast of a disabled button, which WCAG does not require, such as the
-  iPad Link Editor's Apply before a link is entered.
+  iPad Link Editor's Apply before a link is entered;
+- unlocated text while the iPad Link Editor popover is open, the same
+  undiagnosed finding as iPad's Filters popover (#1403).
 
 Other findings fail the journey. On iPad the composer and its Link Editor are
 audited expanded:

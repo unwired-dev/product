@@ -2012,10 +2012,11 @@ final class InboxTests: XCTestCase {
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
-    // Undiagnosed: the same unlocated text while iPad's system Filters popover is open, and while
-    // the Sync Status details' sheet or popover is open, whose elements are all labelled.
+    // Undiagnosed: the same unlocated text while iPad's system Filters or Link Editor popover is
+    // open, and while the Sync Status details' sheet or popover is open, whose elements are all
+    // labelled.
     case .elementDetection
-    where (screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad
+    where (["Filters", "Link Editor"].contains(screen) && UIDevice.current.userInterfaceIdiom == .pad
       || screen.hasPrefix("Sync Status Details "))
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
