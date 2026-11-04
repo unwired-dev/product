@@ -61,6 +61,8 @@ import {
   Glass,
   GlassPanel,
   MenuButton,
+  ScaledToolbar,
+  scaledToolbar,
   SFSymbol,
   ToolbarButton,
   useMenuMotion,
@@ -71,8 +73,10 @@ import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const phone = Platform.OS === 'ios' && !Platform.isPad;
-// iPhone's From pop-up shows a 33.6pt capsule within its 44pt target, as the Compose frames draw it.
-const phoneQuietSlop = (44 - 33.6) / 2;
+// The From pop-up shows a 33.6pt capsule on iPhone and a 32.2pt one on iPad within its 44pt
+// target, as the Compose frames draw it.
+const quietHeight = phone ? 33.6 : 28 * ipadListScale;
+const quietSlop = (44 - quietHeight) / 2;
 
 const styles = StyleSheet.create({
   // iPad draws the Mac Link Editor popover at the iPad list scale.
@@ -136,14 +140,14 @@ const styles = StyleSheet.create({
   generateTitle: { ...textStyles.headline, flex: 1 },
   generatePrompt: { ...textStyles.subheadline, minHeight: 44, padding: 0 },
   generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
-  // The iPad frames' Mac recipe at 1.15: Text style 18.4pt from the leading edge and the
-  // 36.8pt glyph boxes 18.4pt from the trailing one, each inside its full 44pt target.
+  // The iPad frames' Mac recipe at 1.15: Text style 18.4pt from the leading edge and the scaled
+  // toolbar's 36.8pt glyph boxes 18.4pt from the trailing one, 41.4pt apart, each keeping its 44pt
+  // target.
   formatBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingLeft: spacing.l * ipadListScale,
-    paddingRight: spacing.l * ipadListScale - (44 - 32 * ipadListScale) / 2,
+    paddingHorizontal: spacing.l * ipadListScale,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
@@ -152,12 +156,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexGrow: 1,
+    gap: spacing.xs * ipadListScale,
   },
   // 18.4pt tall, 4.6pt from the glyph boxes beside it.
   divider: {
     width: StyleSheet.hairlineWidth,
     height: 16 * ipadListScale,
-    marginHorizontal: 1,
   },
   // The Text style pull-down's label: its symbol, the style and the pop-up chevrons.
   textStyle: {
@@ -215,11 +219,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  phoneQuietPopUp: {
-    minHeight: 33.6,
-    marginVertical: phoneQuietSlop,
-    borderRadius: 7.2,
-  },
+  quietPopUp: { minHeight: quietHeight, marginVertical: quietSlop },
+  phoneQuietPopUp: { borderRadius: 7.2 },
   iconPopUp: {
     width: 44,
     justifyContent: 'center',
@@ -374,10 +375,11 @@ export function PopUp({
         accessibilityRole="button"
         accessibilityState={{ expanded: open, disabled, selected }}
         disabled={disabled}
-        hitSlop={phone && quiet ? phoneQuietSlop : undefined}
+        hitSlop={quiet ? quietSlop : undefined}
         onPress={onToggle}
         style={[
           styles.popUp,
+          quiet && styles.quietPopUp,
           phone && quiet && styles.phoneQuietPopUp,
           label === undefined ? styles.iconPopUp : null,
           { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
@@ -580,39 +582,45 @@ export function FormatBar({
         keyboardShouldPersistTaps="always"
         style={styles.formatRail}
         contentContainerStyle={styles.formatRailContent}>
-        <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-        {markControls.map(([mark, , name]) => (
+        <ScaledToolbar value>
+          <View
+            style={[styles.divider, { backgroundColor: colors.separator }]}
+          />
+          {markControls.map(([mark, , name]) => (
+            <ToolbarButton
+              key={mark}
+              disabled={disabled}
+              icon={markIcons[mark]}
+              label={t(name)}
+              selected={active.includes(mark)}
+              onPress={() => {
+                onMark(mark);
+              }}
+            />
+          ))}
+          <View
+            style={[styles.divider, { backgroundColor: colors.separator }]}
+          />
           <ToolbarButton
-            key={mark}
             disabled={disabled}
-            icon={markIcons[mark]}
-            label={t(name)}
-            selected={active.includes(mark)}
+            icon="list.bullet"
+            label={t('drafts.blocks.bulleted')}
+            selected={kind === 'bulleted'}
             onPress={() => {
-              onMark(mark);
+              onBlock('bulleted');
             }}
           />
-        ))}
-        <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-        <ToolbarButton
-          disabled={disabled}
-          icon="list.bullet"
-          label={t('drafts.blocks.bulleted')}
-          selected={kind === 'bulleted'}
-          onPress={() => {
-            onBlock('bulleted');
-          }}
-        />
-        <ToolbarButton
-          disabled={disabled}
-          icon="list.number"
-          label={t('drafts.blocks.numbered')}
-          selected={kind === 'numbered'}
-          onPress={() => {
-            onBlock('numbered');
-          }}
-        />
-        {children}
+          <ToolbarButton
+            disabled={disabled}
+            icon="list.number"
+            label={t('drafts.blocks.numbered')}
+            selected={kind === 'numbered'}
+            onPress={() => {
+              onBlock('numbered');
+            }}
+          />
+          {children}
+        </ScaledToolbar>
       </ScrollView>
     </View>
   );
@@ -922,7 +930,7 @@ export function LinkEditor({
       modifiers={[
         labelStyle('iconOnly'),
         buttonStyle('plain'),
-        font({ size: 20 }),
+        font({ size: popover ? scaledToolbar.symbol : 20 }),
         foregroundStyle(colors.textPrimary),
         frame({ minWidth: 44, minHeight: 44 }),
         inactive(disabled || link === undefined),

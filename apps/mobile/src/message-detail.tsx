@@ -147,6 +147,8 @@ const styles = StyleSheet.create({
   },
   // A single message on iPhone lines its sender and body up with a thread's cards, 24pt in.
   compactContent: { paddingHorizontal: 24 },
+  // On iPad the sender sits 18.4pt beneath the subject, as the single-message frames place it.
+  padSingleContent: { paddingTop: spacing.l * ipadListScale },
   header: {
     width: '100%',
     maxWidth: 760,
@@ -186,7 +188,10 @@ const styles = StyleSheet.create({
   openedMessage: { borderLeftWidth: 4 },
 });
 
-const singleContent = [styles.content, compact && styles.compactContent];
+const singleContent = [
+  styles.content,
+  compact ? styles.compactContent : styles.padSingleContent,
+];
 
 // Keeps the message being read in place while bodies above it load.
 const keepVisibleMessage = { minIndexForVisible: 0 };

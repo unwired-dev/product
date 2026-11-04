@@ -181,7 +181,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: rowInset,
     paddingVertical: rowPadding,
   },
-  rowText: { flex: 1, gap: settingsColumns ? 2 * ipadListScale : 2 },
+  // iPad's two-line rows are 61.3pt, as the frames draw them.
+  rowText: { flex: 1, gap: settingsColumns ? 3.8 : 2 },
   // Trailing controls may take the row's padding, so a push button or the native picker keeps
   // iPad's 46pt row; on iPhone a 36.4pt push button centres in the 52pt row.
   trailing: {
@@ -811,6 +812,7 @@ export function SettingsRow({
   disabled = false,
   subtitle,
   subtitleTone,
+  minHeight,
   children,
 }: {
   readonly icon?: string | ReactElement;
@@ -821,11 +823,13 @@ export function SettingsRow({
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
+  // A row the frames draw taller than the group's other rows.
+  readonly minHeight?: number;
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, minHeight === undefined ? null : { minHeight }]}>
       <Hairline />
       {typeof icon === 'string' ? (
         <SFSymbol

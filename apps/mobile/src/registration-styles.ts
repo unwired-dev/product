@@ -17,16 +17,32 @@ export const registrationStyles = StyleSheet.create({
     padding: 32,
   },
   content: { maxWidth: 420, width: '100%', gap: 20 },
-  // iPad presents account setup as the frames' centred glass sheet over the dimmed window.
+  // iPad presents account setup as the frames' centred glass sheet over the dimmed window, between
+  // 40pt below the status bar and 32pt above the bottom edge; its content scrolls within it.
+  padBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingBottom: 32,
+  },
   padSheet: {
     width: 575,
     maxWidth: '100%',
+    maxHeight: '100%',
+    borderRadius: radius.ipadSheet,
+    borderCurve: 'continuous',
+  },
+  padSheetScroll: {
+    flexShrink: 1,
+    borderRadius: radius.ipadSheet,
+    borderCurve: 'continuous',
+  },
+  padSheetContent: {
     gap: spacing.l * ipadListScale,
     paddingTop: 28 * ipadListScale,
     paddingHorizontal: 28 * ipadListScale,
     paddingBottom: 24 * ipadListScale,
-    borderRadius: radius.ipadSheet,
-    borderCurve: 'continuous',
   },
   padSheetTitle: {
     fontSize: 17 * ipadListScale,

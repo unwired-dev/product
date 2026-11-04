@@ -262,6 +262,7 @@
     },
     "connectedProfile": "{{provider}} · {{profile}}",
     "add": "Add another Gmail mailbox",
+    "addConnection": "Add Mailbox Connection…",
     "addMicrosoft": "Add a Microsoft mailbox",
     "allow": "Allow {{provider}} access for {{address}}",
     "remove": "Remove {{address}}",

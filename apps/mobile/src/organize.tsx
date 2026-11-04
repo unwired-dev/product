@@ -100,6 +100,12 @@ const styles = StyleSheet.create({
     right: spacing.l,
     gap: spacing.s,
   },
+  // Move's popover starts 18.4pt before the frames' full 395.6pt toolbar, wherever the actions this
+  // message offers leave the toolbar's own leading edge.
+  movePanel: {
+    right:
+      spacing.l + 344 * ipadListScale + 16 * ipadListScale - movePanelWidth,
+  },
   panel: { gap: 4, padding: spacing.l },
   labelRow: {
     flexDirection: 'row',
@@ -570,8 +576,6 @@ function Toolbar({
     };
   }, [shown, onPanel]);
   const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
-  // Move's popover starts 18.4pt (16pt at 1.15×) before the toolbar, beneath its organizing group.
-  const [toolbarWidth, setToolbarWidth] = useState(0);
   // Mail that cannot be answered, such as IMAP mail, has no Reply sheet and keeps More.
   const [replySheet, setReplySheet] = useState(false);
   const thread = {
@@ -589,9 +593,6 @@ function Toolbar({
     <>
       <View
         pointerEvents="box-none"
-        onLayout={({ nativeEvent }) => {
-          setToolbarWidth(nativeEvent.layout.width);
-        }}
         style={styles.toolbar}>
         <ToolbarGroups
           archive={archive}
@@ -623,14 +624,7 @@ function Toolbar({
             ? undefined
             : [
                 styles.floatingPanels,
-                shownPanel === 'folders' && {
-                  right:
-                    styles.floatingPanels.right +
-                    Math.max(
-                      0,
-                      toolbarWidth + 16 * ipadListScale - movePanelWidth,
-                    ),
-                },
+                shownPanel === 'folders' && styles.movePanel,
               ]
         }>
         <GlassPanel open={foldersOpen || more.open}>

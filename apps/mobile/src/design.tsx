@@ -229,8 +229,8 @@ const iphone = Platform.OS === 'ios' && !Platform.isPad;
 // Toolbar buttons are 44pt for touch; the group adds a 4pt inset and takes half its height.
 const groupRadius = (44 + 2 * spacing.xs) / 2;
 
-// The iPad reader toolbar draws the Mac toolbar at 1.15×: 36.8×32.2pt buttons with 18.4pt symbols
-// in 41.4pt groups. Hit slop extends each button to 44pt tall, and 44pt wide at a group's ends.
+// The iPad reader toolbar draws the Mac toolbar at 1.15×: 36.8×32.2pt buttons 2.3pt apart with
+// 18.4pt symbols in 41.4pt groups. Hit slop extends each button to 44pt tall, and 44pt wide at a group's ends.
 export const scaledToolbar = {
   width: 32 * ipadListScale,
   height: 28 * ipadListScale,
@@ -245,7 +245,8 @@ export const scaledToolbarSlop = {
   left: (44 - scaledToolbar.width) / 2,
   right: (44 - scaledToolbar.width) / 2,
 };
-const ScaledToolbar = createContext(false);
+// The iPad composer's format bar draws its buttons at the same scale.
+export const ScaledToolbar = createContext(false);
 // The iPhone reader's bottom group: 56×48pt buttons 4pt apart, inset 6pt, as its frames draw it.
 const WideToolbar = createContext(false);
 
@@ -263,6 +264,7 @@ const styles = StyleSheet.create({
   },
   scaledGroup: {
     padding: scaledToolbar.inset,
+    gap: 2 * ipadListScale,
     borderRadius: scaledToolbarHeight / 2,
   },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },

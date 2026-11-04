@@ -263,6 +263,11 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     openSettings("Email Accounts", in: app)
+    // iPad groups the add actions in one row's menu; iPhone lists them as buttons.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.buttons["Add Mailbox Connection…"].waitForExistence(timeout: 15))
+      app.buttons["Add Mailbox Connection…"].tap()
+    }
     XCTAssertTrue(app.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add another Gmail mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))

@@ -4,10 +4,9 @@ import type {
   RemoteContentPolicy,
   RemoteContentSettingsStore,
 } from '@private-email/mail-core/remote-content';
-import type { ReactNode } from 'react';
 
 import { remoteContentPolicy } from '@private-email/mail-core/remote-content';
-import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import { spacing, typography } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -19,10 +18,8 @@ import {
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -127,33 +124,15 @@ export function useRemoteImages({
 }
 
 const styles = StyleSheet.create({
-  policyHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  policyTitle: {
-    ...(settingsColumns ? typography.ipadList.body : textStyles.body),
-    flex: 1,
-  },
-  choices: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-    gap: spacing.xs,
-  },
-  choice: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.m,
-    borderRadius: radius.control,
-    borderCurve: 'continuous',
-  },
   label: { ...textStyles.subheadline },
-  // iPhone's pop-up: the chosen policy and its chevrons at the row's trailing edge.
+  // The pop-up: the chosen policy and its chevrons at the row's trailing edge.
   popUp: {
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
   },
-  popUpLabel: { ...textStyles.body },
+  popUpLabel: settingsColumns ? typography.ipadList.body : textStyles.body,
   text: { ...textStyles.body },
   // The approved warning row keeps the Mac inset and small type on iPhone and iPad.
   notSaved: {
@@ -173,46 +152,7 @@ const styles = StyleSheet.create({
 
 type Choice = RemoteContentPolicy | 'device';
 
-// Narrow panes give the full setting label its own line before the choices.
-function PolicyRow({
-  icon,
-  title,
-  children,
-}: {
-  readonly icon: string;
-  readonly title: string;
-  readonly children: ReactNode;
-}) {
-  const colors = usePalette();
-  const { width, height } = useWindowDimensions();
-  // iPhone's frames set each policy as one row, its pop-up at the trailing edge.
-  if (!settingsColumns || width > height) {
-    return (
-      <SettingsRow
-        icon={icon}
-        title={title}>
-        {children}
-      </SettingsRow>
-    );
-  }
-  return (
-    <SettingsBlock>
-      <View style={styles.policyHeading}>
-        <SFSymbol
-          name={icon}
-          size={20}
-          color={colors.accentInk}
-        />
-        <Text style={[styles.policyTitle, { color: colors.textPrimary }]}>
-          {title}
-        </Text>
-      </View>
-      {children}
-    </SettingsBlock>
-  );
-}
-
-// The policy choices as buttons that report which one is selected; `device` follows the
+// The policy choices in one native pop-up that checks the selected one; `device` follows the
 // device's choice for one mailbox.
 export function PolicyChoice({
   label,
@@ -220,7 +160,7 @@ export function PolicyChoice({
   choices,
   onChoose,
 }: {
-  // Names the setting for each button's accessibility label.
+  // Names the setting for the pop-up's accessibility label.
   readonly label: string;
   readonly selected: Choice;
   readonly choices: readonly Choice[];
@@ -229,74 +169,35 @@ export function PolicyChoice({
   const colors = usePalette();
   const { t } = useLocalization();
   const title = (choice: Choice) => t(`remoteContent.policies.${choice}`);
-  // iPhone chooses from one native pop-up.
-  if (!settingsColumns) {
-    return (
-      <MenuButton
-        accessibilityLabel={`${label}: ${title(selected)}`}
-        sections={[
-          {
-            items: choices.map((choice) => ({
-              key: choice,
-              title: title(choice),
-              symbol: '',
-              checked: choice === selected,
-              run: () => {
-                onChoose(choice);
-              },
-            })),
-          },
-        ]}>
-        <View style={styles.popUp}>
-          <Text
-            numberOfLines={1}
-            style={[styles.popUpLabel, { color: colors.textSecondary }]}>
-            {title(selected)}
-          </Text>
-          <SFSymbol
-            name="chevron.up.chevron.down"
-            size={12}
-            color={colors.textSecondary}
-          />
-        </View>
-      </MenuButton>
-    );
-  }
   return (
-    <View style={styles.choices}>
-      {choices.map((choice) => (
-        <Pressable
-          key={choice}
-          accessibilityRole="radio"
-          accessibilityLabel={`${label}: ${t(`remoteContent.policies.${choice}`)}`}
-          accessibilityState={{ checked: choice === selected }}
-          focusable
-          onPress={() => {
-            onChoose(choice);
-          }}
-          style={[
-            styles.choice,
-            {
-              backgroundColor:
-                choice === selected ? colors.accentFill : colors.fillQuiet,
+    <MenuButton
+      accessibilityLabel={`${label}: ${title(selected)}`}
+      sections={[
+        {
+          items: choices.map((choice) => ({
+            key: choice,
+            title: title(choice),
+            symbol: '',
+            checked: choice === selected,
+            run: () => {
+              onChoose(choice);
             },
-          ]}>
-          <Text
-            style={[
-              styles.label,
-              {
-                color:
-                  choice === selected
-                    ? colors.accentOnFill
-                    : colors.textPrimary,
-                fontWeight: choice === selected ? '600' : '400',
-              },
-            ]}>
-            {t(`remoteContent.policies.${choice}`)}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
+          })),
+        },
+      ]}>
+      <View style={styles.popUp}>
+        <Text
+          numberOfLines={1}
+          style={[styles.popUpLabel, { color: colors.textSecondary }]}>
+          {title(selected)}
+        </Text>
+        <SFSymbol
+          name="chevron.up.chevron.down"
+          size={12}
+          color={colors.textSecondary}
+        />
+      </View>
+    </MenuButton>
   );
 }
 
@@ -343,7 +244,7 @@ function PolicySetting({
   );
   return (
     <>
-      <PolicyRow
+      <SettingsRow
         icon={icon}
         title={title}>
         <PolicyChoice
@@ -361,7 +262,7 @@ function PolicySetting({
             })();
           }}
         />
-      </PolicyRow>
+      </SettingsRow>
       {refused === undefined ? null : (
         <View style={styles.notSaved}>
           <SFSymbol

@@ -25,6 +25,14 @@ import { textStyles, usePalette } from './theme.ts';
 
 const ipad = Platform.OS === 'ios' && Platform.isPad;
 const phone = Platform.OS === 'ios' && !Platform.isPad;
+// The frames' 17.25/23 Title 3 is set without the system font's own -0.43pt tracking at that size.
+const ipadTitle3 = { fontSize: 17.25, lineHeight: 23, letterSpacing: 0.43 };
+// The benefits' SF Symbols are as wide as the frames draw them at 18.4pt.
+const ipadSymbolWidths: Readonly<Record<string, number>> = {
+  'lock.fill': 14.03,
+  'tray.2': 20.7,
+  'arrow.clockwise': 15.41,
+};
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -34,8 +42,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: ipad ? 140 : 24,
     paddingVertical: spacing.l,
   },
-  // The iPad frames set Welcome's content 12pt below the centre of the safe area.
-  ipadWelcome: { paddingTop: spacing.l + 2 * 12 },
+  // The iPad frames set Welcome's content 13.5pt below the centre of the safe area.
+  ipadWelcome: { paddingTop: spacing.l + 2 * 13.5 },
   welcomeContent: { maxWidth: ipad ? 598 : 520, gap: 14 },
   ipadWelcomeContent: { gap: 0 },
   seal: { width: 18, height: 18, borderRadius: 9 },
@@ -53,7 +61,11 @@ const styles = StyleSheet.create({
     letterSpacing: -1.196,
   },
   lede: { ...textStyles.body, opacity: 0.8 },
-  ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23, opacity: 0.78 },
+  ipadLede: {
+    ...ipadTitle3,
+    marginTop: 23,
+    opacity: 0.78,
+  },
   ipadStatus: { fontSize: 17.25, lineHeight: 23, opacity: 0.78 },
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   status: { position: 'absolute', top: 0, left: 0, right: 0 },
@@ -63,8 +75,11 @@ const styles = StyleSheet.create({
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
   // Each iPad benefit takes a 39.1pt slot: its 23pt line and 16.1pt below, then 32.2pt to Continue.
+  // Its label follows the symbol's own width 13.8pt on.
   ipadPoints: { gap: 16.1, marginTop: 41.4, marginBottom: 16.1 + 32.2 },
-  ipadPointText: { fontSize: 17.25, lineHeight: 23 },
+  ipadPoint: { gap: spacing.m * ipadListScale },
+  ipadPointIcon: { alignItems: 'center' },
+  ipadPointText: ipadTitle3,
   // iPad's Privacy & Data hangs below Continue, outside the frames' content.
   ipadPrivacy: { position: 'absolute', top: '100%', left: 0, right: 0 },
   footer: {
@@ -100,7 +115,14 @@ const styles = StyleSheet.create({
   },
   wordmark: { fontSize: 22, lineHeight: 26 },
   tagline: { ...typography.macos.body, opacity: 0.7 },
-  form: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
+  // The frames set the form 2pt right of and 13pt above the centre of the column beside the panel.
+  form: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 2 * 2,
+    paddingBottom: 2 * 13,
+  },
   formContent: {
     width: '100%',
     maxWidth: 392,
@@ -394,12 +416,20 @@ export function Welcome({
             {points.map(({ icon, text }) => (
               <View
                 key={icon}
-                style={styles.point}>
-                <SFSymbol
-                  name={icon}
-                  size={ipad ? 18.4 : 18}
-                  color={`${colors.brandOnDeep}B3`}
-                />
+                style={[styles.point, ipad && styles.ipadPoint]}>
+                <View
+                  style={
+                    ipad && [
+                      styles.ipadPointIcon,
+                      { width: ipadSymbolWidths[icon] },
+                    ]
+                  }>
+                  <SFSymbol
+                    name={icon}
+                    size={ipad ? 18.4 : 18}
+                    color={`${colors.brandOnDeep}B3`}
+                  />
+                </View>
                 <Text
                   style={[styles.pointText, ipad && styles.ipadPointText, ink]}>
                   {text}

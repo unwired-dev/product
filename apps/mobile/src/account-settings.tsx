@@ -30,7 +30,13 @@ import {
 
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
-import { AnnouncedAlert, Button, Notice, SFSymbol } from './design.tsx';
+import {
+  AnnouncedAlert,
+  Button,
+  MenuButton,
+  Notice,
+  SFSymbol,
+} from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
@@ -39,7 +45,12 @@ import { TrustCard } from './onboarding.tsx';
 import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
-import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  settingsColumns,
+  SettingsBlock,
+  SettingsGroup,
+  SettingsRow,
+} from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TrustedDevices } from './trusted-devices.tsx';
 
@@ -147,6 +158,7 @@ function Mailboxes({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
   // The IMAP connection whose password is being entered again, or a new one being added.
   const [imap, setImap] = useState<
@@ -256,27 +268,76 @@ function Mailboxes({
           </View>
         );
       })}
-      <SettingsBlock>
-        {button(t('mailboxes.add'), () => store.addMailbox('gmail', true))}
-        {microsoft
-          ? button(t('mailboxes.addMicrosoft'), () =>
-              store.addMailbox('microsoft-graph'),
-            )
-          : null}
-        {imap?.kind === 'new' ? (
-          <ImapSetup
-            button={button}
-            onClose={() => {
-              setImap(undefined);
-            }}
-            store={store}
+      {settingsColumns ? (
+        // iPad adds every provider from one row's native menu, as the frames group it.
+        <MenuButton
+          accessibilityLabel={t('mailboxes.addConnection')}
+          disabled={busy}
+          sections={[
+            {
+              items: [
+                {
+                  key: 'gmail',
+                  title: t('mailboxes.add'),
+                  symbol: '',
+                  run: () => store.addMailbox('gmail', true),
+                },
+                ...(microsoft
+                  ? [
+                      {
+                        key: 'microsoft-graph',
+                        title: t('mailboxes.addMicrosoft'),
+                        symbol: '',
+                        run: () => store.addMailbox('microsoft-graph'),
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'imap',
+                  title: t('mailboxes.addImap'),
+                  symbol: '',
+                  run: () => {
+                    setImap({ kind: 'new' });
+                  },
+                },
+              ],
+            },
+          ]}>
+          <SettingsRow
+            title={t('mailboxes.addConnection')}
+            titleTone="accent"
           />
-        ) : (
-          button(t('mailboxes.addImap'), async () => {
-            setImap({ kind: 'new' });
-          })
-        )}
-      </SettingsBlock>
+        </MenuButton>
+      ) : null}
+      {settingsColumns && imap?.kind !== 'new' ? null : (
+        <SettingsBlock>
+          {settingsColumns ? null : (
+            <>
+              {button(t('mailboxes.add'), () =>
+                store.addMailbox('gmail', true),
+              )}
+              {microsoft
+                ? button(t('mailboxes.addMicrosoft'), () =>
+                    store.addMailbox('microsoft-graph'),
+                  )
+                : null}
+            </>
+          )}
+          {imap?.kind === 'new' ? (
+            <ImapSetup
+              button={button}
+              onClose={() => {
+                setImap(undefined);
+              }}
+              store={store}
+            />
+          ) : (
+            button(t('mailboxes.addImap'), async () => {
+              setImap({ kind: 'new' });
+            })
+          )}
+        </SettingsBlock>
+      )}
     </SettingsGroup>
   );
 }

@@ -286,7 +286,9 @@ export function ErrorReportingSettings({
         footer={consentDescription}>
         <SettingsRow
           title={t('errorReporting.share')}
-          disabled={!available}>
+          disabled={!available}
+          // The frames draw the sharing switch's row at 52pt, as the reporting actions below.
+          minHeight={52}>
           <Switch
             accessibilityLabel={t('errorReporting.share')}
             accessibilityState={{

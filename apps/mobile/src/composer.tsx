@@ -76,7 +76,12 @@ import {
   undo,
   withoutImage,
 } from '@private-email/mail-core/semantic-document';
-import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
@@ -128,6 +133,7 @@ import {
   GlassGroup,
   GlassPanel,
   MenuButton,
+  scaledToolbar,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -187,8 +193,13 @@ const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 const padFieldInset = 24 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
-// Compact 36pt field rows reach 44pt targets.
-const fieldSlop = { compact: 4, regular: undefined } as const;
+// Compact 36pt and regular 41.4pt field rows reach 44pt targets.
+const padFieldHeight = 36 * ipadListScale;
+const titledSendHeight = 28 * ipadListScale;
+export const fieldSlop = {
+  compact: 4,
+  regular: (44 - padFieldHeight) / 2,
+} as const;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -220,24 +231,32 @@ const styles = StyleSheet.create({
   },
   title: { ...textStyles.headline, textAlign: 'center' },
   leadingTitle: { textAlign: 'left' },
-  // The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame.
+  // iPad's New Message header is 63pt with its controls centred 33.8pt down; a docked reply's is
+  // 46pt. Both title in the list's semibold type.
+  cardHeader: { paddingTop: 33.8 - 22, paddingBottom: 63 - 33.8 - 22 },
+  dockedHeader: { paddingVertical: 1 },
+  regularTitle: { ...typography.ipadList.body, fontWeight: '600' },
+  // The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame: their
+  // 32.2pt visuals 10.35pt below the fields and 13.8pt above the bottom, in line with the fields.
   replyFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    paddingVertical: spacing.s,
-    paddingHorizontal: spacing.l,
+    paddingTop: 9 * ipadListScale - (44 - titledSendHeight) / 2,
+    paddingBottom: 12 * ipadListScale - (44 - titledSendHeight) / 2,
+    paddingHorizontal: padFieldInset,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  // iPad's Send is 32.2pt tall within its 44pt target.
   sendTitled: {
-    minHeight: 32,
+    minHeight: titledSendHeight,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.l,
     borderRadius: radius.card,
     borderCurve: 'continuous',
   },
-  sendLabel: { ...textStyles.headline },
+  sendLabel: { ...typography.ipadList.body, fontWeight: '600' },
   circle: {
     width: 44,
     height: 44,
@@ -267,12 +286,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: fieldInset,
     paddingBottom: spacing.s,
   },
-  // The format bar's separators: 18.4pt tall, 4.6pt from the 36.8pt glyph boxes inside each
-  // 44pt target.
+  // The format bar's separators: 18.4pt tall, 4.6pt from the glyph boxes beside them.
   divider: {
     width: StyleSheet.hairlineWidth,
     height: 16 * ipadListScale,
-    marginHorizontal: 1,
   },
   content: { paddingBottom: spacing.s },
   bar: {
@@ -383,8 +400,8 @@ const styles = StyleSheet.create({
 });
 
 // Each layout's additions to the shared styles. iPad scales the Mac recipe by 1.15: the body
-// 36.8pt in and growing to push its attachments and fields to the bottom, the fields 27.6pt in
-// with a compact 73.6pt label column.
+// 36.8pt in and growing to push its attachments and fields to the bottom, in the Mac composer's
+// 15/22 at that scale; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt label column.
 export const layoutStyles = {
   // iPhone's fields are 36pt rows of 16.25/20 text beneath 1.25pt rules, 10pt from their labels.
   // Inputs keep 44pt targets through hit slop, and an entry stays beside recipients while 80pt fit.
@@ -407,15 +424,29 @@ export const layoutStyles = {
   }),
   regular: StyleSheet.create({
     content: { flexGrow: 1 },
-    body: { flexGrow: 1, paddingHorizontal: padInset },
+    body: {
+      flexGrow: 1,
+      paddingHorizontal: padInset,
+      fontSize: 15 * ipadListScale,
+      lineHeight: 22 * ipadListScale,
+    },
     quoted: { marginHorizontal: padInset },
     assets: { paddingHorizontal: padFieldInset },
     fields: { paddingHorizontal: padFieldInset },
-    field: { gap: spacing.s * ipadListScale },
-    fieldLabel: { width: padLabelWidth },
+    field: {
+      gap: spacing.s * ipadListScale,
+      minHeight: padFieldHeight,
+      paddingVertical: 0,
+    },
+    fieldLabel: {
+      ...typography.ipadList.body,
+      width: padLabelWidth,
+      paddingVertical:
+        (padFieldHeight - typography.ipadList.body.lineHeight) / 2,
+    },
     fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
-    input: {},
-    token: {},
+    input: { ...typography.ipadList.body, minHeight: padFieldHeight },
+    token: { minHeight: padFieldHeight },
   }),
 };
 
@@ -1494,6 +1525,7 @@ export function SendButton({
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      hitSlop={titled ? (44 - titledSendHeight) / 2 : undefined}
       onPress={onPress}
       style={({ pressed }) => [
         titled ? styles.sendTitled : styles.circle,
@@ -1682,7 +1714,7 @@ function WritingTools({
       style={styles.menuControl}>
       <SFSymbol
         name="sparkles"
-        size={20}
+        size={popover ? scaledToolbar.symbol : 20}
         color={colors.textPrimary}
       />
     </MenuButton>
@@ -1712,6 +1744,18 @@ function WritingTools({
 // iPhone's window-filling composer, the iPad New Message card, or an iPad reply docked beneath
 // the message it answers.
 type Presentation = 'compact' | 'card' | 'docked';
+
+// Each presentation's header and title additions.
+const headerStyles = {
+  compact: null,
+  card: styles.cardHeader,
+  docked: styles.dockedHeader,
+} as const;
+const titleStyles = {
+  compact: null,
+  card: styles.regularTitle,
+  docked: [styles.regularTitle, styles.leadingTitle],
+} as const;
 
 const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   if (!regular) {
@@ -2642,7 +2686,7 @@ function Editor({
         style={styles.fill}>
         {/* The header opens the Command Palette by a downward swipe, as other screens' do. */}
         <View
-          style={styles.header}
+          style={[styles.header, headerStyles[presentation]]}
           {...paletteHeader.swipe}>
           <CloseButton
             disabled={closing === 'saving'}
@@ -2662,7 +2706,7 @@ function Editor({
             style={[
               styles.grow,
               styles.title,
-              docked && styles.leadingTitle,
+              titleStyles[presentation],
               { color: colors.textPrimary },
             ]}
             {...paletteHeader.action}>
@@ -2852,7 +2896,8 @@ function Editor({
                     subjectSelection.current = next;
                   }}
                   hitSlop={fieldSlop[layout.size]}
-                  placeholder={t('drafts.subject')}
+                  // iPad's Subject label already names the empty field.
+                  placeholder={regular ? undefined : t('drafts.subject')}
                   placeholderTextColor={colors.textSecondary}
                   style={[
                     styles.input,

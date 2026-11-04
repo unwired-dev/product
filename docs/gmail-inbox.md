@@ -60,7 +60,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
 - **Adding.** Settings' **Email Accounts** lists every Mailbox Connection, Gmail,
   [Microsoft](microsoft-mail.md) and [IMAP](imap-mailboxes.md), with its state and
   offers **Add another Gmail mailbox**, **Add an IMAP mailbox** and, when Microsoft
-  mail is configured for this build, **Add a Microsoft mailbox**. Adding Gmail asks Google for an
+  mail is configured for this build, **Add a Microsoft mailbox**. On iPad these are the
+  native menu of one **Add Mailbox Connection…** row. Adding Gmail asks Google for an
   account and explicit Gmail consent. Choosing a Google account that is already
   connected authorizes that connection again instead of adding a second one; the
   Google account, not the address, identifies it. A cancelled or refused addition
@@ -886,7 +887,8 @@ sources, including plain HTTP and internationalized host names, stay placeholder
 
 - **Policies.** The **Remote Content** group in Settings' **Privacy & Data**
   chooses **Ask** (the default), **Never** or **Always load** for this device, and
-  each Gmail mailbox's row there can use the device setting or its own choice. Choices stay on this device in its
+  each Gmail mailbox's row there can use the device setting or its own choice, each
+  from its row's native pop-up menu. Choices stay on this device in its
   local defaults and are never synchronized; unreadable settings ask. Until the
   saved choices are read at launch, readers show no remote content and offer no
   **Load images**, so a saved **Never** is never preceded by Ask's cache restoration.

@@ -152,10 +152,11 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     overflow: 'hidden',
   },
+  // The commands on the frames' 16pt glass panel.
   popoverPanel: {
     flexShrink: 1,
     paddingVertical: spacing.s,
-    borderRadius: radius.menu,
+    borderRadius: radius.window,
     borderCurve: 'continuous',
   },
   inputRow: {
@@ -207,13 +208,14 @@ const styles = StyleSheet.create({
   },
   backText: { ...textStyles.subheadline },
   choosing: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
-  list: { paddingHorizontal: spacing.m },
+  // iPad's commands sit 8pt inside their panel, beneath 32pt group headers, in the list's type.
+  list: { paddingHorizontal: pad ? spacing.s : spacing.m },
   section: {
     ...textStyles.footnote,
     fontWeight: '600',
-    paddingTop: spacing.m,
+    paddingTop: pad ? 10 : spacing.m,
     paddingBottom: spacing.xs,
-    paddingHorizontal: spacing.s,
+    paddingHorizontal: pad ? spacing.m : spacing.s,
   },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.s },
   row: {
@@ -221,11 +223,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.m,
     minHeight: 44,
-    paddingHorizontal: spacing.s,
+    paddingHorizontal: pad ? spacing.m : spacing.s,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  title: { ...textStyles.body, flex: 1 },
+  title: { ...(pad ? typography.ipadList.body : textStyles.body), flex: 1 },
   // A command that cannot run keeps its name legible but recedes behind its reason.
   dimmed: { opacity: 0.35 },
   detail: { ...textStyles.footnote },
@@ -415,10 +417,7 @@ function paletteFrame(
       },
     ],
     field: [styles.field, styles.anchoredField],
-    panel: [
-      styles.popoverPanel,
-      { backgroundColor: colors.surfacePanel, boxShadow: colors.menuShadow },
-    ],
+    panel: [styles.popoverPanel, { boxShadow: colors.menuGlassShadow }],
   };
 }
 
@@ -633,6 +632,7 @@ function Palette({
           </View>
         )}
         <View style={frame.panel}>
+          {anchor === undefined ? null : <Glass cornerRadius={radius.window} />}
           <ScrollView
             // The sheet can reach below the software keyboard; the commands it covers scroll above it.
             automaticallyAdjustKeyboardInsets

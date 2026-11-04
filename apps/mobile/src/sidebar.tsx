@@ -141,7 +141,6 @@ const styles = StyleSheet.create({
   compactCount: { ...textStyles.subheadline },
   count: { ...typography.ipadList.body },
   footer: {
-    marginHorizontal: spacing.s * ipadListScale,
     paddingTop: spacing.s,
     paddingBottom: spacing.m,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -153,11 +152,13 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   // The floating sidebar panel, inset 8pt from the column beneath the status bar and from the
-  // window's bottom edge, as the frames draw it from y40 to y826.
+  // window's bottom edge, as the frames draw it from y40 to y826: 271.4pt wide in the 286pt column,
+  // its rows and footer 9.2pt inside it.
   panel: {
     flex: 1,
     margin: spacing.s,
-    paddingHorizontal: spacing.s,
+    marginRight: 286 - spacing.s - 271.4,
+    paddingHorizontal: spacing.s * ipadListScale,
     borderRadius: radius.window * ipadListScale,
     borderCurve: 'continuous',
     borderWidth: StyleSheet.hairlineWidth,
