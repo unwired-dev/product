@@ -242,7 +242,9 @@ function SectionHeader({
   return (
     <Pressable
       accessibilityLabel={warn ? `${label}, ${trouble}` : label}
-      accessibilityRole="header"
+      // A control, so VoiceOver finds the disclosure among buttons; AppKit's header role is static
+      // text.
+      accessibilityRole="button"
       accessibilityState={{ expanded: !collapsed }}
       // Mac Fabric announces expanded, but omits the collapsed state from its value.
       accessibilityValue={

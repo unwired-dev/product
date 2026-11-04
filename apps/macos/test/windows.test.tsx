@@ -538,19 +538,19 @@ describe('mac window selection with the shared mock mailbox', () => {
       />,
     );
     await app.findByRole('button', { name: 'All inboxes' });
-    const favorites = app.getByRole('header', { name: 'Favorites' });
+    const favorites = app.getByRole('button', { name: 'Favorites' });
     expect(favorites).toBeExpanded();
     await fireEvent.press(favorites);
     expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
     expect(
-      app.getByRole('header', { name: 'Favorites', expanded: false }),
+      app.getByRole('button', { name: 'Favorites', expanded: false }),
     ).toHaveAccessibilityValue({
       text: 'Collapsed',
     });
-    await fireEvent.press(app.getByRole('header', { name: 'Favorites' }));
+    await fireEvent.press(app.getByRole('button', { name: 'Favorites' }));
     expect(app.getByRole('button', { name: 'All inboxes' })).toBeVisible();
     expect(
-      app.getByRole('header', { name: 'Favorites', expanded: true }),
+      app.getByRole('button', { name: 'Favorites', expanded: true }),
     ).not.toHaveAccessibilityValue({
       text: 'Collapsed',
     });
