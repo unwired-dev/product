@@ -23,6 +23,9 @@ import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
+// The iPad popover's width in the Move to Folder frame; it starts 20pt before the toolbar.
+export const movePanelWidth = 322;
+
 const styles = StyleSheet.create({
   sheet: { flex: 1, paddingHorizontal: spacing.l },
   caption: { ...textStyles.footnote, textAlign: 'center' },
@@ -81,6 +84,32 @@ const styles = StyleSheet.create({
   rowName: { ...textStyles.body, flex: 1 },
   count: { ...textStyles.body },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
+  // The iPad Move to Folder frame's popover: search, the account, then its folders.
+  panel: { width: movePanelWidth, padding: spacing.s, gap: spacing.xs },
+  panelSearch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    minHeight: 32,
+    paddingHorizontal: spacing.s,
+    borderRadius: radius.row,
+    borderCurve: 'continuous',
+  },
+  panelSearchInput: { ...textStyles.subheadline, flex: 1, padding: 0 },
+  panelCaption: {
+    ...textStyles.footnote,
+    fontWeight: '600',
+    paddingHorizontal: spacing.s,
+    paddingTop: spacing.xs,
+  },
+  panelList: { maxHeight: 360, flexGrow: 0 },
+  panelRow: {
+    minHeight: 32,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.s,
+    borderRadius: radius.row,
+  },
+  panelName: { ...textStyles.subheadline, flex: 1 },
 });
 
 // Each level of nesting indents a folder by one icon column.
@@ -203,6 +232,7 @@ function SheetRow({
   depth = 0,
   current = false,
   disabled = false,
+  dense = false,
   onPress,
   children,
 }: {
@@ -210,10 +240,16 @@ function SheetRow({
   readonly depth?: number;
   readonly current?: boolean;
   readonly disabled?: boolean;
+  // The iPad popover's 32pt rows.
+  readonly dense?: boolean;
   readonly onPress: () => void;
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
+  const row = dense ? [styles.row, styles.panelRow] : styles.row;
+  const inset = dense
+    ? styles.panelRow.paddingHorizontal
+    : styles.row.paddingHorizontal;
   return (
     <Pressable
       accessibilityLabel={label}
@@ -223,9 +259,9 @@ function SheetRow({
       focusable
       onPress={onPress}
       style={({ pressed }) => [
-        styles.row,
+        row,
         {
-          paddingLeft: styles.row.paddingHorizontal + indent * depth,
+          paddingLeft: inset + indent * depth,
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
             : 'transparent',
@@ -295,9 +331,11 @@ function AccountPage({
 // A destination: its symbol in the accent, or secondary with its name when it cannot be chosen.
 function DestinationRow({
   row,
+  dense = false,
   onChoose,
 }: {
   readonly row: Row;
+  readonly dense?: boolean;
   readonly onChoose: (id: string) => void;
 }) {
   const colors = usePalette();
@@ -310,20 +348,21 @@ function DestinationRow({
       depth={row.depth}
       current={row.current}
       disabled={unavailable}
+      dense={dense}
       onPress={() => {
         onChoose(row.id);
       }}>
       <View style={styles.rowIcon}>
         <SFSymbol
           name={row.icon}
-          size={18}
-          color={unavailable ? colors.textSecondary : colors.accentInk}
+          size={dense ? 15 : 18}
+          color={unavailable || dense ? colors.textSecondary : colors.accentInk}
         />
       </View>
       <Text
         numberOfLines={1}
         style={[
-          styles.rowName,
+          dense ? styles.panelName : styles.rowName,
           { color: unavailable ? colors.textSecondary : colors.textPrimary },
         ]}>
         {row.name}
@@ -592,5 +631,100 @@ export function MoveSheet({
         </Group>
       </BottomSheet>
     </Host>
+  );
+}
+
+// iPad's Move picker, the popover beneath the reader toolbar's Move: a search over the folders,
+// the account they belong to, and its folders nested as the provider lists them, with the current
+// one and containers unavailable.
+export function MovePanel({
+  open,
+  destinations,
+  empty,
+  limited,
+  onMove,
+}: {
+  readonly open: boolean;
+  readonly message: Readonly<{ sender: string; subject: string }>;
+  readonly destinations: readonly Destination[];
+  readonly empty?: string | undefined;
+  readonly limited: number | undefined;
+  readonly onMove: (id: string) => void;
+  readonly onClose: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const mailbox = useMailbox();
+  const provider = useProviderName();
+  const [query, setQuery] = useState('');
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setQuery('');
+    }
+  }
+  const needle = query.trim().toLocaleLowerCase();
+  const shown = rowsFor(destinations, needle);
+  const note = (text: string) => (
+    <Text style={[styles.note, { color: colors.textSecondary }]}>{text}</Text>
+  );
+  const nothingToChoose = destinations.every(
+    ({ current, selectable }) => current || !selectable,
+  );
+  return (
+    <View
+      testID="move-panel"
+      style={styles.panel}>
+      <View style={[styles.panelSearch, { backgroundColor: colors.fillQuiet }]}>
+        <SFSymbol
+          name="magnifyingglass"
+          size={13}
+          color={colors.textSecondary}
+        />
+        <TextInput
+          accessibilityLabel={t('contextMenu.moveTo')}
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="while-editing"
+          onChangeText={setQuery}
+          placeholder={t('contextMenu.moveTo')}
+          placeholderTextColor={colors.textSecondary}
+          returnKeyType="search"
+          style={[styles.panelSearchInput, { color: colors.textPrimary }]}
+          value={query}
+        />
+      </View>
+      <Text
+        accessibilityRole="header"
+        numberOfLines={1}
+        style={[styles.panelCaption, { color: colors.textSecondary }]}>
+        {mailbox === undefined ? provider : `${provider} · ${mailbox.address}`}
+      </Text>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        style={styles.panelList}>
+        {shown.length === 0
+          ? note(
+              needle === '' && empty !== undefined
+                ? empty
+                : t('gmailActions.noMatchingFolders'),
+            )
+          : shown.map((row) => (
+              <DestinationRow
+                key={row.id}
+                row={row}
+                dense
+                onChoose={onMove}
+              />
+            ))}
+        {empty !== undefined && shown.length > 0 && nothingToChoose
+          ? note(empty)
+          : null}
+        {limited === undefined
+          ? null
+          : note(t('gmailActions.foldersLimited', { count: limited }))}
+      </ScrollView>
+    </View>
   );
 }

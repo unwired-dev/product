@@ -294,7 +294,9 @@ export function InboxToolbar({
             onCompose={() => message?.compose()}
             onFilterOpen={onOpen}
             onFilterToggle={onToggle}
-            onPalette={openPalette}
+            onPalette={() => {
+              openPalette();
+            }}
             onSearchClose={close}
             onSearchFocus={focused}
             onSearchText={({ nativeEvent: { text } }) => {

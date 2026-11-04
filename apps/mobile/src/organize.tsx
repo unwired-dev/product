@@ -54,12 +54,17 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
-import { MoveSheet } from './move-sheet.tsx';
+import { MovePanel, movePanelWidth, MoveSheet } from './move-sheet.tsx';
 import { ActionButton } from './organize-action-button.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
+
+// iPhone moves in a system sheet; iPad in the popover beneath the toolbar's Move.
+const MovePicker = compact ? MoveSheet : MovePanel;
+const placed = (picker: ReactNode) =>
+  compact ? { sheet: picker } : { panel: picker };
 
 // The toolbar panel a reader shows: the folders or labels to move to, or More's remaining actions.
 // Beside the iPhone Reply sheet, which offers those actions, it shows only the labels to add or
@@ -235,7 +240,9 @@ function ToolbarGroups({
       {archive === undefined && folders === undefined ? null : (
         <GlassGroup pointerEvents="box-none">{organize}</GlassGroup>
       )}
-      <GlassGroup pointerEvents="box-none">{respond}</GlassGroup>
+      {respond === null ? null : (
+        <GlassGroup pointerEvents="box-none">{respond}</GlassGroup>
+      )}
       {more === null ? null : (
         <GlassGroup pointerEvents="box-none">{more}</GlassGroup>
       )}
@@ -480,6 +487,8 @@ function Toolbar({
     };
   }, [shown, onPanel]);
   const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
+  // Move's popover starts 20pt before the toolbar, beneath its organizing group.
+  const [toolbarWidth, setToolbarWidth] = useState(0);
   // Mail that cannot be answered, such as IMAP mail, has no Reply sheet and keeps More.
   const [replySheet, setReplySheet] = useState(false);
   const thread = {
@@ -497,14 +506,19 @@ function Toolbar({
     <>
       <View
         pointerEvents="box-none"
+        onLayout={({ nativeEvent }) => {
+          setToolbarWidth(nativeEvent.layout.width);
+        }}
         style={styles.toolbar}>
         <ToolbarGroups
           archive={archive}
           folders={folders}
           respond={
-            <ThreadActionsContext value={thread}>
-              {children}
-            </ThreadActionsContext>
+            children === null || children === undefined ? null : (
+              <ThreadActionsContext value={thread}>
+                {children}
+              </ThreadActionsContext>
+            )
           }
           more={replySheet ? null : <MoreButton more={more} />}
         />
@@ -513,7 +527,18 @@ function Toolbar({
       <View
         pointerEvents="box-none"
         testID="reader-panels"
-        style={compact ? undefined : styles.floatingPanels}>
+        style={
+          compact
+            ? undefined
+            : [
+                styles.floatingPanels,
+                shownPanel === 'folders' && {
+                  right:
+                    styles.floatingPanels.right +
+                    Math.max(0, toolbarWidth + 20 - movePanelWidth),
+                },
+              ]
+        }>
         <GlassPanel open={foldersOpen || more.open}>
           {shownPanel === 'folders' &&
           folders !== undefined &&
@@ -671,64 +696,39 @@ function ImapMessageActions({
                     setPanel('folders');
                   },
                 },
-                ...(compact
-                  ? {
-                      sheet: (
-                        <MoveSheet
-                          open={panel === 'folders'}
-                          message={message}
-                          destinations={state.folders.map(
-                            ({ name, roles, selectable, delimiter }) => {
-                              const path =
-                                delimiter === undefined
-                                  ? [name]
-                                  : name.split(delimiter);
-                              return {
-                                id: name,
-                                path: localizedPath(path, t('inbox.title')),
-                                inboxPath: path[0] === inboxFolder,
-                                icon: folderIcon(name, roles),
-                                current: name === message.folder,
-                                selectable,
-                                count:
-                                  name === inboxFolder
-                                    ? inboxUnread(state.messages)
-                                    : undefined,
-                              };
-                            },
-                          )}
-                          limited={undefined}
-                          onMove={(destination) => {
-                            act({ kind: 'move', destination });
-                          }}
-                          onClose={() => {
-                            setPanel(undefined);
-                          }}
-                        />
-                      ),
-                    }
-                  : {
-                      panel: (
-                        <ScrollView style={styles.panels}>
-                          <View style={styles.panel}>
-                            {targets.map(({ name }) => (
-                              <ActionButton
-                                key={name}
-                                label={t('gmailActions.moveTo', {
-                                  label:
-                                    name === inboxFolder
-                                      ? t('inbox.title')
-                                      : name,
-                                })}
-                                onPress={() => {
-                                  act({ kind: 'move', destination: name });
-                                }}
-                              />
-                            ))}
-                          </View>
-                        </ScrollView>
-                      ),
-                    }),
+                ...placed(
+                  <MovePicker
+                    open={panel === 'folders'}
+                    message={message}
+                    destinations={state.folders.map(
+                      ({ name, roles, selectable, delimiter }) => {
+                        const path =
+                          delimiter === undefined
+                            ? [name]
+                            : name.split(delimiter);
+                        return {
+                          id: name,
+                          path: localizedPath(path, t('inbox.title')),
+                          inboxPath: path[0] === inboxFolder,
+                          icon: folderIcon(name, roles),
+                          current: name === message.folder,
+                          selectable,
+                          count:
+                            name === inboxFolder
+                              ? inboxUnread(state.messages)
+                              : undefined,
+                        };
+                      },
+                    )}
+                    limited={undefined}
+                    onMove={(destination) => {
+                      act({ kind: 'move', destination });
+                    }}
+                    onClose={() => {
+                      setPanel(undefined);
+                    }}
+                  />,
+                ),
               }
         }
         more={{
@@ -916,60 +916,58 @@ function GmailMessageActions({
               setPanel('folders');
             },
           },
-          ...(compact
-            ? {
-                sheet: (
-                  <MoveSheet
-                    open={panel === 'folders'}
-                    message={message}
-                    destinations={[
-                      // Gmail and Graph list only custom move destinations; Inbox is display-only.
-                      {
-                        id: inboxFolder,
-                        path: [t('inbox.title')],
-                        inboxPath: true,
-                        icon: 'tray',
-                        current: applied.has(inboxFolder),
-                        selectable: false,
-                        count: inboxUnread(state.messages),
-                      },
-                      ...state.labels.map((label): Destination => {
-                        // Graph names may contain slashes; only its listing knows the hierarchy.
-                        const path =
-                          label.path ??
-                          (folders ? [label.name] : label.name.split('/'));
-                        return {
-                          id: label.id,
-                          path:
-                            label.inboxPath === true
-                              ? [t('inbox.title'), ...path.slice(1)]
-                              : path,
-                          inboxPath: label.inboxPath === true,
-                          icon: 'folder',
-                          current: applied.has(label.id),
-                          selectable: true,
-                        };
-                      }),
-                    ]}
-                    empty={t(
-                      folders
-                        ? 'gmailActions.noFolders'
-                        : 'gmailActions.noLabels',
-                    )}
-                    limited={
-                      state.labelsLimited === true
-                        ? state.labels.length
-                        : undefined
-                    }
-                    onMove={(destination) => {
-                      act(gmailAction.move(destination, view, provider));
-                    }}
-                    onClose={() => {
-                      setPanel(undefined);
-                    }}
-                  />
-                ),
-              }
+          ...(picker
+            ? placed(
+                <MovePicker
+                  open={panel === 'folders'}
+                  message={message}
+                  destinations={[
+                    // Gmail and Graph list only custom move destinations; Inbox is display-only.
+                    {
+                      id: inboxFolder,
+                      path: [t('inbox.title')],
+                      inboxPath: true,
+                      icon: 'tray',
+                      current: applied.has(inboxFolder),
+                      selectable: false,
+                      count: inboxUnread(state.messages),
+                    },
+                    ...state.labels.map((label): Destination => {
+                      // Graph names may contain slashes; only its listing knows the hierarchy.
+                      const path =
+                        label.path ??
+                        (folders ? [label.name] : label.name.split('/'));
+                      return {
+                        id: label.id,
+                        path:
+                          label.inboxPath === true
+                            ? [t('inbox.title'), ...path.slice(1)]
+                            : path,
+                        inboxPath: label.inboxPath === true,
+                        icon: 'folder',
+                        current: applied.has(label.id),
+                        selectable: true,
+                      };
+                    }),
+                  ]}
+                  empty={t(
+                    folders
+                      ? 'gmailActions.noFolders'
+                      : 'gmailActions.noLabels',
+                  )}
+                  limited={
+                    state.labelsLimited === true
+                      ? state.labels.length
+                      : undefined
+                  }
+                  onMove={(destination) => {
+                    act(gmailAction.move(destination, view, provider));
+                  }}
+                  onClose={() => {
+                    setPanel(undefined);
+                  }}
+                />,
+              )
             : {
                 panel: (
                   <ScrollView style={styles.panels}>

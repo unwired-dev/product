@@ -51,6 +51,9 @@ export const palette = {
     // Mac sidebars' glass; Dark backs it so secondary text keeps 4.5:1 over bright desktops.
     materialSidebarBacking: 'transparent',
     surfaceBubble: '#F1F1F4',
+    // The tint under iPhone and iPad Liquid Glass, measured on iOS 27 so glass over the content
+    // surface renders the frames' glass fill: #F8F8F8 in Light, #1A1A1A in Dark.
+    glassTint: '#C6C6C6',
     fillQuiet: 'rgba(0, 0, 0, 0.05)',
     fillTrack: 'rgba(0, 0, 0, 0.09)',
     separator: 'rgba(0, 0, 0, 0.1)',
@@ -87,6 +90,7 @@ export const palette = {
     surfacePanel: '#1A1A1A',
     materialSidebarBacking: 'rgba(42, 42, 44, 0.92)',
     surfaceBubble: '#2C2C2E',
+    glassTint: '#3B3B3B',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
     fillTrack: 'rgba(255, 255, 255, 0.16)',
     separator: 'rgba(255, 255, 255, 0.1)',

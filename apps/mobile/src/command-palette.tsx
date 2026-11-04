@@ -43,6 +43,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -57,15 +58,22 @@ const PaletteContext = createContext<
     registry: CommandRegistry;
     // The commands as listed when the palette opened, while it is open.
     opened: readonly Command[] | undefined;
-    open: () => void;
+    // Where the iPad command input that opens the palette sits in the window.
+    anchor: Anchor | undefined;
+    open: (from?: Anchor) => void;
     close: () => void;
   }>
 >({
   registry: createCommandRegistry(),
   opened: undefined,
+  anchor: undefined,
   open: () => undefined,
   close: () => undefined,
 });
+
+// An iPad command input's frame in the window. The palette opens as a popover beneath it, its
+// field taking the input's place, as the iPad Palette frames draw it.
+type Anchor = Readonly<{ x: number; y: number; width: number }>;
 
 export function useCommandPalette() {
   const { opened, open, close } = use(PaletteContext);
@@ -112,6 +120,8 @@ const hint = createPaletteHint({
 // iPad keeps a visible command input; iPhone opens the palette by gesture alone.
 const pad = Platform.OS === 'ios' && Platform.isPad;
 const scrim = 'rgba(0, 0, 0, 0.3)';
+// The iPad Palette frames' popover: 460pt beside a landscape reader, 420pt in portrait.
+const popoverWidth = (width: number) => (width > 1000 ? 460 : 420);
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -122,6 +132,22 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     paddingBottom: spacing.s,
     maxHeight: '80%',
+  },
+  // The iPad popover: the query field over the command input, the commands 8pt beneath it.
+  popover: { position: 'absolute', gap: spacing.s },
+  anchoredInput: {
+    height: 36,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 18,
+    borderCurve: 'continuous',
+  },
+  anchoredField: { minHeight: 36, borderRadius: 18 },
+  popoverPanel: {
+    flexShrink: 1,
+    paddingVertical: spacing.s,
+    borderRadius: radius.menu,
+    borderCurve: 'continuous',
   },
   inputRow: {
     flexDirection: 'row',
@@ -254,6 +280,7 @@ export function CommandPaletteProvider({
   const registry = useMemo(() => createCommandRegistry(), []);
   const { t } = useLocalization();
   const [opened, setOpened] = useState<readonly Command[]>();
+  const [anchor, setAnchor] = useState<Anchor>();
   // The palette drops in from the top and fades away; it keeps the last commands while it leaves,
   // and each opening starts afresh.
   const motion = useMenuMotion(opened !== undefined, 'drop');
@@ -275,10 +302,12 @@ export function CommandPaletteProvider({
     () => ({
       registry,
       opened,
-      open: () => {
+      anchor,
+      open: (from?: Anchor) => {
         if (opened !== undefined) {
           return;
         }
+        setAnchor(from);
         void hint.dismiss();
         previous.current = TextInput.State.currentlyFocusedInput();
         const placeholders = expectedCommands(t, {
@@ -297,7 +326,7 @@ export function CommandPaletteProvider({
         previous.current = null;
       },
     }),
-    [registry, opened, t],
+    [registry, opened, anchor, t],
   );
   return (
     <PaletteContext value={value}>
@@ -306,6 +335,7 @@ export function CommandPaletteProvider({
         {motion.shown && shown !== undefined ? (
           <Palette
             key={openings}
+            anchor={pad ? anchor : undefined}
             motion={motion}
             open={opened !== undefined}
             opened={shown}
@@ -316,14 +346,81 @@ export function CommandPaletteProvider({
   );
 }
 
+// The palette's frame: on iPad a popover beneath the command input that opened it, its field in
+// the input's place and no dimming behind it; otherwise a sheet attached to the top over a scrim.
+function paletteFrame(
+  anchor: Anchor | undefined,
+  {
+    insets,
+    colors,
+    window,
+  }: Readonly<{
+    insets: ReturnType<typeof useSafeAreaInsets>;
+    colors: ReturnType<typeof usePalette>;
+    window: Readonly<{ width: number; height: number }>;
+  }>,
+) {
+  if (anchor === undefined) {
+    return {
+      scrim,
+      body: [
+        styles.sheet,
+        {
+          // The sheet floats over the screens, so it clears the status bar itself.
+          paddingTop: insets.top,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+          backgroundColor: colors.surfaceContent,
+          boxShadow: colors.menuShadow,
+        },
+      ],
+      inputRow: styles.inputRow,
+      field: [styles.field, { backgroundColor: colors.fillQuiet }],
+      panel: styles.fill,
+    };
+  }
+  return {
+    scrim: 'transparent',
+    body: [
+      styles.popover,
+      {
+        left: anchor.x,
+        top: anchor.y,
+        width: Math.min(
+          popoverWidth(window.width),
+          window.width - anchor.x - spacing.l,
+        ),
+        maxHeight: window.height - anchor.y - spacing.l,
+      },
+    ],
+    // The frames fill the popover and its field with the glass panel's colour.
+    inputRow: [
+      styles.inputRow,
+      styles.anchoredInput,
+      {
+        width: anchor.width,
+        backgroundColor: colors.surfacePanel,
+        boxShadow: colors.smallGlassShadow,
+      },
+    ],
+    field: [styles.field, styles.anchoredField],
+    panel: [
+      styles.popoverPanel,
+      { backgroundColor: colors.surfacePanel, boxShadow: colors.menuShadow },
+    ],
+  };
+}
+
 // The open palette: a sheet attached to the top with the query focused and matching commands
 // beneath, or the choices of the command being completed. Closed, it stops taking input at once
 // while it fades away.
 function Palette({
+  anchor,
   opened,
   open,
   motion,
 }: {
+  readonly anchor: Anchor | undefined;
   readonly opened: readonly Command[];
   readonly open: boolean;
   readonly motion: ReturnType<typeof useMenuMotion>;
@@ -331,6 +428,8 @@ function Palette({
   const { registry, close } = use(PaletteContext);
   const colors = usePalette();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  const frame = paletteFrame(anchor, { insets, colors, window });
   const { t } = useLocalization();
   const [query, setQuery] = useState('');
   const [choosing, setChoosing] = useState<Command>();
@@ -417,23 +516,12 @@ function Palette({
         accessibilityLabel={t('commands.close')}
         accessibilityRole="button"
         onPress={close}
-        style={[StyleSheet.absoluteFill, { backgroundColor: scrim }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: frame.scrim }]}
       />
       <Animated.View
-        style={[
-          styles.sheet,
-          { transform: motion.style.transform },
-          {
-            // The sheet floats over the screens, so it clears the status bar itself.
-            paddingTop: insets.top,
-            paddingLeft: insets.left,
-            paddingRight: insets.right,
-            backgroundColor: colors.surfaceContent,
-            boxShadow: colors.menuShadow,
-          },
-        ]}>
-        <View style={styles.inputRow}>
-          <View style={[styles.field, { backgroundColor: colors.fillQuiet }]}>
+        style={[{ transform: motion.style.transform }, frame.body]}>
+        <View style={frame.inputRow}>
+          <View style={frame.field}>
             <SFSymbol
               name="command"
               color={colors.textSecondary}
@@ -470,13 +558,15 @@ function Palette({
               value={choosing === undefined ? query : choiceQuery}
             />
           </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={close}>
-            <Text style={[styles.cancel, { color: colors.accentInk }]}>
-              {t('common.cancel')}
-            </Text>
-          </Pressable>
+          {anchor === undefined ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={close}>
+              <Text style={[styles.cancel, { color: colors.accentInk }]}>
+                {t('common.cancel')}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
         {choosing === undefined ? null : (
           <View
@@ -508,37 +598,39 @@ function Palette({
             </Text>
           </View>
         )}
-        <ScrollView
-          // The sheet can reach below the software keyboard; the commands it covers scroll above it.
-          automaticallyAdjustKeyboardInsets
-          contentContainerStyle={styles.list}
-          keyboardShouldPersistTaps="handled">
-          {choices === undefined ? (
-            <CommandList
-              commands={listed}
-              onRun={run}
-              subject={subject}
-            />
-          ) : (
-            choices.map((choice) => (
-              <CommandRow
-                detail={choice.disabled}
-                disabled={choice.disabled !== undefined}
-                icon={choice.icon ?? 'folder'}
-                key={choice.id}
-                onPress={() => {
-                  choose(choice);
-                }}
-                title={choice.title}
+        <View style={frame.panel}>
+          <ScrollView
+            // The sheet can reach below the software keyboard; the commands it covers scroll above it.
+            automaticallyAdjustKeyboardInsets
+            contentContainerStyle={styles.list}
+            keyboardShouldPersistTaps="handled">
+            {choices === undefined ? (
+              <CommandList
+                commands={listed}
+                onRun={run}
+                subject={subject}
               />
-            ))
-          )}
-          {(choices ?? listed).length === 0 ? (
-            <Text style={[styles.empty, { color: colors.textSecondary }]}>
-              {t('commands.empty')}
-            </Text>
-          ) : null}
-        </ScrollView>
+            ) : (
+              choices.map((choice) => (
+                <CommandRow
+                  detail={choice.disabled}
+                  disabled={choice.disabled !== undefined}
+                  icon={choice.icon ?? 'folder'}
+                  key={choice.id}
+                  onPress={() => {
+                    choose(choice);
+                  }}
+                  title={choice.title}
+                />
+              ))
+            )}
+            {(choices ?? listed).length === 0 ? (
+              <Text style={[styles.empty, { color: colors.textSecondary }]}>
+                {t('commands.empty')}
+              </Text>
+            ) : null}
+          </ScrollView>
+        </View>
       </Animated.View>
     </Animated.View>
   );
@@ -652,15 +744,26 @@ export function CommandInput({
   const { open } = useCommandPalette();
   const colors = usePalette();
   const { t } = useLocalization();
+  const input = useRef<View>(null);
+  // Measured as the press begins, so the popover opens beneath the input wherever it has moved.
+  const frame = useRef<Anchor>(undefined);
   if (!pad) {
     return null;
   }
   return (
     <Pressable
+      ref={input}
       accessibilityLabel={t('commands.openPalette')}
       accessibilityRole="button"
       hitSlop={4}
-      onPress={open}
+      onPressIn={() => {
+        input.current?.measureInWindow((x, y, width) => {
+          frame.current = { x, y, width };
+        });
+      }}
+      onPress={() => {
+        open(frame.current);
+      }}
       style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
       <Glass cornerRadius={18} />
       <SFSymbol

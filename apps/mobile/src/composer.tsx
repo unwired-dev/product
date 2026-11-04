@@ -164,6 +164,13 @@ export const ComposerLayoutContext = createContext<{
   readonly top: number;
 }>({ size: 'compact', avoidKeyboard: true, top: 0 });
 
+// The docked iPad reply's title: the kind of response it is.
+const responseTitles = {
+  reply: 'message.reply',
+  replyAll: 'message.replyAll',
+  forward: 'message.forward',
+} as const;
+
 // The composer's file controls: the system pickers, and images on the pasteboard placed inline.
 // Native code reads the chosen files.
 export const assetPickers = [
@@ -207,6 +214,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
   },
   title: { ...textStyles.headline, textAlign: 'center' },
+  leadingTitle: { textAlign: 'left' },
+  // The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame.
+  replyFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingVertical: spacing.s,
+    paddingHorizontal: spacing.l,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  sendTitled: {
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.l,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  sendLabel: { ...textStyles.headline },
   circle: {
     width: 44,
     height: 44,
@@ -1387,9 +1413,12 @@ export function CloseQuestion({
 // The header's Send: the accent fill shows at 80% (CC) while pressed and dims to 40% disabled.
 export function SendButton({
   disabled,
+  titled = false,
   onPress,
 }: {
   readonly disabled: boolean;
+  // iPad names Send in a rounded button; iPhone keeps the arrow circle.
+  readonly titled?: boolean;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
@@ -1402,7 +1431,7 @@ export function SendButton({
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.circle,
+        titled ? styles.sendTitled : styles.circle,
         {
           backgroundColor: pressed
             ? `${colors.accentFill}CC`
@@ -1410,10 +1439,16 @@ export function SendButton({
           opacity: disabled ? 0.4 : 1,
         },
       ]}>
-      <SFSymbol
-        name="arrow.up"
-        color={colors.accentOnFill}
-      />
+      {titled ? (
+        <Text style={[styles.sendLabel, { color: colors.accentOnFill }]}>
+          {t('drafts.send')}
+        </Text>
+      ) : (
+        <SFSymbol
+          name="arrow.up"
+          color={colors.accentOnFill}
+        />
+      )}
     </Pressable>
   );
 }
@@ -1606,6 +1641,129 @@ function WritingTools({
       }}
       onGenerate={onGenerate}
     />
+  );
+}
+
+// iPhone's window-filling composer, the iPad New Message card, or an iPad reply docked beneath
+// the message it answers.
+type Presentation = 'compact' | 'card' | 'docked';
+
+const presentationOf = (regular: boolean, draft: Draft): Presentation => {
+  if (!regular) {
+    return 'compact';
+  }
+  return draft.response === undefined ? 'card' : 'docked';
+};
+
+// A docked reply is titled by its kind; otherwise the subject names the Draft.
+const composerTitle = (
+  t: ReturnType<typeof useLocalization>['t'],
+  draft: Draft,
+  docked: boolean,
+) =>
+  docked && draft.response !== undefined
+    ? t(responseTitles[draft.response.kind])
+    : clip(draft.subject) || t('drafts.newMessage');
+
+// The header's trailing controls. iPhone: the Command input, Actions and Send. The iPad card: From,
+// Expand and Send, as Close asks whether to keep the Draft. The docked reply: Expand and Discard, with
+// From and Send beneath its fields.
+function HeaderControls({
+  presentation,
+  sender,
+  expanded,
+  onExpand,
+  discardDisabled,
+  sendDisabled,
+  onDiscard,
+  onSend,
+}: {
+  readonly presentation: Presentation;
+  readonly sender: ReactNode;
+  readonly expanded: boolean | undefined;
+  readonly onExpand: (() => void) | undefined;
+  readonly discardDisabled: boolean;
+  readonly sendDisabled: boolean;
+  readonly onDiscard: () => void;
+  readonly onSend: () => void;
+}) {
+  const { t } = useLocalization();
+  const expand =
+    onExpand === undefined ? null : (
+      <ToolbarButton
+        icon={
+          expanded
+            ? 'arrow.down.right.and.arrow.up.left'
+            : 'arrow.up.left.and.arrow.down.right'
+        }
+        label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
+        onPress={onExpand}
+      />
+    );
+  if (presentation === 'card') {
+    // The frame's card has no Expand; on iPad it still takes the whole window (docs/drafts.md).
+    return (
+      <>
+        {sender}
+        {expand}
+        <SendButton
+          titled
+          disabled={sendDisabled}
+          onPress={onSend}
+        />
+      </>
+    );
+  }
+  if (presentation === 'docked') {
+    return (
+      <>
+        {expand}
+        <ToolbarButton
+          disabled={discardDisabled}
+          icon="trash"
+          label={t('drafts.discard')}
+          onPress={onDiscard}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      <CommandInput />
+      {expand}
+      <ComposerActions
+        disabled={discardDisabled}
+        onDiscard={onDiscard}
+      />
+      <SendButton
+        disabled={sendDisabled}
+        onPress={onSend}
+      />
+    </>
+  );
+}
+
+// The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame.
+function ReplyFooter({
+  sender,
+  disabled,
+  onSend,
+}: {
+  readonly sender: ReactNode;
+  readonly disabled: boolean;
+  readonly onSend: () => void;
+}) {
+  const colors = usePalette();
+  return (
+    <View style={[styles.replyFooter, { borderTopColor: colors.separator }]}>
+      {sender}
+      <View style={styles.grow} />
+      <SendButton
+        titled
+        disabled={disabled}
+        onPress={onSend}
+      />
+    </View>
   );
 }
 
@@ -2244,7 +2402,10 @@ function Editor({
       setSending(false);
       return false;
     });
-  const title = clip(draft.subject) || t('drafts.newMessage');
+  // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
+  const presentation = presentationOf(regular, draft);
+  const docked = presentation === 'docked';
+  const title = composerTitle(t, draft, docked);
   const titleLabel =
     title.length < draft.subject.length
       ? t('drafts.titleShortened', { title })
@@ -2255,6 +2416,20 @@ function Editor({
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
 
+  const sender = (
+    <SendingMailbox
+      draft={draft}
+      editable={!sending}
+      onChange={(mailbox) => {
+        change(withSender(authored.current, mailbox));
+      }}
+    />
+  );
+  const discardAsked = () => {
+    if (!sendingNow.current && lifetime.current.finishing === 0) {
+      setClosing('discard');
+    }
+  };
   const writingTools = (
     <WritingTools
       // A prompt belongs to the Mail Profile it was opened in.
@@ -2418,33 +2593,24 @@ function Editor({
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
             numberOfLines={1}
-            style={[styles.grow, styles.title, { color: colors.textPrimary }]}
+            style={[
+              styles.grow,
+              styles.title,
+              docked && styles.leadingTitle,
+              { color: colors.textPrimary },
+            ]}
             {...paletteHeader.action}>
             {title}
           </Text>
-          <CommandInput />
-          {onExpand === undefined ? null : (
-            <ToolbarButton
-              icon={
-                expanded
-                  ? 'arrow.down.right.and.arrow.up.left'
-                  : 'arrow.up.left.and.arrow.down.right'
-              }
-              label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
-              onPress={onExpand}
-            />
-          )}
-          <ComposerActions
-            disabled={lockedUnless(closing !== 'saving')}
-            onDiscard={() => {
-              if (!sendingNow.current && lifetime.current.finishing === 0) {
-                setClosing('discard');
-              }
-            }}
-          />
-          <SendButton
-            disabled={closing === 'saving'}
-            onPress={() => {
+          <HeaderControls
+            presentation={presentation}
+            sender={sender}
+            expanded={expanded}
+            onExpand={onExpand}
+            discardDisabled={lockedUnless(closing !== 'saving')}
+            sendDisabled={closing === 'saving'}
+            onDiscard={discardAsked}
+            onSend={() => {
               void send();
             }}
           />
@@ -2458,17 +2624,11 @@ function Editor({
             void saveDraft();
           }}
         />
-        <View style={styles.fromRow}>
-          <View style={styles.bar}>
-            <SendingMailbox
-              draft={draft}
-              editable={!sending}
-              onChange={(mailbox) => {
-                change(withSender(authored.current, mailbox));
-              }}
-            />
+        {regular ? null : (
+          <View style={styles.fromRow}>
+            <View style={styles.bar}>{sender}</View>
           </View>
-        </View>
+        )}
         {regular ? formatBar : null}
         <View style={styles.fill}>
           <ScrollView
@@ -2667,6 +2827,15 @@ function Editor({
           </ScrollView>
           {pillShown ? pill : null}
         </View>
+        {docked ? (
+          <ReplyFooter
+            sender={sender}
+            disabled={closing === 'saving'}
+            onSend={() => {
+              void send();
+            }}
+          />
+        ) : null}
         {regular ? null : (
           <FormatPanel
             open={formatting}

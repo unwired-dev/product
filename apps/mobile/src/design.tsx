@@ -60,11 +60,13 @@ export function Glass({
   // Controls inside interactive glass get the system press response.
   readonly interactive?: boolean;
 }) {
+  const colors = usePalette();
   return (
     <InteractiveGlass value={interactive}>
       <GlassView
         {...props}
         isInteractive={interactive}
+        tintColor={colors.glassTint}
         style={[style, { borderRadius: cornerRadius }]}
       />
     </InteractiveGlass>

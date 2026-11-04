@@ -683,12 +683,15 @@ function MessageToolbar({
       onClose={onClose}
       panel={panel}
       onPanel={onPanel}>
-      <ResponseActions
-        key={`${address}:${message.id}`}
-        message={message}
-        onCompose={onCompose}
-        onPanel={onPanel}
-      />
+      {/* The reader beneath an open composer offers no responses. */}
+      {onCompose === undefined ? null : (
+        <ResponseActions
+          key={`${address}:${message.id}`}
+          message={message}
+          onCompose={onCompose}
+          onPanel={onPanel}
+        />
+      )}
     </MessageActions>
   );
 }
