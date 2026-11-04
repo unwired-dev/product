@@ -128,7 +128,7 @@ export function FolderChoice({
 function FolderSheet({
   address,
   folders,
-  marked: server,
+  marked: serverMarked,
   saved,
   onSave,
   onClose,
@@ -142,7 +142,7 @@ function FolderSheet({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const marked = (role: Role) => server[role];
+  const marked = (role: Role) => serverMarked[role];
   const open = roles.filter((role) => marked(role) === undefined);
   const [picks, setPicks] = useState<ChosenFolders>(() =>
     Object.fromEntries(open.map((role) => [role, saved?.[role]])),
