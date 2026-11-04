@@ -6,7 +6,7 @@ import {
   startingPicks,
 } from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { useWindowIdentifier } from './command-palette.tsx';
@@ -134,6 +134,13 @@ function FolderSheet({
   const [picks, setPicks] = useState(() => startingPicks(marked, saved));
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const choice = folderChoice(t, {
     address,
     folders,
@@ -149,7 +156,12 @@ function FolderSheet({
   const save = async () => {
     setSaving(true);
     setFailed(false);
-    if (await onSave(choice.chosen)) {
+    const done = await onSave(choice.chosen);
+    // This window may already show a replacement sheet after Cancel.
+    if (!mounted.current) {
+      return;
+    }
+    if (done) {
       close();
     } else {
       setSaving(false);

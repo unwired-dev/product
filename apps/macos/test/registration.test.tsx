@@ -720,7 +720,7 @@ describe('product registration', () => {
   });
 
   it('chooses Spam and Trash folders for an IMAP server that marks none in a sheet from the All Mail notice, keeping the sheet open when saving fails', async () => {
-    /* oxlint-disable vitest/max-expects -- One journey proves the empty choice, the menus, Cancel, a failed save and inclusion. */
+    /* oxlint-disable vitest/max-expects -- One journey proves the choice, Cancel/reopen during Save, failure recovery and inclusion. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Kept IMAP message' });
@@ -734,7 +734,15 @@ describe('product registration', () => {
       host: 'imap.example.invalid',
       username: 'alex',
     });
-    const store = createRegistration(account.synthetic.vault);
+    const { vault } = account.synthetic;
+    let beforeFolders: (() => Promise<void>) | undefined = undefined;
+    const store = createRegistration({
+      ...vault,
+      sealProfileRecord: async (record) => {
+        await beforeFolders?.();
+        return vault.sealProfileRecord(record);
+      },
+    });
     const connections = createMailboxes(
       syntheticConnections({}, { [connection]: imap.native }),
       store,
@@ -828,15 +836,55 @@ describe('product registration', () => {
     expect(folderChoice()).toBeVisible();
     expect(screen.getByText(notice)).toBeVisible();
     account.synthetic.backend.offline = false;
+    let savingFolders: () => void = () => undefined;
+    let finishSaving: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Observe the real vault operation starting.
+    const entered = new Promise<void>((resolve) => {
+      savingFolders = resolve;
+    });
+    // oxlint-disable-next-line promise/avoid-new -- Hold the external vault boundary during Save.
+    const held = new Promise<void>((resolve) => {
+      finishSaving = resolve;
+    });
+    beforeFolders = () => {
+      savingFolders();
+      return held;
+    };
+    await act(async () => {
+      await fireEvent.press(save());
+      await entered;
+    });
+    try {
+      expect(sheet.getByText(/^Updating All Mail…/u)).toBeVisible();
+      expect(save()).toBeDisabled();
+      // A cancelled sheet's pending save must not close a replacement sheet in this window.
+      await act(async () => {
+        await fireEvent.press(sheet.getByRole('button', { name: 'Cancel' }));
+      });
+      sheet = await open();
+      await choose('Spam', 'Deleted Messages');
+    } finally {
+      await act(async () => {
+        finishSaving();
+      });
+    }
+    // The completed save includes the connection, while the new sheet keeps its unsaved pick.
+    await waitFor(() => {
+      expect(screen.queryByText(notice)).toBeNull();
+    });
+    expect(folderChoice()).toBeVisible();
+    expect(
+      sheet.getByRole('button', { name: 'Spam' }).props.accessibilityValue
+        ?.text,
+    ).toBe('Deleted Messages');
+    // The new sheet can still save normally, closing only after its own choices are committed.
+    beforeFolders = undefined;
+    await choose('Trash', 'Bulk Mail');
     await act(async () => {
       await fireEvent.press(save());
     });
-    // Saved, the sheet ends and the connection joins All Mail without its Spam.
     await waitFor(() => {
       expect(folderChoice()).toBeNull();
-    });
-    await waitFor(() => {
-      expect(screen.queryByText(notice)).toBeNull();
     });
     await expect(screen.findByText('Kept IMAP message')).resolves.toBeVisible();
     expect({
@@ -863,7 +911,7 @@ describe('product registration', () => {
         ],
         [['Deleted Messages', undefined, false]],
       ],
-      chosen: { junk: 'Bulk Mail', trash: 'Deleted Messages' },
+      chosen: { junk: 'Deleted Messages', trash: 'Bulk Mail' },
       spam: null,
     });
   });
