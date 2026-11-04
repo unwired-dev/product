@@ -50,6 +50,21 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 - (RCTView *)view { return [UnwiredModalBackgroundView new]; }
 @end
 
+// A symbol at its point size, as Apple draws toolbar symbols, with unusually large glyphs such as
+// envelope.open or xmark.bin held to 1.25× that size, so a toolbar's icons read as one size.
+static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
+{
+  NSImage *image = [[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil]
+      imageWithSymbolConfiguration:
+          [NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightRegular]];
+  CGFloat largest = MAX(image.size.width, image.size.height);
+  CGFloat limit = size * 1.25;
+  if (largest > limit) {
+    image.size = NSMakeSize(image.size.width * limit / largest, image.size.height * limit / largest);
+  }
+  return image;
+}
+
 @interface UnwiredSymbolView : NSImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
@@ -60,9 +75,7 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 - (instancetype)initWithFrame:(NSRect)frame
 {
   if ((self = [super initWithFrame:frame])) {
-    // Every symbol fits its square, as the Figma icons do, so wide glyphs such as envelope.open
-    // match their neighbours instead of overflowing.
-    self.imageScaling = NSImageScaleProportionallyDown;
+    self.imageScaling = NSImageScaleNone;
     self.imageAlignment = NSImageAlignCenter;
     self.accessibilityElement = NO;
   }
@@ -73,11 +86,7 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 - (void)setColor:(NSColor *)color { _color = color; self.contentTintColor = color; }
 - (void)render
 {
-  NSImageSymbolConfiguration *configuration =
-      [NSImageSymbolConfiguration configurationWithPointSize:self.size weight:NSFontWeightRegular];
-  self.image = self.name == nil ? nil
-      : [[NSImage imageWithSystemSymbolName:self.name accessibilityDescription:nil]
-            imageWithSymbolConfiguration:configuration];
+  self.image = self.name == nil ? nil : UnwiredSymbolImage(self.name, self.size);
 }
 @end
 
@@ -1181,12 +1190,8 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   if (self.symbol.length > 0) {
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
     if (self.toolbar) {
-      // The toolbar's symbols fit a 16pt square, as UnwiredSymbolView draws its buttons'.
-      NSImage *symbol = [shown.image imageWithSymbolConfiguration:
-          [NSImageSymbolConfiguration configurationWithPointSize:16 weight:NSFontWeightRegular]];
-      CGFloat scale = MIN(1, 16 / MAX(symbol.size.width, symbol.size.height));
-      symbol.size = NSMakeSize(symbol.size.width * scale, symbol.size.height * scale);
-      shown.image = symbol;
+      // Drawn as UnwiredSymbolView draws the toolbar's buttons.
+      shown.image = UnwiredSymbolImage(self.symbol, 16);
     }
   }
   // A pull-down shows its first item, which its menu leaves out.
