@@ -529,6 +529,33 @@ describe('mac window selection with the shared mock mailbox', () => {
     },
   );
 
+  it('collapses and expands a sidebar section from its header', async () => {
+    expect.hasAssertions();
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    await app.findByRole('button', { name: 'All inboxes' });
+    const favorites = app.getByRole('button', { name: 'Favorites' });
+    expect(favorites).toBeExpanded();
+    await fireEvent.press(favorites);
+    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+    expect(
+      app.getByRole('button', { name: 'Favorites', expanded: false }),
+    ).toHaveAccessibilityValue({
+      text: 'Collapsed',
+    });
+    await fireEvent.press(app.getByRole('button', { name: 'Favorites' }));
+    expect(app.getByRole('button', { name: 'All inboxes' })).toBeVisible();
+    expect(
+      app.getByRole('button', { name: 'Favorites', expanded: true }),
+    ).not.toHaveAccessibilityValue({
+      text: 'Collapsed',
+    });
+  });
+
   it("asks AppKit to show or hide the window's sidebar and names the toggle after its collapse", async () => {
     expect.hasAssertions();
     const app = await render(
