@@ -290,10 +290,10 @@ describe('mac window selection with the shared mock mailbox', () => {
       await fireEvent.press(
         await app.findByRole('button', { name: 'New Message' }),
       );
-      // AppKit's split view places the sidebar beside the panes, so only the list offsets it.
+      // The overlay is inside the reader, keeping the pane's 12pt inset.
       await expect(app.findByTestId('composer-overlay')).resolves.toHaveStyle({
         height: 420,
-        left: 352,
+        left: 12,
       });
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
       expect(app.queryByRole('button', { name: 'New Message' })).toBeNull();

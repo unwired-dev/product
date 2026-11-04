@@ -430,6 +430,33 @@ function WindowContents({
                       onCompose={compose}
                     />
                   )}
+                  {composing === undefined ? null : (
+                    <View
+                      testID="composer-overlay"
+                      style={[
+                        styles.composer,
+                        styles.composerOverlay,
+                        {
+                          left: composerInset,
+                          height: composerHeight(panes.height),
+                          borderColor: colors.separator,
+                          boxShadow: colors.menuShadow,
+                        },
+                      ]}>
+                      <DraftComposer
+                        id={composing}
+                        onClose={() => {
+                          setComposing(undefined);
+                        }}
+                        // Expand moves the saved Draft into its own New Message window.
+                        onExpand={(id) => {
+                          windowHost()?.openComposer(id, profile);
+                          setComposing(undefined);
+                        }}
+                        onRebind={setComposing}
+                      />
+                    </View>
+                  )}
                 </View>
               }
               selected={selected}
@@ -445,33 +472,6 @@ function WindowContents({
               onView={setView}
               view={view}
             />
-            {composing === undefined ? null : (
-              <View
-                testID="composer-overlay"
-                style={[
-                  styles.composer,
-                  styles.composerOverlay,
-                  {
-                    left: listWidth + composerInset,
-                    height: composerHeight(panes.height),
-                    borderColor: colors.separator,
-                    boxShadow: colors.menuShadow,
-                  },
-                ]}>
-                <DraftComposer
-                  id={composing}
-                  onClose={() => {
-                    setComposing(undefined);
-                  }}
-                  // Expand moves the saved Draft into its own New Message window.
-                  onExpand={(id) => {
-                    windowHost()?.openComposer(id, profile);
-                    setComposing(undefined);
-                  }}
-                  onRebind={setComposing}
-                />
-              </View>
-            )}
           </View>
           <CommandBar
             floating={{

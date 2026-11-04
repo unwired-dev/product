@@ -19,6 +19,27 @@ private func assertProviderActionsSettled(_ window: XCUIElement, provider: Strin
 }
 
 final class WindowTests: XCTestCase {
+  func testSearchMailReceivesClicksOverComposer() throws {
+    continueAfterFailure = false
+    let env = ProcessInfo.processInfo.environment
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(env["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.textFields["Subject"].waitForExistence(timeout: 10))
+    runCommand("Search Mail", in: app)
+    let search = window.textFields["Search senders and subjects"]
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    search.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).click()
+    app.typeText("Outlook update 003")
+    XCTAssertEqual(search.value as? String, "Outlook update 003")
+    XCTAssertTrue(window.textFields["Subject"].exists)
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false

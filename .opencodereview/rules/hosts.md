@@ -1695,6 +1695,10 @@ still applies. See `docs/architecture/macos-client.md`.
   the hidden bar's guarded command, and the explicit Mac Search Mail reveal that
   shows that bar without closing its Draft. Focus search after the
   revealed bar commits; otherwise command availability or keyboard entry breaks.
+  When the bar spans the reader, keep the revealed bar above the composer in
+  native paint and hit-test order. Click the part of Search that overlaps the
+  Draft and type through the window, checking the query and retained Draft;
+  imperative focus alone can work while the overlay still intercepts clicks.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent
   `Pressable` scrim with an accessible name while the panel is open, and keep it
