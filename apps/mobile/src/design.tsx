@@ -145,7 +145,6 @@ export function SearchToolbar(props: SearchToolbarProps) {
 }
 
 const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
-const easeSheet = Easing.bezier(0.32, 0.72, 0, 1);
 
 // Reduce Motion, following changes while shown. It reads as on until the system answers.
 export function useReducedMotion() {
@@ -175,20 +174,19 @@ export function useReducedMotion() {
 }
 
 // Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
-// A menu barely grows, a sheet grows from its control and a dropped panel arrives 8pt from above.
-export function useMenuMotion(open: boolean, kind: 'menu' | 'grow' | 'drop') {
+// A menu barely grows and a dropped panel arrives 8pt from above.
+export function useMenuMotion(open: boolean, kind: 'menu' | 'drop') {
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
   const reduced = useReducedMotion();
-  const enteringDuration = kind === 'grow' && !reduced ? 300 : 200;
   if (open && !shown) {
     setShown(true);
   }
   useEffect(() => {
     const animation = Animated.timing(progress, {
       toValue: open ? 1 : 0,
-      duration: open ? enteringDuration : 150,
-      easing: open && kind === 'grow' ? easeSheet : easeOut,
+      duration: open ? 200 : 150,
+      easing: easeOut,
       useNativeDriver: true,
     });
     animation.start(({ finished }) => {
@@ -199,7 +197,7 @@ export function useMenuMotion(open: boolean, kind: 'menu' | 'grow' | 'drop') {
     return () => {
       animation.stop();
     };
-  }, [open, kind, enteringDuration, progress]);
+  }, [open, progress]);
   const backdropStyle = { opacity: progress };
   const transform = [
     kind === 'drop'
@@ -212,18 +210,12 @@ export function useMenuMotion(open: boolean, kind: 'menu' | 'grow' | 'drop') {
       : {
           scale: progress.interpolate({
             inputRange: [0, 1],
-            outputRange: [kind === 'grow' ? 0.3 : 0.95, 1],
+            outputRange: [0.95, 1],
           }),
         },
   ];
   const style = {
-    opacity:
-      kind === 'grow'
-        ? progress.interpolate({
-            inputRange: [0, 0.3, 1],
-            outputRange: [0, 1, 1],
-          })
-        : progress,
+    opacity: progress,
     transform: reduced ? [] : transform,
   };
   return { shown: open || shown, style, backdropStyle };

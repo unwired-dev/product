@@ -349,6 +349,30 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(
         app.staticTexts["Move this message to another folder."].waitForNonExistence(timeout: 5))
       XCUIDevice.shared.orientation = .portrait
+      // #1074: Move is a system sheet; it reopens without the Reply sheet, a downward swipe closes
+      // it, and it opens again afterwards.
+      let caption = app.staticTexts["Move this message to another folder."].firstMatch
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(move.waitForExistence(timeout: 10))
+      move.tap()
+      XCTAssertTrue(caption.waitForExistence(timeout: 10))
+      XCTAssertFalse(app.buttons["Reply All"].exists)
+      // An element swipe is too short to dismiss; drag most of the way down the screen.
+      let grab = caption.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      grab.press(
+        forDuration: 0.1, thenDragTo: grab.withOffset(CGVector(dx: 0, dy: 600)),
+        withVelocity: .fast, thenHoldForDuration: 0)
+      XCTAssertTrue(caption.waitForNonExistence(timeout: 5))
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(move.waitForExistence(timeout: 10))
+      move.tap()
+      XCTAssertTrue(caption.waitForExistence(timeout: 10))
+      let reopened = XCTAttachment(screenshot: app.screenshot())
+      reopened.name = "Move sheet reopened after a downward swipe"
+      reopened.lifetime = .keepAlways
+      add(reopened)
+      app.buttons["Close"].tap()
+      XCTAssertTrue(caption.waitForNonExistence(timeout: 5))
     }
     app.terminate()
     app.launch()
