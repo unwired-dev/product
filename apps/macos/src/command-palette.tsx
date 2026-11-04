@@ -125,7 +125,8 @@ const handledKeys = [
 ];
 
 const inputHeight = 36;
-const inputWidth = 270;
+// The Figma Settings title row's Command Input.
+const inputWidth = 268;
 // A New Message window draws its toolbar row beneath the window controls, which end 88pt in.
 const toolbarHeight = 52;
 const toolbarInputHeight = 32;
@@ -468,7 +469,8 @@ export function CommandBar({
 }) {
   const { registry, identifier } = use(PaletteContext);
   const toolbar = title !== undefined;
-  const height = toolbar ? toolbarInputHeight : inputHeight;
+  // Only the Inbox reader row's floating input matches the reader's 36pt glass groups.
+  const height = floating === undefined ? toolbarInputHeight : inputHeight;
   // Too narrow for its label, the floating input keeps only its symbol.
   const compact = floating !== undefined && floating.width < compactInputWidth;
   const colors = usePalette();
