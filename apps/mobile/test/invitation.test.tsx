@@ -84,7 +84,7 @@ async function opened(
       />
     </AccountContext>,
   );
-  return { gmail, app };
+  return { gmail, inbox, id, app };
 }
 
 describe('meeting invitations in the iPhone and iPad reader', () => {
@@ -222,6 +222,54 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     }
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('announces an unchanged unknown outcome after checking a reopened invitation', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, id, app } = await opened(
+      invitation('alex@example.invalid'),
+    );
+    gmail.failSend({ code: 'delivery-unknown' });
+    try {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Accept' }),
+      );
+      await screen.findByText('Delivery unknown');
+    } finally {
+      await app.unmount();
+    }
+
+    const announce = jest.spyOn(
+      AccessibilityInfo,
+      'announceForAccessibilityWithOptions',
+    );
+    announce.mockClear();
+    const reopened = await render(
+      <GmailMessageBody
+        inbox={inbox}
+        id={id}
+        connection="gmail-connection"
+      />,
+    );
+    try {
+      await screen.findByText('Delivery unknown');
+      expect(announce).not.toHaveBeenCalled();
+
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Check Again' }),
+      );
+      await screen.findByText('Delivery unknown');
+
+      expect(announce).toHaveBeenLastCalledWith(
+        expect.stringMatching(/^Delivery unknown\. /u),
+        { queue: true },
+      );
+      expect(announce).toHaveBeenCalledTimes(2);
+      expect(gmail.sends).toHaveLength(0);
+    } finally {
+      announce.mockRestore();
+      await reopened.unmount();
+    }
+  });
 
   it('offers no response for an address the invitation does not name', async () => {
     expect.hasAssertions();

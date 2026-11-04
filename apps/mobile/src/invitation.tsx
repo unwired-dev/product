@@ -35,8 +35,16 @@ import {
   organizerName,
 } from '@private-email/mail-core/invitations';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { use, useMemo, useState, useSyncExternalStore } from 'react';
 import {
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import {
+  AccessibilityInfo,
   ActivityIndicator,
   StyleSheet,
   Text,
@@ -44,7 +52,7 @@ import {
   View,
 } from 'react-native';
 
-import { SFSymbol, useOutcomeAnnouncement } from './design.tsx';
+import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -355,9 +363,15 @@ function Responding({
   );
   // iOS ignores live regions, so VoiceOver hears the status when it changes, not when it opens.
   const spoken = `${shown.title}. ${shown.detail}`;
-  // oxlint-disable-next-line react/hook-use-state -- The status shown on opening never changes.
-  const [opened] = useState(spoken);
-  useOutcomeAnnouncement(spoken === opened ? undefined : spoken, true);
+  const previousSpoken = useRef(spoken);
+  useEffect(() => {
+    if (spoken !== previousSpoken.current) {
+      previousSpoken.current = spoken;
+      AccessibilityInfo.announceForAccessibilityWithOptions(spoken, {
+        queue: true,
+      });
+    }
+  }, [spoken]);
   const copy = (choice: InvitationChoice) => ({
     subject: t(`invitation.${choice}Subject`, {
       summary: invitation.details.summary ?? t('invitation.untitled'),
