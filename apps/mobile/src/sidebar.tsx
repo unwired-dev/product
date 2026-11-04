@@ -64,7 +64,6 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  heading: { paddingHorizontal: spacing.xl, paddingVertical: spacing.l },
   // iPhone's title sits centered between an empty slot and Account.
   compactHeading: {
     flexDirection: 'row',
@@ -457,39 +456,39 @@ export function Mailboxes({
       <SafeAreaView
         edges={{ top: true, bottom: true, left: true, right: true }}
         style={styles.fill}>
-        {/* The header opens the Command Palette by a downward swipe or its accessibility action. */}
-        <View
-          style={compact ? styles.compactHeading : styles.heading}
-          {...header.swipe}>
-          {compact ? <View style={styles.headingSlot} /> : null}
-          <Text
-            accessibilityRole="header"
-            style={[
-              styles.title,
-              compact && styles.grow,
-              { color: colors.textPrimary },
-            ]}
-            {...header.action}>
-            {t('mailboxes.title')}
-          </Text>
-          {compact && account !== undefined ? (
-            <GlassGroup style={styles.accountGlass}>
-              <Pressable
-                accessibilityLabel={t('inbox.account')}
-                accessibilityRole="button"
-                onPress={() => {
-                  openSettings();
-                }}
-                style={styles.accountButton}>
-                <SFSymbol
-                  name="gearshape"
-                  size={20}
-                  color={colors.textPrimary}
-                />
-              </Pressable>
-            </GlassGroup>
-          ) : null}
-        </View>
+        {/* On iPhone the header opens the Command Palette by a downward swipe or its
+            accessibility action. The iPad sidebar has no heading: the frames start it with the
+            Profile Switcher beneath the column's sidebar toggle. */}
+        {compact ? (
+          <View
+            style={styles.compactHeading}
+            {...header.swipe}>
+            <View style={styles.headingSlot} />
+            <Text
+              accessibilityRole="header"
+              style={[styles.title, styles.grow, { color: colors.textPrimary }]}
+              {...header.action}>
+              {t('mailboxes.title')}
+            </Text>
+            {account === undefined ? null : (
+              <GlassGroup style={styles.accountGlass}>
+                <Pressable
+                  accessibilityLabel={t('inbox.account')}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    openSettings();
+                  }}
+                  style={styles.accountButton}>
+                  <SFSymbol
+                    name="gearshape"
+                    size={20}
+                    color={colors.textPrimary}
+                  />
+                </Pressable>
+              </GlassGroup>
+            )}
+          </View>
+        ) : null}
         <ScrollView
           style={styles.fill}
           contentContainerStyle={[styles.list, compact && styles.compactList]}>

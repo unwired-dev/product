@@ -33,11 +33,10 @@ export const styles = StyleSheet.create({
   },
   headingText: { flex: 1, alignItems: ipad ? 'flex-start' : 'center' },
   barTitle: { position: 'absolute', alignItems: 'center' },
-  // iPad's command input takes its own row above the heading, as the frames place it, so the
-  // heading's top padding is the gap beneath it.
+  // iPad's command input takes its own row above the heading, across the list column as the
+  // frames place it, so the heading's top padding is the gap beneath it.
   commands: {
-    alignSelf: 'flex-start',
-    marginLeft: 14 * scale,
+    marginHorizontal: 14 * scale,
     marginTop: spacing.l * scale,
   },
   title: {
