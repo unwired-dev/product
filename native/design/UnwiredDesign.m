@@ -60,7 +60,9 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 - (instancetype)initWithFrame:(NSRect)frame
 {
   if ((self = [super initWithFrame:frame])) {
-    self.imageScaling = NSImageScaleNone;
+    // Every symbol fits its square, as the Figma icons do, so wide glyphs such as envelope.open
+    // match their neighbours instead of overflowing.
+    self.imageScaling = NSImageScaleProportionallyDown;
     self.imageAlignment = NSImageAlignCenter;
     self.accessibilityElement = NO;
   }
@@ -1179,8 +1181,12 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   if (self.symbol.length > 0) {
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
     if (self.toolbar) {
-      shown.image = [shown.image imageWithSymbolConfiguration:
+      // The toolbar's symbols fit a 16pt square, as UnwiredSymbolView draws its buttons'.
+      NSImage *symbol = [shown.image imageWithSymbolConfiguration:
           [NSImageSymbolConfiguration configurationWithPointSize:16 weight:NSFontWeightRegular]];
+      CGFloat scale = MIN(1, 16 / MAX(symbol.size.width, symbol.size.height));
+      symbol.size = NSMakeSize(symbol.size.width * scale, symbol.size.height * scale);
+      shown.image = symbol;
     }
   }
   // A pull-down shows its first item, which its menu leaves out.

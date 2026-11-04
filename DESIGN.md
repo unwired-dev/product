@@ -443,7 +443,8 @@ styles) so the file stays editable.
 - **Compose:** follows the
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
-  reading pane with 12pt outer insets and 70% of the available height, clamped
+  reading pane, with 12pt outer insets on iPad and docked across the reading pane's full width
+  at its bottom edge on the Mac, as the inline composer frame shows, at 70% of the available height, clamped
   from 420 to 720pt. On iPad, expanding it takes over the whole app window with
   the same Draft. On the Mac, Expand saves the Draft and moves it into its own
   New Message window, closing the overlay with no way back

@@ -15,6 +15,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -77,14 +78,10 @@ const commandsWidth = (readerWidth: number, reading: boolean) =>
         (reading ? readerToolbarWidth + spacing.s : 0),
     ),
   );
-// The composer overlays the reading pane with 12pt insets at 70% of the panes' height,
-// clamped from 420 to 720pt.
-const composerInset = spacing.m;
+// The composer docks across the reading pane's full width at its bottom edge, as the Figma inline
+// composer does, at 70% of the panes' height clamped from 420 to 720pt.
 const composerHeight = (panesHeight: number) =>
-  Math.min(
-    Math.max(0, panesHeight - 2 * composerInset),
-    Math.min(720, Math.max(420, panesHeight * 0.7)),
-  );
+  Math.min(panesHeight, Math.min(720, Math.max(420, panesHeight * 0.7)));
 
 // The window's sidebar pane in AppKit's split view, which lays out its children beside the Inbox.
 const NativeSidebar = requireNativeComponent<
@@ -122,14 +119,9 @@ const styles = StyleSheet.create({
   composer: {
     position: 'absolute',
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  composerOverlay: {
-    right: composerInset,
-    bottom: composerInset,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
+  composerOverlay: { left: 0, right: 0, bottom: 0 },
   toggleTarget: {
     width: 28,
     height: 28,
@@ -295,6 +287,9 @@ function WindowContents({
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
   const [panes, setPanes] = useState({ width: 0, height: 0 });
+  // How far into the window the panes begin: the sidebar's width while it shows.
+  const panesView = useRef<View>(null);
+  const [panesInset, setPanesInset] = useState(0);
   const [view, setView] = useState<MailboxView>({});
   // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
   const [collapsed, setCollapsed] = useState(false);
@@ -369,7 +364,8 @@ function WindowContents({
         <View
           style={[
             styles.sidebarPane,
-            { backgroundColor: colors.surfaceSidebar },
+            // The window's own surface shows around the floating glass sidebar, as in the frames.
+            { backgroundColor: colors.surfaceContent },
           ]}>
           <GlassGroup
             style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
@@ -395,18 +391,24 @@ function WindowContents({
         inbox={inbox}
         id={selected?.id}>
         <View
-          style={[styles.window, { backgroundColor: colors.surfaceSidebar }]}>
+          style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
           <View
+            ref={panesView}
             testID={`window-panes-${windowId}`}
             onLayout={({ nativeEvent }) => {
               setPanes({
                 width: nativeEvent.layout.width,
                 height: nativeEvent.layout.height,
               });
+              // The panes' leading edge in the window follows AppKit's sidebar animation frame by
+              // frame, so the search field stays centered on the window while the sidebar moves.
+              panesView.current?.measureInWindow((x) => {
+                setPanesInset(x);
+              });
             }}
             style={styles.panes}>
             <Inbox
-              barOffset={collapsed ? 0 : sidebarPaneWidth / 2}
+              barOffset={panesInset / 2}
               composing={composing}
               leading={collapsed ? toggle : undefined}
               reader={
@@ -437,7 +439,6 @@ function WindowContents({
                         styles.composer,
                         styles.composerOverlay,
                         {
-                          left: composerInset,
                           height: composerHeight(panes.height),
                           borderColor: colors.separator,
                           boxShadow: colors.menuShadow,

@@ -281,8 +281,17 @@ export function SettingsWindow({
   const [accountFocused, setAccountFocused] = useState(false);
   const selected = destination === 'account';
   return (
-    <View style={styles.window}>
-      <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+    <View style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
+      {/* The surface beneath the glass gives AppKit a layer to cast the sidebar's shadow from, as
+          the Inbox window's glass sidebar does. */}
+      <View
+        style={[
+          styles.sidebar,
+          {
+            backgroundColor: colors.surfaceContent,
+            boxShadow: colors.largeGlassShadow,
+          },
+        ]}>
         <Glass cornerRadius={18} />
         <View
           style={[

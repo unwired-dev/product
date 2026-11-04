@@ -55,8 +55,8 @@ transport and known native exit gaps.
 - **New Message**, at the trailing edge of the Inbox's floating bar, starts a Draft from the
   mailbox the Inbox shows, or the first usable mailbox under **All inboxes**. It opens the composer in
   the detail column: a route of its own on iPhone and a bottom-anchored overlay
-  over the reader on regular-width iPad and in a Mac window, inset 12pt at 70% of
-  the window's height (420 to 720pt); a docked iPad software keyboard leaves it the
+  over the reader on regular-width iPad, inset 12pt, and in a Mac window, docked across the
+  reader's full width at its bottom edge, at 70% of the window's height (420 to 720pt); a docked iPad software keyboard leaves it the
   height above the keyboard. On iPad, **Expand** takes the composer over the whole
   window with the same Draft and **Collapse** returns it. On the Mac, the overlay
   stays beneath the window's [command bar](command-palette.md#entry-points), and
