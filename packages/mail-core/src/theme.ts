@@ -13,6 +13,8 @@ export const radius = {
   closeQuestion: 36,
   alertMac: 22,
   alertTouch: 32,
+  // The iPhone and iPad invitation card.
+  touchCard: 18,
   window: 16,
   bubble: 20,
   chip: 14,

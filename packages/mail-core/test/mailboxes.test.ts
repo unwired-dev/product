@@ -1348,6 +1348,7 @@ describe('mailbox sidebar projection', () => {
         { name: 'Other Inbox', selectable: true, roles: ['inbox'] },
         { name: 'Container', selectable: false, roles: [] },
       ],
+      marked: {},
       capabilities: undefined,
       pending: 0,
       blocked: undefined,

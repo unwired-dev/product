@@ -277,6 +277,7 @@
     "spam": "Spam",
     "trash": "Trash",
     "sent": "Sent",
+    "flagged": "Flagged",
     "allMailboxes": "All mailboxes",
     "notIncluded": "{{mailbox}} isn’t included",
     "notIncludedDetail": "Its server doesn’t identify a folder that can be used for {{view}}. Its folders are still listed under it in the sidebar.",
@@ -291,7 +292,40 @@
     "deletedItems": "Deleted Items",
     "viewUnavailable": "{{view}} could not be read from {{provider}}. Try again when {{provider}} can be reached.",
     "unread_one": "{{count}} unread",
-    "unread_other": "{{count}} unread"
+    "unread_other": "{{count}} unread",
+    "folders": {
+      "choose": "Choose Folders…",
+      "both": {
+        "title": "Choose Spam and Trash Folders",
+        "title_iphone": "Spam and Trash",
+        "intro": "{{address}} doesn’t say which of its folders hold Spam and Trash. Choose them so All Mail can leave those messages out. Unwired Mail doesn’t guess from folder names.",
+        "note": "Until both are chosen, {{address}} isn’t included in All Mail. Its folders stay in the sidebar.",
+        "note_iphone": "Until both are chosen, {{address}} isn’t included in All Mail. Its folders stay in Mailboxes.",
+        "readyNote": "After saving, All Mail includes {{address}} and leaves out messages in these two folders."
+      },
+      "single": {
+        "title": "{{role}} Folder",
+        "intro": "{{address}} marks its {{marked}} folder but not {{role}}. Choose the folder that holds {{role}} so All Mail can leave it out. Unwired Mail doesn’t guess from folder names.",
+        "note": "After saving, All Mail includes {{address}} and leaves out messages in Spam and Trash.",
+        "readyNote": "After saving, All Mail includes {{address}} and leaves out messages in Spam and Trash."
+      },
+      "change": {
+        "title": "Spam and Trash Folders",
+        "intro": "Choose which of {{address}}’s folders hold Spam and Trash. All Mail leaves out messages in these folders.",
+        "note": "Saving updates which messages All Mail leaves out, including ones already synced. Until then, your current folders stay in use.",
+        "readyNote": "Saving updates which messages All Mail leaves out, including ones already synced. Until then, your current folders stay in use."
+      },
+      "updateNote": "Saving updates which messages All Mail leaves out, including ones already synced.",
+      "unmarked": "Not marked by its server",
+      "marked": "Marked by its server",
+      "chosen": "Chosen by you",
+      "changed": "Changed · was {{folder}}",
+      "unavailable": "Folder unavailable",
+      "placeholder": "Choose a Folder",
+      "gone": "{{folder}} is no longer on the server. Choose another folder for {{role}}. This account is not included in All Mail.",
+      "saveFailed": "Couldn’t save your folder choices. Check your connection and try again. Your previous folders are still in use.",
+      "saving": "Updating All Mail… Your current folders stay in use until this finishes."
+    }
   },
   "remoteContent": {
     "title": "Remote Content",

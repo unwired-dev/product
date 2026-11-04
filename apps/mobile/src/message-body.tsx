@@ -51,6 +51,7 @@ import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
 import { ContextMenu, Glass, Notice, SFSymbol } from './design.tsx';
+import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
@@ -1114,6 +1115,12 @@ export function GmailMessageBody({
           body={body.presentation.readable}
         />
       </AssistanceRow>
+      <InvitationCard
+        inbox={inbox}
+        id={id}
+        connection={connection}
+        current={current}
+      />
       <Presentation
         onCopy={(link) => {
           if (current()) {
