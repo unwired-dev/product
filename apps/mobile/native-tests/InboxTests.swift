@@ -351,7 +351,7 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = .portrait
       // #1074: Move is a system sheet; it reopens without the Reply sheet, a downward swipe closes
       // it, and it opens again afterwards.
-      let caption = app.staticTexts["Move this message to another folder."]
+      let caption = app.staticTexts["Move this message to another folder."].firstMatch
       app.buttons["Reply"].tap()
       XCTAssertTrue(move.waitForExistence(timeout: 10))
       move.tap()
