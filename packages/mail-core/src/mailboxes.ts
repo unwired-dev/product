@@ -566,6 +566,14 @@ export function createMailboxes(
     mailboxesOf(registration.getSnapshot().snapshot).find(
       (mailbox) => mailbox.id === id,
     )?.folders;
+  // Gives each open IMAP Inbox the folders now chosen for it.
+  const chooseFolders = () => {
+    for (const [id, entry] of inboxes) {
+      if (entry.provider === 'imap') {
+        entry.inbox.choose(chosenFolders(id));
+      }
+    }
+  };
   const openNew = (
     open: readonly OpenMailbox[],
     mailboxLoading: 'automatic' | 'explicit',
@@ -684,11 +692,7 @@ export function createMailboxes(
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
     const opened = openNew(open, mailboxLoading);
-    for (const [id, entry] of inboxes) {
-      if (entry.provider === 'imap') {
-        entry.inbox.choose(chosenFolders(id));
-      }
-    }
+    chooseFolders();
     if (repairedImap !== undefined) {
       reloadRepaired(repairedImap, held);
     }

@@ -335,6 +335,18 @@ const connectionRecords = (
     folders: state.folders ?? [],
   })[kind];
 
+// Only an IMAP connection chooses folders, and one folder cannot be both Spam and Trash.
+const choosable = (
+  value: RegistrationRecord,
+  connection: string,
+  { junk, trash }: ChosenFolders,
+) =>
+  (junk === undefined || junk !== trash) &&
+  value.mailboxes.find(({ id }) => id === connection)?.provider === 'imap';
+
+const sameChoice = (current: ChosenFolders, next: ChosenFolders) =>
+  current.junk === next.junk && current.trash === next.trash;
+
 // Convex's row revision cannot make an older authenticated record newer than one already read.
 const olderRecord = (state: ProfileState, record: ProfileRecord) => {
   const version =
@@ -870,10 +882,7 @@ export function createMailProfileProgram<E>(
     connection: string,
     folders: ChosenFolders,
   ) {
-    if (
-      (folders.junk !== undefined && folders.junk === folders.trash) ||
-      value.mailboxes.find(({ id }) => id === connection)?.provider !== 'imap'
-    ) {
+    if (!choosable(value, connection, folders)) {
       return yield* failWith('unavailable');
     }
     const { record, epoch } = yield* incarnationOf(value, connection);
@@ -882,11 +891,7 @@ export function createMailProfileProgram<E>(
       return yield* failWith('unavailable');
     }
     const current = state.folders?.find((choice) => choice.record === record);
-    if (
-      current?.epoch === epoch &&
-      current.junk === folders.junk &&
-      current.trash === folders.trash
-    ) {
+    if (current?.epoch === epoch && sameChoice(current, folders)) {
       return;
     }
     yield* commit(state, [
