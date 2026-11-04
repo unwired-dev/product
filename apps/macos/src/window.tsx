@@ -98,6 +98,11 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     backgroundColor: 'transparent',
   },
+  sidebarBacking: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: radius.window,
+    borderCurve: 'continuous',
+  },
   list: { width: listWidth, borderRightWidth: StyleSheet.hairlineWidth },
   detail: { flex: 1 },
   composer: {
@@ -353,6 +358,12 @@ function WindowContents({
           ]}>
           <GlassGroup
             style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+            <View
+              style={[
+                styles.sidebarBacking,
+                { backgroundColor: colors.materialSidebarBacking },
+              ]}
+            />
             <Mailboxes
               view={view}
               onView={setView}

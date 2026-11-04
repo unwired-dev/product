@@ -1742,8 +1742,6 @@ final class WindowTests: XCTestCase {
   private let contrastGaps: [String: Set<String>] = [
     // Secondary text on popover glass, darkened where the popover overlaps a dark window behind.
     "#1794": ["Enter a web, email or phone link for the selected text."],
-    // Dark secondary text on sidebar glass, lightened by whatever is behind the window.
-    "#1574": ["Accounts", "Application", "Automation", "Gmail · other@example.invalid"],
     // Their captured pixels pass, yet the audit flags them: the Inbox window's labels while
     // Settings or a sheet is in front, small text, including AppKit's own, and the Command
     // Palette's headers on its glass panel.

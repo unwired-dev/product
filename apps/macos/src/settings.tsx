@@ -59,6 +59,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderCurve: 'continuous',
   },
+  sidebarBacking: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 18,
+    borderCurve: 'continuous',
+  },
   sidebarList: { padding: spacing.s },
   account: {
     flexDirection: 'row',
@@ -278,6 +283,12 @@ export function SettingsWindow({
     <View style={styles.window}>
       <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
         <Glass cornerRadius={18} />
+        <View
+          style={[
+            styles.sidebarBacking,
+            { backgroundColor: colors.materialSidebarBacking },
+          ]}
+        />
         <ScrollView contentContainerStyle={styles.sidebarList}>
           {onWelcome === undefined ? (
             <>

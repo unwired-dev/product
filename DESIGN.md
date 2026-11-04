@@ -45,6 +45,8 @@ colors:
   surface-content-dark: '#1E1E1E'
   surface-sidebar: '#F3F2F5'
   surface-sidebar-dark: '#2A2A2C'
+  material-sidebar-backing: 'transparent'
+  material-sidebar-backing-dark: 'rgba(42, 42, 44, 0.92)'
   surface-bubble: '#F1F1F4'
   surface-bubble-dark: '#2C2C2E'
   fill-quiet: 'rgba(0, 0, 0, 0.05)'
@@ -267,38 +269,39 @@ content without the marker.
 
 Graphite neutrals with a single warm seal.
 
-| Role              | Token                     | Light         | Dark          | Use                                                           |
-| ----------------- | ------------------------- | ------------- | ------------- | ------------------------------------------------------------- |
-| Accent fill       | `accent/fill`             | `#3A3D44`     | `#6A6E78`     | Selected message row, primary button, unread dot, sent bubble |
-| On accent         | `accent/on-fill`          | `#FFFFFF`     | `#FFFFFF`     | Text and icons on the accent fill                             |
-| Accent ink        | `accent/ink`              | `#3A3D44`     | `#C8CBD2`     | Links, tinted sidebar icons, New Message                      |
-| Subtle selection  | `accent/selection-subtle` | `#3A3D44` 12% | `#C8CBD2` 16% | Selected sidebar item, pressed controls                       |
-| On device ink     | `on-device/ink`           | `#A3321F`     | `#FF9E88`     | The cinnabar seal: On device marker text and icon             |
-| On device surface | `on-device/surface`       | `#FBEEEA`     | `#3A2420`     | Summary card and Mail Assistance surfaces                     |
-| Brand deep        | `brand/deep`              | `#15171B`     | `#15171B`     | Welcome, Recovery Key, Undo Send toast                        |
-| On brand deep     | `brand/on-deep`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep                                  |
-| Brand seal        | `brand/seal`              | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                       |
-| On brand seal     | `brand/on-seal`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                  |
-| Monogram          | `brand/monogram`          | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                 |
-| Profile Blue      | `profile/blue`            | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                         |
-| Profile Indigo    | `profile/indigo`          | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                         |
-| Profile Purple    | `profile/purple`          | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                         |
-| Profile Pink      | `profile/pink`            | `#C2185B`     | `#D6336C`     | A Mail Profile monogram in this Color                         |
-| Profile Teal      | `profile/teal`            | `#0E7490`     | `#117C97`     | A Mail Profile monogram in this Color                         |
-| Profile Green     | `profile/green`           | `#237A3A`     | `#2A8443`     | A Mail Profile monogram in this Color                         |
-| Profile Brown     | `profile/brown`           | `#7A5C3E`     | `#8C6A4A`     | A Mail Profile monogram in this Color                         |
-| Apple button      | `apple/button`            | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles            |
-| On Apple button   | `apple/on-button`         | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                   |
-| Primary text      | `text/primary`            | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                  |
-| Secondary text    | `text/secondary`          | `#4F4F54`     | `#B0B0B5`     | Previews, timestamps, captions, section headers               |
-| Content surface   | `surface/content`         | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                 |
-| Sidebar surface   | `surface/sidebar`         | `#F3F2F5`     | `#2A2A2C`     | Opaque stand-in for the sidebar material                      |
-| Bubble surface    | `surface/bubble`          | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                     |
-| Quiet fill        | `fill/quiet`              | black 5%      | white 6%      | Secondary buttons, search field, banners, chips               |
-| Track             | `fill/track`              | black 9%      | white 16%     | Off switch track                                              |
-| Separator         | `separator`               | black 10%     | white 10%     | Hairlines between rows and panes                              |
-| Warning           | `status/warning`          | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                           |
-| Destructive       | `status/destructive`      | `#D70015`     | `#FF6961`     | Delete Product Account, Delete                                |
+| Role              | Token                      | Light         | Dark          | Use                                                           |
+| ----------------- | -------------------------- | ------------- | ------------- | ------------------------------------------------------------- |
+| Accent fill       | `accent/fill`              | `#3A3D44`     | `#6A6E78`     | Selected message row, primary button, unread dot, sent bubble |
+| On accent         | `accent/on-fill`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on the accent fill                             |
+| Accent ink        | `accent/ink`               | `#3A3D44`     | `#C8CBD2`     | Links, tinted sidebar icons, New Message                      |
+| Subtle selection  | `accent/selection-subtle`  | `#3A3D44` 12% | `#C8CBD2` 16% | Selected sidebar item, pressed controls                       |
+| On device ink     | `on-device/ink`            | `#A3321F`     | `#FF9E88`     | The cinnabar seal: On device marker text and icon             |
+| On device surface | `on-device/surface`        | `#FBEEEA`     | `#3A2420`     | Summary card and Mail Assistance surfaces                     |
+| Brand deep        | `brand/deep`               | `#15171B`     | `#15171B`     | Welcome, Recovery Key, Undo Send toast                        |
+| On brand deep     | `brand/on-deep`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep                                  |
+| Brand seal        | `brand/seal`               | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                       |
+| On brand seal     | `brand/on-seal`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                  |
+| Monogram          | `brand/monogram`           | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                 |
+| Profile Blue      | `profile/blue`             | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                         |
+| Profile Indigo    | `profile/indigo`           | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                         |
+| Profile Purple    | `profile/purple`           | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                         |
+| Profile Pink      | `profile/pink`             | `#C2185B`     | `#D6336C`     | A Mail Profile monogram in this Color                         |
+| Profile Teal      | `profile/teal`             | `#0E7490`     | `#117C97`     | A Mail Profile monogram in this Color                         |
+| Profile Green     | `profile/green`            | `#237A3A`     | `#2A8443`     | A Mail Profile monogram in this Color                         |
+| Profile Brown     | `profile/brown`            | `#7A5C3E`     | `#8C6A4A`     | A Mail Profile monogram in this Color                         |
+| Apple button      | `apple/button`             | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles            |
+| On Apple button   | `apple/on-button`          | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                   |
+| Primary text      | `text/primary`             | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                  |
+| Secondary text    | `text/secondary`           | `#4F4F54`     | `#B0B0B5`     | Previews, timestamps, captions, section headers               |
+| Content surface   | `surface/content`          | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                 |
+| Sidebar surface   | `surface/sidebar`          | `#F3F2F5`     | `#2A2A2C`     | Opaque stand-in for the sidebar material                      |
+| Sidebar backing   | `material/sidebar-backing` | transparent   | `#2A2A2C` 92% | Mac sidebars only, between the glass and its text             |
+| Bubble surface    | `surface/bubble`           | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                     |
+| Quiet fill        | `fill/quiet`               | black 5%      | white 6%      | Secondary buttons, search field, banners, chips               |
+| Track             | `fill/track`               | black 9%      | white 16%     | Off switch track                                              |
+| Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                              |
+| Warning           | `status/warning`           | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                           |
+| Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Product Account, Delete                                |
 
 Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 
@@ -320,10 +323,10 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | Unread dot (non-text) on content   | 10.88 | 3.27  |
 
 `text/secondary` uses the solid colours approved for #1195. The ratios above use
-the opaque surface tokens; contrast over sidebar glass still depends on the
-background: in Dark, secondary text on sidebar glass can fall below 4.5:1, and
-its treatment awaits a design decision in
-[#1574](https://github.com/unwired-dev/product/issues/1574). Other labels the
+the opaque surface tokens. In Dark, the Mac Inbox and Settings sidebars lay
+`material/sidebar-backing` over their glass, so secondary text keeps 4.5:1
+whatever is behind the window
+([#1574](https://github.com/unwired-dev/product/issues/1574)). Other labels the
 Mac contrast audit flags are tracked in
 [#1550](https://github.com/unwired-dev/product/issues/1550).
 The macOS Labels/Secondary 50% black reaches only 3.95:1 on white and fails AA for text.
