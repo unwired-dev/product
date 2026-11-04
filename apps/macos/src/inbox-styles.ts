@@ -12,9 +12,11 @@ export const styles = StyleSheet.create({
   // The list column beside the reader, under the floating search bar that spans both.
   panes: { flex: 1, flexDirection: 'row' },
   column: { width: listWidth, borderRightWidth: StyleSheet.hairlineWidth },
-  // With the sidebar hidden, the window controls' row: its toggle follows AppKit's controls.
+  // With the sidebar hidden, the window controls' row: its toggle follows AppKit's controls,
+  // centered 26pt down, and the title starts 16pt below it as in the Figma narrow window.
   controls: {
-    height: 52,
+    height: 40,
+    paddingTop: spacing.m,
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 84,

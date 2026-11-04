@@ -48,9 +48,11 @@ export type MailboxView = Readonly<{
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  // The window controls' row: AppKit draws them at its leading end, level with the toggle.
+  // The window controls' row: AppKit draws them at its leading end, centered 26pt down the
+  // window, level with the toggle; the Profile Switcher follows 24pt below that center.
   controls: {
-    height: 40,
+    height: 36,
+    marginBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
