@@ -74,7 +74,15 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  headingText: { flex: 1 },
+  badge: {
+    paddingHorizontal: spacing.s,
+    paddingVertical: 2,
+    borderRadius: radius.badgeTouch,
+    borderCurve: 'continuous',
+  },
   title: { ...textStyles.headline },
+  struck: { textDecorationLine: 'line-through' },
   details: { gap: 6 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   label: { ...textStyles.subheadline, minWidth: 76 },
@@ -141,14 +149,17 @@ function Details({
   invited,
 }: {
   readonly details: InvitationDetails;
-  // Who was invited, then a secondary line about them.
-  readonly invited: readonly [string, string];
+  // Who was invited, then a secondary line about them; a cancelled meeting has no row.
+  readonly invited?: readonly [string, string];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useFormats();
   const when = invitationWhen(t, formats, details);
-  const from = t('invitation.from', { name: organizerName(details) });
+  const cancelled = invited === undefined;
+  const from = t(cancelled ? 'invitation.cancelledBy' : 'invitation.from', {
+    name: organizerName(details),
+  });
   const title = details.summary ?? t('invitation.untitled');
   const organizer = [
     ...new Set([organizerName(details), details.organizer.address]),
@@ -160,18 +171,39 @@ function Details({
         accessibilityLabel={from}
         style={styles.heading}>
         <SFSymbol
-          name="calendar"
-          color={colors.accentInk}
+          name={cancelled ? 'xmark' : 'calendar'}
+          color={cancelled ? colors.textSecondary : colors.accentInk}
         />
-        <Text style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
+        <Text
+          style={[
+            styles.smallEmphasized,
+            styles.headingText,
+            { color: colors.textSecondary },
+          ]}>
           {from}
         </Text>
+        {cancelled ? (
+          <View
+            style={[
+              styles.badge,
+              { backgroundColor: colors.accentSelectionSubtle },
+            ]}>
+            <Text style={[styles.smallEmphasized, { color: colors.accentInk }]}>
+              {t('invitation.cancelled')}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View
         accessible
         accessibilityRole="header"
         accessibilityLabel={title}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>
+        <Text
+          style={[
+            styles.title,
+            cancelled && styles.struck,
+            { color: colors.textPrimary },
+          ]}>
           {title}
         </Text>
       </View>
@@ -209,16 +241,18 @@ function Details({
             </Text>
           ))}
         </DetailRow>
-        <DetailRow
-          label={t('invitation.invited')}
-          spoken={invited}>
-          <Text style={[styles.text, { color: colors.textPrimary }]}>
-            {invited[0]}
-          </Text>
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
-            {invited[1]}
-          </Text>
-        </DetailRow>
+        {invited === undefined ? null : (
+          <DetailRow
+            label={t('invitation.invited')}
+            spoken={invited}>
+            <Text style={[styles.text, { color: colors.textPrimary }]}>
+              {invited[0]}
+            </Text>
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
+              {invited[1]}
+            </Text>
+          </DetailRow>
+        )}
       </View>
     </>
   );
@@ -595,6 +629,18 @@ export function InvitationCard({
           tone="statusWarning"
           title={t('invitation.unreadable')}
           detail={t('invitation.unreadableDetail')}
+        />
+      </View>
+    );
+  }
+  if (offer.kind === 'cancelled') {
+    return (
+      <View style={card}>
+        <Details details={offer.details} />
+        <Status
+          icon="xmark"
+          title={t('invitation.meetingCancelled')}
+          detail={t('invitation.meetingCancelledDetail')}
         />
       </View>
     );

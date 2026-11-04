@@ -52,8 +52,15 @@ separately.
   leaves the earlier record. If saving Gmail's confirmation fails, relaunch
   restores **Delivery unknown**; **Check Again** can confirm it without sending
   another response.
-- Recurring meetings, cancellations, floating or unknown time zones, a timed
-  meeting whose `DURATION` counts days, and damaged calendar text show **Unwired can’t read this invitation**, with no response.
+- A `METHOD:CANCEL` for one meeting
+  ([#1826](https://github.com/unwired-dev/product/issues/1826)) shows the same
+  details under **Cancelled by** the organizer, with a **Cancelled** badge, the
+  title struck through and **This meeting was cancelled**. It offers no response,
+  so it shows whether or not it names the opened mailbox as an attendee. Its
+  `STATUS`, when present, must be `CANCELLED`.
+- Recurring meetings and cancellations of them, floating or unknown time zones,
+  a timed meeting whose `DURATION` counts days, and damaged calendar text show
+  **Unwired can’t read this invitation**, with no response.
 
 ## Limitations
 

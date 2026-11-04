@@ -47,7 +47,8 @@ export type Invitation = Readonly<{
 }>;
 
 // What a received message's calendar part offers: nothing, a response the owning mailbox can
-// send, a meeting that names only other addresses, or an invitation Unwired cannot read.
+// send, a meeting that names only other addresses, a cancelled meeting, or an invitation Unwired
+// cannot read.
 export type InvitationOffer =
   | Invitation
   | Readonly<{
@@ -55,6 +56,7 @@ export type InvitationOffer =
       details: InvitationDetails;
       invited: readonly string[];
     }>
+  | Readonly<{ kind: 'cancelled'; details: InvitationDetails }>
   | Readonly<{ kind: 'unreadable' }>;
 
 const unreadable = { kind: 'unreadable' } as const;
@@ -226,8 +228,9 @@ const scoped = (lines: readonly Line[]) => {
     : undefined;
 };
 
-// The single top-level event of a `METHOD:REQUEST` calendar, or undefined for anything else.
-const requestedEvent = (lines: readonly Line[] | undefined) => {
+// The single top-level event of a `METHOD:REQUEST` or `METHOD:CANCEL` calendar with its method,
+// or undefined for anything else.
+const calendarEvent = (lines: readonly Line[] | undefined) => {
   const calendar = lines === undefined ? undefined : scoped(lines);
   if (calendar === undefined) {
     return undefined;
@@ -239,13 +242,17 @@ const requestedEvent = (lines: readonly Line[] | undefined) => {
   const versions = properties.filter(
     ({ path, line }) => path.length === 1 && line.name === 'VERSION',
   );
-  return methods.join(',') === 'REQUEST' &&
+  const method = methods.join(',');
+  return (method === 'REQUEST' || method === 'CANCEL') &&
     events === 1 &&
     versions.length === 1 &&
     versions[0]?.line.value === '2.0'
-    ? properties
-        .filter(({ path }) => path[1] === 'VEVENT')
-        .map(({ line }) => line)
+    ? {
+        method,
+        event: properties
+          .filter(({ path }) => path[1] === 'VEVENT')
+          .map(({ line }) => line),
+      }
     : undefined;
 };
 
@@ -400,12 +407,22 @@ export function invitationOf(
   if (document.calendar === undefined) {
     return undefined;
   }
-  const event = requestedEvent(contentLines(document.calendar));
-  const meeting = event === undefined ? undefined : meetingOf(event);
-  if (event === undefined || meeting === undefined) {
+  const calendar = calendarEvent(contentLines(document.calendar));
+  const meeting =
+    calendar === undefined ? undefined : meetingOf(calendar.event);
+  if (calendar === undefined || meeting === undefined) {
     return unreadable;
   }
+  const { method, event } = calendar;
   const { uid, sequence, details, organizerLine, summary } = meeting;
+  // A cancellation needs no attendee: there is nothing to answer. Its STATUS can only be CANCELLED.
+  if (method === 'CANCEL') {
+    const statuses = event.filter((line) => line.name === 'STATUS');
+    return statuses.length <= 1 &&
+      statuses.every((line) => line.value.trim().toUpperCase() === 'CANCELLED')
+      ? { kind: 'cancelled', details }
+      : unreadable;
+  }
   const attendees = event.filter((line) => line.name === 'ATTENDEE');
   const attendee = attendees.find(
     (line) => addressOf(line)?.toLowerCase() === address.toLowerCase(),
