@@ -297,6 +297,7 @@ final class InboxTests: XCTestCase {
           format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
       ).firstMatch.waitForExistence(timeout: 15))
     try profileSwitcherJourney(app)
+    profileIsolationJourney(app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -392,7 +393,6 @@ final class InboxTests: XCTestCase {
     add(shot)
     failedSaveBack(app)
     sendJourney(app)
-    profileIsolationJourney(app)
   }
 
   // #778: the iPhone composer covers the split columns, so neither the reader's Back button nor an
