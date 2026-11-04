@@ -15,6 +15,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Organizing row continuity
 
+- `imap-actions.ts.withChosenRoles` assigning Junk or Trash to a chosen name
+  without a matching selectable folder in the committed listing. Check the
+  projected roles themselves, as well as consumers that filter selectability;
+  otherwise an unavailable folder carries a role that another consumer can trust.
+  Preserve a unique selectable server marker over the choice, and leave a missing
+  or unselectable choice unresolved without substituting another folder.
+
 - `imap-actions.ts.imapQuickActions` or a search consumer assuming INBOX cannot
   carry an effective Junk or Trash role. Explicit folder choices may name INBOX;
   apply the same source/destination exclusion to Restore as to other moves, and
