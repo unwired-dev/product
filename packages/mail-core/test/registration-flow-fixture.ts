@@ -43,6 +43,8 @@ export const createRegistrationFlow = (
       Effect.runPromise(flow.moveMailbox(connection, profile)),
     notifyMailbox: (connection, enabled) =>
       Effect.runPromise(flow.notifyMailbox(connection, enabled)),
+    chooseFolders: (connection, folders) =>
+      Effect.runPromise(flow.chooseFolders(connection, folders)),
     link: (provider) => Effect.runPromise(flow.link(provider)),
     confirmRecoveryKey: (entry) =>
       Effect.runPromise(flow.confirmRecoveryKey(entry)),

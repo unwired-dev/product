@@ -260,9 +260,7 @@ It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
 Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader,
 composer and Link Editor, and prints each issue as an `ACCESSIBILITY` JSON line
 in `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
-audits still report. These are secondary-text
-contrast on Dark sidebar glass ([#1574](https://github.com/unwired-dev/product/issues/1574)),
-the Link Editor hint on popover glass ([#1794](https://github.com/unwired-dev/product/issues/1794)),
+audits still report. These are the Link Editor hint on popover glass ([#1794](https://github.com/unwired-dev/product/issues/1794)),
 labels the contrast audit flags although their captured pixels pass, that
 fail only while another window or an AppKit sheet dims their window, or that sit
 on the Command Palette's glass panel

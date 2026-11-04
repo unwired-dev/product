@@ -317,10 +317,9 @@ function Toolbar({
         {
           label: string;
           open: boolean;
-          // Where the button was pressed, so a sheet can grow out of it.
-          toggle: (origin: number) => void;
+          toggle: () => void;
           // The Reply sheet's entry, which opens the destinations even when they are shown.
-          show: Readonly<{ label: string; run: (origin: number) => void }>;
+          show: Readonly<{ label: string; run: () => void }>;
         } & ({ panel: ReactNode } | { sheet: ReactNode })
       >
     | undefined;
@@ -379,8 +378,8 @@ function Toolbar({
               icon="folder"
               label={folders.label}
               expanded={folders.open}
-              onPress={(event) => {
-                folders.toggle(event.nativeEvent.pageX);
+              onPress={() => {
+                folders.toggle();
               }}
             />
           )}
@@ -494,7 +493,6 @@ function ImapMessageActions({
   const state = useInbox();
   const { t } = useLocalization();
   const mailbox = useMailbox();
-  const [origin, setOrigin] = useState(0);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
@@ -551,14 +549,12 @@ function ImapMessageActions({
                     : 'gmailActions.folders',
                 ),
                 open: panel === 'folders',
-                toggle: (x) => {
-                  setOrigin(x);
+                toggle: () => {
                   toggle('folders');
                 },
                 show: {
                   label: t('gmailActions.folders'),
-                  run: (x) => {
-                    setOrigin(x);
+                  run: () => {
                     setPanel('folders');
                   },
                 },
@@ -567,7 +563,6 @@ function ImapMessageActions({
                       sheet: (
                         <MoveSheet
                           open={panel === 'folders'}
-                          origin={origin}
                           message={message}
                           destinations={state.folders.map(
                             ({ name, roles, selectable, delimiter }) => {
@@ -663,7 +658,6 @@ function GmailMessageActions({
   const store = useInboxActions();
   const colors = usePalette();
   const { t } = useLocalization();
-  const [origin, setOrigin] = useState(0);
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
@@ -800,14 +794,12 @@ function GmailMessageActions({
                   : 'gmailActions.labels',
               ),
           open: panel === 'folders',
-          toggle: (x) => {
-            setOrigin(x);
+          toggle: () => {
             toggle('folders');
           },
           show: {
             label: t(picker ? 'gmailActions.folders' : 'gmailActions.labels'),
-            run: (x) => {
-              setOrigin(x);
+            run: () => {
               setPanel('folders');
             },
           },
@@ -816,7 +808,6 @@ function GmailMessageActions({
                 sheet: (
                   <MoveSheet
                     open={panel === 'folders'}
-                    origin={origin}
                     message={message}
                     destinations={[
                       // Gmail and Graph list only custom move destinations; Inbox is display-only.

@@ -5,6 +5,7 @@ import type {
   ImapFolder,
   ImapMessage,
 } from './imap-model.ts';
+import type { ChosenFolders } from './registration-snapshot.ts';
 
 import { gmailActionCopy } from './gmail-actions.ts';
 import { inboxFolder } from './imap-model.ts';
@@ -51,6 +52,35 @@ export const imapRoleFolder = (
   return matches.length === 1 ? matches[0]?.name : undefined;
 };
 
+// A connection's folders with the Spam and Trash folders the person chose taking each role its
+// server marks no single folder with. The role stays unknown while a chosen folder is missing from
+// the listing or cannot be selected; no other folder is ever substituted.
+export const withChosenRoles = (
+  folders: readonly ImapFolder[],
+  chosen: ChosenFolders | undefined,
+) => {
+  const assigned = new Map<string, string>(
+    (['junk', 'trash'] as const).flatMap((role) => {
+      const name = chosen?.[role];
+      return name === undefined || imapRoleFolder(folders, role) !== undefined
+        ? []
+        : [[role, name] as const];
+    }),
+  );
+  if (assigned.size === 0) {
+    return folders;
+  }
+  return folders.map((folder) => ({
+    ...folder,
+    roles: [
+      ...folder.roles.filter((role) => !assigned.has(role)),
+      ...[...assigned]
+        .filter(([, name]) => folder.selectable && name === folder.name)
+        .map(([role]) => role),
+    ],
+  }));
+};
+
 /**
  * Lists a message's quick actions: its read state and star, then moves to the
  * folders the server declares for archive, Trash and Spam. Mail in Trash or
@@ -78,14 +108,14 @@ export const imapQuickActions = (
       kind: 'archive' | 'trash' | 'spam' | 'restore';
       destination: string;
     }>
-  > = removed
-    ? [{ kind: 'restore', destination: inboxFolder }]
-    : roles.flatMap(([kind, role]) => {
-        const destination = imapRoleFolder(folders, role);
-        return destination === undefined || destination === message.folder
-          ? []
-          : [{ kind, destination }];
-      });
+  > = (
+    removed
+      ? [{ kind: 'restore', destination: inboxFolder } as const]
+      : roles.flatMap(([kind, role]) => {
+          const destination = imapRoleFolder(folders, role);
+          return destination === undefined ? [] : [{ kind, destination }];
+        })
+  ).filter(({ destination }) => destination !== message.folder);
   const actions: ReadonlyArray<
     | Readonly<{ kind: 'read' | 'unread' | 'star' | 'unstar' }>
     | (typeof moves)[number]
@@ -127,12 +157,15 @@ export const imapMoveTargets = (
 // Trash and Spam as Gmail's search does.
 const unsearched = new Set(['trash', 'junk']);
 export const searchedFolders = (folders: readonly ImapFolder[]) => {
+  const inbox = folders.find(({ name }) => name === inboxFolder);
   const candidates = folders.filter(
     ({ selectable, roles: declared }) =>
       selectable && !declared.some((role) => unsearched.has(role)),
   );
   return [
-    inboxFolder,
+    ...(inbox?.roles.some((role) => unsearched.has(role)) === true
+      ? []
+      : [inboxFolder]),
     ...candidates
       .filter(
         ({ name, roles: declared }) =>

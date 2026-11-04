@@ -8,6 +8,7 @@ import * as Semaphore from 'effect/Semaphore';
 
 import type { ImapSetup } from './imap-setup.ts';
 import type {
+  ChosenFolders,
   MailboxConnection,
   MailGrantProvider,
   PrivateSync,
@@ -47,6 +48,7 @@ export {
   unavailableProfile,
 } from './registration-snapshot.ts';
 export type {
+  ChosenFolders,
   MailboxConnection,
   MailGrantProvider,
   MailProfile,
@@ -133,6 +135,8 @@ export type RegistrationState = Readonly<{
   profileFailure?: ProfileFailure;
   // The connection whose New Mail Notifications could not be changed; its policy is unchanged.
   notificationFailure?: string;
+  // The IMAP connection whose Spam and Trash folders could not be chosen; its choice is unchanged.
+  foldersFailure?: string;
   // Why removal failed, or could not be confirmed after saved state became unreadable.
   mailboxRemovalFailure?: MailboxRemovalFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
@@ -243,9 +247,14 @@ class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
   },
 ) {}
 
-class NotificationRefused extends Schema.TaggedError<NotificationRefused>()(
-  'NotificationRefused',
-  { connection: Schema.String, snapshot: RegistrationSnapshotSchema },
+// A connection's synchronized setting was not changed, reported on that connection's row.
+class SettingRefused extends Schema.TaggedError<SettingRefused>()(
+  'SettingRefused',
+  {
+    setting: Schema.Literals(['notificationFailure', 'foldersFailure']),
+    connection: Schema.String,
+    snapshot: RegistrationSnapshotSchema,
+  },
 ) {}
 
 class MailboxRemovalRefused extends Schema.TaggedError<MailboxRemovalRefused>()(
@@ -339,10 +348,13 @@ const enrollmentFailed = (
 
 export function createRegistration(vault: NativeRegistrationVault) {
   const native = createRegistrationFlow(vault);
-  const notificationRefusal = (connection: string) =>
+  const settingRefusal = (
+    setting: SettingRefused['setting'],
+    connection: string,
+  ) =>
     request(native.snapshot()).pipe(
       Effect.flatMap((snapshot) =>
-        Effect.fail(new NotificationRefused({ connection, snapshot })),
+        Effect.fail(new SettingRefused({ setting, connection, snapshot })),
       ),
     );
   let state: RegistrationState = {
@@ -387,7 +399,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       | EnrollmentCodeInvalid
       | LinkRefused
       | ProfileRefused
-      | NotificationRefused
+      | SettingRefused
       | MailboxRemovalRefused
       | DeletionRefused
       | RegistrationFailed
@@ -485,10 +497,10 @@ export function createRegistration(vault: NativeRegistrationVault) {
                 ...settled(state.snapshot),
                 profileFailure: failure,
               })),
-            NotificationRefused: ({ connection, snapshot }) =>
+            SettingRefused: ({ setting, connection, snapshot }) =>
               Effect.sync((): RegistrationState => ({
                 ...settled(snapshot),
-                notificationFailure: connection,
+                [setting]: connection,
               })),
             MailboxRemovalRefused: ({ failure, snapshot }) =>
               Effect.sync((): RegistrationState => ({
@@ -534,6 +546,24 @@ export function createRegistration(vault: NativeRegistrationVault) {
     );
   // Editing completion and prompt submission may arrive during foreground verification.
   // Keep the intent until admitted, but never apply it to a replacement Product Account.
+  // A refusal, such as another device's write first, is reported on the connection's row.
+  const changeSetting = (
+    setting: SettingRefused['setting'],
+    connection: string,
+    change: ReturnType<typeof request>,
+  ) =>
+    execute(
+      change.pipe(
+        Effect.catchTags({
+          ProfileRefused: () => settingRefusal(setting, connection),
+          RegistrationFailed: (error) =>
+            Effect.logError('Registration failed:', error.diagnostic).pipe(
+              Effect.andThen(settingRefusal(setting, connection)),
+            ),
+        }),
+      ),
+      (snapshot) => ({ ...settled(snapshot), [setting]: connection }),
+    );
   const changeProfile = (operation: Parameters<typeof execute>[0]) => {
     const previous = state.snapshot;
     const owner =
@@ -758,21 +788,17 @@ export function createRegistration(vault: NativeRegistrationVault) {
     moveMailbox: (connection: string, profile: string) =>
       changeProfile(request(native.moveMailbox(connection, profile))),
     notifyMailbox: (connection: string, enabled: boolean) =>
-      execute(
-        // A refusal, such as another device's write first, is reported on the connection's row.
-        request(native.notifyMailbox(connection, enabled)).pipe(
-          Effect.catchTags({
-            ProfileRefused: () => notificationRefusal(connection),
-            RegistrationFailed: (error) =>
-              Effect.logError('Registration failed:', error.diagnostic).pipe(
-                Effect.andThen(notificationRefusal(connection)),
-              ),
-          }),
-        ),
-        (snapshot) => ({
-          ...settled(snapshot),
-          notificationFailure: connection,
-        }),
+      changeSetting(
+        'notificationFailure',
+        connection,
+        request(native.notifyMailbox(connection, enabled)),
+      ),
+    // Chooses the folders an IMAP connection uses as Spam and Trash where its server marks none.
+    chooseFolders: (connection: string, folders: ChosenFolders) =>
+      changeSetting(
+        'foldersFailure',
+        connection,
+        request(native.chooseFolders(connection, folders)),
       ),
     link: (provider: SignInProvider) =>
       execute(

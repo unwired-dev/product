@@ -39,6 +39,7 @@ import type {
   GmailPart,
   MessagePresentation,
 } from './message-body.ts';
+import type { ChosenFolders } from './registration-snapshot.ts';
 import type { NativeRemoteContentCache } from './remote-content-loader.ts';
 
 import {
@@ -59,7 +60,11 @@ import {
   sendRejection,
 } from './gmail-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
-import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
+import {
+  imapRoleFolder,
+  searchedFolders,
+  withChosenRoles,
+} from './imap-actions.ts';
 import {
   applyHistoryRead,
   historyProgress,
@@ -776,6 +781,7 @@ export function createImapInbox(
     arrived,
     shared = createBodyLoads(),
     connection = '',
+    chosen: initiallyChosen,
   }: Readonly<{
     // Called after native code purged this device because another device removed it.
     removed?: (() => void) | undefined;
@@ -785,6 +791,8 @@ export function createImapInbox(
       | undefined;
     shared?: Readonly<ReturnType<typeof createBodyLoads>>;
     connection?: string;
+    // The Spam and Trash folders the person chose for this connection.
+    chosen?: ChosenFolders | undefined;
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
@@ -811,6 +819,19 @@ export function createImapInbox(
         ),
     );
   let state: ImapInboxState = { kind: 'loading' };
+  let chosen = initiallyChosen;
+  // The listing with chosen roles applied, kept while neither changes.
+  let roled = {
+    listed: [] as readonly ImapFolder[],
+    chosen,
+    folders: [] as readonly ImapFolder[],
+  };
+  const roleFolders = (listed: readonly ImapFolder[]) => {
+    if (roled.listed !== listed || roled.chosen !== chosen) {
+      roled = { listed, chosen, folders: withChosenRoles(listed, chosen) };
+    }
+    return roled.folders;
+  };
   let opened: (Scope & { revision: number }) | undefined = undefined;
   let document: ImapDocument | undefined = undefined;
   let forgotten = false;
@@ -1205,7 +1226,7 @@ export function createImapInbox(
       messages: projected(messages, changes()),
       status: shownStatus,
       ...(synchronizedAt === undefined ? {} : { synchronizedAt }),
-      folders: document.folders,
+      folders: roleFolders(document.folders),
       capabilities: document.capabilities,
       pending: changes().length,
       blocked: blockedChange()?.id,
@@ -1838,7 +1859,7 @@ export function createImapInbox(
       render();
       return undefined;
     }
-    const remapped = roleChanged(head, document?.folders ?? []);
+    const remapped = roleChanged(head, roleFolders(document?.folders ?? []));
     const answer = remapped
       ? ({
           outcome: 'refused',
@@ -2935,7 +2956,7 @@ export function createImapInbox(
         if (scope === undefined || document === undefined) {
           return { kind: 'unavailable', reason: 'failed' } as const;
         }
-        const folders = searchedFolders(document.folders);
+        const folders = searchedFolders(roleFolders(document.folders));
         const asked = folders.slice(0, searchFolderLimit);
         const searched = Arr.getSomes(
           // A session answers one command at a time.
@@ -2950,8 +2971,13 @@ export function createImapInbox(
         if (!current(scope)) {
           return { kind: 'found', messages: [], limited: false } as const;
         }
+        const eligible = new Set(
+          searchedFolders(roleFolders(document?.folders ?? [])),
+        );
         const messages = newestFirst(
-          searched.flatMap(({ messages: matches }) => matches),
+          searched
+            .flatMap(({ messages: matches }) => matches)
+            .filter(({ folder }) => eligible.has(folder)),
         );
         for (const message of messages) {
           found.set(message.id, message);
@@ -2960,7 +2986,7 @@ export function createImapInbox(
           kind: 'found',
           messages,
           limited:
-            asked.length < folders.length ||
+            [...eligible].some((folder) => !asked.includes(folder)) ||
             searched.length < asked.length ||
             searched.some(({ more }) => more),
         } as const;
@@ -3237,6 +3263,14 @@ export function createImapInbox(
       return () => {
         listeners.delete(listener);
       };
+    },
+    // Takes the connection's newly chosen Spam and Trash folders; retained messages follow them
+    // without being read again.
+    choose: (next: ChosenFolders | undefined) => {
+      if (next?.junk !== chosen?.junk || next?.trash !== chosen?.trash) {
+        chosen = next;
+        render();
+      }
     },
     load,
     openFolder,

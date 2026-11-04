@@ -27,8 +27,7 @@ export type ThreadAction = Readonly<{
   label: string;
   icon: string;
   group: 'tile' | 'state' | 'place';
-  // Where the sheet was opened, so a picker the action opens can grow from the same place.
-  run: (origin: number) => void;
+  run: () => void;
 }>;
 
 // The reader toolbar offers its organizing actions to the iPhone Reply sheet, and leaves out More
@@ -96,13 +95,11 @@ const styles = StyleSheet.create({
 // Owns the Reply presentation while the reader owns response preparation.
 export function ReplySheet({
   open,
-  origin,
   message,
   onResponse,
   onClose,
 }: {
   readonly open: boolean;
-  readonly origin: number;
   readonly message: Readonly<{ sender: string; preview: string }>;
   readonly onResponse: (kind: ResponseKind) => void;
   readonly onClose: () => void;
@@ -112,8 +109,7 @@ export function ReplySheet({
   // The sheet fits its content; taller content scrolls inside the tallest detent iOS allows.
   const [height, setHeight] = useState<number>();
   const pending = useRef<
-    | Readonly<{ message: typeof message; name: string; origin: number }>
-    | undefined
+    Readonly<{ message: typeof message; name: string }> | undefined
   >(undefined);
   const owner = useRef<typeof message | undefined>(undefined);
   useLayoutEffect(() => {
@@ -153,7 +149,7 @@ export function ReplySheet({
     if (!open || owner.current !== message || pending.current !== undefined) {
       return;
     }
-    pending.current = { message, name, origin };
+    pending.current = { message, name };
     onClose();
   };
   return (
@@ -165,7 +161,7 @@ export function ReplySheet({
             onClose();
           }
         }}
-        // A sibling Move Modal cannot present until the sheet finishes dismissing.
+        // A sibling Move sheet cannot present until the sheet finishes dismissing.
         onDismiss={() => {
           const selected = pending.current;
           pending.current = undefined;
@@ -176,7 +172,7 @@ export function ReplySheet({
           ) {
             [...tiles, ...actions]
               .find(({ name }) => name === selected.name)
-              ?.run(selected.origin);
+              ?.run();
           }
         }}>
         <Group

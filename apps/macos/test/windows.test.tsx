@@ -2370,6 +2370,61 @@ describe('mac windows of different Mail Profiles', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('names a Mail Profile with no mailboxes in its Inbox and offers Manage Mail Profiles…', async () => {
+    expect.hasAssertions();
+    const { vault } = await createTwoProfileRegistration();
+    const store = createRegistration({
+      ...vault,
+      registration: () => vault.registration(),
+    });
+    await store.restore();
+    await store.createProfile('Travel');
+    const replaced = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof store }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      store,
+    );
+    const inbox = createGmailInbox(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
+    try {
+      const app = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="travel" />
+        </MacWindows>,
+      );
+      await chooseProfile(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'Travel',
+      );
+      // The subtitle names the empty scope alone, without Gmail or a synchronization status.
+      await expect(
+        app.findByRole('header', { name: 'All Inboxes. No mailboxes' }),
+      ).resolves.toBeVisible();
+      expect(app.getByText('No Mailboxes')).toBeVisible();
+      expect(
+        app.getByText(
+          'Move a mailbox into Travel from its current Mail Profile.',
+        ),
+      ).toBeVisible();
+      // No synchronization footer, and the sidebar keeps Favorites with no mailbox section.
+      expect([
+        app.queryByText('Encrypted on this device'),
+        app.queryByText(/^Gmail · /u),
+      ]).toStrictEqual([null, null]);
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Manage Mail Profiles…' }),
+      );
+      await settingsWindow().findByRole('header', { name: 'Mail Profiles' });
+      await expect(
+        settingsWindow().findByRole('button', { name: 'Travel' }),
+      ).resolves.toBeVisible();
+    } finally {
+      replaced.restore();
+    }
+  });
+
   it('duplicates a Mail Profile into a selected copy with its style, without its mailboxes', async () => {
     expect.hasAssertions();
     const { vault, work } = await createTwoProfileRegistration();

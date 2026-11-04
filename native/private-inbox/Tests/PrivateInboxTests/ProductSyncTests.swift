@@ -658,6 +658,52 @@ extension PrivateInboxTests {
     }
   }
 
+  @Test @MainActor func chosenFoldersOpenOnlyUnderTheirConnectionsIdentifier() async throws {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    let store = backend.store(keys: keys, google: google)
+    _ = try await store.signInIdentity(.google, hint: false)
+    try store.saveIdentity(replacing: true)
+    try await store.connectIdentity(.establish)
+    _ = try store.createKeyRing()
+    try store.recordInitialization(true)
+    let ring = try #require(try store.loadVault(account)).ring
+
+    let mailbox = try ring.identifier("mailbox", "imap:imap.example.invalid:993:alex")
+    let choice: [String: Any] = [
+      "kind": "folders", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "trash": "Bin",
+    ]
+    let sealed = try store.sealProfileRecord(choice)
+    #expect(
+      sealed["payloadIdentifier"] as? String == (try ring.identifier("mailbox-folders", mailbox)))
+    let opened = try store.openProfileRecords([
+      sealed,
+      // Served as the connection's notification policy, or for another connection, it opens nowhere.
+      [
+        "payloadIdentifier": try ring.identifier("mailbox-notifications", mailbox),
+        "encryptedPayload": sealed["encryptedPayload"] as Any,
+      ],
+      [
+        "payloadIdentifier": try ring.identifier("mailbox-folders", "mailbox.other"),
+        "encryptedPayload": sealed["encryptedPayload"] as Any,
+      ],
+    ])
+    let open = try #require(opened[0] as? [String: Any])
+    #expect(open["kind"] as? String == "folders" && open["trash"] as? String == "Bin")
+    #expect(open["junk"] == nil && open["epoch"] as? String == "epoch-1")
+    #expect(opened.dropFirst().allSatisfy { $0 is NSNull })
+    for malformed: [String: Any] in [
+      ["kind": "folders", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "junk": ""],
+      ["kind": "folders", "record": "draft.other", "epoch": "epoch-1", "version": 1.0],
+    ] {
+      #expect(throws: RegistrationError.unavailable) { try store.sealProfileRecord(malformed) }
+    }
+  }
+
   @Test @MainActor func profileRecordsOpenOnlyUnderTheirOwnIdentifier() async throws {
     let keys = device()
     let account = "account-synthetic-product-subject"

@@ -21,6 +21,7 @@ import type { ProviderPayload } from './graph-inbox.ts';
 import type {
   Cache,
   GmailMessage,
+  InvitationResponse,
   MailboxDocument,
   MailboxHistory,
   MailboxScope,
@@ -366,6 +367,8 @@ export type GmailInboxState =
       readonly history?: HistoryProgress;
       // When the last completed synchronization began, as an ISO instant; absent before one.
       readonly synchronizedAt?: string;
+      // Invitation Responses this device sent or may have sent, most recent first.
+      readonly responses?: readonly InvitationResponse[];
       // Folder-role actions this mailbox cannot perform, including while roles are unknown.
       readonly unavailableActions?: ReadonlyArray<GmailAction['kind']>;
       // Changes saved on this device that Gmail has not confirmed yet.
@@ -955,9 +958,9 @@ const rebasedOnto = (
   };
   return withIntents(
     {
-      ...next,
-      // Metadata work preserves the latest completed synchronization.
-      ...Struct.pick(saved, ['synchronizedAt']),
+      ...Struct.omit(next, ['responses']),
+      // Metadata work preserves the latest completed synchronization and Invitation Responses.
+      ...Struct.pick(saved, ['synchronizedAt', 'responses']),
       ...keptSince(base, saved, next),
       // Intake may have saved a newly created label while synchronization was reading.
       labels: includingLabels(
@@ -2115,6 +2118,9 @@ export function createGmailInbox(
       ...(document?.synchronizedAt === undefined
         ? {}
         : { synchronizedAt: document.synchronizedAt }),
+      ...(document?.responses === undefined
+        ? {}
+        : { responses: document.responses }),
       sync: shownSyncState(),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
@@ -3892,6 +3898,15 @@ export function createGmailInbox(
       : prefetchFailure(reading, 'History read failed:')(failure);
   }
 
+  // The opened mailbox's cache and its document, absent before the first save.
+  const openedDocument = Effect.gen(function* () {
+    const cache = yield* storage(native.openMailbox);
+    return {
+      cache,
+      document: Option.getOrUndefined(yield* documentOf(cache)),
+    };
+  });
+
   // Intake uses its own permit: a blocked Gmail read must not delay recording intent. Native
   // compare-and-swap fences concurrent sync commits; each intake ID also reconciles a lost commit
   // reply without appending the same intent twice.
@@ -3899,8 +3914,7 @@ export function createGmailInbox(
     const startedFor = ownership;
     const stillOwned = () => !forgotten && startedFor === ownership;
     return Effect.gen(function* () {
-      const cache = yield* storage(native.openMailbox);
-      const document = Option.getOrUndefined(yield* documentOf(cache));
+      const { cache, document } = yield* openedDocument;
       if (!stillOwned()) {
         return false;
       }
@@ -3972,6 +3986,64 @@ export function createGmailInbox(
       ),
     );
   });
+
+  // Replaces the record of one invitation revision's response, or removes it, in the opened
+  // mailbox's cache. Resolves whether it was saved.
+  const recordResponse = (
+    revision: Readonly<Pick<InvitationResponse, 'uid' | 'sequence'>>,
+    response: InvitationResponse | undefined,
+  ) => {
+    const scope = opened;
+    const startedFor = ownership;
+    const reading = owner;
+    const stillOwned = () => !forgotten && startedFor === ownership;
+    return Effect.gen(function* () {
+      const { cache, document } = yield* openedDocument;
+      if (
+        !stillOwned() ||
+        scope === undefined ||
+        !sameMailbox(scope, cache) ||
+        cache.availability !== undefined ||
+        document === undefined
+      ) {
+        return false;
+      }
+      const responses = [
+        ...(response === undefined ? [] : [response]),
+        ...(document.responses ?? []).filter(
+          ({ uid, sequence }) =>
+            uid !== revision.uid || sequence !== revision.sequence,
+        ),
+      ];
+      const next = {
+        ...Struct.omit(document, ['responses']),
+        ...(responses.length === 0 ? {} : { responses }),
+      };
+      return yield* publication.withPermit(
+        Effect.gen(function* () {
+          const saved = yield* commit(cache, next);
+          if (stillOwned()) {
+            yield* ready(saved, next, sync);
+          }
+          return true;
+        }),
+      );
+    }).pipe(
+      Effect.retry({
+        times: 2,
+        while: (error) =>
+          error instanceof SyncFailure &&
+          (error.kind === 'conflict' || error.kind === 'invalidated'),
+      }),
+      Effect.catchTag('SyncFailure', (failure) =>
+        searchFailed(
+          failure,
+          reading,
+          'Invitation response was not saved:',
+        ).pipe(Effect.as(false)),
+      ),
+    );
+  };
 
   const readLabels = (scope: MailboxScope, message: GmailMessage) =>
     gmail(scope)(
@@ -4568,10 +4640,11 @@ export function createGmailInbox(
       ? ({ kind: 'sent', message: match } satisfies SendOutcome)
       : ({ kind: 'unknown' } satisfies SendOutcome);
   });
-  const searchFailed = (
+  function searchFailed(
     { kind, diagnostic }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
     reading: number,
-  ): Effect.Effect<GmailSearchPage | undefined> => {
+    label = 'Gmail search failed:',
+  ): Effect.Effect<GmailSearchPage | undefined> {
     // Native work started for a mailbox that changed; nothing is shown.
     if (kind === 'invalidated' || owner !== reading || state.kind !== 'ready') {
       return Effect.void.pipe(Effect.as(undefined));
@@ -4583,7 +4656,7 @@ export function createGmailInbox(
       return Effect.succeed(searchUnavailable('offline'));
     }
     if (kind !== 'authentication') {
-      return Effect.logError('Gmail search failed:', diagnostic).pipe(
+      return Effect.logError(label, diagnostic).pipe(
         Effect.as(searchUnavailable('failed')),
       );
     }
@@ -4595,7 +4668,7 @@ export function createGmailInbox(
       }
       return searchUnavailable('authentication');
     });
-  };
+  }
   const searchGmail = (query: string, pageToken: string | undefined) =>
     Effect.suspend(() => {
       const scope = opened;
@@ -4999,6 +5072,10 @@ export function createGmailInbox(
         ),
       );
     },
+    recordResponse: (
+      revision: Readonly<Pick<InvitationResponse, 'uid' | 'sequence'>>,
+      response: InvitationResponse | undefined,
+    ) => runLogged(persistence.withPermit(recordResponse(revision, response))),
     // An opened message's body and headers, which Reply, Reply All and Forward start from;
     // undefined until both are read.
     responseSource: (id: string) => {

@@ -89,6 +89,7 @@ export const styles = StyleSheet.create({
   emptyIcon: { marginBottom: spacing.m },
   emptyTitle: { ...textStyles.title3Emphasized, alignSelf: 'center' },
   emptyText: { ...textStyles.body, textAlign: 'center' },
+  emptyAction: { marginTop: spacing.xl },
   notices: { gap: spacing.s, paddingHorizontal: 14 },
   footer: { ...textStyles.subheadline, padding: spacing.xl },
   // Within the rows' 22pt leading inset, the spinner and its text 10pt apart.

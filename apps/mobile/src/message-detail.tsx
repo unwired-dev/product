@@ -32,7 +32,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -462,8 +461,6 @@ function ResponseActions({
     'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
   );
   const [choosing, setChoosing] = useState<typeof source>();
-  const [origin, setOrigin] = useState(0);
-  const { width } = useWindowDimensions();
   const responseOpen = compact && choosing !== undefined && choosing === source;
   const close = () => {
     setChoosing(undefined);
@@ -555,9 +552,7 @@ function ResponseActions({
           label={t('message.reply')}
           disabled={pending !== undefined}
           expanded={choosing === source}
-          onPress={(event) => {
-            // Keyboard activation reports no touch; grow from the middle then.
-            setOrigin(event.nativeEvent.pageX || width / 2);
+          onPress={() => {
             // The Reply sheet replaces an open More or Move rather than covering it.
             onPanel(undefined);
             setChoosing(source);
@@ -594,7 +589,6 @@ function ResponseActions({
       {compact ? (
         <ReplySheet
           open={responseOpen}
-          origin={origin}
           message={message}
           onClose={close}
           onResponse={(kind) => {

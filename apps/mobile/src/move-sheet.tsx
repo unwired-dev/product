@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 
-import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { BottomSheet, Group, Host, RNHostView } from '@expo/ui/swift-ui';
 import {
-  Animated,
-  Keyboard,
-  Modal,
+  presentationBackground,
+  presentationDetents,
+} from '@expo/ui/swift-ui/modifiers';
+import { radius, spacing } from '@private-email/mail-core/theme';
+import { useLayoutEffect, useRef, useState } from 'react';
+import {
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,22 +17,14 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Glass, Monogram, SFSymbol, useMenuMotion } from './design.tsx';
+import { Monogram, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
-  sheetBackdrop: { justifyContent: 'flex-end' },
-  sheet: {
-    flex: 1,
-    paddingHorizontal: spacing.l,
-    borderTopLeftRadius: radius.sheet,
-    borderTopRightRadius: radius.sheet,
-    borderCurve: 'continuous',
-  },
+  sheet: { flex: 1, paddingHorizontal: spacing.l },
   caption: { ...textStyles.footnote, textAlign: 'center' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   title: { ...textStyles.headline, flex: 1, textAlign: 'center' },
@@ -343,13 +337,12 @@ function DestinationRow({
   );
 }
 
-// iPhone's Move picker. It grows out of the Move button: the mailbox, the message, its folders
-// nested as the provider lists them, with the current one and containers unavailable, and a
-// search below them. Back lists the account, as mail moves only within it. Moving closes the
-// picker, then moves once it has shrunk away.
+// iPhone's Move picker, a system sheet: the mailbox, the message, its folders nested as the
+// provider lists them, with the current one and containers unavailable, and a search below them.
+// Back lists the account, as mail moves only within it. Moving closes the picker, then moves once
+// it has finished dismissing.
 export function MoveSheet({
   open,
-  origin,
   message,
   destinations,
   empty,
@@ -358,8 +351,6 @@ export function MoveSheet({
   onClose,
 }: {
   readonly open: boolean;
-  // Where the Move button was pressed, across the screen.
-  readonly origin: number;
   readonly message: Readonly<{ sender: string; subject: string }>;
   readonly destinations: readonly Destination[];
   // Shown when no destination can be chosen.
@@ -373,26 +364,7 @@ export function MoveSheet({
   const { t } = useLocalization();
   const mailbox = useMailbox();
   const provider = useProviderName();
-  const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [keyboardHeight, setKeyboardHeight] = useState(
-    () => Keyboard.metrics()?.height ?? 0,
-  );
-  useEffect(() => {
-    // Use the keyboard frame directly; measuring the resizing sheet can feed back into avoidance.
-    const subscription = Keyboard.addListener(
-      'keyboardWillChangeFrame',
-      ({ endCoordinates }) => {
-        setKeyboardHeight(
-          endCoordinates.screenY >= height ? 0 : endCoordinates.height,
-        );
-      },
-    );
-    return () => {
-      subscription.remove();
-    };
-  }, [height]);
-  const motion = useMenuMotion(open, 'grow');
   const pending = useRef<
     Readonly<{ message: typeof message; id: string }> | undefined
   >(undefined);
@@ -404,7 +376,9 @@ export function MoveSheet({
       pending.current = undefined;
     };
   }, [message]);
-  const landscapeKeyboard = keyboardHeight > 0 && width > height;
+  // The sheet keeps itself above the keyboard; searching in landscape leaves it little height.
+  const [searching, setSearching] = useState(false);
+  const landscapeKeyboard = searching && width > height;
   const [query, setQuery] = useState('');
   const [accounts, setAccounts] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
@@ -432,196 +406,191 @@ export function MoveSheet({
     ({ current, selectable }) => current || !selectable,
   );
   return (
-    <Modal
-      visible={motion.shown}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      // Moving closes the reader, which would cut the picker's exit short.
-      onDismiss={() => {
-        const selected = pending.current;
-        pending.current = undefined;
-        if (
-          !open &&
-          owner.current === message &&
-          selected?.message === message
-        ) {
-          onMove(selected.id);
-        }
-      }}
-      supportedOrientations={[
-        'portrait',
-        'portrait-upside-down',
-        'landscape-left',
-        'landscape-right',
-      ]}>
-      <View
-        accessibilityElementsHidden={!open}
-        pointerEvents={open ? 'auto' : 'none'}
-        style={[
-          styles.sheetBackdrop,
-          {
-            height: Math.max(0, height - keyboardHeight),
-            paddingTop: insets.top + spacing.s,
-          },
-        ]}>
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: colors.scrimTouch },
-            motion.backdropStyle,
-          ]}
-        />
-        <Pressable
-          accessible={false}
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-        <Animated.View
-          accessibilityViewIsModal
-          onAccessibilityEscape={onClose}
-          testID="move-sheet"
-          style={[
-            styles.sheet,
-            motion.style,
-            {
-              // Leave a full folder row visible in the short space above a landscape keyboard.
-              gap: landscapeKeyboard ? 0 : spacing.m,
-              paddingTop: landscapeKeyboard ? spacing.s : spacing.m,
-              boxShadow: colors.menuGlassShadow,
-              backgroundColor: colors.surfaceContent,
-              // Above the keyboard the search needs no home-indicator inset.
-              paddingBottom: keyboardHeight > 0 ? spacing.s : 34,
-              // The picker grows out of where Move was pressed, at the bottom of the screen.
-              // Keyboard activation reports no touch; grow from the middle then.
-              transformOrigin: `${origin || width / 2}px 100%`,
-            },
+    <Host matchContents>
+      <BottomSheet
+        isPresented={open}
+        onIsPresentedChange={(presented) => {
+          if (!presented) {
+            onClose();
+          }
+        }}
+        // Moving closes the reader, which would cut the sheet's dismissal short.
+        onDismiss={() => {
+          const selected = pending.current;
+          pending.current = undefined;
+          if (
+            !open &&
+            owner.current === message &&
+            selected?.message === message
+          ) {
+            onMove(selected.id);
+          }
+        }}>
+        <Group
+          modifiers={[
+            presentationDetents(['large']),
+            presentationBackground(colors.surfaceContent),
           ]}>
-          <Glass
-            cornerRadius={radius.sheet}
-            style={StyleSheet.absoluteFill}
-          />
-          {accounts ? (
-            <AccountPage
-              account={account}
-              onFolders={() => {
-                setAccounts(false);
-              }}
-              onCancel={onClose}
-            />
-          ) : (
-            <>
-              <Text style={[styles.caption, { color: colors.textSecondary }]}>
-                {t('gmailActions.moveCaption')}
-              </Text>
-              <View style={styles.titleRow}>
-                <SheetButton
-                  label={t('message.back')}
-                  style={styles.circle}
-                  onPress={() => {
-                    setAccounts(true);
-                  }}>
-                  <SFSymbol
-                    name="chevron.left"
-                    color={colors.textPrimary}
-                  />
-                </SheetButton>
-                <Text
-                  accessibilityRole="header"
-                  numberOfLines={1}
-                  style={[styles.title, { color: colors.textPrimary }]}>
-                  {account}
-                </Text>
-                <SheetButton
-                  label={t('message.closeResponses')}
-                  style={styles.circle}
-                  onPress={onClose}>
-                  <SFSymbol
-                    name="xmark"
-                    color={colors.textPrimary}
-                  />
-                </SheetButton>
-              </View>
-              <ScrollView
-                keyboardShouldPersistTaps={
-                  landscapeKeyboard ? 'always' : 'handled'
-                }
-                style={styles.sheetList}>
-                <View
-                  style={[styles.message, { borderColor: colors.separator }]}>
-                  <Monogram name={message.sender} />
-                  <View style={styles.messageText}>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.sender, { color: colors.textPrimary }]}>
-                      {message.sender}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.subject, { color: colors.textSecondary }]}>
-                      {message.subject}
-                    </Text>
-                  </View>
-                </View>
-                {shown.length === 0
-                  ? note(
-                      needle === '' && empty !== undefined
-                        ? empty
-                        : t('gmailActions.noMatchingFolders'),
-                    )
-                  : shown.map((row, index) => (
-                      <View key={row.id}>
-                        {index === 0 ? null : (
-                          <View
-                            style={[
-                              styles.separator,
-                              {
-                                marginLeft:
-                                  styles.separator.marginLeft +
-                                  indent * row.depth,
-                                backgroundColor: colors.separator,
-                              },
-                            ]}
-                          />
-                        )}
-                        <DestinationRow
-                          row={row}
-                          onChoose={choose}
-                        />
-                      </View>
-                    ))}
-                {empty !== undefined && shown.length > 0 && nothingToChoose
-                  ? note(empty)
-                  : null}
-                {limited === undefined
-                  ? null
-                  : note(t('gmailActions.foldersLimited', { count: limited }))}
-              </ScrollView>
-              <View
-                style={[styles.search, { backgroundColor: colors.fillQuiet }]}>
-                <View style={styles.searchIcon}>
-                  <SFSymbol
-                    name="magnifyingglass"
-                    color={colors.textSecondary}
-                  />
-                </View>
-                <TextInput
-                  accessibilityLabel={t('search.title')}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  clearButtonMode="while-editing"
-                  onChangeText={setQuery}
-                  placeholder={t('search.title')}
-                  placeholderTextColor={colors.textSecondary}
-                  returnKeyType="search"
-                  style={[styles.searchInput, { color: colors.textPrimary }]}
-                  value={query}
+          <RNHostView>
+            <View
+              testID="move-sheet"
+              style={[
+                styles.sheet,
+                {
+                  // Leave a full folder row visible in the short space above a landscape keyboard.
+                  gap: landscapeKeyboard ? 0 : spacing.m,
+                  paddingTop: landscapeKeyboard ? spacing.s : spacing.m,
+                  // The sheet already insets the home indicator; keep a gap only above the keyboard.
+                  paddingBottom: searching ? spacing.s : 0,
+                },
+              ]}>
+              {accounts ? (
+                <AccountPage
+                  account={account}
+                  onFolders={() => {
+                    setAccounts(false);
+                  }}
+                  onCancel={onClose}
                 />
-              </View>
-            </>
-          )}
-        </Animated.View>
-      </View>
-    </Modal>
+              ) : (
+                <>
+                  <Text
+                    style={[styles.caption, { color: colors.textSecondary }]}>
+                    {t('gmailActions.moveCaption')}
+                  </Text>
+                  <View style={styles.titleRow}>
+                    <SheetButton
+                      label={t('message.back')}
+                      style={styles.circle}
+                      onPress={() => {
+                        setAccounts(true);
+                      }}>
+                      <SFSymbol
+                        name="chevron.left"
+                        color={colors.textPrimary}
+                      />
+                    </SheetButton>
+                    <Text
+                      accessibilityRole="header"
+                      numberOfLines={1}
+                      style={[styles.title, { color: colors.textPrimary }]}>
+                      {account}
+                    </Text>
+                    <SheetButton
+                      label={t('message.closeResponses')}
+                      style={styles.circle}
+                      onPress={onClose}>
+                      <SFSymbol
+                        name="xmark"
+                        color={colors.textPrimary}
+                      />
+                    </SheetButton>
+                  </View>
+                  <ScrollView
+                    keyboardShouldPersistTaps={
+                      landscapeKeyboard ? 'always' : 'handled'
+                    }
+                    style={styles.sheetList}>
+                    <View
+                      style={[
+                        styles.message,
+                        { borderColor: colors.separator },
+                      ]}>
+                      <Monogram name={message.sender} />
+                      <View style={styles.messageText}>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.sender,
+                            { color: colors.textPrimary },
+                          ]}>
+                          {message.sender}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.subject,
+                            { color: colors.textSecondary },
+                          ]}>
+                          {message.subject}
+                        </Text>
+                      </View>
+                    </View>
+                    {shown.length === 0
+                      ? note(
+                          needle === '' && empty !== undefined
+                            ? empty
+                            : t('gmailActions.noMatchingFolders'),
+                        )
+                      : shown.map((row, index) => (
+                          <View key={row.id}>
+                            {index === 0 ? null : (
+                              <View
+                                style={[
+                                  styles.separator,
+                                  {
+                                    marginLeft:
+                                      styles.separator.marginLeft +
+                                      indent * row.depth,
+                                    backgroundColor: colors.separator,
+                                  },
+                                ]}
+                              />
+                            )}
+                            <DestinationRow
+                              row={row}
+                              onChoose={choose}
+                            />
+                          </View>
+                        ))}
+                    {empty !== undefined && shown.length > 0 && nothingToChoose
+                      ? note(empty)
+                      : null}
+                    {limited === undefined
+                      ? null
+                      : note(
+                          t('gmailActions.foldersLimited', { count: limited }),
+                        )}
+                  </ScrollView>
+                  <View
+                    style={[
+                      styles.search,
+                      { backgroundColor: colors.fillQuiet },
+                    ]}>
+                    <View style={styles.searchIcon}>
+                      <SFSymbol
+                        name="magnifyingglass"
+                        color={colors.textSecondary}
+                      />
+                    </View>
+                    <TextInput
+                      accessibilityLabel={t('search.title')}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      clearButtonMode="while-editing"
+                      onChangeText={setQuery}
+                      placeholder={t('search.title')}
+                      placeholderTextColor={colors.textSecondary}
+                      onFocus={() => {
+                        setSearching(true);
+                      }}
+                      onBlur={() => {
+                        setSearching(false);
+                      }}
+                      returnKeyType="search"
+                      style={[
+                        styles.searchInput,
+                        { color: colors.textPrimary },
+                      ]}
+                      value={query}
+                    />
+                  </View>
+                </>
+              )}
+            </View>
+          </RNHostView>
+        </Group>
+      </BottomSheet>
+    </Host>
   );
 }

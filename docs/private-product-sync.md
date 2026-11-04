@@ -251,7 +251,9 @@ Mail Profiles never list these prefixes, so they can neither rewrite nor corrupt
 them. Mailbox descriptions keep
 their unchanged format. Each connection's [New Mail Notifications](new-mail-notifications.md)
 switch synchronizes the same way, as a sealed `mailbox-notifications.` record bound to
-the connection's incarnation and written only through compare-and-set.
+the connection's incarnation and written only through compare-and-set. An IMAP
+connection's chosen Spam and Trash folders synchronize as a sealed `mailbox-folders.`
+record in the same way, so their names reach Convex only as ciphertext.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

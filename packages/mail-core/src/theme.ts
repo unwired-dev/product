@@ -44,6 +44,8 @@ export const palette = {
     textSecondary: '#4F4F54',
     surfaceContent: '#FFFFFF',
     surfaceSidebar: '#F3F2F5',
+    // Mac sidebars' glass; Dark backs it so secondary text keeps 4.5:1 over bright desktops.
+    materialSidebarBacking: 'transparent',
     surfaceBubble: '#F1F1F4',
     fillQuiet: 'rgba(0, 0, 0, 0.05)',
     fillTrack: 'rgba(0, 0, 0, 0.09)',
@@ -78,6 +80,7 @@ export const palette = {
     textSecondary: '#B0B0B5',
     surfaceContent: '#1E1E1E',
     surfaceSidebar: '#2A2A2C',
+    materialSidebarBacking: 'rgba(42, 42, 44, 0.92)',
     surfaceBubble: '#2C2C2E',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
     fillTrack: 'rgba(255, 255, 255, 0.16)',
