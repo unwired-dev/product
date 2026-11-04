@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
   badge: {
     paddingHorizontal: spacing.s,
     paddingVertical: 2,
-    borderRadius: radius.control,
+    borderRadius: radius.badgeMac,
     borderCurve: 'continuous',
   },
   title: { ...textStyles.title3Emphasized },
@@ -141,7 +141,7 @@ function Details({
         style={styles.heading}>
         <SFSymbol
           name={cancelled ? 'xmark' : 'calendar'}
-          color={colors.accentInk}
+          color={cancelled ? colors.textSecondary : colors.accentInk}
         />
         <Text
           style={[

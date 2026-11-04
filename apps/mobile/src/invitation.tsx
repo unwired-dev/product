@@ -75,11 +75,10 @@ const styles = StyleSheet.create({
   },
   heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   headingText: { flex: 1 },
-  // A fully rounded badge, as pills and chips are.
   badge: {
     paddingHorizontal: spacing.s,
     paddingVertical: 2,
-    borderRadius: radius.chip,
+    borderRadius: radius.badgeTouch,
     borderCurve: 'continuous',
   },
   title: { ...textStyles.headline },
@@ -173,7 +172,7 @@ function Details({
         style={styles.heading}>
         <SFSymbol
           name={cancelled ? 'xmark' : 'calendar'}
-          color={colors.accentInk}
+          color={cancelled ? colors.textSecondary : colors.accentInk}
         />
         <Text
           style={[
