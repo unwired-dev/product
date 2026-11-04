@@ -272,6 +272,7 @@ describe('meeting invitations in the Mac reader', () => {
           `You’re invited at two of your addresses. This copy responds only for ${me}.`,
         ),
       ).toBeOnTheScreen();
+      expect(screen.getByText('alex@icloud.example · IMAP')).toBeOnTheScreen();
       // Another Profile's mailbox is never listed, though the invitation names it.
       expect(
         screen.getByLabelText(
