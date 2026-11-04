@@ -5,7 +5,7 @@ import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ComponentProps, ReactNode, RefObject } from 'react';
+import type { ComponentProps, ContextType, ReactNode, RefObject } from 'react';
 import type { TextInput } from 'react-native';
 
 import { lastUpdated } from '@private-email/localization';
@@ -28,6 +28,7 @@ import {
   resultKey,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
+import { profileName } from '@private-email/mail-core/profile-windows';
 import {
   use,
   useDeferredValue,
@@ -636,6 +637,73 @@ const hasNoMail = ({
 const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
   search.found?.failures.some(({ reason }) => reason === 'offline') === true;
 
+type Account = NonNullable<ContextType<typeof AccountContext>>;
+
+// A Mail Profile that owns no mailbox lists nothing and synchronizes nothing until one moves in.
+const unconnectedAccount = (
+  account: Account | undefined,
+  connections: readonly unknown[],
+  mailboxes: readonly unknown[],
+) => (connections.length === 0 && mailboxes.length === 0 ? account : undefined);
+
+function EmptyInbox({
+  title,
+  detail,
+  children,
+}: Readonly<{ title: string; detail: string; children?: ReactNode }>) {
+  const colors = usePalette();
+  return (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <SFSymbol
+          name="tray.2"
+          size={36}
+          color={colors.textSecondary}
+        />
+      </View>
+      <Label style={[styles.emptyTitle, { color: colors.textSecondary }]}>
+        {title}
+      </Label>
+      <Label style={[styles.emptyText, { color: colors.textSecondary }]}>
+        {detail}
+      </Label>
+      {children}
+    </View>
+  );
+}
+
+// A Mail Profile without mailboxes offers only Manage Mail Profiles…, with nothing to synchronize.
+function InboxFooter({
+  unconnected,
+  profile,
+  children,
+}: Readonly<{
+  unconnected: Account | undefined;
+  profile: string;
+  children: ReactNode;
+}>) {
+  const { t } = useLocalization();
+  if (unconnected === undefined) {
+    return children;
+  }
+  return (
+    <EmptyInbox
+      title={t('inbox.noMailboxes')}
+      detail={t('inbox.noMailboxesDetail', {
+        profile: profileName(t, profile, unconnected.profiles),
+      })}>
+      <View style={styles.emptyAction}>
+        <Button
+          label={t('profiles.manage')}
+          onPress={() => {
+            unconnected.openAccount('profiles');
+          }}
+        />
+      </View>
+    </EmptyInbox>
+  );
+}
+
 function headingOf(
   t: Translate,
   {
@@ -646,6 +714,7 @@ function headingOf(
     shown,
     results,
     search,
+    unconnected,
   }: Readonly<{
     scope: string | undefined;
     folder: string | undefined;
@@ -654,6 +723,7 @@ function headingOf(
     shown: readonly InboxMailbox[];
     results: readonly unknown[] | undefined;
     search: ReturnType<typeof useGmailSearch>;
+    unconnected: boolean;
   }>,
 ) {
   const title =
@@ -661,6 +731,11 @@ function headingOf(
       ? (folder ??
         t(scope === undefined ? 'inbox.unifiedTitle' : 'inbox.title'))
       : t('search.title');
+  const emptyScope = folder ?? scopeName;
+  // A Mail Profile without mailboxes has no provider or synchronization to report.
+  if (unconnected) {
+    return { title, subtitle: t('profiles.noMailboxes'), emptyScope };
+  }
   const subtitle =
     results === undefined ||
     searchOffline(search) ||
@@ -670,7 +745,7 @@ function headingOf(
           count: results.length + (search.found?.results.length ?? 0),
           scope: scopeName,
         });
-  return { title, subtitle, emptyScope: folder ?? scopeName };
+  return { title, subtitle, emptyScope };
 }
 
 function useComposeSearch(
@@ -742,6 +817,7 @@ export function Inbox({
   const search = useRef<TextInput>(null);
   const composeSearch = useComposeSearch(composing, search);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
+  const unconnected = unconnectedAccount(account, connections, mailboxes);
   // Connections waiting for provider authorization have no Inbox until it is given again.
   const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
     mailboxes,
@@ -887,6 +963,7 @@ export function Inbox({
     shown,
     results,
     search: online,
+    unconnected: unconnected !== undefined,
   });
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
@@ -952,21 +1029,10 @@ export function Inbox({
   };
   const empty =
     results === undefined ? (
-      <View style={styles.empty}>
-        <View style={styles.emptyIcon}>
-          <SFSymbol
-            name="tray.2"
-            size={36}
-            color={colors.textSecondary}
-          />
-        </View>
-        <Label style={[styles.emptyTitle, { color: colors.textSecondary }]}>
-          {t('inbox.empty')}
-        </Label>
-        <Label style={[styles.emptyText, { color: colors.textSecondary }]}>
-          {t('inbox.emptyDetail', { scope: emptyScope })}
-        </Label>
-      </View>
+      <EmptyInbox
+        title={t('inbox.empty')}
+        detail={t('inbox.emptyDetail', { scope: emptyScope })}
+      />
     ) : (
       <Text style={[styles.notice, { color: colors.textSecondary }]}>
         {t('search.empty', { query: searched })}
@@ -1121,7 +1187,9 @@ export function Inbox({
           keyExtractor={rowKey}
           ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
           ListFooterComponent={
-            <>
+            <InboxFooter
+              unconnected={unconnected}
+              profile={profile}>
               {results === undefined &&
               hasNoMail({ ready, syncing, count: messages.length })
                 ? empty
@@ -1142,7 +1210,7 @@ export function Inbox({
               <Text style={[styles.footer, { color: colors.textSecondary }]}>
                 {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
               </Text>
-            </>
+            </InboxFooter>
           }
           ListFooterComponentStyle={styles.listFooter}
           renderSectionFooter={({ section }) =>
