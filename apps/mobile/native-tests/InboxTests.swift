@@ -297,6 +297,7 @@ final class InboxTests: XCTestCase {
           format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
       ).firstMatch.waitForExistence(timeout: 15))
     try profileSwitcherJourney(app)
+    profileIsolationJourney(app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -441,6 +442,123 @@ final class InboxTests: XCTestCase {
     waitUntil { !composer.exists }
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     waitUntil { back.isHittable }
+  }
+
+  // #1821: a mailbox moved into Work takes its mail, search results and Drafts there. Neither
+  // window lists the other Profile's mail, and moving the mailbox back restores it.
+  private func profileIsolationJourney(_ app: XCUIApplication) {
+    let primary = app.buttons["Mail Profile, Primary Profile"]
+    let row = { (name: String) in
+      app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+    }
+    let jordan = row("Jordan Lee")
+    let rowan = row("Rowan Hale")
+    moveMailbox("casey@example.invalid", from: "Primary Profile", to: "Work", primary, app)
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    XCTAssertTrue(jordan.waitForNonExistence(timeout: 10))
+    searchProfile(finding: rowan, not: jordan, app)
+    switchProfile(to: "Work", from: primary, app)
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    XCTAssertFalse(rowan.exists)
+    searchProfile(finding: jordan, not: rowan, app)
+    app.buttons["New Message"].tap()
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    subject.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("Work agenda", into: subject)
+    app.buttons["Close"].tap()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    waitUntil { !app.otherElements["composer-overlay"].exists }
+    let draft = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", "Work agenda")
+    ).firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 15))
+    let work = XCTAttachment(screenshot: app.screenshot())
+    work.name = "Work Profile with its moved mailbox and Draft"
+    work.lifetime = .keepAlways
+    add(work)
+    switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    XCTAssertFalse(jordan.exists)
+    XCTAssertFalse(draft.exists)
+    let kept = XCTAttachment(screenshot: app.screenshot())
+    kept.name = "Primary Profile without Work's mail and Draft"
+    kept.lifetime = .keepAlways
+    add(kept)
+    // The Draft belongs to its mailbox's Profile, so it returns with the mailbox.
+    moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    XCTAssertTrue(draft.waitForExistence(timeout: 10))
+  }
+
+  // Moves a mailbox from its Profile's Settings row through its system pop-up, then shows every
+  // Inbox of the window's Profile.
+  private func moveMailbox(
+    _ address: String, from owner: String, to target: String, _ switcher: XCUIElement,
+    _ app: XCUIApplication
+  ) {
+    revealSwitcher(app, switcher)
+    switcher.tap()
+    let manage = app.buttons["Manage Mail Profiles…"]
+    XCTAssertTrue(manage.waitForExistence(timeout: 10))
+    manage.tap()
+    let profile = app.buttons[owner].firstMatch
+    XCTAssertTrue(profile.waitForExistence(timeout: 15))
+    profile.tap()
+    let targetRow = app.buttons[target].firstMatch.frame
+    let popUp = app.buttons["Mail Profile for " + address]
+    XCTAssertTrue(popUp.waitForExistence(timeout: 10))
+    popUp.tap()
+    // The pop-up's system menu lists each Profile beside the row that names it.
+    let named = app.buttons.matching(NSPredicate(format: "label == %@", target))
+    waitUntil({ named.count > 1 }, timeout: 10)
+    let item = (0..<named.count).map { named.element(boundBy: $0) }.first { $0.frame != targetRow }
+    XCTAssertNotNil(item)
+    item?.tap()
+    // The moved mailbox leaves its former Profile's list once the move is stored.
+    XCTAssertTrue(popUp.waitForNonExistence(timeout: 30))
+    app.buttons["Open Inbox"].tap()
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let back = app.buttons["Back to Mailboxes"]
+      waitUntil { back.isHittable && !switcher.isHittable }
+      back.tap()
+    }
+    revealSwitcher(app, switcher)
+    app.buttons["All inboxes"].tap()
+  }
+
+  // Switches the window to another Profile and shows every Inbox of it.
+  private func switchProfile(to name: String, from switcher: XCUIElement, _ app: XCUIApplication) {
+    revealSwitcher(app, switcher)
+    switcher.tap()
+    let choice = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+    XCTAssertTrue(choice.waitForExistence(timeout: 10))
+    choice.tap()
+    // Switching remounts the shell on its Inbox column.
+    revealSwitcher(app, app.buttons["Mail Profile, " + name])
+    app.buttons["All inboxes"].tap()
+  }
+
+  // Search across the window's Profile finds its own message and not the other Profile's, whose
+  // subjects both match the query.
+  private func searchProfile(
+    finding own: XCUIElement, not other: XCUIElement, _ app: XCUIApplication
+  ) {
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    search.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("plan", into: search)
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
+        .firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(own.waitForExistence(timeout: 10))
+    XCTAssertFalse(other.exists)
+    closeSearch(app).tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
   }
 
   // #1037: the Mailboxes Profile Switcher opens its system menu, listing the Primary Profile with
