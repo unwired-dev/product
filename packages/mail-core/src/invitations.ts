@@ -395,20 +395,27 @@ const zonedStart = (dtstart: Line | undefined, start: InvitationTime) =>
       );
 
 // How many weeks after the first meeting a readable rule's last one starts; negative when an UNTIL
-// comes before the first.
+// comes before the first. `at` is undefined for a week whose wall-clock time a daylight-saving gap
+// skips, which a COUNT doesn't count.
 const lastWeekOf = (
   rule: ReadonlyMap<string, string>,
   start: InvitationTime,
-  nth: (week: number) => number,
+  at: (week: number) => number | undefined,
 ) => {
   const count = rule.get('COUNT');
-  const until = untilOf(rule.get('UNTIL') ?? '') ?? Number.POSITIVE_INFINITY;
+  if (count !== undefined) {
+    let week = -1;
+    let left = Number(count);
+    while (left > 0) {
+      week += 1;
+      left -= at(week) === undefined ? 0 : 1;
+    }
+    return week;
+  }
+  const until = untilOf(rule.get('UNTIL') ?? '') ?? start.at;
   // Past an UNTIL, step back: a daylight-saving shift moves a meeting by hours, never by a week.
-  let week =
-    count === undefined
-      ? Math.floor((until - start.at) / (7 * day)) + 1
-      : Number(count) - 1;
-  while (week >= 0 && nth(week) > until) {
+  let week = Math.floor((until - start.at) / (7 * day)) + 1;
+  while (week >= 0 && (at(week) ?? Number.POSITIVE_INFINITY) > until) {
     week -= 1;
   }
   return week;
@@ -431,10 +438,17 @@ const seriesOf = (
   if (first === undefined || rule === undefined) {
     return undefined;
   }
-  const nth = (week: number) =>
-    DateTime.toEpochMillis(DateTime.add(first, { weeks: week }));
-  const week = lastWeekOf(rule, start, nth);
-  return week < 0 ? undefined : { lastStart: nth(week) };
+  const { hour, minute } = DateTime.toParts(first);
+  const at = (week: number) => {
+    const meeting = DateTime.add(first, { weeks: week });
+    const parts = DateTime.toParts(meeting);
+    return parts.hour === hour && parts.minute === minute
+      ? DateTime.toEpochMillis(meeting)
+      : undefined;
+  };
+  const week = lastWeekOf(rule, start, at);
+  const lastStart = week < 0 ? undefined : at(week);
+  return lastStart === undefined ? undefined : { lastStart };
 };
 
 const detailsOf = (

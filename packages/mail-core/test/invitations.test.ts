@@ -191,6 +191,26 @@ describe('meeting invitations', () => {
   // Prague leaves summer time on 25 October 2026, so the last Fridays start an hour later in UTC.
   const series = meeting.map((line) => line.replace('20261106', '20261016'));
 
+  // Prague has no 02:30 on 28 March 2027, so that week's meeting doesn't happen or count.
+  it.each([
+    ['for a count', 'COUNT=3', Date.UTC(2027, 3, 11, 0, 30)],
+    ['until a time', 'UNTIL=20270328T020000Z', Date.UTC(2027, 2, 21, 1, 30)],
+  ])(
+    'skips a meeting a daylight-saving gap removes from a series %s',
+    (_, end, lastStart) => {
+      expect.hasAssertions();
+      const spring = meeting.map((line) =>
+        line
+          .replace('20261106T140000', '20270321T023000')
+          .replace('20261106T150000', '20270321T033000'),
+      );
+      expect(
+        offered(calendar([...spring, `RRULE:FREQ=WEEKLY;${end}`])).details
+          .lastStart,
+      ).toBe(lastStart);
+    },
+  );
+
   it.each([
     ['until a time', 'RRULE:FREQ=WEEKLY;BYDAY=FR;UNTIL=20261106T130000Z'],
     ['for a count', 'RRULE:FREQ=WEEKLY;COUNT=4;WKST=MO;INTERVAL=1'],
