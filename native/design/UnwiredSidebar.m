@@ -12,6 +12,9 @@
 @interface UnwiredSidebarView : RCTView
 @property (nonatomic) CGFloat thickness;
 @property (nonatomic, copy) RCTDirectEventBlock onCollapse;
+// Where the Inbox pane begins in the window, which AppKit moves on every frame of the sidebar's
+// collapse and expand animation.
+@property (nonatomic, copy) RCTDirectEventBlock onInset;
 @end
 
 @implementation UnwiredSidebarView {
@@ -20,10 +23,14 @@
   RCTSurfaceTouchHandler *_touchHandler;
   NSSplitViewItem *_item;
   __weak NSSplitViewController *_split;
+  __weak NSView *_content;
+  // The inset last reported, so repeated layout passes send nothing new.
+  CGFloat _reportedInset;
 }
 - (instancetype)initWithFrame:(NSRect)frame
 {
   if ((self = [super initWithFrame:frame])) {
+    _reportedInset = -1;
     _pane = [NSViewController new];
     _pane.view = [RCTUIView new];
     _touchHandler = [RCTSurfaceTouchHandler new];
@@ -58,11 +65,26 @@
   [split insertSplitViewItem:item atIndex:0];
   _item = item;
   _split = split;
+  NSView *content = split.splitViewItems.lastObject.viewController.view;
+  content.postsFrameChangedNotifications = YES;
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reportInset)
+      name:NSViewFrameDidChangeNotification object:content];
+  _content = content;
+  _pane.view.postsFrameChangedNotifications = YES;
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reportInset)
+      name:NSViewFrameDidChangeNotification object:_pane.view];
   [self reportCollapse];
+  [self reportInset];
 }
 - (void)detach
 {
+  _reportedInset = -1;
   if (_item == nil) return;
+  [NSNotificationCenter.defaultCenter removeObserver:self name:NSViewFrameDidChangeNotification
+      object:_content];
+  [NSNotificationCenter.defaultCenter removeObserver:self name:NSViewFrameDidChangeNotification
+      object:_pane.view];
+  _content = nil;
   [_item removeObserver:self forKeyPath:@"collapsed"];
   [_split removeSplitViewItem:_item];
   _item = nil;
@@ -75,6 +97,27 @@
 - (void)reportCollapse
 {
   if (self.onCollapse) self.onCollapse(@{@"collapsed": @(_item.collapsed)});
+  [self reportInset];
+}
+// React Native can set the handler after the view joined its window; report the current inset then.
+- (void)setOnInset:(RCTDirectEventBlock)onInset
+{
+  _onInset = [onInset copy];
+  _reportedInset = -1;
+  [self reportInset];
+}
+// The sidebar's visible width: its pane's trailing edge in the window, which AppKit moves through
+// each frame of the collapse and expand animation, or zero once it is collapsed.
+- (void)reportInset
+{
+  if (self.onInset == nil || _item == nil) return;
+  NSView *pane = _pane.view;
+  CGFloat edge = pane.window == nil || pane.isHiddenOrHasHiddenAncestor
+      ? 0 : NSMaxX([pane convertRect:pane.bounds toView:nil]);
+  CGFloat inset = MAX(0, edge);
+  if (inset == _reportedInset) return;
+  _reportedInset = inset;
+  self.onInset(@{@"inset": @(inset)});
 }
 @end
 
@@ -85,6 +128,7 @@
 RCT_EXPORT_MODULE(UnwiredSidebar)
 RCT_EXPORT_VIEW_PROPERTY(thickness, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(onCollapse, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onInset, RCTDirectEventBlock)
 - (RCTView *)view { return [UnwiredSidebarView new]; }
 @end
 

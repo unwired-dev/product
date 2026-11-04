@@ -32,11 +32,14 @@ import { CategorizationSpike } from './categorization-spike.ts';
 import {
   CommandBar,
   CommandPaletteProvider,
+  floatingInputWidth,
   OutsideClickLayer,
   useCommandRegistry,
 } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
+import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
+import { listWidth } from './inbox-styles.ts';
 import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -47,7 +50,7 @@ import {
   useLeaveComposer,
 } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
-import { MessageDetail } from './message-detail.tsx';
+import { MessageDetail, ReaderToolbarWidthContext } from './message-detail.tsx';
 import { createWindowProfileChoices } from './profile-choices.ts';
 import {
   AccountContext,
@@ -61,15 +64,23 @@ import { Mailboxes } from './sidebar.tsx';
 import { usePalette } from './theme.ts';
 
 const sidebarWidth = 236;
-const listWidth = 340;
-// The composer overlays the reading pane with 12pt insets at 70% of the panes' height,
-// clamped from 420 to 720pt.
-const composerInset = spacing.m;
-const composerHeight = (panesHeight: number) =>
-  Math.min(
-    Math.max(0, panesHeight - 2 * composerInset),
-    Math.min(720, Math.max(420, panesHeight * 0.7)),
+const sidebarPaneWidth = sidebarWidth + 2 * spacing.s;
+// The reader's toolbar row: the Command input at its leading end, clear of the reader's glass
+// groups, whose laid-out width the reader reports, at its trailing end.
+const commandsWidth = (readerWidth: number, toolbarWidth: number) =>
+  Math.max(
+    0,
+    Math.min(
+      floatingInputWidth,
+      readerWidth -
+        2 * spacing.l -
+        (toolbarWidth > 0 ? toolbarWidth + spacing.s : 0),
+    ),
   );
+// The composer docks across the reading pane's full width at its bottom edge, as the Figma inline
+// composer does, at 70% of the panes' height clamped from 420 to 720pt.
+const composerHeight = (panesHeight: number) =>
+  Math.min(panesHeight, Math.min(720, Math.max(420, panesHeight * 0.7)));
 
 // The window's sidebar pane in AppKit's split view, which lays out its children beside the Inbox.
 const NativeSidebar = requireNativeComponent<
@@ -78,6 +89,10 @@ const NativeSidebar = requireNativeComponent<
     readonly thickness: number;
     readonly onCollapse: (
       event: NativeSyntheticEvent<{ readonly collapsed: boolean }>,
+    ) => void;
+    // Where the Inbox pane begins in the window, through each frame of AppKit's animation.
+    readonly onInset: (
+      event: NativeSyntheticEvent<{ readonly inset: number }>,
     ) => void;
   }
 >('UnwiredSidebar');
@@ -88,7 +103,7 @@ const styles = StyleSheet.create({
   panes: { flex: 1, flexDirection: 'row' },
   // The sidebar's children fill its pane; the host itself takes no space in the Inbox.
   sidebarHost: { position: 'absolute', top: 0, bottom: 0, left: 0, width: 0 },
-  sidebarPane: { width: sidebarWidth + 2 * spacing.s, height: '100%' },
+  sidebarPane: { width: sidebarPaneWidth, height: '100%' },
   // The floating glass sidebar, inset from the pane's edges.
   sidebar: {
     flex: 1,
@@ -103,24 +118,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.window,
     borderCurve: 'continuous',
   },
-  list: { width: listWidth, borderRightWidth: StyleSheet.hairlineWidth },
   detail: { flex: 1 },
   composer: {
     position: 'absolute',
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  composerOverlay: {
-    right: composerInset,
-    bottom: composerInset,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
-  toggle: {
-    margin: spacing.m,
-    marginRight: 0,
-    backgroundColor: 'transparent',
-  },
+  composerOverlay: { left: 0, right: 0, bottom: 0 },
   toggleTarget: {
     width: 28,
     height: 28,
@@ -234,37 +238,35 @@ function SidebarToggle({
   const { t } = useLocalization();
   const [focused, setFocused] = useState(false);
   return (
-    <GlassGroup style={styles.toggle}>
-      <Pressable
-        accessibilityLabel={t(
-          shown ? 'native.hideSidebar' : 'native.showSidebar',
-        )}
-        accessibilityRole="button"
-        // The control's accent/ink ring replaces the system focus ring.
-        enableFocusRing={false}
-        focusable
-        onBlur={() => {
-          setFocused(false);
-        }}
-        onFocus={() => {
-          setFocused(true);
-        }}
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.toggleTarget,
-          {
-            backgroundColor: pressed
-              ? colors.accentSelectionSubtle
-              : 'transparent',
-            borderColor: focused ? colors.accentInk : 'transparent',
-          },
-        ]}>
-        <SFSymbol
-          name="sidebar.leading"
-          color={colors.accentInk}
-        />
-      </Pressable>
-    </GlassGroup>
+    <Pressable
+      accessibilityLabel={t(
+        shown ? 'native.hideSidebar' : 'native.showSidebar',
+      )}
+      accessibilityRole="button"
+      // The control's accent/ink ring replaces the system focus ring.
+      enableFocusRing={false}
+      focusable
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.toggleTarget,
+        {
+          backgroundColor: pressed
+            ? colors.accentSelectionSubtle
+            : 'transparent',
+          borderColor: focused ? colors.accentInk : 'transparent',
+        },
+      ]}>
+      <SFSymbol
+        name="sidebar.leading"
+        color={colors.textSecondary}
+      />
+    </Pressable>
   );
 }
 
@@ -287,7 +289,10 @@ function WindowContents({
   );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
-  const [height, setHeight] = useState(0);
+  const [panes, setPanes] = useState({ width: 0, height: 0 });
+  // Half the sidebar's visible width, which only the floating bar follows through the animation.
+  const barOffset = useMemo(() => createBarOffset(), []);
+  const [toolbarWidth, setToolbarWidth] = useState(0);
   const [view, setView] = useState<MailboxView>({});
   // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
   const [collapsed, setCollapsed] = useState(false);
@@ -341,20 +346,32 @@ function WindowContents({
   const close = () => {
     setSelected(undefined);
   };
+  const toggle = (
+    <SidebarToggle
+      shown={!collapsed}
+      onPress={() => {
+        windowHost()?.toggleSidebar(`inbox-window-${windowId}`);
+      }}
+    />
+  );
   return (
     <View
       testID={`inbox-window-${windowId}`}
       style={styles.fill}>
       <NativeSidebar
-        thickness={sidebarWidth + 2 * spacing.s}
+        thickness={sidebarPaneWidth}
         onCollapse={({ nativeEvent }) => {
           setCollapsed(nativeEvent.collapsed);
+        }}
+        onInset={({ nativeEvent }) => {
+          barOffset.set(nativeEvent.inset / 2);
         }}
         style={styles.sidebarHost}>
         <View
           style={[
             styles.sidebarPane,
-            { backgroundColor: colors.surfaceSidebar },
+            // The window's own surface shows around the floating glass sidebar, as in the frames.
+            { backgroundColor: colors.surfaceContent },
           ]}>
           <GlassGroup
             style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
@@ -365,6 +382,7 @@ function WindowContents({
               ]}
             />
             <Mailboxes
+              toggle={collapsed ? undefined : toggle}
               view={view}
               onView={setView}
               onProfile={(next) => {
@@ -379,31 +397,70 @@ function WindowContents({
         inbox={inbox}
         id={selected?.id}>
         <View
-          style={[styles.window, { backgroundColor: colors.surfaceSidebar }]}>
-          <CommandBar />
+          style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
           <View
             testID={`window-panes-${windowId}`}
             onLayout={({ nativeEvent }) => {
-              setHeight(nativeEvent.layout.height);
+              setPanes({
+                width: nativeEvent.layout.width,
+                height: nativeEvent.layout.height,
+              });
             }}
             style={styles.panes}>
-            <View
-              style={[
-                styles.list,
-                {
-                  backgroundColor: colors.surfaceContent,
-                  borderRightColor: colors.separator,
-                },
-              ]}>
+            <BarOffsetContext value={barOffset}>
               <Inbox
                 composing={composing}
-                leading={
-                  <SidebarToggle
-                    shown={!collapsed}
-                    onPress={() => {
-                      windowHost()?.toggleSidebar(`inbox-window-${windowId}`);
-                    }}
-                  />
+                leading={collapsed ? toggle : undefined}
+                reader={
+                  <View
+                    // The reader's toolbar and the rest left uncovered stay interactive above the
+                    // overlay.
+                    style={[
+                      styles.detail,
+                      { backgroundColor: colors.surfaceContent },
+                    ]}>
+                    {/* Only the categorization-spike build has a page for the empty reader. */}
+                    {selected === undefined &&
+                    CategorizationSpike !== undefined ? (
+                      <CategorizationSpike />
+                    ) : (
+                      <ReaderToolbarWidthContext value={setToolbarWidth}>
+                        <MessageDetail
+                          id={selected?.id}
+                          mailbox={selected?.mailbox}
+                          folder={selected?.folder}
+                          onClose={close}
+                          onCompose={compose}
+                        />
+                      </ReaderToolbarWidthContext>
+                    )}
+                    {composing === undefined ? null : (
+                      <View
+                        testID="composer-overlay"
+                        style={[
+                          styles.composer,
+                          styles.composerOverlay,
+                          {
+                            height: composerHeight(panes.height),
+                            borderColor: colors.separator,
+                            boxShadow: colors.menuShadow,
+                          },
+                        ]}>
+                        <DraftComposer
+                          id={composing}
+                          onClose={() => {
+                            setComposing(undefined);
+                          }}
+                          // Expand moves the saved Draft into its own New Message window.
+                          onExpand={(id) => {
+                            windowHost()?.openComposer(id, profile);
+                            setComposing(undefined);
+                          }}
+                          onRebind={setComposing}
+                        />
+                      </View>
+                    )}
+                  </View>
                 }
                 selected={selected}
                 onClose={close}
@@ -418,54 +475,18 @@ function WindowContents({
                 onView={setView}
                 view={view}
               />
-            </View>
-            <View
-              // The reader's toolbar and the rest left uncovered stay interactive above the overlay.
-              style={[
-                styles.detail,
-                { backgroundColor: colors.surfaceContent },
-              ]}>
-              {/* Only the categorization-spike build has a page for the empty reader. */}
-              {selected === undefined && CategorizationSpike !== undefined ? (
-                <CategorizationSpike />
-              ) : (
-                <MessageDetail
-                  id={selected?.id}
-                  mailbox={selected?.mailbox}
-                  folder={selected?.folder}
-                  onClose={close}
-                  onCompose={compose}
-                />
-              )}
-            </View>
-            {composing === undefined ? null : (
-              <View
-                testID="composer-overlay"
-                style={[
-                  styles.composer,
-                  styles.composerOverlay,
-                  {
-                    left: listWidth + composerInset,
-                    height: composerHeight(height),
-                    borderColor: colors.separator,
-                    boxShadow: colors.menuShadow,
-                  },
-                ]}>
-                <DraftComposer
-                  id={composing}
-                  onClose={() => {
-                    setComposing(undefined);
-                  }}
-                  // Expand moves the saved Draft into its own New Message window.
-                  onExpand={(id) => {
-                    windowHost()?.openComposer(id, profile);
-                    setComposing(undefined);
-                  }}
-                  onRebind={setComposing}
-                />
-              </View>
-            )}
+            </BarOffsetContext>
           </View>
+          <CommandBar
+            floating={{
+              left: listWidth + spacing.l,
+              availableWidth: Math.max(
+                0,
+                panes.width - listWidth - 2 * spacing.l,
+              ),
+              width: commandsWidth(panes.width - listWidth, toolbarWidth),
+            }}
+          />
         </View>
       </LinkConfirmationProvider>
     </View>

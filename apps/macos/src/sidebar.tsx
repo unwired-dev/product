@@ -4,6 +4,7 @@ import type {
   UnifiedRole,
 } from '@private-email/mail-core/mailboxes';
 import type { MailProvider } from '@private-email/mail-core/registration';
+import type { ReactNode } from 'react';
 
 import {
   failedFolders,
@@ -47,8 +48,16 @@ export type MailboxView = Readonly<{
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  heading: { paddingHorizontal: spacing.xl, paddingVertical: spacing.l },
-  title: { ...textStyles.title3Emphasized },
+  // The window controls' row: AppKit draws them at its leading end, centered 26pt down the
+  // window, level with the toggle; the Profile Switcher follows 24pt below that center.
+  controls: {
+    height: 36,
+    marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.s,
+  },
   list: { paddingHorizontal: spacing.s, paddingBottom: spacing.l },
   sectionRow: {
     flexDirection: 'row',
@@ -380,11 +389,14 @@ export function Mailboxes({
   view,
   onView,
   onProfile,
+  toggle,
 }: {
   readonly view: MailboxView;
   readonly onView: (view: MailboxView) => void;
   // Switches the window to another Mail Profile.
   readonly onProfile: (profile: string) => void;
+  // The sidebar toggle, at the trailing end of the window controls' row.
+  readonly toggle?: ReactNode;
 }) {
   const mailboxes = useMailboxes();
   const account = use(AccountContext);
@@ -427,13 +439,7 @@ export function Mailboxes({
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>
-        <View style={styles.heading}>
-          <Label
-            accessibilityRole="header"
-            style={[styles.title, { color: colors.textPrimary }]}>
-            {t('mailboxes.title')}
-          </Label>
-        </View>
+        <View style={styles.controls}>{toggle}</View>
         <ScrollView
           style={styles.fill}
           contentContainerStyle={styles.list}>

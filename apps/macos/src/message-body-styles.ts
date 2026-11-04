@@ -5,7 +5,8 @@ import { textStyles } from './theme.ts';
 
 export const styles = StyleSheet.create({
   assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
-  body: { gap: spacing.l, marginTop: spacing.xl },
+  // The reader's content gap already separates the body from the message header.
+  body: { gap: spacing.l },
   paragraph: { ...textStyles.reading.body },
   secondary: { ...textStyles.body },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },

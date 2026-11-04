@@ -401,8 +401,10 @@ styles) so the file stays editable.
   inset than the frames draw (#1534). It hides while the composer is open;
   on Mac, explicitly invoking Search Mail reveals it while keeping the overlay
   Draft open.
-- **Command Palette:** on the Mac a 36pt glass command input (command
-  symbol, "Commands", ⌘P key cap) stays in a bar at the top of the window; open,
+- **Command Palette:** on the Mac a glass command input (command symbol,
+  "Commands", ⌘P key cap) sits in the window's toolbar row: 36pt at the leading
+  end of the Inbox reader's row, beside its glass groups, and 32pt at the trailing
+  end of the Settings title row and in the New Message toolbar; open,
   it becomes the focused query with an esc key cap and a 460pt glass panel with
   the menu shadow beneath it.
   Rows are 28pt with an SF Symbol, the name, a disabled reason in secondary text
@@ -441,7 +443,8 @@ styles) so the file stays editable.
 - **Compose:** follows the
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
   On regular width it opens as a bottom-anchored, nonmodal overlay inside the
-  reading pane with 12pt outer insets and 70% of the available height, clamped
+  reading pane, with 12pt outer insets on iPad and docked across the reading pane's full width
+  at its bottom edge on the Mac, as the inline composer frame shows, at 70% of the available height, clamped
   from 420 to 720pt. On iPad, expanding it takes over the whole app window with
   the same Draft. On the Mac, Expand saves the Draft and moves it into its own
   New Message window, closing the overlay with no way back
