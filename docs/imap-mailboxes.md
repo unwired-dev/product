@@ -159,7 +159,18 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   Junk, Trash and mail found nowhere else. A server that doesn't mark exactly one
   selectable `\Junk` and one `\Trash` folder is not included either, with a notice
   that it doesn't say which folders hold Spam and Trash; a folder named like one is
-  never taken for it. After the refreshed list is saved successfully, a folder it no
+  never taken for it. The connection can instead store chosen Spam and Trash
+  folders, which no host offers a control for yet; the choice synchronizes through Product Sync for that connection only
+  until it is removed. A chosen folder supplies a role only where the server marks no
+  single folder with it, and a server marking still wins. It then serves Spam, Trash
+  and All Mail as well as Move to Trash, Mark as Spam, moving mail back to the Inbox
+  and search, for mail already read as well as later synchronizations, without
+  reading the mail again. A chosen folder that the saved listing no longer offers as
+  selectable leaves the role unknown, so the connection is not included again until
+  it returns or another is chosen; no other folder is substituted. A queued move not yet attempted
+  is refused, like other role changes, once the choice points the role elsewhere. A
+  choice that cannot be saved, including a folder chosen for both roles, keeps the
+  previous one. Sent still needs a folder the server marks `\Sent`. After the refreshed list is saved successfully, a folder it no
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 LIST responses, preserves the
@@ -343,7 +354,8 @@ message is no longer in this folder on the mail server**.
 IMAP mail offers, in the reader and as Inbox row actions, **Mark as read** or **Mark as
 unread**, **Star** or **Remove star**, **Archive**, **Move to Trash**, **Report spam**, and
 under **Folders**, **Move to** any other selectable folder, including the Inbox. In the
-folders the server declares as Trash or Spam (`\Trash`, `\Junk`), **Move to Inbox** takes
+folders the server declares as Trash or Spam (`\Trash`, `\Junk`), or chosen for them as
+[Synchronization](#synchronization) describes, **Move to Inbox** takes
 the place of Archive, Move to Trash and Report spam, as in Gmail's Trash and Spam; it offers
 no Undo. IMAP has no labels.
 The star is the server's `\Flagged` flag, so other mail apps show it as a flag: the
@@ -354,7 +366,8 @@ The folder listing keeps the server's hierarchy delimiter, so iPhone's Move pick
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
 unavailable.
 Archive, Trash and Spam move the message to the folder the server declares with the
-`\Archive`, `\Trash` or `\Junk` special-use role; without exactly one selectable folder declaring a role, its action is
+`\Archive`, `\Trash` or `\Junk` special-use role, or to a selectable Spam or Trash folder
+chosen where the server declares none; without one, its action is
 not offered, and no folder is guessed by name. The row and reader
 [context menus](gmail-inbox.md#organizing-mail) offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus.
 
@@ -410,7 +423,7 @@ reader offers each one that applies:
 
 When asked, below the results saved on this device, the server searches the text of the
 Inbox and the connection's other selectable folders: folders with a declared role first,
-then the rest in listing order, leaving out Trash and Spam as Gmail's search does. One
+then the rest in listing order, leaving out Trash and Spam, including chosen ones, as Gmail's search does. One
 search covers up to 50 folders and the newest 50 matches of each, and says when folders
 or older matches were left out; a folder the server no longer selects is skipped. IMAP
 results join Gmail's and Microsoft's in the unified Inbox, newest first, and open in the

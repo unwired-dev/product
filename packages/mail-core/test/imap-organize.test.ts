@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { english as t } from '@private-email/localization';
+import { createGmailSearch } from '@private-email/mail-core/mailboxes';
 
 import type {
   ImapInboxState,
@@ -565,6 +566,95 @@ describe('organizing IMAP mail', () => {
     });
   });
 
+  // A connection whose server marks Junk but no Trash, with folders named like Spam and Trash
+  // that are not marked as them, so neither is ever guessed to be one.
+  const unmarkedTrash = async () => {
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Spam');
+    imap.addFolder('Bin');
+    imap.addFolder('Old Bin');
+    imap.deliver('INBOX', { subject: 'Hello' });
+    imap.deliver('Bin', { subject: 'Deleted' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Bin');
+    const changes = (message: ImapMessage) =>
+      imapQuickActions(t, message, ready(inbox.getSnapshot())).map(
+        ({ action: change }) => change,
+      );
+    return { imap, inbox, changes };
+  };
+
+  it('takes chosen Spam and Trash folders only where the server marks none, without reading mail again', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, changes } = await unmarkedTrash();
+    const message = inboxMessage(inbox.getSnapshot(), 'Hello');
+    const deleted = first(folderMessages(inbox.folder('Bin')));
+
+    // The server's Junk folder keeps its role over the chosen Spam folder, and mail already read
+    // from the chosen Trash folder moves back to the Inbox without the folder being read again.
+    const reads = imap.server.reads.length;
+    inbox.choose({ junk: 'Spam', trash: 'Bin' });
+    expect(imap.server.reads).toHaveLength(reads);
+    expect(changes(message)).toStrictEqual([
+      { kind: 'read' },
+      { kind: 'star' },
+      { kind: 'archive', destination: 'Archive' },
+      { kind: 'trash', destination: 'Bin' },
+      { kind: 'spam', destination: 'Junk' },
+    ]);
+    expect(changes(deleted)).toStrictEqual([
+      { kind: 'read' },
+      { kind: 'star' },
+      { kind: 'restore', destination: 'INBOX' },
+    ]);
+    expect(searchedFolders(ready(inbox.getSnapshot()).folders)).toStrictEqual([
+      'INBOX',
+      'Archive',
+      'Spam',
+      'Old Bin',
+    ]);
+  });
+
+  it('refuses a queued move after another Trash folder is chosen, and offers none while the chosen one is gone or unselectable', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, changes } = await unmarkedTrash();
+    const message = inboxMessage(inbox.getSnapshot(), 'Hello');
+    inbox.choose({ trash: 'Bin' });
+
+    imap.server.failure = 'offline';
+    await inbox.organize(
+      message,
+      action(inbox.getSnapshot(), message, 'trash'),
+    );
+    inbox.choose({ trash: 'Old Bin' });
+    imap.server.failure = undefined;
+    await inbox.load();
+    expect(imap.server.changes).toStrictEqual([]);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: { kind: 'rejected' },
+    });
+
+    imap.removeFolder('Old Bin');
+    await inbox.load();
+    expect(changes(message).map(({ kind }) => kind)).not.toContain('trash');
+    imap.addFolder('Old Bin', [], false);
+    await inbox.load();
+    // The unselectable chosen folder gets no role, so no consumer can take it for Trash.
+    expect({
+      kinds: changes(message).map(({ kind }) => kind),
+      roles: ready(inbox.getSnapshot()).folders.find(
+        ({ name }) => name === 'Old Bin',
+      )?.roles,
+    }).toStrictEqual({
+      kinds: expect.not.arrayContaining(['trash']),
+      roles: [],
+    });
+  });
+
   it.each([
     {
       source: 'present',
@@ -777,6 +867,87 @@ describe('searching IMAP mail at the server', () => {
         { ...folder('Parent'), selectable: false },
       ]),
     ).toStrictEqual(['INBOX', 'Sent', 'Projects']);
+  });
+
+  it('offers no move back to the Inbox from the Inbox chosen as Trash', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept' });
+    const inbox = createImapInbox(imap.native, { chosen: { trash: 'INBOX' } });
+    await inbox.load();
+    const message = first(folderMessages(inbox.folder('INBOX')));
+    expect(
+      imapQuickActions(t, message, ready(inbox.getSnapshot())).map(
+        ({ action: change }) => change,
+      ),
+    ).toStrictEqual([{ kind: 'read' }, { kind: 'star' }]);
+  });
+
+  it('leaves the Inbox out of search when it is chosen as Spam', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Projects');
+    imap.deliver('INBOX', { subject: 'Invoice in Spam' });
+    imap.deliver('Projects', { subject: 'Project invoice' });
+    const inbox = createImapInbox(imap.native);
+    try {
+      await inbox.load();
+      const mailboxes = [{ id: 'imap', profile: 'default', inbox }];
+      const scope = { profile: 'default' };
+      const search = createGmailSearch(mailboxes, 'invoice', scope);
+      await search.search();
+      expect(search.getSnapshot().found?.results).toHaveLength(2);
+      await inbox.load();
+      expect(search.matches(mailboxes, 'invoice', scope)).toBe(true);
+      inbox.choose({ junk: 'INBOX' });
+      expect(search.matches(mailboxes, 'invoice', scope)).toBe(false);
+      expect(
+        foundMessages(await inbox.searchGmail('invoice')).map(
+          ({ subject }) => subject,
+        ),
+      ).toStrictEqual(['Project invoice']);
+    } finally {
+      inbox.forget();
+    }
+  });
+
+  it('applies a changed Spam choice to an in-flight search and reports newly searchable folders as missing', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Projects');
+    imap.deliver('INBOX', { subject: 'Inbox invoice' });
+    imap.deliver('Projects', { subject: 'Project invoice' });
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const inbox = createImapInbox({
+      ...imap.native,
+      imapSearch: async (...args) => {
+        entered.resolve(undefined);
+        await release.promise;
+        return imap.native.imapSearch(...args);
+      },
+    });
+    try {
+      await inbox.load();
+      inbox.choose({ junk: 'INBOX' });
+      const searching = inbox.searchGmail('invoice');
+      await entered.promise;
+      inbox.choose({ junk: 'Projects' });
+      release.resolve(undefined);
+      await expect(searching).resolves.toStrictEqual({
+        kind: 'found',
+        messages: [],
+        limited: true,
+      });
+      expect(
+        foundMessages(await inbox.searchGmail('invoice')).map(
+          ({ subject }) => subject,
+        ),
+      ).toStrictEqual(['Inbox invoice']);
+    } finally {
+      release.resolve(undefined);
+      inbox.forget();
+    }
   });
 
   it('keeps an online-only reader’s read state current after the server confirms it', async () => {

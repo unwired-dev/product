@@ -14,6 +14,7 @@ import type {
   TrustedDeviceSummary,
 } from './registration-replies.ts';
 import type {
+  ChosenFolders,
   MailProvider,
   PrivateSyncStateSchema,
   ProfileStyle,
@@ -922,5 +923,10 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       connection: string,
       enabled: boolean,
     ) => rotating(() => profiles.notify(value, connection, enabled)),
+    chooseFolders: (
+      value: RegistrationRecord,
+      connection: string,
+      folders: ChosenFolders,
+    ) => rotating(() => profiles.chooseFolders(value, connection, folders)),
   };
 }

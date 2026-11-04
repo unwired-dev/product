@@ -7,6 +7,7 @@ import type { RevocationReply } from './product-sync-devices.ts';
 import type { ListedDevices } from './product-sync.ts';
 import type { Code, RegistrationRejected } from './registration-rejection.ts';
 import type {
+  ChosenFolders,
   MailGrantProvider,
   ProfileStyle,
   RegistrationSnapshot,
@@ -20,6 +21,7 @@ import type {
 
 import { imapFallback } from './imap-setup.ts';
 import {
+  chosenFolders,
   notifyingConnections,
   profileList,
   profileOwners,
@@ -119,9 +121,12 @@ const mailboxList = (value: RegistrationRecord) => {
   }
   const owners = profileOwners(value);
   const notifying = notifyingConnections(value);
+  const chosen = chosenFolders(value);
   return JSON.stringify(
     value.mailboxes.map((mailbox) => {
       const profile = owners.get(mailbox.id);
+      const folders =
+        mailbox.provider === 'imap' ? chosen.get(mailbox.id) : undefined;
       return {
         provider: mailbox.provider,
         address: mailbox.address,
@@ -132,6 +137,9 @@ const mailboxList = (value: RegistrationRecord) => {
         state: mailboxState(mailbox),
         ...(profile === undefined ? {} : { profile }),
         ...(notifying.has(mailbox.id) ? { notifications: true } : {}),
+        ...(folders === undefined || Object.keys(folders).length === 0
+          ? {}
+          : { folders }),
       };
     }),
   );
@@ -994,6 +1002,17 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           Effect.andThen(saved),
           Effect.flatMap((value) =>
             productSyncFlow.notifyMailbox(value, connection, enabled),
+          ),
+          Effect.andThen(current),
+        ),
+      ),
+    // Choosing an IMAP connection's Spam and Trash folders needs Product Sync.
+    chooseFolders: (connection: string, folders: ChosenFolders) =>
+      program(
+        session.pipe(
+          Effect.andThen(saved),
+          Effect.flatMap((value) =>
+            productSyncFlow.chooseFolders(value, connection, folders),
           ),
           Effect.andThen(current),
         ),
