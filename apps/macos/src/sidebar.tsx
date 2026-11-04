@@ -237,12 +237,17 @@ function SectionHeader({
   readonly trouble?: string | undefined;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const warn = collapsed && trouble !== undefined;
   return (
     <Pressable
       accessibilityLabel={warn ? `${label}, ${trouble}` : label}
       accessibilityRole="header"
       accessibilityState={{ expanded: !collapsed }}
+      // Mac Fabric announces expanded, but omits the collapsed state from its value.
+      accessibilityValue={
+        collapsed ? { text: t('mailboxes.collapsed') } : undefined
+      }
       accessibilityActions={[{ name: 'activate' }]}
       onAccessibilityAction={onToggle}
       onPress={onToggle}

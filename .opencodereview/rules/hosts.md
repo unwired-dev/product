@@ -1195,6 +1195,15 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- `sidebar.tsx.SectionHeader` or another Mac disclosure relying only on
+  `accessibilityState.expanded` to expose both states. Trace the installed
+  renderer, including its Fabric value and native state mapping: the 0.81.9
+  Fabric value includes true as "expanded" but omits false. Preserve explicit
+  collapsed-state text where the host omits it, without duplicating the expanded
+  announcement. Otherwise component state matchers pass while VoiceOver cannot
+  identify a collapsed section. Keep native speech qualification distinct from
+  component accessibility-value assertions.
+
 - Mac `design.tsx.ModalBackground` callers or another legacy native container
   changing their content frame without checking direct legacy native children.
   Trace the installed Fabric interop's child mounting as well as Yoga layout:
