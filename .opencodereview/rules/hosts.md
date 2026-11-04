@@ -1195,6 +1195,14 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- `command-palette.tsx.CommandBar` moving its entry within a Mac window while
+  leaving the open query or panel at a fixed width and leading offset. Check
+  both horizontal bounds at the initial and minimum window sizes and on each
+  side of AppKit's sidebar-collapse threshold, including resizing while open.
+  Keep the query and every command row within the owning window; otherwise
+  relocated chrome clips commands even when the closed entry fits. Verify
+  native geometry, since component tests do not calculate window clipping.
+
 - Mac `design.tsx.ModalBackground` callers or another legacy native container
   changing their content frame without checking direct legacy native children.
   Trace the installed Fabric interop's child mounting as well as Yoga layout:

@@ -429,14 +429,21 @@ const fieldStyle = ({
 }: {
   readonly toolbar: boolean;
   readonly height: number;
-  readonly floating: { readonly width: number } | undefined;
+  readonly floating:
+    | { readonly width: number; readonly availableWidth: number }
+    | undefined;
   readonly open: boolean;
 }) => {
   if (floating === undefined) {
     return toolbar ? styles.toolbarField : styles.field;
   }
   if (open) {
-    return { width: Math.max(floating.width, floatingInputWidth) };
+    return {
+      width: Math.min(
+        Math.max(floating.width, floatingInputWidth),
+        floating.availableWidth,
+      ),
+    };
   }
   return {
     width: floating.width < compactInputWidth ? height : floating.width,
@@ -453,7 +460,11 @@ export function CommandBar({
   readonly from?: ReactNode;
   readonly actions?: ReactNode;
   // The Inbox window's input floats in the reader's toolbar row, this far in and this wide.
-  readonly floating?: { readonly left: number; readonly width: number };
+  readonly floating?: {
+    readonly left: number;
+    readonly width: number;
+    readonly availableWidth: number;
+  };
 }) {
   const { registry, identifier } = use(PaletteContext);
   const toolbar = title !== undefined;
@@ -632,6 +643,11 @@ export function CommandBar({
               opened={shown}
               style={motion.style}
               trailing={!toolbar && floating === undefined}
+              panelLeft={
+                floating === undefined
+                  ? 0
+                  : Math.min(0, floating.availableWidth - panelWidth)
+              }
             />
           ) : null}
         </View>
@@ -652,6 +668,7 @@ function Palette({
   height,
   style,
   trailing,
+  panelLeft,
 }: {
   readonly opened: readonly Command[];
   readonly open: boolean;
@@ -660,6 +677,7 @@ function Palette({
   readonly style: ReturnType<typeof useMenuMotion>['style'];
   // Hangs from the input's trailing edge rather than its leading edge.
   readonly trailing: boolean;
+  readonly panelLeft: number;
 }) {
   const { registry } = use(PaletteContext);
   const colors = usePalette();
@@ -816,7 +834,7 @@ function Palette({
             top: height + 6,
             // The account page's input sits at the window's trailing edge, so its panel hangs
             // from there.
-            ...(trailing ? { right: 0 } : { left: 0 }),
+            ...(trailing ? { right: 0 } : { left: panelLeft }),
             borderColor: colors.separator,
             boxShadow: colors.menuShadow,
           },

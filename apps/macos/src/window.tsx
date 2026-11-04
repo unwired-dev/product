@@ -476,6 +476,10 @@ function WindowContents({
           <CommandBar
             floating={{
               left: listWidth + spacing.l,
+              availableWidth: Math.max(
+                0,
+                panes.width - listWidth - 2 * spacing.l,
+              ),
               width: commandsWidth(
                 panes.width - listWidth,
                 selected !== undefined,

@@ -19,6 +19,38 @@ private func assertProviderActionsSettled(_ window: XCUIElement, provider: Strin
 }
 
 final class WindowTests: XCTestCase {
+  // Moving the entry into the reader must keep the open query and command rows in the window.
+  func testCommandPaletteWindowBounds() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    app.typeKey("p", modifierFlags: .command)
+    let query = window.textFields["Type a command"]
+    XCTAssertTrue(query.waitForExistence(timeout: 15))
+    let command = window.buttons["Reply. Select a conversation"]
+    XCTAssertTrue(command.waitForExistence(timeout: 10))
+    func assertBounds() {
+      for element in [query, command] {
+        XCTAssertGreaterThanOrEqual(element.frame.minX, window.frame.minX)
+        XCTAssertLessThanOrEqual(element.frame.maxX, window.frame.maxX)
+      }
+    }
+    assertBounds()
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    window.buttons["Open Command Palette"].click()
+    XCTAssertTrue(query.waitForExistence(timeout: 10))
+    window.buttons["Search Mail"].click()
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(window.textFields["Search senders and subjects"].exists)
+  }
+
   struct Event: Decodable {
     let event: String
     let pid: Int
