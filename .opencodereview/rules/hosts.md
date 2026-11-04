@@ -1202,6 +1202,14 @@ still applies. See `docs/architecture/macos-client.md`.
   Keep the query and every command row within the owning window; otherwise
   relocated chrome clips commands even when the closed entry fits. Verify
   native geometry, since component tests do not calculate window clipping.
+  Check the closed input against `message-detail.tsx`'s reader toolbar too:
+  `window.tsx.commandsWidth` can allocate zero while the compact entry still
+  renders at its symbol-only width. Reserve that minimum plus a gap before
+  `organize.tsx.Toolbar` wraps its groups; otherwise the input covers reader
+  actions and intercepts their clicks. Exercise both the input and reader
+  actions with the sidebar visible in a narrow window.
+  Let the reader toolbar grow when those groups wrap; a fixed one-row height
+  leaves the next group over the subject even after horizontal overlap is fixed.
 
 - Mac `design.tsx.ModalBackground` callers or another legacy native container
   changing their content frame without checking direct legacy native children.
