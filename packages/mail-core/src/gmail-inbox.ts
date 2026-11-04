@@ -21,6 +21,7 @@ import type { ProviderPayload } from './graph-inbox.ts';
 import type {
   Cache,
   GmailMessage,
+  InvitationResponse,
   MailboxDocument,
   MailboxHistory,
   MailboxScope,
@@ -366,6 +367,8 @@ export type GmailInboxState =
       readonly history?: HistoryProgress;
       // When the last completed synchronization began, as an ISO instant; absent before one.
       readonly synchronizedAt?: string;
+      // Invitation Responses this device sent or may have sent, most recent first.
+      readonly responses?: readonly InvitationResponse[];
       // Folder-role actions this mailbox cannot perform, including while roles are unknown.
       readonly unavailableActions?: ReadonlyArray<GmailAction['kind']>;
       // Changes saved on this device that Gmail has not confirmed yet.
@@ -956,8 +959,8 @@ const rebasedOnto = (
   return withIntents(
     {
       ...next,
-      // Metadata work preserves the latest completed synchronization.
-      ...Struct.pick(saved, ['synchronizedAt']),
+      // Metadata work preserves the latest completed synchronization and Invitation Responses.
+      ...Struct.pick(saved, ['synchronizedAt', 'responses']),
       ...keptSince(base, saved, next),
       // Intake may have saved a newly created label while synchronization was reading.
       labels: includingLabels(
@@ -2115,6 +2118,9 @@ export function createGmailInbox(
       ...(document?.synchronizedAt === undefined
         ? {}
         : { synchronizedAt: document.synchronizedAt }),
+      ...(document?.responses === undefined
+        ? {}
+        : { responses: document.responses }),
       sync: shownSyncState(),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
@@ -3973,6 +3979,58 @@ export function createGmailInbox(
     );
   });
 
+  // Replaces the record of one invitation revision's response, or removes it, in the opened
+  // mailbox's cache. Resolves whether it was saved.
+  const recordResponse = (
+    revision: Readonly<Pick<InvitationResponse, 'uid' | 'sequence'>>,
+    response: InvitationResponse | undefined,
+  ) => {
+    const scope = opened;
+    const startedFor = ownership;
+    const stillOwned = () => !forgotten && startedFor === ownership;
+    return Effect.gen(function* () {
+      const cache = yield* storage(native.openMailbox);
+      const document = Option.getOrUndefined(yield* documentOf(cache));
+      if (
+        !stillOwned() ||
+        scope === undefined ||
+        !sameMailbox(scope, cache) ||
+        cache.availability !== undefined ||
+        document === undefined
+      ) {
+        return false;
+      }
+      const responses = [
+        ...(response === undefined ? [] : [response]),
+        ...(document.responses ?? []).filter(
+          ({ uid, sequence }) =>
+            uid !== revision.uid || sequence !== revision.sequence,
+        ),
+      ].slice(0, cacheLimit);
+      const next = {
+        ...Struct.omit(document, ['responses']),
+        ...(responses.length === 0 ? {} : { responses }),
+      };
+      return yield* publication.withPermit(
+        Effect.gen(function* () {
+          const saved = yield* commit(cache, next);
+          if (stillOwned()) {
+            yield* ready(saved, next, sync);
+          }
+          return true;
+        }),
+      );
+    }).pipe(
+      Effect.retry({
+        times: 2,
+        while: (error) =>
+          error instanceof SyncFailure &&
+          (error.kind === 'conflict' || error.kind === 'invalidated'),
+      }),
+      Effect.orElseSucceed(() => false),
+    );
+  };
+
   const readLabels = (scope: MailboxScope, message: GmailMessage) =>
     gmail(scope)(
       `messages/${message.id}`,
@@ -4999,6 +5057,10 @@ export function createGmailInbox(
         ),
       );
     },
+    recordResponse: (
+      revision: Readonly<Pick<InvitationResponse, 'uid' | 'sequence'>>,
+      response: InvitationResponse | undefined,
+    ) => runLogged(persistence.withPermit(recordResponse(revision, response))),
     // An opened message's body and headers, which Reply, Reply All and Forward start from;
     // undefined until both are read.
     responseSource: (id: string) => {

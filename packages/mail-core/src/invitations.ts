@@ -3,6 +3,7 @@ import * as Option from 'effect/Option';
 
 import type { Draft, Recipient } from './draft-model.ts';
 import type { GmailInbox, SendOutcome } from './gmail-inbox.ts';
+import type { InvitationResponse } from './mailbox-document.ts';
 import type { BodyDocument } from './message-body.ts';
 
 import { listedMessage } from './gmail-inbox.ts';
@@ -522,7 +523,10 @@ export type ResponseState =
 // The plain text a response carries beside its calendar reply, in the person's language.
 export type ResponseCopy = Readonly<{ subject: string; text: string }>;
 
-type ResponseInbox = Pick<GmailInbox, 'send' | 'findSent' | 'getSnapshot'>;
+type ResponseInbox = Pick<
+  GmailInbox,
+  'send' | 'findSent' | 'getSnapshot' | 'subscribe' | 'recordResponse'
+>;
 
 const unanswered: ResponseState = { kind: 'unanswered' };
 
@@ -600,7 +604,8 @@ const responseMessage = (
 // Responses to meeting invitations sent from one Gmail Inbox, shared by every window showing it.
 // Each response is sent once, only after the person chooses it: a response being sent or checked
 // ignores further choices, and one whose delivery is unknown is sent again only when the person
-// confirms. Responses are kept in memory while the app runs.
+// confirms. A sent response, or one whose delivery is unknown, is recorded in the mailbox's cache
+// before it is sent, so it is restored after relaunch; this run's other states stay in memory.
 function createInvitationResponses(
   inbox: ResponseInbox,
   now: () => number = Date.now,
@@ -613,8 +618,48 @@ function createInvitationResponses(
       listener();
     }
   };
-  const stateOf = (invitation: Invitation) =>
-    states.get(keyOf(invitation)) ?? unanswered;
+  const recordOf = (invitation: Invitation) => {
+    const state = inbox.getSnapshot();
+    return state.kind === 'ready' &&
+      state.address?.toLowerCase() === invitation.address.toLowerCase()
+      ? state.responses?.find(
+          ({ uid, sequence }) =>
+            uid === invitation.uid && sequence === invitation.sequence,
+        )
+      : undefined;
+  };
+  // One state per record, so readers see the same snapshot until it changes.
+  const recorded = new WeakMap<InvitationResponse, ResponseState>();
+  const restored = (record: InvitationResponse): ResponseState => {
+    const existing = recorded.get(record);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const state: ResponseState =
+      record.kind === 'sent'
+        ? { kind: 'sent', choice: record.choice, at: record.at }
+        : { kind: 'unknown', choice: record.choice, boundary: record.boundary };
+    recorded.set(record, state);
+    return state;
+  };
+  const stateOf = (invitation: Invitation) => {
+    const record = recordOf(invitation);
+    return (
+      states.get(keyOf(invitation)) ??
+      (record === undefined ? unanswered : restored(record))
+    );
+  };
+  // Resolves whether the mailbox's cache now holds `response` for the invitation's revision.
+  const record = async (
+    invitation: Invitation,
+    response: InvitationResponse | undefined,
+  ) => {
+    const { uid, sequence } = invitation;
+    const saved = await inbox
+      .recordResponse({ uid, sequence }, response)
+      .catch(() => false);
+    return saved;
+  };
   const receivedOf = (message: string) => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready'
@@ -644,19 +689,45 @@ function createInvitationResponses(
       now(),
     );
     set(invitation, { kind: 'sending', choice: chosen.choice });
+    const { uid, sequence } = invitation;
+    const previous = recordOf(invitation);
+    // A response that cannot be recorded is not sent, so a relaunch never offers it as unanswered.
+    if (
+      !(await record(invitation, {
+        kind: 'unknown',
+        uid,
+        sequence,
+        choice: chosen.choice,
+        boundary,
+      }))
+    ) {
+      set(invitation, { kind: 'refused', choice: chosen.choice });
+      return;
+    }
     const outcome = await inbox
       .send({ segments, ...(thread === undefined ? {} : { threadId: thread }) })
       .catch((): SendOutcome => ({ kind: 'unknown' }));
-    set(
-      invitation,
-      outcomeState(outcome, { choice: chosen.choice, boundary, at: now() }),
-    );
+    const state = outcomeState(outcome, {
+      choice: chosen.choice,
+      boundary,
+      at: now(),
+    });
+    set(invitation, state);
+    if (state.kind === 'sent') {
+      await record(invitation, { ...state, uid, sequence });
+    } else if (state.kind !== 'unknown') {
+      // Nothing was sent, so the response recorded before this one is restored.
+      await record(invitation, previous);
+    }
   };
   return {
     subscribe: (listener: () => void) => {
       listeners.add(listener);
+      // Recorded responses arrive with the mailbox's cache.
+      const unsubscribe = inbox.subscribe(listener);
       return () => {
         listeners.delete(listener);
+        unsubscribe();
       };
     },
     state: stateOf,
@@ -688,12 +759,17 @@ function createInvitationResponses(
       const found = await inbox
         .findSent(current.boundary)
         .catch(() => undefined);
-      set(
-        invitation,
-        found?.kind === 'sent' || found?.kind === 'accepted'
-          ? { kind: 'sent', choice: current.choice, at: now() }
-          : current,
-      );
+      if (found?.kind !== 'sent' && found?.kind !== 'accepted') {
+        set(invitation, current);
+        return;
+      }
+      const sent = { kind: 'sent', choice: current.choice, at: now() } as const;
+      set(invitation, sent);
+      await record(invitation, {
+        ...sent,
+        uid: invitation.uid,
+        sequence: invitation.sequence,
+      });
     },
   };
 }
