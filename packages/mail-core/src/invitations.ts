@@ -582,24 +582,47 @@ const answerable = (
   (current.kind === 'unknown') === again &&
   !(current.kind === 'sent' && current.choice === choice);
 
-// The record that restores `state` after relaunch; other states are not recorded.
+// The record that restores `state` after relaunch; other states are not recorded. It keeps the
+// time it answered, so a later revision can say what changed.
 const responseOf = (
-  { uid, sequence }: Invitation,
+  { uid, sequence, details: { start, end } }: Invitation,
   state: ResponseState,
 ): InvitationResponse | undefined => {
+  const revision = {
+    uid,
+    sequence,
+    start,
+    ...(end === undefined ? {} : { end }),
+  };
   if (state.kind === 'sent') {
-    return { kind: 'sent', uid, sequence, choice: state.choice, at: state.at };
+    return { kind: 'sent', ...revision, choice: state.choice, at: state.at };
   }
   return state.kind === 'unknown'
     ? {
         kind: 'unknown',
-        uid,
-        sequence,
+        ...revision,
         choice: state.choice,
         boundary: state.boundary,
       }
     : undefined;
 };
+
+// A confirmed response to an earlier revision of an invitation, and the time it answered.
+export type EarlierResponse = Readonly<{
+  choice: InvitationChoice;
+  start: InvitationTime;
+  end?: InvitationTime;
+}>;
+
+const timed = (
+  record: InvitationResponse,
+): record is Extract<InvitationResponse, { kind: 'sent' }> & EarlierResponse =>
+  record.kind === 'sent' && record.start !== undefined;
+
+const sameTime = (
+  a: InvitationTime | undefined,
+  b: InvitationTime | undefined,
+) => a?.at === b?.at && a?.allDay === b?.allDay;
 
 // A revision of the meeting is a new invitation to answer, so its sequence is part of the key.
 const keyOf = (invitation: Invitation) =>
@@ -668,14 +691,36 @@ function createInvitationResponses(
       listener();
     }
   };
-  const recordOf = (invitation: Invitation) => {
+  // The opened mailbox's recorded responses to the invitation's meeting, most recent first.
+  const recordsOf = (invitation: Invitation) => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready' &&
       state.address?.toLowerCase() === invitation.address.toLowerCase()
-      ? state.responses?.find(
-          ({ uid, sequence }) =>
-            uid === invitation.uid && sequence === invitation.sequence,
-        )
+      ? (state.responses ?? []).filter(({ uid }) => uid === invitation.uid)
+      : [];
+  };
+  const recordOf = (invitation: Invitation) =>
+    recordsOf(invitation).find(
+      ({ sequence }) => sequence === invitation.sequence,
+    );
+  // The confirmed response to the latest earlier revision, when that revision was at another time.
+  const earlierOf = (invitation: Invitation): EarlierResponse | undefined => {
+    const latest = recordsOf(invitation)
+      .filter(({ sequence }) => sequence < invitation.sequence)
+      .reduce<InvitationResponse | undefined>(
+        (found, record) =>
+          found === undefined || record.sequence > found.sequence
+            ? record
+            : found,
+        undefined,
+      );
+    return latest !== undefined &&
+      timed(latest) &&
+      !(
+        sameTime(latest.start, invitation.details.start) &&
+        sameTime(latest.end, invitation.details.end)
+      )
+      ? latest
       : undefined;
   };
   // One state per record, so readers see the same snapshot until it changes.
@@ -778,6 +823,7 @@ function createInvitationResponses(
       };
     },
     state: stateOf,
+    earlier: earlierOf,
     // Sends `choice` to the organizer, unless a response is under way or its delivery is unknown.
     respond: (
       invitation: Invitation,
@@ -849,30 +895,30 @@ export type InvitationFormats = Readonly<{
   day: Intl.DateTimeFormat;
   allDay: Intl.DateTimeFormat;
   time: Intl.DateTimeFormat;
+  // An earlier revision's day, which appears beside the current one and its year.
+  earlierDay: Intl.DateTimeFormat;
+  earlierAllDay: Intl.DateTimeFormat;
 }>;
 
+const days = { weekday: 'short', day: 'numeric', month: 'short' } as const;
+
 export const createInvitationFormats = (locale: string): InvitationFormats => ({
-  day: new Intl.DateTimeFormat(locale, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }),
+  day: new Intl.DateTimeFormat(locale, { ...days, year: 'numeric' }),
   allDay: new Intl.DateTimeFormat(locale, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
+    ...days,
     year: 'numeric',
     timeZone: 'UTC',
   }),
   time: new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }),
+  earlierDay: new Intl.DateTimeFormat(locale, days),
+  earlierAllDay: new Intl.DateTimeFormat(locale, { ...days, timeZone: 'UTC' }),
 });
 
 // When the meeting happens in the device's time zone: a day, or a day with its start and end.
 export function invitationWhen(
   t: Translate,
   formats: InvitationFormats,
-  { start, end }: InvitationDetails,
+  { start, end }: Pick<InvitationDetails, 'start' | 'end'>,
 ): string {
   if (start.allDay) {
     // An all-day end is exclusive: the meeting's last day is the one before it.
@@ -907,6 +953,20 @@ export function invitationWhen(
       });
 }
 
+// When the earlier revision a response answered happened, shown beneath the current time.
+export const invitationWas = (
+  t: Translate,
+  formats: InvitationFormats,
+  earlier: EarlierResponse,
+) =>
+  t('invitation.was', {
+    when: invitationWhen(
+      t,
+      { ...formats, day: formats.earlierDay, allDay: formats.earlierAllDay },
+      earlier,
+    ),
+  });
+
 // An offline device or a refused sign-in, which the mailbox's sync names before anything is sent.
 export const invitationBlockedBy = (sync: string | undefined) => {
   if (sync === 'retry') {
@@ -930,6 +990,8 @@ type StatusContext = Readonly<{
   address: string;
   provider: string;
   time: Intl.DateTimeFormat;
+  // The person's response to an earlier revision at another time, which an unanswered one names.
+  earlier?: InvitationChoice | undefined;
 }>;
 
 type Kind = ResponseState['kind'];
@@ -945,10 +1007,17 @@ const statuses: {
     context: StatusContext,
   ) => InvitationStatus;
 } = {
-  unanswered: (_, { t, name, address }) => ({
-    title: t('invitation.unanswered'),
-    detail: t('invitation.unansweredDetail', { name, address }),
-  }),
+  unanswered: (_, { t, name, address, earlier }) =>
+    earlier === undefined
+      ? {
+          title: t('invitation.unanswered'),
+          detail: t('invitation.unansweredDetail', { name, address }),
+        }
+      : {
+          icon: 'info.circle',
+          title: t('invitation.changedTime', { name }),
+          detail: t(`invitation.${earlier}Earlier`),
+        },
   sending: (state, { t, address }) => ({
     busy: true,
     title: t('invitation.sending'),

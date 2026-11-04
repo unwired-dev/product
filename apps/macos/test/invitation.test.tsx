@@ -84,7 +84,7 @@ async function opened(
       />
     </AccountContext>,
   );
-  return { gmail, app };
+  return { gmail, inbox, app };
 }
 
 describe('meeting invitations in the Mac reader', () => {
@@ -261,6 +261,62 @@ describe('meeting invitations in the Mac reader', () => {
       await expect(
         screen.findAllByText('lena@northwind.example'),
       ).resolves.toHaveLength(1);
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('shows an updated invitation that moved the meeting after an earlier answer', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, app } = await opened(
+      invitation('alex@example.invalid')
+        .replace('SEQUENCE:0', 'SEQUENCE:1')
+        .replace('DTSTART:20261106T130000Z', 'DTSTART:20261107T090000Z')
+        .replace('DTEND:20261106T140000Z', 'DTEND:20261107T100000Z'),
+    );
+    try {
+      await expect(
+        screen.findByText('Not answered yet'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText('Updated')).toBeNull();
+
+      const uid = 'roadmap-42@northwind.example';
+      await act(async () => {
+        await inbox.recordResponse(
+          { uid, sequence: 0 },
+          {
+            kind: 'sent',
+            uid,
+            sequence: 0,
+            choice: 'accepted',
+            at: Date.UTC(2026, 10, 2, 9, 52),
+            start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+            end: { at: Date.UTC(2026, 10, 6, 14), allDay: false },
+          },
+        );
+      });
+
+      expect(
+        screen.getByLabelText('Invitation from Lena Fischer, Updated'),
+      ).toBeOnTheScreen();
+      expect(screen.getByText(/^Was /u)).toBeOnTheScreen();
+      expect(
+        screen.getByText('Lena Fischer changed the time'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          'You accepted the earlier time. Respond to the new time.',
+        ),
+      ).toBeOnTheScreen();
+      // The earlier answer was for the old time, so none is chosen.
+      expect(screen.queryByRole('button', { name: 'Accepted' })).toBeNull();
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Decline' }));
+      await expect(screen.findByText('Declined')).resolves.toBeOnTheScreen();
+
+      expect(gmail.sends).toHaveLength(1);
+      expect(screen.getByText('Updated')).toBeOnTheScreen();
+      expect(screen.getByText(/^Was /u)).toBeOnTheScreen();
     } finally {
       await app.unmount();
     }
