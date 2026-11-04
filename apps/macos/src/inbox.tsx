@@ -129,8 +129,10 @@ interface InboxProps {
   // The mailbox or folder the list shows; every mailbox of the Profile without one.
   readonly view?: MailboxView;
   readonly onView?: (view: MailboxView) => void;
-  // A control shown before the title, such as the window's sidebar toggle.
+  // A control in the window controls' row above the title, such as the window's sidebar toggle.
   readonly leading?: ReactNode;
+  // The pane beside the list; the floating search bar spans both.
+  readonly reader?: ReactNode;
 }
 
 const allInboxes: MailboxView = {};
@@ -776,6 +778,13 @@ function useComposeSearch(
   };
 }
 
+// With the sidebar hidden, the window controls' row above the title holds the sidebar toggle.
+function WindowControlsRow({ children }: { readonly children: ReactNode }) {
+  return children === undefined ? null : (
+    <View style={styles.controls}>{children}</View>
+  );
+}
+
 export function Inbox({
   selected,
   onSelect,
@@ -786,6 +795,7 @@ export function Inbox({
   view = allInboxes,
   onView = keepView,
   leading,
+  reader,
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
@@ -1039,8 +1049,15 @@ export function Inbox({
       </Text>
     );
   return (
-    <View style={styles.fill}>
-      <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+    <View style={styles.panes}>
+      <View
+        style={[
+          styles.column,
+          {
+            backgroundColor: colors.surfaceContent,
+            borderRightColor: colors.separator,
+          },
+        ]}>
         <RegisterCommands
           offer={() =>
             inboxCommands(t, {
@@ -1067,8 +1084,8 @@ export function Inbox({
             })
           }
         />
+        <WindowControlsRow>{leading}</WindowControlsRow>
         <View style={styles.headingRow}>
-          {leading}
           <View
             accessible
             accessibilityRole="header"
@@ -1283,27 +1300,28 @@ export function Inbox({
             );
           }}
         />
-        <FloatingBar
-          hidden={composeSearch.hidden}
-          search={search}
-          onCompose={onCompose}
-          onQuery={setQuery}
-          query={query}
-          ready={ready}
-          scope={scope}
-          notice={
-            <>
-              <SyncStatusCapsule
-                now={now}
-                onTryAgain={synchronize}
-                refreshing={refreshing}
-                shown={shown}
-              />
-              {outboxActions.toast}
-            </>
-          }
-        />
       </View>
+      {reader}
+      <FloatingBar
+        hidden={composeSearch.hidden}
+        search={search}
+        onCompose={onCompose}
+        onQuery={setQuery}
+        query={query}
+        ready={ready}
+        scope={scope}
+        notice={
+          <>
+            <SyncStatusCapsule
+              now={now}
+              onTryAgain={synchronize}
+              refreshing={refreshing}
+              shown={shown}
+            />
+            {outboxActions.toast}
+          </>
+        }
+      />
     </View>
   );
 }

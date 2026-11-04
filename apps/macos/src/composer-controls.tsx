@@ -61,6 +61,7 @@ const styles = StyleSheet.create({
   popUp: { height: 24, flexShrink: 1, justifyContent: 'center' },
   pullDown: { width: 46 },
   fieldPopUp: { flex: 1 },
+  toolbarPullDown: { width: 32, height: 28 },
   popUpSizing: { opacity: 0, paddingHorizontal: 25 },
   // A titled pull-down also draws its symbol, about 20pt with its gap, before the title.
   symbolSizing: { paddingLeft: 45 },
@@ -169,6 +170,7 @@ const NativePopUpButton = requireNativeComponent<
     readonly text: string | undefined;
     readonly symbol: string | undefined;
     readonly pullsDown: boolean;
+    readonly toolbar: boolean;
     readonly label: string;
     readonly destructiveColor: ReturnType<typeof processColor>;
     readonly enabled: boolean;
@@ -192,7 +194,8 @@ export function PopUp({
   readonly accessibilityLabel: string;
   readonly icon?: string | undefined;
   readonly pullsDown?: boolean;
-  readonly variant?: 'compact' | 'field';
+  // A reader toolbar's pull-down is a symbol-only 32×28 button beside the toolbar's others.
+  readonly variant?: 'compact' | 'field' | 'toolbar';
   readonly disabled?: boolean;
   readonly items?: readonly PopUpItem[];
   // Groups of items set apart by separators, in place of `items`.
@@ -214,6 +217,7 @@ export function PopUp({
         styles.popUp,
         label === undefined ? styles.pullDown : null,
         variant === 'field' ? styles.fieldPopUp : null,
+        variant === 'toolbar' ? styles.toolbarPullDown : null,
       ]}>
       {/* The hidden label sizes the pop-up, which AppKit draws over it. */}
       {label === undefined ? null : (
@@ -237,6 +241,7 @@ export function PopUp({
         destructiveColor={processColor(colors.statusDestructive)}
         enabled={!disabled}
         pullsDown={pullsDown ?? icon !== undefined}
+        toolbar={variant === 'toolbar'}
         sections={groups.map((section) => ({
           items: nativeItems(section.items),
         }))}

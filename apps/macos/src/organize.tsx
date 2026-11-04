@@ -75,7 +75,9 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     marginBottom: spacing.xl,
   },
-  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  // Glass groups 10pt apart, their buttons 2pt apart, as the reader toolbar frames space them.
+  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  group: { gap: 2 },
   button: {
     minHeight: 28,
     minWidth: 28,
@@ -258,19 +260,22 @@ function Toolbar({
       collapsable={false}
       style={styles.toolbar}>
       {placing.length === 0 && move === undefined ? null : (
-        <GlassGroup>
+        <GlassGroup style={styles.group}>
           {placing.map(button)}
           {move}
         </GlassGroup>
       )}
       {children}
-      <GlassGroup>
+      <GlassGroup style={styles.group}>
         {rest.map(button)}
-        <PopUp
-          accessibilityLabel={t('message.more')}
-          icon="ellipsis"
-          items={more}
-        />
+        {more.length === 0 ? null : (
+          <PopUp
+            accessibilityLabel={t('message.more')}
+            icon="ellipsis"
+            items={more}
+            variant="toolbar"
+          />
+        )}
       </GlassGroup>
     </View>
   );
@@ -278,51 +283,16 @@ function Toolbar({
 
 type Folder = Readonly<{ id: string; name: string; symbol?: string }>;
 
-// The More menu's items the design orders: Mark as Read or Unread, Move to and, for Gmail, Labels,
-// each applied label checked, then New Label…. Keys carry the mailbox and message, so a late
-// choice acts only on the message the menu opened for.
+// The More menu holds what the toolbar's own buttons do not: for Gmail, Labels, each applied label
+// checked, then New Label…. Mark as Read or Unread and Move to are toolbar buttons beside it. Keys
+// carry the mailbox and message, so a late choice acts only on the message the menu opened for.
 const moreMenu = (
   t: Translate,
   target: string,
-  {
-    actions,
-    folders,
-    onMove,
-    labels,
-  }: {
-    readonly actions: readonly Named[];
-    readonly folders: readonly Folder[];
-    readonly onMove: (folder: string) => void;
-    // Gmail's Labels submenu, in groups.
-    readonly labels?: PopUpItem['sections'];
-  },
-): readonly PopUpItem[] => [
-  ...actions
-    .filter(({ name }) => name === 'read' || name === 'unread')
-    .map(({ name, onPress }) => ({
-      key: `${target}\n${name}`,
-      title: t(name === 'read' ? 'contextMenu.read' : 'contextMenu.unread'),
-      symbol: icons[name] ?? 'envelope',
-      run: onPress,
-    })),
-  ...(folders.length === 0
-    ? []
-    : [
-        {
-          key: `${target}\nmoveTo`,
-          title: t('contextMenu.moveTo'),
-          symbol: 'folder',
-          items: folders.map(({ id, name, symbol = 'folder' }) => ({
-            key: `${target}\nmove\n${id}`,
-            title: name,
-            symbol,
-            run: () => {
-              onMove(id);
-            },
-          })),
-        },
-      ]),
-  ...(labels === undefined
+  // Gmail's Labels submenu, in groups.
+  labels: PopUpItem['sections'] | undefined,
+): readonly PopUpItem[] =>
+  labels === undefined
     ? []
     : [
         {
@@ -331,8 +301,7 @@ const moreMenu = (
           symbol: 'tag',
           sections: labels,
         },
-      ]),
-];
+      ];
 
 // Move to a folder from the system menu dropped below the Move button; notes are disabled items.
 // Keys carry the mailbox and message, so a late choice moves only the message the menu opened for.
@@ -352,6 +321,7 @@ function MoveMenu({
   return (
     <PopUp
       icon="folder"
+      variant="toolbar"
       accessibilityLabel={t('gmailActions.folders')}
       items={[
         ...folders.map(({ id, name, symbol = 'folder' }) => ({
@@ -415,7 +385,7 @@ function PreviewMessageActions({
         }
       />
       <View style={styles.toolbar}>
-        <GlassGroup>
+        <GlassGroup style={styles.group}>
           <ToolbarButton
             icon={read.name === 'read' ? 'envelope.open' : 'envelope.badge'}
             label={read.label}
@@ -498,11 +468,7 @@ function ImapMessageActions({
             />
           )
         }
-        more={moreMenu(t, target, {
-          actions: buttons,
-          folders,
-          onMove: move,
-        })}>
+        more={moreMenu(t, target, undefined)}>
         {children}
       </Toolbar>
     </>
@@ -671,44 +637,42 @@ function GmailMessageActions({
           />
         }
         // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
-        more={moreMenu(t, target, {
-          actions: buttons,
-          folders: state.labels,
-          onMove: move,
-          labels:
-            provider === 'gmail'
-              ? [
-                  {
-                    items: state.labels.map(({ id: label, name }) => ({
-                      key: `${target}\nlabel\n${label}`,
-                      title: name,
-                      checked: applied.has(label),
+        more={moreMenu(
+          t,
+          target,
+          provider === 'gmail'
+            ? [
+                {
+                  items: state.labels.map(({ id: label, name }) => ({
+                    key: `${target}\nlabel\n${label}`,
+                    title: name,
+                    checked: applied.has(label),
+                    run: () => {
+                      act(
+                        applied.has(label)
+                          ? gmailAction.unlabel(label)
+                          : gmailAction.label(label),
+                      );
+                    },
+                  })),
+                },
+                {
+                  items: [
+                    {
+                      key: `${target}\nnewLabel`,
+                      title: t('gmailActions.newLabel'),
                       run: () => {
-                        act(
-                          applied.has(label)
-                            ? gmailAction.unlabel(label)
-                            : gmailAction.label(label),
-                        );
+                        setNaming({
+                          message,
+                          t,
+                        });
                       },
-                    })),
-                  },
-                  {
-                    items: [
-                      {
-                        key: `${target}\nnewLabel`,
-                        title: t('gmailActions.newLabel'),
-                        run: () => {
-                          setNaming({
-                            message,
-                            t,
-                          });
-                        },
-                      },
-                    ],
-                  },
-                ]
-              : undefined,
-        })}>
+                    },
+                  ],
+                },
+              ]
+            : undefined,
+        )}>
         {children}
       </Toolbar>
     </>

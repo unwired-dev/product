@@ -27,7 +27,11 @@ import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import { Action } from './action.tsx';
-import { RegisterCommands, useMessageCommands } from './command-palette.tsx';
+import {
+  inputHeight,
+  RegisterCommands,
+  useMessageCommands,
+} from './command-palette.tsx';
 import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
@@ -42,6 +46,7 @@ import {
   useProfile,
 } from './mailbox.tsx';
 import {
+  AssistanceRow,
   AttachContext,
   MessageBody,
   ReaderScrollView,
@@ -54,13 +59,16 @@ import { MessageTranslation } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  // The fixed reader toolbar: glass groups at the pane's trailing edge, content below them.
+  // The fixed reader toolbar: glass groups at the pane's trailing edge, content below them. Its
+  // leading edge stays clear of the window's Command input, at least its symbol-only width, which
+  // floats in the same row.
   toolbar: {
-    height: 36 + spacing.m,
+    minHeight: 36 + spacing.m,
     zIndex: 1,
     alignItems: 'flex-end',
     paddingTop: spacing.m,
-    paddingHorizontal: spacing.l,
+    paddingLeft: spacing.l + inputHeight + spacing.s,
+    paddingRight: spacing.l,
     gap: spacing.s,
   },
   content: {
@@ -69,9 +77,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 40,
     paddingTop: spacing.xl,
-    paddingBottom: 40,
+    // Clear of the floating search bar across the panes' bottom edge and its scroll edge fade.
+    paddingBottom: 72,
     gap: spacing.l,
   },
+  // Reply, Reply All and Forward 2pt apart, as the reader toolbar frames space a group.
+  responses: { gap: 2 },
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 2,
@@ -79,10 +90,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   from: { flexDirection: 'row', gap: spacing.m, alignItems: 'flex-start' },
-  fromText: { flex: 1, minHeight: 28 },
+  // The sender's line, then the mailbox 2pt beneath it, as the frames' sender and recipients sit.
+  fromText: { flex: 1 },
   sender: { ...textStyles.bodyEmphasized },
   address: { ...textStyles.body },
-  assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
   secondary: { ...textStyles.subheadline },
   body: { ...textStyles.reading.body },
   empty: {
@@ -97,6 +108,31 @@ const styles = StyleSheet.create({
   emptyTitle: { ...textStyles.title3Emphasized, textAlign: 'center' },
   emptyDescription: { ...textStyles.body, textAlign: 'center' },
 });
+
+// Receives the reader toolbar's laid-out width, so the window's floating Command input stops short
+// of the toolbar's groups whatever buttons the message offers.
+export const ReaderToolbarWidthContext = createContext<(width: number) => void>(
+  () => undefined,
+);
+
+function ToolbarWidth({ children }: { readonly children: ReactNode }) {
+  const report = use(ReaderToolbarWidthContext);
+  // The toolbar leaves with its message, so the input takes the whole row again.
+  useLayoutEffect(
+    () => () => {
+      report(0);
+    },
+    [report],
+  );
+  return (
+    <View
+      onLayout={({ nativeEvent }) => {
+        report(nativeEvent.layout.width);
+      }}>
+      {children}
+    </View>
+  );
+}
 
 // Nothing selected, or a message that is not in any open mailbox.
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
@@ -450,7 +486,7 @@ function ResponseActions({
           })
         }
       />
-      <GlassGroup>
+      <GlassGroup style={styles.responses}>
         {actions.map(([kind, icon, label]) => (
           <ToolbarButton
             key={kind}
@@ -490,7 +526,7 @@ function ReaderBody({
   }
   return (
     <>
-      <View style={styles.assistance}>
+      <AssistanceRow>
         <MessageSummary
           source={inbox}
           id={message.id}
@@ -502,7 +538,7 @@ function ReaderBody({
           id={message.id}
           body={'body' in message ? message.body : message.preview}
         />
-      </View>
+      </AssistanceRow>
       <Text
         selectable
         style={[styles.body, { color: colors.textPrimary }]}>
@@ -626,16 +662,18 @@ function MailboxMessage({
               }
             />
             <View style={styles.toolbar}>
-              <MessageActions
-                id={message.id}
-                folder={folder}
-                onClose={onClose}>
-                <ResponseActions
-                  key={`${address}:${message.id}`}
-                  message={message}
-                  onCompose={onCompose}
-                />
-              </MessageActions>
+              <ToolbarWidth>
+                <MessageActions
+                  id={message.id}
+                  folder={folder}
+                  onClose={onClose}>
+                  <ResponseActions
+                    key={`${address}:${message.id}`}
+                    message={message}
+                    onCompose={onCompose}
+                  />
+                </MessageActions>
+              </ToolbarWidth>
             </View>
             <ReaderScrollView contentContainerStyle={styles.content}>
               <Text

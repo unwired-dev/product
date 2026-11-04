@@ -50,6 +50,21 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 - (RCTView *)view { return [UnwiredModalBackgroundView new]; }
 @end
 
+// A symbol at its point size, as Apple draws toolbar symbols, with unusually large glyphs such as
+// envelope.open or xmark.bin held to 1.25× that size, so a toolbar's icons read as one size.
+static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
+{
+  NSImage *image = [[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil]
+      imageWithSymbolConfiguration:
+          [NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightRegular]];
+  CGFloat largest = MAX(image.size.width, image.size.height);
+  CGFloat limit = size * 1.25;
+  if (largest > limit) {
+    image.size = NSMakeSize(image.size.width * limit / largest, image.size.height * limit / largest);
+  }
+  return image;
+}
+
 @interface UnwiredSymbolView : NSImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
@@ -71,11 +86,7 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 - (void)setColor:(NSColor *)color { _color = color; self.contentTintColor = color; }
 - (void)render
 {
-  NSImageSymbolConfiguration *configuration =
-      [NSImageSymbolConfiguration configurationWithPointSize:self.size weight:NSFontWeightRegular];
-  self.image = self.name == nil ? nil
-      : [[NSImage imageWithSystemSymbolName:self.name accessibilityDescription:nil]
-            imageWithSymbolConfiguration:configuration];
+  self.image = self.name == nil ? nil : UnwiredSymbolImage(self.name, self.size);
 }
 @end
 
@@ -1143,6 +1154,8 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 @property (nonatomic, copy) NSString *text;
 @property (nonatomic, copy) NSString *symbol;
 @property (nonatomic) BOOL pullsDown;
+// A reader toolbar's pull-down: only its symbol, like the toolbar's buttons, with no bezel or arrow.
+@property (nonatomic) BOOL toolbar;
 @property (nonatomic, copy) NSString *label;
 @property (nonatomic, copy) NSColor *destructiveColor;
 @property (nonatomic) BOOL enabled;
@@ -1176,13 +1189,25 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   NSMenuItem *shown = [[NSMenuItem alloc] initWithTitle:self.text ?: @"" action:nil keyEquivalent:@""];
   if (self.symbol.length > 0) {
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
+    if (self.toolbar) {
+      // Drawn as UnwiredSymbolView draws the toolbar's buttons.
+      shown.image = UnwiredSymbolImage(self.symbol, 16);
+    }
   }
   // A pull-down shows its first item, which its menu leaves out.
   _button.pullsDown = self.pullsDown;
+  _button.bordered = !self.toolbar;
+  _button.imagePosition = self.toolbar ? NSImageOnly : NSImageLeft;
+  _button.contentTintColor = self.toolbar ? NSColor.labelColor : nil;
   if (_button.pullsDown) [menu insertItem:shown atIndex:0];
   _button.menu = menu;
   NSPopUpButtonCell *cell = _button.cell;
   cell.usesItemFromMenu = _button.pullsDown;
+  if (self.toolbar) {
+    cell.arrowPosition = NSPopUpNoArrow;
+  } else {
+    cell.arrowPosition = _button.pullsDown ? NSPopUpArrowAtBottom : NSPopUpArrowAtCenter;
+  }
   if (!_button.pullsDown) {
     NSInteger checked = [menu.itemArray indexOfObjectPassingTest:^BOOL(NSMenuItem *item, NSUInteger i, BOOL *stop) {
       return item.state == NSControlStateValueOn;
@@ -1417,6 +1442,7 @@ RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(text, NSString)
 RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
 RCT_EXPORT_VIEW_PROPERTY(pullsDown, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(toolbar, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(label, NSString)
 RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)

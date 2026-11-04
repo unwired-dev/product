@@ -3,7 +3,13 @@ import type { ReactNode, RefObject } from 'react';
 import { composeCommand } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useRef, useState } from 'react';
+import {
+  createContext,
+  use,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { RegisterCommands } from './command-palette.tsx';
@@ -36,16 +42,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: 72,
   },
+  // Spans the list and reader: the search field centered in the window, New Message at the
+  // trailing edge.
   bottomBar: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s,
-    padding: spacing.l,
+    height: 40 + 2 * spacing.l,
   },
+  field: { position: 'absolute', bottom: spacing.l },
+  trailing: { position: 'absolute', right: spacing.l, bottom: spacing.l },
   // Centered 12pt above the search bar.
   notice: {
     position: 'absolute',
@@ -56,9 +63,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
   },
   searchBar: {
-    flex: 1,
-    alignSelf: 'stretch',
-    minHeight: 40,
+    height: 40,
     flexWrap: 'nowrap',
     alignItems: 'center',
     gap: spacing.s,
@@ -175,7 +180,59 @@ function NewMessageButton({
   );
 }
 
-// The floating glass bar over the list: search on the mail saved on this device, and New Message.
+const searchWidth = 400;
+
+// The search field's width: up to 400pt, centered on the window, clear of the window's edge and of
+// New Message.
+const fieldFrame = (width: number, offset: number) => {
+  const center = width / 2 - offset;
+  const half = Math.max(
+    0,
+    Math.min(
+      searchWidth / 2,
+      center - spacing.l,
+      width - spacing.l - 40 - spacing.s - center,
+    ),
+  );
+  return { left: center - half, width: 2 * half };
+};
+
+// How far the window's center lies before the panes' center: half the sidebar's visible width,
+// which AppKit reports through each frame of its animation. A store, so only the bar follows it.
+export type BarOffset = Readonly<{
+  subscribe: (listener: () => void) => () => void;
+  get: () => number;
+}>;
+
+export const BarOffsetContext = createContext<BarOffset>({
+  subscribe: () => () => undefined,
+  get: () => 0,
+});
+
+export const createBarOffset = () => {
+  let offset = 0;
+  const listeners = new Set<() => void>();
+  return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    get: () => offset,
+    set: (next: number) => {
+      if (next === offset) {
+        return;
+      }
+      offset = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+  };
+};
+
+// The floating glass bar over the panes: search on the mail saved on this device, and New Message.
 export function FloatingBar({
   hidden = false,
   ready,
@@ -200,6 +257,10 @@ export function FloatingBar({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const barOffset = use(BarOffsetContext);
+  const offset = useSyncExternalStore(barOffset.subscribe, barOffset.get);
+  const [width, setWidth] = useState(0);
+  const centered = { transform: [{ translateX: -offset }] };
   return (
     <>
       <View
@@ -213,42 +274,53 @@ export function FloatingBar({
         ]}
       />
       <View
+        onLayout={({ nativeEvent }) => {
+          setWidth(nativeEvent.layout.width);
+        }}
         pointerEvents="box-none"
         style={[styles.bottomBar, { display: hidden ? 'none' : 'flex' }]}>
-        {ready ? (
-          <GlassGroup style={styles.searchBar}>
-            <SFSymbol
-              name="magnifyingglass"
-              color={colors.textSecondary}
-            />
-            <TextInput
-              accessibilityLabel={t('search.label')}
-              accessibilityRole="search"
-              autoCapitalize="none"
-              autoComplete="off"
-              autoCorrect={false}
-              onChangeText={onQuery}
-              ref={search}
-              placeholder={t('search.placeholder')}
-              placeholderTextColor={colors.textSecondary}
-              returnKeyType="search"
-              style={[styles.search, { color: colors.textPrimary }]}
-              value={query}
-            />
-          </GlassGroup>
-        ) : (
-          <View style={styles.searchBar} />
-        )}
+        <View
+          pointerEvents="box-none"
+          style={[styles.field, fieldFrame(width, offset)]}>
+          {ready ? (
+            <GlassGroup style={styles.searchBar}>
+              <SFSymbol
+                name="magnifyingglass"
+                color={colors.textSecondary}
+              />
+              <TextInput
+                accessibilityLabel={t('search.label')}
+                accessibilityRole="search"
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect={false}
+                onChangeText={onQuery}
+                ref={search}
+                placeholder={t('search.placeholder')}
+                placeholderTextColor={colors.textSecondary}
+                returnKeyType="search"
+                style={[styles.search, { color: colors.textPrimary }]}
+                value={query}
+              />
+            </GlassGroup>
+          ) : null}
+        </View>
         {onCompose === undefined ? null : (
-          <NewMessageButton
-            onCompose={onCompose}
-            scope={scope}
-          />
+          <View style={styles.trailing}>
+            <NewMessageButton
+              onCompose={onCompose}
+              scope={scope}
+            />
+          </View>
         )}
       </View>
       <View
         pointerEvents="box-none"
-        style={[styles.notice, { display: hidden ? 'none' : 'flex' }]}>
+        style={[
+          styles.notice,
+          centered,
+          { display: hidden ? 'none' : 'flex' },
+        ]}>
         {notice}
       </View>
     </>

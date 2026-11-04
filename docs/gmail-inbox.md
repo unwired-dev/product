@@ -423,8 +423,8 @@ then the remaining actions and **More**. The Mac's **Folders** opens
 the system menu below the button, one folder or label per item with its symbol. A choice moves
 the message, while Escape or a click outside closes the menu without moving it.
 A note that the mailbox has no folders or labels of its own, or that some were left out, shows
-as an unavailable item. **More** opens the system menu with **Mark as Read** (or
-**Unread**), **Move to** and, for Gmail mail only, **Labels**: a submenu listing each
+as an unavailable item. **Mark as Read** (or **Unread**) and **Move to** are the toolbar's own
+buttons, so **More** appears for Gmail mail only and opens the system menu with **Labels**: a submenu listing each
 label, checked when the message has it. Choosing a label adds or removes it. Below a
 separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253))
 asks for a name in a native alert sheet on the window: **Add Label** creates the label in

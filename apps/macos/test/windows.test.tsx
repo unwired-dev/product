@@ -290,10 +290,12 @@ describe('mac window selection with the shared mock mailbox', () => {
       await fireEvent.press(
         await app.findByRole('button', { name: 'New Message' }),
       );
-      // AppKit's split view places the sidebar beside the panes, so only the list offsets it.
+      // The overlay docks across the reader's full width at its bottom edge.
       await expect(app.findByTestId('composer-overlay')).resolves.toHaveStyle({
         height: 420,
-        left: 352,
+        left: 0,
+        right: 0,
+        bottom: 0,
       });
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
       expect(app.queryByRole('button', { name: 'New Message' })).toBeNull();
@@ -1802,12 +1804,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
       const more = await window.findByRole('button', { name: 'More' });
       expect(window.queryByRole('button', { name: 'Labels' })).toBeNull();
       await fireEvent.press(more);
+      // Mark as Read and Move to are the toolbar's own buttons, so More holds only Labels.
       expect(menuItems()).toMatchObject([
-        { title: 'Mark as Read' },
-        {
-          title: 'Move to…',
-          items: [{ title: 'Receipts' }, { title: 'Travel' }],
-        },
         {
           title: 'Labels',
           sections: [

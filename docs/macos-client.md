@@ -97,11 +97,22 @@ The Podfile check requires the mise-managed Ruby and accepts only literal pod na
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 (the window's [Profile Switcher](private-inbox-storage.md#mail-profiles),
 **All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
-**Account**), the message list with its floating search and **New Message** bar,
-and the reader. Favorites and each Mailbox Connection's section collapse and expand from their header's trailing chevron, per window. Headers expose their expanded or collapsed state to accessibility; a collapsed connection with a problem shows a warning beside its name, and a connection waiting for authorization keeps its row in view. The sidebar is an AppKit split-view sidebar through
+**Account**), the message list and the reader, as in the Figma Inbox frames. The
+Inbox and Settings windows hide their title and draw a transparent title bar over
+full-size content, so the window controls sit on the sidebar's glass. The title
+stays for the Window menu and accessibility. The reader's toolbar row holds the Command input at its
+leading end beside the reader's glass groups; a reader too narrow for its label
+keeps only the input's symbol. In narrow readers, action groups wrap below the
+first row and stay clear of both the Command input and message content.
+One floating bar spans the list and reader: its
+400pt search field is centered on the window and **New Message** sits at the
+trailing edge. Settings and account pages put the Command input at the trailing
+end of the window controls' row. Favorites and each Mailbox Connection's section collapse and expand from their header's trailing chevron, per window. Headers expose their expanded or collapsed state to accessibility; a collapsed connection with a problem shows a warning beside its name, and a connection waiting for authorization keeps its row in view. The sidebar is an AppKit split-view sidebar through
 `UnwiredSidebar`, which shows its React content in a sidebar item of the window's
 `NSSplitViewController`, beside the Inbox. The **Show Sidebar** / **Hide Sidebar**
-button before the list title asks AppKit to collapse or expand it, with the split
+button, at the trailing end of the sidebar's window-controls row or, while the
+sidebar is hidden, beside the window controls above the list title, asks AppKit
+to collapse or expand it, with the split
 view's animation; with Reduce Motion on, it collapses or expands at once. A window
 at most 900pt wide starts without it. Resizing a window below 900pt hides it,
 and widening that window again brings it back; the button's label follows each
