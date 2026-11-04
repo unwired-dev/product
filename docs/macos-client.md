@@ -102,7 +102,9 @@ Inbox and Settings windows hide their title and draw a transparent title bar ove
 full-size content, so the window controls sit on the sidebar's glass. The title
 stays for the Window menu and accessibility. The reader's toolbar row holds the Command input at its
 leading end beside the reader's glass groups; a reader too narrow for its label
-keeps only the input's symbol. One floating bar spans the list and reader: its
+keeps only the input's symbol. In narrow readers, action groups wrap below the
+first row and stay clear of both the Command input and message content.
+One floating bar spans the list and reader: its
 400pt search field is centered on the window and **New Message** sits at the
 trailing edge. Settings and account pages put the Command input at the trailing
 end of the window controls' row. The sidebar is an AppKit split-view sidebar through

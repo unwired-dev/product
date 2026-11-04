@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   // leading edge stays clear of the window's Command input, at least its symbol-only width, which
   // floats in the same row.
   toolbar: {
-    height: 36 + spacing.m,
+    minHeight: 36 + spacing.m,
     zIndex: 1,
     alignItems: 'flex-end',
     paddingTop: spacing.m,
