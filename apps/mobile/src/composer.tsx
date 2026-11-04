@@ -1722,7 +1722,12 @@ function Editor({
       store.release(rebind);
     }
   }, [rebind, store]);
-  const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
+  // The field opens with its caret after the body and reports no selection until the caret moves,
+  // so a tap there sends none (#1801).
+  const [selection, setSelection] = useState<Selection>(() => {
+    const end = displayOf(initial.body).text.length;
+    return { start: end, end };
+  });
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
   // its result is applied or the original kept.
   const profile = use(MailAssistanceProfileContext);
