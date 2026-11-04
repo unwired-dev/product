@@ -643,7 +643,16 @@ describe('organizing IMAP mail', () => {
     expect(changes(message).map(({ kind }) => kind)).not.toContain('trash');
     imap.addFolder('Old Bin', [], false);
     await inbox.load();
-    expect(changes(message).map(({ kind }) => kind)).not.toContain('trash');
+    // The unselectable chosen folder gets no role, so no consumer can take it for Trash.
+    expect({
+      kinds: changes(message).map(({ kind }) => kind),
+      roles: ready(inbox.getSnapshot()).folders.find(
+        ({ name }) => name === 'Old Bin',
+      )?.roles,
+    }).toStrictEqual({
+      kinds: expect.not.arrayContaining(['trash']),
+      roles: [],
+    });
   });
 
   it.each([

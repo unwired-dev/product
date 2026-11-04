@@ -75,7 +75,7 @@ export const withChosenRoles = (
     roles: [
       ...folder.roles.filter((role) => !assigned.has(role)),
       ...[...assigned]
-        .filter(([, name]) => name === folder.name)
+        .filter(([, name]) => folder.selectable && name === folder.name)
         .map(([role]) => role),
     ],
   }));
