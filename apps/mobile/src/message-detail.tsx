@@ -147,8 +147,9 @@ const styles = StyleSheet.create({
   },
   // A single message on iPhone lines its sender and body up with a thread's cards, 24pt in.
   compactContent: { paddingHorizontal: 24 },
-  // On iPad the sender sits 18.4pt beneath the subject, as the single-message frames place it.
-  padSingleContent: { paddingTop: spacing.l * ipadListScale },
+  // On iPad the sender sits 18.4pt beneath the frames' 29pt subject line, which holds the 25pt
+  // Reading Subject, so it keeps the frames' y.
+  padSingleContent: { paddingTop: spacing.l * ipadListScale + (29 - 25) },
   header: {
     width: '100%',
     maxWidth: 760,

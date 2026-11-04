@@ -25,7 +25,7 @@ import {
 
 import { AccountHeader } from './account-page.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
-import { SFSymbol } from './design.tsx';
+import { ipadFrameSymbolSize, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -152,6 +152,9 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   grow: { flex: 1 },
+  // Symbols centre in fixed slots, so a wide one such as translate keeps its label in line.
+  itemIcon: { width: 18, alignItems: 'center' },
+  rowIcon: { width: 20, alignItems: 'center' },
   // iPad's cards start 28pt beside the sidebar and end 32pt from the window's edge.
   content: {
     gap: settingsColumns ? spacing.s : 10,
@@ -300,11 +303,13 @@ function SidebarItem({
           backgroundColor: colors.accentSelectionSubtle,
         },
       ]}>
-      <SFSymbol
-        name={icon}
-        size={18}
-        color={colors.accentInk}
-      />
+      <View style={styles.itemIcon}>
+        <SFSymbol
+          name={icon}
+          size={ipadFrameSymbolSize}
+          color={colors.accentInk}
+        />
+      </View>
       <Text
         numberOfLines={1}
         style={[
@@ -836,11 +841,13 @@ export function SettingsRow({
     <View style={[styles.row, minHeight === undefined ? null : { minHeight }]}>
       <Hairline />
       {typeof icon === 'string' ? (
-        <SFSymbol
-          name={icon}
-          size={20}
-          color={colors.accentInk}
-        />
+        <View style={styles.rowIcon}>
+          <SFSymbol
+            name={icon}
+            size={settingsColumns ? 16 * ipadListScale : 20}
+            color={colors.accentInk}
+          />
+        </View>
       ) : (
         icon
       )}

@@ -250,13 +250,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: padFieldInset,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  // iPad's Send is 32.2pt tall within its 44pt target.
+  // iPad's Send is the Mac button at 1.15×: 65.6×32.2pt with 6.9pt corners, within its 44pt target.
   sendTitled: {
     minHeight: titledSendHeight,
+    minWidth: 57 * ipadListScale,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.l,
-    borderRadius: radius.card,
+    paddingHorizontal: spacing.m * ipadListScale,
+    borderRadius: radius.control * ipadListScale,
     borderCurve: 'continuous',
   },
   sendLabel: { ...typography.ipadList.body, fontWeight: '600' },
@@ -295,6 +296,10 @@ const styles = StyleSheet.create({
     height: 16 * ipadListScale,
   },
   content: { paddingBottom: spacing.s },
+  // A docked reply's text starts 13.8pt beneath its format bar and its fields meet its footer.
+  dockedContent: { paddingBottom: 0 },
+  dockedBody: { paddingTop: spacing.m * ipadListScale },
+  dockedFormatBar: { height: 36 * ipadListScale },
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -434,11 +439,14 @@ export const layoutStyles = {
       minWidth: 60,
     },
     token: { minHeight: compactFieldHeight },
+    trailing: {},
   }),
+  // The New Message card's text starts 23pt down and its fields end 6.9pt above its edge.
   regular: StyleSheet.create({
-    content: { flexGrow: 1 },
+    content: { flexGrow: 1, paddingBottom: 6 * ipadListScale },
     body: {
       flexGrow: 1,
+      paddingTop: 20 * ipadListScale,
       paddingHorizontal: padInset,
       fontSize: 15 * ipadListScale,
       lineHeight: 22 * ipadListScale,
@@ -460,6 +468,8 @@ export const layoutStyles = {
     fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
     input: { ...typography.ipadList.body, minHeight: padFieldHeight },
     token: { minHeight: padFieldHeight },
+    // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
+    trailing: { height: padFieldHeight, justifyContent: 'center' },
   }),
 };
 
@@ -946,7 +956,9 @@ export function Recipients({
             value={entryOf(draft, field)}
           />
         </View>
-        {trailing}
+        {trailing === undefined ? null : (
+          <View style={sized.trailing}>{trailing}</View>
+        )}
       </View>
       {notice === undefined ? null : (
         <Text
@@ -1769,6 +1781,17 @@ const titleStyles = {
   card: styles.regularTitle,
   docked: [styles.regularTitle, styles.leadingTitle],
 } as const;
+// A docked reply's tighter body, fields and format bar.
+const sharedParts = { content: null, body: null, formatBar: null } as const;
+const partStyles = {
+  compact: sharedParts,
+  card: sharedParts,
+  docked: {
+    content: styles.dockedContent,
+    body: styles.dockedBody,
+    formatBar: styles.dockedFormatBar,
+  },
+} as const;
 
 const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   if (!regular) {
@@ -2528,6 +2551,7 @@ function Editor({
   // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
   const presentation = presentationOf(regular, draft);
   const docked = presentation === 'docked';
+  const parts = partStyles[presentation];
   const title = composerTitle(t, draft, docked || !regular);
   const titleLabel =
     title.length < draft.subject.length
@@ -2605,7 +2629,8 @@ function Editor({
       kind={kind}
       disabled={sending}
       onBlock={block}
-      onMark={format}>
+      onMark={format}
+      style={parts.formatBar}>
       <LinkEditor
         disabled={sending}
         link={editableLinkAt(draft.body, selection)}
@@ -2758,6 +2783,7 @@ function Editor({
             contentContainerStyle={[
               styles.content,
               sized.content,
+              parts.content,
               pillShown && styles.pillInset,
             ]}
             keyboardDismissMode="interactive"
@@ -2814,7 +2840,12 @@ function Editor({
               placeholderTextColor={colors.textSecondary}
               scrollEnabled={false}
               selection={placed}
-              style={[styles.body, sized.body, { color: colors.textPrimary }]}
+              style={[
+                styles.body,
+                sized.body,
+                parts.body,
+                { color: colors.textPrimary },
+              ]}
               textAlignVertical="top">
               {display.lines.map((line, index) => (
                 <Text

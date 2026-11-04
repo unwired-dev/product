@@ -144,9 +144,10 @@ const styles = StyleSheet.create({
   compactLabel: { ...textStyles.body, flex: 1 },
   compactCount: { ...textStyles.subheadline },
   count: { ...typography.ipadList.body },
+  // Settings sits 8pt beneath the rule and 11.5pt above the panel's edge, as the frames draw it.
   footer: {
     paddingTop: spacing.s,
-    paddingBottom: spacing.m,
+    paddingBottom: 10 * ipadListScale,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   switcher: {

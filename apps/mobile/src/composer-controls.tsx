@@ -142,8 +142,9 @@ const styles = StyleSheet.create({
   generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
   // The iPad frames' Mac recipe at 1.15: Text style 18.4pt from the leading edge and the scaled
   // toolbar's 36.8pt glyph boxes 18.4pt from the trailing one, 41.4pt apart, each keeping its 44pt
-  // target.
+  // target. The bar is 43.7pt with its rules; a docked reply's is 41.4pt.
   formatBar: {
+    height: 38 * ipadListScale,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
@@ -527,6 +528,7 @@ export function FormatBar({
   disabled,
   onBlock,
   onMark,
+  style,
   children,
 }: {
   readonly active: readonly Mark[];
@@ -534,6 +536,7 @@ export function FormatBar({
   readonly disabled: boolean;
   readonly onBlock: (kind: BlockKind) => void;
   readonly onMark: (mark: Mark) => void;
+  readonly style?: StyleProp<ViewStyle>;
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
@@ -542,7 +545,7 @@ export function FormatBar({
     <View
       accessibilityLabel={t('drafts.formatting')}
       accessibilityRole="toolbar"
-      style={[styles.formatBar, { borderColor: colors.separator }]}>
+      style={[styles.formatBar, { borderColor: colors.separator }, style]}>
       {/* The system menu marks the current style with its leading checkmark. */}
       <MenuButton
         accessibilityLabel={t('drafts.textStyle')}

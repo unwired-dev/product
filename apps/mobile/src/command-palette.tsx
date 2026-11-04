@@ -417,7 +417,14 @@ function paletteFrame(
       },
     ],
     field: [styles.field, styles.anchoredField],
-    panel: [styles.popoverPanel, { boxShadow: colors.menuGlassShadow }],
+    // As the reader's menus: glass over the content surface, so no mail shows through the commands.
+    panel: [
+      styles.popoverPanel,
+      {
+        backgroundColor: colors.surfaceContent,
+        boxShadow: colors.menuGlassShadow,
+      },
+    ],
   };
 }
 

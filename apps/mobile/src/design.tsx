@@ -262,7 +262,9 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
+  // One line: Yoga sizes a wrapping row without its gaps, which dropped the last button below.
   scaledGroup: {
+    flexWrap: 'nowrap',
     padding: scaledToolbar.inset,
     gap: 2 * ipadListScale,
     borderRadius: scaledToolbarHeight / 2,
@@ -346,6 +348,9 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
 });
+
+// UIKit draws SF Symbols larger than the iPad frames' 18.4pt artwork; this size matches its ink.
+export const ipadFrameSymbolSize = 14.5 * (18.4 / 18);
 
 // An SF Symbol at regular weight. It is decorative: the control around it carries the label.
 export function SFSymbol({
