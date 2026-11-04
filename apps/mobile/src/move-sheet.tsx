@@ -440,7 +440,8 @@ export function MoveSheet({
                   // Leave a full folder row visible in the short space above a landscape keyboard.
                   gap: landscapeKeyboard ? 0 : spacing.m,
                   paddingTop: landscapeKeyboard ? spacing.s : spacing.m,
-                  paddingBottom: spacing.s,
+                  // The sheet already insets the home indicator; keep a gap only above the keyboard.
+                  paddingBottom: searching ? spacing.s : 0,
                 },
               ]}>
               {accounts ? (
