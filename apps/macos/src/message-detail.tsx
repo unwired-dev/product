@@ -108,6 +108,31 @@ const styles = StyleSheet.create({
   emptyDescription: { ...textStyles.body, textAlign: 'center' },
 });
 
+// Receives the reader toolbar's laid-out width, so the window's floating Command input stops short
+// of the toolbar's groups whatever buttons the message offers.
+export const ReaderToolbarWidthContext = createContext<(width: number) => void>(
+  () => undefined,
+);
+
+function ToolbarWidth({ children }: { readonly children: ReactNode }) {
+  const report = use(ReaderToolbarWidthContext);
+  // The toolbar leaves with its message, so the input takes the whole row again.
+  useLayoutEffect(
+    () => () => {
+      report(0);
+    },
+    [report],
+  );
+  return (
+    <View
+      onLayout={({ nativeEvent }) => {
+        report(nativeEvent.layout.width);
+      }}>
+      {children}
+    </View>
+  );
+}
+
 // Nothing selected, or a message that is not in any open mailbox.
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
@@ -636,16 +661,18 @@ function MailboxMessage({
               }
             />
             <View style={styles.toolbar}>
-              <MessageActions
-                id={message.id}
-                folder={folder}
-                onClose={onClose}>
-                <ResponseActions
-                  key={`${address}:${message.id}`}
-                  message={message}
-                  onCompose={onCompose}
-                />
-              </MessageActions>
+              <ToolbarWidth>
+                <MessageActions
+                  id={message.id}
+                  folder={folder}
+                  onClose={onClose}>
+                  <ResponseActions
+                    key={`${address}:${message.id}`}
+                    message={message}
+                    onCompose={onCompose}
+                  />
+                </MessageActions>
+              </ToolbarWidth>
             </View>
             <ReaderScrollView contentContainerStyle={styles.content}>
               <Text

@@ -49,7 +49,7 @@ import {
   useLeaveComposer,
 } from './mailbox.tsx';
 import { LinkConfirmationProvider } from './message-body.tsx';
-import { MessageDetail } from './message-detail.tsx';
+import { MessageDetail, ReaderToolbarWidthContext } from './message-detail.tsx';
 import { createWindowProfileChoices } from './profile-choices.ts';
 import {
   AccountContext,
@@ -64,17 +64,16 @@ import { usePalette } from './theme.ts';
 
 const sidebarWidth = 236;
 const sidebarPaneWidth = sidebarWidth + 2 * spacing.s;
-// The reader's toolbar row: the Command input at its leading end, the reader's glass groups at its
-// trailing end, about this wide.
-const readerToolbarWidth = 360;
-const commandsWidth = (readerWidth: number, reading: boolean) =>
+// The reader's toolbar row: the Command input at its leading end, clear of the reader's glass
+// groups, whose laid-out width the reader reports, at its trailing end.
+const commandsWidth = (readerWidth: number, toolbarWidth: number) =>
   Math.max(
     0,
     Math.min(
       floatingInputWidth,
       readerWidth -
         2 * spacing.l -
-        (reading ? readerToolbarWidth + spacing.s : 0),
+        (toolbarWidth > 0 ? toolbarWidth + spacing.s : 0),
     ),
   );
 // The composer docks across the reading pane's full width at its bottom edge, as the Figma inline
@@ -293,6 +292,7 @@ function WindowContents({
   // How far into the window the panes begin, which AppKit reports through each frame of the
   // sidebar's animation, so the search field stays centered on the window while the sidebar moves.
   const [panesInset, setPanesInset] = useState(0);
+  const [toolbarWidth, setToolbarWidth] = useState(0);
   const [view, setView] = useState<MailboxView>({});
   // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
   const [collapsed, setCollapsed] = useState(false);
@@ -424,13 +424,15 @@ function WindowContents({
                   CategorizationSpike !== undefined ? (
                     <CategorizationSpike />
                   ) : (
-                    <MessageDetail
-                      id={selected?.id}
-                      mailbox={selected?.mailbox}
-                      folder={selected?.folder}
-                      onClose={close}
-                      onCompose={compose}
-                    />
+                    <ReaderToolbarWidthContext value={setToolbarWidth}>
+                      <MessageDetail
+                        id={selected?.id}
+                        mailbox={selected?.mailbox}
+                        folder={selected?.folder}
+                        onClose={close}
+                        onCompose={compose}
+                      />
+                    </ReaderToolbarWidthContext>
                   )}
                   {composing === undefined ? null : (
                     <View
@@ -481,10 +483,7 @@ function WindowContents({
                 0,
                 panes.width - listWidth - 2 * spacing.l,
               ),
-              width: commandsWidth(
-                panes.width - listWidth,
-                selected !== undefined,
-              ),
+              width: commandsWidth(panes.width - listWidth, toolbarWidth),
             }}
           />
         </View>
