@@ -106,8 +106,11 @@ export const imapQuickActions = (
   message: ImapMessage,
   { folders, capabilities }: Listing,
 ) => {
-  const removed = ['trash', 'junk'].some(
-    (role) => imapRoleFolder(folders, role) === message.folder,
+  // A folder the server marks as Trash or Spam offers Move to Inbox even when it marks several.
+  const removed = folders.some(
+    ({ name, roles: declared }) =>
+      name === message.folder &&
+      ['trash', 'junk'].some((role) => declared.includes(role)),
   );
   const moves: ReadonlyArray<
     Readonly<{

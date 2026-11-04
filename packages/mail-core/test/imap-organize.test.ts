@@ -655,18 +655,27 @@ describe('organizing IMAP mail', () => {
     });
   });
 
-  it('ignores a chosen Trash folder where the server marks several, so none of them loses the role', async () => {
+  it('ignores a chosen Trash folder where the server marks several, and offers Move to Inbox in each', async () => {
     expect.hasAssertions();
-    const { imap, inbox } = await unmarkedTrash();
+    const { imap, inbox, changes } = await unmarkedTrash();
     imap.addFolder('Trash', ['trash']);
     imap.addFolder('Deleted Messages', ['trash']);
+    imap.deliver('Deleted Messages', { subject: 'Removed' });
     await inbox.load();
-    inbox.choose({ trash: 'Trash' });
+    await inbox.openFolder('Deleted Messages');
+    inbox.choose({ trash: 'Bin' });
     expect(
       ready(inbox.getSnapshot())
         .folders.filter(({ roles }) => roles.includes('trash'))
         .map(({ name }) => name),
     ).toStrictEqual(['Trash', 'Deleted Messages']);
+    expect(
+      changes(first(folderMessages(inbox.folder('Deleted Messages')))),
+    ).toStrictEqual([
+      { kind: 'read' },
+      { kind: 'star' },
+      { kind: 'restore', destination: 'INBOX' },
+    ]);
   });
 
   it.each([
