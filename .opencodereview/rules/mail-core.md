@@ -772,6 +772,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `invitations.ts.send` or `check` making a response actionable before its
+  outcome or rollback record settles. Keep the revision busy through that write,
+  including a definite refusal restoring an earlier confirmed response. Exercise
+  a second response while the native commit is held and reopen the mailbox;
+  otherwise the next response can capture the temporary unknown record as its
+  previous outcome and restore stale delivery uncertainty after relaunch. Busy
+  states may precede persistence, and a failed confirmation save retains the
+  documented unknown-delivery fallback.
+
 - `invitations.ts.keyOf` sharing response state across different meeting revisions.
   Scope state to the owning mailbox, UID and SEQUENCE, and use that same identity
   for reads, sends, delivery checks and sign-in recovery. Exercise the same choice
