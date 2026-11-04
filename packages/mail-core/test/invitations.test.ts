@@ -670,6 +670,46 @@ describe('meeting invitations', () => {
     later.close();
   });
 
+  it('keeps a confirmed response when a quick second response follows a refused one', async () => {
+    expect.hasAssertions();
+    const restoring = Promise.withResolvers<undefined>();
+    const proceed = Promise.withResolvers<undefined>();
+    let held = -1;
+    const { gmail, id, invitation, responses, close } = await invited(
+      (native) => ({
+        ...native,
+        commitMailbox: async (...commit) => {
+          held -= 1;
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the refused response's restore at the storage boundary.
+          if (held === 0) {
+            restoring.resolve(undefined);
+            await proceed.promise;
+          }
+          return native.commitMailbox(...commit);
+        },
+      }),
+    );
+    await responses.respond(invitation, 'accepted', copy);
+    gmail.failSend({ status: 400 }, { status: 400 });
+    held = 2;
+    const declining = responses.respond(invitation, 'declined', copy);
+    await restoring.promise;
+    const retrying = responses.respond(invitation, 'tentative', copy);
+    proceed.resolve(undefined);
+    await Promise.all([declining, retrying]);
+    close();
+
+    const later = await relaunched(gmail, id);
+
+    expect(later.responses.state(invitation)).toStrictEqual({
+      kind: 'sent',
+      choice: 'accepted',
+      at: Date.UTC(2026, 10, 2, 9, 52),
+    });
+
+    later.close();
+  });
+
   it('keeps an unknown response after recording more than one metadata window of responses', async () => {
     expect.hasAssertions();
     const { gmail, id, inbox, invitation, responses, close } = await invited();

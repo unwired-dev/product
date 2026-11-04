@@ -733,11 +733,13 @@ function createInvitationResponses(
       boundary,
       at: now(),
     });
-    set(invitation, state);
+    // The response stays busy until its outcome is recorded, so another one cannot take the
+    // temporary record as the earlier one.
     if (state.kind !== 'unknown') {
       // Unless Gmail confirmed it, nothing was sent, so the earlier record is restored.
       await record(invitation, responseOf(invitation, state) ?? previous);
     }
+    set(invitation, state);
   };
   return {
     subscribe: (listener: () => void) => {
@@ -783,8 +785,8 @@ function createInvitationResponses(
         return;
       }
       const sent = { kind: 'sent', choice: current.choice, at: now() } as const;
-      set(invitation, sent);
       await record(invitation, responseOf(invitation, sent));
+      set(invitation, sent);
     },
   };
 }
