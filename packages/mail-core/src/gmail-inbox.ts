@@ -3898,6 +3898,15 @@ export function createGmailInbox(
       : prefetchFailure(reading, 'History read failed:')(failure);
   }
 
+  // The opened mailbox's cache and its document, absent before the first save.
+  const openedDocument = Effect.gen(function* () {
+    const cache = yield* storage(native.openMailbox);
+    return {
+      cache,
+      document: Option.getOrUndefined(yield* documentOf(cache)),
+    };
+  });
+
   // Intake uses its own permit: a blocked Gmail read must not delay recording intent. Native
   // compare-and-swap fences concurrent sync commits; each intake ID also reconciles a lost commit
   // reply without appending the same intent twice.
@@ -3905,8 +3914,7 @@ export function createGmailInbox(
     const startedFor = ownership;
     const stillOwned = () => !forgotten && startedFor === ownership;
     return Effect.gen(function* () {
-      const cache = yield* storage(native.openMailbox);
-      const document = Option.getOrUndefined(yield* documentOf(cache));
+      const { cache, document } = yield* openedDocument;
       if (!stillOwned()) {
         return false;
       }
@@ -3989,8 +3997,7 @@ export function createGmailInbox(
     const startedFor = ownership;
     const stillOwned = () => !forgotten && startedFor === ownership;
     return Effect.gen(function* () {
-      const cache = yield* storage(native.openMailbox);
-      const document = Option.getOrUndefined(yield* documentOf(cache));
+      const { cache, document } = yield* openedDocument;
       if (
         !stillOwned() ||
         scope === undefined ||

@@ -551,6 +551,37 @@ const outcomeState = (
     : { kind: 'refused', choice };
 };
 
+// Whether a choice may be sent now: a response under way ignores it, an unknown delivery needs the
+// person to confirm, and the confirmed choice is not sent twice.
+const answerable = (
+  current: ResponseState,
+  choice: InvitationChoice,
+  again: boolean,
+) =>
+  current.kind !== 'sending' &&
+  current.kind !== 'checking' &&
+  (current.kind === 'unknown') === again &&
+  !(current.kind === 'sent' && current.choice === choice);
+
+// The record that restores `state` after relaunch; other states are not recorded.
+const responseOf = (
+  { uid, sequence }: Invitation,
+  state: ResponseState,
+): InvitationResponse | undefined => {
+  if (state.kind === 'sent') {
+    return { kind: 'sent', uid, sequence, choice: state.choice, at: state.at };
+  }
+  return state.kind === 'unknown'
+    ? {
+        kind: 'unknown',
+        uid,
+        sequence,
+        choice: state.choice,
+        boundary: state.boundary,
+      }
+    : undefined;
+};
+
 // A revision of the meeting is a new invitation to answer, so its sequence is part of the key.
 const keyOf = (invitation: Invitation) =>
   `${invitation.address.toLowerCase()}\u0000${invitation.uid}\u0000${invitation.sequence}`;
@@ -672,13 +703,7 @@ function createInvitationResponses(
     chosen: Readonly<{ choice: InvitationChoice; copy: ResponseCopy }>,
     again: boolean,
   ) => {
-    const current = stateOf(invitation);
-    if (
-      current.kind === 'sending' ||
-      current.kind === 'checking' ||
-      (current.kind === 'unknown') !== again ||
-      (current.kind === 'sent' && current.choice === chosen.choice)
-    ) {
+    if (!answerable(stateOf(invitation), chosen.choice, again)) {
       return;
     }
     const received = receivedOf(invitation.message);
@@ -689,18 +714,14 @@ function createInvitationResponses(
       now(),
     );
     set(invitation, { kind: 'sending', choice: chosen.choice });
-    const { uid, sequence } = invitation;
     const previous = recordOf(invitation);
+    const pending = {
+      kind: 'unknown',
+      choice: chosen.choice,
+      boundary,
+    } as const;
     // A response that cannot be recorded is not sent, so a relaunch never offers it as unanswered.
-    if (
-      !(await record(invitation, {
-        kind: 'unknown',
-        uid,
-        sequence,
-        choice: chosen.choice,
-        boundary,
-      }))
-    ) {
+    if (!(await record(invitation, responseOf(invitation, pending)))) {
       set(invitation, { kind: 'refused', choice: chosen.choice });
       return;
     }
@@ -713,11 +734,9 @@ function createInvitationResponses(
       at: now(),
     });
     set(invitation, state);
-    if (state.kind === 'sent') {
-      await record(invitation, { ...state, uid, sequence });
-    } else if (state.kind !== 'unknown') {
-      // Nothing was sent, so the response recorded before this one is restored.
-      await record(invitation, previous);
+    if (state.kind !== 'unknown') {
+      // Unless Gmail confirmed it, nothing was sent, so the earlier record is restored.
+      await record(invitation, responseOf(invitation, state) ?? previous);
     }
   };
   return {
@@ -765,11 +784,7 @@ function createInvitationResponses(
       }
       const sent = { kind: 'sent', choice: current.choice, at: now() } as const;
       set(invitation, sent);
-      await record(invitation, {
-        ...sent,
-        uid: invitation.uid,
-        sequence: invitation.sequence,
-      });
+      await record(invitation, responseOf(invitation, sent));
     },
   };
 }
