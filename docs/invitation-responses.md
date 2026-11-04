@@ -37,17 +37,19 @@ separately.
   **Delivery unknown** and never sends it again on its own. **Check Again** looks
   for the message in Gmail's Sent; **Respond Again…** asks first, because a second
   response could reach the organizer.
-- Responses survive relaunch ([#1642](https://github.com/unwired-dev/product/issues/1642)).
-  Before sending, the response is recorded in the mailbox's encrypted cache on
-  this Mac: the invitation's UID and SEQUENCE, the choice, and the MIME boundary
-  that finds it in Sent, plus the confirmation time once Gmail confirms. After
-  relaunch a confirmed response shows its choice and time, and choosing it again
-  sends nothing. A response the app quit while sending shows **Delivery unknown**,
-  as above. When the record cannot be saved, nothing is sent and the card says
-  **Not sent**. Records leave with the mailbox when it is removed, on sign-out
-  and with the account; a refused or offline response leaves the earlier record.
-  If saving Gmail's confirmation fails, relaunch restores **Delivery unknown**;
-  **Check Again** can confirm it without sending another response.
+- Responses survive relaunch
+  ([#1642](https://github.com/unwired-dev/product/issues/1642)). Before sending,
+  the response is recorded in the mailbox's encrypted cache, which the Apple host
+  stores and removes on this Mac: the invitation's UID and SEQUENCE, the choice,
+  and the MIME boundary that finds it in Sent, plus the confirmation time once
+  Gmail confirms. After relaunch a confirmed response shows its choice and time,
+  and choosing it again sends nothing. A response the app quit while sending shows
+  **Delivery unknown**, as above. When the record cannot be saved, nothing is sent
+  and the card says **Not sent**. The host removes records with the mailbox when
+  it is removed, on sign-out and with the account; a refused or offline response
+  leaves the earlier record. If saving Gmail's confirmation fails, relaunch
+  restores **Delivery unknown**; **Check Again** can confirm it without sending
+  another response.
 - Recurring meetings, cancellations, floating or unknown time zones, a timed
   meeting whose `DURATION` counts days, and damaged calendar text show **Unwired can’t read this invitation**, with no response.
 

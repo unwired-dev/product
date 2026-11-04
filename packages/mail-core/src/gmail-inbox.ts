@@ -4036,7 +4036,11 @@ export function createGmailInbox(
           (error.kind === 'conflict' || error.kind === 'invalidated'),
       }),
       Effect.catchTag('SyncFailure', (failure) =>
-        searchFailed(failure, reading).pipe(Effect.as(false)),
+        searchFailed(
+          failure,
+          reading,
+          'Invitation response was not saved:',
+        ).pipe(Effect.as(false)),
       ),
     );
   };
@@ -4639,6 +4643,7 @@ export function createGmailInbox(
   function searchFailed(
     { kind, diagnostic }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
     reading: number,
+    label = 'Gmail search failed:',
   ): Effect.Effect<GmailSearchPage | undefined> {
     // Native work started for a mailbox that changed; nothing is shown.
     if (kind === 'invalidated' || owner !== reading || state.kind !== 'ready') {
@@ -4651,7 +4656,7 @@ export function createGmailInbox(
       return Effect.succeed(searchUnavailable('offline'));
     }
     if (kind !== 'authentication') {
-      return Effect.logError('Gmail search failed:', diagnostic).pipe(
+      return Effect.logError(label, diagnostic).pipe(
         Effect.as(searchUnavailable('failed')),
       );
     }
