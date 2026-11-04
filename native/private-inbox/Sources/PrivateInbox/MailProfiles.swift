@@ -32,6 +32,17 @@ struct MailboxNotificationsRecord: Codable, Equatable {
   let enabled: Bool
 }
 
+// The Spam and Trash folders a person chose for one incarnation of an IMAP connection whose server
+// marks none. Folder names travel only inside this sealed record.
+struct MailboxFoldersRecord: Codable, Equatable {
+  static let schemaVersion = 1
+  let record: String
+  let epoch: String
+  let version: Int
+  let junk: String?
+  let trash: String?
+}
+
 // Mail Profile definitions and connection ownership in Product Sync. TypeScript reads, merges and
 // writes them; native code seals and opens each record under an identifier bound to its Profile or
 // connection, and keeps TypeScript's Profile state in the account's device-only vault.
@@ -40,6 +51,7 @@ extension RegistrationStore {
     case profile(MailProfileRecord)
     case mailbox(MailboxProfileRecord)
     case notifications(MailboxNotificationsRecord)
+    case folders(MailboxFoldersRecord)
 
     init?(_ value: [String: Any]) {
       guard let kind = value["kind"] as? String,
@@ -52,6 +64,18 @@ extension RegistrationStore {
         else { return nil }
         self = .notifications(
           MailboxNotificationsRecord(record: record, epoch: epoch, version: version, enabled: enabled))
+      } else if kind == "folders" {
+        guard let record = value["record"] as? String, record.hasPrefix("mailbox."),
+          let epoch = value["epoch"] as? String, !epoch.isEmpty
+        else { return nil }
+        let junk = value["junk"] as? String
+        let trash = value["trash"] as? String
+        guard junk.map({ !$0.isEmpty }) ?? (value["junk"] == nil),
+          trash.map({ !$0.isEmpty }) ?? (value["trash"] == nil)
+        else { return nil }
+        self = .folders(
+          MailboxFoldersRecord(
+            record: record, epoch: epoch, version: version, junk: junk, trash: trash))
       } else if kind == "profile" {
         guard let id = value["id"] as? String, !id.isEmpty, id.count <= 200 else { return nil }
         let name = value["name"] as? String
@@ -82,6 +106,7 @@ extension RegistrationStore {
       case .mailbox(let value): return try ring.identifier("mailbox-profile", value.record)
       case .notifications(let value):
         return try ring.identifier("mailbox-notifications", value.record)
+      case .folders(let value): return try ring.identifier("mailbox-folders", value.record)
       }
     }
 
@@ -90,6 +115,7 @@ extension RegistrationStore {
       case .profile: MailProfileRecord.schemaVersion
       case .mailbox: MailboxProfileRecord.schemaVersion
       case .notifications: MailboxNotificationsRecord.schemaVersion
+      case .folders: MailboxFoldersRecord.schemaVersion
       }
     }
 
@@ -98,6 +124,7 @@ extension RegistrationStore {
       case .profile(let value): return try JSONEncoder().encode(value)
       case .mailbox(let value): return try JSONEncoder().encode(value)
       case .notifications(let value): return try JSONEncoder().encode(value)
+      case .folders(let value): return try JSONEncoder().encode(value)
       }
     }
 
@@ -108,6 +135,7 @@ extension RegistrationStore {
       case .profile: object["kind"] = "profile"
       case .mailbox: object["kind"] = "mailbox"
       case .notifications: object["kind"] = "notifications"
+      case .folders: object["kind"] = "folders"
       }
       return object
     }
@@ -165,6 +193,14 @@ extension RegistrationStore {
           let value = try? JSONDecoder().decode(MailboxNotificationsRecord.self, from: plaintext)
         else { return nil }
         opened = .notifications(value)
+      } else if identifier.hasPrefix("mailbox-folders.") {
+        guard
+          let plaintext = try? vault.ring.open(
+            record: sealed, account: vault.productAccountId, identifier: identifier,
+            schemaVersion: MailboxFoldersRecord.schemaVersion),
+          let value = try? JSONDecoder().decode(MailboxFoldersRecord.self, from: plaintext)
+        else { return nil }
+        opened = .folders(value)
       } else {
         return nil
       }

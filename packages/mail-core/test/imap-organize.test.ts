@@ -565,6 +565,86 @@ describe('organizing IMAP mail', () => {
     });
   });
 
+  // A connection whose server marks Junk but no Trash, with folders named like Spam and Trash
+  // that are not marked as them, so neither is ever guessed to be one.
+  const unmarkedTrash = async () => {
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Spam');
+    imap.addFolder('Bin');
+    imap.addFolder('Old Bin');
+    imap.deliver('INBOX', { subject: 'Hello' });
+    imap.deliver('Bin', { subject: 'Deleted' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Bin');
+    const changes = (message: ImapMessage) =>
+      imapQuickActions(t, message, ready(inbox.getSnapshot())).map(
+        ({ action: change }) => change,
+      );
+    return { imap, inbox, changes };
+  };
+
+  it('takes chosen Spam and Trash folders only where the server marks none, without reading mail again', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, changes } = await unmarkedTrash();
+    const message = inboxMessage(inbox.getSnapshot(), 'Hello');
+    const deleted = first(folderMessages(inbox.folder('Bin')));
+
+    // The server's Junk folder keeps its role over the chosen Spam folder, and mail already read
+    // from the chosen Trash folder moves back to the Inbox without the folder being read again.
+    const reads = imap.server.reads.length;
+    inbox.choose({ junk: 'Spam', trash: 'Bin' });
+    expect(imap.server.reads).toHaveLength(reads);
+    expect(changes(message)).toStrictEqual([
+      { kind: 'read' },
+      { kind: 'star' },
+      { kind: 'archive', destination: 'Archive' },
+      { kind: 'trash', destination: 'Bin' },
+      { kind: 'spam', destination: 'Junk' },
+    ]);
+    expect(changes(deleted)).toStrictEqual([
+      { kind: 'read' },
+      { kind: 'star' },
+      { kind: 'restore', destination: 'INBOX' },
+    ]);
+    expect(searchedFolders(ready(inbox.getSnapshot()).folders)).toStrictEqual([
+      'INBOX',
+      'Archive',
+      'Spam',
+      'Old Bin',
+    ]);
+  });
+
+  it('refuses a queued move after another Trash folder is chosen, and offers none while the chosen one is gone or unselectable', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, changes } = await unmarkedTrash();
+    const message = inboxMessage(inbox.getSnapshot(), 'Hello');
+    inbox.choose({ trash: 'Bin' });
+
+    imap.server.failure = 'offline';
+    await inbox.organize(
+      message,
+      action(inbox.getSnapshot(), message, 'trash'),
+    );
+    inbox.choose({ trash: 'Old Bin' });
+    imap.server.failure = undefined;
+    await inbox.load();
+    expect(imap.server.changes).toStrictEqual([]);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: { kind: 'rejected' },
+    });
+
+    imap.removeFolder('Old Bin');
+    await inbox.load();
+    expect(changes(message).map(({ kind }) => kind)).not.toContain('trash');
+    imap.addFolder('Old Bin', [], false);
+    await inbox.load();
+    expect(changes(message).map(({ kind }) => kind)).not.toContain('trash');
+  });
+
   it.each([
     {
       source: 'present',

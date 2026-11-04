@@ -63,6 +63,16 @@ const ownershipOf = (sync: ReturnType<typeof setup>['sync']) => {
   }
   return ownership;
 };
+// The only Spam and Trash folder choice stored for the account.
+const choiceOf = (sync: ReturnType<typeof setup>['sync']) => {
+  const choice = storedProfiles(sync, account).find(
+    ({ kind }) => kind === 'folders',
+  );
+  if (choice?.kind !== 'folders') {
+    throw new Error('No folder choice');
+  }
+  return choice;
+};
 // Every stored notification policy as ciphertext this device can no longer open.
 const forgetPolicyKeys = (sync: ReturnType<typeof setup>['sync']) => {
   for (const [ciphertext, { record }] of sync.sealedProfiles) {
@@ -561,6 +571,89 @@ describe('mail profiles', () => {
     await flow.removeMailbox(id);
     await flow.addMailbox('gmail', false);
     expect(notifying(await flow.restore())).toStrictEqual([false]);
+  });
+
+  it('chooses an IMAP connection’s Spam and Trash folders only through Product Sync, for one incarnation', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, sync, imap: server, mailboxId } = setup();
+    await flow.signIn('google');
+    const imap = {
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: server.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    } as const;
+    await flow.connectImap(imap);
+    const id = await mailboxId();
+    const chosen = (snapshot: unknown) =>
+      mailboxesOf(decode(snapshot)).map(({ folders }) => folders);
+    // None until chosen.
+    expect(chosen(await flow.restore())).toStrictEqual([undefined]);
+
+    const saved = await flow.chooseFolders(id, { junk: 'Junk', trash: 'Bin' });
+    expect(chosen(saved)).toStrictEqual([{ junk: 'Junk', trash: 'Bin' }]);
+    expect(choiceOf(sync)).toStrictEqual({
+      kind: 'folders',
+      record: expect.any(String),
+      epoch: expect.any(String),
+      version: 1,
+      junk: 'Junk',
+      trash: 'Bin',
+    });
+    await expect(relaunch().restore()).resolves.toStrictEqual(saved);
+
+    // One folder cannot be both, and a choice that does not commit leaves the stored one.
+    await expect(
+      flow.chooseFolders(id, { junk: 'Bin', trash: 'Bin' }),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    sync.offline = true;
+    await expect(
+      flow.chooseFolders(id, { junk: 'Junk', trash: 'Trash' }),
+    ).rejects.toBeDefined();
+    sync.offline = false;
+    expect(chosen(await flow.restore())).toStrictEqual([
+      { junk: 'Junk', trash: 'Bin' },
+    ]);
+
+    // Another device chooses first: this write changes nothing and reports the conflict, and the
+    // other device's choice is adopted.
+    const choice = choiceOf(sync);
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, {
+        ...choice,
+        version: 2,
+        trash: 'Deleted',
+      });
+    };
+    await expect(
+      flow.chooseFolders(id, { junk: 'Junk', trash: 'Trash' }),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    expect(chosen(await flow.refreshPrivateSync())).toStrictEqual([
+      { junk: 'Junk', trash: 'Deleted' },
+    ]);
+
+    // Removed and connected again, the connection starts without a choice.
+    await flow.removeMailbox(id);
+    await flow.connectImap(imap);
+    expect(chosen(await flow.restore())).toStrictEqual([undefined]);
+  });
+
+  it('chooses Spam and Trash folders only for an IMAP connection', async () => {
+    expect.hasAssertions();
+    const { flow, records, mailboxId } = await connected();
+    const before = [...records().entries()];
+    await expect(
+      flow.chooseFolders(await mailboxId(), { junk: 'Junk', trash: 'Bin' }),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect([...records().entries()]).toStrictEqual(before);
   });
 
   it('keeps unreadable notification policies off and read-only across older saved state', async () => {

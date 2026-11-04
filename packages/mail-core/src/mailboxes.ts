@@ -561,6 +561,11 @@ export function createMailboxes(
     }
     return changed;
   };
+  // The Spam and Trash folders the person chose for a connection.
+  const chosenFolders = (id: string) =>
+    mailboxesOf(registration.getSnapshot().snapshot).find(
+      (mailbox) => mailbox.id === id,
+    )?.folders;
   const openNew = (
     open: readonly OpenMailbox[],
     mailboxLoading: 'automatic' | 'explicit',
@@ -621,6 +626,7 @@ export function createMailboxes(
                 arrived: report,
                 shared,
                 connection: id,
+                chosen: chosenFolders(id),
               }),
             }
           : {
@@ -678,6 +684,11 @@ export function createMailboxes(
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
     const opened = openNew(open, mailboxLoading);
+    for (const [id, entry] of inboxes) {
+      if (entry.provider === 'imap') {
+        entry.inbox.choose(chosenFolders(id));
+      }
+    }
     if (repairedImap !== undefined) {
       reloadRepaired(repairedImap, held);
     }

@@ -39,8 +39,8 @@ const SetupReasonSchema = Schema.Literals([
 export type SetupReason = typeof SetupReasonSchema.Type;
 
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
-// A Mail Profile definition, a connection's ownership or its New Mail Notification policy as native
-// code seals and opens it.
+// A Mail Profile definition, a connection's ownership, its New Mail Notification policy or its chosen
+// Spam and Trash folders as native code seals and opens it.
 export const ProfileRecordSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal('profile'),
@@ -69,6 +69,16 @@ export const ProfileRecordSchema = Schema.Union([
     epoch: Schema.NonEmptyString,
     version: Version,
     enabled: Schema.Boolean,
+  }),
+  // The folders one incarnation of an IMAP connection uses as Spam and Trash where its server
+  // marks none; a folder name travels only inside the sealed record.
+  Schema.Struct({
+    kind: Schema.Literal('folders'),
+    record: Schema.NonEmptyString,
+    epoch: Schema.NonEmptyString,
+    version: Version,
+    junk: Schema.optionalKey(Schema.NonEmptyString),
+    trash: Schema.optionalKey(Schema.NonEmptyString),
   }),
 ]);
 export type ProfileRecord = typeof ProfileRecordSchema.Type;
@@ -119,6 +129,19 @@ export const ProfileStateSchema = Schema.Struct({
         updatedAt: Schema.Finite,
         // The record's opaque Product Sync identifier, so a later unreadable read can turn it off.
         identifier: Schema.optionalKey(Schema.NonEmptyString),
+      }),
+    ),
+  ),
+  // Each IMAP connection's synchronized Spam and Trash folder choice, by its descriptor record.
+  folders: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        record: Schema.NonEmptyString,
+        epoch: Schema.NonEmptyString,
+        junk: Schema.optionalKey(Schema.NonEmptyString),
+        trash: Schema.optionalKey(Schema.NonEmptyString),
+        version: Version,
+        updatedAt: Schema.Finite,
       }),
     ),
   ),

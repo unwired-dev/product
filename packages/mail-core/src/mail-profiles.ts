@@ -2,7 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
 import type { StoredPayload } from './registration-replies.ts';
-import type { ProfileStyle } from './registration-snapshot.ts';
+import type { ChosenFolders, ProfileStyle } from './registration-snapshot.ts';
 import type {
   NativeRegistrationVault,
   ProfileRecord,
@@ -46,6 +46,11 @@ const styleOf = ({
   ...(icon === undefined ? {} : { icon }),
 });
 const sameState = Schema.toEquivalence(ProfileStateSchema);
+// A connection's chosen Spam and Trash folders, without absent keys.
+const chosenOf = ({ junk, trash }: ChosenFolders): ChosenFolders => ({
+  ...(junk === undefined ? {} : { junk }),
+  ...(trash === undefined ? {} : { trash }),
+});
 
 // Product Sync holds the Profile without a name: it was removed.
 const isRemoved = (profile: Profile) =>
@@ -146,6 +151,27 @@ export const notifyingConnections = (value: RegistrationRecord) => {
   );
 };
 
+// The Spam and Trash folders chosen in Product Sync for the current incarnation of each of this
+// device's connections that has a choice. Unreadable Profile state or keys leave every choice out.
+export const chosenFolders = (value: RegistrationRecord) => {
+  const state = value.profiles;
+  const vault = stateOf(value);
+  if (state === undefined || state === 'unreadable' || vault === undefined) {
+    return new Map<string, ChosenFolders>();
+  }
+  return new Map(
+    value.mailboxes.flatMap(({ id, epoch }) => {
+      const record = vault.mailboxes.find(
+        (mailbox) => mailbox.id === id,
+      )?.record;
+      const choice = state.folders?.find(
+        (folders) => folders.record === record && folders.epoch === epoch,
+      );
+      return choice === undefined ? [] : [[id, chosenOf(choice)] as const];
+    }),
+  );
+};
+
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier, name and style this client knows, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
@@ -230,6 +256,18 @@ const withRecord = (
           : state.profiles.map((item) => (item === known ? profile : item)),
     };
   }
+  if (record.kind === 'folders') {
+    const { kind: _, ...choice } = record;
+    return {
+      ...state,
+      folders: [
+        ...(state.folders ?? []).filter(
+          ({ record: known }) => known !== record.record,
+        ),
+        { ...choice, updatedAt },
+      ],
+    };
+  }
   if (record.kind === 'notifications') {
     const { kind: _, ...policy } = record;
     return {
@@ -286,15 +324,25 @@ const withoutUnreadablePolicy = (
       }
     : state;
 
+// The records of one connection-bound kind this state knows.
+const connectionRecords = (
+  state: ProfileState,
+  kind: 'mailbox' | 'notifications' | 'folders',
+): ReadonlyArray<Readonly<{ record: string; version: number }>> =>
+  ({
+    mailbox: state.owners,
+    notifications: state.notifications ?? [],
+    folders: state.folders ?? [],
+  })[kind];
+
 // Convex's row revision cannot make an older authenticated record newer than one already read.
 const olderRecord = (state: ProfileState, record: ProfileRecord) => {
   const version =
     record.kind === 'profile'
       ? state.profiles.find(({ id }) => id === record.id)?.version
-      : (record.kind === 'mailbox'
-          ? state.owners
-          : (state.notifications ?? [])
-        ).find((known) => known.record === record.record)?.version;
+      : connectionRecords(state, record.kind).find(
+          (known) => known.record === record.record,
+        )?.version;
   return version !== undefined && record.version < version;
 };
 
@@ -494,6 +542,7 @@ export function createMailProfileProgram<E>(
       'profile.',
       'mailbox-profile.',
       'mailbox-notifications.',
+      'mailbox-folders.',
     ]) {
       yield* list(prefix, read);
     }
@@ -814,5 +863,54 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
-  return { synchronize, create, rename, restyle, remove, move, notify };
+  // Chooses the folders the current incarnation of one of this device's IMAP connections uses as
+  // Spam and Trash. The choice needs Product Sync: one that does not commit leaves the stored one.
+  const chooseFolders = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+    folders: ChosenFolders,
+  ) {
+    if (
+      (folders.junk !== undefined && folders.junk === folders.trash) ||
+      value.mailboxes.find(({ id }) => id === connection)?.provider !== 'imap'
+    ) {
+      return yield* failWith('unavailable');
+    }
+    const { record, epoch } = yield* incarnationOf(value, connection);
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    const current = state.folders?.find((choice) => choice.record === record);
+    if (
+      current?.epoch === epoch &&
+      current.junk === folders.junk &&
+      current.trash === folders.trash
+    ) {
+      return;
+    }
+    yield* commit(state, [
+      {
+        record: {
+          kind: 'folders',
+          record,
+          epoch,
+          version: (current?.version ?? 0) + 1,
+          ...chosenOf(folders),
+        },
+        expectedUpdatedAt: current?.updatedAt,
+      },
+    ]);
+  });
+
+  return {
+    synchronize,
+    create,
+    rename,
+    restyle,
+    remove,
+    move,
+    notify,
+    chooseFolders,
+  };
 }

@@ -288,6 +288,57 @@ describe('unified mailboxes across connections', () => {
     ]);
   });
 
+  it('includes an IMAP connection in All Mail with the Spam and Trash folders the person chose, reclassifying mail already read', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Spam');
+    imap.addFolder('Bin');
+    imap.addFolder('Projects');
+    imap.addFolder('Flagged', ['flagged']);
+    imap.deliver('Bin', { subject: 'Deleted', received: minute(1) });
+    const inbox = createImapInbox(imap.native);
+    const stores = [{ id: 'imap', provider: 'imap' as const, inbox }];
+    const read = () => {
+      const [mailbox] = snapshot(stores);
+      assert.ok(mailbox !== undefined);
+      return mailbox;
+    };
+    await inbox.load();
+    await inbox.openFolder('Bin');
+    expect(unifiedFolders(read(), allMail)).toBeUndefined();
+
+    // The server's Junk folder keeps its role; the chosen Trash folder supplies the missing one.
+    // Mail already read from it is Trash at once, and All Mail leaves it, Junk and Flagged out.
+    inbox.choose({ junk: 'Spam', trash: 'Bin' });
+    expect(unifiedFolders(read(), allMail)).toStrictEqual([
+      'INBOX',
+      'Spam',
+      'Projects',
+    ]);
+    expect(unifiedFolders(read(), 'SPAM')).toStrictEqual(['Junk']);
+    expect(rows(await opened(stores, 'TRASH'))).toStrictEqual([
+      ['imap', 'Deleted', 'Bin'],
+    ]);
+
+    // A chosen folder the server no longer lists leaves the connection out again.
+    imap.removeFolder('Bin');
+    await inbox.load();
+    expect(unifiedFolders(read(), allMail)).toBeUndefined();
+    expect(notIncludedDetail(read(), allMail)).toBe(
+      'mailboxes.notIncludedSpamTrash',
+    );
+
+    // A server All folder still keeps the connection out, whatever was chosen.
+    imap.addFolder('Bin');
+    imap.addFolder('All Mail', ['all']);
+    await inbox.load();
+    expect(unifiedFolders(read(), allMail)).toBeUndefined();
+    expect(notIncludedDetail(read(), allMail)).toBe(
+      'mailboxes.notIncludedAllMail',
+    );
+  });
+
   it('lists only the window Profile’s connections', async () => {
     expect.hasAssertions();
     const { gmail, imap, stores } = await connections();

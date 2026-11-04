@@ -110,6 +110,12 @@ export const defaultProfile = 'default';
 // The owner of a connection whose Mail Profile this device cannot determine; no window reads it.
 export const unavailableProfile = 'unavailable';
 
+const ChosenFoldersSchema = Schema.Struct({
+  junk: Schema.optionalKey(Schema.NonEmptyString),
+  trash: Schema.optionalKey(Schema.NonEmptyString),
+});
+export type ChosenFolders = typeof ChosenFoldersSchema.Type;
+
 // This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
 // Inbox until its provider verifies again; 'authorization' needs it authorized again first.
 const MailboxesSchema = Schema.fromJsonString(
@@ -135,6 +141,9 @@ const MailboxesSchema = Schema.fromJsonString(
       ),
       // New Mail Notifications are turned on in Product Sync for this incarnation.
       notifications: Schema.optionalKey(Schema.Literal(true)),
+      // The folders chosen in Product Sync as this IMAP incarnation's Spam and Trash; a role its
+      // server marks on one folder stays that folder's.
+      folders: Schema.optionalKey(ChosenFoldersSchema),
     }).check(Schema.makeFilter(endpointMatchesProvider)),
   ).check(
     Schema.makeFilter(

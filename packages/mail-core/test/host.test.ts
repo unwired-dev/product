@@ -4,7 +4,9 @@ import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailb
 
 import type { NativeHostModule } from '../src/host.ts';
 
+import { allMail } from '../src/gmail-actions.ts';
 import { createHost } from '../src/host.ts';
+import { unifiedFolders } from '../src/mailboxes.ts';
 import {
   defaultProfile,
   mailboxesOf,
@@ -375,6 +377,63 @@ describe('the host assembly', () => {
     expect(gmail.labelsOf(kept)).toStrictEqual(
       expect.arrayContaining(['INBOX', 'UNREAD']),
     );
+  });
+
+  it('applies Spam and Trash folders chosen through Product Sync to the open IMAP Inbox, and reports a refused choice on its row', async () => {
+    expect.hasAssertions();
+    const { host, shared, imapServers } = syntheticHost(undefined, true);
+    const imap = createSyntheticImap();
+    imap.addFolder('Spam');
+    imap.addFolder('Bin');
+    await host.registration.register('google');
+    await host.registration.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: shared.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    const mailbox = required(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+    );
+    imapServers[mailbox.id] = imap.native;
+    await host.gmailMailboxes.load();
+    const allMailFolders = () => {
+      const connection = required(host.gmailMailboxes.getConnections()[0]);
+      return unifiedFolders(
+        { ...connection, state: connection.inbox.getSnapshot() },
+        allMail,
+      );
+    };
+    expect(allMailFolders()).toBeUndefined();
+
+    await host.registration.chooseFolders(mailbox.id, {
+      junk: 'Spam',
+      trash: 'Bin',
+    });
+    expect(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0]?.folders,
+    ).toStrictEqual({ junk: 'Spam', trash: 'Bin' });
+    expect({
+      folders: allMailFolders(),
+      failure: host.registration.getSnapshot().foldersFailure,
+    }).toStrictEqual({ folders: ['INBOX'], failure: undefined });
+
+    // One folder cannot be both, so the choice is refused and the previous one stays.
+    await host.registration.chooseFolders(mailbox.id, {
+      junk: 'Bin',
+      trash: 'Bin',
+    });
+    expect({
+      folders: allMailFolders(),
+      failure: host.registration.getSnapshot().foldersFailure,
+    }).toStrictEqual({ folders: ['INBOX'], failure: mailbox.id });
   });
 
   it('posts New Mail Notifications for an IMAP connection turned on, and archives or marks as read from them', async () => {

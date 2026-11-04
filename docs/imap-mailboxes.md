@@ -159,7 +159,18 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   Junk, Trash and mail found nowhere else. A server that doesn't mark exactly one
   selectable `\Junk` and one `\Trash` folder is not included either, with a notice
   that it doesn't say which folders hold Spam and Trash; a folder named like one is
-  never taken for it. After the refreshed list is saved successfully, a folder it no
+  never taken for it. The person can instead choose the connection's Spam and Trash
+  folders; the choice synchronizes through Product Sync for that connection only
+  until it is removed. A chosen folder supplies a role only where the server marks no
+  single folder with it, and a server marking still wins. It then serves Spam, Trash
+  and All Mail as well as Move to Trash, Mark as Spam, moving mail back to the Inbox
+  and search, for mail already read as well as later synchronizations, without
+  reading the mail again. A chosen folder that the saved listing no longer offers as
+  selectable leaves the role unknown, so the connection is not included again until
+  another is chosen; no other folder is substituted. A queued move not yet attempted
+  is refused, like other role changes, once the choice points the role elsewhere. A
+  choice that cannot be saved, including a folder chosen for both roles, keeps the
+  previous one. Sent still needs a folder the server marks `\Sent`. After the refreshed list is saved successfully, a folder it no
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 LIST responses, preserves the

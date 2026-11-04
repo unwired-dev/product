@@ -5,6 +5,7 @@ import type {
   ImapFolder,
   ImapMessage,
 } from './imap-model.ts';
+import type { ChosenFolders } from './registration-snapshot.ts';
 
 import { gmailActionCopy } from './gmail-actions.ts';
 import { inboxFolder } from './imap-model.ts';
@@ -49,6 +50,35 @@ export const imapRoleFolder = (
     ({ selectable, roles: declared }) => selectable && declared.includes(role),
   );
   return matches.length === 1 ? matches[0]?.name : undefined;
+};
+
+// A connection's folders with the Spam and Trash folders the person chose taking each role its
+// server marks no single folder with. The role stays unknown while a chosen folder is missing from
+// the listing or cannot be selected; no other folder is ever substituted.
+export const withChosenRoles = (
+  folders: readonly ImapFolder[],
+  chosen: ChosenFolders | undefined,
+) => {
+  const assigned = new Map<string, string>(
+    (['junk', 'trash'] as const).flatMap((role) => {
+      const name = chosen?.[role];
+      return name === undefined || imapRoleFolder(folders, role) !== undefined
+        ? []
+        : [[role, name] as const];
+    }),
+  );
+  if (assigned.size === 0) {
+    return folders;
+  }
+  return folders.map((folder) => ({
+    ...folder,
+    roles: [
+      ...folder.roles.filter((role) => !assigned.has(role)),
+      ...[...assigned]
+        .filter(([, name]) => name === folder.name)
+        .map(([role]) => role),
+    ],
+  }));
 };
 
 /**
