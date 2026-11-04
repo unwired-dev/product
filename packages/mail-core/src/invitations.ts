@@ -703,7 +703,8 @@ function createInvitationResponses(
     chosen: Readonly<{ choice: InvitationChoice; copy: ResponseCopy }>,
     again: boolean,
   ) => {
-    if (!answerable(stateOf(invitation), chosen.choice, again)) {
+    const current = stateOf(invitation);
+    if (!answerable(current, chosen.choice, again)) {
       return;
     }
     const received = receivedOf(invitation.message);
@@ -722,7 +723,13 @@ function createInvitationResponses(
     } as const;
     // A response that cannot be recorded is not sent, so a relaunch never offers it as unanswered.
     if (!(await record(invitation, responseOf(invitation, pending)))) {
-      set(invitation, { kind: 'refused', choice: chosen.choice });
+      // An earlier delivery that is still unknown stays unknown, since nothing new was sent.
+      set(
+        invitation,
+        current.kind === 'unknown'
+          ? current
+          : { kind: 'refused', choice: chosen.choice },
+      );
       return;
     }
     const outcome = await inbox

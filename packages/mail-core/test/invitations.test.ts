@@ -639,6 +639,22 @@ describe('meeting invitations', () => {
     close();
   });
 
+  it('keeps an unknown delivery when responding again cannot be recorded', async () => {
+    expect.hasAssertions();
+    const { gmail, invitation, responses, close } = await invited();
+    gmail.failSend({ code: 'delivery-unknown' });
+    await responses.respond(invitation, 'accepted', copy);
+    const unknown = responses.state(invitation);
+    gmail.failCommit('storage-unavailable');
+
+    await responses.respondAgain(invitation, 'declined', copy);
+
+    expect(gmail.sends).toHaveLength(0);
+    expect(responses.state(invitation)).toStrictEqual(unknown);
+
+    close();
+  });
+
   it('restores unknown delivery when saving the confirmation fails and checks it without resending', async () => {
     expect.hasAssertions();
     let refuseConfirmation: () => void = () => undefined;

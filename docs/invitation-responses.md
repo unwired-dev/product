@@ -45,7 +45,8 @@ separately.
   Gmail confirms. After relaunch a confirmed response shows its choice and time,
   and choosing it again sends nothing. A response the app quit while sending shows
   **Delivery unknown**, as above. When the record cannot be saved, nothing is sent
-  and the card says **Not sent**. The host removes records with the mailbox when
+  and the card says **Not sent**, or keeps **Delivery unknown** after **Respond
+  Again…**. The host removes records with the mailbox when
   it is removed, on sign-out and with the account; a refused or offline response
   leaves the earlier record. If saving Gmail's confirmation fails, relaunch
   restores **Delivery unknown**; **Check Again** can confirm it without sending
