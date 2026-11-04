@@ -27,7 +27,11 @@ import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import { Action } from './action.tsx';
-import { RegisterCommands, useMessageCommands } from './command-palette.tsx';
+import {
+  inputHeight,
+  RegisterCommands,
+  useMessageCommands,
+} from './command-palette.tsx';
 import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
@@ -54,13 +58,16 @@ import { MessageTranslation } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  // The fixed reader toolbar: glass groups at the pane's trailing edge, content below them.
+  // The fixed reader toolbar: glass groups at the pane's trailing edge, content below them. Its
+  // leading edge stays clear of the window's Command input, at least its symbol-only width, which
+  // floats in the same row.
   toolbar: {
     height: 36 + spacing.m,
     zIndex: 1,
     alignItems: 'flex-end',
     paddingTop: spacing.m,
-    paddingHorizontal: spacing.l,
+    paddingLeft: spacing.l + inputHeight + spacing.s,
+    paddingRight: spacing.l,
     gap: spacing.s,
   },
   content: {

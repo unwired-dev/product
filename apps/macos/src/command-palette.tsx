@@ -124,7 +124,8 @@ const handledKeys = [
   { key: 'Escape' },
 ];
 
-const inputHeight = 36;
+// The Inbox window's input also keeps this size when only its symbol fits.
+export const inputHeight = 36;
 // The Figma Settings title row's Command Input.
 const inputWidth = 268;
 // A New Message window draws its toolbar row beneath the window controls, which end 88pt in.
