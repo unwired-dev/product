@@ -772,6 +772,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `invitations.ts.send` replacing an earlier unknown delivery after a new
+  attempt's pre-send record fails. No new submission occurred, so retain the
+  earlier choice and Sent-search boundary in memory as well as storage. Exercise
+  Respond Again with that write refused, then ordinary Respond and Check Again;
+  otherwise the refusal hides recovery and bypasses duplicate-delivery confirmation.
+
 - `invitations.ts.send` or `check` making a response actionable before its
   outcome or rollback record settles. Keep the revision busy through that write,
   including a definite refusal restoring an earlier confirmed response. Exercise
