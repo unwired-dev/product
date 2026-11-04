@@ -1,0 +1,764 @@
+import type { Translate } from '@private-email/localization';
+import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type {
+  Invitation,
+  InvitationChoice,
+  InvitationDetails,
+  InvitationTime,
+  ResponseState,
+} from '@private-email/mail-core/invitations';
+import type { ReactNode } from 'react';
+
+import {
+  Alert,
+  Button,
+  Host,
+  HStack,
+  Spacer,
+  Text as SwiftUIText,
+  VStack,
+} from '@expo/ui/swift-ui';
+import {
+  accessibilityLabel as spokenLabel,
+  buttonBorderShape,
+  buttonStyle,
+  disabled,
+  frame,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
+import {
+  invitationOf,
+  invitationResponses,
+} from '@private-email/mail-core/invitations';
+import { radius, spacing } from '@private-email/mail-core/theme';
+import { use, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+
+import { SFSymbol, useOutcomeAnnouncement } from './design.tsx';
+import { useLocalization } from './localization.ts';
+import { useProviderName } from './mailbox.tsx';
+import { AccountContext } from './registration-gate.tsx';
+import { textStyles, usePalette } from './theme.ts';
+
+// The iPhone and iPad card follows the Mac one in touch sizes: 14pt inset, 18pt corners, Subheadline
+// text. A row's value moves below its label when larger text leaves it too little room.
+const styles = StyleSheet.create({
+  card: {
+    gap: spacing.m,
+    padding: 14,
+    borderRadius: radius.touchCard,
+    borderCurve: 'continuous',
+  },
+  heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  title: { ...textStyles.headline },
+  details: { gap: 6 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  label: { ...textStyles.subheadline, minWidth: 76 },
+  value: { flexGrow: 1, flexShrink: 1, flexBasis: 160, gap: 2 },
+  text: { ...textStyles.subheadline },
+  emphasized: { ...textStyles.subheadline, fontWeight: '600' },
+  smallEmphasized: { ...textStyles.footnote, fontWeight: '600' },
+  status: {
+    gap: 10,
+    paddingTop: spacing.m,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  statusRow: { flexDirection: 'row', gap: spacing.s },
+  statusText: { flex: 1, gap: 2 },
+});
+
+type InvitationInbox = Pick<
+  GmailInbox,
+  | 'send'
+  | 'findSent'
+  | 'getSnapshot'
+  | 'subscribe'
+  | 'responseSource'
+  | 'load'
+  | 'recordResponse'
+>;
+
+const choices = ['accepted', 'tentative', 'declined'] as const;
+const day = 24 * 60 * 60 * 1000;
+
+const choiceKeys = {
+  accepted: 'accept',
+  tentative: 'maybe',
+  declined: 'decline',
+} as const;
+
+const nameOf = ({ organizer }: InvitationDetails) =>
+  organizer.name ?? organizer.address;
+
+// When the meeting happens in this device's time zone: a day, or a day with its start and end.
+function useWhen(details: InvitationDetails) {
+  const { t, settings } = useLocalization();
+  const formats = useMemo(
+    () => ({
+      day: new Intl.DateTimeFormat(settings.locale, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
+      allDay: new Intl.DateTimeFormat(settings.locale, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }),
+      time: new Intl.DateTimeFormat(settings.locale, {
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+    }),
+    [settings.locale],
+  );
+  const { start, end } = details;
+  if (start.allDay) {
+    // An all-day end is exclusive: the meeting's last day is the one before it.
+    const last = end?.allDay === true ? end.at - day : start.at;
+    return t('invitation.allDay', {
+      date:
+        last > start.at
+          ? t('invitation.dateRange', {
+              start: formats.allDay.format(start.at),
+              end: formats.allDay.format(last),
+            })
+          : formats.allDay.format(start.at),
+    });
+  }
+  const at = (time: InvitationTime) =>
+    t('invitation.dateTime', {
+      date: formats.day.format(time.at),
+      time: formats.time.format(time.at),
+    });
+  if (end === undefined) {
+    return at(start);
+  }
+  return formats.day.format(start.at) === formats.day.format(end.at)
+    ? t('invitation.timeRange', {
+        date: formats.day.format(start.at),
+        start: formats.time.format(start.at),
+        end: formats.time.format(end.at),
+      })
+    : t('invitation.dateRange', {
+        start: at(start),
+        end: at(end.allDay ? start : end),
+      });
+}
+
+// Each row is one VoiceOver element that speaks its label and values.
+function DetailRow({
+  label,
+  spoken,
+  children,
+}: {
+  readonly label: string;
+  readonly spoken: readonly string[];
+  readonly children: ReactNode;
+}) {
+  const colors = usePalette();
+  return (
+    <View
+      accessible
+      accessibilityLabel={[label, ...spoken].join(', ')}
+      style={styles.row}>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>
+        {label}
+      </Text>
+      <View style={styles.value}>{children}</View>
+    </View>
+  );
+}
+
+function Details({
+  details,
+  invited,
+}: {
+  readonly details: InvitationDetails;
+  // Who was invited, then a secondary line about them.
+  readonly invited: readonly [string, string];
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const when = useWhen(details);
+  const from = t('invitation.from', { name: nameOf(details) });
+  const title = details.summary ?? t('invitation.untitled');
+  const organizer = [...new Set([nameOf(details), details.organizer.address])];
+  return (
+    <>
+      <View
+        accessible
+        accessibilityLabel={from}
+        style={styles.heading}>
+        <SFSymbol
+          name="calendar"
+          color={colors.accentInk}
+        />
+        <Text style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
+          {from}
+        </Text>
+      </View>
+      <View
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel={title}>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          {title}
+        </Text>
+      </View>
+      <View style={styles.details}>
+        <DetailRow
+          label={t('invitation.when')}
+          spoken={[when]}>
+          <Text style={[styles.text, { color: colors.textPrimary }]}>
+            {when}
+          </Text>
+        </DetailRow>
+        {details.location === undefined ? null : (
+          <DetailRow
+            label={t('invitation.where')}
+            spoken={[details.location]}>
+            <Text style={[styles.text, { color: colors.textPrimary }]}>
+              {details.location}
+            </Text>
+          </DetailRow>
+        )}
+        <DetailRow
+          label={t('invitation.organizer')}
+          spoken={organizer}>
+          {organizer.map((line, index) => (
+            <Text
+              key={line}
+              style={[
+                styles.text,
+                {
+                  color:
+                    index === 0 ? colors.textPrimary : colors.textSecondary,
+                },
+              ]}>
+              {line}
+            </Text>
+          ))}
+        </DetailRow>
+        <DetailRow
+          label={t('invitation.invited')}
+          spoken={invited}>
+          <Text style={[styles.text, { color: colors.textPrimary }]}>
+            {invited[0]}
+          </Text>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>
+            {invited[1]}
+          </Text>
+        </DetailRow>
+      </View>
+    </>
+  );
+}
+
+// The response status row: an icon or a spinner, what happened, and what the person can do next.
+function Status({
+  icon,
+  iconColor,
+  busy = false,
+  title,
+  detail,
+  children,
+}: {
+  readonly icon?: string;
+  readonly iconColor?: string;
+  readonly busy?: boolean;
+  readonly title: string;
+  readonly detail: string;
+  readonly children?: ReactNode;
+}) {
+  const colors = usePalette();
+  return (
+    <View style={[styles.status, { borderTopColor: colors.separator }]}>
+      <View style={styles.statusRow}>
+        {busy ? (
+          <ActivityIndicator size="small" />
+        ) : (
+          <SFSymbol
+            name={icon ?? 'circle'}
+            color={iconColor ?? colors.textSecondary}
+          />
+        )}
+        <View
+          accessible
+          accessibilityLabel={`${title}. ${detail}`}
+          style={styles.statusText}>
+          <Text style={[styles.emphasized, { color: colors.textPrimary }]}>
+            {title}
+          </Text>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>
+            {detail}
+          </Text>
+        </View>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+type Shown = Readonly<{
+  icon?: string;
+  iconColor?: string;
+  busy?: boolean;
+  title: string;
+  detail: string;
+}>;
+
+type Describing = Readonly<{
+  t: Translate;
+  name: string;
+  address: string;
+  provider: string;
+  colors: ReturnType<typeof usePalette>;
+  time: Intl.DateTimeFormat;
+}>;
+
+type Kind = ResponseState['kind'];
+
+const choiceOf = (t: Translate, state: ResponseState) =>
+  'choice' in state ? t(`invitation.${choiceKeys[state.choice]}`) : '';
+
+// How the card describes each response state.
+const describe: {
+  readonly [K in Kind]: (
+    state: ResponseState & { kind: K },
+    context: Describing,
+  ) => Shown;
+} = {
+  unanswered: (_, { t, name, address }) => ({
+    title: t('invitation.unanswered'),
+    detail: t('invitation.unansweredDetail', { name, address }),
+  }),
+  sending: (state, { t, address }) => ({
+    busy: true,
+    title: t('invitation.sending'),
+    detail: t('invitation.sendingDetail', {
+      choice: choiceOf(t, state),
+      address,
+    }),
+  }),
+  sent: (state, { t, name, provider, colors, time }) => ({
+    icon: 'checkmark.circle.fill',
+    iconColor: colors.accentInk,
+    title: t(`invitation.${state.choice}`),
+    detail: t('invitation.sentDetail', {
+      provider,
+      name,
+      time: time.format(state.at),
+    }),
+  }),
+  refused: (state, { t, name, provider, colors }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    iconColor: colors.statusDestructive,
+    title: t('invitation.refused'),
+    detail: t('invitation.refusedDetail', {
+      provider,
+      choice: choiceOf(t, state),
+      name,
+    }),
+  }),
+  unknown: (state, { t, provider, colors }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    iconColor: colors.statusWarning,
+    title: t('invitation.unknown'),
+    detail: t('invitation.unknownDetail', {
+      provider,
+      choice: choiceOf(t, state),
+    }),
+  }),
+  checking: (state, { t, provider }) => ({
+    busy: true,
+    title: t('invitation.checking', { provider }),
+    detail: t('invitation.checkingDetail', { choice: choiceOf(t, state) }),
+  }),
+  offline: (_, { t }) => ({
+    icon: 'wifi.slash',
+    title: t('invitation.offline'),
+    detail: t('invitation.offlineDetail'),
+  }),
+  authentication: (_, { t, address, provider, colors }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    iconColor: colors.statusWarning,
+    title: t('invitation.authentication', { provider }),
+    detail: t('invitation.authenticationDetail', { address }),
+  }),
+};
+
+const described = <K extends Kind>(
+  state: ResponseState & { kind: K },
+  context: Describing,
+) => describe[state.kind](state, context);
+
+// An offline device or a refused sign-in, which the mailbox's sync names before anything is sent.
+const blockedBy = (sync: string | undefined) => {
+  if (sync === 'retry') {
+    return 'offline';
+  }
+  return sync === 'authentication' ? 'authentication' : undefined;
+};
+
+// A row of native push buttons: the three choices share the width, the other actions keep theirs.
+// From the first accessibility text size the buttons stack at full width, since a row would cut
+// their labels short.
+const useStacked = () => useWindowDimensions().fontScale > 1.4;
+
+function Actions({
+  fill = false,
+  children,
+}: {
+  readonly fill?: boolean;
+  readonly children: ReactNode;
+}) {
+  const stacked = useStacked();
+  return (
+    <Host matchContents={{ vertical: true }}>
+      {stacked ? (
+        <VStack spacing={spacing.s}>{children}</VStack>
+      ) : (
+        <HStack spacing={spacing.s}>
+          {children}
+          {fill ? null : <Spacer />}
+        </HStack>
+      )}
+    </Host>
+  );
+}
+
+function Action({
+  label,
+  spoken,
+  chosen = false,
+  fill = false,
+  off = false,
+  onPress,
+}: {
+  readonly label: string;
+  readonly spoken?: string;
+  readonly chosen?: boolean;
+  readonly fill?: boolean;
+  readonly off?: boolean;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  const stacked = useStacked();
+  const wide = fill || stacked;
+  return (
+    <Button
+      onPress={onPress}
+      modifiers={[
+        buttonStyle(chosen ? 'borderedProminent' : 'bordered'),
+        buttonBorderShape('capsule'),
+        tint(chosen ? colors.accentFill : colors.accentInk),
+        disabled(off),
+        spokenLabel(spoken ?? label),
+      ]}>
+      <SwiftUIText modifiers={wide ? [frame({ maxWidth: Infinity })] : []}>
+        {label}
+      </SwiftUIText>
+    </Button>
+  );
+}
+
+function Responding({
+  inbox,
+  invitation,
+  connection,
+  current,
+}: {
+  readonly inbox: InvitationInbox;
+  readonly invitation: Invitation;
+  readonly connection: string | undefined;
+  readonly current: () => boolean;
+}) {
+  const colors = usePalette();
+  const { t, settings } = useLocalization();
+  const provider = useProviderName();
+  const account = use(AccountContext);
+  // The choice a Respond Again alert asks about; leaving the message unmounts the alert.
+  const [asking, setAsking] = useState<InvitationChoice>();
+  const responses = invitationResponses(inbox);
+  const recorded = useSyncExternalStore(responses.subscribe, () =>
+    responses.state(invitation),
+  );
+  const sync = useSyncExternalStore(inbox.subscribe, () => {
+    const state = inbox.getSnapshot();
+    return state.kind === 'ready' ? state.sync : undefined;
+  });
+  const time = useMemo(
+    () =>
+      new Intl.DateTimeFormat(settings.locale, {
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+    [settings.locale],
+  );
+  const name = nameOf(invitation.details);
+  const blocked =
+    recorded.kind === 'unanswered' ||
+    recorded.kind === 'sent' ||
+    recorded.kind === 'refused'
+      ? blockedBy(sync)
+      : undefined;
+  const shown = described(
+    blocked === undefined ? recorded : { kind: blocked, choice: 'accepted' },
+    { t, name, address: invitation.address, provider, colors, time },
+  );
+  // iOS ignores live regions, so VoiceOver hears the status when it changes, not when it opens.
+  const spoken = `${shown.title}. ${shown.detail}`;
+  // oxlint-disable-next-line react/hook-use-state -- The status shown on opening never changes.
+  const [opened] = useState(spoken);
+  useOutcomeAnnouncement(spoken === opened ? undefined : spoken, true);
+  const copy = (choice: InvitationChoice) => ({
+    subject: t(`invitation.${choice}Subject`, {
+      summary: invitation.details.summary ?? t('invitation.untitled'),
+    }),
+    text: t(`invitation.${choice}Text`, {
+      address: invitation.address,
+    }),
+  });
+  const signIn = async (
+    { authorizeMailbox }: NonNullable<typeof account>,
+    mailbox: string,
+  ) => {
+    if (!current()) {
+      return;
+    }
+    // Authorization also resolves when the person cancels it, so the buttons return only once the
+    // reloaded mailbox no longer needs signing in.
+    const signedIn = await authorizeMailbox(mailbox)
+      .then(() => inbox.load())
+      .then(
+        () => {
+          const state = inbox.getSnapshot();
+          return state.kind === 'ready' && state.sync !== 'authentication';
+        },
+        () => false,
+      );
+    if (signedIn && current()) {
+      responses.signedIn(invitation);
+    }
+  };
+  if (blocked === 'authentication' || recorded.kind === 'authentication') {
+    return (
+      <Status {...shown}>
+        {account === undefined || connection === undefined ? undefined : (
+          <Actions>
+            <Action
+              label={t('invitation.signIn')}
+              onPress={() => {
+                void signIn(account, connection);
+              }}
+            />
+          </Actions>
+        )}
+      </Status>
+    );
+  }
+  if (recorded.kind === 'unknown' || recorded.kind === 'checking') {
+    const checking = recorded.kind === 'checking';
+    const choice = t(`invitation.${choiceKeys[recorded.choice]}`);
+    return (
+      <Status {...shown}>
+        <Actions>
+          <Action
+            label={t('invitation.checkAgain')}
+            off={checking}
+            onPress={() => {
+              if (current()) {
+                void responses.check(invitation);
+              }
+            }}
+          />
+          <Action
+            label={t('invitation.respondAgain')}
+            off={checking}
+            onPress={() => {
+              if (current()) {
+                setAsking(recorded.choice);
+              }
+            }}
+          />
+          {/* The system alert owns focus and dismissal; Cancel's role makes it the dismissal choice. */}
+          <Alert
+            testID="respond-again"
+            title={t('invitation.respondAgainTitle')}
+            isPresented={asking !== undefined}
+            onIsPresentedChange={(presented) => {
+              if (!presented) {
+                setAsking(undefined);
+              }
+            }}>
+            {/* SwiftUI drops an alert attached to an empty view, so it anchors on a zero-size spacer. */}
+            <Alert.Trigger>
+              <Spacer modifiers={[frame({ width: 0, height: 0 })]} />
+            </Alert.Trigger>
+            <Alert.Actions>
+              <Button
+                label={t('invitation.respondAgainConfirm')}
+                onPress={() => {
+                  setAsking(undefined);
+                  if (asking !== undefined && current()) {
+                    void responses.respondAgain(
+                      invitation,
+                      asking,
+                      copy(asking),
+                    );
+                  }
+                }}
+              />
+              <Button
+                // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+                role="cancel"
+                label={t('common.cancel')}
+                onPress={() => {
+                  setAsking(undefined);
+                }}
+              />
+            </Alert.Actions>
+            <Alert.Message>
+              <SwiftUIText>
+                {t('invitation.respondAgainDetail', { provider, choice, name })}
+              </SwiftUIText>
+            </Alert.Message>
+          </Alert>
+        </Actions>
+      </Status>
+    );
+  }
+  const chosen = recorded.kind === 'sent' ? recorded.choice : undefined;
+  return (
+    <Status {...shown}>
+      <Actions fill>
+        {choices.map((choice) => (
+          <Action
+            key={choice}
+            fill
+            chosen={chosen === choice}
+            label={
+              chosen === choice
+                ? t('invitation.chosen', {
+                    choice: t(`invitation.${choiceKeys[choice]}`),
+                  })
+                : t(`invitation.${choiceKeys[choice]}`)
+            }
+            spoken={
+              chosen === choice
+                ? t(`invitation.${choice}`)
+                : t(`invitation.${choiceKeys[choice]}`)
+            }
+            off={recorded.kind === 'sending' || blocked === 'offline'}
+            onPress={() => {
+              if (current()) {
+                void responses.respond(invitation, choice, copy(choice));
+              }
+            }}
+          />
+        ))}
+      </Actions>
+    </Status>
+  );
+}
+
+// The opened Gmail message's meeting invitation: the meeting, and Accept, Maybe and Decline for
+// the mailbox the invitation names. A response is sent only when the person chooses it.
+export function InvitationCard({
+  inbox,
+  id,
+  connection,
+  current,
+}: {
+  readonly inbox: InvitationInbox;
+  readonly id: string;
+  readonly connection: string | undefined;
+  readonly current: () => boolean;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const provider = useProviderName();
+  const document = useSyncExternalStore(inbox.subscribe, () =>
+    inbox.responseSource(id),
+  );
+  const address = useSyncExternalStore(inbox.subscribe, () => {
+    const state = inbox.getSnapshot();
+    return state.kind === 'ready' ? state.address : undefined;
+  });
+  const offer = useMemo(
+    () =>
+      document === undefined || address === undefined
+        ? undefined
+        : invitationOf(document, address),
+    [document, address],
+  );
+  if (offer === undefined) {
+    return null;
+  }
+  const card = [styles.card, { backgroundColor: colors.fillQuiet }];
+  if (offer.kind === 'unreadable') {
+    return (
+      <View style={card}>
+        <View
+          accessible
+          accessibilityLabel={t('invitation.heading')}>
+          <Text
+            style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
+            {t('invitation.heading')}
+          </Text>
+        </View>
+        <Status
+          icon="exclamationmark.triangle.fill"
+          iconColor={colors.statusWarning}
+          title={t('invitation.unreadable')}
+          detail={t('invitation.unreadableDetail')}
+        />
+      </View>
+    );
+  }
+  if (offer.kind === 'elsewhere') {
+    return (
+      <View style={card}>
+        <Details
+          details={offer.details}
+          invited={[offer.invited.join(', '), t('invitation.notYours')]}
+        />
+        <Status
+          icon="person.crop.circle.badge.exclamationmark"
+          title={t('invitation.elsewhere')}
+          detail={t('invitation.elsewhereDetail', {
+            name: nameOf(offer.details),
+            addresses: offer.invited.join(', '),
+          })}
+        />
+      </View>
+    );
+  }
+  return (
+    <View style={card}>
+      <Details
+        details={offer.details}
+        invited={[
+          t('invitation.you'),
+          t('invitation.yourAddress', { address: offer.address, provider }),
+        ]}
+      />
+      <Responding
+        inbox={inbox}
+        invitation={offer}
+        connection={connection}
+        current={current}
+      />
+    </View>
+  );
+}
