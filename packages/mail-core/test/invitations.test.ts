@@ -1,10 +1,16 @@
+import type { ResponseState } from '@private-email/mail-core/invitations';
 import type { BodyDocument } from '@private-email/mail-core/message-body';
 
+import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
+  createInvitationFormats,
+  invitationBlockedBy,
   invitationOf,
   invitationReply,
   invitationResponses,
+  invitationStatus,
+  invitationWhen,
 } from '@private-email/mail-core/invitations';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 
@@ -1079,5 +1085,148 @@ describe('meeting invitations', () => {
     });
 
     close();
+  });
+
+  describe('card text shared by the Mac, iPhone and iPad readers', () => {
+    const utc = (options: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' });
+    // Pinned to UTC so the expected text doesn't depend on the test machine's time zone.
+    const formats = {
+      ...createInvitationFormats('en-US'),
+      day: utc({
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
+      time: utc({ hour: 'numeric', minute: '2-digit' }),
+    };
+    const organizer = {
+      name: 'Lena Fischer',
+      address: 'lena@northwind.example',
+    };
+    const when = (
+      start: { at: number; allDay: boolean },
+      end?: { at: number; allDay: boolean },
+    ) =>
+      invitationWhen(english, formats, {
+        organizer,
+        start,
+        ...(end === undefined ? {} : { end }),
+      } as Parameters<typeof invitationWhen>[2]).replaceAll('\u202F', ' ');
+
+    it('reads an all-day end as exclusive', () => {
+      expect.hasAssertions();
+
+      const allDay = (date: number) => ({
+        at: Date.UTC(2026, 10, date),
+        allDay: true,
+      });
+      expect(when(allDay(6), allDay(7))).toBe('Fri, Nov 6, 2026, all day');
+      expect(when(allDay(6), allDay(9))).toBe(
+        'Fri, Nov 6, 2026 – Sun, Nov 8, 2026, all day',
+      );
+    });
+
+    it('names the day once for a same-day meeting and twice across days', () => {
+      expect.hasAssertions();
+
+      const at = (date: number, hour: number) => ({
+        at: Date.UTC(2026, 10, date, hour),
+        allDay: false,
+      });
+      expect(when(at(6, 13), at(6, 14))).toBe(
+        'Fri, Nov 6, 2026, 1:00 PM–2:00 PM',
+      );
+      expect(when(at(6, 22), at(7, 1))).toBe(
+        'Fri, Nov 6, 2026, 10:00 PM – Sat, Nov 7, 2026, 1:00 AM',
+      );
+      expect(when(at(6, 13))).toBe('Fri, Nov 6, 2026, 1:00 PM');
+    });
+
+    it('describes each response state', () => {
+      expect.hasAssertions();
+
+      const context = {
+        t: english,
+        name: 'Lena Fischer',
+        address: me,
+        provider: 'Gmail',
+        time: formats.time,
+      };
+      const normalized = (status: ReturnType<typeof invitationStatus>) => ({
+        ...status,
+        detail: status.detail.replaceAll('\u202F', ' '),
+      });
+      const choice = 'accepted' as const;
+      const boundary = 'b';
+      const states: readonly ResponseState[] = [
+        { kind: 'unanswered' },
+        { kind: 'sending', choice },
+        { kind: 'sent', choice, at: Date.UTC(2026, 10, 4, 9, 41) },
+        { kind: 'refused', choice },
+        { kind: 'unknown', choice, boundary },
+        { kind: 'checking', choice, boundary },
+        { kind: 'offline', choice },
+        { kind: 'authentication', choice },
+      ];
+
+      expect(
+        states.map((state) => normalized(invitationStatus(state, context))),
+      ).toStrictEqual([
+        {
+          title: 'Not answered yet',
+          detail: `Your response goes to Lena Fischer from ${me}.`,
+        },
+        {
+          busy: true,
+          title: 'Sending your response…',
+          detail: `Accept, from ${me}.`,
+        },
+        {
+          icon: 'checkmark.circle.fill',
+          tone: 'accentInk',
+          title: 'Accepted',
+          detail:
+            'Gmail confirmed it sent your response to Lena Fischer at 9:41 AM. Choose another response to change it.',
+        },
+        {
+          icon: 'exclamationmark.triangle.fill',
+          tone: 'statusDestructive',
+          title: 'Not sent',
+          detail:
+            'Gmail refused your Accept response, so Lena Fischer didn’t get it. Choose a response to try again.',
+        },
+        {
+          icon: 'exclamationmark.triangle.fill',
+          tone: 'statusWarning',
+          title: 'Delivery unknown',
+          detail:
+            'Gmail may have sent your Accept response. Unwired won’t send it again on its own — check Sent in Gmail, or check again.',
+        },
+        {
+          busy: true,
+          title: 'Checking with Gmail…',
+          detail: 'Looking for your Accept response in Sent.',
+        },
+        {
+          icon: 'wifi.slash',
+          title: 'You’re offline',
+          detail:
+            'Connect to respond. Unwired doesn’t keep a response to send later.',
+        },
+        {
+          icon: 'exclamationmark.triangle.fill',
+          tone: 'statusWarning',
+          title: 'Gmail needs you to sign in again',
+          detail: `${me} can’t send responses until you sign in. Nothing has been sent.`,
+        },
+      ]);
+      expect([
+        invitationBlockedBy('retry'),
+        invitationBlockedBy('authentication'),
+        invitationBlockedBy('idle'),
+      ]).toStrictEqual(['offline', 'authentication', undefined]);
+    });
   });
 });
