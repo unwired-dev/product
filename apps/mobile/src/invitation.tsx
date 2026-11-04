@@ -607,8 +607,6 @@ export function InvitationCard({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const provider = useProviderName();
-  const mailboxes = useMailboxes();
   const document = useSyncExternalStore(inbox.subscribe, () =>
     inbox.responseSource(id),
   );
@@ -682,16 +680,41 @@ export function InvitationCard({
       </View>
     );
   }
+  return (
+    <Invited
+      inbox={inbox}
+      invitation={offer}
+      connection={connection}
+      current={current}
+    />
+  );
+}
+
+// An invitation the opened mailbox's address can answer.
+function Invited({
+  inbox,
+  invitation,
+  connection,
+  current,
+}: {
+  readonly inbox: InvitationInbox;
+  readonly invitation: Invitation;
+  readonly connection: string | undefined;
+  readonly current: () => boolean;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const provider = useProviderName();
   // Invited at other addresses of the Profile too, each address is listed instead of You.
-  const others = alsoInvited(offer, mailboxes);
+  const others = alsoInvited(invitation, useMailboxes());
   const yours = t('invitation.yourAddress', {
-    address: offer.address,
+    address: invitation.address,
     provider,
   });
   return (
-    <View style={card}>
+    <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
       <Details
-        details={offer.details}
+        details={invitation.details}
         invited={
           others.length === 0
             ? [t('invitation.you'), yours]
@@ -708,9 +731,9 @@ export function InvitationCard({
       />
       {/* A new invitation starts with no open question or announcement from the last one. */}
       <Responding
-        key={`${offer.address}\n${offer.uid}\n${offer.sequence}`}
+        key={`${invitation.address}\n${invitation.uid}\n${invitation.sequence}`}
         inbox={inbox}
-        invitation={offer}
+        invitation={invitation}
         others={others.length}
         connection={connection}
         current={current}
