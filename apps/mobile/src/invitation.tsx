@@ -397,13 +397,16 @@ function Responding({
       address: invitation.address,
     }),
   });
+  // One sign-in at a time: a second tap while the mailbox reloads starts nothing.
+  const signingIn = useRef(false);
   const signIn = async (
     { authorizeMailbox }: NonNullable<typeof account>,
     mailbox: string,
   ) => {
-    if (!current()) {
+    if (!current() || signingIn.current) {
       return;
     }
+    signingIn.current = true;
     // Authorization also resolves when the person cancels it, so the buttons return only once the
     // reloaded mailbox no longer needs signing in.
     const signedIn = await authorizeMailbox(mailbox)
@@ -414,7 +417,10 @@ function Responding({
           return state.kind === 'ready' && state.sync !== 'authentication';
         },
         () => false,
-      );
+      )
+      .finally(() => {
+        signingIn.current = false;
+      });
     if (signedIn && current()) {
       responses.signedIn(invitation);
     }
@@ -620,7 +626,9 @@ export function InvitationCard({
           t('invitation.yourAddress', { address: offer.address, provider }),
         ]}
       />
+      {/* A new invitation starts with no open question or announcement from the last one. */}
       <Responding
+        key={`${offer.address}\n${offer.uid}\n${offer.sequence}`}
         inbox={inbox}
         invitation={offer}
         connection={connection}

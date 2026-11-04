@@ -68,8 +68,8 @@ separately.
 
 ## iPhone and iPad
 
-- The card follows the iPhone and iPad frames: Subheadline rows in an 18pt quiet
-  card, and native capsule **Accept**, **Maybe** and **Decline** buttons in one row;
+- The card follows the iPhone and iPad frames: Subheadline rows in a quiet card
+  (18pt corners on iPhone, 10pt on iPad), and native capsule **Accept**, **Maybe** and **Decline** buttons in one row;
   the chosen one takes the accent fill. With larger text each value moves below its
   label, and from the first accessibility size the buttons stack at full width.
 - **Respond Again…** asks in the system alert, with **Respond Again** and
