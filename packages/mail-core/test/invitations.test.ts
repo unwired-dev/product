@@ -191,21 +191,38 @@ describe('meeting invitations', () => {
   // Prague leaves summer time on 25 October 2026, so the last Fridays start an hour later in UTC.
   const series = meeting.map((line) => line.replace('20261106', '20261016'));
 
-  // Prague has no 02:30 on 28 March 2027, so that week's meeting doesn't happen or count.
+  // Prague has no 02:30 on 28 March 2027, and Apia skipped Friday 30 December 2011, so those
+  // weeks' meetings don't happen or count; a first meeting in the gap keeps the declared time later.
   it.each([
-    ['for a count', 'COUNT=3', Date.UTC(2027, 3, 11, 0, 30)],
-    ['until a time', 'UNTIL=20270328T020000Z', Date.UTC(2027, 2, 21, 1, 30)],
+    ['Europe/Prague:20270321T0230', 'COUNT=3', Date.UTC(2027, 3, 11, 0, 30)],
+    [
+      'Europe/Prague:20270321T0230',
+      'UNTIL=20270328T020000Z',
+      Date.UTC(2027, 2, 21, 1, 30),
+    ],
+    ['Europe/Prague:20270328T0230', 'COUNT=2', Date.UTC(2027, 3, 4, 0, 30)],
+    [
+      'Europe/Prague:20270328T0230',
+      'UNTIL=20270404T003000Z',
+      Date.UTC(2027, 3, 4, 0, 30),
+    ],
+    ['Pacific/Apia:20111223T1400', 'COUNT=3', Date.UTC(2012, 0, 13)],
+    [
+      'Pacific/Apia:20111223T1400',
+      'UNTIL=20111231T010000Z',
+      Date.UTC(2011, 11, 24),
+    ],
   ])(
-    'skips a meeting a daylight-saving gap removes from a series %s',
-    (_, end, lastStart) => {
+    'skips meetings a time-zone gap removes from a series from %s, %s',
+    (from, end, lastStart) => {
       expect.hasAssertions();
-      const spring = meeting.map((line) =>
+      const gap = meeting.map((line) =>
         line
-          .replace('20261106T140000', '20270321T023000')
-          .replace('20261106T150000', '20270321T033000'),
+          .replace('Europe/Prague:20261106T1400', from)
+          .replace('Europe/Prague:20261106T1500', `${from.slice(0, -4)}2359`),
       );
       expect(
-        offered(calendar([...spring, `RRULE:FREQ=WEEKLY;${end}`])).details
+        offered(calendar([...gap, `RRULE:FREQ=WEEKLY;${end}`])).details
           .lastStart,
       ).toBe(lastStart);
     },

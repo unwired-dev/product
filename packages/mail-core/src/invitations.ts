@@ -382,17 +382,47 @@ const weeklyRule = (value: string, weekday: string | undefined) => {
     : undefined;
 };
 
-// A timed meeting's first start in its own zone, so later meetings in a series keep its
-// wall-clock time.
-const zonedStart = (dtstart: Line | undefined, start: InvitationTime) =>
-  dtstart === undefined || start.allDay
-    ? undefined
-    : DateTime.zoneMakeNamed(parameterOf(dtstart, 'TZID') ?? 'UTC').pipe(
-        Option.flatMap((timeZone) =>
-          DateTime.makeZoned(start.at, { timeZone }),
-        ),
-        Option.getOrUndefined,
-      );
+// The weekday of a timed meeting's declared start and when each week of its series starts: the
+// first at the meeting's start, each later one at the declared wall-clock time 7 days on, or
+// undefined when its zone skips that time.
+const weeklyStarts = (dtstart: Line | undefined, start: InvitationTime) => {
+  const [y = 0, mo = 1, d = 1, h = 0, mi = 0, se = 0] = (
+    dateTime.exec(dtstart?.value.trim() ?? '') ?? []
+  )
+    .slice(1, 7)
+    .map(Number);
+  const timeZone = DateTime.zoneMakeNamed(
+    (dtstart && parameterOf(dtstart, 'TZID')) ?? 'UTC',
+  ).pipe(Option.getOrUndefined);
+  if (dtstart === undefined || start.allDay || timeZone === undefined) {
+    return undefined;
+  }
+  const at = (week: number) => {
+    const naive = Date.UTC(y, mo - 1, d + 7 * week, h, mi, se);
+    const meeting = DateTime.makeZoned(naive, {
+      timeZone,
+      adjustForTimeZone: true,
+    }).pipe(Option.getOrUndefined);
+    if (meeting === undefined) {
+      return undefined;
+    }
+    const local = DateTime.toParts(meeting);
+    const declared =
+      Date.UTC(
+        local.year,
+        local.month - 1,
+        local.day,
+        local.hour,
+        local.minute,
+        local.second,
+      ) === naive;
+    return declared ? DateTime.toEpochMillis(meeting) : undefined;
+  };
+  return {
+    weekday: new Date(Date.UTC(y, mo - 1, d)).getUTCDay(),
+    at: (week: number) => (week === 0 ? start.at : at(week)),
+  };
+};
 
 // How many weeks after the first meeting a readable rule's last one starts; negative when an UNTIL
 // comes before the first. `at` is undefined for a week whose wall-clock time a daylight-saving gap
@@ -430,24 +460,16 @@ const seriesOf = (
   if (rrule === undefined) {
     return {};
   }
-  const first = zonedStart(find(event, 'DTSTART'), start);
+  const starts = weeklyStarts(find(event, 'DTSTART'), start);
   const rule =
-    first === undefined
+    starts === undefined
       ? undefined
-      : weeklyRule(rrule.value, weekdays[DateTime.toParts(first).weekDay]);
-  if (first === undefined || rule === undefined) {
+      : weeklyRule(rrule.value, weekdays[starts.weekday]);
+  if (starts === undefined || rule === undefined) {
     return undefined;
   }
-  const { hour, minute } = DateTime.toParts(first);
-  const at = (week: number) => {
-    const meeting = DateTime.add(first, { weeks: week });
-    const parts = DateTime.toParts(meeting);
-    return parts.hour === hour && parts.minute === minute
-      ? DateTime.toEpochMillis(meeting)
-      : undefined;
-  };
-  const week = lastWeekOf(rule, start, at);
-  const lastStart = week < 0 ? undefined : at(week);
+  const week = lastWeekOf(rule, start, starts.at);
+  const lastStart = week < 0 ? undefined : starts.at(week);
   return lastStart === undefined ? undefined : { lastStart };
 };
 
