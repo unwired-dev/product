@@ -1749,7 +1749,7 @@ final class WindowTests: XCTestCase {
       "", "16 September 2025 at 00:20 UTC", "30 September 2025 at 08:00 UTC", "App",
       "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
       "Colleague 003, colleague003@example.invalid", "Favorites",
-      "Gmail · other@example.invalid", "Go To", "Known Tracking Pixels stay blocked for every remote-content policy.",
+      "Go To", "Known Tracking Pixels stay blocked for every remote-content policy.",
       "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
       "Mailboxes", "Microsoft · casey@example.invalid", "On-device assistance is off.",
       "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
@@ -1769,6 +1769,10 @@ final class WindowTests: XCTestCase {
     let touchBar =
       type == .touchBar || (type == .popUpButton && ["list style", "text alignment"].contains(label))
     switch issue.auditType {
+    // #1550 covers this Inbox header only while Settings or a sheet dims its window.
+    // Keep the foreground Inbox audit unexempted for #1574.
+    case .contrast where type == .staticText && label == "Gmail · other@example.invalid":
+      return ["Settings", "Privacy & Data", "Language", "Link sheet"].contains(screen) ? "#1550" : nil
     case .contrast where type == .staticText:
       return contrastGaps.first { $0.value.contains(label) }?.key
     case .action where touchBar, .sufficientElementDescription where touchBar:
