@@ -34,6 +34,7 @@ const otherRole = (role: Role) => (role === 'junk' ? 'trash' : 'junk');
 
 // The roles a folder keeps out of both choices, as the menu names them.
 const otherRoles = {
+  inbox: 'inbox.title',
   sent: 'mailboxes.sent',
   drafts: 'drafts.heading',
   archive: 'mailboxes.archive',
@@ -193,7 +194,8 @@ function FolderSheet({
     );
   const menu = (role: Role) => {
     const item = (folder: ImapFolder) => {
-      const subtitle = holding(role, folder);
+      const subtitle =
+        folder.name === inboxFolder ? undefined : holding(role, folder);
       return {
         key: `folder:${folder.name}`,
         title: folder.name === inboxFolder ? t('inbox.title') : folder.name,

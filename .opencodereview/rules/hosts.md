@@ -155,6 +155,21 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### React correctness
 
+- `folder-choice.tsx` checking candidate folders against only some server roles.
+  Compare `otherRoles`, `holding`, `taken` and Save eligibility with the complete
+  role vocabulary in `imap-model.ts`, including Flagged and differently named
+  Inbox-role folders, and the other role's current server assignment or draft.
+  Exercise both menus and a selected folder
+  acquiring a conflicting role during refresh; otherwise a folder already used
+  by the server can be offered and saved as Spam or Trash.
+
+- `folder-choice.tsx` using the first missing choice to decide every row's
+  availability. Check each saved pick against the current selectable listing,
+  including both folders disappearing together and one returning. A shared
+  warning may name the first missing role, but every affected row must report
+  unavailability and Save must remain disabled until all choices qualify;
+  otherwise the second missing folder still appears usable.
+
 - `registration-gate.tsx.AccountContext.chooseFolders` reporting success only
   because `foldersFailure` is absent. The registration semaphore can decline a
   setting action while foreground verification is running without publishing a

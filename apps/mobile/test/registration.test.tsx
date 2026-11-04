@@ -2736,6 +2736,7 @@ describe('product registration', () => {
     imap.deliver('INBOX', { subject: 'Kept IMAP message' });
     imap.addFolder('Sent Messages', ['sent']);
     imap.addFolder('Starred', ['flagged']);
+    imap.addFolder('Other Inbox', ['inbox']);
     imap.addFolder('Bulk Mail');
     imap.addFolder('Deleted Messages');
     imap.deliver('Bulk Mail', { subject: 'Unwanted offer' });
@@ -2900,6 +2901,7 @@ describe('product registration', () => {
           ['Inbox', undefined, true],
           ['Sent Messages', 'Sent', true],
           ['Starred', 'Flagged', true],
+          ['Other Inbox', 'Inbox', true],
         ],
         [
           ['Bulk Mail', undefined, false],
@@ -2911,6 +2913,7 @@ describe('product registration', () => {
           ['Inbox', undefined, true],
           ['Sent Messages', 'Sent', true],
           ['Starred', 'Flagged', true],
+          ['Other Inbox', 'Inbox', true],
           ['Bulk Mail', 'Spam', true],
         ],
         [['Deleted Messages', undefined, false]],
@@ -2941,9 +2944,11 @@ describe('product registration', () => {
     await choose('Spam', 'Replacement Spam');
     expect(save()).toBeEnabled();
     // A server role claimed while choosing makes that folder unavailable to Save too.
-    imap.addFolder('Replacement Spam', ['sent']);
-    await act(connections.load);
-    expect(save()).toBeDisabled();
+    for (const role of ['sent', 'flagged', 'inbox']) {
+      imap.addFolder('Replacement Spam', [role]);
+      await act(connections.load);
+      expect(save()).toBeDisabled();
+    }
     // A server that later marks the saved Spam folder itself shows it as its own, not a choice.
     imap.addFolder('Replacement Spam');
     imap.removeFolder('Deleted Messages');
