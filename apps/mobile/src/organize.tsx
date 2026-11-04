@@ -26,7 +26,7 @@ import {
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
-import { spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -67,6 +67,7 @@ type PanelState = Readonly<{
 
 const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  groups: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 * ipadListScale },
   // Panels open above a bottom toolbar and below a top one; the reader positions the whole.
   panels: { maxHeight: 280, flexGrow: 0 },
   floatingPanels: {
@@ -172,6 +173,68 @@ export function MessageActions({
 }
 
 // Saved mail remains readable and replyable while provider checks are unavailable.
+
+// iPhone keeps one bottom capsule. The iPad frames set the top toolbar's organizing actions,
+// responses and More apart in their own glass groups, 11.5pt apart as the Mac groups scaled 1.15.
+function ToolbarGroups({
+  archive,
+  folders,
+  respond,
+  more,
+}: {
+  readonly archive: (() => void) | undefined;
+  readonly folders:
+    | Readonly<{ label: string; open: boolean; toggle: () => void }>
+    | undefined;
+  readonly respond: ReactNode;
+  readonly more: ReactNode;
+}) {
+  const { t } = useLocalization();
+  const organize = [
+    archive === undefined ? null : (
+      <ToolbarButton
+        key="archive"
+        icon="archivebox"
+        label={t('gmailActions.label.archive')}
+        onPress={archive}
+      />
+    ),
+    folders === undefined ? null : (
+      <ToolbarButton
+        key="folders"
+        icon="folder"
+        label={folders.label}
+        expanded={folders.open}
+        onPress={() => {
+          folders.toggle();
+        }}
+      />
+    ),
+  ];
+  if (compact) {
+    return (
+      <GlassGroup pointerEvents="box-none">
+        {organize}
+        {respond}
+        {more}
+      </GlassGroup>
+    );
+  }
+  return (
+    <View
+      pointerEvents="box-none"
+      style={styles.groups}>
+      {archive === undefined && folders === undefined ? null : (
+        <GlassGroup pointerEvents="box-none">{organize}</GlassGroup>
+      )}
+      <GlassGroup pointerEvents="box-none">{respond}</GlassGroup>
+      {more === null ? null : (
+        <GlassGroup pointerEvents="box-none">{more}</GlassGroup>
+      )}
+    </View>
+  );
+}
+
 export function MessageActionsNotice({ id }: { readonly id: string }) {
   const state = useInbox();
   const store = useInboxActions();
@@ -365,36 +428,27 @@ function Toolbar({
       <View
         pointerEvents="box-none"
         style={styles.toolbar}>
-        <GlassGroup pointerEvents="box-none">
-          {archive === undefined ? null : (
-            <ToolbarButton
-              icon="archivebox"
-              label={t('gmailActions.label.archive')}
-              onPress={archive}
-            />
-          )}
-          {folders === undefined ? null : (
-            <ToolbarButton
-              icon="folder"
-              label={folders.label}
-              expanded={folders.open}
-              onPress={() => {
-                folders.toggle();
-              }}
-            />
-          )}
-          <ThreadActionsContext value={thread}>{children}</ThreadActionsContext>
-          {replySheet ? null : (
-            <ToolbarButton
-              icon="ellipsis"
-              label={t('message.more')}
-              expanded={more.open}
-              onPress={() => {
-                more.toggle();
-              }}
-            />
-          )}
-        </GlassGroup>
+        <ToolbarGroups
+          archive={archive}
+          folders={folders}
+          respond={
+            <ThreadActionsContext value={thread}>
+              {children}
+            </ThreadActionsContext>
+          }
+          more={
+            replySheet ? null : (
+              <ToolbarButton
+                icon="ellipsis"
+                label={t('message.more')}
+                expanded={more.open}
+                onPress={() => {
+                  more.toggle();
+                }}
+              />
+            )
+          }
+        />
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
       <View

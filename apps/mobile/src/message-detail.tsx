@@ -65,6 +65,7 @@ import {
   useProfile,
 } from './mailbox.tsx';
 import {
+  AssistanceRow,
   AttachContext,
   GmailMessageBody,
   LinkConfirmationProvider,
@@ -143,7 +144,6 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
   secondary: { ...textStyles.footnote },
   body: { ...textStyles.reading.body },
   empty: {
@@ -851,7 +851,7 @@ function ReaderBody({
   }
   return (
     <>
-      <View style={styles.assistance}>
+      <AssistanceRow>
         <MessageSummary
           source={inbox}
           id={message.id}
@@ -863,7 +863,7 @@ function ReaderBody({
           id={message.id}
           body={'body' in message ? message.body : message.preview}
         />
-      </View>
+      </AssistanceRow>
       <Text
         selectable
         style={[styles.body, { color: colors.textPrimary }]}>
