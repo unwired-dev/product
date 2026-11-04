@@ -1,8 +1,11 @@
+import type { MailProvider } from '@private-email/mail-core/registration';
+
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 
+import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 
@@ -22,6 +25,8 @@ const pressHandler = (
   }
   throw new Error('Expected a rendered press handler');
 };
+
+const me = 'alex@example.invalid';
 
 const invitation = (attendee: string, extra: readonly string[] = []) =>
   [
@@ -48,6 +53,10 @@ async function opened(
   calendar: string,
   authorizeMailbox: (connection: string) => Promise<void> = () =>
     Promise.resolve(),
+  // Every connected mailbox besides the opened Gmail one, by owning Profile.
+  others: ReadonlyArray<
+    Readonly<{ provider: MailProvider; address: string; profile: string }>
+  > = [],
 ) {
   const gmail = createSyntheticGmail();
   const id = gmail.deliver({
@@ -66,6 +75,15 @@ async function opened(
   });
   const inbox = createGmailInbox(gmail.native);
   await inbox.load();
+  const mailboxes = [
+    { provider: 'gmail' as const, address: me, profile: 'default' },
+    ...others,
+  ].map((mailbox, index) => ({
+    ...mailbox,
+    id: index === 0 ? 'gmail-connection' : `connection-${index}`,
+    inbox,
+    state: inbox.getSnapshot(),
+  }));
   const app = await render(
     <AccountContext
       value={{
@@ -78,11 +96,20 @@ async function opened(
         createProfile: () => Promise.resolve(undefined),
         chooseFolders: () => Promise.resolve(true),
       }}>
-      <GmailMessageBody
-        inbox={inbox}
-        id={id}
-        connection="gmail-connection"
-      />
+      <InboxProvider
+        mailboxes={{
+          getSnapshot: () => mailboxes,
+          subscribe: () => () => undefined,
+          load: () => Promise.resolve(),
+        }}>
+        <ProfileScope profile="default">
+          <GmailMessageBody
+            inbox={inbox}
+            id={id}
+            connection="gmail-connection"
+          />
+        </ProfileScope>
+      </InboxProvider>
     </AccountContext>,
   );
   return { gmail, inbox, id, app };
@@ -269,6 +296,50 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     } finally {
       announce.mockRestore();
       await reopened.unmount();
+    }
+  });
+
+  it('responds only for the opened address when the Profile is invited at two', async () => {
+    expect.hasAssertions();
+    const { gmail, app } = await opened(
+      invitation(me, [
+        'ATTENDEE;CN=Alex:mailto:Alex@iCloud.example',
+        'ATTENDEE;CN=Alex:mailto:alex@work.example',
+      ]),
+      undefined,
+      [
+        {
+          provider: 'imap',
+          address: 'alex@icloud.example',
+          profile: 'default',
+        },
+        { provider: 'gmail', address: 'alex@work.example', profile: 'work' },
+      ],
+    );
+    try {
+      await expect(
+        screen.findByText(`Responding as ${me}`),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          `You’re invited at two of your addresses. This copy responds only for ${me}.`,
+        ),
+      ).toBeOnTheScreen();
+      // Another Profile's mailbox is never listed, though the invitation names it.
+      expect(
+        screen.getByLabelText(
+          `Invited, ${me} · Gmail, alex@icloud.example · IMAP`,
+        ),
+      ).toBeOnTheScreen();
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Accept' }));
+      await expect(screen.findByText('Accepted')).resolves.toBeOnTheScreen();
+
+      expect(gmail.sends.map(({ raw }) => raw)).toStrictEqual([
+        expect.stringContaining(`From: ${me}`),
+      ]);
+    } finally {
+      await app.unmount();
     }
   });
 

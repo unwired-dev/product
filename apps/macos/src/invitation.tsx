@@ -8,6 +8,7 @@ import type {
 import type { ReactNode } from 'react';
 
 import {
+  alsoInvited,
   invitationOf,
   invitationResponses,
   createInvitationFormats,
@@ -29,7 +30,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { askInSheet, Button, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { useProviderName } from './mailbox.tsx';
+import { useMailboxes, useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -118,8 +119,8 @@ function Details({
   invited,
 }: {
   readonly details: InvitationDetails;
-  // Who was invited, then a secondary line about them; a cancelled meeting has no row.
-  readonly invited?: readonly [string, string];
+  // Who was invited, then secondary lines about them; a cancelled meeting has no row.
+  readonly invited?: readonly string[];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -214,12 +215,19 @@ function Details({
           <DetailRow
             label={t('invitation.invited')}
             spoken={invited}>
-            <Text style={[styles.text, { color: colors.textPrimary }]}>
-              {invited[0]}
-            </Text>
-            <Text style={[styles.text, { color: colors.textSecondary }]}>
-              {invited[1]}
-            </Text>
+            {invited.map((line, index) => (
+              <Text
+                key={line}
+                style={[
+                  styles.text,
+                  {
+                    color:
+                      index === 0 ? colors.textPrimary : colors.textSecondary,
+                  },
+                ]}>
+                {line}
+              </Text>
+            ))}
           </DetailRow>
         )}
       </View>
@@ -278,11 +286,14 @@ function Status({
 function Responding({
   inbox,
   invitation,
+  others,
   connection,
   current,
 }: {
   readonly inbox: InvitationInbox;
   readonly invitation: Invitation;
+  // How many of the Profile's other addresses the invitation also names.
+  readonly others: number;
   readonly connection: string | undefined;
   readonly current: () => boolean;
 }) {
@@ -316,7 +327,14 @@ function Responding({
       : undefined;
   const shown = invitationStatus(
     blocked === undefined ? recorded : { kind: blocked, choice: 'accepted' },
-    { t, name, address: invitation.address, provider, time },
+    {
+      t,
+      name,
+      address: invitation.address,
+      provider,
+      time,
+      alsoInvited: others,
+    },
   );
   const copy = (choice: InvitationChoice) => ({
     subject: t(`invitation.${choice}Subject`, {
@@ -454,6 +472,7 @@ export function InvitationCard({
   const colors = usePalette();
   const { t } = useLocalization();
   const provider = useProviderName();
+  const mailboxes = useMailboxes();
   const document = useSyncExternalStore(inbox.subscribe, () =>
     inbox.responseSource(id),
   );
@@ -522,18 +541,34 @@ export function InvitationCard({
       </View>
     );
   }
+  // Invited at other addresses of the Profile too, each address is listed instead of You.
+  const others = alsoInvited(offer, mailboxes);
+  const yours = t('invitation.yourAddress', {
+    address: offer.address,
+    provider,
+  });
   return (
     <View style={card}>
       <Details
         details={offer.details}
-        invited={[
-          t('invitation.you'),
-          t('invitation.yourAddress', { address: offer.address, provider }),
-        ]}
+        invited={
+          others.length === 0
+            ? [t('invitation.you'), yours]
+            : [
+                yours,
+                ...others.map(({ address: other, provider: kind }) =>
+                  t('invitation.yourAddress', {
+                    address: other,
+                    provider: t(`mailProviders.${kind ?? 'gmail'}`),
+                  }),
+                ),
+              ]
+        }
       />
       <Responding
         inbox={inbox}
         invitation={offer}
+        others={others.length}
         connection={connection}
         current={current}
       />
