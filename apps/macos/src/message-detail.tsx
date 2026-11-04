@@ -46,6 +46,7 @@ import {
   useProfile,
 } from './mailbox.tsx';
 import {
+  AssistanceRow,
   AttachContext,
   MessageBody,
   ReaderScrollView,
@@ -79,6 +80,8 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     gap: spacing.l,
   },
+  // Reply, Reply All and Forward 2pt apart, as the reader toolbar frames space a group.
+  responses: { gap: 2 },
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 2,
@@ -89,7 +92,6 @@ const styles = StyleSheet.create({
   fromText: { flex: 1, minHeight: 28 },
   sender: { ...textStyles.bodyEmphasized },
   address: { ...textStyles.body },
-  assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
   secondary: { ...textStyles.subheadline },
   body: { ...textStyles.reading.body },
   empty: {
@@ -457,7 +459,7 @@ function ResponseActions({
           })
         }
       />
-      <GlassGroup>
+      <GlassGroup style={styles.responses}>
         {actions.map(([kind, icon, label]) => (
           <ToolbarButton
             key={kind}
@@ -497,7 +499,7 @@ function ReaderBody({
   }
   return (
     <>
-      <View style={styles.assistance}>
+      <AssistanceRow>
         <MessageSummary
           source={inbox}
           id={message.id}
@@ -509,7 +511,7 @@ function ReaderBody({
           id={message.id}
           body={'body' in message ? message.body : message.preview}
         />
-      </View>
+      </AssistanceRow>
       <Text
         selectable
         style={[styles.body, { color: colors.textPrimary }]}>

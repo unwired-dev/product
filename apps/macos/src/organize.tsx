@@ -75,7 +75,9 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     marginBottom: spacing.xl,
   },
-  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  // Glass groups 10pt apart, their buttons 2pt apart, as the reader toolbar frames space them.
+  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  group: { gap: 2 },
   button: {
     minHeight: 28,
     minWidth: 28,
@@ -258,18 +260,19 @@ function Toolbar({
       collapsable={false}
       style={styles.toolbar}>
       {placing.length === 0 && move === undefined ? null : (
-        <GlassGroup>
+        <GlassGroup style={styles.group}>
           {placing.map(button)}
           {move}
         </GlassGroup>
       )}
       {children}
-      <GlassGroup>
+      <GlassGroup style={styles.group}>
         {rest.map(button)}
         <PopUp
           accessibilityLabel={t('message.more')}
           icon="ellipsis"
           items={more}
+          variant="toolbar"
         />
       </GlassGroup>
     </View>
@@ -352,6 +355,7 @@ function MoveMenu({
   return (
     <PopUp
       icon="folder"
+      variant="toolbar"
       accessibilityLabel={t('gmailActions.folders')}
       items={[
         ...folders.map(({ id, name, symbol = 'folder' }) => ({
@@ -415,7 +419,7 @@ function PreviewMessageActions({
         }
       />
       <View style={styles.toolbar}>
-        <GlassGroup>
+        <GlassGroup style={styles.group}>
           <ToolbarButton
             icon={read.name === 'read' ? 'envelope.open' : 'envelope.badge'}
             label={read.label}

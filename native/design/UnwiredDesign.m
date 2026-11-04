@@ -1143,6 +1143,8 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 @property (nonatomic, copy) NSString *text;
 @property (nonatomic, copy) NSString *symbol;
 @property (nonatomic) BOOL pullsDown;
+// A reader toolbar's pull-down: only its symbol, like the toolbar's buttons, with no bezel or arrow.
+@property (nonatomic) BOOL toolbar;
 @property (nonatomic, copy) NSString *label;
 @property (nonatomic, copy) NSColor *destructiveColor;
 @property (nonatomic) BOOL enabled;
@@ -1176,13 +1178,25 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   NSMenuItem *shown = [[NSMenuItem alloc] initWithTitle:self.text ?: @"" action:nil keyEquivalent:@""];
   if (self.symbol.length > 0) {
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
+    if (self.toolbar) {
+      shown.image = [shown.image imageWithSymbolConfiguration:
+          [NSImageSymbolConfiguration configurationWithPointSize:16 weight:NSFontWeightRegular]];
+    }
   }
   // A pull-down shows its first item, which its menu leaves out.
   _button.pullsDown = self.pullsDown;
+  _button.bordered = !self.toolbar;
+  _button.imagePosition = self.toolbar ? NSImageOnly : NSImageLeft;
+  _button.contentTintColor = self.toolbar ? NSColor.labelColor : nil;
   if (_button.pullsDown) [menu insertItem:shown atIndex:0];
   _button.menu = menu;
   NSPopUpButtonCell *cell = _button.cell;
   cell.usesItemFromMenu = _button.pullsDown;
+  if (self.toolbar) {
+    cell.arrowPosition = NSPopUpNoArrow;
+  } else {
+    cell.arrowPosition = _button.pullsDown ? NSPopUpArrowAtBottom : NSPopUpArrowAtCenter;
+  }
   if (!_button.pullsDown) {
     NSInteger checked = [menu.itemArray indexOfObjectPassingTest:^BOOL(NSMenuItem *item, NSUInteger i, BOOL *stop) {
       return item.state == NSControlStateValueOn;
@@ -1417,6 +1431,7 @@ RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
 RCT_EXPORT_VIEW_PROPERTY(text, NSString)
 RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
 RCT_EXPORT_VIEW_PROPERTY(pullsDown, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(toolbar, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(label, NSString)
 RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
