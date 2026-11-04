@@ -89,7 +89,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   from: { flexDirection: 'row', gap: spacing.m, alignItems: 'flex-start' },
-  fromText: { flex: 1, minHeight: 28 },
+  // The sender's line, then the mailbox 2pt beneath it, as the frames' sender and recipients sit.
+  fromText: { flex: 1 },
   sender: { ...textStyles.bodyEmphasized },
   address: { ...textStyles.body },
   secondary: { ...textStyles.subheadline },
