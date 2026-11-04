@@ -2730,6 +2730,7 @@ describe('product registration', () => {
   });
 
   it('chooses Spam and Trash folders for an IMAP server that marks none from the All Mail notice, keeping the sheet open when saving fails and asking again for a removed folder', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves the empty choice, the menus, a failed save, inclusion and a removed folder. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Kept IMAP message' });
@@ -2797,10 +2798,12 @@ describe('product registration', () => {
         await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
       });
       return sections.map(({ items }) =>
-        items.map(({ title, subtitle, disabled }) =>
-          // An unavailable folder is dimmed, naming the role it already holds.
-          disabled === true ? `${title} (${subtitle ?? 'unavailable'})` : title,
-        ),
+        // An unavailable folder is dimmed, naming any role it already holds.
+        items.map(({ title, subtitle, disabled }) => [
+          title,
+          subtitle,
+          disabled,
+        ]),
       );
     };
     // Nothing is chosen for the person, and Save waits for both.
@@ -2840,12 +2843,22 @@ describe('product registration', () => {
       spam: screen.queryByText('Unwanted offer'),
     }).toStrictEqual({
       spamMenu: [
-        ['Inbox (unavailable)', 'Sent Messages (Sent)'],
-        ['Bulk Mail', 'Deleted Messages'],
+        [
+          ['Inbox', undefined, true],
+          ['Sent Messages', 'Sent', true],
+        ],
+        [
+          ['Bulk Mail', undefined, false],
+          ['Deleted Messages', undefined, false],
+        ],
       ],
       trashMenu: [
-        ['Inbox (unavailable)', 'Sent Messages (Sent)', 'Bulk Mail (Spam)'],
-        ['Deleted Messages'],
+        [
+          ['Inbox', undefined, true],
+          ['Sent Messages', 'Sent', true],
+          ['Bulk Mail', 'Spam', true],
+        ],
+        [['Deleted Messages', undefined, false]],
       ],
       chosen: { junk: 'Bulk Mail', trash: 'Deleted Messages' },
       spam: null,
@@ -2867,6 +2880,7 @@ describe('product registration', () => {
     expect(screen.getByText('Folder unavailable')).toBeVisible();
     expect(save()).toBeDisabled();
   });
+  /* oxlint-enable vitest/max-expects */
 
   it('keeps a mailbox’s New Mail Notifications off when Product Sync cannot save them, and links denied permission to the system', async () => {
     expect.hasAssertions();
