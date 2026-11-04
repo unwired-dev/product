@@ -1842,6 +1842,20 @@ final class InboxTests: XCTestCase {
     body.tap()
     press("Keyboard reply", in: app)
     waitUntil { body.value as? String == "Keyboard reply" }
+    // #1801: the reply's last word becomes a link, so the reopened Draft ends with it.
+    app.typeKey(.leftArrow, modifierFlags: [.shift, .option])
+    // The composer learns the selection after the key press.
+    let addLink = formatControl("Add Link", in: app)
+    XCTAssertTrue(addLink.waitForExistence(timeout: 20))
+    addLink.tap()
+    let destination = app.textFields["Link"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    waitForFocus(destination)
+    press("https://example.com\n", in: app)
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    if app.buttons["Close Format"].exists {
+      app.buttons["Close Format"].tap()
+    }
 
     // #1612: edits are stored only on Save Draft; Close asks first.
     app.buttons["Close"].tap()
@@ -1859,6 +1873,17 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(subject.waitForExistence(timeout: 15))
     XCTAssertEqual(subject.value as? String, "Re: Outlook update 003 by keyboard")
     XCTAssertEqual(body.value as? String, "Keyboard reply")
+    // #1801: a touch after the linked word puts the caret where the body opened with it, which
+    // the field reports no selection for; Edit Link still opens that link.
+    body.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.14)).tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    let edit = formatControl("Edit Link", in: app)
+    XCTAssertTrue(edit.waitForExistence(timeout: 10))
+    waitUntil { edit.isEnabled }
+    edit.tap()
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    XCTAssertEqual(app.textFields["Text"].value as? String, "reply")
+    XCTAssertEqual(destination.value as? String, "https://example.com")
   }
 
   // Types with hardware key presses, one key per character; "\n" is Return and "\t" Tab.

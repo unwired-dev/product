@@ -2314,6 +2314,61 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
   });
 
+  // #1801: iOS puts the caret after an opened body without a selection event, and a tap there
+  // sends none either.
+  it.each(['compact', 'regular'] as const)(
+    'edits the link that ends an opened Draft from the caret it opens with on %s',
+    async (size) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await drafts.load();
+      const created = await drafts.create({
+        id: alex,
+        address: 'alex@example.invalid',
+      });
+      ok(created);
+      const id: string = created;
+      const draft = draftsOf(drafts.getSnapshot()).find(
+        (each) => each.id === id,
+      );
+      ok(draft);
+      await drafts.update(
+        {
+          ...draft,
+          body: [
+            {
+              kind: 'paragraph',
+              spans: [
+                { text: 'Keyboard ' },
+                { text: 'reply', link: 'https://example.com' },
+              ],
+            },
+          ],
+        },
+        draft,
+      );
+      await render(
+        <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            registration={registration}
+            initialDraft={id}
+          />
+        </ComposerLayoutContext>,
+      );
+      await screen.findByLabelText('Message body');
+      await openFormat();
+      await press('Edit Link');
+      expect(screen.getByLabelText('Text')).toHaveProp('value', 'reply');
+      expect(screen.getByLabelText('Link')).toHaveProp(
+        'value',
+        'https://example.com',
+      );
+    },
+  );
+
   it.each([
     ['compact', 'bottom-sheet'],
     ['regular', 'popover'],
