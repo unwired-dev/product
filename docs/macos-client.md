@@ -99,9 +99,8 @@ Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 **All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
 **Account**), the message list and the reader, as in the Figma Inbox frames. The
 Inbox and Settings windows hide their title and draw a transparent title bar over
-full-size content, so the window controls sit on the sidebar's glass; an empty
-unified toolbar gives that row its height, and the title stays for the Window
-menu and accessibility. The reader's toolbar row holds the Command input at its
+full-size content, so the window controls sit on the sidebar's glass. The title
+stays for the Window menu and accessibility. The reader's toolbar row holds the Command input at its
 leading end beside the reader's glass groups; a reader too narrow for its label
 keeps only the input's symbol. One floating bar spans the list and reader: its
 400pt search field is centered on the window and **New Message** sits at the
