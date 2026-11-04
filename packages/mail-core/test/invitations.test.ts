@@ -548,7 +548,8 @@ describe('meeting invitations', () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();
     const hour = 60 * 60 * 1000;
-    const { start, end } = invitation.details;
+    // The fixture meeting has an end.
+    const { start, end = start } = invitation.details;
     const later = (time: typeof start) => ({
       ...time,
       at: time.at + 20 * hour,
@@ -559,7 +560,7 @@ describe('meeting invitations', () => {
       details: {
         ...invitation.details,
         start: later(start),
-        ...(end === undefined ? {} : { end: later(end) }),
+        end: later(end),
       },
     };
     await responses.respond(invitation, 'accepted', copy);

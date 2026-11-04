@@ -169,9 +169,7 @@ function Details({
   });
   const badge = cancelled
     ? t('invitation.cancelled')
-    : was === undefined
-      ? undefined
-      : t('invitation.updated');
+    : was && t('invitation.updated');
   const title = details.summary ?? t('invitation.untitled');
   const organizer = [
     ...new Set([organizerName(details), details.organizer.address]),

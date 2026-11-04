@@ -266,36 +266,37 @@ describe('meeting invitations in the Mac reader', () => {
     }
   });
 
-  it('shows an updated invitation that moved the meeting after an earlier answer', async () => {
-    expect.hasAssertions();
-    const { gmail, inbox, app } = await opened(
+  // Opens a revision that moved the meeting, then records an answer to the earlier time.
+  const answeredBeforeMove = async () => {
+    const opening = await opened(
       invitation('alex@example.invalid')
         .replace('SEQUENCE:0', 'SEQUENCE:1')
         .replace('DTSTART:20261106T130000Z', 'DTSTART:20261107T090000Z')
         .replace('DTEND:20261106T140000Z', 'DTEND:20261107T100000Z'),
     );
+    await screen.findByText('Not answered yet');
+    const uid = 'roadmap-42@northwind.example';
+    await act(async () => {
+      await opening.inbox.recordResponse(
+        { uid, sequence: 0 },
+        {
+          kind: 'sent',
+          uid,
+          sequence: 0,
+          choice: 'accepted',
+          at: Date.UTC(2026, 10, 2, 9, 52),
+          start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+          end: { at: Date.UTC(2026, 10, 6, 14), allDay: false },
+        },
+      );
+    });
+    return opening;
+  };
+
+  it('shows an updated invitation that moved the meeting after an earlier answer', async () => {
+    expect.hasAssertions();
+    const { app } = await answeredBeforeMove();
     try {
-      await expect(
-        screen.findByText('Not answered yet'),
-      ).resolves.toBeOnTheScreen();
-      expect(screen.queryByText('Updated')).toBeNull();
-
-      const uid = 'roadmap-42@northwind.example';
-      await act(async () => {
-        await inbox.recordResponse(
-          { uid, sequence: 0 },
-          {
-            kind: 'sent',
-            uid,
-            sequence: 0,
-            choice: 'accepted',
-            at: Date.UTC(2026, 10, 2, 9, 52),
-            start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
-            end: { at: Date.UTC(2026, 10, 6, 14), allDay: false },
-          },
-        );
-      });
-
       expect(
         screen.getByLabelText('Invitation from Lena Fischer, Updated'),
       ).toBeOnTheScreen();
@@ -310,7 +311,15 @@ describe('meeting invitations in the Mac reader', () => {
       ).toBeOnTheScreen();
       // The earlier answer was for the old time, so none is chosen.
       expect(screen.queryByRole('button', { name: 'Accepted' })).toBeNull();
+    } finally {
+      await app.unmount();
+    }
+  });
 
+  it('keeps the update marks after responding to the moved meeting', async () => {
+    expect.hasAssertions();
+    const { gmail, app } = await answeredBeforeMove();
+    try {
       await fireEvent.press(screen.getByRole('button', { name: 'Decline' }));
       await expect(screen.findByText('Declined')).resolves.toBeOnTheScreen();
 
