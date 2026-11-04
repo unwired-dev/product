@@ -45,6 +45,9 @@ export const palette = {
     brandSeal: '#C2412A',
     brandOnSeal: '#FFFFFF',
     brandMonogram: '#15171B',
+    // The Recovery Key's well on brand deep, alike in Light and Dark.
+    brandWell: 'rgba(255, 255, 255, 0.08)',
+    brandWellBorder: 'rgba(255, 255, 255, 0.16)',
     // Sign in with Apple follows Apple's black and white button styles.
     appleButton: '#000000',
     appleOnButton: '#FFFFFF',
@@ -88,6 +91,8 @@ export const palette = {
     brandSeal: '#C2412A',
     brandOnSeal: '#FFFFFF',
     brandMonogram: '#6A6E78',
+    brandWell: 'rgba(255, 255, 255, 0.08)',
+    brandWellBorder: 'rgba(255, 255, 255, 0.16)',
     appleButton: '#FFFFFF',
     appleOnButton: '#000000',
     textPrimary: 'rgba(255, 255, 255, 0.85)',

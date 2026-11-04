@@ -47,6 +47,7 @@ const styles = StyleSheet.create({
   },
   cancelLabel: { ...textStyles.body },
   hidden: { opacity: 0 },
+  unavailable: { opacity: 0.5 },
   message: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -266,6 +267,8 @@ function SheetRow({
             ? colors.accentSelectionSubtle
             : 'transparent',
         },
+        // iPhone's sheet dims what cannot be chosen, its count included.
+        disabled && !dense && styles.unavailable,
       ]}>
       {children}
     </Pressable>
@@ -467,8 +470,12 @@ export function MoveSheet({
         }}>
         <Group
           modifiers={[
-            presentationDetents(['large']),
-            presentationBackground(colors.surfaceContent),
+            // In portrait the frames leave 70pt above the sheet, a little more than large does.
+            presentationDetents(
+              height > width ? [{ height: height - 70 }] : ['large'],
+            ),
+            // The frames draw the sheet as the glass panel surface.
+            presentationBackground(colors.surfacePanel),
           ]}>
           <RNHostView>
             <View

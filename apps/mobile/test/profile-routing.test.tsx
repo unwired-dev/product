@@ -1371,15 +1371,15 @@ describe('the mobile Profile Switcher', () => {
       // The Primary Profile keeps its name.
       expect(screen.queryByDisplayValue('Primary Profile')).toBeNull();
       await fireEvent.press(work);
-      // The selected Profile keeps the subtle fill; a press stacks a second until release or cancel.
+      // iPhone keeps the selected Profile on the group's fill; a press shows until release or cancel.
       const primary = screen.getByRole('button', { name: 'Primary Profile' });
-      expect([fills(work), fills(primary)]).toStrictEqual([1, 0]);
+      expect([fills(work), fills(primary)]).toStrictEqual([0, 0]);
       expect(work).toBeSelected();
       await fireEvent(work, 'responderGrant', touch);
-      expect(fills(work)).toBe(2);
+      expect(fills(work)).toBe(1);
       await fireEvent(work, 'responderRelease', touch);
       await waitFor(() => {
-        expect(fills(work)).toBe(1);
+        expect(fills(work)).toBe(0);
       });
       await fireEvent(primary, 'responderGrant', touch);
       expect(fills(primary)).toBe(1);

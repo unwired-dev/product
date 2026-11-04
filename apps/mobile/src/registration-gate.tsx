@@ -475,6 +475,7 @@ function SettingsPage({
     <AccountPage onInbox={onInbox}>
       <SettingsWorkspace
         account={name}
+        privateSync={snapshot.privateSync === 'ready'}
         destination={selectedDestination}
         onDestination={setDestination}
         detail={detail}

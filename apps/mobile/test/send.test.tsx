@@ -315,7 +315,7 @@ describe('sending a Draft', () => {
         'Bold',
         'Show Cc and Bcc',
         'Body',
-        'Heading 1',
+        'Title',
       ]) {
         expect(screen.getByRole('button', { name })).toBeDisabled();
       }

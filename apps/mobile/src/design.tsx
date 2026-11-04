@@ -246,6 +246,8 @@ export const scaledToolbarSlop = {
   right: (44 - scaledToolbar.width) / 2,
 };
 const ScaledToolbar = createContext(false);
+// The iPhone reader's bottom group: 56×48pt buttons 4pt apart, inset 6pt, as its frames draw it.
+const WideToolbar = createContext(false);
 
 const styles = StyleSheet.create({
   menuContent: { flexGrow: 1 },
@@ -264,6 +266,8 @@ const styles = StyleSheet.create({
     borderRadius: scaledToolbarHeight / 2,
   },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
+  wideGroup: { paddingHorizontal: 6, paddingVertical: 2, gap: spacing.xs },
+  wideButton: { minWidth: 56, minHeight: 48 },
   scaledButton: {
     width: scaledToolbar.width,
     height: scaledToolbar.height,
@@ -381,16 +385,21 @@ const NativeContextMenu = requireNativeComponent<
 // a pointer or on the Mac. Empty sections are left out.
 export function ContextMenu({
   sections,
+  previewRadius = radius.card,
   children,
   ...props
-}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+}: ViewProps & {
+  readonly sections: readonly MenuSection[];
+  // The lifted preview's corner radius.
+  readonly previewRadius?: number;
+}) {
   const colors = usePalette();
   const menu = menuState(sections);
   return (
     <NativeContextMenu
       {...props}
       previewColor={colors.surfaceContent}
-      previewRadius={radius.card}
+      previewRadius={previewRadius}
       sections={menu.sections}
       onSelect={({ nativeEvent }) => {
         void menu.runs.get(nativeEvent.id)?.();
@@ -459,11 +468,13 @@ export function GlassGroup({
   style,
   pointerEvents,
   scaled = false,
+  wide = false,
 }: {
   readonly children: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
   readonly pointerEvents?: ViewProps['pointerEvents'];
   readonly scaled?: boolean;
+  readonly wide?: boolean;
 }) {
   const colors = usePalette();
   const cornerRadius = StyleSheet.flatten([
@@ -480,10 +491,13 @@ export function GlassGroup({
       style={[
         styles.group,
         scaled && styles.scaledGroup,
+        wide && styles.wideGroup,
         { boxShadow: colors.smallGlassShadow },
         style,
       ]}>
-      <ScaledToolbar value={scaled}>{children}</ScaledToolbar>
+      <ScaledToolbar value={scaled}>
+        <WideToolbar value={wide}>{children}</WideToolbar>
+      </ScaledToolbar>
     </Glass>
   );
 }
@@ -557,6 +571,7 @@ export function ToolbarButton({
   const colors = usePalette();
   const inGlass = use(InteractiveGlass);
   const scaled = use(ScaledToolbar);
+  const wide = use(WideToolbar);
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
@@ -573,6 +588,7 @@ export function ToolbarButton({
       onPress={onPress}
       style={({ pressed }) => [
         scaled ? styles.scaledButton : styles.toolbarButton,
+        wide && styles.wideButton,
         {
           backgroundColor:
             (pressed && !inGlass) || expanded === true || selected === true

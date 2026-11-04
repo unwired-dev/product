@@ -192,6 +192,7 @@
     "back": "Back",
     "close": "Close Settings",
     "title": "Settings",
+    "accountPrivateSync": "Account & Devices · Private Sync on",
     "sections": {
       "accounts": "Accounts",
       "automation": "Automation",
@@ -1030,6 +1031,11 @@
       "strikethrough": "Strikethrough",
       "code": "Inline code"
     },
+    "formatStyles": {
+      "title": "Title",
+      "heading": "Heading",
+      "subheading": "Subheading"
+    },
     "blocks": {
       "body": "Body",
       "heading1": "Heading 1",
@@ -1288,6 +1294,7 @@
       "title": "Your mail,\non your devices.",
       "description": "Unwired Mail brings Gmail, iCloud and Microsoft 365 together in one calm, private inbox.",
       "assistance": "Assistance runs on this device.",
+      "assistancePhone": "Assistance runs on this iPhone.",
       "mailProfiles": "Mail Profiles keep personal and work apart.",
       "privateSync": "Private Sync keeps your devices in step.",
       "continue": "Continue"

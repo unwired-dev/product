@@ -336,7 +336,7 @@ const formatPanelControls = new Set([
   'Italic',
   'Add Link',
   'Edit Link',
-  'Heading 1',
+  'Title',
 ]);
 const press = async (name: string) => {
   if (
@@ -883,9 +883,9 @@ describe('composing Drafts', () => {
       '• Notes',
     );
     // The Format panel applies a semantic block change and closes without losing history.
-    await press('Heading 1');
+    await press('Title');
     expect(screen.getByLabelText('Message body')).not.toHaveTextContent('•');
-    expect(screen.queryByRole('button', { name: 'Heading 1' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Title' })).toBeNull();
     await press('Undo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('• Notes');
     // Edits stay in the editor until Save Draft.
@@ -2315,8 +2315,8 @@ describe('composing Drafts', () => {
     });
     await press('Bold');
     expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
-    await press('Heading 1');
-    expect(screen.getByRole('button', { name: 'Heading 1' })).toBeSelected();
+    await press('Title');
+    expect(screen.getByRole('button', { name: 'Title' })).toBeSelected();
     expect(shownSpans()).toStrictEqual([{ text: 'Plan', marks: ['bold'] }]);
     // Tapping into the body brings the keyboard back in place of the panel.
     await act(async () => {
@@ -5361,7 +5361,7 @@ describe('replying to and forwarding from the reader', () => {
     // The Reply sheet offers More's actions, so the toolbar has no More.
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
     await press('Reply');
-    expect(screen.getAllByRole('button', { name: 'Report spam' })).toHaveLength(
+    expect(screen.getAllByRole('button', { name: 'Report Spam' })).toHaveLength(
       1,
     );
     expect(
@@ -5371,20 +5371,25 @@ describe('replying to and forwarding from the reader', () => {
         'Archive',
         'Mark as read',
         'Star',
-        'Folders',
+        'Move Message',
         'Labels',
-        'Move to Trash',
-        'Report spam',
+        'Delete Message',
+        'Report Spam',
       ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
     ).toHaveLength(9);
     expect(
       screen
         .getAllByRole('button', {
-          name: /^(?:Folders|Labels|Report spam|Move to Trash)$/u,
+          name: /^(?:Move Message|Labels|Report Spam|Delete Message)$/u,
         })
         .slice(-4)
         .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Folders', 'Labels', 'Report spam', 'Move to Trash']);
+    ).toStrictEqual([
+      'Move Message',
+      'Labels',
+      'Report Spam',
+      'Delete Message',
+    ]);
     expect(
       screen
         .getAllByRole('button', { name: /^(?:Star|Mark as read)$/u })
@@ -5403,7 +5408,7 @@ describe('replying to and forwarding from the reader', () => {
         .map((button) => button.props.accessibilityLabel),
     ).toStrictEqual(['Remove star', 'Mark as read']);
     await press('Close');
-    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
     // Labels opens the label checkboxes alone, without the actions the sheet already offers.
     await press('Reply');
     await press('Labels');
@@ -5413,7 +5418,7 @@ describe('replying to and forwarding from the reader', () => {
     );
     expect(labels).toBeVisible();
     expect(screen.getByRole('header', { name: 'Labels' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
     // VoiceOver's escape gesture closes them, with no More button to press.
     await act(async () => {
       await fireEvent(labels.parent!, 'accessibilityEscape');
@@ -5425,8 +5430,8 @@ describe('replying to and forwarding from the reader', () => {
     await press('Labels');
     await press('Reply');
     expect(screen.queryByRole('header', { name: 'Labels' })).toBeNull();
-    await pressLast('Folders');
-    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    await pressLast('Move Message');
+    expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Hide folders' })).toBeVisible();
     expect(
       within(screen.getByTestId('move-sheet')).getByText(

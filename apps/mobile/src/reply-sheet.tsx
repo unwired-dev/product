@@ -46,7 +46,12 @@ const responseIcons = {
 } as const;
 
 const styles = StyleSheet.create({
-  replyContent: { gap: spacing.l, padding: spacing.l },
+  // The frames' 18pt insets, 14pt between the sheet's parts and 10pt between its tiles.
+  replyContent: {
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: spacing.l,
+  },
   replyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   replyFrom: { flex: 1 },
   replySender: { ...textStyles.headline },
@@ -57,7 +62,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  replyTiles: { flexDirection: 'row', gap: spacing.s },
+  replyTiles: { flexDirection: 'row', gap: 10 },
   replyTile: {
     flex: 1,
     minHeight: 76,
@@ -79,16 +84,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.m,
-    minHeight: 48,
-    paddingHorizontal: spacing.l,
-    paddingVertical: spacing.m,
+    minHeight: 50,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
     borderRadius: radius.insetGroup,
   },
   actionLabel: { ...textStyles.body, flex: 1 },
-  actionSeparator: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: spacing.l,
-  },
+  // Hairlines span the group.
+  actionSeparator: { height: StyleSheet.hairlineWidth },
   secondary: { ...textStyles.subheadline },
 });
 
@@ -100,7 +103,7 @@ export function ReplySheet({
   onClose,
 }: {
   readonly open: boolean;
-  readonly message: Readonly<{ sender: string; preview: string }>;
+  readonly message: Readonly<{ sender: string; subject: string }>;
   readonly onResponse: (kind: ResponseKind) => void;
   readonly onClose: () => void;
 }) {
@@ -180,8 +183,8 @@ export function ReplySheet({
             presentationDetents(
               height === undefined ? ['medium'] : [{ height }],
             ),
-            // The approved frames keep the sheet on the opaque content surface.
-            presentationBackground(colors.surfaceContent),
+            // The frames draw the sheet as the glass panel surface.
+            presentationBackground(colors.surfacePanel),
           ]}>
           <RNHostView>
             <ScrollView
@@ -203,7 +206,7 @@ export function ReplySheet({
                   <Text
                     numberOfLines={1}
                     style={[styles.secondary, { color: colors.textSecondary }]}>
-                    {message.preview}
+                    {message.subject}
                   </Text>
                 </View>
                 <Pressable

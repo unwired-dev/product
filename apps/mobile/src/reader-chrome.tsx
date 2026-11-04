@@ -142,6 +142,7 @@ export function MessageHeader({
   message,
   highlighted = false,
   recipients = noRecipients,
+  mailbox,
 }: {
   readonly message: Readonly<{
     sender: string;
@@ -151,6 +152,8 @@ export function MessageHeader({
   readonly highlighted?: boolean;
   // Lines such as "To: …" and "Cc: …", once the message's headers are read.
   readonly recipients?: readonly string[];
+  // The line naming the mailbox it arrived in.
+  readonly mailbox?: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -195,36 +198,45 @@ export function MessageHeader({
             ]}>
             {message.sender}
           </Text>
-          <Text
-            numberOfLines={1}
-            style={[
-              ipad ? styles.padAddress : styles.secondary,
-              { color: colors.textSecondary },
-            ]}>
-            {message.address}
-          </Text>
+          {/* iPhone's header keeps one summary line: the recipients once read, else the address,
+              which Copy Address still offers. */}
+          {ipad || recipients.length === 0 ? (
+            <Text
+              numberOfLines={1}
+              style={[
+                ipad ? styles.padAddress : styles.secondary,
+                { color: colors.textSecondary },
+              ]}>
+              {message.address}
+            </Text>
+          ) : null}
         </View>
-        {recipients.map((line) => (
-          <Text
-            key={line}
-            numberOfLines={2}
-            style={[
-              secondary,
-              ipad && styles.padRecipients,
-              { color: colors.textSecondary },
-            ]}>
-            {line}
-          </Text>
-        ))}
+        {[...recipients, ...(mailbox === undefined ? [] : [mailbox])].map(
+          (line) => (
+            <Text
+              key={line}
+              numberOfLines={2}
+              style={[
+                secondary,
+                ipad && styles.padRecipients,
+                { color: colors.textSecondary },
+              ]}>
+              {line}
+            </Text>
+          ),
+        )}
       </ContextMenu>
       <Text
         accessibilityLabel={t('message.received', {
           date: fullDateFormat.format(new Date(message.receivedAt)),
         })}
         style={[secondary, { color: colors.textSecondary }]}>
-        {t('message.received', {
-          date: dateFormat.format(new Date(message.receivedAt)),
-        })}
+        {/* iPhone's compact header leaves the time zone to the spoken date. */}
+        {ipad
+          ? t('message.received', {
+              date: dateFormat.format(new Date(message.receivedAt)),
+            })
+          : dateFormat.format(new Date(message.receivedAt))}
       </Text>
     </View>
   );

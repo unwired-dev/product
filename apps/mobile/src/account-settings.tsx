@@ -363,6 +363,13 @@ function PrivateSync({
           style={[
             styles.recoveryKey,
             { color: colors.textPrimary, backgroundColor: colors.fillQuiet },
+            brand && [
+              styles.brandRecoveryKey,
+              {
+                backgroundColor: schemeColors.brandWell,
+                borderColor: schemeColors.brandWellBorder,
+              },
+            ],
           ]}>
           {recoveryKey}
         </Text>

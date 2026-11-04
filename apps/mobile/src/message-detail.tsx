@@ -145,6 +145,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     gap: spacing.l,
   },
+  // A single message on iPhone lines its sender and body up with a thread's cards, 24pt in.
+  compactContent: { paddingHorizontal: 24 },
   header: {
     width: '100%',
     maxWidth: 760,
@@ -183,6 +185,8 @@ const styles = StyleSheet.create({
   // A bar beside the opened message, so it stands out without relying on color.
   openedMessage: { borderLeftWidth: 4 },
 });
+
+const singleContent = [styles.content, compact && styles.compactContent];
 
 // Keeps the message being read in place while bodies above it load.
 const keepVisibleMessage = { minIndexForVisible: 0 };
@@ -794,8 +798,14 @@ function MessageMetadata({
             ...(to === '' ? [] : [t('message.to', { recipients: to })]),
             ...(cc === '' ? [] : [t('message.cc', { recipients: cc })]),
           ]}
+          // iPhone keeps the mailbox in the header's metadata, as its frames draw it.
+          mailbox={
+            compact && address !== undefined
+              ? t('inbox.inMailbox', { mailbox: address })
+              : undefined
+          }
         />
-        {address === undefined ? null : (
+        {compact || address === undefined ? null : (
           <Text style={[styles.secondary, { color: colors.textSecondary }]}>
             {t('inbox.inMailbox', { mailbox: address })}
           </Text>
@@ -1010,7 +1020,7 @@ function MailboxMessage({
           {header ? null : <RegularHeader subject={message.subject} />}
           <ReaderScrollView
             contentContainerStyle={[
-              styles.content,
+              singleContent,
               clearsBottom(compact || windowBar !== undefined, insets.bottom),
             ]}>
             <MessageMetadata message={message} />

@@ -11,12 +11,13 @@ import {
   rowContextMenu,
 } from '@private-email/mail-core/context-menu';
 import { matchedRanges } from '@private-email/mail-core/mailboxes';
+import { radius } from '@private-email/mail-core/theme';
 import { useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { useCommandRegistry } from './command-palette.tsx';
 import { ContextMenu, SFSymbol } from './design.tsx';
-import { styles } from './inbox-styles.ts';
+import { ipad, styles } from './inbox-styles.ts';
 import {
   useLocalization,
   useMessageDateFormat,
@@ -127,6 +128,9 @@ export function MessageRow({
   });
   return (
     <ContextMenu
+      // iPhone lifts the row as its 22pt contextual preview.
+      previewRadius={ipad ? radius.card : radius.insetGroup}
+      style={styles.rowSpacing}
       sections={
         reader === undefined
           ? rowContextMenu(t, message.id, actions)

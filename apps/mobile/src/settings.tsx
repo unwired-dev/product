@@ -67,11 +67,14 @@ const type = settingsColumns
       title: typography.ipadList.body,
       detail: typography.ipadList.subheadline,
       page: typography.ipadList.title3Emphasized,
+      account: typography.ipadList.title3Emphasized,
     }
   : {
       title: textStyles.body,
       detail: textStyles.subheadline,
       page: textStyles.headline,
+      // The iPhone frames title the account cards at 20/25 semibold.
+      account: textStyles.title3Emphasized,
     };
 
 // A push button in a Settings row; `title` is its visible text when the label names its target.
@@ -89,6 +92,7 @@ const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 
 // iPad rows follow the frames' Mac recipe at 1.15×: 46pt single-line and 61.3pt two-line rows.
 const rowPadding = settingsColumns ? 10 * ipadListScale : spacing.m;
+const phoneButtonHeight = 36.4;
 const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
 
 const styles = StyleSheet.create({
@@ -178,8 +182,8 @@ const styles = StyleSheet.create({
     paddingVertical: rowPadding,
   },
   rowText: { flex: 1, gap: settingsColumns ? 2 * ipadListScale : 2 },
-  // iPad's trailing controls may take the row's padding, so a push button or the native picker
-  // keeps the 46pt row.
+  // Trailing controls may take the row's padding, so a push button or the native picker keeps
+  // iPad's 46pt row; on iPhone a 36.4pt push button centres in the 52pt row.
   trailing: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -187,7 +191,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
     flexShrink: 1,
-    marginVertical: settingsColumns ? -rowPadding : 0,
+    marginVertical: settingsColumns
+      ? -rowPadding
+      : (52 - phoneButtonHeight) / 2 - rowPadding,
   },
   block: {
     gap: spacing.s,
@@ -206,15 +212,23 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: settingsColumns ? 14 * ipadListScale : spacing.l,
+    gap: settingsColumns ? 14 * ipadListScale : 14,
     paddingHorizontal: settingsColumns ? spacing.l * ipadListScale : spacing.l,
     paddingVertical: settingsColumns ? 14 * ipadListScale : spacing.m,
     borderRadius: settingsColumns ? radius.card : radius.insetGroup,
     borderCurve: 'continuous',
   },
-  // iPad draws the Mac's 28pt push button at 1.15×; its hit slop keeps the 44pt target.
+  // Account & Devices' own card on iPhone, as its frame draws it.
+  detailCard: {
+    gap: 18.2,
+    paddingHorizontal: 20.8,
+    paddingVertical: 18.2,
+    borderRadius: radius.settingsDetail,
+  },
+  // iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36.4pt one; hit slop keeps
+  // the 44pt target.
   button: {
-    minHeight: settingsColumns ? 28 * ipadListScale : 44,
+    minHeight: settingsColumns ? 28 * ipadListScale : phoneButtonHeight,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
     borderRadius: radius.control,
@@ -222,7 +236,8 @@ const styles = StyleSheet.create({
   },
 });
 
-const buttonSlop = settingsColumns ? (44 - 28 * ipadListScale) / 2 : 0;
+const buttonSlop =
+  (44 - (settingsColumns ? 28 * ipadListScale : phoneButtonHeight)) / 2;
 
 // The Mail Profile and account monogram: the first letter on brand graphite.
 function AccountMonogram({
@@ -345,6 +360,7 @@ function DestinationRow({
 // list of destinations, or one destination pushed over it in the system navigation bar.
 export function SettingsWorkspace({
   account,
+  privateSync = false,
   destination,
   onDestination,
   navigation,
@@ -355,6 +371,8 @@ export function SettingsWorkspace({
 }: {
   // The Product Account the account item names.
   readonly account: string;
+  // Whether Private Sync is on, which the iPhone account item says.
+  readonly privateSync?: boolean;
   readonly destination: SettingsDestination | undefined;
   readonly onDestination: (
     destination: SettingsDestination | undefined,
@@ -571,13 +589,15 @@ export function SettingsWorkspace({
           <View style={styles.grow}>
             <Text
               numberOfLines={1}
-              style={[type.page, { color: colors.textPrimary }]}>
+              style={[type.account, { color: colors.textPrimary }]}>
               {account}
             </Text>
             <Text
               numberOfLines={1}
               style={[textStyles.footnote, { color: colors.textSecondary }]}>
-              {t('settings.destinations.account')}
+              {privateSync
+                ? t('settings.accountPrivateSync')
+                : t('settings.destinations.account')}
             </Text>
           </View>
           <SFSymbol
@@ -699,13 +719,20 @@ export function AccountCard({
 }) {
   const colors = usePalette();
   return (
-    <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
+    <View
+      style={[
+        styles.card,
+        !settingsColumns && styles.detailCard,
+        { backgroundColor: colors.fillQuiet },
+      ]}>
       <AccountMonogram
         name={name}
-        size={settingsColumns ? 48 * ipadListScale : 62}
+        size={settingsColumns ? 48 * ipadListScale : 62.4}
       />
       <View style={styles.rowText}>
-        <Text style={[type.page, { color: colors.textPrimary }]}>{name}</Text>
+        <Text style={[type.account, { color: colors.textPrimary }]}>
+          {name}
+        </Text>
         <Text style={[type.detail, { color: colors.textSecondary }]}>
           {detail}
         </Text>

@@ -4,7 +4,7 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactElement, ReactNode, RefObject } from 'react';
-import type { StyleProp, TextStyle } from 'react-native';
+import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
 
 import {
   BottomSheet,
@@ -47,6 +47,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Animated,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -54,6 +55,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   Glass,
@@ -67,6 +69,10 @@ import {
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
+
+const phone = Platform.OS === 'ios' && !Platform.isPad;
+// iPhone's From pop-up shows a 33.6pt capsule within its 44pt target, as the Compose frames draw it.
+const phoneQuietSlop = (44 - 33.6) / 2;
 
 const styles = StyleSheet.create({
   // iPad draws the Mac Link Editor popover at the iPad list scale.
@@ -175,17 +181,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.s,
   },
+  // The frames' 40pt style choices, 2pt apart within the row's 4pt inset.
   formatStyles: {
     flexDirection: 'row',
+    gap: 2,
     padding: spacing.xs,
     borderRadius: radius.insetGroup,
   },
+  formatStyle: { minHeight: 40, borderRadius: 18 },
   formatGroup: {
     flex: 1,
     flexDirection: 'row',
     borderRadius: radius.insetGroup,
     overflow: 'hidden',
   },
+  formatGlyph: { fontSize: 17, lineHeight: 20 },
   formatChoice: {
     flex: 1,
     minHeight: 44,
@@ -204,6 +214,11 @@ const styles = StyleSheet.create({
     paddingRight: 10,
     borderRadius: radius.control,
     borderCurve: 'continuous',
+  },
+  phoneQuietPopUp: {
+    minHeight: 33.6,
+    marginVertical: phoneQuietSlop,
+    borderRadius: 7.2,
   },
   iconPopUp: {
     width: 44,
@@ -294,8 +309,26 @@ const textStyleKinds: readonly BlockKind[] = [
   'quote',
   'code',
 ];
-// The iPhone Format panel's rows: text styles, marks, then lists, quotes and code blocks.
-const headings = ['heading1', 'heading2', 'heading3', 'paragraph'] as const;
+// The iPhone Format panel's rows: text styles, marks, then lists, quotes and code blocks. Its text
+// styles name the heading levels by their role, each shown in its own type.
+const headings = [
+  [
+    'heading1',
+    'drafts.formatStyles.title',
+    { fontSize: 19, fontWeight: '700' },
+  ],
+  [
+    'heading2',
+    'drafts.formatStyles.heading',
+    { fontSize: 16, fontWeight: '600' },
+  ],
+  [
+    'heading3',
+    'drafts.formatStyles.subheading',
+    { fontSize: 13, fontWeight: '600' },
+  ],
+  ['paragraph', 'drafts.blocks.body', { fontSize: 15 }],
+] as const;
 const markGroups = {
   marks: markControls.slice(0, 4),
   code: markControls.slice(4),
@@ -341,9 +374,11 @@ export function PopUp({
         accessibilityRole="button"
         accessibilityState={{ expanded: open, disabled, selected }}
         disabled={disabled}
+        hitSlop={phone && quiet ? phoneQuietSlop : undefined}
         onPress={onToggle}
         style={[
           styles.popUp,
+          phone && quiet && styles.phoneQuietPopUp,
           label === undefined ? styles.iconPopUp : null,
           { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
         ]}>
@@ -589,12 +624,14 @@ function FormatChoice({
   selected,
   disabled,
   onPress,
+  style,
   children,
 }: {
   readonly name: string;
   readonly selected: boolean;
   readonly disabled: boolean;
   readonly onPress: () => void;
+  readonly style?: StyleProp<ViewStyle>;
   readonly children: (color: string) => ReactNode;
 }) {
   const colors = usePalette();
@@ -607,6 +644,7 @@ function FormatChoice({
       onPress={onPress}
       style={[
         styles.formatChoice,
+        style,
         selected && { backgroundColor: colors.accentFill },
         disabled && { opacity: 0.4 },
       ]}>
@@ -664,11 +702,13 @@ export function FormatPanel({
       shown.remove();
     };
   }, [linking, onHide, open]);
+  const insets = useSafeAreaInsets();
   const rowFill = { backgroundColor: colors.fillQuiet };
   return (
     <GlassPanel
       open={open}
-      style={styles.formatPanel}
+      // The panel takes the keyboard's place, 8pt from the screen's bottom edge.
+      style={[styles.formatPanel, { marginBottom: spacing.s - insets.bottom }]}
       cornerRadius={radius.formatPanel}>
       <View
         accessibilityLabel={t('drafts.formatting')}
@@ -688,7 +728,7 @@ export function FormatPanel({
           />
           <ToolbarButton
             disabled={disabled || !redo}
-            icon="arrow.uturn.forward"
+            icon="arrow.clockwise"
             label={t('drafts.redo')}
             onPress={onRedo}
           />
@@ -702,19 +742,22 @@ export function FormatPanel({
           </View>
         </View>
         <View style={[styles.formatStyles, rowFill]}>
-          {headings.map((value) => {
-            const name = t(blockNames[value]);
+          {headings.map(([value, label, type]) => {
+            const name = t(label);
             return (
               <FormatChoice
                 key={value}
                 disabled={disabled}
                 name={name}
                 selected={kind === value}
+                style={styles.formatStyle}
                 onPress={() => {
                   onBlock(value);
                 }}>
                 {(color) => (
-                  <Text style={[textStyles.subheadline, { color }]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[type, { color }]}>
                     {name}
                   </Text>
                 )}
@@ -726,11 +769,7 @@ export function FormatPanel({
           {Object.entries(markGroups).map(([key, group]) => (
             <View
               key={key}
-              style={[
-                styles.formatGroup,
-                rowFill,
-                { minWidth: (key === 'code' ? 2 : group.length) * 44 },
-              ]}>
+              style={[styles.formatGroup, rowFill]}>
               {group.map(([mark, , name]) => (
                 <FormatChoice
                   key={mark}
@@ -740,13 +779,19 @@ export function FormatPanel({
                   onPress={() => {
                     onMark(mark);
                   }}>
-                  {(color) => (
-                    <SFSymbol
-                      name={markIcons[mark]}
-                      size={20}
-                      color={color}
-                    />
-                  )}
+                  {(color) =>
+                    mark === 'code' ? (
+                      <Text style={[styles.formatGlyph, { color }]}>
+                        {'</>'}
+                      </Text>
+                    ) : (
+                      <SFSymbol
+                        name={markIcons[mark]}
+                        size={20}
+                        color={color}
+                      />
+                    )
+                  }
                 </FormatChoice>
               ))}
               {/* The Link control follows Code, as in the iPhone Format frame. */}
@@ -770,7 +815,7 @@ export function FormatPanel({
             <View
               key={key}
               style={[styles.formatGroup, rowFill]}>
-              {group.map(([value, , name]) => (
+              {group.map(([value, glyph, name]) => (
                 <FormatChoice
                   key={value}
                   disabled={disabled}
@@ -789,13 +834,9 @@ export function FormatPanel({
                         color={color}
                       />
                     ) : (
-                      <SFSymbol
-                        name={
-                          value === 'quote' ? 'quote.opening' : 'curlybraces'
-                        }
-                        size={20}
-                        color={color}
-                      />
+                      <Text style={[styles.formatGlyph, { color }]}>
+                        {glyph}
+                      </Text>
                     )
                   }
                 </FormatChoice>

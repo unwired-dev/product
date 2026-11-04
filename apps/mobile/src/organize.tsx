@@ -251,7 +251,9 @@ function ToolbarGroups({
   ];
   if (compact) {
     return (
-      <GlassGroup pointerEvents="box-none">
+      <GlassGroup
+        wide
+        pointerEvents="box-none">
         {organize}
         {respond}
         {more}
@@ -488,7 +490,7 @@ const threadActions = (
     : [
         {
           name: 'move',
-          label: folders.show.label,
+          label: t('contextMenu.moveMessage'),
           icon: 'folder',
           group: 'place' as const,
           run: folders.show.run,
@@ -507,11 +509,16 @@ const threadActions = (
           },
         },
       ]),
+  // The sheet names its message actions as the reader's message menu does.
   ...['restore', 'spam', 'trash']
     .flatMap((name) => more.actions.filter((action) => action.name === name))
     .map(({ name, label, run }) => ({
       name,
-      label,
+      label:
+        new Map([
+          ['spam', t('contextMenu.spam')],
+          ['trash', t('contextMenu.trashMessage')],
+        ]).get(name) ?? label,
       icon: actionIcons[name] ?? 'ellipsis',
       group: 'place' as const,
       run,

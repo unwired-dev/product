@@ -187,6 +187,8 @@ const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 const padFieldInset = 24 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
+// Compact 36pt field rows reach 44pt targets.
+const fieldSlop = { compact: 4, regular: undefined } as const;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -384,15 +386,24 @@ const styles = StyleSheet.create({
 // 36.8pt in and growing to push its attachments and fields to the bottom, the fields 27.6pt in
 // with a compact 73.6pt label column.
 export const layoutStyles = {
+  // iPhone's fields are 36pt rows of 16.25/20 text beneath 1.25pt rules, 10pt from their labels.
+  // Inputs keep 44pt targets through hit slop, and an entry stays beside recipients while 80pt fit.
   compact: StyleSheet.create({
     content: {},
     body: {},
     quoted: {},
     assets: {},
     fields: {},
-    field: {},
-    fieldLabel: {},
-    fieldNotice: {},
+    field: {
+      gap: 10,
+      minHeight: 36,
+      paddingVertical: 0,
+      borderTopWidth: 1.25,
+    },
+    fieldLabel: { fontSize: 16.25, lineHeight: 20, paddingVertical: 8 },
+    fieldNotice: { paddingLeft: fieldLabelWidth + 10 },
+    input: { fontSize: 16.25, lineHeight: 20, minHeight: 36, minWidth: 80 },
+    token: { minHeight: 36 },
   }),
   regular: StyleSheet.create({
     content: { flexGrow: 1 },
@@ -403,6 +414,8 @@ export const layoutStyles = {
     field: { gap: spacing.s * ipadListScale },
     fieldLabel: { width: padLabelWidth },
     fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
+    input: {},
+    token: {},
   }),
 };
 
@@ -759,7 +772,8 @@ export function Recipients({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const sized = layoutStyles[use(ComposerLayoutContext).size];
+  const { size } = use(ComposerLayoutContext);
+  const sized = layoutStyles[size];
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
@@ -821,7 +835,8 @@ export function Recipients({
                   field,
                 );
               }}
-              style={styles.token}>
+              hitSlop={fieldSlop[size]}
+              style={[styles.token, sized.token]}>
               {({ pressed }) => (
                 <View
                   style={[
@@ -881,7 +896,8 @@ export function Recipients({
             placeholder={t('drafts.recipientPlaceholder')}
             placeholderTextColor={colors.textSecondary}
             returnKeyType="next"
-            style={[styles.input, { color: colors.textPrimary }]}
+            hitSlop={fieldSlop[size]}
+            style={[styles.input, sized.input, { color: colors.textPrimary }]}
             textContentType="emailAddress"
             value={entryOf(draft, field)}
           />
@@ -1704,13 +1720,13 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   return draft.response === undefined ? 'card' : 'docked';
 };
 
-// A docked reply is titled by its kind; otherwise the subject names the Draft.
+// A docked or iPhone response is titled by its kind; otherwise the subject names the Draft.
 const composerTitle = (
   t: ReturnType<typeof useLocalization>['t'],
   draft: Draft,
-  docked: boolean,
+  byKind: boolean,
 ) =>
-  docked && draft.response !== undefined
+  byKind && draft.response !== undefined
     ? t(responseTitles[draft.response.kind])
     : clip(draft.subject) || t('drafts.newMessage');
 
@@ -2455,7 +2471,7 @@ function Editor({
   // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
   const presentation = presentationOf(regular, draft);
   const docked = presentation === 'docked';
-  const title = composerTitle(t, draft, docked);
+  const title = composerTitle(t, draft, docked || !regular);
   const titleLabel =
     title.length < draft.subject.length
       ? t('drafts.titleShortened', { title })
@@ -2835,9 +2851,14 @@ function Editor({
                     subjectCaret.current = undefined;
                     subjectSelection.current = next;
                   }}
+                  hitSlop={fieldSlop[layout.size]}
                   placeholder={t('drafts.subject')}
                   placeholderTextColor={colors.textSecondary}
-                  style={[styles.input, { color: colors.textPrimary }]}
+                  style={[
+                    styles.input,
+                    sized.input,
+                    { color: colors.textPrimary },
+                  ]}
                   value={draft.subject}
                 />
               </View>

@@ -24,6 +24,7 @@ import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const ipad = Platform.OS === 'ios' && Platform.isPad;
+const phone = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -57,7 +58,8 @@ const styles = StyleSheet.create({
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   status: { position: 'absolute', top: 0, left: 0, right: 0 },
   hidden: { opacity: 0 },
-  points: { gap: 14, marginTop: 10, marginBottom: ipad ? 28 : 0 },
+  // The frames' 10pt spacer sits between two of the content's 14pt gaps.
+  points: { gap: 14, marginTop: 10 + 14, marginBottom: ipad ? 28 : 0 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
   // Each iPad benefit takes a 39.1pt slot: its 23pt line and 16.1pt below, then 32.2pt to Continue.
@@ -70,6 +72,10 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.l,
     gap: spacing.m,
   },
+  // The iPhone frames end Welcome's Continue 24pt and Sign In's fine print 36pt above the home
+  // indicator.
+  welcomeFooter: { paddingBottom: 24 },
+  signInFooter: { paddingBottom: 36 },
   split: {
     flex: 1,
     flexDirection: 'row',
@@ -100,7 +106,8 @@ const styles = StyleSheet.create({
     maxWidth: 392,
     gap: spacing.m * ipadListScale,
   },
-  compactForm: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 40, gap: 10 },
+  // The iPhone frames start the heading 36pt below Back.
+  compactForm: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 36, gap: 10 },
   back: {
     width: 44,
     height: 44,
@@ -137,6 +144,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.control * ipadListScale,
   },
   regularAppleAction: { borderRadius: 8 * ipadListScale },
+  quietAction: { borderWidth: 1 },
   regularQuietAction: { borderWidth: ipadListScale },
   privacy: {
     minHeight: 44,
@@ -181,6 +189,7 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     borderCurve: 'continuous',
   },
+  outlinedTile: { borderWidth: 1 },
   ipadTile: {
     width: 28 * ipadListScale,
     height: 28 * ipadListScale,
@@ -207,17 +216,24 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderCurve: 'continuous',
   },
+  // The brand card follows the iPhone Recovery Key frame: 24pt insets, 14pt gaps, a 16pt tile.
+  brandCard: { gap: 14, paddingHorizontal: 24, paddingVertical: 24 },
+  brandCardHeader: { alignItems: 'flex-start', gap: 14 },
+  brandIconTile: { borderRadius: 16 },
   cardTitle: { ...textStyles.headline, textAlign: 'center' },
   cardDescription: { ...textStyles.subheadline, textAlign: 'center' },
   brandTitle: { ...textStyles.largeTitle, textAlign: 'left' },
   brandDescription: { ...textStyles.body, textAlign: 'left' },
 });
 
-const welcomeScroll = ipad
-  ? [styles.welcome, styles.ipadWelcome]
-  : styles.welcome;
-// iPad's benefit symbols show at 70% (B3), quieter than their labels.
-const pointIconAlpha = ipad ? 'B3' : '';
+// iPhone sets Welcome's content 14pt below the safe area's centre, whatever its footer holds.
+const welcomeScroll = (footer: number) =>
+  ipad
+    ? [styles.welcome, styles.ipadWelcome]
+    : [styles.welcome, { paddingTop: spacing.l + footer + 2 * 14 }];
+const assistance = phone
+  ? 'onboarding.welcome.assistancePhone'
+  : 'onboarding.welcome.assistance';
 
 // While launch reads the saved account, the seal breathes and the status arrives after a moment, so
 // a quick launch shows only the seal.
@@ -266,6 +282,8 @@ export function Welcome({
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
+  // iPhone's footer height, which Welcome's content offsets.
+  const [footer, setFooter] = useState(0);
   const breathing = restoring && !reduced;
   const ink = { color: colors.brandOnDeep };
   // Welcome's own content keeps its place while launch progress shows, unseen and unreachable.
@@ -277,7 +295,10 @@ export function Welcome({
     : undefined;
   const concealed = restoring ? styles.hidden : undefined;
   const points = [
-    { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
+    {
+      icon: 'lock.fill',
+      text: t(assistance),
+    },
     { icon: 'tray.2', text: t('onboarding.welcome.mailProfiles') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
   ];
@@ -328,7 +349,7 @@ export function Welcome({
         },
       ]}>
       <ScrollView
-        contentContainerStyle={welcomeScroll}
+        contentContainerStyle={welcomeScroll(footer)}
         scrollEnabled={!restoring}>
         <View
           style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
@@ -376,8 +397,8 @@ export function Welcome({
                 style={styles.point}>
                 <SFSymbol
                   name={icon}
-                  size={ipad ? 18.4 : 16}
-                  color={`${colors.brandOnDeep}${pointIconAlpha}`}
+                  size={ipad ? 18.4 : 18}
+                  color={`${colors.brandOnDeep}B3`}
                 />
                 <Text
                   style={[styles.pointText, ipad && styles.ipadPointText, ink]}>
@@ -398,7 +419,10 @@ export function Welcome({
       {ipad ? null : (
         <View
           {...hidden}
-          style={[styles.footer, concealed]}>
+          onLayout={({ nativeEvent }) => {
+            setFooter(nativeEvent.layout.height);
+          }}
+          style={[styles.footer, styles.welcomeFooter, concealed]}>
           {action}
         </View>
       )}
@@ -524,7 +548,7 @@ export function SignIn({
         {heading}
         {children}
       </ScrollView>
-      <View style={styles.footer}>{actions}</View>
+      <View style={[styles.footer, styles.signInFooter]}>{actions}</View>
     </View>
   );
 }
@@ -559,7 +583,8 @@ export function OnboardingAction({
   const fills = {
     brand: [colors.brandSeal, colors.brandOnSeal],
     apple: [colors.appleButton, colors.appleOnButton],
-    quiet: [colors.fillQuiet, colors.textPrimary],
+    // iPhone's secondary action is outlined, with no fill.
+    quiet: [ipad ? colors.fillQuiet : 'transparent', colors.textPrimary],
   } as const;
   const [background, ink] = fills[fill];
   // Pressed, the Brand and Apple fills show at 80% (CC) and the quiet fill takes the selection tint.
@@ -580,11 +605,10 @@ export function OnboardingAction({
         ipad && styles.regularAction,
         ipad && fill !== 'brand' && styles.regularSignInAction,
         ipad && fill === 'apple' && styles.regularAppleAction,
-        ipad &&
-          fill === 'quiet' && [
-            styles.regularQuietAction,
-            { borderColor: colors.separator },
-          ],
+        fill === 'quiet' && [
+          ipad ? styles.regularQuietAction : styles.quietAction,
+          { borderColor: colors.separator },
+        ],
         {
           backgroundColor: pressed ? pressedFill : background,
           opacity: disabled ? 0.4 : 1,
@@ -671,10 +695,15 @@ export function ProviderRow({
       <View
         style={[
           styles.tile,
-          ipad && styles.ipadTile,
-          {
-            backgroundColor: ipad ? colors.fillQuiet : colors.surfaceContent,
-          },
+          ipad
+            ? [styles.ipadTile, { backgroundColor: colors.fillQuiet }]
+            : [
+                styles.outlinedTile,
+                {
+                  backgroundColor: colors.surfaceContent,
+                  borderColor: colors.separator,
+                },
+              ],
         ]}>
         <Text
           style={[
@@ -733,6 +762,7 @@ export function TrustCard({
     <View
       style={[
         styles.card,
+        fill === 'brand' && styles.brandCard,
         {
           backgroundColor:
             fill === 'brand' ? colors.brandDeep : colors.surfaceContent,
@@ -740,13 +770,11 @@ export function TrustCard({
         },
       ]}>
       <View
-        style={[
-          styles.cardHeader,
-          fill === 'brand' && { alignItems: 'flex-start' },
-        ]}>
+        style={[styles.cardHeader, fill === 'brand' && styles.brandCardHeader]}>
         <View
           style={[
             styles.iconTile,
+            fill === 'brand' && styles.brandIconTile,
             {
               backgroundColor:
                 fill === 'brand' ? palette.dark.fillQuiet : colors.fillQuiet,

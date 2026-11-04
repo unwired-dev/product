@@ -449,7 +449,11 @@ export function useBarIndicatorInsets(toolbar = false) {
   return { bottom: lift + barHeight };
 }
 
-function ScrollEdge({ style }: { readonly style: StyleProp<ViewStyle> }) {
+export function ScrollEdge({
+  style,
+}: {
+  readonly style: StyleProp<ViewStyle>;
+}) {
   const colors = usePalette();
   return (
     <View

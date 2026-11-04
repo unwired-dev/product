@@ -85,6 +85,19 @@ export const registrationStyles = StyleSheet.create({
     borderCurve: 'continuous',
     overflow: 'hidden',
   },
+  // iPhone's brand Recovery Key well, as its frame draws it.
+  brandRecoveryKey: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '500',
+    fontFamily: 'System',
+    letterSpacing: 1.76,
+    textAlign: 'left',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderWidth: 1,
+    borderRadius: 20,
+  },
   // A device approval code, large enough to compare at a glance with the other device.
   code: {
     fontSize: 28,

@@ -33,6 +33,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
@@ -93,8 +94,13 @@ const styles = StyleSheet.create({
   title: { ...textStyles.headline, textAlign: 'center' },
   grow: { flex: 1 },
   list: { paddingBottom: spacing.l },
-  // The last rows scroll clear of the floating New Message.
-  compactList: { paddingHorizontal: spacing.l, paddingBottom: 72 },
+  // The last rows scroll clear of the floating New Message; the Profile Switcher sits 14pt below
+  // the header.
+  compactList: {
+    paddingHorizontal: spacing.l,
+    paddingTop: 14,
+    paddingBottom: 72,
+  },
   group: {
     borderRadius: radius.mailboxGroup,
     borderCurve: 'continuous',
@@ -177,6 +183,15 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     paddingHorizontal: spacing.s,
   },
+  // iPhone fills the row itself, since the native menu host's fill would draw twice, 12pt in with
+  // 12pt beside its monogram.
+  compactSwitcherRow: {
+    minHeight: 48,
+    gap: spacing.m,
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.mailboxGroup,
+    borderCurve: 'continuous',
+  },
   switcherName: { ...typography.ipadList.body, fontWeight: '600', flex: 1 },
   compactSwitcherName: { ...textStyles.headline, flex: 1 },
 });
@@ -219,10 +234,18 @@ function ProfileSwitcher({
       })}
       style={[
         styles.switcher,
-        compact && styles.compactSwitcher,
-        { backgroundColor: colors.fillQuiet },
+        compact
+          ? styles.compactSwitcher
+          : { backgroundColor: colors.fillQuiet },
       ]}>
-      <View style={styles.switcherRow}>
+      <View
+        style={[
+          styles.switcherRow,
+          compact && [
+            styles.compactSwitcherRow,
+            { backgroundColor: colors.fillQuiet },
+          ],
+        ]}>
         <ProfileMonogram
           name={name}
           style={profileStyle(profiles, profile)}
@@ -479,6 +502,8 @@ export function Mailboxes({
   const colors = usePalette();
   const { t } = useLocalization();
   const header = usePaletteHeader();
+  // iPhone's list runs under the home indicator, behind New Message's scroll edge.
+  const { bottom } = useSafeAreaInsets();
   const sidebar = mailboxSidebar({
     mailboxes,
     connections: account?.mailboxes ?? [],
@@ -501,7 +526,12 @@ export function Mailboxes({
     <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       {bar === true ? <NavigationChrome /> : null}
       <SafeAreaView
-        edges={{ top: true, bottom: compact, left: true, right: true }}
+        edges={{
+          top: true,
+          bottom: compact && onCompose === undefined,
+          left: true,
+          right: true,
+        }}
         style={styles.fill}>
         <View
           style={
@@ -563,6 +593,10 @@ export function Mailboxes({
             contentContainerStyle={[
               styles.list,
               compact && styles.compactList,
+              compact &&
+                onCompose !== undefined && {
+                  paddingBottom: styles.compactList.paddingBottom + bottom,
+                },
             ]}>
             <ProfileSwitcher
               onProfile={onProfile}
@@ -679,6 +713,7 @@ export function Mailboxes({
           </ScrollView>
           {compact && onCompose !== undefined ? (
             <FloatingBar
+              bottomInset={bottom}
               leading={null}
               trailing={
                 <NewMessageButton

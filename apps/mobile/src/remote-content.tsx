@@ -28,7 +28,7 @@ import {
 
 import type { SettingsButton } from './settings.tsx';
 
-import { AnnouncedAlert, SFSymbol } from './design.tsx';
+import { AnnouncedAlert, MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   settingsColumns,
@@ -146,6 +146,14 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   label: { ...textStyles.subheadline },
+  // iPhone's pop-up: the chosen policy and its chevrons at the row's trailing edge.
+  popUp: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  popUpLabel: { ...textStyles.body },
   text: { ...textStyles.body },
   // The approved warning row keeps the Mac inset and small type on iPhone and iPad.
   notSaved: {
@@ -177,7 +185,8 @@ function PolicyRow({
 }) {
   const colors = usePalette();
   const { width, height } = useWindowDimensions();
-  if (settingsColumns && width > height) {
+  // iPhone's frames set each policy as one row, its pop-up at the trailing edge.
+  if (!settingsColumns || width > height) {
     return (
       <SettingsRow
         icon={icon}
@@ -219,6 +228,40 @@ export function PolicyChoice({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const title = (choice: Choice) => t(`remoteContent.policies.${choice}`);
+  // iPhone chooses from one native pop-up.
+  if (!settingsColumns) {
+    return (
+      <MenuButton
+        accessibilityLabel={`${label}: ${title(selected)}`}
+        sections={[
+          {
+            items: choices.map((choice) => ({
+              key: choice,
+              title: title(choice),
+              symbol: '',
+              checked: choice === selected,
+              run: () => {
+                onChoose(choice);
+              },
+            })),
+          },
+        ]}>
+        <View style={styles.popUp}>
+          <Text
+            numberOfLines={1}
+            style={[styles.popUpLabel, { color: colors.textSecondary }]}>
+            {title(selected)}
+          </Text>
+          <SFSymbol
+            name="chevron.up.chevron.down"
+            size={12}
+            color={colors.textSecondary}
+          />
+        </View>
+      </MenuButton>
+    );
+  }
   return (
     <View style={styles.choices}>
       {choices.map((choice) => (
