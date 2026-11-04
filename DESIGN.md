@@ -45,6 +45,8 @@ colors:
   surface-content-dark: '#1E1E1E'
   surface-sidebar: '#F3F2F5'
   surface-sidebar-dark: '#2A2A2C'
+  surface-panel: '#F8F8F8'
+  surface-panel-dark: '#1A1A1A'
   material-sidebar-backing: 'transparent'
   material-sidebar-backing-dark: 'rgba(42, 42, 44, 0.92)'
   surface-bubble: '#F1F1F4'
@@ -295,6 +297,7 @@ Graphite neutrals with a single warm seal.
 | Secondary text    | `text/secondary`           | `#4F4F54`     | `#B0B0B5`     | Previews, timestamps, captions, section headers               |
 | Content surface   | `surface/content`          | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                 |
 | Sidebar surface   | `surface/sidebar`          | `#F3F2F5`     | `#2A2A2C`     | Opaque stand-in for the sidebar material                      |
+| Panel surface     | `surface/panel`            | `#F8F8F8`     | `#1A1A1A`     | iPad floating sidebar panels, as the frames' glass reads      |
 | Sidebar backing   | `material/sidebar-backing` | transparent   | `#2A2A2C` 92% | Mac sidebars only, between the glass and its text             |
 | Bubble surface    | `surface/bubble`           | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                     |
 | Quiet fill        | `fill/quiet`               | black 5%      | white 6%      | Secondary buttons, search field, banners, chips               |
@@ -312,6 +315,7 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | Primary text on content            | 15.08 | 12.30 |
 | Secondary text on content          | 8.14  | 7.72  |
 | Secondary text on sidebar          | 7.30  | 6.63  |
+| Secondary text on panel            | 7.67  | 8.06  |
 | Secondary text on bubble           | 7.22  | 6.45  |
 | On device ink on on device surface | 6.11  | 7.22  |
 | Warning on content                 | 5.28  | 9.35  |

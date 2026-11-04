@@ -35,10 +35,14 @@ export const styles = StyleSheet.create({
   barTitle: { position: 'absolute', alignItems: 'center' },
   // iPad's command input takes its own row above the heading, across the list column as the
   // frames place it, so the heading's top padding is the gap beneath it.
-  commands: {
+  commandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
     marginHorizontal: 14 * scale,
     marginTop: spacing.l * scale,
   },
+  commands: { flex: 1 },
   title: {
     ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
   },

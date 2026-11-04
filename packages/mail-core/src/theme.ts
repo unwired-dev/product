@@ -46,6 +46,8 @@ export const palette = {
     textSecondary: '#4F4F54',
     surfaceContent: '#FFFFFF',
     surfaceSidebar: '#F3F2F5',
+    // The iPad's floating sidebar panels, as the frames' glass reads over the content surface.
+    surfacePanel: '#F8F8F8',
     // Mac sidebars' glass; Dark backs it so secondary text keeps 4.5:1 over bright desktops.
     materialSidebarBacking: 'transparent',
     surfaceBubble: '#F1F1F4',
@@ -82,6 +84,7 @@ export const palette = {
     textSecondary: '#B0B0B5',
     surfaceContent: '#1E1E1E',
     surfaceSidebar: '#2A2A2C',
+    surfacePanel: '#1A1A1A',
     materialSidebarBacking: 'rgba(42, 42, 44, 0.92)',
     surfaceBubble: '#2C2C2E',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',

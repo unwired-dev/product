@@ -59,6 +59,7 @@ patchedDependencies:
   expo-glass-effect@57.0.4: patches/expo-glass-effect@57.0.4.patch
   react-native-keyboard-controller@1.21.9: patches/react-native-keyboard-controller@1.21.9.patch
   react-native-macos@0.81.9: patches/react-native-macos@0.81.9.patch
+  react-native-screens@4.26.2: patches/react-native-screens@4.26.2.patch
   react-native-webview@13.16.1: patches/react-native-webview@13.16.1.patch
 
 allowBuilds:

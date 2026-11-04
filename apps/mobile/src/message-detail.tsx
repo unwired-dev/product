@@ -79,6 +79,7 @@ import { MessageActions, MessageActionsNotice } from './organize.tsx';
 import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReplySheet } from './reply-sheet.tsx';
+import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
@@ -169,6 +170,11 @@ const styles = StyleSheet.create({
 // Keeps the message being read in place while bodies above it load.
 const keepVisibleMessage = { minIndexForVisible: 0 };
 
+// Beside the list, its command input serves the reader too; a reader alone keeps its own.
+function ReaderCommandRow() {
+  return use(SidebarToggleContext) === undefined ? <CommandInputRow /> : null;
+}
+
 // Nothing selected, or a message that is not in any open mailbox.
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
@@ -178,7 +184,7 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <CommandInputRow />
+      <ReaderCommandRow />
       <View
         style={styles.empty}
         {...header.swipe}>
@@ -375,6 +381,7 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
 function RegularHeader({ subject }: { readonly subject: string }) {
   const colors = usePalette();
   const header = usePaletteHeader();
+  const besideList = use(SidebarToggleContext) !== undefined;
   return (
     <View
       style={styles.header}
@@ -391,7 +398,7 @@ function RegularHeader({ subject }: { readonly subject: string }) {
           {subject}
         </Text>
       </View>
-      <CommandInput />
+      {besideList ? null : <CommandInput />}
     </View>
   );
 }
@@ -772,7 +779,7 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={styles.fill}>
-      <CommandInputRow />
+      <ReaderCommandRow />
       <View
         style={styles.empty}
         {...header.swipe}>
@@ -803,7 +810,7 @@ function ReaderLoading() {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={styles.fill}>
-      <CommandInputRow />
+      <ReaderCommandRow />
       <View
         style={styles.fill}
         {...header.swipe}>

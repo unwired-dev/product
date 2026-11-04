@@ -1,0 +1,36 @@
+diff --git a/ios/gamma/split/RNSSplitHostController.swift b/ios/gamma/split/RNSSplitHostController.swift
+index 510006b8f22828b518b5283fe408664d7b05738d..07f5863da73ecb29453b3760d3622996473c33e4 100644
+--- a/ios/gamma/split/RNSSplitHostController.swift
++++ b/ios/gamma/split/RNSSplitHostController.swift
+@@ -164,7 +164,9 @@ public class RNSSplitHostController: UISplitViewController, ReactMountingTransac
+ 
+     /// The assumption is that it should come in a single batch and it won't cause any delays in rendering the content.
+     navigationController.setNavigationBarHidden(true, animated: false)
+-    navigationController.setNavigationBarHidden(false, animated: false)
++    // Unwired Mail: the bar returns only where the split view shows one (collapsed).
++    let showsBar = (navigationController as? RNSSplitNavigationController)?.columnsShowBars ?? true
++    navigationController.setNavigationBarHidden(!showsBar, animated: false)
+   }
+ 
+   // MARK: Helpers
+diff --git a/ios/gamma/split/RNSSplitNavigationController.swift b/ios/gamma/split/RNSSplitNavigationController.swift
+index 6fb3c84295572c6b6371f732e935c365b50fd2e4..bf32e3d80d2ec14a237d5a8203370496939e5c36 100644
+--- a/ios/gamma/split/RNSSplitNavigationController.swift
++++ b/ios/gamma/split/RNSSplitNavigationController.swift
+@@ -43,4 +43,16 @@ public class RNSSplitNavigationController: UINavigationController {
+   private func onViewOriginChange() {
+     viewFrameOriginChangeObserver?.splitNavCtrlViewDidChangeFrameOrigin(self)
+   }
++
++  // Unwired Mail: while the split view shows its columns side by side, each column draws its own
++  // header and controls, so the columns start beneath the status bar. A collapsed split view
++  // keeps its navigation bars, whose Back returns between the stacked columns.
++  var columnsShowBars: Bool { splitViewController?.isCollapsed ?? true }
++
++  override public func viewWillLayoutSubviews() {
++    super.viewWillLayoutSubviews()
++    if isNavigationBarHidden == columnsShowBars {
++      setNavigationBarHidden(!columnsShowBars, animated: false)
++    }
++  }
+ }

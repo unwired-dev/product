@@ -1,6 +1,11 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { Fragment } from 'react';
 import {
   Platform,
@@ -20,7 +25,7 @@ import {
 
 import { AccountHeader } from './account-page.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
-import { Glass, SFSymbol } from './design.tsx';
+import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -85,14 +90,31 @@ const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 const styles = StyleSheet.create({
   page: { flex: 1 },
   columns: { flex: 1, flexDirection: 'row' },
+  // The floating sidebar panel the iPad frames draw, beneath the status bar.
   sidebar: {
     width: 248,
     marginLeft: spacing.s,
+    marginTop: spacing.l,
     marginBottom: spacing.s,
     borderRadius: 21,
     borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  sidebarList: { padding: 9 },
+  sidebarList: { padding: 9, paddingTop: 0 },
+  // The panel's top row: Close at its leading end, where Mailboxes has its sidebar toggle.
+  sidebarTop: {
+    height: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+  },
+  close: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
   account: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -114,7 +136,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    minHeight: 44,
+    minHeight: 28 * ipadListScale,
     paddingHorizontal: 9,
     borderRadius: 7,
     borderCurve: 'continuous',
@@ -347,8 +369,41 @@ export function SettingsWorkspace({
     const selected = destination ?? 'account';
     return (
       <View style={[styles.columns, { paddingTop: insets.top }]}>
-        <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
-          <Glass cornerRadius={21} />
+        <View
+          style={[
+            styles.sidebar,
+            {
+              backgroundColor: colors.surfacePanel,
+              borderColor: colors.separator,
+              boxShadow: colors.largeGlassShadow,
+            },
+          ]}>
+          <View style={styles.sidebarTop}>
+            {navigation === undefined ? null : (
+              <Pressable
+                accessibilityLabel={t('settings.close')}
+                accessibilityRole="button"
+                disabled={navigation.disabled}
+                hitSlop={6}
+                onPress={() => {
+                  navigation.onInbox();
+                }}
+                style={({ pressed }) => [
+                  styles.close,
+                  {
+                    backgroundColor: pressed
+                      ? colors.accentSelectionSubtle
+                      : colors.fillQuiet,
+                  },
+                ]}>
+                <SFSymbol
+                  name="xmark"
+                  size={14}
+                  color={colors.textPrimary}
+                />
+              </Pressable>
+            )}
+          </View>
           <ScrollView contentContainerStyle={styles.sidebarList}>
             {onWelcome === undefined ? (
               <>

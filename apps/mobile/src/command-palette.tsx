@@ -24,7 +24,7 @@ import {
   sectionTitle,
 } from '@private-email/mail-core/commands';
 import { messageCommands } from '@private-email/mail-core/context-menu';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -195,16 +195,17 @@ const styles = StyleSheet.create({
   dimmed: { opacity: 0.35 },
   detail: { ...textStyles.footnote },
   empty: { ...textStyles.subheadline, padding: spacing.l },
+  // 36pt as the iPad frames draw the command input; its hit slop keeps a 44pt touch target.
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    minHeight: 44,
+    height: 36,
     paddingHorizontal: spacing.m,
-    borderRadius: 22,
+    borderRadius: 18,
     borderCurve: 'continuous',
   },
-  pillText: { ...textStyles.subheadline },
+  pillText: { ...typography.ipadList.body },
   // Matches the reader's header and the composer's top bar, where the input otherwise sits.
   commandRow: {
     width: '100%',
@@ -658,9 +659,10 @@ export function CommandInput({
     <Pressable
       accessibilityLabel={t('commands.openPalette')}
       accessibilityRole="button"
+      hitSlop={4}
       onPress={open}
       style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
-      <Glass cornerRadius={22} />
+      <Glass cornerRadius={18} />
       <SFSymbol
         name="command"
         color={colors.textSecondary}

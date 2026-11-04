@@ -188,6 +188,7 @@
   },
   "settings": {
     "back": "Back",
+    "close": "Close Settings",
     "title": "Settings",
     "sections": {
       "accounts": "Accounts",

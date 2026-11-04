@@ -39,7 +39,14 @@ import type { Destination } from './move-sheet.tsx';
 import type { ThreadAction } from './reply-sheet.tsx';
 
 import { RegisterCommands } from './command-palette.tsx';
-import { GlassGroup, GlassPanel, Notice, ToolbarButton } from './design.tsx';
+import {
+  GlassGroup,
+  GlassPanel,
+  MenuButton,
+  Notice,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -67,6 +74,7 @@ type PanelState = Readonly<{
 
 const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  moreButton: { minWidth: 44, minHeight: 44, alignItems: 'center' },
   groups: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 * ipadListScale },
   // Panels open above a bottom toolbar and below a top one; the reader positions the whole.
   panels: { maxHeight: 280, flexGrow: 0 },
@@ -297,6 +305,68 @@ function MorePanel({
   );
 }
 
+// More: on iPhone its panel above the bottom toolbar; on iPad the system menu the frames draw,
+// with Gmail's Labels, which toggle in place, opening More's panel.
+function MoreButton({
+  more,
+}: {
+  readonly more: Readonly<{
+    open: boolean;
+    toggle: () => void;
+    actions: readonly Named[];
+    labels?: ReactNode;
+  }>;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  if (compact) {
+    return (
+      <ToolbarButton
+        icon="ellipsis"
+        label={t('message.more')}
+        expanded={more.open}
+        onPress={() => {
+          more.toggle();
+        }}
+      />
+    );
+  }
+  return (
+    <MenuButton
+      accessibilityLabel={t('message.more')}
+      sections={[
+        {
+          items: more.actions.map(({ name, label, run }) => ({
+            key: name,
+            title: label,
+            symbol: actionIcons[name] ?? 'ellipsis',
+            destructive: name === 'trash',
+            run,
+          })),
+        },
+        {
+          items:
+            more.labels === undefined
+              ? []
+              : [
+                  {
+                    key: 'labels',
+                    title: t('gmailActions.labels'),
+                    symbol: 'tag',
+                    run: more.toggle,
+                  },
+                ],
+        },
+      ]}
+      style={styles.moreButton}>
+      <SFSymbol
+        name="ellipsis"
+        color={colors.textPrimary}
+      />
+    </MenuButton>
+  );
+}
+
 // The organizing actions the iPhone Reply sheet offers, in the design's order.
 const threadActions = (
   t: ReturnType<typeof useLocalization>['t'],
@@ -436,18 +506,7 @@ function Toolbar({
               {children}
             </ThreadActionsContext>
           }
-          more={
-            replySheet ? null : (
-              <ToolbarButton
-                icon="ellipsis"
-                label={t('message.more')}
-                expanded={more.open}
-                onPress={() => {
-                  more.toggle();
-                }}
-              />
-            )
-          }
+          more={replySheet ? null : <MoreButton more={more} />}
         />
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}

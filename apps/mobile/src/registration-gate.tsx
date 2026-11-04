@@ -479,19 +479,11 @@ function SettingsPage({
         detail={detail}
         navigation={{ onBack, onInbox, disabled: busy }}
         accessory={
-          <>
-            {busy ? (
-              <ActivityIndicator
-                accessibilityLabel={t('registration.connecting')}
-              />
-            ) : null}
-            {settingsColumns
-              ? button(t('registration.openInbox'), () => {
-                  onInbox();
-                  return Promise.resolve();
-                })
-              : null}
-          </>
+          busy ? (
+            <ActivityIndicator
+              accessibilityLabel={t('registration.connecting')}
+            />
+          ) : null
         }>
         {failed || actions.signIn.length > 0 ? (
           <SettingsGroup>
