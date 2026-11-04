@@ -19,8 +19,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   without a matching selectable folder in the committed listing. Check the
   projected roles themselves, as well as consumers that filter selectability;
   otherwise an unavailable folder carries a role that another consumer can trust.
-  Preserve a unique selectable server marker over the choice, and leave a missing
-  or unselectable choice unresolved without substituting another folder.
+  Preserve every selectable server marker over the choice. Several matches make
+  `imapRoleFolder` unresolved, not unmarked: a saved choice must not strip the
+  role from unchosen server-marked folders or admit the connection to All Mail.
+  Exercise existing and newly saved choices against a multi-marked listing, and
+  check that the host offers no chooser for that ambiguity. Leave a missing or
+  unselectable choice unresolved without substituting another folder.
 
 - `imap-actions.ts.imapQuickActions` or a search consumer assuming INBOX cannot
   carry an effective Junk or Trash role. Explicit folder choices may name INBOX;
