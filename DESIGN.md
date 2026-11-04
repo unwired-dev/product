@@ -510,6 +510,8 @@ content.
   and arrow.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
+- The iPhone meeting invitation card uses `radius.touchCard`, 18pt; iPad keeps the
+  10pt `radius.card`.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
   control groups use 22pt corners and 18pt inset selections.
 - The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a

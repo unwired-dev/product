@@ -12,15 +12,18 @@ import {
   Button,
   Host,
   HStack,
+  Label,
   Spacer,
   Text as SwiftUIText,
   VStack,
 } from '@expo/ui/swift-ui';
 import {
+  accessibilityAddTraits,
   accessibilityLabel as spokenLabel,
   buttonBorderShape,
   buttonStyle,
   disabled,
+  font,
   frame,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
@@ -46,6 +49,7 @@ import {
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Platform,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -58,13 +62,14 @@ import { useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-// The iPhone and iPad card follows the Mac one in touch sizes: 14pt inset, 18pt corners, Subheadline
-// text. A row's value moves below its label when larger text leaves it too little room.
+// The iPhone and iPad card follows the Mac one in touch sizes: 14pt inset, Subheadline text, 18pt
+// corners on iPhone and the 10pt card corners iPad shares with Mac. A row's value moves below its label when larger text leaves it too little room.
 const styles = StyleSheet.create({
   card: {
     gap: spacing.m,
     padding: 14,
-    borderRadius: radius.touchCard,
+    borderRadius:
+      Platform.OS === 'ios' && Platform.isPad ? radius.card : radius.touchCard,
     borderCurve: 'continuous',
   },
   heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
@@ -308,6 +313,10 @@ function Action({
   const colors = usePalette();
   const stacked = useStacked();
   const wide = fill || stacked;
+  const text = [
+    font({ textStyle: 'subheadline', weight: 'semibold' }),
+    ...(wide ? [frame({ maxWidth: Infinity })] : []),
+  ];
   return (
     <Button
       onPress={onPress}
@@ -317,10 +326,17 @@ function Action({
         tint(chosen ? colors.accentFill : colors.accentInk),
         disabled(off),
         spokenLabel(spoken ?? label),
+        ...(chosen ? [accessibilityAddTraits(['isSelected'])] : []),
       ]}>
-      <SwiftUIText modifiers={wide ? [frame({ maxWidth: Infinity })] : []}>
-        {label}
-      </SwiftUIText>
+      {chosen ? (
+        <Label
+          title={label}
+          systemImage="checkmark"
+          modifiers={text}
+        />
+      ) : (
+        <SwiftUIText modifiers={text}>{label}</SwiftUIText>
+      )}
     </Button>
   );
 }
@@ -498,13 +514,7 @@ function Responding({
             key={choice}
             fill
             chosen={chosen === choice}
-            label={
-              chosen === choice
-                ? t('invitation.chosen', {
-                    choice: t(`invitation.${invitationChoiceKeys[choice]}`),
-                  })
-                : t(`invitation.${invitationChoiceKeys[choice]}`)
-            }
+            label={t(`invitation.${invitationChoiceKeys[choice]}`)}
             spoken={
               chosen === choice
                 ? t(`invitation.${choice}`)
@@ -562,7 +572,12 @@ export function InvitationCard({
       <View style={card}>
         <View
           accessible
-          accessibilityLabel={t('invitation.heading')}>
+          accessibilityLabel={t('invitation.heading')}
+          style={styles.heading}>
+          <SFSymbol
+            name="exclamationmark.triangle.fill"
+            color={colors.statusWarning}
+          />
           <Text
             style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
             {t('invitation.heading')}

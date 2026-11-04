@@ -259,6 +259,10 @@ jest.mock('@expo/ui/swift-ui', () => {
   };
 });
 jest.mock('@expo/ui/swift-ui/modifiers', () => ({
+  accessibilityAddTraits: (traits) => ({
+    $type: 'accessibilityAddTraits',
+    traits,
+  }),
   accessibilityLabel: (label) => ({ $type: 'accessibilityLabel', label }),
   buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),

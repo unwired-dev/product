@@ -133,7 +133,7 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
         expect.stringMatching(/^Accepted\. /u),
         { queue: true },
       );
-      expect(screen.getByText('✓ Accept')).toBeOnTheScreen();
+      expect(screen.getByText('Accept')).toBeOnTheScreen();
 
       await fireEvent.press(screen.getByRole('button', { name: 'Accepted' }));
 
