@@ -38,6 +38,7 @@ import {
 } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
+import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
 import { listWidth } from './inbox-styles.ts';
 import { Inbox } from './inbox.tsx';
 import { useLocalization } from './localization.ts';
@@ -289,9 +290,8 @@ function WindowContents({
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
   const [panes, setPanes] = useState({ width: 0, height: 0 });
-  // How far into the window the panes begin, which AppKit reports through each frame of the
-  // sidebar's animation, so the search field stays centered on the window while the sidebar moves.
-  const [panesInset, setPanesInset] = useState(0);
+  // Half the sidebar's visible width, which only the floating bar follows through the animation.
+  const barOffset = useMemo(() => createBarOffset(), []);
   const [toolbarWidth, setToolbarWidth] = useState(0);
   const [view, setView] = useState<MailboxView>({});
   // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
@@ -364,7 +364,7 @@ function WindowContents({
           setCollapsed(nativeEvent.collapsed);
         }}
         onInset={({ nativeEvent }) => {
-          setPanesInset(nativeEvent.inset);
+          barOffset.set(nativeEvent.inset / 2);
         }}
         style={styles.sidebarHost}>
         <View
@@ -407,74 +407,75 @@ function WindowContents({
               });
             }}
             style={styles.panes}>
-            <Inbox
-              barOffset={panesInset / 2}
-              composing={composing}
-              leading={collapsed ? toggle : undefined}
-              reader={
-                <View
-                  // The reader's toolbar and the rest left uncovered stay interactive above the
-                  // overlay.
-                  style={[
-                    styles.detail,
-                    { backgroundColor: colors.surfaceContent },
-                  ]}>
-                  {/* Only the categorization-spike build has a page for the empty reader. */}
-                  {selected === undefined &&
-                  CategorizationSpike !== undefined ? (
-                    <CategorizationSpike />
-                  ) : (
-                    <ReaderToolbarWidthContext value={setToolbarWidth}>
-                      <MessageDetail
-                        id={selected?.id}
-                        mailbox={selected?.mailbox}
-                        folder={selected?.folder}
-                        onClose={close}
-                        onCompose={compose}
-                      />
-                    </ReaderToolbarWidthContext>
-                  )}
-                  {composing === undefined ? null : (
-                    <View
-                      testID="composer-overlay"
-                      style={[
-                        styles.composer,
-                        styles.composerOverlay,
-                        {
-                          height: composerHeight(panes.height),
-                          borderColor: colors.separator,
-                          boxShadow: colors.menuShadow,
-                        },
-                      ]}>
-                      <DraftComposer
-                        id={composing}
-                        onClose={() => {
-                          setComposing(undefined);
-                        }}
-                        // Expand moves the saved Draft into its own New Message window.
-                        onExpand={(id) => {
-                          windowHost()?.openComposer(id, profile);
-                          setComposing(undefined);
-                        }}
-                        onRebind={setComposing}
-                      />
-                    </View>
-                  )}
-                </View>
-              }
-              selected={selected}
-              onClose={close}
-              onCompose={compose}
-              onSelectBehindComposer={
-                composing === undefined ? undefined : setSelected
-              }
-              onSelect={(selection) => {
-                setComposing(undefined);
-                setSelected(selection);
-              }}
-              onView={setView}
-              view={view}
-            />
+            <BarOffsetContext value={barOffset}>
+              <Inbox
+                composing={composing}
+                leading={collapsed ? toggle : undefined}
+                reader={
+                  <View
+                    // The reader's toolbar and the rest left uncovered stay interactive above the
+                    // overlay.
+                    style={[
+                      styles.detail,
+                      { backgroundColor: colors.surfaceContent },
+                    ]}>
+                    {/* Only the categorization-spike build has a page for the empty reader. */}
+                    {selected === undefined &&
+                    CategorizationSpike !== undefined ? (
+                      <CategorizationSpike />
+                    ) : (
+                      <ReaderToolbarWidthContext value={setToolbarWidth}>
+                        <MessageDetail
+                          id={selected?.id}
+                          mailbox={selected?.mailbox}
+                          folder={selected?.folder}
+                          onClose={close}
+                          onCompose={compose}
+                        />
+                      </ReaderToolbarWidthContext>
+                    )}
+                    {composing === undefined ? null : (
+                      <View
+                        testID="composer-overlay"
+                        style={[
+                          styles.composer,
+                          styles.composerOverlay,
+                          {
+                            height: composerHeight(panes.height),
+                            borderColor: colors.separator,
+                            boxShadow: colors.menuShadow,
+                          },
+                        ]}>
+                        <DraftComposer
+                          id={composing}
+                          onClose={() => {
+                            setComposing(undefined);
+                          }}
+                          // Expand moves the saved Draft into its own New Message window.
+                          onExpand={(id) => {
+                            windowHost()?.openComposer(id, profile);
+                            setComposing(undefined);
+                          }}
+                          onRebind={setComposing}
+                        />
+                      </View>
+                    )}
+                  </View>
+                }
+                selected={selected}
+                onClose={close}
+                onCompose={compose}
+                onSelectBehindComposer={
+                  composing === undefined ? undefined : setSelected
+                }
+                onSelect={(selection) => {
+                  setComposing(undefined);
+                  setSelected(selection);
+                }}
+                onView={setView}
+                view={view}
+              />
+            </BarOffsetContext>
           </View>
           <CommandBar
             floating={{

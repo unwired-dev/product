@@ -24,10 +24,13 @@
   NSSplitViewItem *_item;
   __weak NSSplitViewController *_split;
   __weak NSView *_content;
+  // The inset last reported, so repeated layout passes send nothing new.
+  CGFloat _reportedInset;
 }
 - (instancetype)initWithFrame:(NSRect)frame
 {
   if ((self = [super initWithFrame:frame])) {
+    _reportedInset = -1;
     _pane = [NSViewController new];
     _pane.view = [RCTUIView new];
     _touchHandler = [RCTSurfaceTouchHandler new];
@@ -75,6 +78,7 @@
 }
 - (void)detach
 {
+  _reportedInset = -1;
   if (_item == nil) return;
   [NSNotificationCenter.defaultCenter removeObserver:self name:NSViewFrameDidChangeNotification
       object:_content];
@@ -99,6 +103,7 @@
 - (void)setOnInset:(RCTDirectEventBlock)onInset
 {
   _onInset = [onInset copy];
+  _reportedInset = -1;
   [self reportInset];
 }
 // The sidebar's visible width: its pane's trailing edge in the window, which AppKit moves through
@@ -109,7 +114,10 @@
   NSView *pane = _pane.view;
   CGFloat edge = pane.window == nil || pane.isHiddenOrHasHiddenAncestor
       ? 0 : NSMaxX([pane convertRect:pane.bounds toView:nil]);
-  self.onInset(@{@"inset": @(MAX(0, edge))});
+  CGFloat inset = MAX(0, edge);
+  if (inset == _reportedInset) return;
+  _reportedInset = inset;
+  self.onInset(@{@"inset": @(inset)});
 }
 @end
 

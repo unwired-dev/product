@@ -77,7 +77,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 40,
     paddingTop: spacing.xl,
-    paddingBottom: 40,
+    // Clear of the floating search bar across the panes' bottom edge and its scroll edge fade.
+    paddingBottom: 72,
     gap: spacing.l,
   },
   // Reply, Reply All and Forward 2pt apart, as the reader toolbar frames space a group.

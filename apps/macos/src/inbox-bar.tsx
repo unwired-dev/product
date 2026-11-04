@@ -3,7 +3,13 @@ import type { ReactNode, RefObject } from 'react';
 import { composeCommand } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useRef, useState } from 'react';
+import {
+  createContext,
+  use,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { RegisterCommands } from './command-palette.tsx';
@@ -191,9 +197,43 @@ const fieldFrame = (width: number, offset: number) => {
   return { left: center - half, width: 2 * half };
 };
 
+// How far the window's center lies before the panes' center: half the sidebar's visible width,
+// which AppKit reports through each frame of its animation. A store, so only the bar follows it.
+export type BarOffset = Readonly<{
+  subscribe: (listener: () => void) => () => void;
+  get: () => number;
+}>;
+
+export const BarOffsetContext = createContext<BarOffset>({
+  subscribe: () => () => undefined,
+  get: () => 0,
+});
+
+export const createBarOffset = () => {
+  let offset = 0;
+  const listeners = new Set<() => void>();
+  return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    get: () => offset,
+    set: (next: number) => {
+      if (next === offset) {
+        return;
+      }
+      offset = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+  };
+};
+
 // The floating glass bar over the panes: search on the mail saved on this device, and New Message.
 export function FloatingBar({
-  offset = 0,
   hidden = false,
   ready,
   query,
@@ -214,11 +254,11 @@ export function FloatingBar({
   readonly search: RefObject<TextInput | null>;
   // A toast above the bar.
   readonly notice?: ReactNode;
-  // How far the window's center lies before the panes' center.
-  readonly offset?: number | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const barOffset = use(BarOffsetContext);
+  const offset = useSyncExternalStore(barOffset.subscribe, barOffset.get);
   const [width, setWidth] = useState(0);
   const centered = { transform: [{ translateX: -offset }] };
   return (

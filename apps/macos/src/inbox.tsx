@@ -133,8 +133,6 @@ interface InboxProps {
   readonly leading?: ReactNode;
   // The pane beside the list; the floating search bar spans both.
   readonly reader?: ReactNode;
-  // How far the window's center lies before the panes' center, where the search field sits.
-  readonly barOffset?: number;
 }
 
 const allInboxes: MailboxView = {};
@@ -798,7 +796,6 @@ export function Inbox({
   onView = keepView,
   leading,
   reader,
-  barOffset,
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
@@ -1306,7 +1303,6 @@ export function Inbox({
       </View>
       {reader}
       <FloatingBar
-        offset={barOffset}
         hidden={composeSearch.hidden}
         search={search}
         onCompose={onCompose}
