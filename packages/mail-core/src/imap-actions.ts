@@ -157,12 +157,15 @@ export const imapMoveTargets = (
 // Trash and Spam as Gmail's search does.
 const unsearched = new Set(['trash', 'junk']);
 export const searchedFolders = (folders: readonly ImapFolder[]) => {
+  const inbox = folders.find(({ name }) => name === inboxFolder);
   const candidates = folders.filter(
     ({ selectable, roles: declared }) =>
       selectable && !declared.some((role) => unsearched.has(role)),
   );
   return [
-    inboxFolder,
+    ...(inbox?.roles.some((role) => unsearched.has(role)) === true
+      ? []
+      : [inboxFolder]),
     ...candidates
       .filter(
         ({ name, roles: declared }) =>

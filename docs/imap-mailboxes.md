@@ -167,7 +167,7 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   and search, for mail already read as well as later synchronizations, without
   reading the mail again. A chosen folder that the saved listing no longer offers as
   selectable leaves the role unknown, so the connection is not included again until
-  another is chosen; no other folder is substituted. A queued move not yet attempted
+  it returns or another is chosen; no other folder is substituted. A queued move not yet attempted
   is refused, like other role changes, once the choice points the role elsewhere. A
   choice that cannot be saved, including a folder chosen for both roles, keeps the
   previous one. Sent still needs a folder the server marks `\Sent`. After the refreshed list is saved successfully, a folder it no

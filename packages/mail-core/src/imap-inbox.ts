@@ -2971,8 +2971,13 @@ export function createImapInbox(
         if (!current(scope)) {
           return { kind: 'found', messages: [], limited: false } as const;
         }
+        const eligible = new Set(
+          searchedFolders(roleFolders(document?.folders ?? [])),
+        );
         const messages = newestFirst(
-          searched.flatMap(({ messages: matches }) => matches),
+          searched
+            .flatMap(({ messages: matches }) => matches)
+            .filter(({ folder }) => eligible.has(folder)),
         );
         for (const message of messages) {
           found.set(message.id, message);
@@ -2981,7 +2986,7 @@ export function createImapInbox(
           kind: 'found',
           messages,
           limited:
-            asked.length < folders.length ||
+            [...eligible].some((folder) => !asked.includes(folder)) ||
             searched.length < asked.length ||
             searched.some(({ more }) => more),
         } as const;

@@ -13,6 +13,7 @@ import type {
   RemoteResource,
 } from './gmail-inbox.ts';
 import type {
+  ImapFolder,
   ImapInbox,
   ImapInboxState,
   ImapMessage,
@@ -30,6 +31,7 @@ import type { Registration } from './registration.ts';
 
 import { logNote } from './diagnostics.ts';
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
+import { searchedFolders } from './imap-actions.ts';
 import { createImapInbox } from './imap-inbox.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
 import { newestFirst } from './mailbox-views.ts';
@@ -671,6 +673,14 @@ export function createMailboxes(
       void entry.inbox.load();
     }
   };
+  const chooseFolders = (open: readonly OpenMailbox[]) => {
+    for (const { id, folders } of open) {
+      const entry = inboxes.get(id);
+      if (entry?.provider === 'imap') {
+        entry.inbox.choose(folders);
+      }
+    }
+  };
   // A connection moved to another Profile keeps its Inbox and changes only its owner here.
   const follow = (
     mailboxLoading: 'automatic' | 'explicit' = 'automatic',
@@ -683,12 +693,7 @@ export function createMailboxes(
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
     const opened = openNew(open, mailboxLoading);
-    for (const { id, folders } of open) {
-      const entry = inboxes.get(id);
-      if (entry?.provider === 'imap') {
-        entry.inbox.choose(folders);
-      }
-    }
+    chooseFolders(open);
     if (repairedImap !== undefined) {
       reloadRepaired(repairedImap, held);
     }
@@ -1057,6 +1062,9 @@ export async function searchGmail<M extends Searchable>(
   };
 }
 
+const imapSearchScope = (folders: readonly ImapFolder[] | undefined) =>
+  folders === undefined ? undefined : JSON.stringify(searchedFolders(folders));
+
 // One view's online search. This composes Promise-returning Inbox actions without another Effect
 // run. Replacing the view's query or scope replaces this store, so an old answer cannot reappear.
 // Only the scope's own ready mailboxes are asked.
@@ -1066,12 +1074,18 @@ export function createGmailSearch<
     address?: string | undefined;
     profile: string;
     inbox: Readonly<{
-      getSnapshot: () => Readonly<{ kind: string }>;
+      getSnapshot: () => Readonly<{
+        kind: string;
+        folders?: readonly ImapFolder[];
+      }>;
       searchGmail?: Searchable['inbox']['searchGmail'];
     }>;
   }>,
 >(shown: readonly M[], query: string, scope: ViewScope) {
   const kinds = shown.map(({ inbox }) => inbox.getSnapshot().kind);
+  const folders = shown.map(({ inbox }) =>
+    imapSearchScope(inbox.getSnapshot().folders),
+  );
   const mailboxes = shown.filter(
     (mailbox): mailbox is M & Searchable =>
       inScope(scope)(mailbox) &&
@@ -1116,7 +1130,9 @@ export function createGmailSearch<
         (mailbox, index) =>
           mailbox.inbox === next[index]?.inbox &&
           mailbox.profile === next[index]?.profile &&
-          kinds[index] === next[index]?.inbox.getSnapshot().kind,
+          kinds[index] === next[index]?.inbox.getSnapshot().kind &&
+          folders[index] ===
+            imapSearchScope(next[index]?.inbox.getSnapshot().folders),
       ),
     available: mailboxes.length > 0 && query !== '',
     search: () => run(),

@@ -291,7 +291,7 @@ describe('unified mailboxes across connections', () => {
   it('includes an IMAP connection in All Mail with the Spam and Trash folders the person chose, reclassifying mail already read', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
-    imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Junk');
     imap.addFolder('Spam');
     imap.addFolder('Bin');
     imap.addFolder('Projects');
@@ -308,9 +308,23 @@ describe('unified mailboxes across connections', () => {
     await inbox.openFolder('Bin');
     expect(unifiedFolders(read(), allMail)).toBeUndefined();
 
-    // The server's Junk folder keeps its role; the chosen Trash folder supplies the missing one.
-    // Mail already read from it is Trash at once, and All Mail leaves it, Junk and Flagged out.
+    // Both roles come from the choice. Mail already read is Trash at once, without another read.
+    const reads = imap.server.reads.length;
     inbox.choose({ junk: 'Spam', trash: 'Bin' });
+    expect(imap.server.reads).toHaveLength(reads);
+    expect(unifiedFolders(read(), allMail)).toStrictEqual([
+      'INBOX',
+      'Junk',
+      'Projects',
+    ]);
+    expect(unifiedFolders(read(), 'SPAM')).toStrictEqual(['Spam']);
+    expect(rows(await opened(stores, 'TRASH'))).toStrictEqual([
+      ['imap', 'Deleted', 'Bin'],
+    ]);
+
+    // A later server marker wins for Junk while the chosen Trash folder keeps its role.
+    imap.addFolder('Junk', ['junk']);
+    await inbox.load();
     expect(unifiedFolders(read(), allMail)).toStrictEqual([
       'INBOX',
       'Spam',
@@ -328,6 +342,14 @@ describe('unified mailboxes across connections', () => {
     expect(notIncludedDetail(read(), allMail)).toBe(
       'mailboxes.notIncludedSpamTrash',
     );
+
+    imap.addFolder('Bin', [], false);
+    await inbox.load();
+    expect(unifiedFolders(read(), allMail)).toBeUndefined();
+    expect(unifiedFolders(read(), 'TRASH')).toBeUndefined();
+    imap.addFolder('Bin');
+    await inbox.load();
+    expect(unifiedFolders(read(), 'TRASH')).toStrictEqual(['Bin']);
 
     // A server All folder still keeps the connection out, whatever was chosen.
     imap.addFolder('Bin');

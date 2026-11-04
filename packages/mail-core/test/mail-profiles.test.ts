@@ -575,7 +575,7 @@ describe('mail profiles', () => {
 
   it('chooses an IMAP connection’s Spam and Trash folders only through Product Sync, for one incarnation', async () => {
     expect.hasAssertions();
-    const { flow, relaunch, sync, imap: server, mailboxId } = setup();
+    const { flow, relaunch, sync, imap: server, mailboxId, records } = setup();
     await flow.signIn('google');
     const imap = {
       address: 'alex@example.invalid',
@@ -639,6 +639,25 @@ describe('mail profiles', () => {
     expect(chosen(await flow.refreshPrivateSync())).toStrictEqual([
       { junk: 'Junk', trash: 'Deleted' },
     ]);
+
+    // Unreadable ciphertext cannot authorize overwriting the last confirmed choice.
+    const sealed = new Map(sync.sealedProfiles);
+    for (const [ciphertext, { record }] of sync.sealedProfiles) {
+      if (record.kind === 'folders') {
+        sync.sealedProfiles.delete(ciphertext);
+      }
+    }
+    const before = new Map(records());
+    await expect(
+      flow.chooseFolders(id, { junk: 'Junk', trash: 'Trash' }),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(records()).toStrictEqual(before);
+    expect(chosen(await flow.snapshot())).toStrictEqual([
+      { junk: 'Junk', trash: 'Deleted' },
+    ]);
+    for (const [ciphertext, record] of sealed) {
+      sync.sealedProfiles.set(ciphertext, record);
+    }
 
     // Removed and connected again, the connection starts without a choice.
     await flow.removeMailbox(id);

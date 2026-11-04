@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { english as t } from '@private-email/localization';
+import { createGmailSearch } from '@private-email/mail-core/mailboxes';
 
 import type {
   ImapInboxState,
@@ -857,6 +858,73 @@ describe('searching IMAP mail at the server', () => {
         { ...folder('Parent'), selectable: false },
       ]),
     ).toStrictEqual(['INBOX', 'Sent', 'Projects']);
+  });
+
+  it('leaves the Inbox out of search when it is chosen as Spam', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Projects');
+    imap.deliver('INBOX', { subject: 'Invoice in Spam' });
+    imap.deliver('Projects', { subject: 'Project invoice' });
+    const inbox = createImapInbox(imap.native);
+    try {
+      await inbox.load();
+      const mailboxes = [{ id: 'imap', profile: 'default', inbox }];
+      const scope = { profile: 'default' };
+      const search = createGmailSearch(mailboxes, 'invoice', scope);
+      await search.search();
+      expect(search.getSnapshot().found?.results).toHaveLength(2);
+      await inbox.load();
+      expect(search.matches(mailboxes, 'invoice', scope)).toBe(true);
+      inbox.choose({ junk: 'INBOX' });
+      expect(search.matches(mailboxes, 'invoice', scope)).toBe(false);
+      expect(
+        foundMessages(await inbox.searchGmail('invoice')).map(
+          ({ subject }) => subject,
+        ),
+      ).toStrictEqual(['Project invoice']);
+    } finally {
+      inbox.forget();
+    }
+  });
+
+  it('applies a changed Spam choice to an in-flight search and reports newly searchable folders as missing', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Projects');
+    imap.deliver('INBOX', { subject: 'Inbox invoice' });
+    imap.deliver('Projects', { subject: 'Project invoice' });
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const inbox = createImapInbox({
+      ...imap.native,
+      imapSearch: async (...args) => {
+        entered.resolve(undefined);
+        await release.promise;
+        return imap.native.imapSearch(...args);
+      },
+    });
+    try {
+      await inbox.load();
+      inbox.choose({ junk: 'INBOX' });
+      const searching = inbox.searchGmail('invoice');
+      await entered.promise;
+      inbox.choose({ junk: 'Projects' });
+      release.resolve(undefined);
+      await expect(searching).resolves.toStrictEqual({
+        kind: 'found',
+        messages: [],
+        limited: true,
+      });
+      expect(
+        foundMessages(await inbox.searchGmail('invoice')).map(
+          ({ subject }) => subject,
+        ),
+      ).toStrictEqual(['Inbox invoice']);
+    } finally {
+      release.resolve(undefined);
+      inbox.forget();
+    }
   });
 
   it('keeps an online-only reader’s read state current after the server confirms it', async () => {

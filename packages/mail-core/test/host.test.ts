@@ -1,12 +1,12 @@
 import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
 
+import { allMail } from '@private-email/mail-core/gmail-actions';
+import { unifiedFolders } from '@private-email/mail-core/mailboxes';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 
 import type { NativeHostModule } from '../src/host.ts';
 
-import { allMail } from '../src/gmail-actions.ts';
 import { createHost } from '../src/host.ts';
-import { unifiedFolders } from '../src/mailboxes.ts';
 import {
   defaultProfile,
   mailboxesOf,
