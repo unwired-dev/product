@@ -108,14 +108,14 @@ export const imapQuickActions = (
       kind: 'archive' | 'trash' | 'spam' | 'restore';
       destination: string;
     }>
-  > = removed
-    ? [{ kind: 'restore', destination: inboxFolder }]
-    : roles.flatMap(([kind, role]) => {
-        const destination = imapRoleFolder(folders, role);
-        return destination === undefined || destination === message.folder
-          ? []
-          : [{ kind, destination }];
-      });
+  > = (
+    removed
+      ? [{ kind: 'restore', destination: inboxFolder } as const]
+      : roles.flatMap(([kind, role]) => {
+          const destination = imapRoleFolder(folders, role);
+          return destination === undefined ? [] : [{ kind, destination }];
+        })
+  ).filter(({ destination }) => destination !== message.folder);
   const actions: ReadonlyArray<
     | Readonly<{ kind: 'read' | 'unread' | 'star' | 'unstar' }>
     | (typeof moves)[number]

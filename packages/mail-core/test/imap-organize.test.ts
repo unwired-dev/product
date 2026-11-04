@@ -860,6 +860,20 @@ describe('searching IMAP mail at the server', () => {
     ).toStrictEqual(['INBOX', 'Sent', 'Projects']);
   });
 
+  it('offers no move back to the Inbox from the Inbox chosen as Trash', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept' });
+    const inbox = createImapInbox(imap.native, { chosen: { trash: 'INBOX' } });
+    await inbox.load();
+    const message = first(folderMessages(inbox.folder('INBOX')));
+    expect(
+      imapQuickActions(t, message, ready(inbox.getSnapshot())).map(
+        ({ action: change }) => change,
+      ),
+    ).toStrictEqual([{ kind: 'read' }, { kind: 'star' }]);
+  });
+
   it('leaves the Inbox out of search when it is chosen as Spam', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

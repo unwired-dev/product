@@ -73,10 +73,13 @@ const choiceOf = (sync: ReturnType<typeof setup>['sync']) => {
   }
   return choice;
 };
-// Every stored notification policy as ciphertext this device can no longer open.
-const forgetPolicyKeys = (sync: ReturnType<typeof setup>['sync']) => {
+// Every stored record of one kind as ciphertext this device can no longer open.
+const forgetKeys = (
+  sync: ReturnType<typeof setup>['sync'],
+  kind: 'notifications' | 'folders',
+) => {
   for (const [ciphertext, { record }] of sync.sealedProfiles) {
-    if (record.kind === 'notifications') {
+    if (record.kind === kind) {
       sync.sealedProfiles.delete(ciphertext);
     }
   }
@@ -564,7 +567,7 @@ describe('mail profiles', () => {
 
     // A policy record this device can no longer open turns its notifications off.
     await flow.notifyMailbox(id, true);
-    forgetPolicyKeys(sync);
+    forgetKeys(sync, 'notifications');
     expect(notifying(await flow.refreshPrivateSync())).toStrictEqual([false]);
 
     // Removed and added again, the connection's notifications start off.
@@ -642,11 +645,7 @@ describe('mail profiles', () => {
 
     // Unreadable ciphertext cannot authorize overwriting the last confirmed choice.
     const sealed = new Map(sync.sealedProfiles);
-    for (const [ciphertext, { record }] of sync.sealedProfiles) {
-      if (record.kind === 'folders') {
-        sync.sealedProfiles.delete(ciphertext);
-      }
-    }
+    forgetKeys(sync, 'folders');
     const before = new Map(records());
     await expect(
       flow.chooseFolders(id, { junk: 'Junk', trash: 'Trash' }),
@@ -682,7 +681,7 @@ describe('mail profiles', () => {
     await flow.notifyMailbox(id, true);
     forgetPolicyIdentifiers(device);
     const sealed = new Map(sync.sealedProfiles);
-    forgetPolicyKeys(sync);
+    forgetKeys(sync, 'notifications');
     const before = [...records().entries()];
     const refreshed = decode(await flow.refreshPrivateSync());
     expect(mailboxesOf(refreshed)[0]?.notifications).not.toBe(true);
@@ -699,7 +698,7 @@ describe('mail profiles', () => {
     ).toBe(true);
 
     // A mapped policy also stays read-only, for both switch directions.
-    forgetPolicyKeys(sync);
+    forgetKeys(sync, 'notifications');
     expect(
       mailboxesOf(decode(await flow.refreshPrivateSync()))[0]?.notifications,
     ).not.toBe(true);
@@ -719,7 +718,7 @@ describe('mail profiles', () => {
     await flow.notifyMailbox(id, true);
     const store = createRegistration(vault);
     await store.restore();
-    forgetPolicyKeys(sync);
+    forgetKeys(sync, 'notifications');
     vi.spyOn(console, 'error').mockReturnValue(undefined);
     await store.notifyMailbox(id, false);
     const state = store.getSnapshot();
