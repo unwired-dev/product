@@ -318,13 +318,10 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     );
     try {
       await expect(
-        screen.findByText(`Responding as ${me}`),
-      ).resolves.toBeOnTheScreen();
-      expect(
-        screen.getByText(
-          `You’re invited at two of your addresses. This copy responds only for ${me}.`,
+        screen.findByLabelText(
+          `Responding as ${me}. You’re invited at two of your addresses. This copy responds only for ${me}.`,
         ),
-      ).toBeOnTheScreen();
+      ).resolves.toBeOnTheScreen();
       expect(screen.getByText('alex@icloud.example · IMAP')).toBeOnTheScreen();
       // Another Profile's mailbox is never listed, though the invitation names it.
       expect(
