@@ -21,6 +21,7 @@ import type {
 } from './imap-inbox.ts';
 import type { ArrivedMessage, NotificationMailbox } from './notifications.ts';
 import type {
+  MailboxConnection,
   MailGrantProvider,
   MailProvider,
   RegistrationSnapshot,
@@ -424,6 +425,7 @@ type OpenMailbox = Readonly<{
   address: string;
   profile: string;
   owner: string;
+  folders: MailboxConnection['folders'];
 }>;
 
 // The connections whose Inbox can open, each owned by its Product Account, connection and address.
@@ -433,13 +435,14 @@ const openMailboxes = (
   canOpenInbox(account) && account.kind !== 'signed-out'
     ? mailboxesOf(account)
         .filter(({ state }) => state !== 'authorization')
-        .map(({ id, provider, address, profile, epoch }) => ({
+        .map(({ id, provider, address, profile, epoch, folders }) => ({
           account: account.productAccountId,
           epoch: epoch ?? 'legacy',
           id,
           provider,
           address,
           profile,
+          folders,
           owner: [
             account.productAccountId,
             id,
@@ -561,19 +564,6 @@ export function createMailboxes(
     }
     return changed;
   };
-  // The Spam and Trash folders the person chose for a connection.
-  const chosenFolders = (id: string) =>
-    mailboxesOf(registration.getSnapshot().snapshot).find(
-      (mailbox) => mailbox.id === id,
-    )?.folders;
-  // Gives each open IMAP Inbox the folders now chosen for it.
-  const chooseFolders = () => {
-    for (const [id, entry] of inboxes) {
-      if (entry.provider === 'imap') {
-        entry.inbox.choose(chosenFolders(id));
-      }
-    }
-  };
   const openNew = (
     open: readonly OpenMailbox[],
     mailboxLoading: 'automatic' | 'explicit',
@@ -586,6 +576,7 @@ export function createMailboxes(
       owner,
       account: productAccount,
       epoch,
+      folders,
     } of added) {
       // Notifications follow the connection while it keeps this owner and its switch is on.
       const eligible = () => {
@@ -634,7 +625,7 @@ export function createMailboxes(
                 arrived: report,
                 shared,
                 connection: id,
-                chosen: chosenFolders(id),
+                chosen: folders,
               }),
             }
           : {
@@ -692,7 +683,12 @@ export function createMailboxes(
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
     const opened = openNew(open, mailboxLoading);
-    chooseFolders();
+    for (const { id, folders } of open) {
+      const entry = inboxes.get(id);
+      if (entry?.provider === 'imap') {
+        entry.inbox.choose(folders);
+      }
+    }
     if (repairedImap !== undefined) {
       reloadRepaired(repairedImap, held);
     }
