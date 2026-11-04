@@ -91,7 +91,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { ...textStyles.headline, textAlign: 'center' },
+  // The frames set the title 12pt below the header's top, 3pt above its centre.
+  title: { ...textStyles.headline, textAlign: 'center', paddingBottom: 6 },
   grow: { flex: 1 },
   list: { paddingBottom: spacing.l },
   // The last rows scroll clear of the floating New Message; the Profile Switcher sits 14pt below
@@ -106,18 +107,21 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     overflow: 'hidden',
   },
+  // The frames' 28pt section header with 10pt above and below it.
   compactSection: {
     ...textStyles.headline,
     paddingHorizontal: spacing.xs,
     paddingTop: spacing.l,
-    paddingBottom: spacing.s,
+    paddingBottom: 10,
   },
+  // Each symbol takes a 24pt slot, so the labels share the frames' x68 axis.
   compactRow: {
     minHeight: 52,
-    gap: spacing.s,
+    gap: spacing.m,
     paddingHorizontal: spacing.l,
     borderRadius: 0,
   },
+  compactIcon: { width: 24, alignItems: 'center' },
   separator: { height: StyleSheet.hairlineWidth, marginHorizontal: spacing.l },
   // The iPad sidebar follows the Mac recipe at 1.15×, as its frames draw it.
   section: {
@@ -307,10 +311,12 @@ function Item({
           backgroundColor: colors.accentSelectionSubtle,
         },
       ]}>
-      <SFSymbol
-        name={icon}
-        color={colors.accentInk}
-      />
+      <View style={compact && styles.compactIcon}>
+        <SFSymbol
+          name={icon}
+          color={colors.accentInk}
+        />
+      </View>
       <Text
         numberOfLines={1}
         style={[
@@ -715,6 +721,8 @@ export function Mailboxes({
           {compact && onCompose !== undefined ? (
             <FloatingBar
               bottomInset={bottom}
+              // The frames fade the last 140pt of Mailboxes behind New Message.
+              edge={140}
               leading={null}
               trailing={
                 <NewMessageButton

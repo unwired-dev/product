@@ -27,12 +27,13 @@ const ipad = Platform.OS === 'ios' && Platform.isPad;
 const phone = Platform.OS === 'ios' && !Platform.isPad;
 // The frames' 17.25/23 Title 3 is set without the system font's own -0.43pt tracking at that size.
 const ipadTitle3 = { fontSize: 17.25, lineHeight: 23, letterSpacing: 0.43 };
-// The benefits' SF Symbols are as wide as the frames draw them at 18.4pt.
-const ipadSymbolWidths: Readonly<Record<string, number>> = {
-  'lock.fill': 14.03,
-  'tray.2': 20.7,
-  'arrow.clockwise': 15.41,
-};
+// The benefits' SF Symbols are as wide as the frames draw them, at 18.4pt on iPad and 18pt on
+// iPhone, so each label follows its own symbol.
+const symbolWidths: Readonly<Record<string, number>> = ipad
+  ? { 'lock.fill': 14.03, 'tray.2': 20.7, 'arrow.clockwise': 15.41 }
+  : { 'lock.fill': 13.725, 'tray.2': 20.25, 'arrow.clockwise': 15.075 };
+// The iPhone frames' 18pt symbols draw smaller than UIKit's at that size; 14.5pt matches their ink.
+const pointSymbolSize = ipad ? 18.4 : 14.5;
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
   // Its label follows the symbol's own width 13.8pt on.
   ipadPoints: { gap: 16.1, marginTop: 41.4, marginBottom: 16.1 + 32.2 },
   ipadPoint: { gap: spacing.m * ipadListScale },
-  ipadPointIcon: { alignItems: 'center' },
+  pointIcon: { alignItems: 'center' },
   ipadPointText: ipadTitle3,
   // iPad's Privacy & Data hangs below Continue, outside the frames' content.
   ipadPrivacy: { position: 'absolute', top: '100%', left: 0, right: 0 },
@@ -137,7 +138,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 22,
   },
-  backInset: { marginLeft: spacing.l },
+  // The iPhone frames set Back 4pt above the page's top padding, without moving the heading.
+  backInset: {
+    marginLeft: spacing.l,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.xs,
+  },
   title: { ...textStyles.largeTitle },
   regularTitle: { fontSize: 25.3, lineHeight: 29.9 },
   description: { ...textStyles.body },
@@ -238,8 +244,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderCurve: 'continuous',
   },
-  // The brand card follows the iPhone Recovery Key frame: 24pt insets, 14pt gaps, a 16pt tile.
-  brandCard: { gap: 14, paddingHorizontal: 24, paddingVertical: 24 },
+  // The brand card follows the iPhone Recovery Key frame: content 24pt from the window's edges,
+  // 8pt inside the card's own 16pt inset, with 14pt gaps and a 16pt tile.
+  brandCard: { gap: 14, paddingHorizontal: spacing.s, paddingVertical: 24 },
   brandCardHeader: { alignItems: 'flex-start', gap: 14 },
   brandIconTile: { borderRadius: 16 },
   cardTitle: { ...textStyles.headline, textAlign: 'center' },
@@ -417,16 +424,10 @@ export function Welcome({
               <View
                 key={icon}
                 style={[styles.point, ipad && styles.ipadPoint]}>
-                <View
-                  style={
-                    ipad && [
-                      styles.ipadPointIcon,
-                      { width: ipadSymbolWidths[icon] },
-                    ]
-                  }>
+                <View style={[styles.pointIcon, { width: symbolWidths[icon] }]}>
                   <SFSymbol
                     name={icon}
-                    size={ipad ? 18.4 : 18}
+                    size={pointSymbolSize}
                     color={`${colors.brandOnDeep}B3`}
                   />
                 </View>
@@ -812,7 +813,8 @@ export function TrustCard({
           ]}>
           <SFSymbol
             name={icon}
-            size={24}
+            // The brand tile's key is drawn 12×22pt.
+            size={fill === 'brand' ? 18 : 24}
             color={ink}
           />
         </View>

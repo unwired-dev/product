@@ -181,6 +181,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: rowInset,
     paddingVertical: rowPadding,
   },
+  // A 24pt symbol slot puts the destinations' titles on the frames' x68 axis.
+  destinationIcon: { width: 24, alignItems: 'center' },
   // iPad's two-line rows are 61.3pt, as the frames draw them.
   rowText: { flex: 1, gap: settingsColumns ? 3.8 : 2 },
   // Trailing controls may take the row's padding, so a push button or the native picker keeps
@@ -338,11 +340,13 @@ function DestinationRow({
         pressed && { backgroundColor: colors.accentSelectionSubtle },
       ]}>
       <Hairline />
-      <SFSymbol
-        name={icon}
-        size={20}
-        color={colors.accentInk}
-      />
+      <View style={styles.destinationIcon}>
+        <SFSymbol
+          name={icon}
+          size={20}
+          color={colors.accentInk}
+        />
+      </View>
       <Text
         numberOfLines={1}
         style={[type.title, styles.grow, { color: colors.textPrimary }]}>
@@ -824,7 +828,7 @@ export function SettingsRow({
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
   // A row the frames draw taller than the group's other rows.
-  readonly minHeight?: number;
+  readonly minHeight?: number | undefined;
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();

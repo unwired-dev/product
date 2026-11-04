@@ -193,11 +193,14 @@ const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 const padFieldInset = 24 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
-// Compact 36pt and regular 41.4pt field rows reach 44pt targets.
+// Compact 36pt and regular 41.4pt field rows reach 44pt targets. iPhone's 36pt includes the
+// row's 1.25pt rule.
+const compactRule = 1.25;
+const compactFieldHeight = 36 - compactRule;
 const padFieldHeight = 36 * ipadListScale;
 const titledSendHeight = 28 * ipadListScale;
 export const fieldSlop = {
-  compact: 4,
+  compact: (44 - compactFieldHeight) / 2,
   regular: (44 - padFieldHeight) / 2,
 } as const;
 
@@ -399,15 +402,16 @@ const styles = StyleSheet.create({
   footer: { ...textStyles.footnote, paddingHorizontal: spacing.xl },
 });
 
-// Each layout's additions to the shared styles. iPad scales the Mac recipe by 1.15: the body
-// 36.8pt in and growing to push its attachments and fields to the bottom, in the Mac composer's
-// 15/22 at that scale; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt label column.
+// Each layout's additions to the shared styles. On both, the body grows to push its attachments
+// and fields to the bottom. iPad scales the Mac recipe by 1.15: the body 36.8pt in, in the Mac
+// composer's 15/22 at that scale; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt
+// label column.
 export const layoutStyles = {
   // iPhone's fields are 36pt rows of 16.25/20 text beneath 1.25pt rules, 10pt from their labels.
-  // Inputs keep 44pt targets through hit slop, and an entry stays beside recipients while 80pt fit.
+  // Inputs keep 44pt targets through hit slop, and an entry stays beside recipients while 60pt fit.
   compact: StyleSheet.create({
-    content: {},
-    body: {},
+    content: { flexGrow: 1 },
+    body: { flexGrow: 1 },
     quoted: {},
     assets: {},
     fields: {},
@@ -415,12 +419,21 @@ export const layoutStyles = {
       gap: 10,
       minHeight: 36,
       paddingVertical: 0,
-      borderTopWidth: 1.25,
+      borderTopWidth: compactRule,
     },
-    fieldLabel: { fontSize: 16.25, lineHeight: 20, paddingVertical: 8 },
+    fieldLabel: {
+      fontSize: 16.25,
+      lineHeight: 20,
+      paddingVertical: (compactFieldHeight - 20) / 2,
+    },
     fieldNotice: { paddingLeft: fieldLabelWidth + 10 },
-    input: { fontSize: 16.25, lineHeight: 20, minHeight: 36, minWidth: 80 },
-    token: { minHeight: 36 },
+    input: {
+      fontSize: 16.25,
+      lineHeight: 20,
+      minHeight: compactFieldHeight,
+      minWidth: 60,
+    },
+    token: { minHeight: compactFieldHeight },
   }),
   regular: StyleSheet.create({
     content: { flexGrow: 1 },

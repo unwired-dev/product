@@ -18,7 +18,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Monogram, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useAppearance, usePalette } from './theme.ts';
 
 // One of the Thread's organizing actions, as the iPhone Reply sheet lists it: Archive joins the
 // response tiles; the rest are rows grouped by what they change.
@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
   replyContent: {
     gap: 14,
     paddingHorizontal: 18,
-    paddingVertical: spacing.l,
+    paddingVertical: 18,
   },
   replyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   replyFrom: { flex: 1 },
@@ -108,6 +108,7 @@ export function ReplySheet({
   readonly onClose: () => void;
 }) {
   const colors = usePalette();
+  const appearance = useAppearance();
   const { t } = useLocalization();
   // The sheet fits its content; taller content scrolls inside the tallest detent iOS allows.
   const [height, setHeight] = useState<number>();
@@ -183,8 +184,11 @@ export function ReplySheet({
             presentationDetents(
               height === undefined ? ['medium'] : [{ height }],
             ),
-            // The frames draw the sheet as the glass panel surface.
-            presentationBackground(colors.surfacePanel),
+            // The Dark frames draw the sheet as the glass panel surface; Light keeps the system's
+            // sheet glass, which reads as the Light frames' #E8E8E8 over the dimmed reader.
+            ...(appearance === 'dark'
+              ? [presentationBackground(colors.surfacePanel)]
+              : []),
           ]}>
           <RNHostView>
             <ScrollView
@@ -246,7 +250,8 @@ export function ReplySheet({
                     ]}>
                     <SFSymbol
                       name={icon}
-                      size={22}
+                      // The frames draw Reply's arrow 19×16pt.
+                      size={19}
                       color={colors.textPrimary}
                     />
                     <Text

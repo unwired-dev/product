@@ -1028,6 +1028,8 @@ function MailboxMessage({
               singleContent,
               clearsBottom(compact || windowBar !== undefined, insets.bottom),
             ]}>
+            {/* iPhone counts a single message as its frames count a thread's. */}
+            {compact ? <MessageCount count={1} /> : null}
             <MessageMetadata message={message} />
             <MessageActionsNotice id={message.id} />
             <ResponseStatusNotice

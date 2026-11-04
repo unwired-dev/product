@@ -137,6 +137,9 @@ export function MessageCount({ count }: { readonly count: number }) {
 
 const noRecipients: readonly string[] = [];
 
+const summaryLines = (separate: boolean, lines: readonly string[]) =>
+  separate || lines.length === 0 ? lines : [lines.join(' · ')];
+
 // A message's sender, address and time beside neutral initials, and its disclosed recipients.
 export function MessageHeader({
   message,
@@ -211,20 +214,22 @@ export function MessageHeader({
             </Text>
           ) : null}
         </View>
-        {[...recipients, ...(mailbox === undefined ? [] : [mailbox])].map(
-          (line) => (
-            <Text
-              key={line}
-              numberOfLines={2}
-              style={[
-                secondary,
-                ipad && styles.padRecipients,
-                { color: colors.textSecondary },
-              ]}>
-              {line}
-            </Text>
-          ),
-        )}
+        {/* iPhone's frames give the sender one summary line beneath it. */}
+        {summaryLines(ipad, [
+          ...recipients,
+          ...(mailbox === undefined ? [] : [mailbox]),
+        ]).map((line) => (
+          <Text
+            key={line}
+            numberOfLines={ipad ? 2 : 1}
+            style={[
+              secondary,
+              ipad && styles.padRecipients,
+              { color: colors.textSecondary },
+            ]}>
+            {line}
+          </Text>
+        ))}
       </ContextMenu>
       <Text
         accessibilityLabel={t('message.received', {

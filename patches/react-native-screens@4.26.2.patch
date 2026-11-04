@@ -17,20 +17,28 @@ diff --git a/ios/gamma/split/RNSSplitNavigationController.swift b/ios/gamma/spli
 index 6fb3c84295572c6b6371f732e935c365b50fd2e4..bf32e3d80d2ec14a237d5a8203370496939e5c36 100644
 --- a/ios/gamma/split/RNSSplitNavigationController.swift
 +++ b/ios/gamma/split/RNSSplitNavigationController.swift
-@@ -43,4 +43,16 @@ public class RNSSplitNavigationController: UINavigationController {
+@@ -43,4 +43,24 @@ public class RNSSplitNavigationController: UINavigationController {
    private func onViewOriginChange() {
      viewFrameOriginChangeObserver?.splitNavCtrlViewDidChangeFrameOrigin(self)
    }
 +
 +  // Unwired Mail: while the split view shows its columns side by side, each column draws its own
-+  // header and controls, so the columns start beneath the status bar. A collapsed split view
-+  // keeps its navigation bars, whose Back returns between the stacked columns.
++  // header and controls, so the columns start beneath the status bar. Collapsing returns the bars,
++  // whose Back moves between the stacked columns; after that each collapsed screen decides, as
++  // iPhone's Mailboxes hides the bar above its own header.
 +  var columnsShowBars: Bool { splitViewController?.isCollapsed ?? true }
++  private var barsHiddenForColumns = false
 +
 +  override public func viewWillLayoutSubviews() {
 +    super.viewWillLayoutSubviews()
-+    if isNavigationBarHidden == columnsShowBars {
-+      setNavigationBarHidden(!columnsShowBars, animated: false)
++    if !columnsShowBars {
++      barsHiddenForColumns = true
++      if !isNavigationBarHidden {
++        setNavigationBarHidden(true, animated: false)
++      }
++    } else if barsHiddenForColumns {
++      barsHiddenForColumns = false
++      setNavigationBarHidden(false, animated: false)
 +    }
 +  }
  }

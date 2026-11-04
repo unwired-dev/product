@@ -1321,7 +1321,7 @@
       },
       "microsoft": {
         "name": "Microsoft 365 and Outlook",
-        "detail": "Work, school and Outlook.com accounts"
+        "detail": "Work, school and Outlook.com"
       },
       "fastmail": {
         "name": "Fastmail",
@@ -1329,7 +1329,7 @@
       },
       "other": {
         "name": "Other IMAP Account",
-        "detail": "Compatible IMAP and SMTP providers"
+        "detail": "Any provider with IMAP and SMTP"
       }
     }
   },

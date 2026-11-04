@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Monogram, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -407,6 +408,7 @@ export function MoveSheet({
   const mailbox = useMailbox();
   const provider = useProviderName();
   const { width, height } = useWindowDimensions();
+  const { bottom } = useSafeAreaInsets();
   const pending = useRef<
     Readonly<{ message: typeof message; id: string }> | undefined
   >(undefined);
@@ -470,9 +472,10 @@ export function MoveSheet({
         }}>
         <Group
           modifiers={[
-            // In portrait the frames leave 70pt above the sheet, a little more than large does.
+            // In portrait the frames leave 70pt above the sheet, a little more than large does. A
+            // custom detent's height leaves out the bottom safe area, which the sheet adds.
             presentationDetents(
-              height > width ? [{ height: height - 70 }] : ['large'],
+              height > width ? [{ height: height - 70 - bottom }] : ['large'],
             ),
             // The frames draw the sheet as the glass panel surface.
             presentationBackground(colors.surfacePanel),

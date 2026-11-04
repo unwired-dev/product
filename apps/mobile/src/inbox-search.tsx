@@ -260,15 +260,9 @@ export function InboxToolbar({
   return (
     <>
       {message?.command}
-      {/* Rows fade out beneath the toolbar, whose glass ends the safe area, as the frames draw it. */}
+      {/* Rows fade out over the window's last 72pt, beneath the toolbar's glass. */}
       <ScrollEdge
-        style={[
-          toolbarEdge.edge,
-          {
-            height: bottomInset + barHeight,
-            display: hidden ? 'none' : 'flex',
-          },
-        ]}
+        style={[toolbarEdge.edge, { display: hidden ? 'none' : 'flex' }]}
       />
       {/* The safe area ends a spacing above the toolbar's glass, so notices sit on it. Above the
           keyboard, search's field takes the bar's place, floated above the keyboard by UIKit. */}

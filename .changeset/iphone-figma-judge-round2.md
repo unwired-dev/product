@@ -1,0 +1,4 @@
+---
+---
+
+iPhone follows more of the Figma frames: Mailboxes shows no navigation bar again, so its header, Profile Switcher and rows sit where the frames draw them, with labels on the frames' axis and a 140pt bottom fade; the Inbox fades its last 72pt; Welcome's benefit symbols, Back and the Recovery Key's tile and well match the frames; the Reply sheet takes the system glass in Light with smaller response symbols; the Move sheet leaves 70pt above it; a reply's fields stay at the bottom while its body grows, in 36pt rows with the entry beside a short recipient; Format's marks and lists are resized; the reader counts a single message and gives the sender one summary line; Settings destinations line up at x68, Sign Out takes a 62.4pt row, the remote content pop-up keeps 52pt rows and the chosen language is semibold; two provider descriptions follow the frames' copy.

@@ -416,7 +416,7 @@ describe('thread view', () => {
     await Promise.all(held);
   });
 
-  it('omits the conversation count when opening one message from a cached thread', async () => {
+  it('counts one message when opening it alone from a cached thread on iPhone', async () => {
     expect.hasAssertions();
     const { native, middle } = threadMailbox();
     const store = createGmailInbox(native);
@@ -434,7 +434,8 @@ describe('thread view', () => {
     expect(screen.getByRole('header', { name: 'Re: Planning' })).toBeVisible();
     // The subject text itself stays selectable inside the accessible header.
     expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
-    expect(screen.queryByText(/^\d+ Messages?$/u)).toBeNull();
+    // The iPhone frames count a single message as they count a thread's.
+    expect(screen.getByText('1 Message')).toBeVisible();
   });
 
   it('opens the Command Palette from the thread header beside its system Back', async () => {

@@ -795,7 +795,8 @@ export function FormatPanel({
                     ) : (
                       <SFSymbol
                         name={markIcons[mark]}
-                        size={20}
+                        // The frame draws Bold's mark 13×16pt.
+                        size={23}
                         color={color}
                       />
                     )
@@ -838,7 +839,8 @@ export function FormatPanel({
                         name={
                           value === 'bulleted' ? 'list.bullet' : 'list.number'
                         }
-                        size={20}
+                        // The frame draws the bulleted list 16×11pt.
+                        size={16}
                         color={color}
                       />
                     ) : (

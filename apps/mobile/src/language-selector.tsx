@@ -1,12 +1,23 @@
 import { Host, Picker, Text } from '@expo/ui/swift-ui';
-import { disabled, pickerStyle, tag, tint } from '@expo/ui/swift-ui/modifiers';
+import {
+  disabled,
+  font,
+  pickerStyle,
+  tag,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
 import { languages } from '@private-email/localization';
 import { useState } from 'react';
 import { StyleSheet } from 'react-native';
 
 import { AnnouncedAlert } from './design.tsx';
 import { localization, useLocalization } from './localization.ts';
-import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  settingsColumns,
+  SettingsBlock,
+  SettingsGroup,
+  SettingsRow,
+} from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({ text: { ...textStyles.subheadline } });
@@ -55,6 +66,15 @@ export function LanguageSelector({
             modifiers={[
               pickerStyle('menu'),
               tint(colors.textPrimary),
+              // The iPhone frames show the chosen language in semibold.
+              ...(settingsColumns
+                ? []
+                : [
+                    font({
+                      size: textStyles.headline.fontSize,
+                      weight: 'semibold',
+                    }),
+                  ]),
               disabled(pending !== undefined),
             ]}>
             <Text modifiers={[tag(systemDefault)]}>
