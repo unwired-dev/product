@@ -2964,6 +2964,19 @@ describe('product registration', () => {
       false,
     ]);
     expect(save()).toBeEnabled();
+    // A server marking several Trash folders offers no choice: picking one would expose the others.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    });
+    imap.addFolder('Trash', ['trash']);
+    imap.addFolder('Old Trash', ['trash']);
+    await act(connections.load);
+    expect(
+      screen.getByText('alex@example.invalid isn’t included'),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Choose Folders…' }),
+    ).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 

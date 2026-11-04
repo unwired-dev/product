@@ -170,7 +170,9 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   the Settings › Email Accounts entry do not offer the control yet. The choice
   synchronizes through Product Sync for that connection only
   until it is removed. A chosen folder supplies a role only where the server marks no
-  single folder with it, and a server marking still wins. It then serves Spam, Trash
+  folder with it, and a server marking still wins. A server marking several folders
+  with a role offers no choice and stays out of All Mail, since choosing one would
+  leave the others' mail in it. It then serves Spam, Trash
   and All Mail as well as Move to Trash, Mark as Spam, moving mail back to the Inbox
   and search, for mail already read as well as later synchronizations, without
   reading the mail again. A chosen folder that the saved listing no longer offers as

@@ -655,6 +655,20 @@ describe('organizing IMAP mail', () => {
     });
   });
 
+  it('ignores a chosen Trash folder where the server marks several, so none of them loses the role', async () => {
+    expect.hasAssertions();
+    const { imap, inbox } = await unmarkedTrash();
+    imap.addFolder('Trash', ['trash']);
+    imap.addFolder('Deleted Messages', ['trash']);
+    await inbox.load();
+    inbox.choose({ trash: 'Trash' });
+    expect(
+      ready(inbox.getSnapshot())
+        .folders.filter(({ roles }) => roles.includes('trash'))
+        .map(({ name }) => name),
+    ).toStrictEqual(['Trash', 'Deleted Messages']);
+  });
+
   it.each([
     {
       source: 'present',

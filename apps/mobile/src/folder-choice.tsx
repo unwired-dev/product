@@ -71,7 +71,9 @@ const styles = StyleSheet.create({
 });
 
 // Choose Folders… under an IMAP connection's not-included notice: a sheet where the person
-// picks the folders that hold Spam and Trash for the roles its server marks no single folder with.
+// picks the folders that hold Spam and Trash for the roles its server marks no folder with. A
+// server marking several folders with a role is left out of All Mail, since a choice can't say
+// what the others hold.
 export function FolderChoice({
   connection,
   address,
@@ -87,7 +89,13 @@ export function FolderChoice({
   const account = use(AccountContext);
   const [shown, setShown] = useState(false);
   const [session, setSession] = useState(0);
-  if (account === undefined) {
+  const ambiguous = roles.some(
+    (role) =>
+      folders.filter(
+        (folder) => folder.selectable && folder.roles.includes(role),
+      ).length > 1,
+  );
+  if (account === undefined || ambiguous) {
     return null;
   }
   const saved = account.mailboxes.find(({ id }) => id === connection)?.folders;
