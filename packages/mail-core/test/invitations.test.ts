@@ -639,6 +639,120 @@ describe('meeting invitations', () => {
     close();
   });
 
+  it('restores unknown delivery when saving the confirmation fails and checks it without resending', async () => {
+    expect.hasAssertions();
+    let refuseConfirmation: () => void = () => undefined;
+    const { gmail, id, invitation, responses, close } = await invited(
+      (native) => ({
+        ...native,
+        gmailSend: async (message, scope) => {
+          const reply = await native.gmailSend(message, scope);
+          refuseConfirmation();
+          return reply;
+        },
+      }),
+    );
+    refuseConfirmation = () => gmail.failCommit('unavailable');
+    await responses.respond(invitation, 'accepted', copy);
+    close();
+
+    const later = await relaunched(gmail, id);
+
+    expect(later.responses.state(invitation)).toMatchObject({
+      kind: 'unknown',
+    });
+
+    await later.responses.check(invitation);
+
+    expect(later.responses.state(invitation)).toMatchObject({ kind: 'sent' });
+    expect(gmail.sends).toHaveLength(1);
+
+    later.close();
+  });
+
+  it('keeps an unknown response after recording more than one metadata window of responses', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox, invitation, responses, close } = await invited();
+    gmail.failSend({ lost: true });
+    await responses.respond(invitation, 'accepted', copy);
+    for (let index = 0; index < 200; index += 1) {
+      const revision = { uid: `other-${index}`, sequence: 0 };
+      await inbox.recordResponse(revision, {
+        ...revision,
+        kind: 'sent',
+        choice: 'accepted',
+        at: Date.UTC(2026, 10, 2, 10),
+      });
+    }
+    close();
+
+    const later = await relaunched(gmail, id);
+
+    expect(later.responses.state(invitation)).toMatchObject({
+      kind: 'unknown',
+      choice: 'accepted',
+    });
+
+    later.close();
+  });
+
+  it('does not resurrect a removed response when a concurrent synchronization rebases', async () => {
+    expect.hasAssertions();
+    const reading = Promise.withResolvers<undefined>();
+    const proceed = Promise.withResolvers<undefined>();
+    let hold = false;
+    const { gmail, id, inbox, invitation, responses, close } = await invited(
+      (native) => ({
+        ...native,
+        gmailRequest: async (path, query, scope) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the next history request at the provider boundary.
+          if (hold && path === 'history') {
+            hold = false;
+            reading.resolve(undefined);
+            await proceed.promise;
+          }
+          return native.gmailRequest(path, query, scope);
+        },
+      }),
+    );
+    await responses.respond(invitation, 'accepted', copy);
+    hold = true;
+    const loading = inbox.load();
+    await reading.promise;
+    await inbox.recordResponse(invitation, undefined);
+    proceed.resolve(undefined);
+    await loading;
+    close();
+
+    const later = await relaunched(gmail, id);
+
+    expect(later.responses.state(invitation)).toStrictEqual({
+      kind: 'unanswered',
+    });
+
+    later.close();
+  });
+
+  it.each([
+    ['locked', { kind: 'locked' }],
+    ['mailbox-revoked', { kind: 'loading' }],
+    ['gmail-unavailable', { kind: 'ready', sync: 'authentication' }],
+  ] as const)(
+    'recovers mailbox access when recording discovers %s',
+    async (code, expected) => {
+      expect.hasAssertions();
+      const { gmail, inbox, invitation, responses, close } = await invited();
+      gmail.failOpen(code);
+
+      await responses.respond(invitation, 'accepted', copy);
+
+      expect(inbox.getSnapshot()).toMatchObject(expected);
+      expect(gmail.sends).toHaveLength(0);
+
+      close();
+    },
+  );
+
   it('removes recorded responses with the mailbox', async () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();

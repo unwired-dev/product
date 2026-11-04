@@ -958,7 +958,7 @@ const rebasedOnto = (
   };
   return withIntents(
     {
-      ...next,
+      ...Struct.omit(next, ['responses']),
       // Metadata work preserves the latest completed synchronization and Invitation Responses.
       ...Struct.pick(saved, ['synchronizedAt', 'responses']),
       ...keptSince(base, saved, next),
@@ -3995,6 +3995,7 @@ export function createGmailInbox(
   ) => {
     const scope = opened;
     const startedFor = ownership;
+    const reading = owner;
     const stillOwned = () => !forgotten && startedFor === ownership;
     return Effect.gen(function* () {
       const { cache, document } = yield* openedDocument;
@@ -4013,7 +4014,7 @@ export function createGmailInbox(
           ({ uid, sequence }) =>
             uid !== revision.uid || sequence !== revision.sequence,
         ),
-      ].slice(0, cacheLimit);
+      ];
       const next = {
         ...Struct.omit(document, ['responses']),
         ...(responses.length === 0 ? {} : { responses }),
@@ -4034,7 +4035,9 @@ export function createGmailInbox(
           error instanceof SyncFailure &&
           (error.kind === 'conflict' || error.kind === 'invalidated'),
       }),
-      Effect.orElseSucceed(() => false),
+      Effect.catchTag('SyncFailure', (failure) =>
+        searchFailed(failure, reading).pipe(Effect.as(false)),
+      ),
     );
   };
 
@@ -4633,10 +4636,10 @@ export function createGmailInbox(
       ? ({ kind: 'sent', message: match } satisfies SendOutcome)
       : ({ kind: 'unknown' } satisfies SendOutcome);
   });
-  const searchFailed = (
+  function searchFailed(
     { kind, diagnostic }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
     reading: number,
-  ): Effect.Effect<GmailSearchPage | undefined> => {
+  ): Effect.Effect<GmailSearchPage | undefined> {
     // Native work started for a mailbox that changed; nothing is shown.
     if (kind === 'invalidated' || owner !== reading || state.kind !== 'ready') {
       return Effect.void.pipe(Effect.as(undefined));
@@ -4660,7 +4663,7 @@ export function createGmailInbox(
       }
       return searchUnavailable('authentication');
     });
-  };
+  }
   const searchGmail = (query: string, pageToken: string | undefined) =>
     Effect.suspend(() => {
       const scope = opened;

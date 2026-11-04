@@ -46,6 +46,8 @@ separately.
   as above. When the record cannot be saved, nothing is sent and the card says
   **Not sent**. Records leave with the mailbox when it is removed, on sign-out
   and with the account; a refused or offline response leaves the earlier record.
+  If saving Gmail's confirmation fails, relaunch restores **Delivery unknown**;
+  **Check Again** can confirm it without sending another response.
 - Recurring meetings, cancellations, floating or unknown time zones, a timed
   meeting whose `DURATION` counts days, and damaged calendar text show **Unwired can’t read this invitation**, with no response.
 
