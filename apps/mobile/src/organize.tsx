@@ -44,6 +44,9 @@ import {
   GlassPanel,
   MenuButton,
   Notice,
+  scaledToolbar,
+  scaledToolbarHeight,
+  scaledToolbarSlop,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -71,6 +74,9 @@ const placed = (picker: ReactNode) =>
 // remove.
 export type ReaderPanel = 'folders' | 'more';
 
+// The iPad reader toolbar's top edge sits 10pt beneath the safe area, at y42 as the frames draw it.
+export const readerToolbarInset = 10;
+
 // At most one panel is open. The reader holds which, so a tap outside the panel can close it.
 type PanelState = Readonly<{
   panel: ReaderPanel | undefined;
@@ -79,13 +85,18 @@ type PanelState = Readonly<{
 
 const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  moreButton: { minWidth: 44, minHeight: 44, alignItems: 'center' },
+  // The iPad toolbar's More, sized as the scaled group's other buttons.
+  moreButton: {
+    width: scaledToolbar.width,
+    height: scaledToolbar.height,
+    alignItems: 'center',
+  },
   groups: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 * ipadListScale },
   // Panels open above a bottom toolbar and below a top one; the reader positions the whole.
   panels: { maxHeight: 280, flexGrow: 0 },
   floatingPanels: {
     position: 'absolute',
-    top: 52 + spacing.m,
+    top: readerToolbarInset + scaledToolbarHeight + spacing.s,
     right: spacing.l,
     gap: spacing.s,
   },
@@ -188,14 +199,17 @@ export function MessageActions({
 // Saved mail remains readable and replyable while provider checks are unavailable.
 
 // iPhone keeps one bottom capsule. The iPad frames set the top toolbar's organizing actions,
-// responses and More apart in their own glass groups, 11.5pt apart as the Mac groups scaled 1.15.
+// responses and More apart in their own glass groups, 11.5pt apart as the Mac groups scaled 1.15,
+// with Delete between Archive and Move.
 function ToolbarGroups({
   archive,
+  trash,
   folders,
   respond,
   more,
 }: {
   readonly archive: (() => void) | undefined;
+  readonly trash: Named | undefined;
   readonly folders:
     | Readonly<{ label: string; open: boolean; toggle: () => void }>
     | undefined;
@@ -210,6 +224,17 @@ function ToolbarGroups({
         icon="archivebox"
         label={t('gmailActions.label.archive')}
         onPress={archive}
+      />
+    ),
+    // iPhone keeps Delete in its Reply sheet and More.
+    compact || trash === undefined ? null : (
+      <ToolbarButton
+        key="trash"
+        icon="trash"
+        label={trash.label}
+        onPress={() => {
+          trash.run();
+        }}
       />
     ),
     folders === undefined ? null : (
@@ -237,14 +262,28 @@ function ToolbarGroups({
     <View
       pointerEvents="box-none"
       style={styles.groups}>
-      {archive === undefined && folders === undefined ? null : (
-        <GlassGroup pointerEvents="box-none">{organize}</GlassGroup>
+      {archive === undefined &&
+      trash === undefined &&
+      folders === undefined ? null : (
+        <GlassGroup
+          scaled
+          pointerEvents="box-none">
+          {organize}
+        </GlassGroup>
       )}
       {respond === null ? null : (
-        <GlassGroup pointerEvents="box-none">{respond}</GlassGroup>
+        <GlassGroup
+          scaled
+          pointerEvents="box-none">
+          {respond}
+        </GlassGroup>
       )}
       {more === null ? null : (
-        <GlassGroup pointerEvents="box-none">{more}</GlassGroup>
+        <GlassGroup
+          scaled
+          pointerEvents="box-none">
+          {more}
+        </GlassGroup>
       )}
     </View>
   );
@@ -312,10 +351,23 @@ function MorePanel({
   );
 }
 
-// More: on iPhone its panel above the bottom toolbar; on iPad the system menu the frames draw,
-// with Gmail's Labels, which toggle in place, opening More's panel.
+// The iPad More menu's titles and symbols, as the row menu names the same actions.
+const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
+  ({
+    read: [t('contextMenu.read'), 'envelope.open'],
+    unread: [t('contextMenu.unread'), 'envelope.badge'],
+    star: [t('contextMenu.star'), 'flag'],
+    unstar: [t('contextMenu.unstar'), 'flag.slash'],
+    restore: [t('contextMenu.restore'), 'tray.and.arrow.down'],
+    spam: [t('contextMenu.spam'), 'xmark.bin'],
+  }) as const;
+
+// More: on iPhone its panel above the bottom toolbar; on iPad the system menu the frames draw:
+// read state, the flag and Move to…, then the actions that take the message elsewhere. Gmail's
+// Labels, which toggle in place, open More's panel.
 function MoreButton({
   more,
+  folders,
 }: {
   readonly more: Readonly<{
     open: boolean;
@@ -323,6 +375,10 @@ function MoreButton({
     actions: readonly Named[];
     labels?: ReactNode;
   }>;
+  // Move's destinations, which open beneath the toolbar.
+  readonly folders:
+    | Readonly<{ show: Readonly<{ run: () => void }> }>
+    | undefined;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
@@ -338,22 +394,40 @@ function MoreButton({
       />
     );
   }
+  const titled = menuActions(t);
+  const items = (names: ReadonlyArray<keyof typeof titled>) =>
+    names.flatMap((name) =>
+      more.actions
+        .filter((action) => action.name === name)
+        .map(({ run }) => {
+          const [title, symbol] = titled[name];
+          return { key: name, title, symbol, run };
+        }),
+    );
   return (
     <MenuButton
       accessibilityLabel={t('message.more')}
+      hitSlop={scaledToolbarSlop}
       sections={[
         {
-          items: more.actions.map(({ name, label, run }) => ({
-            key: name,
-            title: label,
-            symbol: actionIcons[name] ?? 'ellipsis',
-            destructive: name === 'trash',
-            run,
-          })),
+          items: [
+            ...items(['read', 'unread', 'star', 'unstar']),
+            ...(folders === undefined
+              ? []
+              : [
+                  {
+                    key: 'move',
+                    title: t('contextMenu.moveTo'),
+                    symbol: 'folder',
+                    run: folders.show.run,
+                  },
+                ]),
+          ],
         },
         {
-          items:
-            more.labels === undefined
+          items: [
+            ...items(['restore', 'spam']),
+            ...(more.labels === undefined
               ? []
               : [
                   {
@@ -362,12 +436,14 @@ function MoreButton({
                     symbol: 'tag',
                     run: more.toggle,
                   },
-                ],
+                ]),
+          ],
         },
       ]}
       style={styles.moreButton}>
       <SFSymbol
         name="ellipsis"
+        size={scaledToolbar.symbol}
         color={colors.textPrimary}
       />
     </MenuButton>
@@ -487,7 +563,7 @@ function Toolbar({
     };
   }, [shown, onPanel]);
   const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
-  // Move's popover starts 20pt before the toolbar, beneath its organizing group.
+  // Move's popover starts 18.4pt (16pt at 1.15×) before the toolbar, beneath its organizing group.
   const [toolbarWidth, setToolbarWidth] = useState(0);
   // Mail that cannot be answered, such as IMAP mail, has no Reply sheet and keeps More.
   const [replySheet, setReplySheet] = useState(false);
@@ -512,6 +588,7 @@ function Toolbar({
         style={styles.toolbar}>
         <ToolbarGroups
           archive={archive}
+          trash={more.actions.find(({ name }) => name === 'trash')}
           folders={folders}
           respond={
             children === null || children === undefined ? null : (
@@ -520,7 +597,14 @@ function Toolbar({
               </ThreadActionsContext>
             )
           }
-          more={replySheet ? null : <MoreButton more={more} />}
+          more={
+            replySheet ? null : (
+              <MoreButton
+                more={more}
+                folders={folders}
+              />
+            )
+          }
         />
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
@@ -535,7 +619,10 @@ function Toolbar({
                 shownPanel === 'folders' && {
                   right:
                     styles.floatingPanels.right +
-                    Math.max(0, toolbarWidth + 20 - movePanelWidth),
+                    Math.max(
+                      0,
+                      toolbarWidth + 16 * ipadListScale - movePanelWidth,
+                    ),
                 },
               ]
         }>

@@ -458,10 +458,11 @@ function MailShell() {
               <Split.Host
                 ref={splitView}
                 testID="mail-split"
-                // The iPad frames: a 272pt floating sidebar inset 8pt, beside a 391pt list (the Mac
-                // columns at 1.15×).
+                // The iPad frames: a floating sidebar inset 8pt, beside a 391pt list (the Mac columns
+                // at 1.15×). The system's 1pt column separators place the list at x287 and the
+                // reader at x679, as the frames do.
                 columnMetrics={{
-                  preferredPrimaryColumnWidthOrFraction: 288,
+                  preferredPrimaryColumnWidthOrFraction: 286,
                   preferredSupplementaryColumnWidthOrFraction: 391,
                 }}
                 displayModeButtonVisibility="never"

@@ -27,6 +27,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import {
@@ -382,6 +383,27 @@ const openFormat = async (on: Pick<typeof screen, 'queryByRole'> = screen) => {
       await fireEvent.press(format);
     });
   }
+};
+
+interface StyleMenu {
+  readonly sections: ReadonlyArray<{
+    readonly items: ReadonlyArray<{
+      readonly id: string;
+      readonly title: string;
+      readonly checked?: boolean;
+    }>;
+  }>;
+  readonly onSelect: (event: { nativeEvent: { id: string } }) => void;
+}
+const isStyleMenu = (props: unknown): props is StyleMenu =>
+  Predicate.hasProperty(props, 'sections') &&
+  Predicate.hasProperty(props, 'onSelect');
+
+// The iPad format bar's Text style system menu, as its native button receives it.
+const textStyleMenu = () => {
+  const props: unknown = screen.getByLabelText('Text style').props;
+  ok(isStyleMenu(props));
+  return props;
 };
 
 const closeFormat = async () => {
@@ -2369,6 +2391,48 @@ describe('composing Drafts', () => {
       );
     },
   );
+
+  // The iPad format bar's Text style is a system menu that checks the style in effect.
+  it('sets the block kind from the iPad Text style menu', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    await render(
+      <ComposerLayoutContext
+        value={{ size: 'regular', avoidKeyboard: true, top: 0 }}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={created}
+        />
+      </ComposerLayoutContext>,
+    );
+    await fireEvent.changeText(
+      await screen.findByLabelText('Message body'),
+      'Plan',
+    );
+    const checked = () =>
+      textStyleMenu()
+        .sections.flatMap(({ items }) => items)
+        .filter((item) => item.checked === true)
+        .map(({ title }) => title);
+    expect(checked()).toStrictEqual(['Body']);
+    const heading = textStyleMenu()
+      .sections.flatMap(({ items }) => items)
+      .find(({ title }) => title === 'Heading 1');
+    ok(heading);
+    await act(() => {
+      textStyleMenu().onSelect({ nativeEvent: { id: heading.id } });
+    });
+    expect(checked()).toStrictEqual(['Heading 1']);
+  });
 
   it.each([
     ['compact', 'bottom-sheet'],

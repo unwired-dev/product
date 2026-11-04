@@ -52,7 +52,7 @@ const sections = [
   {
     title: 'application',
     items: [
-      { id: 'language', icon: 'globe' },
+      { id: 'language', icon: 'translate' },
       { id: 'privacy', icon: 'hand.raised' },
     ],
   },
@@ -87,6 +87,10 @@ export type SettingsButton = (
 
 const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 
+// iPad rows follow the frames' Mac recipe at 1.15×: 46pt single-line and 61.3pt two-line rows.
+const rowPadding = settingsColumns ? 10 * ipadListScale : spacing.m;
+const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
+
 const styles = StyleSheet.create({
   page: { flex: 1 },
   columns: { flex: 1, flexDirection: 'row' },
@@ -94,16 +98,18 @@ const styles = StyleSheet.create({
   sidebar: {
     width: 248,
     marginLeft: spacing.s,
-    marginTop: spacing.l,
+    marginTop: spacing.s,
     marginBottom: spacing.s,
     borderRadius: 21,
     borderCurve: 'continuous',
     borderWidth: StyleSheet.hairlineWidth,
   },
   sidebarList: { padding: 9, paddingTop: 0 },
-  // The panel's top row: Close at its leading end, where Mailboxes has its sidebar toggle.
+  // The panel's top row: Close at its leading end, where Mailboxes has its sidebar toggle. The
+  // frames give it a 32.2pt title bar 16.1pt below the panel's top.
   sidebarTop: {
-    height: 46,
+    height: 48.3,
+    paddingTop: 16.1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 9,
@@ -142,9 +148,11 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   grow: { flex: 1 },
+  // iPad's cards start 28pt beside the sidebar and end 32pt from the window's edge.
   content: {
     gap: settingsColumns ? spacing.s : 10,
-    paddingHorizontal: settingsColumns ? 28 : spacing.l,
+    paddingLeft: settingsColumns ? 28 : spacing.l,
+    paddingRight: settingsColumns ? 32 : spacing.l,
     paddingTop: spacing.s,
     paddingBottom: spacing.xl,
   },
@@ -153,7 +161,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
     paddingTop: spacing.m,
-    paddingHorizontal: settingsColumns ? 14 : spacing.l,
+    paddingHorizontal: rowInset,
   },
   cells: { marginTop: -StyleSheet.hairlineWidth },
   group: {
@@ -164,12 +172,14 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.m,
-    minHeight: 52,
-    paddingHorizontal: settingsColumns ? 14 : spacing.l,
-    paddingVertical: spacing.m,
+    gap: settingsColumns ? rowPadding : spacing.m,
+    minHeight: settingsColumns ? 40 * ipadListScale : 52,
+    paddingHorizontal: rowInset,
+    paddingVertical: rowPadding,
   },
-  rowText: { flex: 1, gap: 2 },
+  rowText: { flex: 1, gap: settingsColumns ? 2 * ipadListScale : 2 },
+  // iPad's trailing controls may take the row's padding, so a push button or the native picker
+  // keeps the 46pt row.
   trailing: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -177,38 +187,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
     flexShrink: 1,
+    marginVertical: settingsColumns ? -rowPadding : 0,
   },
   block: {
     gap: spacing.s,
-    paddingHorizontal: settingsColumns ? 14 : spacing.l,
+    paddingHorizontal: rowInset,
     paddingVertical: spacing.m,
   },
   separator: {
     position: 'absolute',
     top: 0,
-    left: settingsColumns ? 14 : spacing.l,
-    right: settingsColumns ? 14 : spacing.l,
+    left: rowInset,
+    right: rowInset,
     height: StyleSheet.hairlineWidth,
   },
-  footer: { paddingHorizontal: settingsColumns ? 14 : spacing.l },
+  footer: { paddingHorizontal: rowInset },
   monogram: { alignItems: 'center', justifyContent: 'center' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.l,
-    paddingHorizontal: spacing.l,
-    paddingVertical: spacing.m,
+    gap: settingsColumns ? 14 * ipadListScale : spacing.l,
+    paddingHorizontal: settingsColumns ? spacing.l * ipadListScale : spacing.l,
+    paddingVertical: settingsColumns ? 14 * ipadListScale : spacing.m,
     borderRadius: settingsColumns ? radius.card : radius.insetGroup,
     borderCurve: 'continuous',
   },
+  // iPad draws the Mac's 28pt push button at 1.15×; its hit slop keeps the 44pt target.
   button: {
-    minHeight: 44,
+    minHeight: settingsColumns ? 28 * ipadListScale : 44,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
 });
+
+const buttonSlop = settingsColumns ? (44 - 28 * ipadListScale) / 2 : 0;
 
 // The Mail Profile and account monogram: the first letter on brand graphite.
 function AccountMonogram({
@@ -688,7 +702,7 @@ export function AccountCard({
     <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
       <AccountMonogram
         name={name}
-        size={settingsColumns ? 55 : 62}
+        size={settingsColumns ? 48 * ipadListScale : 62}
       />
       <View style={styles.rowText}>
         <Text style={[type.page, { color: colors.textPrimary }]}>{name}</Text>
@@ -882,6 +896,7 @@ function PushButton({
       accessibilityRole="button"
       accessibilityState={{ disabled: busy }}
       disabled={busy}
+      hitSlop={buttonSlop}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,

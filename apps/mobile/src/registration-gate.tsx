@@ -20,6 +20,7 @@ import {
   registrationScreen,
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
+import { radius } from '@private-email/mail-core/theme';
 import {
   Fragment,
   createContext,
@@ -45,7 +46,7 @@ import type { SettingsDestination } from './settings.tsx';
 
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
-import { Button, Notice } from './design.tsx';
+import { Button, Glass, Notice } from './design.tsx';
 import {
   ErrorReportingContext,
   ErrorReportingDestination,
@@ -608,22 +609,35 @@ function RegistrationPage({
     snapshot.kind === 'mailbox-needed' &&
     snapshot.reason === 'microsoft-unavailable' &&
     snapshot.removalPending === undefined;
+  const text = [styles.text, settingsColumns && styles.padSheetText];
   return (
     <ScrollView
       contentContainerStyle={[
         styles.scroll,
-        !settingsColumns && {
-          paddingLeft: insets.left + 24,
-          paddingRight: insets.right + 24,
-          paddingTop: insets.top + 62,
-          paddingBottom: insets.bottom + 26,
-        },
+        settingsColumns
+          ? { backgroundColor: colors.scrimTouch }
+          : {
+              paddingLeft: insets.left + 24,
+              paddingRight: insets.right + 24,
+              paddingTop: insets.top + 62,
+              paddingBottom: insets.bottom + 26,
+            },
       ]}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
-      <View style={[styles.content, !settingsColumns && { gap: 10 }]}>
+      <View
+        style={[
+          styles.content,
+          settingsColumns
+            ? [styles.padSheet, { boxShadow: colors.menuShadow }]
+            : { gap: 10 },
+        ]}>
+        {settingsColumns ? <Glass cornerRadius={radius.ipadSheet} /> : null}
         <Text
           accessibilityRole="header"
-          style={[styles.title, { color: colors.textPrimary }]}>
+          style={[
+            settingsColumns ? styles.padSheetTitle : styles.title,
+            { color: colors.textPrimary },
+          ]}>
           {copy.title}
         </Text>
         {organizationApproval ? (
@@ -633,12 +647,12 @@ function RegistrationPage({
             message={copy.description}
           />
         ) : (
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
+          <Text style={[text, { color: colors.textSecondary }]}>
             {copy.description}
           </Text>
         )}
         {copy.account === undefined ? null : (
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
+          <Text style={[text, { color: colors.textSecondary }]}>
             {copy.account}
           </Text>
         )}
@@ -650,7 +664,7 @@ function RegistrationPage({
         {failed ? (
           <Text
             accessibilityRole="alert"
-            style={[styles.text, { color: colors.textPrimary }]}>
+            style={[text, { color: colors.textPrimary }]}>
             {t('registration.setupFailed')}
           </Text>
         ) : null}

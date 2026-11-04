@@ -229,6 +229,24 @@ const iphone = Platform.OS === 'ios' && !Platform.isPad;
 // Toolbar buttons are 44pt for touch; the group adds a 4pt inset and takes half its height.
 const groupRadius = (44 + 2 * spacing.xs) / 2;
 
+// The iPad reader toolbar draws the Mac toolbar at 1.15×: 36.8×32.2pt buttons with 18.4pt symbols
+// in 41.4pt groups. Hit slop extends each button to 44pt tall, and 44pt wide at a group's ends.
+export const scaledToolbar = {
+  width: 32 * ipadListScale,
+  height: 28 * ipadListScale,
+  symbol: 16 * ipadListScale,
+  inset: spacing.xs * ipadListScale,
+};
+export const scaledToolbarHeight =
+  scaledToolbar.height + 2 * scaledToolbar.inset;
+export const scaledToolbarSlop = {
+  top: (44 - scaledToolbar.height) / 2,
+  bottom: (44 - scaledToolbar.height) / 2,
+  left: (44 - scaledToolbar.width) / 2,
+  right: (44 - scaledToolbar.width) / 2,
+};
+const ScaledToolbar = createContext(false);
+
 const styles = StyleSheet.create({
   menuContent: { flexGrow: 1 },
   // The label keeps its own height and the button centres it: a growing label stretched the
@@ -241,7 +259,19 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
+  scaledGroup: {
+    padding: scaledToolbar.inset,
+    borderRadius: scaledToolbarHeight / 2,
+  },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
+  scaledButton: {
+    width: scaledToolbar.width,
+    height: scaledToolbar.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: scaledToolbar.height / 2,
+    borderCurve: 'continuous',
+  },
   toolbarButton: {
     minWidth: 44,
     minHeight: 44,
@@ -423,17 +453,23 @@ export function MenuButton({
 }
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
+// A scaled group holds the iPad reader toolbar's buttons.
 export function GlassGroup({
   children,
   style,
   pointerEvents,
+  scaled = false,
 }: {
   readonly children: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
   readonly pointerEvents?: ViewProps['pointerEvents'];
+  readonly scaled?: boolean;
 }) {
   const colors = usePalette();
-  const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
+  const cornerRadius = StyleSheet.flatten([
+    scaled && styles.scaledGroup,
+    style,
+  ])?.borderRadius;
   return (
     <Glass
       interactive
@@ -441,8 +477,13 @@ export function GlassGroup({
       cornerRadius={
         typeof cornerRadius === 'number' ? cornerRadius : groupRadius
       }
-      style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
-      {children}
+      style={[
+        styles.group,
+        scaled && styles.scaledGroup,
+        { boxShadow: colors.smallGlassShadow },
+        style,
+      ]}>
+      <ScaledToolbar value={scaled}>{children}</ScaledToolbar>
     </Glass>
   );
 }
@@ -515,6 +556,7 @@ export function ToolbarButton({
 }) {
   const colors = usePalette();
   const inGlass = use(InteractiveGlass);
+  const scaled = use(ScaledToolbar);
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
@@ -527,9 +569,10 @@ export function ToolbarButton({
       }}
       disabled={disabled}
       focusable
+      hitSlop={scaled ? scaledToolbarSlop : undefined}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.toolbarButton,
+        scaled ? styles.scaledButton : styles.toolbarButton,
         {
           backgroundColor:
             (pressed && !inGlass) || expanded === true || selected === true
@@ -542,7 +585,7 @@ export function ToolbarButton({
       ]}>
       <SFSymbol
         name={icon}
-        size={20}
+        size={scaled ? scaledToolbar.symbol : 20}
         color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>

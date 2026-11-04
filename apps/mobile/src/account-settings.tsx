@@ -4,6 +4,7 @@ import type {
   EnrollmentFailure,
   MailboxConnection,
   MailboxRemovalFailure,
+  MailProfile,
   RecoveryFailure,
   RecoveryKeyFailure,
   Registration,
@@ -11,6 +12,7 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 
+import { profileName } from '@private-email/mail-core/profile-windows';
 import {
   profilesOf,
   recoveryKeyEntry,
@@ -131,11 +133,14 @@ function RemoveConfirmation({
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
   mailboxes,
+  profiles,
   button,
   microsoft,
   store,
 }: {
   readonly mailboxes: readonly MailboxConnection[];
+  // The Mail Profiles besides the Default Profile, which name each connection's owner.
+  readonly profiles: readonly MailProfile[];
   readonly button: SettingsButton;
   readonly microsoft: boolean;
   readonly store: Registration;
@@ -167,7 +172,10 @@ function Mailboxes({
               title={mailbox.address}
               subtitle={
                 mailbox.state === 'connected'
-                  ? provider
+                  ? t('mailboxes.connectedProfile', {
+                      provider,
+                      profile: profileName(t, mailbox.profile, profiles),
+                    })
                   : t(
                       imapMailbox
                         ? `mailboxes.states.imap-${mailbox.state}`
@@ -749,6 +757,7 @@ export function AccountSettings({
       {shows('mailboxes') ? (
         <Mailboxes
           mailboxes={mailboxes}
+          profiles={profilesOf(snapshot)}
           button={button}
           microsoft={microsoft}
           store={store}

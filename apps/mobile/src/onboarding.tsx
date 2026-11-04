@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react';
 
 import {
+  ipadListScale,
   palette,
   radius,
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
+import { useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -31,6 +33,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: ipad ? 140 : 24,
     paddingVertical: spacing.l,
   },
+  // The iPad frames set Welcome's content 12pt below the centre of the safe area.
+  ipadWelcome: { paddingTop: spacing.l + 2 * 12 },
   welcomeContent: { maxWidth: ipad ? 598 : 520, gap: 14 },
   ipadWelcomeContent: { gap: 0 },
   seal: { width: 18, height: 18, borderRadius: 9 },
@@ -41,9 +45,14 @@ const styles = StyleSheet.create({
     marginBottom: 27.6,
   },
   headline: { fontSize: 40, lineHeight: 46, fontWeight: '700' },
-  ipadHeadline: { fontSize: 59.8, lineHeight: 66.7, fontWeight: '400' },
+  ipadHeadline: {
+    fontSize: 59.8,
+    lineHeight: 66.7,
+    fontWeight: '400',
+    letterSpacing: -1.196,
+  },
   lede: { ...textStyles.body, opacity: 0.8 },
-  ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23 },
+  ipadLede: { fontSize: 17.25, lineHeight: 23, marginTop: 23, opacity: 0.78 },
   ipadStatus: { fontSize: 17.25, lineHeight: 23, opacity: 0.78 },
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   status: { position: 'absolute', top: 0, left: 0, right: 0 },
@@ -51,8 +60,11 @@ const styles = StyleSheet.create({
   points: { gap: 14, marginTop: 10, marginBottom: ipad ? 28 : 0 },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   pointText: { ...textStyles.subheadline, opacity: 0.85, flexShrink: 1 },
-  ipadPoints: { gap: 16.1, marginTop: 41.4, marginBottom: 32.2 },
-  ipadPointText: { fontSize: 17.25, lineHeight: 18.4 },
+  // Each iPad benefit takes a 39.1pt slot: its 23pt line and 16.1pt below, then 32.2pt to Continue.
+  ipadPoints: { gap: 16.1, marginTop: 41.4, marginBottom: 16.1 + 32.2 },
+  ipadPointText: { fontSize: 17.25, lineHeight: 23 },
+  // iPad's Privacy & Data hangs below Continue, outside the frames' content.
+  ipadPrivacy: { position: 'absolute', top: '100%', left: 0, right: 0 },
   footer: {
     paddingHorizontal: spacing.l,
     paddingBottom: spacing.l,
@@ -62,22 +74,32 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     gap: spacing.xl,
-    padding: spacing.xl,
+    padding: spacing.l,
   },
   brandPanel: {
-    width: '39%',
+    width: 460,
+    maxWidth: '40%',
     justifyContent: 'flex-end',
     paddingHorizontal: 64,
     paddingBottom: 124,
     gap: spacing.s,
-    borderRadius: radius.window,
+    borderRadius: radius.brandPanel,
     borderCurve: 'continuous',
   },
-  sealSmall: { width: 14, height: 14, borderRadius: 7 },
+  sealSmall: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginBottom: spacing.xs,
+  },
   wordmark: { fontSize: 22, lineHeight: 26 },
-  tagline: { ...textStyles.footnote, opacity: 0.85 },
+  tagline: { ...typography.macos.body, opacity: 0.7 },
   form: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  formContent: { width: '100%', maxWidth: 392, gap: spacing.m },
+  formContent: {
+    width: '100%',
+    maxWidth: 392,
+    gap: spacing.m * ipadListScale,
+  },
   compactForm: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 40, gap: 10 },
   back: {
     width: 44,
@@ -90,8 +112,14 @@ const styles = StyleSheet.create({
   title: { ...textStyles.largeTitle },
   regularTitle: { fontSize: 25.3, lineHeight: 29.9 },
   description: { ...textStyles.body },
-  regularDescription: { ...textStyles.subheadline },
+  regularDescription: { ...typography.ipadList.body },
   finePrint: { ...textStyles.footnote, textAlign: 'center' },
+  // iPad's fine print sits left under the 368pt actions, 41.4pt below them.
+  regularFinePrint: {
+    ...typography.ipadList.subheadline,
+    maxWidth: 368,
+    marginTop: 2 * spacing.m * ipadListScale,
+  },
   action: {
     minHeight: 52,
     flexDirection: 'row',
@@ -102,7 +130,14 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     borderCurve: 'continuous',
   },
-  regularAction: { minHeight: 44, borderRadius: radius.control },
+  // iPad's actions are the Mac recipe at 1.15×: Welcome's 41.4pt Continue and 46pt sign-in
+  // actions 368pt wide, Sign in with Apple with its own rounder corners.
+  regularAction: {
+    minHeight: 36 * ipadListScale,
+    borderRadius: radius.control * ipadListScale,
+  },
+  regularAppleAction: { borderRadius: 8 * ipadListScale },
+  regularQuietAction: { borderWidth: ipadListScale },
   privacy: {
     minHeight: 44,
     alignItems: 'center',
@@ -110,14 +145,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  regularSignInAction: { minHeight: 46 },
+  regularSignInAction: { minHeight: 46, maxWidth: 368 },
   actionLabel: { ...textStyles.headline },
   ipadActionLabel: { ...typography.ipadList.body },
-  ipadAppleLabel: { fontSize: 17.25, lineHeight: 18.4, fontWeight: '600' },
+  ipadAppleLabel: { ...typography.ipadList.title3Emphasized },
   providers: {
     overflow: 'hidden',
     borderRadius: radius.insetGroup,
     borderCurve: 'continuous',
+  },
+  // iPad's providers sit in the setup sheet as the Mac's bordered list at 1.15×.
+  ipadProviders: {
+    borderRadius: radius.card * ipadListScale,
+    borderWidth: ipadListScale,
   },
   provider: {
     minHeight: 64,
@@ -127,6 +167,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
     paddingVertical: spacing.m,
   },
+  ipadProvider: {
+    minHeight: 0,
+    gap: spacing.m * ipadListScale,
+    paddingHorizontal: 14 * ipadListScale,
+    paddingVertical: 10 * ipadListScale,
+  },
   tile: {
     width: 36,
     height: 36,
@@ -135,10 +181,17 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     borderCurve: 'continuous',
   },
+  ipadTile: {
+    width: 28 * ipadListScale,
+    height: 28 * ipadListScale,
+    borderRadius: radius.row * ipadListScale,
+  },
   tileLetter: { ...textStyles.headline },
   providerText: { flex: 1, gap: 1 },
   providerName: { ...textStyles.body },
   providerDetail: { ...textStyles.footnote },
+  ipadProviderName: { ...typography.ipadList.body, fontWeight: '600' },
+  ipadProviderDetail: { ...typography.ipadList.subheadline },
   card: {
     gap: spacing.m,
     padding: 28,
@@ -159,6 +212,12 @@ const styles = StyleSheet.create({
   brandTitle: { ...textStyles.largeTitle, textAlign: 'left' },
   brandDescription: { ...textStyles.body, textAlign: 'left' },
 });
+
+const welcomeScroll = ipad
+  ? [styles.welcome, styles.ipadWelcome]
+  : styles.welcome;
+// iPad's benefit symbols show at 70% (B3), quieter than their labels.
+const pointIconAlpha = ipad ? 'B3' : '';
 
 // While launch reads the saved account, the seal breathes and the status arrives after a moment, so
 // a quick launch shows only the seal.
@@ -219,6 +278,7 @@ export function Welcome({
   const concealed = restoring ? styles.hidden : undefined;
   const points = [
     { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
+    { icon: 'tray.2', text: t('onboarding.welcome.mailProfiles') },
     { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
   ];
   const privacy =
@@ -248,7 +308,7 @@ export function Welcome({
         label={t('onboarding.welcome.continue')}
         onPress={onContinue}
       />
-      {ipad ? privacy : null}
+      {ipad ? <View style={styles.ipadPrivacy}>{privacy}</View> : null}
     </>
   );
   return (
@@ -268,7 +328,7 @@ export function Welcome({
         },
       ]}>
       <ScrollView
-        contentContainerStyle={styles.welcome}
+        contentContainerStyle={welcomeScroll}
         scrollEnabled={!restoring}>
         <View
           style={[styles.welcomeContent, ipad && styles.ipadWelcomeContent]}>
@@ -317,7 +377,7 @@ export function Welcome({
                 <SFSymbol
                   name={icon}
                   size={ipad ? 18.4 : 16}
-                  color={colors.brandOnDeep}
+                  color={`${colors.brandOnDeep}${pointIconAlpha}`}
                 />
                 <Text
                   style={[styles.pointText, ipad && styles.ipadPointText, ink]}>
@@ -366,6 +426,8 @@ export function SignIn({
   const colors = usePalette();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  // The height of iPad's additions below the sign-in form.
+  const [below, setBelow] = useState(0);
   const heading = (
     <>
       <Text
@@ -392,8 +454,7 @@ export function SignIn({
           styles.split,
           {
             backgroundColor: colors.surfaceContent,
-            paddingTop: insets.top + spacing.xl,
-            paddingBottom: insets.bottom + spacing.xl,
+            paddingTop: insets.top + spacing.l,
           },
         ]}>
         <View
@@ -410,10 +471,18 @@ export function SignIn({
         </View>
         <ScrollView contentContainerStyle={styles.form}>
           <View style={styles.formContent}>
+            {/* Mirrors the additions below, so the frames' sign-in form stays centred. */}
+            <View style={{ height: below }} />
             {heading}
-            <View style={{ height: spacing.l }} />
+            <View style={{ height: spacing.l * ipadListScale }} />
             {actions}
-            {children}
+            <View
+              style={styles.formContent}
+              onLayout={({ nativeEvent }) => {
+                setBelow(nativeEvent.layout.height);
+              }}>
+              {children}
+            </View>
           </View>
         </ScrollView>
       </View>
@@ -464,7 +533,11 @@ export function SignIn({
 export function FinePrint({ children }: { readonly children: string }) {
   const colors = usePalette();
   return (
-    <Text style={[styles.finePrint, { color: colors.textSecondary }]}>
+    <Text
+      style={[
+        ipad ? styles.regularFinePrint : styles.finePrint,
+        { color: colors.textSecondary },
+      ]}>
       {children}
     </Text>
   );
@@ -499,11 +572,19 @@ export function OnboardingAction({
       accessibilityState={{ disabled }}
       disabled={disabled}
       focusable={!disabled}
+      // iPad's 41.4pt Continue keeps a 44pt target.
+      hitSlop={ipad && fill === 'brand' ? (44 - 36 * ipadListScale) / 2 : 0}
       onPress={onPress}
       style={({ pressed }) => [
         styles.action,
         ipad && styles.regularAction,
         ipad && fill !== 'brand' && styles.regularSignInAction,
+        ipad && fill === 'apple' && styles.regularAppleAction,
+        ipad &&
+          fill === 'quiet' && [
+            styles.regularQuietAction,
+            { borderColor: colors.separator },
+          ],
         {
           backgroundColor: pressed ? pressedFill : background,
           opacity: disabled ? 0.4 : 1,
@@ -533,7 +614,19 @@ export function OnboardingAction({
 export function ProviderList({ children }: { readonly children: ReactNode }) {
   const colors = usePalette();
   return (
-    <View style={[styles.providers, { backgroundColor: colors.fillQuiet }]}>
+    <View
+      style={[
+        styles.providers,
+        ipad
+          ? [
+              styles.ipadProviders,
+              {
+                backgroundColor: colors.surfaceContent,
+                borderColor: colors.separator,
+              },
+            ]
+          : { backgroundColor: colors.fillQuiet },
+      ]}>
       {children}
     </View>
   );
@@ -566,6 +659,7 @@ export function ProviderRow({
       onPress={onPress}
       style={({ pressed }) => [
         styles.provider,
+        ipad && styles.ipadProvider,
         {
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
@@ -574,16 +668,38 @@ export function ProviderRow({
           borderBottomColor: colors.separator,
         },
       ]}>
-      <View style={[styles.tile, { backgroundColor: colors.surfaceContent }]}>
-        <Text style={[styles.tileLetter, { color: colors.textPrimary }]}>
+      <View
+        style={[
+          styles.tile,
+          ipad && styles.ipadTile,
+          {
+            backgroundColor: ipad ? colors.fillQuiet : colors.surfaceContent,
+          },
+        ]}>
+        <Text
+          style={[
+            styles.tileLetter,
+            ipad && styles.ipadProviderName,
+            { color: colors.textPrimary },
+          ]}>
           {letter}
         </Text>
       </View>
       <View style={styles.providerText}>
-        <Text style={[styles.providerName, { color: colors.textPrimary }]}>
+        <Text
+          style={[
+            styles.providerName,
+            ipad && styles.ipadProviderName,
+            { color: colors.textPrimary },
+          ]}>
           {name}
         </Text>
-        <Text style={[styles.providerDetail, { color: colors.textSecondary }]}>
+        <Text
+          style={[
+            styles.providerDetail,
+            ipad && styles.ipadProviderDetail,
+            { color: colors.textSecondary },
+          ]}>
           {detail}
         </Text>
       </View>

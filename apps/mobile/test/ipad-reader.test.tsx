@@ -133,7 +133,7 @@ describe('iPad reader', () => {
       screen.getByLabelText('More').props.sections;
     expect(
       sections.flatMap(({ items }) => items.map(({ title }) => title)),
-    ).toContain('Mark as read');
+    ).toContain('Mark as Read');
   });
 
   it('opens another message in the same reader with its panels closed', async () => {

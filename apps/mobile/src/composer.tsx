@@ -76,7 +76,7 @@ import {
   undo,
   withoutImage,
 } from '@private-email/mail-core/semantic-document';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
@@ -180,10 +180,13 @@ export const assetPickers = [
   ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
 ] as const;
 
-// The body and fields sit 20pt in, with an 80pt right-aligned label column.
+// On iPhone the body and fields sit 20pt in, with an 80pt right-aligned label column.
 const inset = 20;
 const fieldInset = 16;
 const fieldLabelWidth = 80;
+const padInset = 32 * ipadListScale;
+const padFieldInset = 24 * ipadListScale;
+const padLabelWidth = 64 * ipadListScale;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -262,7 +265,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: fieldInset,
     paddingBottom: spacing.s,
   },
-  divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
+  // The format bar's separators: 18.4pt tall, 4.6pt from the 36.8pt glyph boxes inside each
+  // 44pt target.
+  divider: {
+    width: StyleSheet.hairlineWidth,
+    height: 16 * ipadListScale,
+    marginHorizontal: 1,
+  },
   content: { paddingBottom: spacing.s },
   bar: {
     flexDirection: 'row',
@@ -370,6 +379,32 @@ const styles = StyleSheet.create({
   rowDetail: { ...textStyles.footnote },
   footer: { ...textStyles.footnote, paddingHorizontal: spacing.xl },
 });
+
+// Each layout's additions to the shared styles. iPad scales the Mac recipe by 1.15: the body
+// 36.8pt in and growing to push its attachments and fields to the bottom, the fields 27.6pt in
+// with a compact 73.6pt label column.
+export const layoutStyles = {
+  compact: StyleSheet.create({
+    content: {},
+    body: {},
+    quoted: {},
+    assets: {},
+    fields: {},
+    field: {},
+    fieldLabel: {},
+    fieldNotice: {},
+  }),
+  regular: StyleSheet.create({
+    content: { flexGrow: 1 },
+    body: { flexGrow: 1, paddingHorizontal: padInset },
+    quoted: { marginHorizontal: padInset },
+    assets: { paddingHorizontal: padFieldInset },
+    fields: { paddingHorizontal: padFieldInset },
+    field: { gap: spacing.s * ipadListScale },
+    fieldLabel: { width: padLabelWidth },
+    fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
+  }),
+};
 
 const kindStyles: Record<BlockKind, TextStyle> = {
   paragraph: {},
@@ -724,6 +759,7 @@ export function Recipients({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
@@ -745,8 +781,18 @@ export function Recipients({
   };
   return (
     <View>
-      <View style={[styles.field, { borderTopColor: colors.separator }]}>
-        <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+      <View
+        style={[
+          styles.field,
+          sized.field,
+          { borderTopColor: colors.separator },
+        ]}>
+        <Text
+          style={[
+            styles.fieldLabel,
+            sized.fieldLabel,
+            { color: colors.textSecondary },
+          ]}>
           {`${name}:`}
         </Text>
         <View style={styles.entries}>
@@ -848,6 +894,7 @@ export function Recipients({
           style={[
             styles.notice,
             styles.fieldNotice,
+            sized.fieldNotice,
             { color: colors.textSecondary },
           ]}>
           {t(`drafts.recipient.${notice}`)}
@@ -1142,6 +1189,7 @@ export function DraftAssets({
 }) {
   const store = useDraftStore();
   const { t } = useLocalization();
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
   const running = useSyncExternalStore(store.subscribe, store.getImports);
   const attachments = draft.attachments ?? [];
   const images = [
@@ -1170,7 +1218,7 @@ export function DraftAssets({
       />
     ));
   return (
-    <View style={styles.assets}>
+    <View style={[styles.assets, sized.assets]}>
       {unsendableAssets(draft).length > 0 ? (
         <Alert message={t('drafts.assets.unsendable')} />
       ) : null}
@@ -1190,8 +1238,9 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const [shown, setShown] = useState(false);
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
   return (
-    <View style={styles.quoted}>
+    <View style={[styles.quoted, sized.quoted]}>
       <Action
         expanded={shown}
         label={
@@ -1926,6 +1975,7 @@ function Editor({
   // Format panel takes the keyboard's place.
   const layout = use(ComposerLayoutContext);
   const regular = layout.size === 'regular';
+  const sized = layoutStyles[layout.size];
   const [formatting, setFormatting] = useState(false);
   const hideFormat = () => {
     setFormatting(false);
@@ -2634,6 +2684,7 @@ function Editor({
           <ScrollView
             contentContainerStyle={[
               styles.content,
+              sized.content,
               pillShown && styles.pillInset,
             ]}
             keyboardDismissMode="interactive"
@@ -2690,7 +2741,7 @@ function Editor({
               placeholderTextColor={colors.textSecondary}
               scrollEnabled={false}
               selection={placed}
-              style={[styles.body, { color: colors.textPrimary }]}
+              style={[styles.body, sized.body, { color: colors.textPrimary }]}
               textAlignVertical="top">
               {display.lines.map((line, index) => (
                 <Text
@@ -2732,11 +2783,19 @@ function Editor({
               }}
               onRemove={removeAsset}
             />
-            <View style={styles.fields}>
+            <View style={[styles.fields, sized.fields]}>
               <View
-                style={[styles.field, { borderTopColor: colors.separator }]}>
+                style={[
+                  styles.field,
+                  sized.field,
+                  { borderTopColor: colors.separator },
+                ]}>
                 <Text
-                  style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                  style={[
+                    styles.fieldLabel,
+                    sized.fieldLabel,
+                    { color: colors.textSecondary },
+                  ]}>
                   {`${t('drafts.subject')}:`}
                 </Text>
                 <TextInput

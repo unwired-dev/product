@@ -1,4 +1,9 @@
-import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { StyleSheet } from 'react-native';
 
 import { textStyles } from './theme.ts';
@@ -12,10 +17,34 @@ export const registrationStyles = StyleSheet.create({
     padding: 32,
   },
   content: { maxWidth: 420, width: '100%', gap: 20 },
+  // iPad presents account setup as the frames' centred glass sheet over the dimmed window.
+  padSheet: {
+    width: 575,
+    maxWidth: '100%',
+    gap: spacing.l * ipadListScale,
+    paddingTop: 28 * ipadListScale,
+    paddingHorizontal: 28 * ipadListScale,
+    paddingBottom: 24 * ipadListScale,
+    borderRadius: radius.ipadSheet,
+    borderCurve: 'continuous',
+  },
+  padSheetTitle: {
+    fontSize: 17 * ipadListScale,
+    lineHeight: 22 * ipadListScale,
+  },
+  padSheetText: { ...typography.ipadList.body },
   // The Settings page's fixed title row.
   accountHeader: {
     paddingHorizontal: spacing.l,
     paddingVertical: spacing.m,
+  },
+  // The iPad frames center the title and command input 29.5pt below the status bar and start the
+  // cards, whose edges they share, 64pt below it.
+  padAccountHeader: {
+    paddingLeft: 28,
+    paddingRight: 32,
+    paddingTop: 29.5 - 22,
+    paddingBottom: 64 - 29.5 - 22 - spacing.s,
   },
   accountHeading: {
     flexDirection: 'row',
@@ -31,9 +60,8 @@ export const registrationStyles = StyleSheet.create({
     gap: spacing.s,
   },
   phoneAccessory: { justifyContent: 'flex-end' },
-  // The iPad Settings frames draw the command input 300pt wide, its trailing edge in line with the
-  // page's cards, which sit a spacing further in than the header.
-  accountCommands: { width: 300, marginRight: spacing.s },
+  // The iPad Settings frames draw the command input 300pt wide.
+  accountCommands: { width: 300 },
   padTitle: { ...typography.ipadList.title3Emphasized },
   centered: { textAlign: 'center' },
   grow: { flex: 1 },

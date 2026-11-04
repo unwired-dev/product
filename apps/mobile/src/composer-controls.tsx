@@ -58,6 +58,7 @@ import {
 import {
   Glass,
   GlassPanel,
+  MenuButton,
   SFSymbol,
   ToolbarButton,
   useMenuMotion,
@@ -129,12 +130,14 @@ const styles = StyleSheet.create({
   generateTitle: { ...textStyles.headline, flex: 1 },
   generatePrompt: { ...textStyles.subheadline, minHeight: 44, padding: 0 },
   generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
+  // The iPad frames' Mac recipe at 1.15: Text style 18.4pt from the leading edge and the
+  // 36.8pt glyph boxes 18.4pt from the trailing one, each inside its full 44pt target.
   formatBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.xs,
+    paddingLeft: spacing.l * ipadListScale,
+    paddingRight: spacing.l * ipadListScale - (44 - 32 * ipadListScale) / 2,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
@@ -142,10 +145,23 @@ const styles = StyleSheet.create({
   formatRailContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
     flexGrow: 1,
   },
-  divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
+  // 18.4pt tall, 4.6pt from the glyph boxes beside it.
+  divider: {
+    width: StyleSheet.hairlineWidth,
+    height: 16 * ipadListScale,
+    marginHorizontal: 1,
+  },
+  // The Text style pull-down's label: its symbol, the style and the pop-up chevrons.
+  textStyle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6 * ipadListScale,
+    minHeight: 44,
+    paddingLeft: spacing.s * ipadListScale,
+    paddingRight: 6 * ipadListScale,
+  },
   formatPanel: { margin: spacing.s, marginTop: 0 },
   formatContent: { padding: spacing.l, gap: spacing.m },
   formatHeader: {
@@ -485,34 +501,45 @@ export function FormatBar({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [styleMenu, setStyleMenu] = useState(false);
   return (
     <View
       accessibilityLabel={t('drafts.formatting')}
       accessibilityRole="toolbar"
       style={[styles.formatBar, { borderColor: colors.separator }]}>
-      <PopUp
+      {/* The system menu marks the current style with its leading checkmark. */}
+      <MenuButton
         accessibilityLabel={t('drafts.textStyle')}
         disabled={disabled}
-        icon="textformat"
-        label={t(blockNames[kind])}
-        open={styleMenu}
-        onToggle={() => {
-          setStyleMenu((current) => !current);
-        }}>
-        {textStyleKinds.map((value) => (
-          <MenuItem
-            key={value}
-            disabled={disabled}
-            label={t(blockNames[value])}
-            selected={kind === value}
-            onPress={() => {
-              setStyleMenu(false);
-              onBlock(value);
-            }}
+        sections={[
+          {
+            items: textStyleKinds.map((value) => ({
+              key: value,
+              title: t(blockNames[value]),
+              symbol: '',
+              checked: kind === value,
+              run: () => {
+                onBlock(value);
+              },
+            })),
+          },
+        ]}>
+        <View style={styles.textStyle}>
+          <SFSymbol
+            name="textformat"
+            color={colors.textPrimary}
           />
-        ))}
-      </PopUp>
+          <Text
+            numberOfLines={1}
+            style={[styles.popUpText, { color: colors.textPrimary }]}>
+            {t(blockNames[kind])}
+          </Text>
+          <SFSymbol
+            name="chevron.up.chevron.down"
+            size={12}
+            color={colors.textSecondary}
+          />
+        </View>
+      </MenuButton>
       <ScrollView
         horizontal
         keyboardShouldPersistTaps="always"

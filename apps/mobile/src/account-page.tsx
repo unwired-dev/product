@@ -55,16 +55,18 @@ export function AccountHeader({
   const insets = useSafeAreaInsets();
   return (
     <View
-      style={[
-        styles.accountHeader,
+      style={
         pad
-          ? undefined
-          : {
-              marginTop: insets.top,
-              marginLeft: insets.left,
-              marginRight: insets.right,
-            },
-      ]}
+          ? styles.padAccountHeader
+          : [
+              styles.accountHeader,
+              {
+                marginTop: insets.top,
+                marginLeft: insets.left,
+                marginRight: insets.right,
+              },
+            ]
+      }
       {...header.swipe}>
       <View style={styles.accountHeading}>
         {pad ? null : <View style={styles.phoneHeaderSlot} />}

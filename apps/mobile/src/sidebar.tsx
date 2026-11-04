@@ -136,7 +136,8 @@ const styles = StyleSheet.create({
   count: { ...typography.ipadList.body },
   footer: {
     marginHorizontal: spacing.s * ipadListScale,
-    paddingVertical: spacing.s,
+    paddingTop: spacing.s,
+    paddingBottom: spacing.m,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   switcher: {
@@ -145,20 +146,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.control * ipadListScale,
     borderCurve: 'continuous',
   },
-  // The floating sidebar panel, inset 8pt from the column beneath the status bar.
+  // The floating sidebar panel, inset 8pt from the column beneath the status bar and from the
+  // window's bottom edge, as the frames draw it from y40 to y826.
   panel: {
     flex: 1,
     margin: spacing.s,
-    marginTop: spacing.l,
     paddingHorizontal: spacing.s,
     borderRadius: radius.window * ipadListScale,
     borderCurve: 'continuous',
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
-  // The window controls' row of the panel: its sidebar toggle at the trailing end.
+  // The window controls' row of the panel: its sidebar toggle at the trailing end, and the Profile
+  // Switcher 57.5pt below the panel's top edge.
   panelTop: {
-    height: 46,
+    height: 57.5,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -453,7 +455,7 @@ function FolderRows({
 }
 
 // The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
-// its folders, and the account page last.
+// its folders, and Settings last.
 export function Mailboxes({
   view,
   onView,
@@ -499,7 +501,7 @@ export function Mailboxes({
     <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       {bar === true ? <NavigationChrome /> : null}
       <SafeAreaView
-        edges={{ top: true, bottom: true, left: true, right: true }}
+        edges={{ top: true, bottom: compact, left: true, right: true }}
         style={styles.fill}>
         <View
           style={
@@ -692,7 +694,7 @@ export function Mailboxes({
             <View style={[styles.footer, { borderTopColor: colors.separator }]}>
               <Item
                 icon="gearshape"
-                label={t('inbox.account')}
+                label={t('settings.title')}
                 onPress={() => {
                   openSettings();
                 }}

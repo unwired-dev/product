@@ -29,6 +29,7 @@ import {
   CloseButton,
   ComposerLayoutContext,
   composerStyles,
+  layoutStyles,
   Recipients,
   SendButton,
   textToolLabel,
@@ -395,6 +396,7 @@ export function DraftFields({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
@@ -410,9 +412,15 @@ export function DraftFields({
     />
   );
   return (
-    <View style={s.fields}>
-      <View style={[s.field, { borderTopColor: colors.separator }]}>
-        <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>
+    <View style={[s.fields, sized.fields]}>
+      <View
+        style={[s.field, sized.field, { borderTopColor: colors.separator }]}>
+        <Text
+          style={[
+            s.fieldLabel,
+            sized.fieldLabel,
+            { color: colors.textSecondary },
+          ]}>
           {`${t('drafts.subject')}:`}
         </Text>
         <TextInput

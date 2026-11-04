@@ -16,6 +16,10 @@ export const radius = {
   // The iPhone and iPad invitation card.
   touchCard: 18,
   window: 16,
+  // iPad Sign In's deep brand panel.
+  brandPanel: 24,
+  // iPad's centred setup sheet, as Add a Mailbox draws it.
+  ipadSheet: 29.095,
   bubble: 20,
   chip: 14,
   mailboxGroup: 22,
@@ -32,6 +36,8 @@ export const palette = {
     accentOnFill: '#FFFFFF',
     accentInk: '#3A3D44',
     accentSelectionSubtle: 'rgba(58, 61, 68, 0.12)',
+    // The iPad Palette frames' outline around the focused command query.
+    focusRing: 'rgba(58, 61, 68, 0.32)',
     onDeviceInk: '#A3321F',
     onDeviceSurface: '#FBEEEA',
     brandDeep: '#15171B',
@@ -74,6 +80,7 @@ export const palette = {
     accentOnFill: '#FFFFFF',
     accentInk: '#C8CBD2',
     accentSelectionSubtle: 'rgba(200, 203, 210, 0.16)',
+    focusRing: 'rgba(106, 110, 120, 0.28)',
     onDeviceInk: '#FF9E88',
     onDeviceSurface: '#3A2420',
     brandDeep: '#15171B',
@@ -99,7 +106,8 @@ export const palette = {
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.3)',
     menuGlassShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
-    scrimTouch: 'rgba(0, 0, 0, 0.45)',
+    // The iPad Compose frames dim the #1E1E1E content to #121212.
+    scrimTouch: 'rgba(0, 0, 0, 0.4)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
     toastShadow: '0px 6px 9px rgba(0, 0, 0, 0.18)',
   },

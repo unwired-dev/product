@@ -11,11 +11,15 @@ import {
   responseCommands,
 } from '@private-email/mail-core/commands';
 import { messageContextMenu } from '@private-email/mail-core/context-menu';
-import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
+import {
+  profileOf,
+  recipientsOf,
+  sendingMailboxes,
+} from '@private-email/mail-core/drafts';
 import { listedMessage } from '@private-email/mail-core/gmail-inbox';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -49,7 +53,12 @@ import {
   useMessageCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
-import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
+import {
+  ContextMenu,
+  GlassGroup,
+  scaledToolbarHeight,
+  ToolbarButton,
+} from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
@@ -75,7 +84,11 @@ import {
   useReaderViewport,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { MessageActions, MessageActionsNotice } from './organize.tsx';
+import {
+  MessageActions,
+  MessageActionsNotice,
+  readerToolbarInset,
+} from './organize.tsx';
 import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReplySheet } from './reply-sheet.tsx';
@@ -90,6 +103,10 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 // floating toolbar's 52pt glass sits 2pt above the bottom safe area, as the frames place them.
 const readerEdges = { top: true, bottom: !compact, left: true, right: true };
 const toolbarLift = 2;
+// The iPad reader follows the Mac reading pane at 1.15×: 46pt side padding, and the subject 82.8pt
+// beneath the safe area, under the toolbar.
+const sideInset = compact ? spacing.l : 40 * ipadListScale;
+const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
 // The content's bottom padding clears iPhone's bottom toolbar or a regular window's floating bar,
 // and on iPhone the home indicator it runs beneath.
 const clearsBottom = (bar: boolean, inset: number) => ({
@@ -99,10 +116,10 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   // The regular-width toolbar: glass groups at the pane's trailing edge.
   topToolbar: {
-    height: 52 + spacing.m,
+    height: topToolbarHeight,
     zIndex: 1,
     alignItems: 'flex-end',
-    paddingTop: spacing.m,
+    paddingTop: readerToolbarInset,
     paddingHorizontal: spacing.l,
   },
   // The compact toolbar floats over the content's bottom edge.
@@ -124,7 +141,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    paddingHorizontal: spacing.l,
+    paddingHorizontal: sideInset,
     paddingVertical: spacing.s,
     gap: spacing.l,
   },
@@ -135,8 +152,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.m,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
+    paddingHorizontal: compact ? spacing.xl : sideInset,
+    paddingTop: compact ? spacing.xl : 72 * ipadListScale - topToolbarHeight,
   },
   headerText: { flex: 1 },
   subject: { ...textStyles.reading.subject },
@@ -735,13 +752,28 @@ function MessageMenu({
   );
 }
 
-// The opened message's header, mailbox and labels above a hairline.
+// The names a received address-list header lists, or nothing without one.
+const recipientNames = (header: string | undefined) =>
+  recipientsOf(header ?? '')
+    .map(({ name, address }) => name ?? address)
+    .join(', ');
+
+// The opened message's header with its recipients once its headers are read, then its mailbox and
+// labels above a hairline.
 function MessageMetadata({
   message,
 }: {
   readonly message: NonNullable<ReturnType<typeof shownMessage>>;
 }) {
   const state = useInbox();
+  const inbox = useInboxActions();
+  const headers = useSyncExternalStore(inbox.subscribe, () =>
+    'responseSource' in inbox
+      ? inbox.responseSource(message.id)?.headers
+      : undefined,
+  );
+  const to = recipientNames(headers?.to);
+  const cc = recipientNames(headers?.cc);
   const mailbox = useMailbox();
   const address = mailbox?.address;
   const colors = usePalette();
@@ -756,7 +788,13 @@ function MessageMetadata({
   return (
     <MessageMenu target={commandTarget(mailbox?.id, message)}>
       <View style={[styles.metadata, { borderBottomColor: colors.separator }]}>
-        <MessageHeader message={message} />
+        <MessageHeader
+          message={message}
+          recipients={[
+            ...(to === '' ? [] : [t('message.to', { recipients: to })]),
+            ...(cc === '' ? [] : [t('message.cc', { recipients: cc })]),
+          ]}
+        />
         {address === undefined ? null : (
           <Text style={[styles.secondary, { color: colors.textSecondary }]}>
             {t('inbox.inMailbox', { mailbox: address })}

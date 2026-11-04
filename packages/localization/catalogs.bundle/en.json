@@ -77,6 +77,8 @@
     "more": "More",
     "received": "{{date}} UTC",
     "labels": "Labels: {{labels}}",
+    "to": "To: {{recipients}}",
+    "cc": "Cc: {{recipients}}",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
@@ -257,6 +259,7 @@
       "imap-authorization": "The mail server needs your password again",
       "imap-cached": "Saved mail only until the mail server can be checked"
     },
+    "connectedProfile": "{{provider}} · {{profile}}",
     "add": "Add another Gmail mailbox",
     "addMicrosoft": "Add a Microsoft mailbox",
     "allow": "Allow {{provider}} access for {{address}}",
@@ -1285,6 +1288,7 @@
       "title": "Your mail,\non your devices.",
       "description": "Unwired Mail brings Gmail, iCloud and Microsoft 365 together in one calm, private inbox.",
       "assistance": "Assistance runs on this device.",
+      "mailProfiles": "Mail Profiles keep personal and work apart.",
       "privateSync": "Private Sync keeps your devices in step.",
       "continue": "Continue"
     },
@@ -1335,6 +1339,7 @@
     "unread": "Mark as Unread",
     "moveMessage": "Move Message",
     "moveTo": "Move to…",
+    "spam": "Report Spam",
     "openLink": "Open Link",
     "copyLink": "Copy Link",
     "quickLook": "Quick Look",

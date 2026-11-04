@@ -143,6 +143,15 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   anchoredField: { minHeight: 36, borderRadius: 18 },
+  // The frames outline the focused query; esc beside it cancels, as its key does.
+  focusRing: { borderWidth: 3 },
+  keyCap: {
+    ...typography.ipadList.subheadline,
+    paddingHorizontal: 6,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+  },
   popoverPanel: {
     flexShrink: 1,
     paddingVertical: spacing.s,
@@ -397,9 +406,11 @@ function paletteFrame(
     inputRow: [
       styles.inputRow,
       styles.anchoredInput,
+      styles.focusRing,
       {
         width: anchor.width,
         backgroundColor: colors.surfacePanel,
+        borderColor: colors.focusRing,
         boxShadow: colors.smallGlassShadow,
       },
     ],
@@ -410,6 +421,11 @@ function paletteFrame(
     ],
   };
 }
+
+// The first command or choice that can run, which Return runs.
+const firstEnabled = <T extends Readonly<{ disabled?: string | undefined }>>(
+  items: readonly T[],
+) => items.find(({ disabled }) => disabled === undefined);
 
 // The open palette: a sheet attached to the top with the query focused and matching commands
 // beneath, or the choices of the command being completed. Closed, it stops taking input at once
@@ -489,13 +505,13 @@ function Palette({
       return;
     }
     if (choices === undefined) {
-      const first = listed.find(({ disabled }) => disabled === undefined);
+      const first = firstEnabled(listed);
       if (first !== undefined) {
         run(first);
       }
       return;
     }
-    const first = choices.find(({ disabled }) => disabled === undefined);
+    const first = firstEnabled(choices);
     if (first !== undefined) {
       choose(first);
     }
@@ -557,6 +573,24 @@ function Palette({
               style={[styles.input, { color: colors.textPrimary }]}
               value={choosing === undefined ? query : choiceQuery}
             />
+            {anchor === undefined ? null : (
+              <Pressable
+                accessibilityLabel={t('common.cancel')}
+                accessibilityRole="button"
+                hitSlop={spacing.s}
+                onPress={close}>
+                <Text
+                  style={[
+                    styles.keyCap,
+                    {
+                      backgroundColor: colors.fillQuiet,
+                      color: colors.textSecondary,
+                    },
+                  ]}>
+                  {t('commands.escape')}
+                </Text>
+              </Pressable>
+            )}
           </View>
           {anchor === undefined ? (
             <Pressable
@@ -611,18 +645,10 @@ function Palette({
                 subject={subject}
               />
             ) : (
-              choices.map((choice) => (
-                <CommandRow
-                  detail={choice.disabled}
-                  disabled={choice.disabled !== undefined}
-                  icon={choice.icon ?? 'folder'}
-                  key={choice.id}
-                  onPress={() => {
-                    choose(choice);
-                  }}
-                  title={choice.title}
-                />
-              ))
+              <ChoiceList
+                choices={choices}
+                onChoose={choose}
+              />
             )}
             {(choices ?? listed).length === 0 ? (
               <Text style={[styles.empty, { color: colors.textSecondary }]}>
@@ -636,6 +662,31 @@ function Palette({
   );
 }
 
+// The choices of the command being completed, the one Return chooses highlighted.
+function ChoiceList({
+  choices,
+  onChoose,
+}: {
+  readonly choices: readonly CommandChoice[];
+  readonly onChoose: (choice: CommandChoice) => void;
+}) {
+  const current = firstEnabled(choices)?.id;
+  return choices.map((choice) => (
+    <CommandRow
+      detail={choice.disabled}
+      disabled={choice.disabled !== undefined}
+      highlighted={choice.id === current}
+      icon={choice.icon ?? 'folder'}
+      key={choice.id}
+      onPress={() => {
+        onChoose(choice);
+      }}
+      title={choice.title}
+    />
+  ));
+}
+
+// The matching commands under their section headers, the one Return runs highlighted.
 function CommandList({
   commands,
   onRun,
@@ -647,6 +698,7 @@ function CommandList({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const current = firstEnabled(commands)?.id;
   return commands.map((command, index) => {
     const first =
       index === 0 || commands[index - 1]?.section !== command.section;
@@ -668,6 +720,7 @@ function CommandList({
         <CommandRow
           detail={command.disabled}
           disabled={command.disabled !== undefined}
+          highlighted={command.id === current}
           icon={command.icon}
           more={command.choices !== undefined}
           onPress={() => {
@@ -680,11 +733,13 @@ function CommandList({
   });
 }
 
+// A command, highlighted in the accent fill while Return would run it.
 function CommandRow({
   icon,
   title,
   detail,
   disabled,
+  highlighted = false,
   more = false,
   onPress,
 }: {
@@ -692,11 +747,14 @@ function CommandRow({
   readonly title: string;
   readonly detail: string | undefined;
   readonly disabled: boolean;
+  readonly highlighted?: boolean;
   readonly more?: boolean;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
   const dimmed = disabled ? styles.dimmed : null;
+  const ink = highlighted ? colors.accentOnFill : colors.textPrimary;
+  const secondaryInk = highlighted ? colors.accentOnFill : colors.textSecondary;
   return (
     <Pressable
       accessibilityLabel={detail === undefined ? title : `${title}. ${detail}`}
@@ -706,28 +764,27 @@ function CommandRow({
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        pressed ? { backgroundColor: colors.accentSelectionSubtle } : null,
+        pressed && { backgroundColor: colors.accentSelectionSubtle },
+        highlighted && { backgroundColor: colors.accentFill },
       ]}>
       <View style={dimmed}>
         <SFSymbol
           name={icon}
-          color={colors.textPrimary}
+          color={ink}
         />
       </View>
       <Text
         numberOfLines={1}
-        style={[styles.title, dimmed, { color: colors.textPrimary }]}>
+        style={[styles.title, dimmed, { color: ink }]}>
         {title}
       </Text>
       {detail === undefined ? null : (
-        <Text style={[styles.detail, { color: colors.textSecondary }]}>
-          {detail}
-        </Text>
+        <Text style={[styles.detail, { color: secondaryInk }]}>{detail}</Text>
       )}
       {more ? (
         <SFSymbol
           name="chevron.right"
-          color={colors.textSecondary}
+          color={secondaryInk}
           size={12}
         />
       ) : null}

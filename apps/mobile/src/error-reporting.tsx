@@ -1,7 +1,11 @@
 import type { ErrorReporting } from '@private-email/mail-core/error-reporting';
 import type { ReactNode } from 'react';
 
-import { spacing, typography } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import {
   createContext,
   useContext,
@@ -39,9 +43,9 @@ export const ErrorReportingContext =
 
 const styles = StyleSheet.create({
   action: {
-    minHeight: settingsColumns ? 44 : 52,
+    minHeight: 52,
     justifyContent: 'center',
-    paddingHorizontal: settingsColumns ? spacing.m : 15.6,
+    paddingHorizontal: settingsColumns ? spacing.m * ipadListScale : 15.6,
     paddingVertical: 13,
     flexDirection: 'row',
     alignItems: 'center',

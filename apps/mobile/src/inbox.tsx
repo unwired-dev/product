@@ -11,6 +11,7 @@ import type { TextInput } from 'react-native';
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize, tint } from '@expo/ui/swift-ui/modifiers';
 import { lastUpdated } from '@private-email/localization';
+import { commandTarget } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   leavesView,
@@ -1271,6 +1272,12 @@ export function Inbox({
                     selected={
                       selected?.mailbox === item.mailbox.id &&
                       selected.id === item.message.id
+                    }
+                    reader={
+                      selected?.mailbox === item.mailbox.id &&
+                      selected.id === item.message.id
+                        ? commandTarget(item.mailbox.id, item.message)
+                        : undefined
                     }
                     status={
                       section.key === 'gmail' || !searching
