@@ -83,6 +83,7 @@ export function FolderChoice({
   const { t } = useLocalization();
   const account = use(AccountContext);
   const [shown, setShown] = useState(false);
+  const [session, setSession] = useState(0);
   if (account === undefined) {
     return null;
   }
@@ -93,6 +94,7 @@ export function FolderChoice({
         <Button
           label={t('mailboxes.folders.choose')}
           onPress={() => {
+            setSession((previous) => previous + 1);
             setShown(true);
           }}
         />
@@ -103,19 +105,16 @@ export function FolderChoice({
           onIsPresentedChange={setShown}>
           <Group modifiers={[presentationDetents(['medium', 'large'])]}>
             <RNHostView>
-              {shown ? (
-                <FolderSheet
-                  address={address}
-                  folders={folders}
-                  saved={saved}
-                  onSave={(chosen) => account.chooseFolders(connection, chosen)}
-                  onClose={() => {
-                    setShown(false);
-                  }}
-                />
-              ) : (
-                <View />
-              )}
+              <FolderSheet
+                key={session}
+                address={address}
+                folders={folders}
+                saved={saved}
+                onSave={(chosen) => account.chooseFolders(connection, chosen)}
+                onClose={() => {
+                  setShown(false);
+                }}
+              />
             </RNHostView>
           </Group>
         </BottomSheet>
@@ -155,10 +154,6 @@ function FolderSheet({
   const gone = open.find(
     (role) => picks[role] !== undefined && !exists(picks[role]),
   );
-  const ready =
-    !saving &&
-    open.every((role) => exists(picks[role])) &&
-    (picks.junk === undefined || picks.junk !== picks.trash);
   const changing = saved !== undefined;
   const save = async () => {
     setSaving(true);
@@ -175,12 +170,6 @@ function FolderSheet({
   };
   const roleName = (role: Role) =>
     t(role === 'junk' ? 'mailboxes.spam' : 'mailboxes.trash');
-  // A folder that cannot hold this role: the Inbox, or one with another role.
-  const taken = (role: Role, folder: ImapFolder) =>
-    folder.name === inboxFolder ||
-    folder.name === picks[otherRole(role)] ||
-    folder.name === marked(otherRole(role)) ||
-    Object.keys(otherRoles).some((key) => folder.roles.includes(key));
   const holding = (role: Role, folder: ImapFolder) =>
     folder.name === picks[otherRole(role)] ||
     folder.name === marked(otherRole(role))
@@ -188,6 +177,19 @@ function FolderSheet({
       : Object.entries(otherRoles)
           .filter(([key]) => folder.roles.includes(key))
           .map(([, key]) => t(key))[0];
+  // Menus and Save accept the same folders, including after a server listing changes.
+  const taken = (role: Role, folder: ImapFolder) =>
+    folder.name === inboxFolder || holding(role, folder) !== undefined;
+  const ready =
+    !saving &&
+    open.every((role) =>
+      folders.some(
+        (folder) =>
+          folder.selectable &&
+          folder.name === picks[role] &&
+          !taken(role, folder),
+      ),
+    );
   const menu = (role: Role) => {
     const item = (folder: ImapFolder) => {
       const subtitle = holding(role, folder);

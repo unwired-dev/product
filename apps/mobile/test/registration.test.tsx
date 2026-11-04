@@ -2811,6 +2811,22 @@ describe('product registration', () => {
     expect(save()).toBeDisabled();
     const spamMenu = await choose('Spam', 'Bulk Mail');
     expect(save()).toBeDisabled();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    });
+    // Keep the content through native dismissal, then discard unsaved picks on reopen.
+    expect(
+      within(
+        screen.getByTestId('bottom-sheet', { includeHiddenElements: true }),
+      ).getByText('Bulk Mail', { includeHiddenElements: true }),
+    ).toBeDefined();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Choose Folders…' }),
+      );
+    });
+    expect(screen.getAllByText('Choose a Folder')).toHaveLength(2);
+    await choose('Spam', 'Bulk Mail');
     // A folder chosen for Spam, or holding another role, is not offered for Trash.
     const trashMenu = await choose('Trash', 'Deleted Messages');
     synthetic.backend.offline = true;
@@ -2878,6 +2894,14 @@ describe('product registration', () => {
       ),
     ).toBeVisible();
     expect(screen.getByText('Folder unavailable')).toBeVisible();
+    expect(save()).toBeDisabled();
+    imap.addFolder('Replacement Spam');
+    await act(connections.load);
+    await choose('Spam', 'Replacement Spam');
+    expect(save()).toBeEnabled();
+    // A server role claimed while choosing makes that folder unavailable to Save too.
+    imap.addFolder('Replacement Spam', ['sent']);
+    await act(connections.load);
     expect(save()).toBeDisabled();
   });
   /* oxlint-enable vitest/max-expects */
