@@ -57,7 +57,13 @@ const styles = StyleSheet.create({
 
 type InvitationInbox = Pick<
   GmailInbox,
-  'send' | 'findSent' | 'getSnapshot' | 'subscribe' | 'responseSource' | 'load'
+  | 'send'
+  | 'findSent'
+  | 'getSnapshot'
+  | 'subscribe'
+  | 'responseSource'
+  | 'load'
+  | 'recordResponse'
 >;
 
 const choices = ['accepted', 'tentative', 'declined'] as const;

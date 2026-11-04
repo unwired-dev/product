@@ -159,6 +159,27 @@ const GraphCheckpointSchema = Schema.Union([
   }),
 ]);
 
+// An Invitation Response this device sent, or may have sent, for one revision of an invitation.
+// `boundary` finds an unconfirmed send in Sent.
+const InvitationRevision = {
+  uid: Schema.String,
+  sequence: Schema.Int,
+  choice: Schema.Literals(['accepted', 'tentative', 'declined']),
+};
+const InvitationResponseSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal('sent'),
+    ...InvitationRevision,
+    at: Schema.Finite,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('unknown'),
+    ...InvitationRevision,
+    boundary: Schema.String,
+  }),
+]);
+export type InvitationResponse = typeof InvitationResponseSchema.Type;
+
 // The checkpoint is committed with the messages it produced, so a restart repeats no step twice.
 const MailboxDocumentSchema = Schema.Struct({
   version: Schema.Literal(1),
@@ -201,6 +222,8 @@ const MailboxDocumentSchema = Schema.Struct({
   // When this device began the last synchronization that completed, as an ISO instant; absent
   // until one completes.
   synchronizedAt: Schema.optionalKey(SynchronizationTime),
+  // Invitation Responses, most recent first.
+  responses: Schema.optionalKey(Schema.Array(InvitationResponseSchema)),
   checkpoint: Schema.Union([
     // Listing the Inbox from the history ID read before the first page; `seen` survives an
     // interruption so a replacement listing can drop messages that left the Inbox.
