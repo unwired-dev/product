@@ -155,6 +155,13 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### React correctness
 
+- `registration-gate.tsx.AccountContext.chooseFolders` reporting success only
+  because `foldersFailure` is absent. The registration semaphore can decline a
+  setting action while foreground verification is running without publishing a
+  failure. Check the connection's persisted choice before dismissing the sheet,
+  and exercise Save while verification is held; otherwise the sheet closes with
+  unsaved choices and the connection remains outside All Mail.
+
 - `composer.tsx.Editor` or another presenter caller restoring focus on every
   native close. Trace `LinkEditor` and `Popover` through explicit Escape,
   Apply/Remove and outside-click dismissal. Clear presentation bookkeeping on

@@ -2741,7 +2741,17 @@ describe('product registration', () => {
     const { synthetic, setup } = await signedIn();
     const connection = await connectImap(setup);
     await confirmRecoveryKey(setup);
-    const store = createRegistration(synthetic.relaunch());
+    const vault = synthetic.relaunch();
+    let beforeRead: (() => Promise<void>) | undefined = undefined;
+    const store = createRegistration({
+      ...vault,
+      registration: async () => {
+        const hook = beforeRead;
+        beforeRead = undefined;
+        await hook?.();
+        return vault.registration();
+      },
+    });
     const connections = createMailboxes(
       syntheticConnections({}, { [connection]: imap.native }),
       store,
@@ -2829,6 +2839,32 @@ describe('product registration', () => {
     await choose('Spam', 'Bulk Mail');
     // A folder chosen for Spam, or holding another role, is not offered for Trash.
     const trashMenu = await choose('Trash', 'Deleted Messages');
+    // Foreground verification can decline a save without publishing a failure.
+    const entered = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    beforeRead = () => {
+      entered.resolve(undefined);
+      return held.promise;
+    };
+    let resuming = Promise.resolve();
+    await act(async () => {
+      resuming = store.resume();
+      await entered.promise;
+    });
+    try {
+      await act(async () => {
+        await fireEvent.press(save());
+      });
+    } finally {
+      await act(async () => {
+        held.resolve(undefined);
+        await resuming;
+      });
+    }
+    expect(screen.getByRole('button', { name: 'Save' })).toBeVisible();
+    expect(
+      mailboxesOf(store.getSnapshot().snapshot)[0]?.folders,
+    ).toBeUndefined();
     synthetic.backend.offline = true;
     await act(async () => {
       await fireEvent.press(save());
