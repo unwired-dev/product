@@ -166,7 +166,7 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   holding another role and the other role's choice are dimmed, and a role the server
   marks shows its folder without a menu. Save waits for an existing folder for each
   such role; a failed save keeps the sheet open with the previous choice in use, and a
-  saved folder the server no longer lists is named so another can be chosen. Mac and
+  saved folder the server no longer lists is marked unavailable so another can be chosen. Mac and
   the Settings › Email Accounts entry do not offer the control yet. The choice
   synchronizes through Product Sync for that connection only
   until it is removed. A chosen folder supplies a role only where the server marks no

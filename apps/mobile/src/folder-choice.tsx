@@ -38,6 +38,7 @@ const otherRoles = {
   drafts: 'drafts.heading',
   archive: 'mailboxes.archive',
   all: 'mailboxes.allMail',
+  flagged: 'mailboxes.flagged',
 } as const;
 
 const styles = StyleSheet.create({
@@ -151,9 +152,10 @@ function FolderSheet({
   const [failed, setFailed] = useState(false);
   const exists = (name: string | undefined) =>
     folders.some((folder) => folder.selectable && folder.name === name);
-  const gone = open.find(
+  const missing = open.filter(
     (role) => picks[role] !== undefined && !exists(picks[role]),
   );
+  const [gone] = missing;
   const changing = saved !== undefined;
   const save = async () => {
     setSaving(true);
@@ -222,7 +224,7 @@ function FolderSheet({
       if (pick === undefined) {
         return t('mailboxes.folders.unmarked');
       }
-      if (gone === role) {
+      if (missing.includes(role)) {
         return t('mailboxes.folders.unavailable');
       }
       return was !== undefined && was !== pick && exists(was)
@@ -259,10 +261,9 @@ function FolderSheet({
             style={[
               styles.footnote,
               {
-                color:
-                  gone === role
-                    ? colors.statusDestructive
-                    : colors.textSecondary,
+                color: missing.includes(role)
+                  ? colors.statusDestructive
+                  : colors.textSecondary,
               },
             ]}>
             {subtitle()}

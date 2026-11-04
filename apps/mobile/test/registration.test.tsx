@@ -2735,6 +2735,7 @@ describe('product registration', () => {
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Kept IMAP message' });
     imap.addFolder('Sent Messages', ['sent']);
+    imap.addFolder('Starred', ['flagged']);
     imap.addFolder('Bulk Mail');
     imap.addFolder('Deleted Messages');
     imap.deliver('Bulk Mail', { subject: 'Unwanted offer' });
@@ -2898,6 +2899,7 @@ describe('product registration', () => {
         [
           ['Inbox', undefined, true],
           ['Sent Messages', 'Sent', true],
+          ['Starred', 'Flagged', true],
         ],
         [
           ['Bulk Mail', undefined, false],
@@ -2908,6 +2910,7 @@ describe('product registration', () => {
         [
           ['Inbox', undefined, true],
           ['Sent Messages', 'Sent', true],
+          ['Starred', 'Flagged', true],
           ['Bulk Mail', 'Spam', true],
         ],
         [['Deleted Messages', undefined, false]],
@@ -2915,9 +2918,10 @@ describe('product registration', () => {
       chosen: { junk: 'Bulk Mail', trash: 'Deleted Messages' },
       spam: null,
     });
-    // A chosen folder removed at the server leaves the connection out again, and its choice
+    // Chosen folders removed at the server leave the connection out again, and each choice
     // waits for another folder.
     imap.removeFolder('Bulk Mail');
+    imap.removeFolder('Deleted Messages');
     await act(connections.load);
     await act(async () => {
       await fireEvent.press(
@@ -2929,8 +2933,9 @@ describe('product registration', () => {
         'Bulk Mail is no longer on the server. Choose another folder for Spam. This account is not included in All Mail.',
       ),
     ).toBeVisible();
-    expect(screen.getByText('Folder unavailable')).toBeVisible();
+    expect(screen.getAllByText('Folder unavailable')).toHaveLength(2);
     expect(save()).toBeDisabled();
+    imap.addFolder('Deleted Messages');
     imap.addFolder('Replacement Spam');
     await act(connections.load);
     await choose('Spam', 'Replacement Spam');
