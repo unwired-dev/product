@@ -2904,16 +2904,20 @@ describe('product registration', () => {
     await act(connections.load);
     expect(save()).toBeDisabled();
     // A server that later marks the saved Spam folder itself shows it as its own, not a choice.
+    imap.addFolder('Replacement Spam');
     imap.removeFolder('Deleted Messages');
     imap.addFolder('Bulk Mail', ['junk']);
     await act(connections.load);
-    await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Choose Folders…' }),
-      );
-    });
     expect(screen.getByText('Marked by its server')).toBeVisible();
     expect(screen.queryByLabelText('Spam')).toBeNull();
+    // The server's role replaces the unsaved pick, freeing that folder for Trash.
+    const refreshedMenu = await choose('Trash', 'Replacement Spam');
+    expect(refreshedMenu.flat()).toContainEqual([
+      'Replacement Spam',
+      undefined,
+      false,
+    ]);
+    expect(save()).toBeEnabled();
   });
   /* oxlint-enable vitest/max-expects */
 

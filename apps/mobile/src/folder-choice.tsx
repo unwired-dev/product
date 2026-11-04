@@ -171,8 +171,7 @@ function FolderSheet({
   const roleName = (role: Role) =>
     t(role === 'junk' ? 'mailboxes.spam' : 'mailboxes.trash');
   const holding = (role: Role, folder: ImapFolder) =>
-    folder.name === picks[otherRole(role)] ||
-    folder.name === marked(otherRole(role))
+    folder.name === (marked(otherRole(role)) ?? picks[otherRole(role)])
       ? roleName(otherRole(role))
       : Object.entries(otherRoles)
           .filter(([key]) => folder.roles.includes(key))
