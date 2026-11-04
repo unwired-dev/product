@@ -7,6 +7,7 @@ import {
   createInvitationFormats,
   invitationBlockedBy,
   invitationOf,
+  invitationRepeats,
   invitationReply,
   invitationResponses,
   invitationStatus,
@@ -187,6 +188,54 @@ describe('meeting invitations', () => {
     });
   });
 
+  // Prague leaves summer time on 25 October 2026, so the last Fridays start an hour later in UTC.
+  const series = meeting.map((line) => line.replace('20261106', '20261016'));
+
+  it.each([
+    ['until a time', 'RRULE:FREQ=WEEKLY;BYDAY=FR;UNTIL=20261106T130000Z'],
+    ['for a count', 'RRULE:FREQ=WEEKLY;COUNT=4;WKST=MO;INTERVAL=1'],
+  ])('reads a weekly series that ends %s', (_, rrule) => {
+    expect.hasAssertions();
+    const offer = offered(calendar([...series, rrule]));
+
+    expect(offer.details).toMatchObject({
+      start: { at: Date.UTC(2026, 9, 16, 12), allDay: false },
+      lastStart: Date.UTC(2026, 10, 6, 13),
+    });
+    // One response answers the whole series, so the reply names no single meeting.
+    expect(invitationReply(offer, 'accepted', 0)).not.toContain(
+      'RECURRENCE-ID',
+    );
+    expect(
+      invitationOf(documentOf(calendar([...series, rrule], 'CANCEL')), me),
+    ).toMatchObject({
+      kind: 'cancelled',
+      details: { lastStart: Date.UTC(2026, 10, 6, 13) },
+    });
+  });
+
+  it.each([
+    ['every other week', 'FREQ=WEEKLY;INTERVAL=2;COUNT=4'],
+    ['on two weekdays', 'FREQ=WEEKLY;BYDAY=MO,FR;COUNT=4'],
+    ['on another weekday', 'FREQ=WEEKLY;BYDAY=MO;COUNT=4'],
+    ['daily', 'FREQ=DAILY;COUNT=4'],
+    ['without an end', 'FREQ=WEEKLY'],
+    [
+      'with both a count and an end',
+      'FREQ=WEEKLY;COUNT=4;UNTIL=20261106T130000Z',
+    ],
+    ['until a date', 'FREQ=WEEKLY;UNTIL=20261106'],
+    ['until before it starts', 'FREQ=WEEKLY;UNTIL=20261001T000000Z'],
+    ['with no meetings', 'FREQ=WEEKLY;COUNT=0'],
+    ['in some months', 'FREQ=WEEKLY;BYMONTH=10;COUNT=4'],
+    ['with a repeated part', 'FREQ=WEEKLY;COUNT=4;COUNT=5'],
+  ])('keeps a series repeating %s unreadable', (_, rule) => {
+    expect.hasAssertions();
+    expect(
+      invitationOf(documentOf(calendar([...series, `RRULE:${rule}`])), me),
+    ).toStrictEqual({ kind: 'unreadable' });
+  });
+
   it.each([
     ['names the mailbox', me],
     ['names only other addresses', 'mara@example.invalid'],
@@ -264,6 +313,31 @@ describe('meeting invitations', () => {
 
   it.each([
     ['a recurring meeting', calendar([...meeting, 'RRULE:FREQ=WEEKLY'])],
+    [
+      'an all-day weekly series',
+      calendar([
+        ...meeting.slice(0, 3),
+        'DTSTART;VALUE=DATE:20261106',
+        ...meeting.slice(5),
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+      ]),
+    ],
+    [
+      'a weekly series with an exception',
+      calendar([
+        ...meeting,
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+        'EXDATE;TZID=Europe/Prague:20261113T140000',
+      ]),
+    ],
+    [
+      'two recurrence rules',
+      calendar([
+        ...meeting,
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+      ]),
+    ],
     [
       'a recurring cancellation',
       calendar([...meeting, 'RRULE:FREQ=WEEKLY'], 'CANCEL'),
@@ -1142,6 +1216,10 @@ describe('meeting invitations', () => {
         year: 'numeric',
       }),
       time: utc({ hour: 'numeric', minute: '2-digit' }),
+      weekday: utc({ weekday: 'long' }),
+      dayMonth: utc({ day: 'numeric', month: 'short' }),
+      date: utc({ day: 'numeric', month: 'short', year: 'numeric' }),
+      year: utc({ year: 'numeric' }),
     };
     const organizer = {
       name: 'Lena Fischer',
@@ -1184,6 +1262,33 @@ describe('meeting invitations', () => {
         'Fri, Nov 6, 2026, 10:00 PM – Sat, Nov 7, 2026, 1:00 AM',
       );
       expect(when(at(6, 13))).toBe('Fri, Nov 6, 2026, 1:00 PM');
+    });
+
+    it('names the weekday and the first and last meetings of a weekly series', () => {
+      expect.hasAssertions();
+
+      const at = (date: number, hour: number) => ({
+        at: Date.UTC(2026, 10, date, hour),
+        allDay: false,
+      });
+      const series = (lastStart: number, end = at(6, 14)) => {
+        const details = { organizer, start: at(6, 13), end, lastStart };
+        return [
+          invitationWhen(english, formats, details),
+          invitationRepeats(english, formats, details),
+        ].map((line) => line?.replaceAll('\u202F', ' '));
+      };
+      expect(series(Date.UTC(2026, 11, 18, 13))).toStrictEqual([
+        'Fridays, 1:00 PM–2:00 PM',
+        'Every week from Nov 6 to Dec 18, 2026',
+      ]);
+      expect(series(Date.UTC(2027, 0, 8, 13), at(7, 1))).toStrictEqual([
+        'Fri, Nov 6, 2026, 1:00 PM – Sat, Nov 7, 2026, 1:00 AM',
+        'Every week from Nov 6, 2026 to Jan 8, 2027',
+      ]);
+      expect(
+        invitationRepeats(english, formats, { organizer, start: at(6, 13) }),
+      ).toBeUndefined();
     });
 
     it('describes each response state', () => {
@@ -1264,6 +1369,12 @@ describe('meeting invitations', () => {
           detail: `${me} can’t send responses until you sign in. Nothing has been sent.`,
         },
       ]);
+      expect(
+        invitationStatus({ kind: 'unanswered' }, { ...context, series: true }),
+      ).toStrictEqual({
+        title: 'Not answered yet',
+        detail: 'Your response applies to every meeting in the series.',
+      });
       expect([
         invitationBlockedBy('retry'),
         invitationBlockedBy('authentication'),

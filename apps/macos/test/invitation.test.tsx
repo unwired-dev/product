@@ -293,6 +293,35 @@ describe('meeting invitations in the Mac reader', () => {
     }
   });
 
+  it('shows the weekday and span of a weekly series', async () => {
+    expect.hasAssertions();
+    // Noon UTC keeps every meeting on the same day in the test machine's time zone.
+    const { app } = await opened(
+      invitation('alex@example.invalid', ['RRULE:FREQ=WEEKLY;COUNT=7'])
+        .replace('T130000Z', 'T120000Z')
+        .replace('T140000Z', 'T130000Z'),
+    );
+    try {
+      await expect(screen.findByText(/^Fridays, /u)).resolves.toBeOnTheScreen();
+
+      expect(
+        screen.getByText('Every week from Nov 6 to Dec 18, 2026'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText(
+          /^When, Fridays, .+, Every week from Nov 6 to Dec 18, 2026$/u,
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          'Your response applies to every meeting in the series.',
+        ),
+      ).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();
     const { app } = await opened(

@@ -58,7 +58,18 @@ separately.
   title struck through and **This meeting was cancelled**. It offers no response,
   so it shows whether or not it names the opened mailbox as an attendee. Its
   `STATUS`, when present, must be `CANCELLED`.
-- Recurring meetings and cancellations of them, floating or unknown time zones,
+- A weekly series ([#1836](https://github.com/unwired-dev/product/issues/1836))
+  shows **When** as the weekday and times, such as **Fridays, 14:00–15:00**, then
+  **Every week from 6 Nov to 18 Dec 2026**, and the unanswered card says **Your
+  response applies to every meeting in the series.** The response is the same single
+  `METHOD:REPLY` without a `RECURRENCE-ID`, so it answers every meeting. A cancellation
+  of the whole series shows the same lines. The series must be a timed meeting with
+  one `RRULE` of `FREQ=WEEKLY`, an `INTERVAL` of 1 if any, a `BYDAY` naming only the
+  start's weekday if any, an optional `WKST`, and exactly one of a UTC `UNTIL` or a
+  `COUNT` of up to 9999. The last meeting is counted in the meeting's time zone, so it
+  keeps its local time across daylight-saving changes.
+- Other recurring meetings, single meetings of a series (`RECURRENCE-ID`), series
+  with `RDATE` or `EXDATE`, all-day series, floating or unknown time zones,
   a timed meeting whose `DURATION` counts days, and damaged calendar text show
   **Unwired can’t read this invitation**, with no response.
 

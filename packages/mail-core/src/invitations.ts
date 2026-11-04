@@ -23,6 +23,8 @@ export type InvitationDetails = Readonly<{
   end?: InvitationTime;
   location?: string;
   organizer: Recipient;
+  // The last meeting's start when the invitation is a weekly series.
+  lastStart?: number;
 }>;
 
 // One iCalendar content line: its name, its raw parameters and its value.
@@ -186,7 +188,7 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
     : zonedTime(naive, parameterOf(line, 'TZID'));
 };
 
-const recurring = new Set(['RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID']);
+const recurring = new Set(['RDATE', 'EXDATE', 'RECURRENCE-ID']);
 
 // Each property line's calendar or top-level component scope, and how many top-level events the
 // calendar has. Deeper components cannot supply meeting properties.
@@ -336,13 +338,113 @@ const endOf = (
     : end;
 };
 
+const weekdays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
+// A UTC time an UNTIL names.
+const untilOf = (value: string) => {
+  const until = timeOf({ name: 'UNTIL', parameters: [], value });
+  return until?.allDay === false ? until.at : undefined;
+};
+
+// What each part of a readable weekly series rule may say; any other part is unreadable. Up to
+// 9999 meetings keeps the last one a valid date.
+const readableParts: Readonly<
+  Record<string, (value: string, weekday: string | undefined) => boolean>
+> = {
+  FREQ: (value) => value === 'WEEKLY',
+  INTERVAL: (value) => value === '1',
+  BYDAY: (value, weekday) => value === weekday,
+  WKST: (value) => weekdays.includes(value),
+  COUNT: (value) => /^[1-9]\d{0,3}$/u.test(value),
+  UNTIL: (value) => untilOf(value) !== undefined,
+};
+
+// The parts of a weekly rule on `weekday` that ends at an UNTIL or after a COUNT, or undefined for
+// any other rule.
+const weeklyRule = (value: string, weekday: string | undefined) => {
+  const parts = value
+    .trim()
+    .toUpperCase()
+    .split(';')
+    .map((part) => part.split('='));
+  const rule = new Map(parts.map(([name = '', part = '']) => [name, part]));
+  const readable = parts.every(
+    ([name = '', part, ...rest]) =>
+      part !== undefined &&
+      rest.length === 0 &&
+      readableParts[name]?.(part, weekday) === true,
+  );
+  return readable &&
+    rule.size === parts.length &&
+    rule.has('FREQ') &&
+    rule.has('COUNT') !== rule.has('UNTIL')
+    ? rule
+    : undefined;
+};
+
+// A timed meeting's first start in its own zone, so later meetings in a series keep its
+// wall-clock time.
+const zonedStart = (dtstart: Line | undefined, start: InvitationTime) =>
+  dtstart === undefined || start.allDay
+    ? undefined
+    : DateTime.zoneMakeNamed(parameterOf(dtstart, 'TZID') ?? 'UTC').pipe(
+        Option.flatMap((timeZone) =>
+          DateTime.makeZoned(start.at, { timeZone }),
+        ),
+        Option.getOrUndefined,
+      );
+
+// How many weeks after the first meeting a readable rule's last one starts; negative when an UNTIL
+// comes before the first.
+const lastWeekOf = (
+  rule: ReadonlyMap<string, string>,
+  start: InvitationTime,
+  nth: (week: number) => number,
+) => {
+  const count = rule.get('COUNT');
+  const until = untilOf(rule.get('UNTIL') ?? '') ?? Number.POSITIVE_INFINITY;
+  // Past an UNTIL, step back: a daylight-saving shift moves a meeting by hours, never by a week.
+  let week =
+    count === undefined
+      ? Math.floor((until - start.at) / (7 * day)) + 1
+      : Number(count) - 1;
+  while (week >= 0 && nth(week) > until) {
+    week -= 1;
+  }
+  return week;
+};
+
+// A timed meeting's weekly series: {} without a rule, undefined for a rule it can't read.
+const seriesOf = (
+  event: readonly Line[],
+  start: InvitationTime,
+): Readonly<{ lastStart?: number }> | undefined => {
+  const rrule = find(event, 'RRULE');
+  if (rrule === undefined) {
+    return {};
+  }
+  const first = zonedStart(find(event, 'DTSTART'), start);
+  const rule =
+    first === undefined
+      ? undefined
+      : weeklyRule(rrule.value, weekdays[DateTime.toParts(first).weekDay]);
+  if (first === undefined || rule === undefined) {
+    return undefined;
+  }
+  const nth = (week: number) =>
+    DateTime.toEpochMillis(DateTime.add(first, { weeks: week }));
+  const week = lastWeekOf(rule, start, nth);
+  return week < 0 ? undefined : { lastStart: nth(week) };
+};
+
 const detailsOf = (
   event: readonly Line[],
   start: InvitationTime,
   organizer: Recipient,
 ): InvitationDetails | undefined => {
   const end = endOf(event, start);
-  if (end === undefined) {
+  const series = seriesOf(event, start);
+  if (end === undefined || series === undefined) {
     return undefined;
   }
   const summary = find(event, 'SUMMARY');
@@ -353,11 +455,12 @@ const detailsOf = (
     ...(end === null ? {} : { end }),
     ...(location === undefined ? {} : { location: text(location.value) }),
     organizer,
+    ...series,
   };
 };
 
-// A single meeting's identity and details; a recurring meeting or one missing its UID, organizer
-// or start is unreadable.
+// A meeting's or weekly series' identity and details; another recurrence or a meeting missing its
+// UID, organizer or start is unreadable.
 const meetingOf = (event: readonly Line[]) => {
   const uid = find(event, 'UID')?.value.trim() ?? '';
   const organizer = organizerOf(event);
@@ -372,6 +475,7 @@ const meetingOf = (event: readonly Line[]) => {
     'ORGANIZER',
     'SUMMARY',
     'LOCATION',
+    'RRULE',
   ];
   if (
     event.some((line) => recurring.has(line.name)) ||
@@ -849,6 +953,10 @@ export type InvitationFormats = Readonly<{
   day: Intl.DateTimeFormat;
   allDay: Intl.DateTimeFormat;
   time: Intl.DateTimeFormat;
+  weekday: Intl.DateTimeFormat;
+  dayMonth: Intl.DateTimeFormat;
+  date: Intl.DateTimeFormat;
+  year: Intl.DateTimeFormat;
 }>;
 
 export const createInvitationFormats = (locale: string): InvitationFormats => ({
@@ -866,13 +974,22 @@ export const createInvitationFormats = (locale: string): InvitationFormats => ({
     timeZone: 'UTC',
   }),
   time: new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }),
+  weekday: new Intl.DateTimeFormat(locale, { weekday: 'long' }),
+  dayMonth: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }),
+  date: new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }),
+  year: new Intl.DateTimeFormat(locale, { year: 'numeric' }),
 });
 
-// When the meeting happens in the device's time zone: a day, or a day with its start and end.
+// When the meeting happens in the device's time zone: a day, or a day with its start and end. A
+// weekly series names its weekday instead of a day when the meeting ends on the day it starts.
 export function invitationWhen(
   t: Translate,
   formats: InvitationFormats,
-  { start, end }: InvitationDetails,
+  { start, end, lastStart }: InvitationDetails,
 ): string {
   if (start.allDay) {
     // An all-day end is exclusive: the meeting's last day is the one before it.
@@ -892,12 +1009,22 @@ export function invitationWhen(
       date: formats.day.format(time.at),
       time: formats.time.format(time.at),
     });
+  const sameDay =
+    end !== undefined &&
+    formats.day.format(start.at) === formats.day.format(end.at);
+  const date =
+    lastStart !== undefined && (end === undefined || sameDay)
+      ? t('invitation.weekdays', { weekday: formats.weekday.format(start.at) })
+      : formats.day.format(start.at);
   if (end === undefined) {
-    return at(start);
+    return t('invitation.dateTime', {
+      date,
+      time: formats.time.format(start.at),
+    });
   }
-  return formats.day.format(start.at) === formats.day.format(end.at)
+  return sameDay
     ? t('invitation.timeRange', {
-        date: formats.day.format(start.at),
+        date,
         start: formats.time.format(start.at),
         end: formats.time.format(end.at),
       })
@@ -905,6 +1032,23 @@ export function invitationWhen(
         start: at(start),
         end: at(end.allDay ? start : end),
       });
+}
+
+// How often a weekly series repeats and between which days, or undefined for a single meeting.
+export function invitationRepeats(
+  t: Translate,
+  formats: InvitationFormats,
+  { start, lastStart }: InvitationDetails,
+): string | undefined {
+  if (lastStart === undefined) {
+    return undefined;
+  }
+  const sameYear =
+    formats.year.format(start.at) === formats.year.format(lastStart);
+  return t('invitation.everyWeek', {
+    start: (sameYear ? formats.dayMonth : formats.date).format(start.at),
+    end: formats.date.format(lastStart),
+  });
 }
 
 // An offline device or a refused sign-in, which the mailbox's sync names before anything is sent.
@@ -930,6 +1074,8 @@ type StatusContext = Readonly<{
   address: string;
   provider: string;
   time: Intl.DateTimeFormat;
+  // Whether a response answers every meeting in a weekly series.
+  series?: boolean;
 }>;
 
 type Kind = ResponseState['kind'];
@@ -945,9 +1091,11 @@ const statuses: {
     context: StatusContext,
   ) => InvitationStatus;
 } = {
-  unanswered: (_, { t, name, address }) => ({
+  unanswered: (_, { t, name, address, series }) => ({
     title: t('invitation.unanswered'),
-    detail: t('invitation.unansweredDetail', { name, address }),
+    detail: series
+      ? t('invitation.seriesDetail')
+      : t('invitation.unansweredDetail', { name, address }),
   }),
   sending: (state, { t, address }) => ({
     busy: true,

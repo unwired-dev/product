@@ -14,6 +14,7 @@ import {
   invitationBlockedBy,
   invitationChoiceKeys,
   invitationStatus,
+  invitationRepeats,
   invitationWhen,
   organizerName,
 } from '@private-email/mail-core/invitations';
@@ -125,6 +126,7 @@ function Details({
   const { t } = useLocalization();
   const formats = useFormats();
   const when = invitationWhen(t, formats, details);
+  const repeats = invitationRepeats(t, formats, details);
   const cancelled = invited === undefined;
   const from = t(cancelled ? 'invitation.cancelledBy' : 'invitation.from', {
     name: organizerName(details),
@@ -179,10 +181,15 @@ function Details({
       <View style={styles.details}>
         <DetailRow
           label={t('invitation.when')}
-          spoken={[when]}>
+          spoken={repeats === undefined ? [when] : [when, repeats]}>
           <Text style={[styles.text, { color: colors.textPrimary }]}>
             {when}
           </Text>
+          {repeats === undefined ? null : (
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
+              {repeats}
+            </Text>
+          )}
         </DetailRow>
         {details.location === undefined ? null : (
           <DetailRow
@@ -316,7 +323,14 @@ function Responding({
       : undefined;
   const shown = invitationStatus(
     blocked === undefined ? recorded : { kind: blocked, choice: 'accepted' },
-    { t, name, address: invitation.address, provider, time },
+    {
+      t,
+      name,
+      address: invitation.address,
+      provider,
+      time,
+      series: invitation.details.lastStart !== undefined,
+    },
   );
   const copy = (choice: InvitationChoice) => ({
     subject: t(`invitation.${choice}Subject`, {
