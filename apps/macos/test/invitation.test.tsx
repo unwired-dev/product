@@ -266,6 +266,33 @@ describe('meeting invitations in the Mac reader', () => {
     }
   });
 
+  it('shows a cancelled meeting with nothing to respond to', async () => {
+    expect.hasAssertions();
+    const { app } = await opened(
+      invitation('alex@example.invalid', ['STATUS:CANCELLED'])
+        .replace('METHOD:REQUEST', 'METHOD:CANCEL')
+        .replace('SEQUENCE:0', 'SEQUENCE:1'),
+    );
+    try {
+      await expect(
+        screen.findByText('This meeting was cancelled'),
+      ).resolves.toBeOnTheScreen();
+
+      expect(
+        screen.getByLabelText('Cancelled by Lena Fischer'),
+      ).toBeOnTheScreen();
+      expect(screen.getByText('Q4 roadmap review')).toHaveStyle({
+        textDecorationLine: 'line-through',
+      });
+      expect(screen.queryByText('Invited')).toBeNull();
+      for (const action of ['Accept', 'Maybe', 'Decline', 'Add to Calendar']) {
+        expect(screen.queryByRole('button', { name: action })).toBeNull();
+      }
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();
     const { app } = await opened(

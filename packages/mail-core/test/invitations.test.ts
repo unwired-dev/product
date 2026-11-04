@@ -187,6 +187,29 @@ describe('meeting invitations', () => {
     });
   });
 
+  it.each([
+    ['names the mailbox', me],
+    ['names only other addresses', 'mara@example.invalid'],
+  ])('reads a cancellation that %s', (_, address) => {
+    expect.hasAssertions();
+    expect(
+      invitationOf(
+        documentOf(calendar([...meeting, 'STATUS:CANCELLED'], 'CANCEL')),
+        address,
+      ),
+    ).toStrictEqual({
+      kind: 'cancelled',
+      details: expect.objectContaining({
+        summary: 'Q4 roadmap review, final',
+        organizer: { name: 'Fischer, Lena', address: 'lena@northwind.example' },
+        start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+      }),
+    });
+    expect(
+      invitationOf(documentOf(calendar(meeting, 'CANCEL')), me)?.kind,
+    ).toBe('cancelled');
+  });
+
   it('answers only an address the invitation names', () => {
     expect.hasAssertions();
     expect(
@@ -241,7 +264,26 @@ describe('meeting invitations', () => {
 
   it.each([
     ['a recurring meeting', calendar([...meeting, 'RRULE:FREQ=WEEKLY'])],
-    ['a cancellation', calendar(meeting, 'CANCEL')],
+    [
+      'a recurring cancellation',
+      calendar([...meeting, 'RRULE:FREQ=WEEKLY'], 'CANCEL'),
+    ],
+    [
+      'a cancellation of one occurrence',
+      calendar(
+        [...meeting, 'RECURRENCE-ID;TZID=Europe/Prague:20261106T140000'],
+        'CANCEL',
+      ),
+    ],
+    [
+      'a cancellation whose status is not cancelled',
+      calendar([...meeting, 'STATUS:CONFIRMED'], 'CANCEL'),
+    ],
+    [
+      'a cancellation with two statuses',
+      calendar([...meeting, 'STATUS:CANCELLED', 'STATUS:CANCELLED'], 'CANCEL'),
+    ],
+    ['an unsupported method', calendar(meeting, 'PUBLISH')],
     [
       'a floating time',
       calendar(meeting.map((line) => line.replace(';TZID=Europe/Prague', ''))),

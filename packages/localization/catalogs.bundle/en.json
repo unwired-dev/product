@@ -496,6 +496,10 @@
   "invitation": {
     "heading": "Invitation",
     "from": "Invitation from {{name}}",
+    "cancelledBy": "Cancelled by {{name}}",
+    "cancelled": "Cancelled",
+    "meetingCancelled": "This meeting was cancelled",
+    "meetingCancelledDetail": "There’s nothing to respond to.",
     "untitled": "Untitled meeting",
     "when": "When",
     "where": "Where",
