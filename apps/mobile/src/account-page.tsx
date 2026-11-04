@@ -87,7 +87,7 @@ export function AccountHeader({
             {accessory}
           </View>
         )}
-        <CommandInput />
+        <CommandInput style={styles.accountCommands} />
       </View>
     </View>
   );

@@ -31,6 +31,9 @@ export const registrationStyles = StyleSheet.create({
     gap: spacing.s,
   },
   phoneAccessory: { justifyContent: 'flex-end' },
+  // The iPad Settings frames draw the command input 300pt wide, its trailing edge in line with the
+  // page's cards, which sit a spacing further in than the header.
+  accountCommands: { width: 300, marginRight: spacing.s },
   padTitle: { ...typography.ipadList.title3Emphasized },
   centered: { textAlign: 'center' },
   grow: { flex: 1 },
