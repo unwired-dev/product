@@ -457,8 +457,8 @@ labels, the Inbox for Gmail and Microsoft mail, and IMAP folders that hold only 
 folders are dimmed and unavailable. The Inbox shows its unread count when this device
 knows it. A search lists the folders that can hold mail by their full path, such as
 "Travel / Lisbon". **Back** lists the account, since mail moves only within its own
-account; choosing the account returns to its folders. **Cancel**, Close, a swipe down or
-VoiceOver's escape gesture closes the picker without moving anything. The system keeps the
+account; choosing the account returns to its folders. **Cancel**, Close or a swipe down
+closes the picker without moving anything. The system keeps the
 sheet above the keyboard, so search results and the no-match explanation stay reachable while
 typing. Choosing a folder closes the picker and moves the message once it has dismissed. More
 lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
