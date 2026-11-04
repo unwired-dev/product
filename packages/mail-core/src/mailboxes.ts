@@ -71,6 +71,12 @@ export {
   unifiedRoles,
 } from './mailbox-views.ts';
 export type { UnifiedRole } from './mailbox-views.ts';
+export {
+  ambiguousFolders,
+  folderChoice,
+  startingPicks,
+} from './folder-choice.ts';
+export type { FolderRole } from './folder-choice.ts';
 
 type Scope = Readonly<{
   connection: string;

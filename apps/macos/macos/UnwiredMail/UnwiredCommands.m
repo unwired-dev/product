@@ -51,9 +51,12 @@ NSString *UnwiredGuardedWindow(void)
   return nil;
 }
 
-// AppDelegate.mm opens each New Message window.
+// AppDelegate.mm opens each New Message window and folder choice sheet.
 @protocol UnwiredComposerWindows
 - (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile;
+- (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile;
+- (void)fitSheet:(NSString *)identifier height:(double)height;
+- (void)closeSheet:(NSString *)identifier;
 @end
 
 @interface UnwiredCommands : RCTEventEmitter <RCTBridgeModule>
@@ -166,6 +169,24 @@ RCT_EXPORT_METHOD(finishClose:(NSString *)identifier allowed:(BOOL)allowed)
 RCT_EXPORT_METHOD(openComposer:(NSString *)draft profile:(NSString *)profile)
 {
   [(id<UnwiredComposerWindows>)NSApp.delegate openComposerForDraft:draft profile:profile];
+}
+
+// Choose Folders… opens an IMAP connection's Spam and Trash choice as a sheet on the Inbox window.
+RCT_EXPORT_METHOD(openFolderChoice:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile)
+{
+  [(id<UnwiredComposerWindows>)NSApp.delegate openFolderChoiceInWindow:identifier connection:connection profile:profile];
+}
+
+// The sheet takes its content's height, and shows once it first has one.
+RCT_EXPORT_METHOD(fitSheet:(NSString *)identifier height:(double)height)
+{
+  [(id<UnwiredComposerWindows>)NSApp.delegate fitSheet:identifier height:height];
+}
+
+// Cancel, a finished Save, or a connection that no longer offers the choice ends the sheet.
+RCT_EXPORT_METHOD(closeSheet:(NSString *)identifier)
+{
+  [(id<UnwiredComposerWindows>)NSApp.delegate closeSheet:identifier];
 }
 
 // Every Inbox window's Settings entry points open the one Settings window, as Command-, does.

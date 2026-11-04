@@ -4,7 +4,9 @@ import { act, screen, within } from '@testing-library/react-native';
 import { useSyncExternalStore } from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry, View } from 'react-native';
 
-import { SettingsWindowRoot } from '../src/window.tsx';
+import type { InboxProvider } from '../src/mailbox.tsx';
+
+import { FolderChoiceWindowRoot, SettingsWindowRoot } from '../src/window.tsx';
 
 // AppKit's Settings window beside the Inbox windows: UnwiredCommands' openSettings shows its React
 // surface, and closeSettings or its close button removes it.
@@ -18,6 +20,9 @@ const composers: Array<{ draft: string; profile: string }> = [];
 const closed: string[] = [];
 // The Inbox windows whose sidebar JavaScript asked AppKit to show or hide.
 const sidebarToggles: string[] = [];
+// The Choose Folders… sheet AppKit shows on an Inbox window.
+let sheet: { window: string; connection: string; profile: string } | undefined =
+  undefined;
 const listeners = new Set<() => void>();
 const show = (next: boolean) => {
   shown = next;
@@ -64,6 +69,19 @@ const host = {
     sidebarToggles.push(window);
   },
   forgetComposerTyping: () => undefined,
+  openFolderChoice: (window: string, connection: string, profile: string) => {
+    if (sheet === undefined) {
+      sheet = { window: `${window}-folder-choice`, connection, profile };
+      show(shown);
+    }
+  },
+  fitSheet: () => undefined,
+  closeSheet: (window: string) => {
+    if (sheet?.window === window) {
+      sheet = undefined;
+      show(shown);
+    }
+  },
 };
 
 const { get } = TurboModuleRegistry;
@@ -83,24 +101,28 @@ afterEach(() => {
   composers.length = 0;
   closed.length = 0;
   sidebarToggles.length = 0;
+  sheet = undefined;
 });
 
-// The app's windows: the given Inbox window, and the Settings window while it is open.
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+
+// The app's windows: the given Inbox window, the Settings window while it is open, and the
+// Choose Folders… sheet over `mailboxes` while AppKit shows it.
 export function MacWindows({
   children,
+  mailboxes,
   ...gate
 }: Parameters<typeof SettingsWindowRoot>[0] & {
   readonly children: ReactNode;
+  readonly mailboxes?: Parameters<typeof InboxProvider>[0]['mailboxes'];
 }) {
-  const open = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    () => shown,
-  );
+  const open = useSyncExternalStore(subscribe, () => shown);
+  const choice = useSyncExternalStore(subscribe, () => sheet);
   return (
     <>
       {children}
@@ -109,9 +131,26 @@ export function MacWindows({
           <SettingsWindowRoot {...gate} />
         </View>
       ) : null}
+      {choice === undefined ? null : (
+        <View testID="folder-choice-sheet">
+          <FolderChoiceWindowRoot
+            {...gate}
+            {...(mailboxes === undefined ? {} : { inbox: { mailboxes } })}
+            window={choice.window}
+            connection={choice.connection}
+            profile={choice.profile}
+          />
+        </View>
+      )}
     </>
   );
 }
+
+export const folderChoiceSheet = () =>
+  within(screen.getByTestId('folder-choice-sheet'));
+
+// The Choose Folders… sheet, or null while none is shown.
+export const folderChoice = () => screen.queryByTestId('folder-choice-sheet');
 
 export const settingsWindow = () =>
   within(screen.getByTestId('settings-window'));

@@ -17,7 +17,11 @@ import {
   presentationDetents,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import {
+  ambiguousFolders,
+  folderChoice,
+  startingPicks,
+} from '@private-email/mail-core/mailboxes';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -27,20 +31,6 @@ import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
-
-const roles = ['junk', 'trash'] as const;
-type Role = (typeof roles)[number];
-const otherRole = (role: Role) => (role === 'junk' ? 'trash' : 'junk');
-
-// The roles a folder keeps out of both choices, as the menu names them.
-const otherRoles = {
-  inbox: 'inbox.title',
-  sent: 'mailboxes.sent',
-  drafts: 'drafts.heading',
-  archive: 'mailboxes.archive',
-  all: 'mailboxes.allMail',
-  flagged: 'mailboxes.flagged',
-} as const;
 
 const styles = StyleSheet.create({
   sheet: { gap: 14, padding: spacing.l, paddingTop: 10 },
@@ -71,9 +61,7 @@ const styles = StyleSheet.create({
 });
 
 // Choose Folders… under an IMAP connection's not-included notice: a sheet where the person
-// picks the folders that hold Spam and Trash for the roles its server marks no folder with. A
-// server marking several folders with a role is left out of All Mail, since a choice can't say
-// what the others hold.
+// picks the folders that hold Spam and Trash for the roles its server marks no folder with.
 export function FolderChoice({
   connection,
   address,
@@ -89,13 +77,7 @@ export function FolderChoice({
   const account = use(AccountContext);
   const [shown, setShown] = useState(false);
   const [session, setSession] = useState(0);
-  const ambiguous = roles.some(
-    (role) =>
-      folders.filter(
-        (folder) => folder.selectable && folder.roles.includes(role),
-      ).length > 1,
-  );
-  if (account === undefined || ambiguous) {
+  if (account === undefined || ambiguousFolders(folders)) {
     return null;
   }
   const saved = account.mailboxes.find(({ id }) => id === connection)?.folders;
@@ -138,7 +120,7 @@ export function FolderChoice({
 function FolderSheet({
   address,
   folders,
-  marked: serverMarked,
+  marked,
   saved,
   onSave,
   onClose,
@@ -152,26 +134,23 @@ function FolderSheet({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const marked = (role: Role) => serverMarked[role];
-  const open = roles.filter((role) => marked(role) === undefined);
-  const [picks, setPicks] = useState<ChosenFolders>(() =>
-    Object.fromEntries(open.map((role) => [role, saved?.[role]])),
-  );
+  const [picks, setPicks] = useState(() => startingPicks(marked, saved));
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
-  const exists = (name: string | undefined) =>
-    folders.some((folder) => folder.selectable && folder.name === name);
-  const missing = open.filter(
-    (role) => picks[role] !== undefined && !exists(picks[role]),
-  );
-  const [gone] = missing;
-  const changing = saved !== undefined;
+  const choice = folderChoice(t, {
+    address,
+    folders,
+    marked,
+    saved,
+    picks,
+    saving,
+    failed,
+    context: ipad ? undefined : 'iphone',
+  });
   const save = async () => {
     setSaving(true);
     setFailed(false);
-    const done = await onSave(
-      Object.fromEntries(open.map((role) => [role, picks[role]])),
-    );
+    const done = await onSave(choice.chosen);
     setSaving(false);
     if (done) {
       onClose();
@@ -179,70 +158,33 @@ function FolderSheet({
       setFailed(true);
     }
   };
-  const roleName = (role: Role) =>
-    t(role === 'junk' ? 'mailboxes.spam' : 'mailboxes.trash');
-  const holding = (role: Role, folder: ImapFolder) =>
-    folder.name === (marked(otherRole(role)) ?? picks[otherRole(role)])
-      ? roleName(otherRole(role))
-      : Object.entries(otherRoles)
-          .filter(([key]) => folder.roles.includes(key))
-          .map(([, key]) => t(key))[0];
-  // Menus and Save accept the same folders, including after a server listing changes.
-  const taken = (role: Role, folder: ImapFolder) =>
-    folder.name === inboxFolder || holding(role, folder) !== undefined;
-  const ready =
-    !saving &&
-    open.every((role) =>
-      folders.some(
-        (folder) =>
-          folder.selectable &&
-          folder.name === picks[role] &&
-          !taken(role, folder),
-      ),
-    );
-  const menu = (role: Role) => {
-    const item = (folder: ImapFolder) => {
-      const subtitle =
-        folder.name === inboxFolder ? undefined : holding(role, folder);
-      return {
-        key: `folder:${folder.name}`,
-        title: folder.name === inboxFolder ? t('inbox.title') : folder.name,
+  const row = ({
+    role,
+    name,
+    symbol,
+    server,
+    pick,
+    value,
+    subtitle,
+    missing,
+    options,
+  }: (typeof choice.rows)[number]) => {
+    const sections = options.map((section) => ({
+      items: section.map((option) => ({
+        key: `folder:${option.name}`,
+        title: option.title,
         symbol: '',
-        ...(subtitle === undefined ? {} : { subtitle }),
-        disabled: taken(role, folder),
-        checked: picks[role] === folder.name,
+        ...(option.holding === undefined ? {} : { subtitle: option.holding }),
+        disabled: option.taken,
+        checked: option.checked,
         run: () => {
           setFailed(false);
-          setPicks((previous) => ({ ...previous, [role]: folder.name }));
+          setPicks((previous) => ({ ...previous, [role]: option.name }));
         },
-      };
-    };
-    const listed = folders.filter(({ selectable }) => selectable);
-    return [
-      { items: listed.filter((folder) => taken(role, folder)).map(item) },
-      { items: listed.filter((folder) => !taken(role, folder)).map(item) },
-    ].filter(({ items }) => items.length > 0);
-  };
-  const row = (role: Role) => {
-    const server = marked(role);
-    const pick = picks[role];
-    const was = saved?.[role];
-    const subtitle = () => {
-      if (server !== undefined) {
-        return t('mailboxes.folders.marked');
-      }
-      if (pick === undefined) {
-        return t('mailboxes.folders.unmarked');
-      }
-      if (missing.includes(role)) {
-        return t('mailboxes.folders.unavailable');
-      }
-      return was !== undefined && was !== pick && exists(was)
-        ? t('mailboxes.folders.changed', { folder: was })
-        : t('mailboxes.folders.chosen');
-    };
+      })),
+    }));
     // The placeholder and a server-marked folder read as secondary; a chosen folder as primary.
-    const value = (
+    const shown = (
       <Text
         style={[
           styles.label,
@@ -253,42 +195,40 @@ function FolderSheet({
                 : colors.textSecondary,
           },
         ]}>
-        {server ?? pick ?? t('mailboxes.folders.placeholder')}
+        {value}
       </Text>
     );
     return (
       <View style={[styles.row, saving ? { opacity: 0.4 } : undefined]}>
         <SFSymbol
-          name={role === 'junk' ? 'xmark.bin' : 'trash'}
+          name={symbol}
           size={17}
           color={colors.textSecondary}
         />
         <View style={styles.rowText}>
           <Text style={[styles.label, { color: colors.textPrimary }]}>
-            {roleName(role)}
+            {name}
           </Text>
           <Text
             style={[
               styles.footnote,
               {
-                color: missing.includes(role)
+                color: missing
                   ? colors.statusDestructive
                   : colors.textSecondary,
               },
             ]}>
-            {subtitle()}
+            {subtitle}
           </Text>
         </View>
         {server === undefined ? (
           <MenuButton
-            accessibilityLabel={roleName(role)}
-            accessibilityValue={{
-              text: pick ?? t('mailboxes.folders.placeholder'),
-            }}
+            accessibilityLabel={name}
+            accessibilityValue={{ text: value }}
             disabled={saving}
-            sections={menu(role)}>
+            sections={sections}>
             <View style={styles.value}>
-              {value}
+              {shown}
               <SFSymbol
                 name="chevron.up.chevron.down"
                 size={12}
@@ -297,37 +237,11 @@ function FolderSheet({
             </View>
           </MenuButton>
         ) : (
-          value
+          shown
         )}
       </View>
     );
   };
-  // Changing a saved choice, choosing the one role its server leaves unmarked, or choosing both.
-  const single = open.length === 1 ? open[0] : undefined;
-  let kind: 'change' | 'single' | 'both' = 'both';
-  if (changing) {
-    kind = 'change';
-  } else if (single !== undefined) {
-    kind = 'single';
-  }
-  const values = {
-    address,
-    role: roleName(single ?? 'junk'),
-    marked: roleName(otherRole(single ?? 'junk')),
-    ...(ipad ? {} : { context: 'iphone' }),
-  };
-  const note =
-    changing && (gone !== undefined || failed)
-      ? t('mailboxes.folders.updateNote')
-      : t(`mailboxes.folders.${kind}.${ready ? 'readyNote' : 'note'}`, values);
-  const lost =
-    gone === undefined
-      ? undefined
-      : t('mailboxes.folders.gone', {
-          folder: picks[gone],
-          role: roleName(gone),
-        });
-  const warning = failed ? t('mailboxes.folders.saveFailed') : lost;
   return (
     <View style={styles.sheet}>
       <View style={styles.header}>
@@ -347,7 +261,7 @@ function FolderSheet({
         <Text
           accessibilityRole="header"
           style={[styles.title, { color: colors.textPrimary }]}>
-          {t(`mailboxes.folders.${kind}.title`, values)}
+          {choice.title}
         </Text>
         <Host matchContents>
           <SwiftUIButton
@@ -362,17 +276,17 @@ function FolderSheet({
               buttonBorderShape('circle'),
               controlSize('large'),
               tint(colors.accentFill),
-              inactive(!ready),
+              inactive(!choice.ready),
             ]}
           />
         </Host>
       </View>
       <Text style={[styles.text, { color: colors.textSecondary }]}>
-        {t(`mailboxes.folders.${kind}.intro`, values)}
+        {choice.intro}
       </Text>
       <View style={[styles.group, { backgroundColor: colors.surfaceContent }]}>
-        {roles.map((role, index) => (
-          <View key={role}>
+        {choice.rows.map((shown, index) => (
+          <View key={shown.role}>
             {index > 0 ? (
               <View
                 style={[
@@ -381,7 +295,7 @@ function FolderSheet({
                 ]}
               />
             ) : null}
-            {row(role)}
+            {row(shown)}
           </View>
         ))}
       </View>
@@ -393,7 +307,7 @@ function FolderSheet({
           </Text>
         </View>
       ) : null}
-      {saving || warning === undefined ? null : (
+      {saving || choice.warning === undefined ? null : (
         <View
           accessibilityRole="alert"
           style={styles.message}>
@@ -403,13 +317,13 @@ function FolderSheet({
             color={colors.statusWarning}
           />
           <Text style={[styles.note, { color: colors.textPrimary }]}>
-            {warning}
+            {choice.warning}
           </Text>
         </View>
       )}
       {saving ? null : (
         <Text style={[styles.text, { color: colors.textSecondary }]}>
-          {note}
+          {choice.note}
         </Text>
       )}
     </View>

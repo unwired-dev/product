@@ -38,6 +38,7 @@ import {
 } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
+import { FolderChoiceSheet } from './folder-choice.tsx';
 import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
 import { listWidth } from './inbox-styles.ts';
 import { Inbox } from './inbox.tsx';
@@ -567,6 +568,40 @@ export function ComposerWindowRoot(
   return (
     <RegistrationGate onClose={close}>
       <ComposerWindow {...props} />
+    </RegistrationGate>
+  );
+}
+
+// An IMAP connection's Spam and Trash choice, in the sheet Choose Folders… opens on an Inbox
+// window; the sheet ends rather than showing account pages once no Inbox can open.
+export function FolderChoiceWindowRoot({
+  window,
+  connection,
+  profile,
+  inbox,
+  ...gate
+}: Omit<Parameters<typeof RegistrationGate>[0], 'children' | 'onClose'> & {
+  readonly window: string;
+  readonly connection: string;
+  readonly profile: string;
+  // The Inbox's mailboxes, drafts and Outbox, which default to this process's.
+  readonly inbox?: Omit<Parameters<typeof InboxProvider>[0], 'children'>;
+}) {
+  const close = useCallback(() => {
+    windowHost()?.closeSheet(window);
+  }, [window]);
+  return (
+    <RegistrationGate
+      {...gate}
+      onClose={close}>
+      <InboxProvider {...inbox}>
+        <ProfileScope profile={profile}>
+          <FolderChoiceSheet
+            window={window}
+            connection={connection}
+          />
+        </ProfileScope>
+      </InboxProvider>
     </RegistrationGate>
   );
 }

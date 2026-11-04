@@ -65,11 +65,18 @@ import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import { openSettings } from '../src/settings-window.ts';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
-import { chooseMenuItem, dismissMenu, menuItems } from './native-menu.ts';
+import {
+  chooseMenuItem,
+  dismissMenu,
+  menuItems,
+  menuSections,
+} from './native-menu.ts';
 import {
   MacWindows,
   closeSettings,
   commandComma,
+  folderChoice,
+  folderChoiceSheet,
   inboxFocused,
   reopenSettingsWhileClosing,
   settingsOpen,
@@ -711,6 +718,156 @@ describe('product registration', () => {
       ),
     ).toBeVisible();
   });
+
+  it('chooses Spam and Trash folders for an IMAP server that marks none in a sheet from the All Mail notice, keeping the sheet open when saving fails', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves the empty choice, the menus, Cancel, a failed save and inclusion. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept IMAP message' });
+    imap.addFolder('Sent Messages', ['sent']);
+    imap.addFolder('Bulk Mail');
+    imap.addFolder('Deleted Messages');
+    imap.deliver('Bulk Mail', { subject: 'Unwanted offer' });
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      username: 'alex',
+    });
+    const store = createRegistration(account.synthetic.vault);
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    await render(
+      <MacWindows
+        store={store}
+        mailboxes={mailboxes}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'All Mail. In All mailboxes',
+        }),
+      );
+    });
+    const notice = 'alex@example.invalid isn’t included';
+    await expect(screen.findByText(notice)).resolves.toBeVisible();
+    const open = async () => {
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Choose Folders…' }),
+        );
+      });
+      return folderChoiceSheet();
+    };
+    let sheet = await open();
+    const save = () => sheet.getByRole('button', { name: 'Save' });
+    const choose = async (role: string, folder: string) => {
+      await act(async () => {
+        await fireEvent.press(sheet.getByRole('button', { name: role }));
+      });
+      // An unavailable folder is dimmed, naming any role it already holds.
+      const menu = menuSections().map(({ items }) =>
+        items.map(({ title, subtitle, disabled }) => [
+          title,
+          subtitle,
+          disabled,
+        ]),
+      );
+      await chooseMenuItem(folder);
+      return menu;
+    };
+    // Nothing is chosen for the person, and Save waits for both.
+    expect(
+      sheet.getByRole('header', { name: 'Choose Spam and Trash Folders' }),
+    ).toBeVisible();
+    expect(sheet.getAllByText('Not marked by its server')).toHaveLength(2);
+    expect(save()).toBeDisabled();
+    await choose('Spam', 'Bulk Mail');
+    expect(save()).toBeDisabled();
+    // Cancel closes the sheet without saving, and reopening starts over.
+    await act(async () => {
+      await fireEvent.press(sheet.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(folderChoice()).toBeNull();
+    sheet = await open();
+    expect(
+      sheet
+        .getAllByRole('button', { name: /^(?:Spam|Trash)$/u })
+        .map((button): unknown => button.props.accessibilityValue?.text),
+    ).toStrictEqual(['Choose a Folder', 'Choose a Folder']);
+    const spamMenu = await choose('Spam', 'Bulk Mail');
+    // A folder chosen for Spam, or holding another role, is not offered for Trash.
+    const trashMenu = await choose('Trash', 'Deleted Messages');
+    expect(save()).toBeEnabled();
+    account.synthetic.backend.offline = true;
+    await act(async () => {
+      await fireEvent.press(save());
+    });
+    await expect(
+      sheet.findByText(
+        'Couldn’t save your folder choices. Check your connection and try again. Your previous folders are still in use.',
+      ),
+    ).resolves.toBeVisible();
+    expect(folderChoice()).toBeVisible();
+    expect(screen.getByText(notice)).toBeVisible();
+    account.synthetic.backend.offline = false;
+    await act(async () => {
+      await fireEvent.press(save());
+    });
+    // Saved, the sheet ends and the connection joins All Mail without its Spam.
+    await waitFor(() => {
+      expect(folderChoice()).toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(notice)).toBeNull();
+    });
+    await expect(screen.findByText('Kept IMAP message')).resolves.toBeVisible();
+    expect({
+      spamMenu,
+      trashMenu,
+      chosen: mailboxesOf(store.getSnapshot().snapshot)[0]?.folders,
+      spam: screen.queryByText('Unwanted offer'),
+    }).toStrictEqual({
+      spamMenu: [
+        [
+          ['Inbox', undefined, true],
+          ['Sent Messages', 'Sent', true],
+        ],
+        [
+          ['Bulk Mail', undefined, false],
+          ['Deleted Messages', undefined, false],
+        ],
+      ],
+      trashMenu: [
+        [
+          ['Inbox', undefined, true],
+          ['Sent Messages', 'Sent', true],
+          ['Bulk Mail', 'Spam', true],
+        ],
+        [['Deleted Messages', undefined, false]],
+      ],
+      chosen: { junk: 'Bulk Mail', trash: 'Deleted Messages' },
+      spam: null,
+    });
+  });
+  /* oxlint-enable vitest/max-expects */
 
   it('keeps a failed folder warning on its exact sidebar row through navigation and recovery, and retires removed folders', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves the warning, the fallback and a recreated folder. */
