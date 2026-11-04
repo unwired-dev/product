@@ -298,7 +298,8 @@
         "title": "Choose Spam and Trash Folders",
         "title_iphone": "Spam and Trash",
         "intro": "{{address}} doesn’t say which of its folders hold Spam and Trash. Choose them so All Mail can leave those messages out. Unwired Mail doesn’t guess from folder names.",
-        "note": "Until both are chosen, {{address}} isn’t included in All Mail. Its folders stay in Mailboxes.",
+        "note": "Until both are chosen, {{address}} isn’t included in All Mail. Its folders stay in the sidebar.",
+        "note_iphone": "Until both are chosen, {{address}} isn’t included in All Mail. Its folders stay in Mailboxes.",
         "readyNote": "After saving, All Mail includes {{address}} and leaves out messages in these two folders."
       },
       "single": {

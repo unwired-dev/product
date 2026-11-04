@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     paddingHorizontal: spacing.l,
   },
-  note: { ...textStyles.footnote, flex: 1 },
+  note: { ...textStyles.subheadline, flex: 1 },
   choose: { alignSelf: 'flex-start' },
 });
 
@@ -229,8 +229,18 @@ function FolderSheet({
         ? t('mailboxes.folders.changed', { folder: was })
         : t('mailboxes.folders.chosen');
     };
+    // The placeholder and a server-marked folder read as secondary; a chosen folder as primary.
     const value = (
-      <Text style={[styles.label, { color: colors.textPrimary }]}>
+      <Text
+        style={[
+          styles.label,
+          {
+            color:
+              server === undefined && pick !== undefined
+                ? colors.textPrimary
+                : colors.textSecondary,
+          },
+        ]}>
         {server ?? pick ?? t('mailboxes.folders.placeholder')}
       </Text>
     );
@@ -378,7 +388,7 @@ function FolderSheet({
           style={styles.message}>
           <SFSymbol
             name="exclamationmark.triangle.fill"
-            size={13}
+            size={ipad ? 16 : 18}
             color={colors.statusWarning}
           />
           <Text style={[styles.note, { color: colors.textPrimary }]}>
@@ -386,10 +396,11 @@ function FolderSheet({
           </Text>
         </View>
       )}
-      <Text
-        style={[styles.text, styles.footnote, { color: colors.textSecondary }]}>
-        {note}
-      </Text>
+      {saving ? null : (
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
+          {note}
+        </Text>
+      )}
     </View>
   );
 }
