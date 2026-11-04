@@ -53,8 +53,10 @@ export const imapRoleFolder = (
 };
 
 // A connection's folders with the Spam and Trash folders the person chose taking each role its
-// server marks no single folder with. The role stays unknown while a chosen folder is missing from
-// the listing or cannot be selected; no other folder is ever substituted.
+// server marks no folder with. Where it marks several, the choice is ignored: the unchosen ones
+// would lose the role and their mail would show in All Mail. The role stays unknown while a
+// chosen folder is missing from the listing or cannot be selected; no other folder is ever
+// substituted.
 export const withChosenRoles = (
   folders: readonly ImapFolder[],
   chosen: ChosenFolders | undefined,
@@ -62,7 +64,11 @@ export const withChosenRoles = (
   const assigned = new Map<string, string>(
     (['junk', 'trash'] as const).flatMap((role) => {
       const name = chosen?.[role];
-      return name === undefined || imapRoleFolder(folders, role) !== undefined
+      return name === undefined ||
+        folders.some(
+          ({ selectable, roles: declared }) =>
+            selectable && declared.includes(role),
+        )
         ? []
         : [[role, name] as const];
     }),
@@ -73,7 +79,7 @@ export const withChosenRoles = (
   return folders.map((folder) => ({
     ...folder,
     roles: [
-      ...folder.roles.filter((role) => !assigned.has(role)),
+      ...folder.roles,
       ...[...assigned]
         .filter(([, name]) => folder.selectable && name === folder.name)
         .map(([role]) => role),
@@ -100,8 +106,11 @@ export const imapQuickActions = (
   message: ImapMessage,
   { folders, capabilities }: Listing,
 ) => {
-  const removed = ['trash', 'junk'].some(
-    (role) => imapRoleFolder(folders, role) === message.folder,
+  // A folder the server marks as Trash or Spam offers Move to Inbox even when it marks several.
+  const removed = folders.some(
+    ({ name, roles: declared }) =>
+      name === message.folder &&
+      ['trash', 'junk'].some((role) => declared.includes(role)),
   );
   const moves: ReadonlyArray<
     Readonly<{

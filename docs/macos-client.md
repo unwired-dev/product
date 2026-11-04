@@ -107,7 +107,7 @@ first row and stay clear of both the Command input and message content.
 One floating bar spans the list and reader: its
 400pt search field is centered on the window and **New Message** sits at the
 trailing edge. Settings and account pages put the Command input at the trailing
-end of the window controls' row. The sidebar is an AppKit split-view sidebar through
+end of the window controls' row. Favorites and each Mailbox Connection's section collapse and expand from their header's trailing chevron, per window. Headers expose their expanded or collapsed state to accessibility; a collapsed connection with a problem shows a warning beside its name, and a connection waiting for authorization keeps its row in view. The sidebar is an AppKit split-view sidebar through
 `UnwiredSidebar`, which shows its React content in a sidebar item of the window's
 `NSSplitViewController`, beside the Inbox. The **Show Sidebar** / **Hide Sidebar**
 button, at the trailing end of the sidebar's window-controls row or, while the

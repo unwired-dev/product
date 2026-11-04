@@ -297,6 +297,7 @@ final class InboxTests: XCTestCase {
           format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring. In other@example.invalid")
       ).firstMatch.waitForExistence(timeout: 15))
     try profileSwitcherJourney(app)
+    profileIsolationJourney(app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -441,6 +442,123 @@ final class InboxTests: XCTestCase {
     waitUntil { !composer.exists }
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
     waitUntil { back.isHittable }
+  }
+
+  // #1821: a mailbox moved into Work takes its mail, search results and Drafts there. Neither
+  // window lists the other Profile's mail, and moving the mailbox back restores it.
+  private func profileIsolationJourney(_ app: XCUIApplication) {
+    let primary = app.buttons["Mail Profile, Primary Profile"]
+    let row = { (name: String) in
+      app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+    }
+    let jordan = row("Jordan Lee")
+    let rowan = row("Rowan Hale")
+    moveMailbox("casey@example.invalid", from: "Primary Profile", to: "Work", primary, app)
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    XCTAssertTrue(jordan.waitForNonExistence(timeout: 10))
+    searchProfile(finding: rowan, not: jordan, app)
+    switchProfile(to: "Work", from: primary, app)
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    XCTAssertFalse(rowan.exists)
+    searchProfile(finding: jordan, not: rowan, app)
+    app.buttons["New Message"].tap()
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    subject.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("Work agenda", into: subject)
+    app.buttons["Close"].tap()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    waitUntil { !app.otherElements["composer-overlay"].exists }
+    let draft = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", "Work agenda")
+    ).firstMatch
+    XCTAssertTrue(draft.waitForExistence(timeout: 15))
+    let work = XCTAttachment(screenshot: app.screenshot())
+    work.name = "Work Profile with its moved mailbox and Draft"
+    work.lifetime = .keepAlways
+    add(work)
+    switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    XCTAssertFalse(jordan.exists)
+    XCTAssertFalse(draft.exists)
+    let kept = XCTAttachment(screenshot: app.screenshot())
+    kept.name = "Primary Profile without Work's mail and Draft"
+    kept.lifetime = .keepAlways
+    add(kept)
+    // The Draft belongs to its mailbox's Profile, so it returns with the mailbox.
+    moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
+    XCTAssertTrue(jordan.waitForExistence(timeout: 20))
+    XCTAssertTrue(draft.waitForExistence(timeout: 10))
+  }
+
+  // Moves a mailbox from its Profile's Settings row through its system pop-up, then shows every
+  // Inbox of the window's Profile.
+  private func moveMailbox(
+    _ address: String, from owner: String, to target: String, _ switcher: XCUIElement,
+    _ app: XCUIApplication
+  ) {
+    revealSwitcher(app, switcher)
+    switcher.tap()
+    let manage = app.buttons["Manage Mail Profiles…"]
+    XCTAssertTrue(manage.waitForExistence(timeout: 10))
+    manage.tap()
+    let profile = app.buttons[owner].firstMatch
+    XCTAssertTrue(profile.waitForExistence(timeout: 15))
+    profile.tap()
+    let targetRow = app.buttons[target].firstMatch.frame
+    let popUp = app.buttons["Mail Profile for " + address]
+    XCTAssertTrue(popUp.waitForExistence(timeout: 10))
+    popUp.tap()
+    // The pop-up's system menu lists each Profile beside the row that names it.
+    let named = app.buttons.matching(NSPredicate(format: "label == %@", target))
+    waitUntil({ named.count > 1 }, timeout: 10)
+    let item = (0..<named.count).map { named.element(boundBy: $0) }.first { $0.frame != targetRow }
+    XCTAssertNotNil(item)
+    item?.tap()
+    // The moved mailbox leaves its former Profile's list once the move is stored.
+    XCTAssertTrue(popUp.waitForNonExistence(timeout: 30))
+    app.buttons["Open Inbox"].tap()
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let back = app.buttons["Back to Mailboxes"]
+      waitUntil { back.isHittable && !switcher.isHittable }
+      back.tap()
+    }
+    revealSwitcher(app, switcher)
+    app.buttons["All inboxes"].tap()
+  }
+
+  // Switches the window to another Profile and shows every Inbox of it.
+  private func switchProfile(to name: String, from switcher: XCUIElement, _ app: XCUIApplication) {
+    revealSwitcher(app, switcher)
+    switcher.tap()
+    let choice = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+    XCTAssertTrue(choice.waitForExistence(timeout: 10))
+    choice.tap()
+    // Switching remounts the shell on its Inbox column.
+    revealSwitcher(app, app.buttons["Mail Profile, " + name])
+    app.buttons["All inboxes"].tap()
+  }
+
+  // Search across the window's Profile finds its own message and not the other Profile's, whose
+  // subjects both match the query.
+  private func searchProfile(
+    finding own: XCUIElement, not other: XCUIElement, _ app: XCUIApplication
+  ) {
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    search.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("plan", into: search)
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
+        .firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(own.waitForExistence(timeout: 10))
+    XCTAssertFalse(other.exists)
+    closeSearch(app).tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
   }
 
   // #1037: the Mailboxes Profile Switcher opens its system menu, listing the Primary Profile with
@@ -1916,20 +2034,7 @@ final class InboxTests: XCTestCase {
     body.tap()
     press("Keyboard reply", in: app)
     waitUntil { body.value as? String == "Keyboard reply" }
-    // #1801: the reply's last word becomes a link, so the reopened Draft ends with it.
-    app.typeKey(.leftArrow, modifierFlags: [.shift, .option])
-    // The composer learns the selection after the key press.
-    let addLink = formatControl("Add Link", in: app)
-    XCTAssertTrue(addLink.waitForExistence(timeout: 20))
-    addLink.tap()
-    let destination = app.textFields["Link"]
-    XCTAssertTrue(destination.waitForExistence(timeout: 10))
-    waitForFocus(destination)
-    press("https://example.com\n", in: app)
-    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
-    if app.buttons["Close Format"].exists {
-      app.buttons["Close Format"].tap()
-    }
+    try linkEditorJourney(app, body: body, pad: pad)
 
     // #1612: edits are stored only on Save Draft; Close asks first.
     app.buttons["Close"].tap()
@@ -1947,17 +2052,114 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(subject.waitForExistence(timeout: 15))
     XCTAssertEqual(subject.value as? String, "Re: Outlook update 003 by keyboard")
     XCTAssertEqual(body.value as? String, "Keyboard reply")
-    // #1801: a touch after the linked word puts the caret where the body opened with it, which
-    // the field reports no selection for; Edit Link still opens that link.
+    // The reopened Draft keeps the link and its destination. #1801: a touch after the linked word
+    // puts the caret where the body opened with it, which the field reports no selection for; Edit
+    // Link still opens that link.
     body.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.14)).tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     let edit = formatControl("Edit Link", in: app)
     XCTAssertTrue(edit.waitForExistence(timeout: 10))
     waitUntil { edit.isEnabled }
     edit.tap()
+    let destination = app.textFields["Link"]
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     XCTAssertEqual(app.textFields["Text"].value as? String, "reply")
     XCTAssertEqual(destination.value as? String, "https://example.com")
+  }
+
+  // #1795: the Link Editor links the selected word of the reply. It opens as Add Link with Text
+  // from the selection and Link empty and focused, explains an invalid destination after Return,
+  // keeps the selection when dismissed, and applies a valid one as one edit that Undo and Redo
+  // step through. iPad shows it in a popover from the format bar, iPhone in a sheet from the
+  // Format panel.
+  private func linkEditorJourney(_ app: XCUIApplication, body: XCUIElement, pad: Bool) throws {
+    // As for the composer's audit, iPad's floating composer would leave the message behind it as
+    // a backdrop the audit cannot locate.
+    if pad {
+      app.buttons["Expand"].tap()
+      XCTAssertTrue(app.buttons["Collapse"].waitForExistence(timeout: 10))
+    }
+    app.typeKey(.leftArrow, modifierFlags: [.shift, .option])
+    // The composer learns the selection after the key press.
+    let addLink = formatControl("Add Link", in: app)
+    XCTAssertTrue(addLink.waitForExistence(timeout: 20))
+    addLink.tap()
+    let text = app.textFields["Text"]
+    let destination = app.textFields["Link"]
+    let apply = app.buttons["Apply"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    waitForFocus(destination)
+    XCTAssertEqual(text.value as? String, "reply")
+    let initialDestination = try XCTUnwrap(destination.value as? String)
+    XCTAssertTrue(initialDestination.isEmpty || initialDestination == destination.placeholderValue)
+    XCTAssertFalse(app.buttons["Remove Link"].exists)
+    XCTAssertFalse(apply.isEnabled)
+    if !pad {
+      XCTAssertTrue(app.staticTexts["Add Link"].exists)
+    }
+    try audit(app, "Link Editor")
+
+    press("not a link\n", in: app)
+    XCTAssertTrue(
+      self.text("Enter a valid web, email or phone link.", in: app).waitForExistence(timeout: 10))
+    XCTAssertFalse(apply.isEnabled)
+    let invalid = XCTAttachment(screenshot: app.screenshot())
+    invalid.name = "Link Editor with an invalid link"
+    invalid.lifetime = .keepAlways
+    add(invalid)
+
+    dismissLinkEditor(app, field: destination, pad: pad)
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
+
+    formatControl("Add Link", in: app).tap()
+    waitForFocus(destination)
+    XCTAssertEqual(text.value as? String, "reply")
+    XCTAssertEqual(destination.value as? String, initialDestination)
+    press("https://example.com\n", in: app)
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    let edit = formatControl("Edit Link", in: app)
+    XCTAssertTrue(edit.waitForExistence(timeout: 10))
+    edit.tap()
+    XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
+    XCTAssertEqual(destination.value as? String, "https://example.com")
+    dismissLinkEditor(app, field: destination, pad: pad)
+
+    // One Undo removes the link and keeps its text; Redo restores it. iPad's keyboard shortcut bar
+    // repeats Undo and Redo.
+    func history(_ name: String) -> XCUIElement {
+      pad
+        ? app.buttons.matching(
+          NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'assistant')", name)
+        ).firstMatch
+        : formatControl(name, in: app)
+    }
+    history("Undo").tap()
+    XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    history("Redo").tap()
+    XCTAssertTrue(formatControl("Edit Link", in: app).waitForExistence(timeout: 10))
+    XCTAssertEqual(body.value as? String, "Keyboard reply")
+    if pad {
+      app.buttons["Collapse"].tap()
+      XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
+    } else {
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(app.buttons["Format"].waitForExistence(timeout: 10))
+    }
+  }
+
+  // Leaves the Link Editor without applying: iPad taps beside the popover, above the software
+  // keyboard; iPhone closes the sheet, whose Close sits below the composer's own.
+  private func dismissLinkEditor(_ app: XCUIApplication, field: XCUIElement, pad: Bool) {
+    if pad {
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.15)).tap()
+    } else {
+      app.buttons.matching(NSPredicate(format: "label == %@", "Close")).allElementsBoundByIndex
+        .max { $0.frame.minY < $1.frame.minY }?.tap()
+    }
+    XCTAssertTrue(field.waitForNonExistence(timeout: 10))
   }
 
   // Types with hardware key presses, one key per character; "\n" is Return and "\t" Tab.
@@ -2031,10 +2233,14 @@ final class InboxTests: XCTestCase {
     where issue.element?.elementType == .staticText
       && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
       return "email address"
-    // Undiagnosed: the same unlocated text while iPad's system Filters popover is open, and while
-    // the Sync Status details' sheet or popover is open, whose elements are all labelled.
+    // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
+    case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
+      return "inactive control"
+    // Undiagnosed: the same unlocated text while iPad's system Filters or Link Editor popover is
+    // open, and while the Sync Status details' sheet or popover is open, whose elements are all
+    // labelled.
     case .elementDetection
-    where (screen == "Filters" && UIDevice.current.userInterfaceIdiom == .pad
+    where (["Filters", "Link Editor"].contains(screen) && UIDevice.current.userInterfaceIdiom == .pad
       || screen.hasPrefix("Sync Status Details "))
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":

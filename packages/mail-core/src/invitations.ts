@@ -1,3 +1,5 @@
+import type { Translate } from '@private-email/localization';
+
 import * as DateTime from 'effect/DateTime';
 import * as Option from 'effect/Option';
 
@@ -45,7 +47,8 @@ export type Invitation = Readonly<{
 }>;
 
 // What a received message's calendar part offers: nothing, a response the owning mailbox can
-// send, a meeting that names only other addresses, or an invitation Unwired cannot read.
+// send, a meeting that names only other addresses, a cancelled meeting, or an invitation Unwired
+// cannot read.
 export type InvitationOffer =
   | Invitation
   | Readonly<{
@@ -53,6 +56,7 @@ export type InvitationOffer =
       details: InvitationDetails;
       invited: readonly string[];
     }>
+  | Readonly<{ kind: 'cancelled'; details: InvitationDetails }>
   | Readonly<{ kind: 'unreadable' }>;
 
 const unreadable = { kind: 'unreadable' } as const;
@@ -224,8 +228,9 @@ const scoped = (lines: readonly Line[]) => {
     : undefined;
 };
 
-// The single top-level event of a `METHOD:REQUEST` calendar, or undefined for anything else.
-const requestedEvent = (lines: readonly Line[] | undefined) => {
+// The single top-level event of a `METHOD:REQUEST` or `METHOD:CANCEL` calendar with its method,
+// or undefined for anything else.
+const calendarEvent = (lines: readonly Line[] | undefined) => {
   const calendar = lines === undefined ? undefined : scoped(lines);
   if (calendar === undefined) {
     return undefined;
@@ -237,13 +242,17 @@ const requestedEvent = (lines: readonly Line[] | undefined) => {
   const versions = properties.filter(
     ({ path, line }) => path.length === 1 && line.name === 'VERSION',
   );
-  return methods.join(',') === 'REQUEST' &&
+  const method = methods.join(',');
+  return (method === 'REQUEST' || method === 'CANCEL') &&
     events === 1 &&
     versions.length === 1 &&
     versions[0]?.line.value === '2.0'
-    ? properties
-        .filter(({ path }) => path[1] === 'VEVENT')
-        .map(({ line }) => line)
+    ? {
+        method,
+        event: properties
+          .filter(({ path }) => path[1] === 'VEVENT')
+          .map(({ line }) => line),
+      }
     : undefined;
 };
 
@@ -398,12 +407,22 @@ export function invitationOf(
   if (document.calendar === undefined) {
     return undefined;
   }
-  const event = requestedEvent(contentLines(document.calendar));
-  const meeting = event === undefined ? undefined : meetingOf(event);
-  if (event === undefined || meeting === undefined) {
+  const calendar = calendarEvent(contentLines(document.calendar));
+  const meeting =
+    calendar === undefined ? undefined : meetingOf(calendar.event);
+  if (calendar === undefined || meeting === undefined) {
     return unreadable;
   }
+  const { method, event } = calendar;
   const { uid, sequence, details, organizerLine, summary } = meeting;
+  // A cancellation needs no attendee: there is nothing to answer. Its STATUS can only be CANCELLED.
+  if (method === 'CANCEL') {
+    const statuses = event.filter((line) => line.name === 'STATUS');
+    return statuses.length <= 1 &&
+      statuses.every((line) => line.value.trim().toUpperCase() === 'CANCELLED')
+      ? { kind: 'cancelled', details }
+      : unreadable;
+  }
   const attendees = event.filter((line) => line.name === 'ATTENDEE');
   const attendee = attendees.find(
     (line) => addressOf(line)?.toLowerCase() === address.toLowerCase(),
@@ -815,3 +834,177 @@ export function invitationResponses(
   responsesByInbox.set(inbox, created);
   return created;
 }
+
+// The words that name each choice on its button and in status text.
+export const invitationChoiceKeys = {
+  accepted: 'accept',
+  tentative: 'maybe',
+  declined: 'decline',
+} as const;
+
+export const organizerName = ({ organizer }: InvitationDetails) =>
+  organizer.name ?? organizer.address;
+
+export type InvitationFormats = Readonly<{
+  day: Intl.DateTimeFormat;
+  allDay: Intl.DateTimeFormat;
+  time: Intl.DateTimeFormat;
+}>;
+
+export const createInvitationFormats = (locale: string): InvitationFormats => ({
+  day: new Intl.DateTimeFormat(locale, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }),
+  allDay: new Intl.DateTimeFormat(locale, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }),
+  time: new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }),
+});
+
+// When the meeting happens in the device's time zone: a day, or a day with its start and end.
+export function invitationWhen(
+  t: Translate,
+  formats: InvitationFormats,
+  { start, end }: InvitationDetails,
+): string {
+  if (start.allDay) {
+    // An all-day end is exclusive: the meeting's last day is the one before it.
+    const last = end?.allDay === true ? end.at - day : start.at;
+    return t('invitation.allDay', {
+      date:
+        last > start.at
+          ? t('invitation.dateRange', {
+              start: formats.allDay.format(start.at),
+              end: formats.allDay.format(last),
+            })
+          : formats.allDay.format(start.at),
+    });
+  }
+  const at = (time: InvitationTime) =>
+    t('invitation.dateTime', {
+      date: formats.day.format(time.at),
+      time: formats.time.format(time.at),
+    });
+  if (end === undefined) {
+    return at(start);
+  }
+  return formats.day.format(start.at) === formats.day.format(end.at)
+    ? t('invitation.timeRange', {
+        date: formats.day.format(start.at),
+        start: formats.time.format(start.at),
+        end: formats.time.format(end.at),
+      })
+    : t('invitation.dateRange', {
+        start: at(start),
+        end: at(end.allDay ? start : end),
+      });
+}
+
+// An offline device or a refused sign-in, which the mailbox's sync names before anything is sent.
+export const invitationBlockedBy = (sync: string | undefined) => {
+  if (sync === 'retry') {
+    return 'offline';
+  }
+  return sync === 'authentication' ? 'authentication' : undefined;
+};
+
+// How a card describes a response state: its SF Symbol and palette color, or a spinner when busy.
+export type InvitationStatus = Readonly<{
+  icon?: string;
+  tone?: 'accentInk' | 'statusDestructive' | 'statusWarning';
+  busy?: boolean;
+  title: string;
+  detail: string;
+}>;
+
+type StatusContext = Readonly<{
+  t: Translate;
+  name: string;
+  address: string;
+  provider: string;
+  time: Intl.DateTimeFormat;
+}>;
+
+type Kind = ResponseState['kind'];
+
+const choiceOf = (t: Translate, state: ResponseState) =>
+  'choice' in state
+    ? t(`invitation.${invitationChoiceKeys[state.choice]}`)
+    : '';
+
+const statuses: {
+  readonly [K in Kind]: (
+    state: Extract<ResponseState, { readonly kind: K }>,
+    context: StatusContext,
+  ) => InvitationStatus;
+} = {
+  unanswered: (_, { t, name, address }) => ({
+    title: t('invitation.unanswered'),
+    detail: t('invitation.unansweredDetail', { name, address }),
+  }),
+  sending: (state, { t, address }) => ({
+    busy: true,
+    title: t('invitation.sending'),
+    detail: t('invitation.sendingDetail', {
+      choice: choiceOf(t, state),
+      address,
+    }),
+  }),
+  sent: (state, { t, name, provider, time }) => ({
+    icon: 'checkmark.circle.fill',
+    tone: 'accentInk',
+    title: t(`invitation.${state.choice}`),
+    detail: t('invitation.sentDetail', {
+      provider,
+      name,
+      time: time.format(state.at),
+    }),
+  }),
+  refused: (state, { t, name, provider }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    tone: 'statusDestructive',
+    title: t('invitation.refused'),
+    detail: t('invitation.refusedDetail', {
+      provider,
+      choice: choiceOf(t, state),
+      name,
+    }),
+  }),
+  unknown: (state, { t, provider }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    tone: 'statusWarning',
+    title: t('invitation.unknown'),
+    detail: t('invitation.unknownDetail', {
+      provider,
+      choice: choiceOf(t, state),
+    }),
+  }),
+  checking: (state, { t, provider }) => ({
+    busy: true,
+    title: t('invitation.checking', { provider }),
+    detail: t('invitation.checkingDetail', { choice: choiceOf(t, state) }),
+  }),
+  offline: (_, { t }) => ({
+    icon: 'wifi.slash',
+    title: t('invitation.offline'),
+    detail: t('invitation.offlineDetail'),
+  }),
+  authentication: (_, { t, address, provider }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    tone: 'statusWarning',
+    title: t('invitation.authentication', { provider }),
+    detail: t('invitation.authenticationDetail', { address }),
+  }),
+};
+
+export const invitationStatus = <K extends Kind>(
+  state: Extract<ResponseState, { readonly kind: K }>,
+  context: StatusContext,
+): InvitationStatus => statuses[state.kind](state, context);

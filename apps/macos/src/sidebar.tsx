@@ -59,13 +59,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.s,
   },
   list: { paddingHorizontal: spacing.s, paddingBottom: spacing.l },
-  section: {
-    ...textStyles.subheadline,
-    fontWeight: '600',
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.s,
     paddingTop: spacing.m,
     paddingBottom: spacing.xs,
   },
+  section: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
   row: {
     minHeight: 28,
     flexDirection: 'row',
@@ -229,15 +231,56 @@ function Item({
   );
 }
 
-function SectionHeader({ label }: { readonly label: string }) {
+// A section's header: its label, and a trailing disclosure chevron that collapses or expands the
+// section's rows.
+function SectionHeader({
+  label,
+  collapsed,
+  onToggle,
+  trouble,
+}: {
+  readonly label: string;
+  readonly collapsed: boolean;
+  readonly onToggle: () => void;
+  // A collapsed section keeps its connection's problem in view.
+  readonly trouble?: string | undefined;
+}) {
   const colors = usePalette();
+  const { t } = useLocalization();
+  const warn = collapsed && trouble !== undefined;
   return (
-    <Label
-      accessibilityRole="header"
-      numberOfLines={1}
-      style={[styles.section, { color: colors.textSecondary }]}>
-      {label}
-    </Label>
+    <Pressable
+      accessibilityLabel={warn ? `${label}, ${trouble}` : label}
+      // A control, so VoiceOver finds the disclosure among buttons; AppKit's header role is static
+      // text.
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !collapsed }}
+      // Mac Fabric announces expanded, but omits the collapsed state from its value.
+      accessibilityValue={
+        collapsed ? { text: t('mailboxes.collapsed') } : undefined
+      }
+      accessibilityActions={[{ name: 'activate' }]}
+      onAccessibilityAction={onToggle}
+      onPress={onToggle}
+      style={styles.sectionRow}>
+      <Text
+        numberOfLines={1}
+        style={[styles.section, { color: colors.textSecondary }]}>
+        {label}
+      </Text>
+      {warn ? (
+        <SFSymbol
+          name="exclamationmark.triangle.fill"
+          color={colors.statusWarning}
+          size={10}
+        />
+      ) : null}
+      <SFSymbol
+        name={collapsed ? 'chevron.right' : 'chevron.down'}
+        color={colors.textSecondary}
+        size={10}
+      />
+    </Pressable>
   );
 }
 
@@ -371,6 +414,28 @@ export function Mailboxes({
     await account?.authorizeMailbox(connection);
     await reload();
   };
+  // The window's collapsed sections, by Favorites or Mailbox Connection.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const section = (key: string, label: string, trouble?: string) => ({
+    header: (
+      <SectionHeader
+        label={label}
+        trouble={trouble}
+        collapsed={collapsed.has(key)}
+        onToggle={() => {
+          setCollapsed((current) => {
+            const next = new Set(current);
+            if (!next.delete(key)) {
+              next.add(key);
+            }
+            return next;
+          });
+        }}
+      />
+    ),
+    shown: !collapsed.has(key),
+  });
+  const favorites = section('favorites', t('mailboxes.favorites'));
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>
@@ -379,34 +444,38 @@ export function Mailboxes({
           style={styles.fill}
           contentContainerStyle={styles.list}>
           <ProfileSwitcher onProfile={onProfile} />
-          <SectionHeader label={t('mailboxes.favorites')} />
-          <Item
-            icon="tray.2"
-            label={t('inbox.allInboxes')}
-            count={sidebar.unread}
-            selected={sidebar.allSelected}
-            onPress={() => {
-              onView({});
-            }}
-          />
-          {unifiedRoles.map((role) => {
-            const { title, icon } = unifiedRow(t, role);
-            return (
+          {favorites.header}
+          {favorites.shown ? (
+            <>
               <Item
-                key={role}
-                icon={icon}
-                label={title}
-                accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                  row: title,
-                  mailbox: t('mailboxes.allMailboxes'),
-                })}
-                selected={view.unified === role}
+                icon="tray.2"
+                label={t('inbox.allInboxes')}
+                count={sidebar.unread}
+                selected={sidebar.allSelected}
                 onPress={() => {
-                  onView({ unified: role });
+                  onView({});
                 }}
               />
-            );
-          })}
+              {unifiedRoles.map((role) => {
+                const { title, icon } = unifiedRow(t, role);
+                return (
+                  <Item
+                    key={role}
+                    icon={icon}
+                    label={title}
+                    accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                      row: title,
+                      mailbox: t('mailboxes.allMailboxes'),
+                    })}
+                    selected={view.unified === role}
+                    onPress={() => {
+                      onView({ unified: role });
+                    }}
+                  />
+                );
+              })}
+            </>
+          ) : null}
           {sidebar.entries.map((entry) => {
             if ('section' in entry) {
               const { mailbox, folders, problem } = entry.section;
@@ -418,15 +487,22 @@ export function Mailboxes({
                 provider: mailbox.provider,
                 name: provider,
               });
+              const { header, shown } = section(
+                mailbox.id,
+                `${provider} · ${name}`,
+                trouble,
+              );
               return (
                 <Fragment key={mailbox.id}>
-                  <SectionHeader label={`${provider} · ${name}`} />
-                  <FolderRows
-                    mailbox={mailbox}
-                    folders={folders}
-                    trouble={trouble}
-                    onView={onView}
-                  />
+                  {header}
+                  {shown ? (
+                    <FolderRows
+                      mailbox={mailbox}
+                      folders={folders}
+                      trouble={trouble}
+                      onView={onView}
+                    />
+                  ) : null}
                 </Fragment>
               );
             }
@@ -435,7 +511,17 @@ export function Mailboxes({
             const imap = recovery === 'account';
             return (
               <Fragment key={connection.id}>
-                <SectionHeader label={`${provider} · ${connection.address}`} />
+                {/* A connection waiting for authorization keeps its one row and its action in view. */}
+                <Label
+                  accessibilityRole="header"
+                  numberOfLines={1}
+                  style={[
+                    styles.section,
+                    styles.sectionRow,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {`${provider} · ${connection.address}`}
+                </Label>
                 <Item
                   icon="tray"
                   label={t('inbox.title')}

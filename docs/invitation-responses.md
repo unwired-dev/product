@@ -3,7 +3,8 @@
 [#1640](https://github.com/unwired-dev/product/issues/1640), a slice of
 [#1277](https://github.com/unwired-dev/product/issues/1277), lets the Mac reader
 send an [Invitation Response](domain/organization.md) to a single Gmail meeting
-invitation. iPhone, iPad, Microsoft, IMAP, Add to Calendar
+invitation, and [#1815](https://github.com/unwired-dev/product/issues/1815) brings
+the same card to the iPhone and iPad reader. Microsoft, IMAP, Add to Calendar
 ([#1280](https://github.com/unwired-dev/product/issues/1280)) and organizer
 updates ([#1281](https://github.com/unwired-dev/product/issues/1281)) follow
 separately.
@@ -13,7 +14,7 @@ separately.
 - An opened Gmail message whose `text/calendar` part (or, without one, its
   `application/ics` part; up to 256 KiB) is an
   iCalendar `METHOD:REQUEST` with exactly one meeting shows an invitation card
-  above the message body: the organizer, title, **When** in this Mac's time zone,
+  above the message body: the organizer, title, **When** in this device's time zone,
   **Where**, **Organizer** and **Invited**. The end comes from `DTEND` or
   `DURATION`. The calendar attachment stays listed
   below the body.
@@ -40,7 +41,7 @@ separately.
 - Responses survive relaunch
   ([#1642](https://github.com/unwired-dev/product/issues/1642)). Before sending,
   the response is recorded in the mailbox's encrypted cache, which the Apple host
-  stores and removes on this Mac: the invitation's UID and SEQUENCE, the choice,
+  stores and removes on this device: the invitation's UID and SEQUENCE, the choice,
   and the MIME boundary that finds it in Sent, plus the confirmation time once
   Gmail confirms. After relaunch a confirmed response shows its choice and time,
   and choosing it again sends nothing. A response the app quit while sending shows
@@ -51,8 +52,15 @@ separately.
   leaves the earlier record. If saving Gmail's confirmation fails, relaunch
   restores **Delivery unknown**; **Check Again** can confirm it without sending
   another response.
-- Recurring meetings, cancellations, floating or unknown time zones, a timed
-  meeting whose `DURATION` counts days, and damaged calendar text show **Unwired can’t read this invitation**, with no response.
+- A `METHOD:CANCEL` for one meeting
+  ([#1826](https://github.com/unwired-dev/product/issues/1826)) shows the same
+  details under **Cancelled by** the organizer, with a **Cancelled** badge, the
+  title struck through and **This meeting was cancelled**. It offers no response,
+  so it shows whether or not it names the opened mailbox as an attendee. Its
+  `STATUS`, when present, must be `CANCELLED`.
+- Recurring meetings and cancellations of them, floating or unknown time zones,
+  a timed meeting whose `DURATION` counts days, and damaged calendar text show
+  **Unwired can’t read this invitation**, with no response.
 
 ## Limitations
 
@@ -65,12 +73,23 @@ separately.
 - The card does not show the organizer's own time zone, and the chosen button
   does not show a spinner while sending; the status row does.
 
+## iPhone and iPad
+
+- The card follows the iPhone and iPad frames: Subheadline rows in a quiet card
+  (18pt corners on iPhone, 10pt on iPad), and native capsule **Accept**, **Maybe** and **Decline** buttons in one row;
+  the chosen one takes the accent fill. With larger text each value moves below its
+  label, and from the first accessibility size the buttons stack at full width.
+- **Respond Again…** asks in the system alert, with **Respond Again** and
+  **Cancel**. Closing the message dismisses the alert without sending.
+- VoiceOver hears each status change once, since iOS ignores live regions.
+
 ## Validation
 
 - `packages/mail-core/test/invitations.test.ts` parses invitations and drives
   responses through a synthetic Gmail mailbox, including lost and refused sends,
   a send the app quit during, and restore after relaunch and mailbox removal.
-- `apps/macos/test/invitation.test.tsx` renders the reader with a synthetic Gmail
-  mailbox; it is a component test, not native evidence.
-- Native Mac evidence and a real Gmail organizer receiving the response remain
-  required before release.
+- `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
+  render each reader with a synthetic Gmail mailbox; they are component tests, not
+  native evidence.
+- Native Mac, iPhone and iPad evidence and a real Gmail organizer receiving the
+  response remain required before release.

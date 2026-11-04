@@ -1,17 +1,21 @@
-import type { Translate } from '@private-email/localization';
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type {
   Invitation,
   InvitationChoice,
   InvitationDetails,
-  InvitationTime,
-  ResponseState,
+  InvitationStatus,
 } from '@private-email/mail-core/invitations';
 import type { ReactNode } from 'react';
 
 import {
   invitationOf,
   invitationResponses,
+  createInvitationFormats,
+  invitationBlockedBy,
+  invitationChoiceKeys,
+  invitationStatus,
+  invitationWhen,
+  organizerName,
 } from '@private-email/mail-core/invitations';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
@@ -37,7 +41,15 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  headingText: { flex: 1 },
+  badge: {
+    paddingHorizontal: spacing.s,
+    paddingVertical: 2,
+    borderRadius: radius.badgeMac,
+    borderCurve: 'continuous',
+  },
   title: { ...textStyles.title3Emphasized },
+  struck: { textDecorationLine: 'line-through' },
   details: { gap: 6 },
   row: { flexDirection: 'row', gap: spacing.s },
   label: { ...textStyles.body, width: 76 },
@@ -67,75 +79,14 @@ type InvitationInbox = Pick<
 >;
 
 const choices = ['accepted', 'tentative', 'declined'] as const;
-const day = 24 * 60 * 60 * 1000;
-
-const choiceKeys = {
-  accepted: 'accept',
-  tentative: 'maybe',
-  declined: 'decline',
-} as const;
-
-const nameOf = ({ organizer }: InvitationDetails) =>
-  organizer.name ?? organizer.address;
-
-// When the meeting happens in this Mac's time zone: a day, or a day with its start and end.
-function useWhen(details: InvitationDetails) {
-  const { t, settings } = useLocalization();
-  const formats = useMemo(
-    () => ({
-      day: new Intl.DateTimeFormat(settings.locale, {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      }),
-      allDay: new Intl.DateTimeFormat(settings.locale, {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        timeZone: 'UTC',
-      }),
-      time: new Intl.DateTimeFormat(settings.locale, {
-        hour: 'numeric',
-        minute: '2-digit',
-      }),
-    }),
+// The meeting's date and time formats in the person's language.
+const useFormats = () => {
+  const { settings } = useLocalization();
+  return useMemo(
+    () => createInvitationFormats(settings.locale),
     [settings.locale],
   );
-  const { start, end } = details;
-  if (start.allDay) {
-    // An all-day end is exclusive: the meeting's last day is the one before it.
-    const last = end?.allDay === true ? end.at - day : start.at;
-    return t('invitation.allDay', {
-      date:
-        last > start.at
-          ? t('invitation.dateRange', {
-              start: formats.allDay.format(start.at),
-              end: formats.allDay.format(last),
-            })
-          : formats.allDay.format(start.at),
-    });
-  }
-  const at = (time: InvitationTime) =>
-    t('invitation.dateTime', {
-      date: formats.day.format(time.at),
-      time: formats.time.format(time.at),
-    });
-  if (end === undefined) {
-    return at(start);
-  }
-  return formats.day.format(start.at) === formats.day.format(end.at)
-    ? t('invitation.timeRange', {
-        date: formats.day.format(start.at),
-        start: formats.time.format(start.at),
-        end: formats.time.format(end.at),
-      })
-    : t('invitation.dateRange', {
-        start: at(start),
-        end: at(end.allDay ? start : end),
-      });
-}
+};
 
 // React Native macOS doesn't expose plain Text to VoiceOver, so each row is one element that speaks
 // its label and values.
@@ -167,15 +118,21 @@ function Details({
   invited,
 }: {
   readonly details: InvitationDetails;
-  // Who was invited, then a secondary line about them.
-  readonly invited: readonly [string, string];
+  // Who was invited, then a secondary line about them; a cancelled meeting has no row.
+  readonly invited?: readonly [string, string];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const when = useWhen(details);
-  const from = t('invitation.from', { name: nameOf(details) });
+  const formats = useFormats();
+  const when = invitationWhen(t, formats, details);
+  const cancelled = invited === undefined;
+  const from = t(cancelled ? 'invitation.cancelledBy' : 'invitation.from', {
+    name: organizerName(details),
+  });
   const title = details.summary ?? t('invitation.untitled');
-  const organizer = [...new Set([nameOf(details), details.organizer.address])];
+  const organizer = [
+    ...new Set([organizerName(details), details.organizer.address]),
+  ];
   return (
     <>
       <View
@@ -183,18 +140,39 @@ function Details({
         accessibilityLabel={from}
         style={styles.heading}>
         <SFSymbol
-          name="calendar"
-          color={colors.accentInk}
+          name={cancelled ? 'xmark' : 'calendar'}
+          color={cancelled ? colors.textSecondary : colors.accentInk}
         />
-        <Text style={[styles.smallEmphasized, { color: colors.textSecondary }]}>
+        <Text
+          style={[
+            styles.smallEmphasized,
+            styles.headingText,
+            { color: colors.textSecondary },
+          ]}>
           {from}
         </Text>
+        {cancelled ? (
+          <View
+            style={[
+              styles.badge,
+              { backgroundColor: colors.accentSelectionSubtle },
+            ]}>
+            <Text style={[styles.smallEmphasized, { color: colors.accentInk }]}>
+              {t('invitation.cancelled')}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View
         accessible
         accessibilityRole="header"
         accessibilityLabel={title}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>
+        <Text
+          style={[
+            styles.title,
+            cancelled && styles.struck,
+            { color: colors.textPrimary },
+          ]}>
           {title}
         </Text>
       </View>
@@ -232,16 +210,18 @@ function Details({
             </Text>
           ))}
         </DetailRow>
-        <DetailRow
-          label={t('invitation.invited')}
-          spoken={invited}>
-          <Text style={[styles.text, { color: colors.textPrimary }]}>
-            {invited[0]}
-          </Text>
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
-            {invited[1]}
-          </Text>
-        </DetailRow>
+        {invited === undefined ? null : (
+          <DetailRow
+            label={t('invitation.invited')}
+            spoken={invited}>
+            <Text style={[styles.text, { color: colors.textPrimary }]}>
+              {invited[0]}
+            </Text>
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
+              {invited[1]}
+            </Text>
+          </DetailRow>
+        )}
       </View>
     </>
   );
@@ -250,14 +230,14 @@ function Details({
 // The response status row: an icon or a spinner, what happened, and what the person can do next.
 function Status({
   icon,
-  iconColor,
+  tone,
   busy = false,
   title,
   detail,
   children,
 }: {
   readonly icon?: string;
-  readonly iconColor?: string;
+  readonly tone?: InvitationStatus['tone'];
   readonly busy?: boolean;
   readonly title: string;
   readonly detail: string;
@@ -272,7 +252,7 @@ function Status({
         ) : (
           <SFSymbol
             name={icon ?? 'circle'}
-            color={iconColor ?? colors.textSecondary}
+            color={tone === undefined ? colors.textSecondary : colors[tone]}
           />
         )}
         <View
@@ -295,107 +275,6 @@ function Status({
   );
 }
 
-type Shown = Readonly<{
-  icon?: string;
-  iconColor?: string;
-  busy?: boolean;
-  title: string;
-  detail: string;
-}>;
-
-type Describing = Readonly<{
-  t: Translate;
-  name: string;
-  address: string;
-  provider: string;
-  colors: ReturnType<typeof usePalette>;
-  time: Intl.DateTimeFormat;
-}>;
-
-type Kind = ResponseState['kind'];
-
-const choiceOf = (t: Translate, state: ResponseState) =>
-  'choice' in state ? t(`invitation.${choiceKeys[state.choice]}`) : '';
-
-// How the card describes each response state.
-const describe: {
-  readonly [K in Kind]: (
-    state: ResponseState & { kind: K },
-    context: Describing,
-  ) => Shown;
-} = {
-  unanswered: (_, { t, name, address }) => ({
-    title: t('invitation.unanswered'),
-    detail: t('invitation.unansweredDetail', { name, address }),
-  }),
-  sending: (state, { t, address }) => ({
-    busy: true,
-    title: t('invitation.sending'),
-    detail: t('invitation.sendingDetail', {
-      choice: choiceOf(t, state),
-      address,
-    }),
-  }),
-  sent: (state, { t, name, provider, colors, time }) => ({
-    icon: 'checkmark.circle.fill',
-    iconColor: colors.accentInk,
-    title: t(`invitation.${state.choice}`),
-    detail: t('invitation.sentDetail', {
-      provider,
-      name,
-      time: time.format(state.at),
-    }),
-  }),
-  refused: (state, { t, name, provider, colors }) => ({
-    icon: 'exclamationmark.triangle.fill',
-    iconColor: colors.statusDestructive,
-    title: t('invitation.refused'),
-    detail: t('invitation.refusedDetail', {
-      provider,
-      choice: choiceOf(t, state),
-      name,
-    }),
-  }),
-  unknown: (state, { t, provider, colors }) => ({
-    icon: 'exclamationmark.triangle.fill',
-    iconColor: colors.statusWarning,
-    title: t('invitation.unknown'),
-    detail: t('invitation.unknownDetail', {
-      provider,
-      choice: choiceOf(t, state),
-    }),
-  }),
-  checking: (state, { t, provider }) => ({
-    busy: true,
-    title: t('invitation.checking', { provider }),
-    detail: t('invitation.checkingDetail', { choice: choiceOf(t, state) }),
-  }),
-  offline: (_, { t }) => ({
-    icon: 'wifi.slash',
-    title: t('invitation.offline'),
-    detail: t('invitation.offlineDetail'),
-  }),
-  authentication: (_, { t, address, provider, colors }) => ({
-    icon: 'exclamationmark.triangle.fill',
-    iconColor: colors.statusWarning,
-    title: t('invitation.authentication', { provider }),
-    detail: t('invitation.authenticationDetail', { address }),
-  }),
-};
-
-const described = <K extends Kind>(
-  state: ResponseState & { kind: K },
-  context: Describing,
-) => describe[state.kind](state, context);
-
-// An offline Mac or a refused sign-in, which the mailbox's sync names before anything is sent.
-const blockedBy = (sync: string | undefined) => {
-  if (sync === 'retry') {
-    return 'offline';
-  }
-  return sync === 'authentication' ? 'authentication' : undefined;
-};
-
 function Responding({
   inbox,
   invitation,
@@ -407,8 +286,7 @@ function Responding({
   readonly connection: string | undefined;
   readonly current: () => boolean;
 }) {
-  const colors = usePalette();
-  const { t, settings } = useLocalization();
+  const { t } = useLocalization();
   const provider = useProviderName();
   const account = use(AccountContext);
   const anchor = useRef<View>(null);
@@ -428,24 +306,17 @@ function Responding({
     const state = inbox.getSnapshot();
     return state.kind === 'ready' ? state.sync : undefined;
   });
-  const time = useMemo(
-    () =>
-      new Intl.DateTimeFormat(settings.locale, {
-        hour: 'numeric',
-        minute: '2-digit',
-      }),
-    [settings.locale],
-  );
-  const name = nameOf(invitation.details);
+  const { time } = useFormats();
+  const name = organizerName(invitation.details);
   const blocked =
     recorded.kind === 'unanswered' ||
     recorded.kind === 'sent' ||
     recorded.kind === 'refused'
-      ? blockedBy(sync)
+      ? invitationBlockedBy(sync)
       : undefined;
-  const shown = described(
+  const shown = invitationStatus(
     blocked === undefined ? recorded : { kind: blocked, choice: 'accepted' },
-    { t, name, address: invitation.address, provider, colors, time },
+    { t, name, address: invitation.address, provider, time },
   );
   const copy = (choice: InvitationChoice) => ({
     subject: t(`invitation.${choice}Subject`, {
@@ -463,7 +334,7 @@ function Responding({
       title: t('invitation.respondAgainTitle'),
       detail: t('invitation.respondAgainDetail', {
         provider,
-        choice: t(`invitation.${choiceKeys[choice]}`),
+        choice: t(`invitation.${invitationChoiceKeys[choice]}`),
         name,
       }),
       buttons: [t('invitation.respondAgainConfirm'), t('common.cancel')],
@@ -546,14 +417,14 @@ function Responding({
           label={
             chosen === choice
               ? t('invitation.chosen', {
-                  choice: t(`invitation.${choiceKeys[choice]}`),
+                  choice: t(`invitation.${invitationChoiceKeys[choice]}`),
                 })
-              : t(`invitation.${choiceKeys[choice]}`)
+              : t(`invitation.${invitationChoiceKeys[choice]}`)
           }
           accessibilityLabel={
             chosen === choice
               ? t(`invitation.${choice}`)
-              : t(`invitation.${choiceKeys[choice]}`)
+              : t(`invitation.${invitationChoiceKeys[choice]}`)
           }
           disabled={recorded.kind === 'sending' || blocked === 'offline'}
           onPress={() => {
@@ -614,9 +485,21 @@ export function InvitationCard({
         </View>
         <Status
           icon="exclamationmark.triangle.fill"
-          iconColor={colors.statusWarning}
+          tone="statusWarning"
           title={t('invitation.unreadable')}
           detail={t('invitation.unreadableDetail')}
+        />
+      </View>
+    );
+  }
+  if (offer.kind === 'cancelled') {
+    return (
+      <View style={card}>
+        <Details details={offer.details} />
+        <Status
+          icon="xmark"
+          title={t('invitation.meetingCancelled')}
+          detail={t('invitation.meetingCancelledDetail')}
         />
       </View>
     );
@@ -632,7 +515,7 @@ export function InvitationCard({
           icon="person.crop.circle.badge.exclamationmark"
           title={t('invitation.elsewhere')}
           detail={t('invitation.elsewhereDetail', {
-            name: nameOf(offer.details),
+            name: organizerName(offer.details),
             addresses: offer.invited.join(', '),
           })}
         />

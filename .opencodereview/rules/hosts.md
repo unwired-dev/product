@@ -155,6 +155,28 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### React correctness
 
+- `folder-choice.tsx` checking candidate folders against only some server roles.
+  Compare `otherRoles`, `holding`, `taken` and Save eligibility with the complete
+  role vocabulary in `imap-model.ts`, including Flagged and differently named
+  Inbox-role folders, and the other role's current server assignment or draft.
+  Exercise both menus and a selected folder
+  acquiring a conflicting role during refresh; otherwise a folder already used
+  by the server can be offered and saved as Spam or Trash.
+
+- `folder-choice.tsx` using the first missing choice to decide every row's
+  availability. Check each saved pick against the current selectable listing,
+  including both folders disappearing together and one returning. A shared
+  warning may name the first missing role, but every affected row must report
+  unavailability and Save must remain disabled until all choices qualify;
+  otherwise the second missing folder still appears usable.
+
+- `registration-gate.tsx.AccountContext.chooseFolders` reporting success only
+  because `foldersFailure` is absent. The registration semaphore can decline a
+  setting action while foreground verification is running without publishing a
+  failure. Check the connection's persisted choice before dismissing the sheet,
+  and exercise Save while verification is held; otherwise the sheet closes with
+  unsaved choices and the connection remains outside All Mail.
+
 - `composer.tsx.Editor` or another presenter caller restoring focus on every
   native close. Trace `LinkEditor` and `Popover` through explicit Escape,
   Apply/Remove and outside-click dismissal. Clear presentation bookkeeping on
@@ -1210,6 +1232,15 @@ still applies. See `docs/architecture/macos-client.md`.
   actions with the sidebar visible in a narrow window.
   Let the reader toolbar grow when those groups wrap; a fixed one-row height
   leaves the next group over the subject even after horizontal overlap is fixed.
+
+- `sidebar.tsx.SectionHeader` or another Mac disclosure relying only on
+  `accessibilityState.expanded` to expose both states. Trace the installed
+  renderer, including its Fabric value and native state mapping: the 0.81.9
+  Fabric value includes true as "expanded" but omits false. Preserve explicit
+  collapsed-state text where the host omits it, without duplicating the expanded
+  announcement. Otherwise component state matchers pass while VoiceOver cannot
+  identify a collapsed section. Keep native speech qualification distinct from
+  component accessibility-value assertions.
 
 - Mac `design.tsx.ModalBackground` callers or another legacy native container
   changing their content frame without checking direct legacy native children.

@@ -240,6 +240,13 @@ current Profile. **Duplicate Mail Profile**, on every Profile, creates
 name, Color and Icon, and never a connection, sign-in, cached mail, Drafts,
 Outbox attempt, history, notification policy or pin.
 
+The iPhone and iPad `registration-apple` native journey moves its Microsoft
+mailbox from the Primary Profile into a second Profile and back
+([#1821](https://github.com/unwired-dev/product/issues/1821)). While it is moved,
+only that Profile's Inbox lists the mailbox's message, each Profile's Search finds
+only its own messages, and a Draft saved in that Profile appears in its Inbox and
+not in the Primary Profile's. Links, Outbox and Mac windows are not covered by it.
+
 Each Profile other than the Primary Profile may carry a curated **Color** and
 **Icon** in its synchronized definition
 ([#1613](https://github.com/unwired-dev/product/issues/1613)). The record stores

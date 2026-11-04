@@ -202,6 +202,7 @@ describe('iPad reader', () => {
               account: 'synthetic-product-account',
               profiles: [],
               createProfile: () => Promise.resolve(undefined),
+              chooseFolders: () => Promise.resolve(true),
             }}>
             <Reader
               inbox={inbox}
