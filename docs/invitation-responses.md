@@ -59,10 +59,13 @@ separately.
   **{organizer} changed the time** with **You accepted the earlier time. Respond
   to the new time.** (or tentatively accepted, declined). No choice is selected,
   since the earlier answer was for the old time; after a response the card shows
-  it and keeps the badge and the earlier time. The card compares the latest earlier
-  SEQUENCE this device answered for the opened address; records saved before
-  #1834 have no time and show the plain unanswered card. A revision that changes
-  only other details, or an older revision, is unchanged.
+  it and keeps the badge and the earlier time. The card takes the highest earlier
+  SEQUENCE this device answered for the opened address and shows the update only
+  when that answer was confirmed and its start or end differs. An unknown delivery
+  there, or a record saved before #1834 without a time, shows the plain unanswered
+  card rather than an older answer that may no longer stand. A revision that
+  changes only other details, or an older revision (a later SEQUENCE was answered),
+  is unchanged.
 - A `METHOD:CANCEL` for one meeting
   ([#1826](https://github.com/unwired-dev/product/issues/1826)) shows the same
   details under **Cancelled by** the organizer, with a **Cancelled** badge, the

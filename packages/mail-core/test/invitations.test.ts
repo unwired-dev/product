@@ -1,4 +1,7 @@
-import type { ResponseState } from '@private-email/mail-core/invitations';
+import type {
+  InvitationChoice,
+  ResponseState,
+} from '@private-email/mail-core/invitations';
 import type { BodyDocument } from '@private-email/mail-core/message-body';
 
 import { english } from '@private-email/localization';
@@ -587,6 +590,44 @@ describe('meeting invitations', () => {
     });
 
     relaunch.close();
+  });
+
+  it('names the latest earlier answer, and none once a newer revision was answered', async () => {
+    expect.hasAssertions();
+    const { inbox, invitation, responses, close } = await invited();
+    const { uid, sequence } = invitation;
+    const { start, end = start } = invitation.details;
+    const at = Date.UTC(2026, 10, 1, 8, 0);
+    const answered = (
+      revision: number,
+      choice: InvitationChoice,
+      until: typeof end,
+    ) =>
+      inbox.recordResponse(
+        { uid, sequence: revision },
+        {
+          kind: 'sent',
+          uid,
+          sequence: revision,
+          choice,
+          at,
+          start,
+          end: until,
+        },
+      );
+    await answered(sequence - 2, 'accepted', { ...end, at: end.at + 1 });
+    // Only the end moved since this answer.
+    await answered(sequence - 1, 'tentative', { ...end, at: end.at - 1 });
+
+    expect(responses.earlier(invitation)).toMatchObject({
+      choice: 'tentative',
+    });
+
+    await answered(sequence + 1, 'declined', end);
+
+    expect(responses.earlier(invitation)).toBeUndefined();
+
+    close();
   });
 
   it('names no earlier answer it cannot compare or that was never confirmed', async () => {

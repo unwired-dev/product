@@ -705,8 +705,9 @@ function createInvitationResponses(
     );
   // The confirmed response to the latest earlier revision, when that revision was at another time.
   const earlierOf = (invitation: Invitation): EarlierResponse | undefined => {
+    // A newer answered revision makes this one an older version, which stays unchanged.
     const latest = recordsOf(invitation)
-      .filter(({ sequence }) => sequence < invitation.sequence)
+      .filter(({ sequence }) => sequence !== invitation.sequence)
       .reduce<InvitationResponse | undefined>(
         (found, record) =>
           found === undefined || record.sequence > found.sequence
@@ -715,6 +716,7 @@ function createInvitationResponses(
         undefined,
       );
     return latest !== undefined &&
+      latest.sequence < invitation.sequence &&
       timed(latest) &&
       !(
         sameTime(latest.start, invitation.details.start) &&
