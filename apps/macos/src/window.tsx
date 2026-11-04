@@ -15,7 +15,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -90,6 +89,10 @@ const NativeSidebar = requireNativeComponent<
     readonly thickness: number;
     readonly onCollapse: (
       event: NativeSyntheticEvent<{ readonly collapsed: boolean }>,
+    ) => void;
+    // Where the Inbox pane begins in the window, through each frame of AppKit's animation.
+    readonly onInset: (
+      event: NativeSyntheticEvent<{ readonly inset: number }>,
     ) => void;
   }
 >('UnwiredSidebar');
@@ -287,8 +290,8 @@ function WindowContents({
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
   const [panes, setPanes] = useState({ width: 0, height: 0 });
-  // How far into the window the panes begin: the sidebar's width while it shows.
-  const panesView = useRef<View>(null);
+  // How far into the window the panes begin, which AppKit reports through each frame of the
+  // sidebar's animation, so the search field stays centered on the window while the sidebar moves.
   const [panesInset, setPanesInset] = useState(0);
   const [view, setView] = useState<MailboxView>({});
   // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
@@ -360,6 +363,9 @@ function WindowContents({
         onCollapse={({ nativeEvent }) => {
           setCollapsed(nativeEvent.collapsed);
         }}
+        onInset={({ nativeEvent }) => {
+          setPanesInset(nativeEvent.inset);
+        }}
         style={styles.sidebarHost}>
         <View
           style={[
@@ -393,17 +399,11 @@ function WindowContents({
         <View
           style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
           <View
-            ref={panesView}
             testID={`window-panes-${windowId}`}
             onLayout={({ nativeEvent }) => {
               setPanes({
                 width: nativeEvent.layout.width,
                 height: nativeEvent.layout.height,
-              });
-              // The panes' leading edge in the window follows AppKit's sidebar animation frame by
-              // frame, so the search field stays centered on the window while the sidebar moves.
-              panesView.current?.measureInWindow((x) => {
-                setPanesInset(x);
               });
             }}
             style={styles.panes}>
