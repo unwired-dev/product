@@ -821,6 +821,14 @@ describe('meeting invitations', () => {
     expect(later.responses.latest(invitation)).toBe(newer);
 
     later.close();
+    // An online result must not keep a deleted message available.
+    const found = await inbox.searchGmail('Updated');
+    expect(found).toMatchObject({
+      kind: 'found',
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: newer }),
+      ]),
+    });
     // The answered message left the mailbox, so nothing opens it.
     gmail.remove(newer);
     await inbox.load();

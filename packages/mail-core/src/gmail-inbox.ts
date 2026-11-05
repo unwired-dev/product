@@ -1550,6 +1550,16 @@ export function createGmailInbox(
     });
   });
 
+  // Set when the open Inbox closes, until the next synchronization starts; synchronizations run one
+  // at a time, so this drops the late results of one started for the previous account.
+  let forgotten = false;
+  // Advances when the open Inbox closes, so a body or history read for the previous owner is dropped.
+  let owner = 0;
+  // Online search results, by Gmail ID, held for the reader until the open Inbox closes. They are
+  // never committed to the cache, and their bodies are read from Gmail without being saved.
+  // ponytail: grows only with the result pages the person asks for; evict when that matters.
+  const found = new Map<string, GmailMessage>();
+
   // Applies one Gmail history page from a current checkpoint.
   // fallow-ignore-next-line complexity -- Each history record kind settles the cache, its views and the recorded changes.
   const applyHistory = Effect.fnUntraced(function* (
@@ -1557,6 +1567,7 @@ export function createGmailInbox(
     document: MailboxDocument,
     checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'current' }>,
   ): Step {
+    const reading = owner;
     const history = yield* gmail(scope)(
       'history',
       [
@@ -1595,6 +1606,12 @@ export function createGmailInbox(
       changed,
       document.views !== undefined || document.history !== undefined,
     );
+    // Search results survive view removal, but not a confirmed deletion from Gmail.
+    if (!forgotten && owner === reading) {
+      for (const id of deleted) {
+        found.delete(id);
+      }
+    }
     const observed = document.notificationHistoryId ?? checkpoint.historyId;
     const added = new Set(
       records.flatMap((record) =>
@@ -1964,12 +1981,7 @@ export function createGmailInbox(
   }> = [];
   // A synchronization queued behind the running one.
   let waiting: Promise<void> | null = null;
-  // Set when the open Inbox closes, until the next synchronization starts; synchronizations run one
-  // at a time, so this drops the late results of one started for the previous account.
-  let forgotten = false;
   let ownership = 0;
-  // Advances when the open Inbox closes, so a body or history read for the previous owner is dropped.
-  let owner = 0;
   const messageOwners = new WeakMap<
     GmailMessage,
     { readonly ownership: number; readonly scope: MailboxScope }
@@ -2002,10 +2014,6 @@ export function createGmailInbox(
   // A body read that met a rejected grant keeps asking for Gmail until it is authorized.
   const shownSyncState = (): Sync =>
     authenticationRejected && sync !== 'retry' ? 'authentication' : sync;
-  // Online search results, by Gmail ID, held for the reader until the open Inbox closes. They are
-  // never committed to the cache, and their bodies are read from Gmail without being saved.
-  // ponytail: grows only with the result pages the person asks for; evict when that matters.
-  const found = new Map<string, GmailMessage>();
   // Membership at the last durable publication, before any later optimistic hiding.
   let settledMessages = new Set<string>();
   // A Gmail view is unfinished while listed; a Microsoft folder until its own delta round is current.
