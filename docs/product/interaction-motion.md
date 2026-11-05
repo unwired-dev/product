@@ -176,7 +176,7 @@ failure and Undo feedback at `cf070fb71` from static source inspection, plus the
 rendered component journeys in each host's `test/send.test.tsx`. Native VoiceOver
 qualification remains with #626.
 
-In the installed React Native 0.88.1 and react-native-macos 0.81.9,
+In React Native 0.86.3 (not re-checked on 0.88.1) and react-native-macos 0.81.9,
 `accessibilityLiveRegion` does not announce changes on Apple hosts, and
 `accessibilityRole="alert"` does not post an announcement. This slice uses
 `AccessibilityInfo.announceForAccessibilityWithOptions` with `queue: true` for
