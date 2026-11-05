@@ -68,15 +68,15 @@ import { useMailboxes, useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-// The iPhone and iPad card follows the Mac one in touch sizes: 14pt inset, Subheadline text, 18pt
-// corners on iPhone and the 10pt card corners iPad shares with Mac.
-// A row's value moves below its label when larger text leaves it too little room.
 // Opens another message of the reader's mailbox in its place, such as an invitation's newer
 // version; a reader without it opens none.
 export const OpenMessageContext = createContext<
   ((id: string) => void) | undefined
 >(undefined);
 
+// The iPhone and iPad card follows the Mac one in touch sizes: 14pt inset, Subheadline text, 18pt
+// corners on iPhone and the 10pt card corners iPad shares with Mac.
+// A row's value moves below its label when larger text leaves it too little room.
 const styles = StyleSheet.create({
   card: {
     gap: spacing.m,
