@@ -73,6 +73,8 @@ import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const phone = Platform.OS === 'ios' && !Platform.isPad;
+// iPad's rules are the Mac recipe's point at 1.15×, as its frames draw them.
+const rule = phone ? StyleSheet.hairlineWidth : ipadListScale;
 // The From pop-up shows a 33.6pt capsule on iPhone and a 32.2pt one on iPad within its 44pt
 // target, as the Compose frames draw it.
 const quietHeight = phone ? 33.6 : 28 * ipadListScale;
@@ -151,8 +153,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     paddingHorizontal: spacing.l * ipadListScale,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: rule,
+    borderBottomWidth: rule,
   },
   formatRail: { flex: 1 },
   formatTarget: { height: 44 },
@@ -164,7 +166,7 @@ const styles = StyleSheet.create({
   },
   // 18.4pt tall, 4.6pt from the glyph boxes beside it.
   divider: {
-    width: StyleSheet.hairlineWidth,
+    width: rule,
     height: 16 * ipadListScale,
   },
   // The Text style pull-down's label: its symbol, the style and the pop-up chevrons.

@@ -141,11 +141,11 @@ const styles = StyleSheet.create({
   compactCount: { ...textStyles.subheadline },
   count: { ...typography.ipadList.body },
   // As the frames draw it, Settings sits 6.9pt beneath their 1.15pt rule and 11.2pt above the
-  // panel's edge; the hairline keeps the rule's top.
+  // panel's edge.
   footer: {
-    paddingTop: 7 * ipadListScale - StyleSheet.hairlineWidth,
+    paddingTop: 6 * ipadListScale,
     paddingBottom: 11.2,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: ipadListScale,
   },
   switcher: {
     minHeight: 28 * ipadListScale,

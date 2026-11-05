@@ -33,9 +33,13 @@ const symbolWidths: Readonly<Record<string, number>> = ipad
   ? { 'lock.fill': 14.03, 'tray.2': 20.7, 'arrow.clockwise': 15.41 }
   : { 'lock.fill': 13.725, 'tray.2': 20.25, 'arrow.clockwise': 15.075 };
 // The frames' symbols draw smaller than UIKit's at their size: 14.5pt matches the iPhone frames'
-// ink, and on iPad each symbol takes the size whose ink best matches its own artwork.
+// ink, and on iPad each symbol takes the size whose ink best matches its own artwork. The iPad
+// tray's ink sits a point higher in its line than UIKit centres it.
 const ipadPointSymbolSizes: Readonly<Partial<Record<string, number>>> = ipad
-  ? { 'lock.fill': 14.5, 'tray.2': 14.15, 'arrow.clockwise': 13.75 }
+  ? { 'lock.fill': 14.5, 'tray.2': 14.4, 'arrow.clockwise': 14.25 }
+  : {};
+const ipadPointSymbolOffsets: Readonly<Partial<Record<string, number>>> = ipad
+  ? { 'tray.2': -1 }
   : {};
 
 const styles = StyleSheet.create({
@@ -430,7 +434,14 @@ export function Welcome({
               <View
                 key={icon}
                 style={[styles.point, ipad && styles.ipadPoint]}>
-                <View style={[styles.pointIcon, { width: symbolWidths[icon] }]}>
+                <View
+                  style={[
+                    styles.pointIcon,
+                    {
+                      width: symbolWidths[icon],
+                      top: ipadPointSymbolOffsets[icon],
+                    },
+                  ]}>
                   <SFSymbol
                     name={icon}
                     size={ipadPointSymbolSizes[icon] ?? 14.5}

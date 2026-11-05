@@ -78,13 +78,20 @@ const type = settingsColumns
     };
 
 // UIKit draws these symbols larger than the iPad frames' artwork at the frames' size; these sizes
-// match the frames' ink in the sidebar and in content rows.
+// match the frames' ink in the sidebar and in content rows. The frames' translate ink sits a point
+// right of its slot's centre, and their at ink 1.5pt below its row's centre.
 const itemSymbolSizes: Readonly<Partial<Record<string, number>>> = {
-  translate: 12,
+  translate: 11.5,
+};
+const itemSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
+  translate: 1,
 };
 const rowSymbolSizes: Readonly<Partial<Record<string, number>>> = {
-  at: 15.5,
+  at: 15,
   photo: 13.8,
+};
+const rowSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
+  at: 1.5,
 };
 
 // A push button in a Settings row; `title` is its visible text when the label names its target.
@@ -104,6 +111,8 @@ const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 const rowPadding = settingsColumns ? 10 * ipadListScale : spacing.m;
 const phoneButtonHeight = 36.4;
 const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
+// iPad's row rules are the Mac recipe's point at 1.15×, as its frames draw them.
+const rule = settingsColumns ? ipadListScale : StyleSheet.hairlineWidth;
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -216,12 +225,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: rowInset,
     paddingVertical: spacing.m,
   },
+  // iPad's thicker rule ends where a hairline would, so the rows keep their places and the group
+  // still hides the first.
   separator: {
     position: 'absolute',
-    top: 0,
+    top: StyleSheet.hairlineWidth - rule,
     left: rowInset,
     right: rowInset,
-    height: StyleSheet.hairlineWidth,
+    height: rule,
   },
   footer: { paddingHorizontal: rowInset },
   monogram: { alignItems: 'center', justifyContent: 'center' },
@@ -313,7 +324,7 @@ function SidebarItem({
           backgroundColor: colors.accentSelectionSubtle,
         },
       ]}>
-      <View style={styles.itemIcon}>
+      <View style={[styles.itemIcon, { left: itemSymbolOffsets[icon] }]}>
         <SFSymbol
           name={icon}
           size={itemSymbolSizes[icon] ?? ipadFrameSymbolSize}
@@ -851,7 +862,11 @@ export function SettingsRow({
     <View style={[styles.row, minHeight === undefined ? null : { minHeight }]}>
       <Hairline />
       {typeof icon === 'string' ? (
-        <View style={styles.rowIcon}>
+        <View
+          style={[
+            styles.rowIcon,
+            settingsColumns && { top: rowSymbolOffsets[icon] },
+          ]}>
           <SFSymbol
             name={icon}
             size={

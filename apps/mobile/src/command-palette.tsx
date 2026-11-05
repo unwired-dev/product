@@ -7,6 +7,7 @@ import type {
 import type { ReactNode } from 'react';
 import type {
   GestureResponderEvent,
+  LayoutRectangle,
   TextInput as TextInputHandle,
   StyleProp,
   ViewProps,
@@ -417,14 +418,8 @@ function paletteFrame(
       },
     ],
     field: [styles.field, styles.anchoredField],
-    // Glass over the frames' glass fill, as the sidebar panels draw it, so no mail shows through.
-    panel: [
-      styles.popoverPanel,
-      {
-        backgroundColor: colors.surfacePanel,
-        boxShadow: colors.menuGlassShadow,
-      },
-    ],
+    // The commands over the frames' glass, which PanelGlass lays beneath them.
+    panel: [styles.popoverPanel, { boxShadow: colors.menuGlassShadow }],
   };
 }
 
@@ -458,6 +453,7 @@ function Palette({
   const [choiceQuery, setChoiceQuery] = useState('');
   // Commands whose message disappeared after the palette opened.
   const [gone, setGone] = useState<readonly string[]>([]);
+  const [panel, setPanel] = useState<LayoutRectangle>();
   const input = useRef<TextInputHandle>(null);
   // Closing hands the keyboard back unless another control already took focus.
   useEffect(() => {
@@ -539,6 +535,11 @@ function Palette({
         accessibilityRole="button"
         onPress={close}
         style={[StyleSheet.absoluteFill, { backgroundColor: frame.scrim }]}
+      />
+      <PanelGlass
+        anchor={anchor}
+        motion={motion}
+        panel={panel}
       />
       <Animated.View
         style={[{ transform: motion.style.transform }, frame.body]}>
@@ -638,8 +639,11 @@ function Palette({
             </Text>
           </View>
         )}
-        <View style={frame.panel}>
-          {anchor === undefined ? null : <Glass cornerRadius={radius.window} />}
+        <View
+          onLayout={(event) => {
+            setPanel(event.nativeEvent.layout);
+          }}
+          style={frame.panel}>
           <ScrollView
             // The sheet can reach below the software keyboard; the commands it covers scroll above it.
             automaticallyAdjustKeyboardInsets
@@ -665,6 +669,36 @@ function Palette({
           </ScrollView>
         </View>
       </Animated.View>
+    </Animated.View>
+  );
+}
+
+// The iPad popover's glass beneath its commands. UIKit leaves glass inside the popover's own views
+// clear, so it is drawn beside them at the panel's frame and moves with them.
+function PanelGlass({
+  anchor,
+  panel,
+  motion,
+}: {
+  readonly anchor: Anchor | undefined;
+  readonly panel: LayoutRectangle | undefined;
+  readonly motion: ReturnType<typeof useMenuMotion>;
+}) {
+  if (anchor === undefined || panel === undefined) {
+    return null;
+  }
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: anchor.x + panel.x,
+        top: anchor.y + panel.y,
+        width: panel.width,
+        height: panel.height,
+        transform: motion.style.transform,
+      }}>
+      <Glass cornerRadius={radius.window} />
     </Animated.View>
   );
 }

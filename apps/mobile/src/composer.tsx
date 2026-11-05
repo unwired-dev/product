@@ -193,11 +193,12 @@ const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 const padFieldInset = 24 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
-// Compact 36pt and regular 41.4pt field rows reach 44pt targets. iPhone's 36pt includes the
-// row's 1.25pt rule.
+// Compact 36pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
+// iPhone's 1.25pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
 const compactRule = 1.25;
 const compactFieldHeight = 36 - compactRule;
-const padFieldHeight = 36 * ipadListScale;
+const padRule = ipadListScale;
+const padFieldHeight = 36 * ipadListScale - padRule;
 const titledSendHeight = 28 * ipadListScale;
 export const fieldSlop = {
   compact: (44 - compactFieldHeight) / 2,
@@ -248,7 +249,7 @@ const styles = StyleSheet.create({
     paddingTop: 9 * ipadListScale - (44 - titledSendHeight) / 2,
     paddingBottom: 12 * ipadListScale - (44 - titledSendHeight) / 2,
     paddingHorizontal: padFieldInset,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: padRule,
   },
   // iPad's Send is the Mac button at 1.15×: 65.6×32.2pt with 6.9pt corners, within its 44pt target.
   sendTitled: {
@@ -292,7 +293,7 @@ const styles = StyleSheet.create({
   },
   // The format bar's separators: 18.4pt tall, 4.6pt from the glyph boxes beside them.
   divider: {
-    width: StyleSheet.hairlineWidth,
+    width: padRule,
     height: 16 * ipadListScale,
   },
   content: { paddingBottom: spacing.s },
@@ -457,8 +458,9 @@ export const layoutStyles = {
     fields: { paddingHorizontal: padFieldInset },
     field: {
       gap: spacing.s * ipadListScale,
-      minHeight: padFieldHeight,
+      minHeight: 36 * ipadListScale,
       paddingVertical: 0,
+      borderTopWidth: padRule,
     },
     fieldLabel: {
       ...typography.ipadList.body,
