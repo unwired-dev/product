@@ -1101,6 +1101,27 @@ export const createInvitationFormats = (locale: string): InvitationFormats => ({
   earlierAllDay: new Intl.DateTimeFormat(locale, { ...days, timeZone: 'UTC' }),
 });
 
+// Whether every meeting in a series starts, and ends, on the first meeting's local weekday and time.
+const sameLocalTimes = (
+  formats: InvitationFormats,
+  starts: readonly number[],
+  {
+    start,
+    end,
+  }: Readonly<{ start: InvitationTime; end: InvitationTime | undefined }>,
+) => {
+  const local = (meeting: number) =>
+    `${formats.weekday.format(meeting)} ${formats.time.format(meeting)}`;
+  const first = local(start.at);
+  const last = end === undefined ? undefined : local(end.at);
+  const length = end === undefined ? 0 : end.at - start.at;
+  return starts.every(
+    (meeting) =>
+      local(meeting) === first &&
+      (last === undefined || local(meeting + length) === last),
+  );
+};
+
 // When the meeting happens in the device's time zone: a day, or a day with its start and end. A
 // weekly series names its weekday instead of a day when the meeting ends on the day it starts and
 // every meeting has the same local start and end, which a daylight-saving change can break;
@@ -1131,17 +1152,10 @@ export function invitationWhen(
   const sameDay =
     end !== undefined &&
     formats.day.format(start.at) === formats.day.format(end.at);
-  const local = (meeting: number) =>
-    `${formats.weekday.format(meeting)} ${formats.time.format(meeting)}`;
   const weekly =
     starts !== undefined &&
     (end === undefined || sameDay) &&
-    starts.every(
-      (meeting) =>
-        local(meeting) === local(start.at) &&
-        (end === undefined ||
-          local(meeting + end.at - start.at) === local(end.at)),
-    );
+    sameLocalTimes(formats, starts, { start, end });
   const date = weekly
     ? t('invitation.weekdays', {
         context:
