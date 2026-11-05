@@ -172,9 +172,18 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
           const previous = desired;
           desired = update(desired);
           const { profiles, privateCloud } = desired;
-          const saved = yield* call(() =>
+          yield* call(() =>
             native.setMailAssistance(owner, profiles, privateCloud),
           ).pipe(
+            Effect.tap((saved) =>
+              Effect.sync(() => {
+                // A registration change meanwhile reads the enablement again instead.
+                if (generation === saving && change === revision) {
+                  saveState = 'idle';
+                  publish(saved);
+                }
+              }),
+            ),
             Effect.catchTag('MailAssistanceNativeFailure', (failure) =>
               Effect.gen(function* () {
                 yield* logFailure(
@@ -194,15 +203,6 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
               }),
             ),
           );
-          // A registration change meanwhile reads the enablement again instead.
-          if (
-            saved !== undefined &&
-            generation === saving &&
-            change === revision
-          ) {
-            saveState = 'idle';
-            publish(saved);
-          }
         }),
       ),
     );
