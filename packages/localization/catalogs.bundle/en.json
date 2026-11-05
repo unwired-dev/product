@@ -959,6 +959,7 @@
     "rowLabelShortened": "Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened.",
     "from": "From {{from}}",
     "fromLabel": "From",
+    "fromAddress": "From {{address}}",
     "noSubject": "No subject",
     "noRecipients": "No recipients",
     "fields": {

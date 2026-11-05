@@ -73,6 +73,7 @@ import {
   inboxFocused,
   reopenSettingsWhileClosing,
   settingsOpen,
+  settingsOpenings,
   settingsWindow,
 } from './settings-window.tsx';
 import { started } from './started.ts';
@@ -336,7 +337,7 @@ const continueToSignIn = async () => {
 };
 
 const openAccount = async () => {
-  const account = await screen.findByRole('button', { name: 'Account' });
+  const account = await screen.findByRole('button', { name: 'Settings' });
   await act(async () => {
     await fireEvent.press(account);
   });
@@ -1184,6 +1185,7 @@ describe('product registration', () => {
                   onSelect={() => undefined}
                   selected={undefined}
                 />
+                <CommandBar />
               </InboxProvider>
             </RegistrationGate>
           </CommandPaletteProvider>
@@ -1224,13 +1226,17 @@ describe('product registration', () => {
       ).toBeNull();
       // The Inbox palette's Account command reaches the same window, which keeps its place.
       await menu.choose('account');
+      expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
+      const openings = settingsOpenings();
       await act(async () => {
         await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
       });
       expect({
+        opened: settingsOpenings() - openings,
         windows: screen.getAllByTestId('settings-window'),
         selected: selected(),
       }).toStrictEqual({
+        opened: 1,
         windows: [expect.anything()],
         selected: ['Email Accounts'],
       });
@@ -3090,7 +3096,7 @@ describe('product registration', () => {
     expect(screen.queryByText(recoveryKeyOf(synthetic))).toBeNull();
     await closeSettings();
     await expect(
-      screen.findByRole('button', { name: 'Account' }),
+      screen.findByRole('button', { name: 'Settings' }),
     ).resolves.toBeVisible();
   });
 
@@ -3454,7 +3460,7 @@ describe('product registration', () => {
       await read;
     });
     await expect(
-      screen.findByRole('button', { name: 'Account' }),
+      screen.findByRole('button', { name: 'Settings' }),
     ).resolves.toBeVisible();
   });
 

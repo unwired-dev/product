@@ -199,6 +199,8 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @property (nonatomic) BOOL destructive;
 @property (nonatomic) BOOL enabled;
 @property (nonatomic) BOOL returnKey;
+// Welcome's Continue: the extra large size.
+@property (nonatomic) BOOL large;
 @property (nonatomic, copy) RCTDirectEventBlock onPress;
 @end
 
@@ -212,6 +214,8 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
     _button = [UnwiredFocusButton new];
     _button.bezelStyle = NSBezelStylePush;
     _button.controlSize = NSControlSizeLarge;
+    // A rounded rectangle, as the frames draw every push button, rather than the large size's capsule.
+    _button.borderShape = NSControlBorderShapeRoundedRectangle;
     _button.wantsLayer = YES;
     _button.target = self;
     _button.action = @selector(press);
@@ -232,6 +236,11 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 - (void)setEnabled:(BOOL)enabled { _enabled = enabled; [self render]; }
 // Return presses the window's default button when the focused view does not take the key itself.
 - (void)setReturnKey:(BOOL)returnKey { _returnKey = returnKey; _button.keyEquivalent = returnKey ? @"\r" : @""; }
+- (void)setLarge:(BOOL)large
+{
+  _large = large;
+  _button.controlSize = large ? NSControlSizeExtraLarge : NSControlSizeLarge;
+}
 - (void)render
 {
   _button.enabled = self.enabled;
@@ -1188,6 +1197,8 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 @property (nonatomic) BOOL pullsDown;
 // A reader toolbar's pull-down: only its symbol, like the toolbar's buttons, with no bezel or arrow.
 @property (nonatomic) BOOL toolbar;
+// A Settings row's trailing value: its title and chevrons on the row, with no bezel.
+@property (nonatomic) BOOL borderless;
 @property (nonatomic, copy) NSString *label;
 @property (nonatomic, copy) NSColor *destructiveColor;
 @property (nonatomic) BOOL enabled;
@@ -1223,12 +1234,12 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
     if (self.toolbar) {
       // Drawn as UnwiredSymbolView draws the toolbar's buttons.
-      shown.image = UnwiredSymbolImage(self.symbol, 16);
+      shown.image = UnwiredSymbolImage(self.symbol, 14);
     }
   }
   // A pull-down shows its first item, which its menu leaves out.
   _button.pullsDown = self.pullsDown;
-  _button.bordered = !self.toolbar;
+  _button.bordered = !self.toolbar && !self.borderless;
   _button.imagePosition = self.toolbar ? NSImageOnly : NSImageLeft;
   _button.contentTintColor = self.toolbar ? NSColor.labelColor : nil;
   if (_button.pullsDown) [menu insertItem:shown atIndex:0];
@@ -1462,6 +1473,7 @@ RCT_EXPORT_VIEW_PROPERTY(focusColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(returnKey, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(large, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }
 @end
@@ -1476,6 +1488,7 @@ RCT_EXPORT_VIEW_PROPERTY(text, NSString)
 RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
 RCT_EXPORT_VIEW_PROPERTY(pullsDown, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(toolbar, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(borderless, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(label, NSString)
 RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)

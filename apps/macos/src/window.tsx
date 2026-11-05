@@ -9,7 +9,7 @@ import {
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
 import { windowProfile } from '@private-email/mail-core/profile-windows';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { spacing } from '@private-email/mail-core/theme';
 import {
   use,
   useCallback,
@@ -104,18 +104,18 @@ const styles = StyleSheet.create({
   // The sidebar's children fill its pane; the host itself takes no space in the Inbox.
   sidebarHost: { position: 'absolute', top: 0, bottom: 0, left: 0, width: 0 },
   sidebarPane: { width: sidebarPaneWidth, height: '100%' },
-  // The floating glass sidebar, inset from the pane's edges.
+  // The floating glass sidebar, inset from the pane's edges, with the frames' 18pt corners.
   sidebar: {
     flex: 1,
     margin: spacing.s,
     padding: 0,
-    borderRadius: radius.window,
+    borderRadius: 18,
     borderCurve: 'continuous',
     backgroundColor: 'transparent',
   },
   sidebarBacking: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: radius.window,
+    borderRadius: 18,
     borderCurve: 'continuous',
   },
   detail: { flex: 1 },

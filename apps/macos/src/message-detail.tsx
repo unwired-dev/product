@@ -90,6 +90,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   from: { flexDirection: 'row', gap: spacing.m, alignItems: 'flex-start' },
+  // A header narrower than 400pt, as beside the sidebar in a 901pt window, puts the date beneath
+  // the sender rather than squeeze the sender into a column.
+  fromStacked: { flexDirection: 'column', gap: 2 },
   // The sender's line, then the mailbox 2pt beneath it, as the frames' sender and recipients sit.
   fromText: { flex: 1 },
   sender: { ...textStyles.bodyEmphasized },
@@ -582,6 +585,7 @@ function MailboxMessage({
   const mailbox = useMailbox();
   const address = mailbox?.address;
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
+  const [stackedHeader, setStackedHeader] = useState(false);
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
@@ -688,7 +692,11 @@ function MailboxMessage({
                     styles.metadata,
                     { borderBottomColor: colors.separator },
                   ]}>
-                  <View style={styles.from}>
+                  <View
+                    onLayout={({ nativeEvent }) => {
+                      setStackedHeader(nativeEvent.layout.width < 400);
+                    }}
+                    style={stackedHeader ? styles.fromStacked : styles.from}>
                     <ContextMenu
                       accessible
                       accessibilityRole="text"
@@ -701,7 +709,7 @@ function MailboxMessage({
                           Clipboard.setString(message.address);
                         }
                       }}
-                      style={styles.fromText}
+                      style={stackedHeader ? undefined : styles.fromText}
                       sections={[
                         {
                           items: [

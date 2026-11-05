@@ -147,7 +147,12 @@ export function MailAssistanceSettings({
   return (
     <SettingsGroup
       title={t('mailAssistance.title')}
-      accessory={<OnDeviceMarker label={t('settings.onDevice')} />}
+      accessory={
+        <OnDeviceMarker
+          compact
+          label={t('settings.onDevice')}
+        />
+      }
       footer={t('mailAssistance.description')}>
       <ProfileSwitch
         account={account}

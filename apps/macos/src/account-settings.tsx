@@ -36,7 +36,12 @@ import { TrustCard } from './onboarding.tsx';
 import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
-import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  SettingsBlock,
+  SettingsGroup,
+  SettingsRow,
+  SettingsRowButton,
+} from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TrustedDevices } from './trusted-devices.tsx';
 
@@ -585,6 +590,7 @@ export function AccountActions({
   const colors = usePalette();
   const { t } = useLocalization();
   const [confirming, setConfirming] = useState<AccountRemoval>();
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const selected = pending ?? confirming;
   const confirmation =
     selected === 'sign-out'
@@ -619,15 +625,21 @@ export function AccountActions({
         </SettingsRow>
       ) : null}
       {selected === undefined ? (
-        <SettingsBlock>
-          {button(
-            t('accountRemoval.delete'),
-            async () => {
-              setConfirming('deletion');
-            },
-            { title: t('settings.delete'), tone: 'destructive' },
-          )}
-        </SettingsBlock>
+        // The whole row is the destructive action, as the Settings frames draw it.
+        <SettingsRowButton
+          accessibilityRole="button"
+          accessibilityLabel={t('accountRemoval.delete')}
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          onPress={() => {
+            setConfirming('deletion');
+          }}>
+          <SettingsRow
+            title={t('settings.delete')}
+            titleTone="destructive"
+            disabled={busy}
+          />
+        </SettingsRowButton>
       ) : (
         <SettingsBlock>
           <Label style={[styles.text, { color: colors.textPrimary }]}>

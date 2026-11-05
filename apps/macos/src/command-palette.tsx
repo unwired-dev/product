@@ -224,7 +224,6 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: radius.card + 2,
     borderCurve: 'continuous',
-    borderWidth: StyleSheet.hairlineWidth,
   },
   backRow: {
     flexDirection: 'row',
@@ -265,6 +264,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
+  // An 18pt slot, so names start 34pt into the row.
+  rowIcon: { width: 18, alignItems: 'center' },
   title: { ...textStyles.body, flex: 1 },
   // A command that cannot run keeps its name legible but recedes behind its reason.
   dimmed: { opacity: 0.35 },
@@ -619,6 +620,7 @@ export function CommandBar({
               <SFSymbol
                 name="command"
                 color={colors.textSecondary}
+                size={13}
               />
               {compact ? null : (
                 <>
@@ -839,18 +841,20 @@ function Palette({
             // The account page's input sits at the window's trailing edge, so its panel hangs
             // from there.
             ...(trailing ? { right: 0 } : { left: panelLeft }),
-            borderColor: colors.separator,
-            boxShadow: colors.menuShadow,
+            boxShadow: colors.macMenuGlassShadow,
           },
           style,
         ]}
         testID="command-palette">
         {/* React Native's legacy view interop mounts a nested native view without its offset,
-            so the glass sits in a plain view inside the panel's border. */}
+            so the glass sits in a plain view; its rim edges the panel. */}
         <View
           collapsable={false}
           style={StyleSheet.absoluteFill}>
-          <Glass cornerRadius={radius.card + 2} />
+          <Glass
+            cornerRadius={radius.card + 2}
+            panel
+          />
         </View>
         {choosing === undefined ? null : (
           <View
@@ -998,6 +1002,7 @@ function QueryField({
       <SFSymbol
         name="command"
         color={colors.textPrimary}
+        size={13}
       />
       {choosing === undefined ? null : (
         <Text
@@ -1015,6 +1020,8 @@ function QueryField({
         accessibilityLabel={prompt}
         autoCapitalize="none"
         autoCorrect={false}
+        // The ring around the whole input shows its focus.
+        enableFocusRing={false}
         key={choosing === undefined ? 'commands' : 'choices'}
         keyDownEvents={handledKeys}
         onChangeText={onChangeText}
@@ -1169,10 +1176,11 @@ function CommandRow({
         pressed ? { backgroundColor: colors.accentSelectionSubtle } : null,
         highlighted ? { backgroundColor: colors.accentFill } : null,
       ]}>
-      <View style={dimmed}>
+      <View style={[styles.rowIcon, dimmed]}>
         <SFSymbol
           name={icon}
           color={color}
+          size={14}
         />
       </View>
       <Text

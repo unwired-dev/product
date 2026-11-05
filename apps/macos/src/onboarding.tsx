@@ -26,16 +26,33 @@ import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
+  // The frame's 420pt block, from the seal to Continue, sits 20pt below the window's centre; the
+  // top padding also balances Privacy & Data (44pt) hanging below it.
   welcome: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 160,
-    paddingVertical: 40,
+    paddingTop: 124,
+    paddingBottom: 40,
   },
   welcomeContent: { maxWidth: 520 },
   seal: { width: 18, height: 18, borderRadius: 9, marginBottom: 24 },
-  headline: { fontSize: 52, lineHeight: 58, fontWeight: '400' },
-  lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.8 },
+  headline: {
+    fontSize: 52,
+    lineHeight: 58,
+    fontWeight: '400',
+    letterSpacing: -1.04,
+  },
+  // The frame's 520pt lede in its untracked SF Pro: AppKit tracks 15pt text tighter, so tracking
+  // restores the frame's widths, and 500pt keeps its line breaks.
+  lede: {
+    maxWidth: 500,
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: 0.23,
+    marginTop: spacing.xl,
+    opacity: 0.78,
+  },
   status: { fontSize: 15, lineHeight: 20, opacity: 0.78 },
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   restoringStatus: { position: 'absolute', top: 0, left: 0, right: 0 },
@@ -48,9 +65,24 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  points: { gap: 14, marginTop: 36, marginBottom: 28 },
-  point: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  pointText: { fontSize: 15, lineHeight: 16, opacity: 0.85 },
+  points: { marginTop: 36, marginBottom: 28 },
+  // A 20pt line and 14pt below it, as each of the frame's 34pt rows.
+  point: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingBottom: 14,
+  },
+  // The frame's symbols are 70% of the label's ink.
+  pointIcon: { opacity: 0.7 },
+  // AppKit tracks 15pt SF Pro tighter than the frame's untracked labels; this restores their
+  // measured widths.
+  pointText: {
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: 0.22,
+    opacity: 0.85,
+  },
   continue: { alignSelf: 'flex-start', minWidth: 160 },
   split: { flex: 1, flexDirection: 'row' },
   brandPanel: {
@@ -62,8 +94,21 @@ const styles = StyleSheet.create({
   sealSmall: { width: 14, height: 14, borderRadius: 7, marginBottom: 12 },
   wordmark: { fontSize: 22, lineHeight: 26 },
   tagline: { ...textStyles.body, marginTop: spacing.s, opacity: 0.85 },
-  form: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  formContent: { width: '100%', maxWidth: 320, gap: spacing.m },
+  // The form keeps the frame's place, 200pt into its pane and 250pt down; anything the page adds
+  // follows below it. A narrower window gives up the inset first, then the form's width, down to
+  // 16pt margins.
+  form: {
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.l,
+    paddingTop: 250,
+    paddingBottom: 40,
+  },
+  // The rest of the frame's 200pt inset, from the pane's free width only.
+  formInset: { flexGrow: 1, maxWidth: 200 - spacing.l },
+  formContent: { flexBasis: 341, flexShrink: 1, gap: spacing.m },
+  formActions: { maxWidth: 320, gap: spacing.m },
   title: { fontSize: 22, lineHeight: 26 },
   description: { ...textStyles.body },
   finePrint: { ...textStyles.subheadline, marginTop: spacing.m },
@@ -209,9 +254,27 @@ export function Welcome({
   const [privacyFocused, setPrivacyFocused] = useState(false);
   const ink = { color: colors.brandOnDeep };
   const concealed = restoring ? styles.hidden : undefined;
+  // Each symbol takes its own width, as in the frame. tray.2 is wider than the 1.25× cap on a
+  // symbol's size, so at 13pt its ink is the frame's 14.4pt.
   const points = [
-    { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
-    { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
+    {
+      icon: 'lock.fill',
+      size: 13,
+      width: 12.2,
+      text: t('onboarding.welcome.assistance'),
+    },
+    {
+      icon: 'tray.2',
+      size: 13,
+      width: 18,
+      text: t('onboarding.welcome.mailProfiles'),
+    },
+    {
+      icon: 'arrow.clockwise',
+      size: 13,
+      width: 13.4,
+      text: t('onboarding.welcome.privateSync'),
+    },
   ];
   return (
     <ScrollView
@@ -244,15 +307,20 @@ export function Welcome({
               {t('onboarding.welcome.description')}
             </Label>
             <View style={styles.points}>
-              {points.map(({ icon, text }) => (
+              {points.map(({ icon, size, width, text }) => (
                 <View
                   key={icon}
                   style={styles.point}>
-                  <SFSymbol
-                    name={icon}
-                    size={13}
-                    color={colors.brandOnDeep}
-                  />
+                  {/* A plain view takes the opacity once; the native symbol view would apply it
+                      twice. */}
+                  <View style={styles.pointIcon}>
+                    <SFSymbol
+                      name={icon}
+                      size={size}
+                      color={colors.brandOnDeep}
+                      style={{ width, height: 20 }}
+                    />
+                  </View>
                   <Label style={[styles.pointText, ink]}>{text}</Label>
                 </View>
               ))}
@@ -343,6 +411,7 @@ export function SignIn({
         </Label>
       </View>
       <ScrollView contentContainerStyle={styles.form}>
+        <View style={styles.formInset} />
         <View style={styles.formContent}>
           <Label
             accessibilityRole="header"
@@ -353,7 +422,7 @@ export function SignIn({
             {description}
           </Label>
           <View style={{ height: spacing.l }} />
-          {actions}
+          <View style={styles.formActions}>{actions}</View>
           {children}
         </View>
       </ScrollView>
@@ -401,6 +470,8 @@ export function OnboardingAction({
       style={({ pressed }) => [
         styles.action,
         {
+          borderWidth: 1,
+          borderColor: colors.separator,
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
             : colors.fillQuiet,

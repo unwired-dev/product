@@ -65,6 +65,28 @@ export const palette = {
     // Mac sidebars' glass; Dark backs it so secondary text keeps 4.5:1 over bright desktops.
     materialSidebarBacking: 'transparent',
     surfaceBubble: '#F1F1F4',
+    // Behind Mac Liquid Glass controls: the frames' glass fill (#F8F8F8 Light, #1A1A1A Dark), which
+    // AppKit's glass cannot tint to, with a tenth of the glass's own light over it, as measured
+    // against the frames.
+    macGlassFill: '#F8F8F8',
+    macGlassOpacity: 0.1,
+    // Around and inside that fill, the frames' Liquid Glass - Medium: a 0.5pt rim outside it,
+    // darker at the sides, and highlights along the inside of the top and bottom edges. The frames
+    // burn and dodge these into the backdrop; these are their measured equivalents in ordinary
+    // blending.
+    macGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.15), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.15), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+    // The search field's 40pt glass shows a fainter top seam than the smaller controls.
+    macSearchGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.107), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.15), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+    // The same rim on glass menu panels, whose fill lets AppKit's own rim show through it; Light's
+    // bottom seam is darker.
+    macPanelGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.15), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.2), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+    // Glass menu panels, such as the Command Palette: AppKit's glass blurs what lies beneath, and
+    // this fill over it lets some of that show through. Over a plain reader the two make the
+    // frames' glass fill, as measured: AppKit's glass alone is lighter than the frames' fill.
+    macPanelGlassFill: 'rgba(246, 246, 246, 0.7)',
     // The tint under iPhone and iPad Liquid Glass, measured on iOS 27 so glass over the content
     // surface renders the frames' glass fill: #F8F8F8 in Light, #1A1A1A in Dark.
     glassTint: '#C6C6C6',
@@ -79,6 +101,8 @@ export const palette = {
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.08)',
     menuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
+    // The Mac frames' glass menu panels, such as the Command Palette.
+    macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
     scrimTouch: 'rgba(0, 0, 0, 0.22)',
     // Menus, popovers and sheets, which float above the content.
     menuShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
@@ -109,6 +133,19 @@ export const palette = {
     surfacePanel: '#1A1A1A',
     materialSidebarBacking: 'rgba(42, 42, 44, 0.92)',
     surfaceBubble: '#2C2C2E',
+    macGlassFill: '#1A1A1A',
+    macGlassOpacity: 0.1,
+    // Dark's rim burns to black; a 1pt crest tops a short glow, and the bottom's crest and glow
+    // are softer and longer.
+    macGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px -0.5px 0px 0px rgba(0, 0, 0, 1), 0px 0.5px 0px 0px rgba(0, 0, 0, 1), inset 0px 41px 0px -40px rgba(255, 255, 255, 0.162), inset 0px -41px 0px -40px rgba(255, 255, 255, 0.057), inset 0px -40.5px 0px -40px rgba(255, 255, 255, 0.104), inset 0px 40px 7px -40px rgba(255, 255, 255, 0.093), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.136)',
+    macSearchGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.36), 0px 0.5px 0px 0px rgba(0, 0, 0, 1), inset 0px 41px 0px -40px rgba(255, 255, 255, 0.162), inset 0px -41px 0px -40px rgba(255, 255, 255, 0.057), inset 0px -40.5px 0px -40px rgba(255, 255, 255, 0.104), inset 0px 40px 7px -40px rgba(255, 255, 255, 0.093), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.136)',
+    // On a panel AppKit's rim adds to the crests, so they are fainter, and the top glow is fainter
+    // still.
+    macPanelGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px -0.5px 0px 0px rgba(0, 0, 0, 1), 0px 0.5px 0px 0px rgba(0, 0, 0, 1), inset 0px 41px 0px -40px rgba(255, 255, 255, 0.14), inset 0px -41px 0px -40px rgba(255, 255, 255, 0.065), inset 0px 40px 10px -40px rgba(255, 255, 255, 0.05), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.11)',
+    macPanelGlassFill: 'rgba(14, 14, 14, 0.7)',
     glassTint: '#3B3B3B',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
     fillControl: 'rgba(255, 255, 255, 0.07)',
@@ -119,6 +156,7 @@ export const palette = {
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.3)',
     menuGlassShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
+    macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.4)',
     // The iPad Compose frames dim the #1E1E1E content to #121212.
     scrimTouch: 'rgba(0, 0, 0, 0.4)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',

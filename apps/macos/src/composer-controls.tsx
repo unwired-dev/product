@@ -46,12 +46,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: spacing.s,
   },
+  // The frame's Text Style sits 24pt in and draws its symbol 8pt inside that; AppKit's borderless
+  // pop-up draws it 3pt in.
   formatBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.l,
+    paddingLeft: 29,
+    paddingRight: spacing.l,
     paddingVertical: spacing.xs,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -65,6 +68,13 @@ const styles = StyleSheet.create({
   popUpSizing: { opacity: 0, paddingHorizontal: 25 },
   // A titled pull-down also draws its symbol, about 20pt with its gap, before the title.
   symbolSizing: { paddingLeft: 45 },
+  // Without a bezel AppKit insets the title 3pt, or the symbol 3pt and the title 25pt, and draws
+  // its chevrons just after the title. A Settings value leaves 7pt after them, which centres them
+  // where the frames centre theirs; Text Style keeps AppKit's own fit. Its 28pt target takes a 20pt
+  // line.
+  inlinePopUp: { height: 28, marginVertical: -4 },
+  inlineSizing: { paddingLeft: 3, paddingRight: 24 },
+  inlineSymbolSizing: { paddingLeft: 25, paddingRight: 17 },
 });
 
 type MarkName = `drafts.marks.${Mark}`;
@@ -171,6 +181,7 @@ const NativePopUpButton = requireNativeComponent<
     readonly symbol: string | undefined;
     readonly pullsDown: boolean;
     readonly toolbar: boolean;
+    readonly borderless: boolean;
     readonly label: string;
     readonly destructiveColor: ReturnType<typeof processColor>;
     readonly enabled: boolean;
@@ -194,8 +205,9 @@ export function PopUp({
   readonly accessibilityLabel: string;
   readonly icon?: string | undefined;
   readonly pullsDown?: boolean;
-  // A reader toolbar's pull-down is a symbol-only 32×28 button beside the toolbar's others.
-  readonly variant?: 'compact' | 'field' | 'toolbar';
+  // A reader toolbar's pull-down is a symbol-only 32×28 button beside the toolbar's others; an
+  // inline pop-up, a Settings row's value or the format bar's Text Style, has no bezel.
+  readonly variant?: 'compact' | 'field' | 'inline' | 'toolbar';
   readonly disabled?: boolean;
   readonly items?: readonly PopUpItem[];
   // Groups of items set apart by separators, in place of `items`.
@@ -218,6 +230,7 @@ export function PopUp({
         label === undefined ? styles.pullDown : null,
         variant === 'field' ? styles.fieldPopUp : null,
         variant === 'toolbar' ? styles.toolbarPullDown : null,
+        variant === 'inline' ? styles.inlinePopUp : null,
       ]}>
       {/* The hidden label sizes the pop-up, which AppKit draws over it. */}
       {label === undefined ? null : (
@@ -227,6 +240,10 @@ export function PopUp({
             textStyles.body,
             styles.popUpSizing,
             icon === undefined ? null : styles.symbolSizing,
+            variant === 'inline' &&
+              styles[
+                icon === undefined ? 'inlineSizing' : 'inlineSymbolSizing'
+              ],
           ]}>
           {label}
         </Text>
@@ -242,6 +259,7 @@ export function PopUp({
         enabled={!disabled}
         pullsDown={pullsDown ?? icon !== undefined}
         toolbar={variant === 'toolbar'}
+        borderless={variant === 'inline'}
         sections={groups.map((section) => ({
           items: nativeItems(section.items),
         }))}
@@ -311,6 +329,9 @@ export function FormatBar({
       <PopUp
         accessibilityLabel={t('drafts.textStyle')}
         disabled={disabled}
+        icon="textformat"
+        pullsDown={false}
+        variant="inline"
         label={t(blockNames[kind])}
         items={textStyleKinds.map((value) => ({
           key: value,
