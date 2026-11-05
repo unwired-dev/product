@@ -1279,7 +1279,7 @@ export function useGeneratePrompt(owner: string | undefined) {
     prompt: '',
   });
   if (state.owner !== owner) {
-    setState({ ...state, owner, shown: false, prompt: '' });
+    setState({ owner, shown: false, opening: state.opening + 1, prompt: '' });
   }
   return {
     shown: state.shown,
@@ -1287,11 +1287,14 @@ export function useGeneratePrompt(owner: string | undefined) {
     prompt: state.prompt,
     // Each opening is a new prompt.
     open: () => {
-      setState((current) => ({
-        ...current,
-        shown: true,
-        opening: current.opening + 1,
-      }));
+      setState((current) =>
+        // A queued menu choice cannot open a prompt after its owner or opening retired.
+        owner !== undefined &&
+        current.owner === owner &&
+        current.opening === state.opening
+          ? { ...current, shown: true, opening: current.opening + 1 }
+          : current,
+      );
     },
     close: () => {
       setState((current) => ({ ...current, shown: false, prompt: '' }));

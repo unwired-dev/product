@@ -4402,10 +4402,16 @@ describe('composing Drafts', () => {
       await chooseWritingTool('Rewrite the message body');
       await screen.findByLabelText('Cancel writing help');
 
+      // A queued choice belongs to the Profile that offered it.
+      const openPrompt = writingToolChoice(
+        'Generate a draft from a description of what to write',
+      );
       // A move retires the request even when the destination Profile also permits assistance.
       await act(async () => {
         registration.change(owned('personal'));
       });
+      await act(() => openPrompt());
+      expect(screen.queryByLabelText('What to write')).toBeNull();
       expect(cancelled).toStrictEqual([asked[0]?.request]);
       expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
       expect(asked).toHaveLength(1);
@@ -4415,6 +4421,8 @@ describe('composing Drafts', () => {
 
       // An unfinished prompt is also retired when its Draft moves, even with target consent.
       await act(() => registration.change(owned('work')));
+      await act(() => openPrompt());
+      expect(screen.queryByLabelText('What to write')).toBeNull();
       await chooseWritingTool(
         'Generate a draft from a description of what to write',
       );
