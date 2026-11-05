@@ -4,7 +4,13 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactElement, ReactNode, RefObject } from 'react';
-import type { Insets, StyleProp, TextStyle, ViewStyle } from 'react-native';
+import type {
+  Insets,
+  StyleProp,
+  TextInputInstance,
+  TextStyle,
+  ViewStyle,
+} from 'react-native';
 
 import {
   BottomSheet,
@@ -900,7 +906,7 @@ export function LinkEditor({
   };
   const [text, setText] = useState('');
   const [destination, setDestination] = useState('');
-  const destinationInput = useRef<TextInput>(null);
+  const destinationInput = useRef<TextInputInstance>(null);
   // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
   const [checked, setChecked] = useState(false);
   // An empty Link is the editor's starting state, not an invalid destination.
@@ -1017,7 +1023,7 @@ export function LinkEditor({
 }
 
 type LinkFields = Readonly<{
-  destinationInput: RefObject<TextInput | null>;
+  destinationInput: RefObject<TextInputInstance | null>;
   text: string;
   destination: string;
   applicable: boolean;
@@ -1345,7 +1351,7 @@ function GenerateFields({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   useLayoutEffect(() => {
     if (disabled) {
       input.current?.blur();

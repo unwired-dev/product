@@ -138,7 +138,7 @@ describe('queued message link privacy', () => {
     'never reveals queued keyboard or WebKit links after %s',
     async (transition) => {
       expect.hasAssertions();
-      const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+      const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
       const copy = jest.mocked(setStringAsync).mockResolvedValue(true);
       const gmail = createSyntheticGmail();
       const id = gmail.deliver({
@@ -237,7 +237,9 @@ describe.each(['gmail', 'imap'] as const)(
       'hides the old destination and rejects queued input before passive cleanup after %s changes',
       async (transition) => {
         expect.hasAssertions();
-        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+        const open = jest
+          .spyOn(Linking, 'openURL')
+          .mockResolvedValue(undefined);
         const copy = jest.mocked(setStringAsync).mockResolvedValue(true);
         const mailbox = linkMailbox(provider);
         const id = mailbox.deliver(

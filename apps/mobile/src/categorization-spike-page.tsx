@@ -105,7 +105,7 @@ export function CategorizationSpike({
     () =>
       TurboModuleRegistry.get<SpikeModule & TurboModule>(
         'UnwiredCategorizationSpike',
-      ),
+      ) ?? null,
     [],
   );
   const [catalog, setCatalog] = useState<CatalogValue | 'loading' | undefined>(

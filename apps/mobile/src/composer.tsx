@@ -28,7 +28,7 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ComponentProps, ReactNode } from 'react';
-import type { TextInputChangeEvent, TextStyle } from 'react-native';
+import type { TextInputInstance, TextStyle } from 'react-native';
 
 import {
   canRewrite,
@@ -155,11 +155,6 @@ import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, useAppearance, usePalette } from './theme.ts';
 import { DraftTranslation, TranslationContext } from './translation.tsx';
-
-// Fabric includes the post-edit selection; RN's Flow declaration has it, but its TS type omits it.
-type BodyChangeEvent = TextInputChangeEvent & {
-  readonly nativeEvent: { readonly selection?: Selection };
-};
 
 // The native split host owns compact presentation, including landscape iPhone and narrow windows.
 // A window-filling composer avoids the keyboard below its `top` inset; the regular-width
@@ -2104,7 +2099,7 @@ function Editor({
   };
   // The Format panel takes the pill's place too.
   const pillShown = !regular && !formatting;
-  const bodyInput = useRef<TextInput>(null);
+  const bodyInput = useRef<TextInputInstance>(null);
   // While Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [sending, setSending] = useState(false);
   // Native callbacks can arrive before the disabled props commit.
@@ -2842,7 +2837,7 @@ function Editor({
               editable={!sending}
               accessibilityState={{ disabled: sending }}
               multiline
-              onChange={({ nativeEvent }: BodyChangeEvent) => {
+              onChange={({ nativeEvent }) => {
                 changedSelection.current = nativeEvent.selection;
               }}
               onChangeText={edit}

@@ -57,7 +57,7 @@ const hold = async (granted = active()): Promise<void> => {
   }
   await hold();
 };
-const follow = (state: string) => {
+const follow = (state: typeof AppState.currentState) => {
   if (state === 'active') {
     spent = false;
     void outbox.resume();

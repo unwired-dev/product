@@ -2883,7 +2883,9 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.toolbars.searchFields.firstMatch.exists)
     XCTAssertTrue(app.toolbars.buttons["New Message"].exists)
     // #1506: the rows run under the floating bar and the home indicator to the screen's bottom edge.
-    XCTAssertEqual(app.otherElements["Inbox messages"].firstMatch.frame.maxY, window.maxY)
+    // React Native 0.88 lays the list out to a fraction of a point short of the edge.
+    XCTAssertEqual(
+      app.otherElements["Inbox messages"].firstMatch.frame.maxY, window.maxY, accuracy: 0.5)
     let colors = pixels(app, at: [surface, edge])
     let brightness = colors[0].prefix(3).reduce(0) { $0 + Int($1) }
     let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]

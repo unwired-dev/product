@@ -1,5 +1,5 @@
 import type { ReactNode, RefObject } from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { StyleProp, TextInputInstance, ViewStyle } from 'react-native';
 
 import { composeCommand } from '@private-email/mail-core/commands';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
@@ -327,7 +327,7 @@ export function SearchField({
   readonly onQuery: (query: string) => void;
   readonly onFocus: () => void;
   // The search field, which the Command Palette's Search Mail focuses.
-  readonly search: RefObject<TextInput | null>;
+  readonly search: RefObject<TextInputInstance | null>;
 }) {
   const colors = usePalette();
   // oxlint-disable-next-line react/hook-use-state -- Native text owns edits after this mount seed.

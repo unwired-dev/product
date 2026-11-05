@@ -58,7 +58,7 @@ assert.deepEqual(
     'expo-modules-core',
     'expo-modules-jsi',
     'expo-router',
-    'expo-symbols',
+    'expo-status-bar',
     'expo-task-manager',
     'expo-updates-interface',
     'unimodules-app-loader',

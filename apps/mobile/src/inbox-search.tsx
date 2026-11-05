@@ -1,6 +1,6 @@
 import type { ViewScope } from '@private-email/mail-core/mailboxes';
 import type { ReactNode, RefObject } from 'react';
-import type { TextInput } from 'react-native';
+import type { TextInputInstance } from 'react-native';
 
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
@@ -54,7 +54,7 @@ const fieldLift = 10;
  * view widens it.
  */
 export function useInboxSearch(
-  field: RefObject<TextInput | null>,
+  field: RefObject<TextInputInstance | null>,
   {
     mailboxes,
     shown,
@@ -156,7 +156,7 @@ export function InboxBar({
 }: {
   readonly hidden: boolean;
   readonly ready: boolean;
-  readonly field: RefObject<TextInput | null>;
+  readonly field: RefObject<TextInputInstance | null>;
   readonly search: ReturnType<typeof useInboxSearch>;
   readonly filter: ReturnType<typeof useInboxFilter>;
   readonly onCompose: ((id: string) => void) | undefined;

@@ -120,7 +120,7 @@ const config: ExpoConfig = {
     'expo-background-task',
     [
       'expo-build-properties',
-      { ios: { deploymentTarget: '27.0', enableSceneSupport: true } },
+      { ios: { deploymentTarget: '27.0' } },
     ],
   ],
 };

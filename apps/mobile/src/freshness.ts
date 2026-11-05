@@ -62,7 +62,7 @@ export const pollGmailWhileActive = () => {
     return () => undefined;
   }
   let stop: (() => void) | undefined = undefined;
-  const follow = (state: string) => {
+  const follow = (state: typeof AppState.currentState) => {
     if (state === 'active') {
       if (stop === undefined) {
         const poll = freshness.keepAlive(5);

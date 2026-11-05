@@ -100,6 +100,16 @@ function addSwiftPackages(project, target, manifest) {
   }
 }
 
+// Appends methods to the Expo Swift AppDelegate class, which the template follows with its
+// React Native factory delegate.
+const addToAppDelegate = (contents, methods, name) => {
+  const end = '\n}\n\nclass ReactNativeDelegate';
+  if (!contents.includes(end)) {
+    throw new Error(`${name} requires the Expo Swift AppDelegate`);
+  }
+  return contents.replace(end, `\n\n${methods}${end}`);
+};
+
 // Calls a shared native class's `start()` as the Expo Swift AppDelegate finishes launching, once.
 const startAtLaunch = (config, marker, name) =>
   withAppDelegate(config, (result) => {
@@ -129,21 +139,22 @@ module.exports = function privateInbox(config) {
     }
     return result;
   });
+  // Expo's scene delegate forwards each opened URL to this override, then to React Native.
   const withGoogleCallback = withAppDelegate(withGooglePod, (result) => {
     const marker = 'if GIDSignIn.sharedInstance.handle(url) { return true }';
     if (!result.modResults.contents.includes(marker)) {
-      result.modResults.contents = `import GoogleSignIn\n${result.modResults.contents}`;
-      const anchor =
-        'return super.application(app, open: url, options: options)';
-      if (!result.modResults.contents.includes(anchor)) {
-        throw new Error(
-          'Google callback requires the Expo Swift AppDelegate URL handler',
-        );
-      }
-      result.modResults.contents = result.modResults.contents.replace(
-        anchor,
-        `${marker}\n    ${anchor}`,
-      );
+      result.modResults.contents = `import GoogleSignIn\n${addToAppDelegate(
+        result.modResults.contents,
+        `  public override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    ${marker}
+    return super.application(app, open: url, options: options)
+  }`,
+        'Google callback',
+      )}`;
     }
     return result;
   });
@@ -153,21 +164,15 @@ module.exports = function privateInbox(config) {
     if (!result.modResults.contents.includes(marker)) {
       const launch =
         'return super.application(application, didFinishLaunchingWithOptions: launchOptions)';
-      const anchor = '  // Universal Links';
-      if (
-        !result.modResults.contents.includes(launch) ||
-        !result.modResults.contents.includes(anchor)
-      ) {
+      if (!result.modResults.contents.includes(launch)) {
         throw new Error('Push wakes require the Expo Swift AppDelegate');
       }
-      result.modResults.contents = result.modResults.contents
-        .replace(
+      result.modResults.contents = addToAppDelegate(
+        result.modResults.contents.replace(
           launch,
           `application.registerForRemoteNotifications()\n    ${launch}`,
-        )
-        .replace(
-          anchor,
-          `  public override func application(
+        ),
+        `  public override func application(
     _ application: UIApplication,
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
@@ -185,10 +190,9 @@ module.exports = function privateInbox(config) {
       completionHandler(
         result == "synchronized" ? .newData : result == "ignored" ? .noData : .failed)
     }
-  }
-
-${anchor}`,
-        );
+  }`,
+        'Push wakes',
+      );
     }
     return result;
   });

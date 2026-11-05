@@ -46,8 +46,8 @@ for (const map of maps) {
 }
 
 const inventory = [
-  ['React 19.2.3', /react@19\.2\.3[/_]/u],
-  ['React Native 0.86.3', /react-native@0\.86\.3[/_]/u],
+  ['React 19.3.0', /react@19\.3\.0[/_]/u],
+  ['React Native 0.88.1', /react-native@0\.88\.1[/_]/u],
   ['Effect v4', /effect@4\.0\.0[/_]/u],
   ['Shared mail core', /mail-core.*[/\\]src[/\\]index\.ts$/u],
   [
@@ -64,12 +64,12 @@ for (const [name, pattern] of inventory) {
 }
 for (const source of sources) {
   if (source.includes('/node_modules/react/')) {
-    assert.match(source, /react@19\.2\.3[/_]/u, 'Unexpected React version.');
+    assert.match(source, /react@19\.3\.0[/_]/u, 'Unexpected React version.');
   }
   if (source.includes('/node_modules/react-native/')) {
     assert.match(
       source,
-      /react-native@0\.86\.3[/_]/u,
+      /react-native@0\.88\.1[/_]/u,
       'Unexpected native renderer.',
     );
   }
