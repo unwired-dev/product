@@ -17,8 +17,9 @@ import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   text: { ...textStyles.subheadline },
-  // The iPhone frames' pop-up: the choice in SF Pro Medium at 16.9/20.8pt, then a 20.8pt circle
-  // holding the up-down chevrons 15.6pt after it, at the row's trailing edge.
+  // The iPhone frames' pop-up: the choice in SF Pro Medium at 16.9/20.8pt, set without the system
+  // font's own -0.42pt tracking at that size, then a 20.8pt circle holding the up-down chevrons
+  // 15.6pt after it, at the row's trailing edge.
   menu: { minHeight: 44, marginVertical: -spacing.m },
   popUp: {
     minHeight: 44,
@@ -26,7 +27,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 15.6,
   },
-  choice: { fontSize: 16.9, lineHeight: 20.8, fontWeight: '500' },
+  choice: {
+    fontSize: 16.9,
+    lineHeight: 20.8,
+    fontWeight: '500',
+    letterSpacing: 0.42,
+  },
   accessory: {
     width: 20.8,
     height: 20.8,
@@ -133,7 +139,7 @@ export function LanguageSelector({
               <View
                 style={[
                   styles.accessory,
-                  { backgroundColor: colors.fillQuiet },
+                  { backgroundColor: colors.fillControl },
                 ]}>
                 <SFSymbol
                   name="chevron.up.chevron.down"

@@ -66,6 +66,8 @@ export const palette = {
     // surface renders the frames' glass fill: #F8F8F8 in Light, #1A1A1A in Dark.
     glassTint: '#C6C6C6',
     fillQuiet: 'rgba(0, 0, 0, 0.05)',
+    // A pop-up button's disc within a grouped row.
+    fillControl: 'rgba(0, 0, 0, 0.08)',
     fillTrack: 'rgba(0, 0, 0, 0.09)',
     separator: 'rgba(0, 0, 0, 0.1)',
     statusWarning: '#C93400',
@@ -106,6 +108,7 @@ export const palette = {
     surfaceBubble: '#2C2C2E',
     glassTint: '#3B3B3B',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
+    fillControl: 'rgba(255, 255, 255, 0.07)',
     fillTrack: 'rgba(255, 255, 255, 0.16)',
     separator: 'rgba(255, 255, 255, 0.1)',
     statusWarning: '#FFB340',

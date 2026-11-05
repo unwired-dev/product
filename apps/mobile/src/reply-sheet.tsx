@@ -14,7 +14,14 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import { GlassGroup, Monogram, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -45,6 +52,9 @@ const responseIcons = {
   forward: 'arrowshape.turn.up.right.fill',
 } as const;
 
+// The inset sheet's margin to the window edge.
+const sheetMargin = 8;
+
 const styles = StyleSheet.create({
   // The sheet's empty host sits beside Reply in the toolbar group without taking a gap.
   host: { position: 'absolute' },
@@ -55,7 +65,7 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
   },
   replyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  replyFrom: { flex: 1 },
+  replyFrom: { flex: 1, gap: 1 },
   replySender: { ...textStyles.headline },
   // Close is the frames' 44pt glass control.
   replyCloseGlass: {
@@ -117,6 +127,11 @@ export function ReplySheet({
   const colors = usePalette();
   const appearance = useAppearance();
   const { t } = useLocalization();
+  // iOS floats the sheet 8pt inside each edge of the iPhone window and draws its content scaled to
+  // that width, so the content lays out at the drawn width and scales back up: the frames' sizes
+  // are drawn as designed.
+  const { width } = useWindowDimensions();
+  const drawn = (width - 2 * sheetMargin) / width;
   // The sheet fits its content; taller content scrolls inside the tallest detent iOS allows.
   const [height, setHeight] = useState<number>();
   const pending = useRef<
@@ -200,122 +215,139 @@ export function ReplySheet({
               : []),
           ]}>
           <RNHostView>
-            <ScrollView
-              onContentSizeChange={(_, contentHeight) => {
-                setHeight(contentHeight);
-              }}
-              contentContainerStyle={styles.replyContent}>
-              <View style={styles.replyHeader}>
-                <Monogram
-                  name={message.sender}
-                  size={48}
-                />
-                <View style={styles.replyFrom}>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.replySender, { color: colors.textPrimary }]}>
-                    {message.sender}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.secondary, { color: colors.textSecondary }]}>
-                    {message.subject}
-                  </Text>
-                </View>
-                <GlassGroup style={styles.replyCloseGlass}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t('message.closeResponses')}
-                    onPress={onClose}
-                    style={styles.replyClose}>
-                    <SFSymbol
-                      name="xmark"
-                      color={colors.textPrimary}
-                    />
-                  </Pressable>
-                </GlassGroup>
-              </View>
-              <View style={styles.replyTiles}>
-                {tiles.map(({ name, label, icon }) => (
-                  <Pressable
-                    key={name}
-                    accessibilityRole="button"
-                    accessibilityLabel={label}
-                    onPress={() => {
-                      select(name);
-                    }}
-                    style={({ pressed }) => [
-                      styles.replyTile,
-                      {
-                        backgroundColor: pressed
-                          ? colors.accentSelectionSubtle
-                          : colors.fillQuiet,
-                      },
-                    ]}>
-                    <SFSymbol
-                      name={icon}
-                      // The frames draw Reply's arrow 19×16pt.
-                      size={19}
-                      color={colors.textPrimary}
-                    />
-                    <Text
-                      style={[
-                        styles.replyLabel,
-                        { color: colors.textPrimary },
-                      ]}>
-                      {label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              {groups.map((group) => (
+            <ScrollView>
+              <View style={{ height }}>
                 <View
-                  key={group[0]?.group}
+                  onLayout={({ nativeEvent }) => {
+                    setHeight(nativeEvent.layout.height / drawn);
+                  }}
                   style={[
-                    styles.actionGroup,
-                    { backgroundColor: colors.fillQuiet },
+                    styles.replyContent,
+                    {
+                      width: `${drawn * 100}%`,
+                      transformOrigin: 'top left',
+                      transform: [{ scale: 1 / drawn }],
+                    },
                   ]}>
-                  {group.map(({ name, label, icon }, index) => (
-                    <Fragment key={name}>
-                      {index === 0 ? null : (
-                        <View
-                          style={[
-                            styles.actionSeparator,
-                            { backgroundColor: colors.separator },
-                          ]}
-                        />
-                      )}
+                  <View style={styles.replyHeader}>
+                    <Monogram
+                      name={message.sender}
+                      size={48}
+                    />
+                    <View style={styles.replyFrom}>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.replySender,
+                          { color: colors.textPrimary },
+                        ]}>
+                        {message.sender}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.secondary,
+                          { color: colors.textSecondary },
+                        ]}>
+                        {message.subject}
+                      </Text>
+                    </View>
+                    <GlassGroup style={styles.replyCloseGlass}>
                       <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t('message.closeResponses')}
+                        onPress={onClose}
+                        style={styles.replyClose}>
+                        <SFSymbol
+                          name="xmark"
+                          color={colors.textPrimary}
+                        />
+                      </Pressable>
+                    </GlassGroup>
+                  </View>
+                  <View style={styles.replyTiles}>
+                    {tiles.map(({ name, label, icon }) => (
+                      <Pressable
+                        key={name}
                         accessibilityRole="button"
                         accessibilityLabel={label}
                         onPress={() => {
                           select(name);
                         }}
                         style={({ pressed }) => [
-                          styles.actionRow,
+                          styles.replyTile,
                           {
                             backgroundColor: pressed
                               ? colors.accentSelectionSubtle
-                              : 'transparent',
+                              : colors.fillQuiet,
                           },
                         ]}>
+                        <SFSymbol
+                          name={icon}
+                          // The frames draw Reply's arrow 19×16pt.
+                          size={19}
+                          color={colors.textPrimary}
+                        />
                         <Text
                           style={[
-                            styles.actionLabel,
+                            styles.replyLabel,
                             { color: colors.textPrimary },
                           ]}>
                           {label}
                         </Text>
-                        <SFSymbol
-                          name={icon}
-                          size={20}
-                          color={colors.textPrimary}
-                        />
                       </Pressable>
-                    </Fragment>
+                    ))}
+                  </View>
+                  {groups.map((group) => (
+                    <View
+                      key={group[0]?.group}
+                      style={[
+                        styles.actionGroup,
+                        { backgroundColor: colors.fillQuiet },
+                      ]}>
+                      {group.map(({ name, label, icon }, index) => (
+                        <Fragment key={name}>
+                          {index === 0 ? null : (
+                            <View
+                              style={[
+                                styles.actionSeparator,
+                                { backgroundColor: colors.separator },
+                              ]}
+                            />
+                          )}
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={label}
+                            onPress={() => {
+                              select(name);
+                            }}
+                            style={({ pressed }) => [
+                              styles.actionRow,
+                              {
+                                backgroundColor: pressed
+                                  ? colors.accentSelectionSubtle
+                                  : 'transparent',
+                              },
+                            ]}>
+                            <Text
+                              style={[
+                                styles.actionLabel,
+                                { color: colors.textPrimary },
+                              ]}>
+                              {label}
+                            </Text>
+                            <SFSymbol
+                              name={icon}
+                              size={20}
+                              color={colors.textPrimary}
+                            />
+                          </Pressable>
+                        </Fragment>
+                      ))}
+                    </View>
                   ))}
                 </View>
-              ))}
+              </View>
             </ScrollView>
           </RNHostView>
         </Group>

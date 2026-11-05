@@ -168,9 +168,12 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  // iPhone's frames draw the 40pt sender header alone, its body 10pt beneath. The menu's bounds take
-  // in the sender's 44pt target, 2pt beyond the header on each side.
-  compactMetadata: { marginTop: -2, paddingVertical: 2 },
+  // iPhone's frames draw the 40pt sender header alone, its body 10pt beneath. The message menu's
+  // bounds take in the sender's 44pt target, 2pt beyond the header on each side, as the native menu
+  // only receives touches within them; its padding sits on the content, which the menu would offset
+  // twice.
+  compactMenu: { marginTop: -2 },
+  compactMetadata: { paddingVertical: 2 },
   secondary: { ...textStyles.footnote },
   body: { ...textStyles.reading.body },
   empty: {
@@ -182,12 +185,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { ...textStyles.headline, textAlign: 'center' },
   emptyDescription: { ...textStyles.body, textAlign: 'center' },
+  // iPhone's Thread is flat: each message sits on the content's 24pt axis between thin separators,
+  // as its frames align the cards' contents, without the iPad's card.
   threadMessage: {
     gap: 10,
     paddingVertical: 14,
-    paddingHorizontal: spacing.l,
+    paddingHorizontal: compact ? 0 : spacing.l,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
+    borderRadius: compact ? 0 : radius.card,
   },
   // A bar beside the opened message, so it stands out without relying on color.
   openedMessage: { borderLeftWidth: 4 },
@@ -760,7 +765,9 @@ function MessageMenu({
   const { t } = useLocalization();
   const commands = useMessageCommands(target);
   return (
-    <ContextMenu sections={messageContextMenu(t, target, commands)}>
+    <ContextMenu
+      style={compact && styles.compactMenu}
+      sections={messageContextMenu(t, target, commands)}>
       {children}
     </ContextMenu>
   );
@@ -1190,7 +1197,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
           )}
           <ReaderScrollView
             contentContainerStyle={[
-              styles.content,
+              compact ? singleContent : styles.content,
               clearsBottom(windowBar !== undefined, insets.bottom),
             ]}
             maintainVisibleContentPosition={keepVisibleMessage}
@@ -1340,7 +1347,7 @@ function ThreadMessage({
       style={[
         styles.threadMessage,
         { borderBottomColor: colors.separator },
-        highlighted
+        highlighted && !compact
           ? [
               styles.openedMessage,
               {

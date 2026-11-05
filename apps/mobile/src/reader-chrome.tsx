@@ -66,8 +66,10 @@ const styles = StyleSheet.create({
   count: { ...textStyles.subheadline, flex: 1 },
   from: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   // The sender's long-press target reaches 44pt, 2pt beyond its 40pt of text on each side, without
-  // moving the text.
-  fromText: { flex: 1, marginVertical: -2, paddingVertical: 2 },
+  // moving the text. The menu's own padding would count twice: the legacy view interop sizes the
+  // native view to its padded content and mounts its children at their padded offset.
+  fromText: { flex: 1, marginVertical: -2 },
+  fromTarget: { paddingVertical: 2 },
   sender: { ...textStyles.headline },
   secondary: { ...textStyles.footnote },
   padFrom: { alignItems: 'flex-start' },
@@ -192,53 +194,55 @@ export function MessageHeader({
             ],
           },
         ]}>
-        <View style={ipad ? styles.padIdentity : null}>
-          <Text
-            accessibilityActions={[
-              { name: 'copy', label: t('contextMenu.copyAddress') },
-            ]}
-            onAccessibilityAction={({ nativeEvent }) => {
-              if (nativeEvent.actionName === 'copy') {
-                copyAddress();
-              }
-            }}
-            accessibilityState={highlighted ? { selected: true } : undefined}
-            numberOfLines={1}
-            style={[
-              ipad ? styles.padSender : styles.sender,
-              { color: colors.textPrimary },
-            ]}>
-            {message.sender}
-          </Text>
-          {/* iPhone's header keeps one summary line: the recipients once read, else the address,
-              which Copy Address still offers. */}
-          {ipad || recipients.length === 0 ? (
+        <View style={ipad ? null : styles.fromTarget}>
+          <View style={ipad ? styles.padIdentity : null}>
             <Text
+              accessibilityActions={[
+                { name: 'copy', label: t('contextMenu.copyAddress') },
+              ]}
+              onAccessibilityAction={({ nativeEvent }) => {
+                if (nativeEvent.actionName === 'copy') {
+                  copyAddress();
+                }
+              }}
+              accessibilityState={highlighted ? { selected: true } : undefined}
               numberOfLines={1}
               style={[
-                ipad ? styles.padAddress : styles.secondary,
+                ipad ? styles.padSender : styles.sender,
+                { color: colors.textPrimary },
+              ]}>
+              {message.sender}
+            </Text>
+            {/* iPhone's header keeps one summary line: the recipients once read, else the address,
+              which Copy Address still offers. */}
+            {ipad || recipients.length === 0 ? (
+              <Text
+                numberOfLines={1}
+                style={[
+                  ipad ? styles.padAddress : styles.secondary,
+                  { color: colors.textSecondary },
+                ]}>
+                {message.address}
+              </Text>
+            ) : null}
+          </View>
+          {/* iPhone's frames give the sender one summary line beneath it. */}
+          {summaryLines(ipad, [
+            ...recipients,
+            ...(mailbox === undefined ? [] : [mailbox]),
+          ]).map((line) => (
+            <Text
+              key={line}
+              numberOfLines={ipad ? 2 : 1}
+              style={[
+                secondary,
+                ipad && styles.padRecipients,
                 { color: colors.textSecondary },
               ]}>
-              {message.address}
+              {line}
             </Text>
-          ) : null}
+          ))}
         </View>
-        {/* iPhone's frames give the sender one summary line beneath it. */}
-        {summaryLines(ipad, [
-          ...recipients,
-          ...(mailbox === undefined ? [] : [mailbox]),
-        ]).map((line) => (
-          <Text
-            key={line}
-            numberOfLines={ipad ? 2 : 1}
-            style={[
-              secondary,
-              ipad && styles.padRecipients,
-              { color: colors.textSecondary },
-            ]}>
-            {line}
-          </Text>
-        ))}
       </ContextMenu>
       <Text
         accessibilityLabel={t('message.received', {

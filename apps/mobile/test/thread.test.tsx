@@ -235,9 +235,8 @@ describe('thread view', () => {
     expect(screen.getByText('Sam Lee')).not.toHaveProp('accessibilityState', {
       selected: true,
     });
-    // A bar marks it without relying on its background color.
-    expect(opened).toHaveStyle({ borderLeftWidth: 4 });
-    expect(messageBy('Sam Lee')).not.toHaveStyle({ borderLeftWidth: 4 });
+    // iPhone's flat Thread draws it as every other message, without a card or bar.
+    expect(opened).not.toHaveStyle({ borderLeftWidth: 4 });
 
     // Quoted history starts collapsed in both replies, and the original has none to show.
     expect(screen.queryByText(/Earlier reply/u)).toBeNull();

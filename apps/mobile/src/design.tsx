@@ -378,6 +378,7 @@ const NativeContextMenu = requireNativeComponent<
   ViewProps & {
     readonly previewColor: ColorValue;
     readonly previewRadius: number;
+    readonly previewShift: number;
     readonly sections: ReadonlyArray<
       Readonly<{
         palette?: boolean | undefined;
@@ -393,12 +394,15 @@ const NativeContextMenu = requireNativeComponent<
 export function ContextMenu({
   sections,
   previewRadius = radius.card,
+  previewShift = 0,
   children,
   ...props
 }: ViewProps & {
   readonly sections: readonly MenuSection[];
   // The lifted preview's corner radius.
   readonly previewRadius?: number;
+  // How far the lifted preview draws its content toward the card's leading edge.
+  readonly previewShift?: number;
 }) {
   const colors = usePalette();
   const menu = menuState(sections);
@@ -407,6 +411,7 @@ export function ContextMenu({
       {...props}
       previewColor={colors.surfaceContent}
       previewRadius={previewRadius}
+      previewShift={previewShift}
       sections={menu.sections}
       onSelect={({ nativeEvent }) => {
         void menu.runs.get(nativeEvent.id)?.();

@@ -128,8 +128,10 @@ export function MessageRow({
   });
   return (
     <ContextMenu
-      // iPhone lifts the row as its 22pt contextual preview.
+      // iPhone lifts the row as its 22pt contextual preview, which holds the text 16pt in rather
+      // than the list's 18pt.
       previewRadius={ipad ? radius.card : radius.insetGroup}
+      previewShift={ipad ? 0 : 2}
       style={styles.rowSpacing}
       sections={
         reader === undefined

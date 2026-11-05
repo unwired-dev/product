@@ -53,6 +53,8 @@ colors:
   surface-bubble-dark: '#2C2C2E'
   fill-quiet: 'rgba(0, 0, 0, 0.05)'
   fill-quiet-dark: 'rgba(255, 255, 255, 0.06)'
+  fill-control: 'rgba(0, 0, 0, 0.08)'
+  fill-control-dark: 'rgba(255, 255, 255, 0.07)'
   fill-track: 'rgba(0, 0, 0, 0.09)'
   fill-track-dark: 'rgba(255, 255, 255, 0.16)'
   separator: 'rgba(0, 0, 0, 0.1)'
@@ -301,6 +303,7 @@ Graphite neutrals with a single warm seal.
 | Sidebar backing   | `material/sidebar-backing` | transparent   | `#2A2A2C` 92% | Mac sidebars only, between the glass and its text             |
 | Bubble surface    | `surface/bubble`           | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                     |
 | Quiet fill        | `fill/quiet`               | black 5%      | white 6%      | Secondary buttons, search field, banners, chips               |
+| Control fill      | `fill/control`             | black 8%      | white 7%      | Pop-up button disc within a grouped row                       |
 | Track             | `fill/track`               | black 9%      | white 16%     | Off switch track                                              |
 | Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                              |
 | Warning           | `status/warning`           | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                           |

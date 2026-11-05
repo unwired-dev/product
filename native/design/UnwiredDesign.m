@@ -832,6 +832,8 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #else
 @property (nonatomic, strong) UIColor *previewColor;
 @property (nonatomic) CGFloat previewRadius;
+// How far the lifted preview draws the content toward its leading edge within the same card.
+@property (nonatomic) CGFloat previewShift;
 #endif
 @end
 
@@ -1044,13 +1046,20 @@ static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSS
       }];
 }
 
-// The pressed content lifts as an opaque card, as transparent rows and headers would not read.
+// The pressed content lifts as an opaque card, as transparent rows and headers would not read. A
+// shift moves the content, not the card: the card's path is offset against the content's position.
 - (UITargetedPreview *)preview
 {
+  CGFloat shift = self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft
+      ? -self.previewShift : self.previewShift;
   UIPreviewParameters *parameters = [UIPreviewParameters new];
   parameters.backgroundColor = self.previewColor;
-  parameters.visiblePath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:self.previewRadius];
-  return [[UITargetedPreview alloc] initWithView:self parameters:parameters];
+  parameters.visiblePath = [UIBezierPath bezierPathWithRoundedRect:CGRectOffset(self.bounds, shift, 0)
+                                                      cornerRadius:self.previewRadius];
+  if (shift == 0) return [[UITargetedPreview alloc] initWithView:self parameters:parameters];
+  UIPreviewTarget *target = [[UIPreviewTarget alloc]
+      initWithContainer:self center:CGPointMake(CGRectGetMidX(self.bounds) - shift, CGRectGetMidY(self.bounds))];
+  return [[UITargetedPreview alloc] initWithView:self parameters:parameters target:target];
 }
 
 - (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
@@ -1081,6 +1090,7 @@ RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 #else
 RCT_EXPORT_VIEW_PROPERTY(previewColor, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(previewShift, CGFloat)
 #endif
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
 @end

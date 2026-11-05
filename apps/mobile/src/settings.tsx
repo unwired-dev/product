@@ -6,7 +6,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -788,6 +788,7 @@ export function SettingsGroup({
   readonly variant?: 'content' | 'navigation';
 }) {
   const colors = usePalette();
+  const [footerLayout, setFooterLayout] = useState('');
   return (
     <>
       {title === undefined ? null : (
@@ -815,8 +816,16 @@ export function SettingsGroup({
         </View>
       )}
       {footer === undefined ? null : (
-        <View style={styles.footer}>
-          <Text style={[type.detail, { color: colors.textSecondary }]}>
+        <View
+          onLayout={({ nativeEvent: { layout } }) => {
+            setFooterLayout(`${layout.width}x${layout.height}`);
+          }}
+          style={styles.footer}>
+          {/* Laid out again once its size settles: iOS can keep painting a footer as the single
+              clipped line of an earlier layout. */}
+          <Text
+            key={footerLayout}
+            style={[type.detail, { color: colors.textSecondary }]}>
             {footer}
           </Text>
         </View>
