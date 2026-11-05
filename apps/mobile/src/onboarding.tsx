@@ -19,12 +19,7 @@ import {
 import Animated, { css } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  Glass,
-  ipadFrameSymbolSize,
-  SFSymbol,
-  useReducedMotion,
-} from './design.tsx';
+import { Glass, SFSymbol, useReducedMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -37,8 +32,11 @@ const ipadTitle3 = { fontSize: 17.25, lineHeight: 23, letterSpacing: 0.43 };
 const symbolWidths: Readonly<Record<string, number>> = ipad
   ? { 'lock.fill': 14.03, 'tray.2': 20.7, 'arrow.clockwise': 15.41 }
   : { 'lock.fill': 13.725, 'tray.2': 20.25, 'arrow.clockwise': 15.075 };
-// The iPhone frames' 18pt symbols draw smaller than UIKit's at that size; 14.5pt matches their ink.
-const pointSymbolSize = ipad ? ipadFrameSymbolSize : 14.5;
+// The frames' symbols draw smaller than UIKit's at their size: 14.5pt matches the iPhone frames'
+// ink, and on iPad each symbol takes the size whose ink best matches its own artwork.
+const ipadPointSymbolSizes: Readonly<Partial<Record<string, number>>> = ipad
+  ? { 'lock.fill': 14.5, 'tray.2': 14.15, 'arrow.clockwise': 13.75 }
+  : {};
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
@@ -60,8 +58,10 @@ const styles = StyleSheet.create({
     marginBottom: 27.6,
   },
   headline: { fontSize: 40, lineHeight: 46, fontWeight: '700' },
-  // The frames' -1.196pt tracking is set without the system font's own 0.25pt at that size.
+  // The frames' -1.196pt tracking is set without the system font's own 0.25pt at that size. Its
+  // ink sits 2pt higher in the line than the frames', so it moves down without moving the rest.
   ipadHeadline: {
+    top: 2,
     fontSize: 59.8,
     lineHeight: 66.7,
     fontWeight: '400',
@@ -433,7 +433,7 @@ export function Welcome({
                 <View style={[styles.pointIcon, { width: symbolWidths[icon] }]}>
                   <SFSymbol
                     name={icon}
-                    size={pointSymbolSize}
+                    size={ipadPointSymbolSizes[icon] ?? 14.5}
                     color={`${colors.brandOnDeep}B3`}
                   />
                 </View>

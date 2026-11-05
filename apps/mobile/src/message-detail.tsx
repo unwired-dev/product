@@ -825,6 +825,7 @@ function MessageMetadata({
         }>
         <MessageHeader
           message={message}
+          hanging={!compact}
           recipients={[
             ...(to === '' ? [] : [t(recipientKeys.to, { recipients: to })]),
             ...(cc === '' ? [] : [t(recipientKeys.cc, { recipients: cc })]),

@@ -80,6 +80,8 @@ const styles = StyleSheet.create({
   padAddress: { ...typography.ipadList.body, flexShrink: 3 },
   padSecondary: { ...typography.ipadList.subheadline },
   padRecipients: { marginTop: 2 * ipadListScale },
+  // Centred in the reader's 46pt leading inset, so the text keeps the body's edge.
+  hangingAvatar: { position: 'absolute', left: -(40 * ipadListScale + 36) / 2 },
 });
 
 // The compact reader's header: the subject beneath the navigation bar, whose system Back shows the
@@ -146,6 +148,7 @@ export function MessageHeader({
   highlighted = false,
   recipients = noRecipients,
   mailbox,
+  hanging = false,
 }: {
   readonly message: Readonly<{
     sender: string;
@@ -157,6 +160,8 @@ export function MessageHeader({
   readonly recipients?: readonly string[];
   // The line naming the mailbox it arrived in.
   readonly mailbox?: string | undefined;
+  // The initials hang in the reader's leading inset rather than indenting the text.
+  readonly hanging?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -168,7 +173,9 @@ export function MessageHeader({
   const secondary = ipad ? styles.padSecondary : styles.secondary;
   return (
     <View style={[styles.from, ipad && styles.padFrom]}>
-      <Monogram name={message.sender} />
+      <View style={hanging && styles.hangingAvatar}>
+        <Monogram name={message.sender} />
+      </View>
       <ContextMenu
         style={ipad ? styles.padFromText : styles.fromText}
         sections={[

@@ -142,8 +142,10 @@ const styles = StyleSheet.create({
   generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
   // The iPad frames' Mac recipe at 1.15: Text style 18.4pt from the leading edge and the scaled
   // toolbar's 36.8pt glyph boxes 18.4pt from the trailing one, 41.4pt apart, each keeping its 44pt
-  // target. The bar is 43.7pt with its rules; a docked reply's is 41.4pt.
+  // target. The bar is 43.7pt with its rules; a docked reply's is 41.4pt. Its 44pt controls
+  // overhang it, above the body beneath, so the rules don't clip their targets.
   formatBar: {
+    zIndex: 1,
     height: 38 * ipadListScale,
     flexDirection: 'row',
     alignItems: 'center',
@@ -153,6 +155,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   formatRail: { flex: 1 },
+  formatTarget: { height: 44 },
   formatRailContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -550,6 +553,7 @@ export function FormatBar({
       <MenuButton
         accessibilityLabel={t('drafts.textStyle')}
         disabled={disabled}
+        style={styles.formatTarget}
         sections={[
           {
             items: textStyleKinds.map((value) => ({
@@ -583,7 +587,7 @@ export function FormatBar({
       <ScrollView
         horizontal
         keyboardShouldPersistTaps="always"
-        style={styles.formatRail}
+        style={[styles.formatRail, styles.formatTarget]}
         contentContainerStyle={styles.formatRailContent}>
         <ScaledToolbar value>
           <View

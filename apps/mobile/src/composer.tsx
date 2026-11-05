@@ -1593,6 +1593,18 @@ export function ComposerNotices({
   readonly onKeepEditing: () => void;
 }) {
   const { t } = useLocalization();
+  const { size } = use(ComposerLayoutContext);
+  const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  // On iPad nothing holds the body down while there is nothing to say; iPhone's body inset counts
+  // the notices' 8pt.
+  if (
+    size === 'regular' &&
+    (closing === undefined || closing === 'saving') &&
+    refused === undefined &&
+    sendingStateOf(draft, mailboxes) === 'available'
+  ) {
+    return null;
+  }
   return (
     <View style={styles.alerts}>
       {closing === 'blocked' || closing === 'discard-blocked' ? (

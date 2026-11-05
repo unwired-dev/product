@@ -18,7 +18,7 @@ import {
   profilesOf,
   recoveryKeyEntry,
 } from '@private-email/mail-core/registration';
-import { palette } from '@private-email/mail-core/theme';
+import { palette, typography } from '@private-email/mail-core/theme';
 import { useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
@@ -143,7 +143,8 @@ function RemoveConfirmation({
   );
 }
 
-// A connected mailbox's provider and Profile, then when it last synchronized once it has.
+// A connected mailbox's provider and Profile, then when it last synchronized once it has. iPad
+// reports that at the row's end instead.
 const connectedSummary = (
   t: Translate,
   summary: Readonly<{
@@ -152,9 +153,23 @@ const connectedSummary = (
     updated: string | undefined;
   }>,
 ) =>
-  summary.updated === undefined
+  summary.updated === undefined || settingsColumns
     ? t('mailboxes.connectedProfile', summary)
     : t('mailboxes.connectedProfileUpdated', summary);
+
+// When a connected mailbox last synchronized, at the end of its iPad row as the frames show it.
+function LastSynchronized({
+  updated,
+}: {
+  readonly updated: string | undefined;
+}) {
+  const colors = usePalette();
+  return settingsColumns && updated !== undefined ? (
+    <Text style={[typography.ipadList.body, { color: colors.textSecondary }]}>
+      {updated}
+    </Text>
+  ) : null;
+}
 
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
@@ -177,6 +192,10 @@ function Mailboxes({
   // Each connection's open Inbox, whose last synchronization the summary reports.
   const inboxes = useAllMailboxes();
   const now = useNow();
+  const updatedFor = (mailbox: MailboxConnection) =>
+    mailbox.state === 'connected'
+      ? updatedOf(t, inboxes.find(({ id }) => id === mailbox.id)?.state, now)
+      : undefined;
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
   // The IMAP connection whose password is being entered again, or a new one being added.
   const [imap, setImap] = useState<
@@ -195,6 +214,7 @@ function Mailboxes({
         const repairing = imap?.kind === 'repair' && imap.id === mailbox.id;
         // Saved before SMTP: entering the password again sets up sending.
         const receiveOnly = imapMailbox && mailbox.smtp === undefined;
+        const updated = updatedFor(mailbox);
         return (
           <View key={mailbox.id}>
             <SettingsRow
@@ -205,11 +225,7 @@ function Mailboxes({
                   ? connectedSummary(t, {
                       provider,
                       profile: profileName(t, mailbox.profile, profiles),
-                      updated: updatedOf(
-                        t,
-                        inboxes.find(({ id }) => id === mailbox.id)?.state,
-                        now,
-                      ),
+                      updated,
                     })
                   : t(
                       imapMailbox
@@ -221,6 +237,7 @@ function Mailboxes({
               subtitleTone={
                 mailbox.state === 'connected' ? undefined : 'warning'
               }>
+              <LastSynchronized updated={updated} />
               {mailbox.state === 'authorization' && !imapMailbox
                 ? button(
                     t('mailboxes.allow', {

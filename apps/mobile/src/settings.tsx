@@ -77,6 +77,16 @@ const type = settingsColumns
       account: textStyles.title3Emphasized,
     };
 
+// UIKit draws these symbols larger than the iPad frames' artwork at the frames' size; these sizes
+// match the frames' ink in the sidebar and in content rows.
+const itemSymbolSizes: Readonly<Partial<Record<string, number>>> = {
+  translate: 12,
+};
+const rowSymbolSizes: Readonly<Partial<Record<string, number>>> = {
+  at: 15.5,
+  photo: 13.8,
+};
+
 // A push button in a Settings row; `title` is its visible text when the label names its target.
 export type SettingsButton = (
   label: string,
@@ -306,7 +316,7 @@ function SidebarItem({
       <View style={styles.itemIcon}>
         <SFSymbol
           name={icon}
-          size={ipadFrameSymbolSize}
+          size={itemSymbolSizes[icon] ?? ipadFrameSymbolSize}
           color={colors.accentInk}
         />
       </View>
@@ -844,7 +854,11 @@ export function SettingsRow({
         <View style={styles.rowIcon}>
           <SFSymbol
             name={icon}
-            size={settingsColumns ? 16 * ipadListScale : 20}
+            size={
+              settingsColumns
+                ? (rowSymbolSizes[icon] ?? 16 * ipadListScale)
+                : 20
+            }
             color={colors.accentInk}
           />
         </View>
