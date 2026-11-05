@@ -38,6 +38,8 @@ export type Invitation = Readonly<{
   details: InvitationDetails;
   // The owning mailbox's address, which the invitation names as an attendee.
   address: string;
+  // Every attendee address, lowercase.
+  attendees: readonly string[];
   uid: string;
   sequence: number;
   // The received message it answers and its Message-ID header, for threading.
@@ -445,6 +447,9 @@ export function invitationOf(
     kind: 'invited',
     details,
     address,
+    attendees: attendees.flatMap(
+      (line) => addressOf(line)?.toLowerCase() ?? [],
+    ),
     uid,
     sequence,
     message: document.id,
@@ -456,6 +461,21 @@ export function invitationOf(
     },
   };
 }
+
+// The Profile's other mailboxes the invitation also names. Each copy responds only for its own
+// mailbox, so these are listed, never answered for.
+export const alsoInvited = <M extends Readonly<{ address?: string }>>(
+  invitation: Invitation,
+  mailboxes: readonly M[],
+) =>
+  mailboxes.filter((mailbox): mailbox is M & Readonly<{ address: string }> => {
+    const other = mailbox.address?.toLowerCase();
+    return (
+      other !== undefined &&
+      other !== invitation.address.toLowerCase() &&
+      invitation.attendees.includes(other)
+    );
+  });
 
 const partStats = {
   accepted: 'ACCEPTED',
@@ -992,6 +1012,8 @@ type StatusContext = Readonly<{
   address: string;
   provider: string;
   time: Intl.DateTimeFormat;
+  // How many of the Profile's other addresses the invitation also names.
+  alsoInvited: number;
   // The person's response to an earlier revision at another time, which an unanswered one names.
   earlier?: InvitationChoice | undefined;
 }>;
@@ -1009,12 +1031,24 @@ const statuses: {
     context: StatusContext,
   ) => InvitationStatus;
 } = {
-  unanswered: (_, { t, name, address, earlier }) =>
+  unanswered: (_, { t, name, address, alsoInvited: others, earlier }) =>
+    // A moved meeting asks for a new answer first; the address it answers from stays in Invited.
     earlier === undefined
-      ? {
-          title: t('invitation.unanswered'),
-          detail: t('invitation.unansweredDetail', { name, address }),
-        }
+      ? others === 0
+        ? {
+            title: t('invitation.unanswered'),
+            detail: t('invitation.unansweredDetail', { name, address }),
+          }
+        : {
+            icon: 'info.circle',
+            title: t('invitation.respondingAs', { address }),
+            detail: t(
+              others === 1
+                ? 'invitation.invitedTwice'
+                : 'invitation.invitedMoreThanTwice',
+              { address, count: others + 1 },
+            ),
+          }
       : {
           icon: 'info.circle',
           title: t('invitation.changedTime', { name }),

@@ -7,6 +7,7 @@ import type { BodyDocument } from '@private-email/mail-core/message-body';
 import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
+  alsoInvited,
   createInvitationFormats,
   invitationBlockedBy,
   invitationOf,
@@ -223,6 +224,22 @@ describe('meeting invitations', () => {
       details: expect.objectContaining({ summary: 'Q4 roadmap review, final' }),
       invited: ['Alex@example.invalid', 'team@northwind.example'],
     });
+  });
+
+  it('lists only the Profile’s other mailboxes the invitation also names', () => {
+    expect.hasAssertions();
+    const invitation = offered(calendar(meeting));
+    const mailboxes = [
+      { id: 'opened', address: 'alex@EXAMPLE.invalid' },
+      { id: 'preview' },
+      { id: 'team', address: 'Team@northwind.example' },
+      { id: 'uninvited', address: 'mara@example.invalid' },
+    ];
+
+    expect(
+      alsoInvited(invitation, mailboxes).map(({ id }) => id),
+    ).toStrictEqual(['team']);
+    expect(invitation.address).toBe(me);
   });
 
   it.each([
@@ -1321,6 +1338,8 @@ describe('meeting invitations', () => {
             address: me,
             provider: 'Gmail',
             time: formats.time,
+            // The moved time takes the status; Invited still names the address.
+            alsoInvited: 1,
             earlier: earlier.choice,
           },
         ),
@@ -1344,6 +1363,7 @@ describe('meeting invitations', () => {
         address: me,
         provider: 'Gmail',
         time: formats.time,
+        alsoInvited: 0,
       };
       const normalized = (status: ReturnType<typeof invitationStatus>) => ({
         ...status,
@@ -1418,6 +1438,37 @@ describe('meeting invitations', () => {
         invitationBlockedBy('authentication'),
         invitationBlockedBy('idle'),
       ]).toStrictEqual(['offline', 'authentication', undefined]);
+    });
+
+    it('says which address responds when the Profile is invited at several', () => {
+      expect.hasAssertions();
+      const context = {
+        t: english,
+        name: 'Lena Fischer',
+        address: me,
+        provider: 'Gmail',
+        time: formats.time,
+      };
+
+      expect(
+        [1, 2].map((others) =>
+          invitationStatus(
+            { kind: 'unanswered' },
+            { ...context, alsoInvited: others },
+          ),
+        ),
+      ).toStrictEqual([
+        {
+          icon: 'info.circle',
+          title: `Responding as ${me}`,
+          detail: `You’re invited at two of your addresses. This copy responds only for ${me}.`,
+        },
+        {
+          icon: 'info.circle',
+          title: `Responding as ${me}`,
+          detail: `You’re invited at 3 of your addresses. This copy responds only for ${me}.`,
+        },
+      ]);
     });
   });
 });
