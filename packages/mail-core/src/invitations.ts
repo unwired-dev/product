@@ -733,9 +733,11 @@ export function invitationReply(
 }
 
 // Where a response to one invitation stands on this device. `unknown` and `checking` keep the
-// sent message's boundary, which finds its Sent copy.
+// sent message's boundary, which finds its Sent copy. `older` is a revision older than one this
+// device answered, which cannot respond.
 export type ResponseState =
   | Readonly<{ kind: 'unanswered' }>
+  | Readonly<{ kind: 'older' }>
   | Readonly<{
       kind: 'sending' | 'refused' | 'offline' | 'authentication';
       choice: InvitationChoice;
@@ -756,6 +758,7 @@ type ResponseInbox = Pick<
 >;
 
 const unanswered: ResponseState = { kind: 'unanswered' };
+const older: ResponseState = { kind: 'older' };
 
 // Where a send leaves a response. Nothing that Gmail refused or never received waits to be sent
 // later.
@@ -778,14 +781,15 @@ const outcomeState = (
     : { kind: 'refused', choice };
 };
 
-// Whether a choice may be sent now: a response under way ignores it, an unknown delivery needs the
-// person to confirm, and the confirmed choice is not sent twice.
+// Whether a choice may be sent now: a response under way or an older revision ignores it, an
+// unknown delivery needs the person to confirm, and the confirmed choice is not sent twice.
 const answerable = (
   current: ResponseState,
   choice: InvitationChoice,
   again: boolean,
 ) =>
   current.kind !== 'sending' &&
+  current.kind !== 'older' &&
   current.kind !== 'checking' &&
   (current.kind === 'unknown') === again &&
   !(current.kind === 'sent' && current.choice === choice);
@@ -920,7 +924,7 @@ function createInvitationResponses(
     );
   // The confirmed response to the latest earlier revision, when that revision was at another time.
   const earlierOf = (invitation: Invitation): EarlierResponse | undefined => {
-    // A newer answered revision makes this one an older version, which stays unchanged.
+    // A newer answered revision makes this one an older version, which names no earlier answer.
     const latest = recordsOf(invitation)
       .filter(({ sequence }) => sequence !== invitation.sequence)
       .reduce<InvitationResponse | undefined>(
@@ -955,6 +959,14 @@ function createInvitationResponses(
     return state;
   };
   const stateOf = (invitation: Invitation) => {
+    // A response to a newer revision outdates this one, whatever it answered before.
+    if (
+      recordsOf(invitation).some(
+        ({ sequence }) => sequence > invitation.sequence,
+      )
+    ) {
+      return older;
+    }
     const record = recordOf(invitation);
     return (
       states.get(keyOf(invitation)) ??
@@ -1362,6 +1374,11 @@ const statuses: {
           ),
         };
   },
+  older: (_, { t }) => ({
+    icon: 'info.circle',
+    title: t('invitation.older'),
+    detail: t('invitation.olderDetail'),
+  }),
   sending: (state, { t, address }) => ({
     busy: true,
     title: t('invitation.sending'),

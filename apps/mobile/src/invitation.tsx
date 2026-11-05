@@ -153,12 +153,15 @@ function Details({
   details,
   invited,
   earlier,
+  older = false,
 }: {
   readonly details: InvitationDetails;
   // Who was invited, then secondary lines about them; a cancelled meeting has no row.
   readonly invited?: readonly string[];
   // The response to an earlier revision at another time, which marks this one as updated.
   readonly earlier?: EarlierResponse | undefined;
+  // A revision older than one the person answered, which has no Invited row.
+  readonly older?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -175,9 +178,10 @@ function Details({
   const from = t(cancelled ? 'invitation.cancelledBy' : invitedBy, {
     name: organizerName(details),
   });
-  const badge = cancelled
-    ? t('invitation.cancelled')
+  const revised = older
+    ? t('invitation.olderVersion')
     : was && t('invitation.updated');
+  const badge = cancelled ? t('invitation.cancelled') : revised;
   const title = details.summary ?? t('invitation.untitled');
   const organizer = [
     ...new Set([organizerName(details), details.organizer.address]),
@@ -186,7 +190,9 @@ function Details({
     <>
       <View
         accessible
-        accessibilityLabel={was === undefined ? from : `${from}, ${badge}`}
+        accessibilityLabel={
+          was === undefined && !older ? from : `${from}, ${badge}`
+        }
         style={styles.heading}>
         <SFSymbol
           name={cancelled ? 'xmark' : 'calendar'}
@@ -269,7 +275,7 @@ function Details({
             </Text>
           ))}
         </DetailRow>
-        {invited === undefined ? null : (
+        {invited === undefined || older ? null : (
           <DetailRow
             label={t('invitation.invited')}
             spoken={invited}>
@@ -508,6 +514,10 @@ function Responding({
       responses.signedIn(invitation);
     }
   };
+  // An older revision cannot respond, so it only points to the newer one.
+  if (recorded.kind === 'older') {
+    return <Status {...shown} />;
+  }
   if (blocked === 'authentication' || recorded.kind === 'authentication') {
     return (
       <Status {...shown}>
@@ -742,6 +752,10 @@ function Invited({
   const earlier = useSyncExternalStore(responses.subscribe, () =>
     responses.earlier(invitation),
   );
+  const older = useSyncExternalStore(
+    responses.subscribe,
+    () => responses.state(invitation).kind === 'older',
+  );
   const yours = t('invitation.yourAddress', {
     address: invitation.address,
     provider,
@@ -764,6 +778,7 @@ function Invited({
               ]
         }
         earlier={earlier}
+        older={older}
       />
       {/* A new invitation starts with no open question or announcement from the last one. */}
       <Responding
