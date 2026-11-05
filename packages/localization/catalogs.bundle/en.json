@@ -540,6 +540,7 @@
   "invitation": {
     "heading": "Invitation",
     "from": "Invitation from {{name}}",
+    "fromOneMeeting": "Invitation from {{name}} · one meeting",
     "cancelledBy": "Cancelled by {{name}}",
     "cancelled": "Cancelled",
     "meetingCancelled": "This meeting was cancelled",
@@ -564,6 +565,7 @@
     "weekdays_FR": "Fridays",
     "weekdays_SA": "Saturdays",
     "everyWeek": "Every week from {{start}} to {{end}}",
+    "oneMeeting": "One meeting in a series",
     "accept": "Accept",
     "maybe": "Maybe",
     "decline": "Decline",
@@ -571,6 +573,7 @@
     "unanswered": "Not answered yet",
     "unansweredDetail": "Your response goes to {{name}} from {{address}}.",
     "seriesDetail": "Your response applies to every meeting in the series.",
+    "oneMeetingDetail": "Your response applies only to {{date}}.",
     "updated": "Updated",
     "was": "Was {{when}}",
     "changedTime": "{{name}} changed the time",

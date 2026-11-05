@@ -25,6 +25,9 @@ export type InvitationDetails = Readonly<{
   organizer: Recipient;
   // Every meeting's start, the first included, when the invitation is a weekly series.
   starts?: readonly number[];
+  // The original start of the one meeting of a series the invitation is for (its RECURRENCE-ID),
+  // which identifies that meeting.
+  recurrence?: number;
 }>;
 
 // One iCalendar content line: its name, its raw parameters and its value.
@@ -34,7 +37,8 @@ type Line = Readonly<{
   value: string;
 }>;
 
-// A single-meeting invitation addressed to the owning mailbox, with what its reply repeats.
+// An invitation to one meeting, a weekly series or one meeting of a series, addressed to the owning
+// mailbox, with what its reply repeats.
 export type Invitation = Readonly<{
   kind: 'invited';
   details: InvitationDetails;
@@ -47,7 +51,11 @@ export type Invitation = Readonly<{
   // The received message it answers and its Message-ID header, for threading.
   message: string;
   messageId?: string;
-  lines: Readonly<{ organizer: Line; attendee: Line; summary?: Line }>;
+  lines: Readonly<{
+    organizer: Line;
+    attendee: Line;
+    summary?: Line;
+  }>;
 }>;
 
 // What a received message's calendar part offers: nothing, a response the owning mailbox can
@@ -190,7 +198,7 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
     : zonedTime(naive, parameterOf(line, 'TZID'));
 };
 
-const recurring = new Set(['RDATE', 'EXDATE', 'RECURRENCE-ID']);
+const recurring = new Set(['RDATE', 'EXDATE']);
 
 // Each property line's calendar or top-level component scope, and how many top-level events the
 // calendar has. Deeper components cannot supply meeting properties.
@@ -487,6 +495,22 @@ const seriesOf = (
   return meetings === undefined ? undefined : { starts: meetings };
 };
 
+// One meeting of a series: its RECURRENCE-ID's instant, of the same value type as DTSTART. null
+// without one, undefined for a range of meetings or beside a rule, which it can't read.
+const recurrenceOf = (event: readonly Line[], start: InvitationTime) => {
+  const line = find(event, 'RECURRENCE-ID');
+  if (line === undefined) {
+    return null;
+  }
+  const time = timeOf(line);
+  return time === undefined ||
+    time.allDay !== start.allDay ||
+    parameterOf(line, 'RANGE') !== undefined ||
+    find(event, 'RRULE') !== undefined
+    ? undefined
+    : time.at;
+};
+
 const detailsOf = (
   event: readonly Line[],
   start: InvitationTime,
@@ -494,7 +518,8 @@ const detailsOf = (
 ): InvitationDetails | undefined => {
   const end = endOf(event, start);
   const series = seriesOf(event, start);
-  if (end === undefined || series === undefined) {
+  const recurrence = recurrenceOf(event, start);
+  if (end === undefined || series === undefined || recurrence === undefined) {
     return undefined;
   }
   const summary = find(event, 'SUMMARY');
@@ -506,11 +531,12 @@ const detailsOf = (
     ...(location === undefined ? {} : { location: text(location.value) }),
     organizer,
     ...series,
+    ...(recurrence === null ? {} : { recurrence }),
   };
 };
 
-// A meeting's or weekly series' identity and details; another recurrence or a meeting missing its
-// UID, organizer or start is unreadable.
+// A meeting's, weekly series' or one series meeting's identity and details; another recurrence or a
+// meeting missing its UID, organizer or start is unreadable.
 const meetingOf = (event: readonly Line[]) => {
   const uid = find(event, 'UID')?.value.trim() ?? '';
   const organizer = organizerOf(event);
@@ -526,6 +552,7 @@ const meetingOf = (event: readonly Line[]) => {
     'SUMMARY',
     'LOCATION',
     'RRULE',
+    'RECURRENCE-ID',
   ];
   if (
     event.some((line) => recurring.has(line.name)) ||
@@ -660,14 +687,15 @@ const folded = (line: string) => {
 const stamp = (at: number) =>
   new Date(at).toISOString().replaceAll(/[-:]|\.\d{3}/gu, '');
 
-// The iTIP REPLY for `choice`: the invitation's UID and SEQUENCE, its organizer, and the owning
-// mailbox's own attendee line with the chosen participation status.
+// The iTIP REPLY for `choice`: the invitation's UID, SEQUENCE and RECURRENCE-ID, its organizer, and
+// the owning mailbox's own attendee line with the chosen participation status.
 export function invitationReply(
   invitation: Invitation,
   choice: InvitationChoice,
   at: number,
 ) {
   const { attendee, organizer, summary } = invitation.lines;
+  const { start, recurrence } = invitation.details;
   const answered: Line = {
     ...attendee,
     parameters: [
@@ -685,6 +713,14 @@ export function invitationReply(
     'BEGIN:VEVENT',
     `UID:${invitation.uid}`,
     `SEQUENCE:${invitation.sequence.toString()}`,
+    // A timed meeting is named by its original start in UTC, which needs no VTIMEZONE beside it.
+    ...(recurrence === undefined
+      ? []
+      : [
+          start.allDay
+            ? `RECURRENCE-ID;VALUE=DATE:${stamp(recurrence).slice(0, 8)}`
+            : `RECURRENCE-ID:${stamp(recurrence)}`,
+        ]),
     `DTSTAMP:${stamp(at)}`,
     written(organizer),
     written(answered),
@@ -757,12 +793,13 @@ const answerable = (
 // The record that restores `state` after relaunch; other states are not recorded. It keeps the
 // time it answered, so a later revision can say what changed.
 const responseOf = (
-  { uid, sequence, details: { start, end } }: Invitation,
+  { uid, sequence, details: { start, end, recurrence } }: Invitation,
   state: ResponseState,
 ): InvitationResponse | undefined => {
   const revision = {
     uid,
     sequence,
+    ...(recurrence === undefined ? {} : { recurrence }),
     start,
     ...(end === undefined ? {} : { end }),
   };
@@ -796,9 +833,10 @@ const sameTime = (
   b: InvitationTime | undefined,
 ) => a?.at === b?.at && a?.allDay === b?.allDay;
 
-// A revision of the meeting is a new invitation to answer, so its sequence is part of the key.
+// A revision of the meeting is a new invitation to answer, so its sequence is part of the key, as
+// is the one meeting of a series it is for.
 const keyOf = (invitation: Invitation) =>
-  `${invitation.address.toLowerCase()}\u0000${invitation.uid}\u0000${invitation.sequence}`;
+  `${invitation.address.toLowerCase()}\u0000${invitation.uid}\u0000${invitation.sequence}\u0000${invitation.details.recurrence ?? ''}`;
 
 const replySubject = (subject: string) =>
   /^\s*re:/iu.test(subject) ? subject : `Re: ${subject}`;
@@ -863,12 +901,17 @@ function createInvitationResponses(
       listener();
     }
   };
-  // The opened mailbox's recorded responses to the invitation's meeting, most recent first.
+  // The opened mailbox's recorded responses to the invitation's meeting, most recent first. One
+  // meeting of a series has its own.
   const recordsOf = (invitation: Invitation) => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready' &&
       state.address?.toLowerCase() === invitation.address.toLowerCase()
-      ? (state.responses ?? []).filter(({ uid }) => uid === invitation.uid)
+      ? (state.responses ?? []).filter(
+          ({ uid, recurrence }) =>
+            uid === invitation.uid &&
+            recurrence === invitation.details.recurrence,
+        )
       : [];
   };
   const recordOf = (invitation: Invitation) =>
@@ -923,9 +966,20 @@ function createInvitationResponses(
     invitation: Invitation,
     response: InvitationResponse | undefined,
   ) => {
-    const { uid, sequence } = invitation;
+    const {
+      uid,
+      sequence,
+      details: { recurrence },
+    } = invitation;
     const saved = await inbox
-      .recordResponse({ uid, sequence }, response)
+      .recordResponse(
+        {
+          uid,
+          sequence,
+          ...(recurrence === undefined ? {} : { recurrence }),
+        },
+        response,
+      )
       .catch(() => false);
     return saved;
   };
@@ -1184,12 +1238,16 @@ export function invitationWhen(
       });
 }
 
-// How often a weekly series repeats and between which days, or undefined for a single meeting.
+// How often a weekly series repeats and between which days, that one meeting of a series is
+// shown, or undefined for a single meeting.
 export function invitationRepeats(
   t: Translate,
   formats: InvitationFormats,
-  { start, starts }: InvitationDetails,
+  { start, starts, recurrence }: InvitationDetails,
 ): string | undefined {
+  if (recurrence !== undefined) {
+    return t('invitation.oneMeeting');
+  }
   const lastStart = starts?.at(-1);
   if (lastStart === undefined) {
     return undefined;
@@ -1200,6 +1258,22 @@ export function invitationRepeats(
     start: (sameYear ? formats.dayMonth : formats.date).format(start.at),
     end: formats.date.format(lastStart),
   });
+}
+
+// Which meetings an unanswered response answers, for a weekly series or one meeting of a series.
+export function invitationScope(
+  t: Translate,
+  formats: InvitationFormats,
+  { start, starts, recurrence }: InvitationDetails,
+): string | undefined {
+  if (recurrence !== undefined) {
+    return t('invitation.oneMeetingDetail', {
+      date: (start.allDay ? formats.earlierAllDay : formats.earlierDay).format(
+        start.at,
+      ),
+    });
+  }
+  return starts === undefined ? undefined : t('invitation.seriesDetail');
 }
 
 // When the earlier revision a response answered happened, shown beneath the current time.
@@ -1241,8 +1315,8 @@ type StatusContext = Readonly<{
   time: Intl.DateTimeFormat;
   // How many of the Profile's other addresses the invitation also names.
   alsoInvited: number;
-  // Whether a response answers every meeting in a weekly series.
-  series?: boolean;
+  // Which meetings of a series a response answers, from `invitationScope`.
+  scope?: string | undefined;
   // The person's response to an earlier revision at another time, which an unanswered one names.
   earlier?: InvitationChoice | undefined;
 }>;
@@ -1262,7 +1336,7 @@ const statuses: {
 } = {
   unanswered: (
     _,
-    { t, name, address, alsoInvited: others, earlier, series },
+    { t, name, address, alsoInvited: others, earlier, scope },
   ) => {
     // A moved meeting asks for a new answer first; the address it answers from stays in Invited.
     if (earlier !== undefined) {
@@ -1275,9 +1349,7 @@ const statuses: {
     return others === 0
       ? {
           title: t('invitation.unanswered'),
-          detail: series
-            ? t('invitation.seriesDetail')
-            : t('invitation.unansweredDetail', { name, address }),
+          detail: scope ?? t('invitation.unansweredDetail', { name, address }),
         }
       : {
           icon: 'info.circle',

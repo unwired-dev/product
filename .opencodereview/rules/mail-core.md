@@ -802,6 +802,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `invitations.ts.invitationReply` or another outgoing calendar writer copying a
+  time-zone reference without its definition. Inspect the decoded outgoing
+  calendar, including `RECURRENCE-ID` when `DTSTART` moves: every emitted `TZID`
+  must resolve to a `VTIMEZONE` in that calendar, or the writer must use an
+  equivalent supported representation with no dangling reference. Preserve the
+  original occurrence identity and DATE versus DATE-TIME semantics; otherwise
+  the organizer can reject the reply or apply it to the wrong meeting even
+  though the email sends successfully.
+
 - `invitations.ts.invitationWhen` presenting the first occurrence's local
   weekday and time range as a weekly invariant without checking every displayed
   endpoint. Exercise event/device zones with different clock changes and a
