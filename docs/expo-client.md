@@ -122,8 +122,8 @@ exceptions for the same packages, then verify a frozen install and
 
 ### Navigation
 
-The shell uses the navigation React Native Screens 4.26.2 and Expo Router 57.0.29
-provide on Expo 57.0.31 and React Native 0.86.3:
+The shell uses the navigation React Native Screens 4.26.2 and Expo Router 57.0.30
+provide on Expo 57.0.32 and React Native 0.86.3:
 
 - `Split.Host` with Mailboxes, Inbox and reader `Split.Column`s in
   [`app/_layout.tsx`](../apps/mobile/app/_layout.tsx). The split API is experimental
