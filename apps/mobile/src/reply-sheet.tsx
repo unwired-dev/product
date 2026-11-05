@@ -52,6 +52,16 @@ const responseIcons = {
   forward: 'arrowshape.turn.up.right.fill',
 } as const;
 
+// The frames' 19×16pt arrows, 23×16pt Reply All and 18×16pt Archive: each glyph's point size
+// for that ink, and the icon frame it centres in. Reply All's frame is the taller one.
+const tileIcons: Readonly<Record<string, { size: number; slot: number }>> = {
+  [responseIcons.reply]: { size: 18.15, slot: 19.8375 },
+  [responseIcons.replyAll]: { size: 17.9, slot: 22.1375 },
+  [responseIcons.forward]: { size: 18.15, slot: 19.8375 },
+  'archivebox.fill': { size: 18.3, slot: 19.8375 },
+};
+const tileIcon = { size: 18.15, slot: 19.8375 };
+
 // The inset sheet's margin to the window edge.
 const sheetMargin = 8;
 
@@ -67,8 +77,9 @@ const styles = StyleSheet.create({
   replyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   replyFrom: { flex: 1, gap: 1 },
   replySender: { ...textStyles.headline },
-  // Close is the frames' 44pt glass control.
+  // Close is the frames' 44pt glass control, centred in the 48pt header.
   replyCloseGlass: {
+    alignSelf: 'center',
     padding: 0,
     borderRadius: 22,
     backgroundColor: 'transparent',
@@ -79,18 +90,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  replyTiles: { flexDirection: 'row', gap: 10 },
+  // Each tile hugs its icon frame and label, so Reply All's taller frame does not stretch the rest.
+  replyTiles: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   replyTile: {
     flex: 1,
-    minHeight: 76,
-    gap: spacing.xs,
+    gap: 6,
     paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.m,
+    paddingVertical: 14,
     borderRadius: radius.insetGroup,
     borderCurve: 'continuous',
     alignItems: 'center',
-    justifyContent: 'center',
   },
+  replyIcon: { alignItems: 'center', justifyContent: 'center' },
   replyLabel: { ...textStyles.subheadline, textAlign: 'center' },
   actionGroup: {
     overflow: 'hidden',
@@ -258,45 +269,51 @@ export function ReplySheet({
                         accessibilityLabel={t('message.closeResponses')}
                         onPress={onClose}
                         style={styles.replyClose}>
+                        {/* The frames' 10×10pt cross. */}
                         <SFSymbol
                           name="xmark"
+                          size={12.85}
                           color={colors.textPrimary}
                         />
                       </Pressable>
                     </GlassGroup>
                   </View>
                   <View style={styles.replyTiles}>
-                    {tiles.map(({ name, label, icon }) => (
-                      <Pressable
-                        key={name}
-                        accessibilityRole="button"
-                        accessibilityLabel={label}
-                        onPress={() => {
-                          select(name);
-                        }}
-                        style={({ pressed }) => [
-                          styles.replyTile,
-                          {
-                            backgroundColor: pressed
-                              ? colors.accentSelectionSubtle
-                              : colors.fillQuiet,
-                          },
-                        ]}>
-                        <SFSymbol
-                          name={icon}
-                          // The frames draw Reply's arrow 19×16pt.
-                          size={19}
-                          color={colors.textPrimary}
-                        />
-                        <Text
-                          style={[
-                            styles.replyLabel,
-                            { color: colors.textPrimary },
+                    {tiles.map(({ name, label, icon }) => {
+                      const { size, slot } = tileIcons[icon] ?? tileIcon;
+                      return (
+                        <Pressable
+                          key={name}
+                          accessibilityRole="button"
+                          accessibilityLabel={label}
+                          onPress={() => {
+                            select(name);
+                          }}
+                          style={({ pressed }) => [
+                            styles.replyTile,
+                            {
+                              backgroundColor: pressed
+                                ? colors.accentSelectionSubtle
+                                : colors.fillQuiet,
+                            },
                           ]}>
-                          {label}
-                        </Text>
-                      </Pressable>
-                    ))}
+                          <View style={[styles.replyIcon, { height: slot }]}>
+                            <SFSymbol
+                              name={icon}
+                              size={size}
+                              color={colors.textPrimary}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.replyLabel,
+                              { color: colors.textPrimary },
+                            ]}>
+                            {label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
                   {groups.map((group) => (
                     <View

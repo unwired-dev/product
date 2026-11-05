@@ -6,7 +6,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { Fragment, useState } from 'react';
+import { Fragment } from 'react';
 import {
   Platform,
   Pressable,
@@ -236,6 +236,10 @@ const styles = StyleSheet.create({
     height: rule,
   },
   footer: { paddingHorizontal: rowInset },
+  // Yoga's pixel rounding can leave a wrapped footer a hair shorter than its lines, and iOS then
+  // draws only the first as one clipped line. A slack off the pixel grid rounds the text's frame up
+  // a pixel, and the matching margin keeps the footer's own height.
+  footerText: { paddingBottom: 0.1, marginBottom: -0.1 },
   monogram: { alignItems: 'center', justifyContent: 'center' },
   card: {
     flexDirection: 'row',
@@ -789,7 +793,6 @@ export function SettingsGroup({
   readonly variant?: 'content' | 'navigation';
 }) {
   const colors = usePalette();
-  const [footerLayout, setFooterLayout] = useState('');
   return (
     <>
       {title === undefined ? null : (
@@ -817,16 +820,13 @@ export function SettingsGroup({
         </View>
       )}
       {footer === undefined ? null : (
-        <View
-          onLayout={({ nativeEvent: { layout } }) => {
-            setFooterLayout(`${layout.width}x${layout.height}`);
-          }}
-          style={styles.footer}>
-          {/* Laid out again once its size settles: iOS can keep painting a footer as the single
-              clipped line of an earlier layout. */}
+        <View style={styles.footer}>
           <Text
-            key={footerLayout}
-            style={[type.detail, { color: colors.textSecondary }]}>
+            style={[
+              type.detail,
+              styles.footerText,
+              { color: colors.textSecondary },
+            ]}>
             {footer}
           </Text>
         </View>

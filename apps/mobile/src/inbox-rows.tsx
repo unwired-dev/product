@@ -12,7 +12,7 @@ import {
 } from '@private-email/mail-core/context-menu';
 import { matchedRanges } from '@private-email/mail-core/mailboxes';
 import { radius } from '@private-email/mail-core/theme';
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { useCommandRegistry } from './command-palette.tsx';
@@ -99,6 +99,7 @@ export function MessageRow({
   const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
+  const [previewing, setPreviewing] = useState(false);
   const registry = useCommandRegistry();
   const offered = useSyncExternalStore(
     reader === undefined ? noSubscription : registry.subscribe,
@@ -128,10 +129,10 @@ export function MessageRow({
   });
   return (
     <ContextMenu
-      // iPhone lifts the row as its 22pt contextual preview, which holds the text 16pt in rather
-      // than the list's 18pt.
+      // iPhone lifts the row as its 22pt contextual preview, which holds the text 16pt in on both
+      // sides rather than the list's 18pt leading and 2pt trailing.
       previewRadius={ipad ? radius.card : radius.insetGroup}
-      previewShift={ipad ? 0 : 2}
+      onPreview={ipad ? undefined : setPreviewing}
       style={styles.rowSpacing}
       sections={
         reader === undefined
@@ -162,6 +163,7 @@ export function MessageRow({
               : 'transparent',
           },
           selected && { backgroundColor: colors.accentFill },
+          previewing && styles.rowPreview,
         ]}>
         {({ pressed }) => (
           <>

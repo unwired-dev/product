@@ -106,6 +106,8 @@ export const styles = StyleSheet.create({
     borderRadius: radius.row * scale,
     borderCurve: 'continuous',
   },
+  // The iPhone row's lifted preview: the card's 16pt insets on both sides.
+  rowPreview: { paddingLeft: spacing.l, paddingRight: spacing.l },
   separator: {
     position: 'absolute',
     left: 2,
