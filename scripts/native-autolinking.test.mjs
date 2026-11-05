@@ -61,10 +61,9 @@ class AppDelegate {
   func launch() {
     ${launch}
   }
-  func open() {
-    return super.application(app, open: url, options: options)
-  }
-  // Universal Links
+}
+
+class ReactNativeDelegate {
 }
 `;
   let previous = template;

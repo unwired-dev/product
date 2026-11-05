@@ -118,10 +118,7 @@ const config: ExpoConfig = {
     './plugins/design.cjs',
     './plugins/categorization-spike.cjs',
     'expo-background-task',
-    [
-      'expo-build-properties',
-      { ios: { deploymentTarget: '27.0' } },
-    ],
+    ['expo-build-properties', { ios: { deploymentTarget: '27.0' } }],
   ],
 };
 
