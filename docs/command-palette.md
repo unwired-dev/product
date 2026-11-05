@@ -17,6 +17,15 @@ results never appear in the palette. The vocabulary lives in the
   Move to Trash and Report spam as the provider allows; and **Move to…**, which
   lists the connection's folders or labels. The preview Inbox's reader offers its
   Mark as read or unread. The palette never chooses a message on its own.
+- **Draft commands** act on the open Draft, under a Draft section named for its
+  subject. On the Mac, the composer offers the handlers its controls use: Send,
+  Attach File…, Add Cc and Bcc until Cc and Bcc are shown, and Discard Draft,
+  which asks first as the toolbar's Discard does. Each is listed while its control
+  can act, and none while Save or Send is pending. A New Message window lists only
+  its Draft commands, with no Selected Message section; an Inbox window lists them
+  above the open message's commands. The palette shows no keyboard shortcuts
+  beside them until the composer has bindings
+  ([#849](https://github.com/unwired-dev/product/issues/849)).
 - **App commands:** New Message (while a mailbox can send; on iPhone and iPad,
   search must also be closed) and Search Mail, which opens search and focuses the
   Inbox search field. On iPhone and iPad, where a reader or
@@ -46,7 +55,7 @@ results never appear in the palette. The vocabulary lives in the
 
 ## Finding and running
 
-- With an empty query, contextual commands appear first, then App, then Go To,
+- With an empty query, Draft and contextual commands appear first, then App, then Go To,
   each in a fixed order. Typing narrows them: every typed word must start a word
   of the command's name or one of its common synonyms, fuzzily (`arch` finds
   Archive, `mv` finds Move to…, `folder` finds Move to…). Accents are ignored.
@@ -132,6 +141,7 @@ bringing the list forward from Mailboxes, New Message following the floating
 bar's button, the Account entry and the way back to the Inbox from Settings, Command-P
 opening the Mac palette only while its window shows the bar, an open palette leaving with its
 screen when registration replaces it, Back, Escape and the Mac's outside click,
+the Mac Draft commands in an Inbox window and a New Message window,
 a target that disappears after opening, and a closing palette that takes no
 input while it fades and reopens empty.
 From the root:

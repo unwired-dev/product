@@ -48,6 +48,7 @@ import {
   isTextTool,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
+import { draftCommands } from '@private-email/mail-core/commands';
 import {
   addRecipients,
   draftOf,
@@ -121,7 +122,7 @@ import {
 import type { PopUpItem } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { useCloseGuard } from './command-palette.tsx';
+import { RegisterCommands, useCloseGuard } from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -2519,14 +2520,16 @@ function Editor({
       : title;
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
+  // Discard asks first, from the toolbar and the Command Palette alike.
+  const askDiscard = () => {
+    if (!pausedNow.current && lifetime.current.finishing === 0) {
+      setClosing('discard');
+    }
+  };
   const actions = (
     <ComposerActions
       disabled={lockedUnless(closing !== 'saving')}
-      onDiscard={() => {
-        if (!pausedNow.current && lifetime.current.finishing === 0) {
-          setClosing('discard');
-        }
-      }}
+      onDiscard={askDiscard}
     />
   );
   const sender = (
@@ -2566,6 +2569,37 @@ function Editor({
         );
       }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+      {/* The palette offers each Draft control while it is available, with the same handler. */}
+      <RegisterCommands
+        offer={() =>
+          draftCommands(
+            t,
+            { id: draft.id, subject: draft.subject },
+            {
+              send:
+                closing === 'saving'
+                  ? undefined
+                  : () => {
+                      void send();
+                    },
+              attach: paused
+                ? undefined
+                : () => {
+                    void choose('files', false);
+                  },
+              copies:
+                paused || copiesShown
+                  ? undefined
+                  : () => {
+                      change({ ...authored.current, copies: true });
+                    },
+              discard: lockedUnless(closing !== 'saving')
+                ? undefined
+                : askDiscard,
+            },
+          )
+        }
+      />
       {renderToolbar === undefined ? (
         <View style={styles.header}>
           <ToolbarButton
