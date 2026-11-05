@@ -60,7 +60,10 @@ separately.
   `STATUS`, when present, must be `CANCELLED`.
 - A weekly series ([#1836](https://github.com/unwired-dev/product/issues/1836))
   shows **When** as the weekday and times, such as **Fridays, 14:00–15:00**, then
-  **Every week from 6 Nov to 18 Dec 2026**, and the unanswered card says **Your
+  **Every week from 6 Nov to 18 Dec 2026**. If the meetings span local days or a
+  clock change makes their local weekdays, start times or end times differ,
+  **When** names the first meeting's date and times instead, retaining the series
+  line. The unanswered card says **Your
   response applies to every meeting in the series.** The response is the same single
   `METHOD:REPLY` without a `RECURRENCE-ID`, so it answers every meeting. A cancellation
   of the whole series shows the same lines. The series must be a timed meeting with

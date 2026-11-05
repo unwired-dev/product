@@ -1020,8 +1020,8 @@ export const createInvitationFormats = (locale: string): InvitationFormats => ({
 
 // When the meeting happens in the device's time zone: a day, or a day with its start and end. A
 // weekly series names its weekday instead of a day when the meeting ends on the day it starts and
-// every meeting falls on that weekday at that time, which a daylight-saving change in only one of
-// the event's and the device's time zones breaks; otherwise it names the first meeting.
+// every meeting has the same local start and end, which a daylight-saving change can break;
+// otherwise it names the first meeting.
 export function invitationWhen(
   t: Translate,
   formats: InvitationFormats,
@@ -1053,7 +1053,12 @@ export function invitationWhen(
   const weekly =
     starts !== undefined &&
     (end === undefined || sameDay) &&
-    starts.every((meeting) => local(meeting) === local(start.at));
+    starts.every(
+      (meeting) =>
+        local(meeting) === local(start.at) &&
+        (end === undefined ||
+          local(meeting + end.at - start.at) === local(end.at)),
+    );
   const date = weekly
     ? t('invitation.weekdays', {
         context:

@@ -1383,6 +1383,43 @@ describe('meeting invitations', () => {
       ).toBeUndefined();
     });
 
+    it('names the first meeting when a clock change moves only a later end', () => {
+      expect.hasAssertions();
+      const prague = (options: Intl.DateTimeFormatOptions) =>
+        new Intl.DateTimeFormat('en-US', {
+          ...options,
+          timeZone: 'Europe/Prague',
+        });
+      const { details } = offered(
+        calendar([
+          ...meeting.map((line) =>
+            line
+              .replace('20261106T140000', '20270321T013000')
+              .replace('20261106T150000', '20270321T033000'),
+          ),
+          'RRULE:FREQ=WEEKLY;COUNT=3',
+        ]),
+      );
+
+      expect(
+        invitationWhen(
+          english,
+          {
+            ...formats,
+            day: prague({
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            }),
+            time: prague({ hour: 'numeric', minute: '2-digit' }),
+            weekday: prague({ weekday: 'short' }),
+          },
+          details,
+        ).replaceAll('\u202F', ' '),
+      ).toBe('Sun, Mar 21, 2027, 1:30 AM–3:30 AM');
+    });
+
     it('describes each response state', () => {
       expect.hasAssertions();
 

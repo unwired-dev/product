@@ -348,11 +348,17 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
 
   it('shows the weekday and span of a weekly series', async () => {
     expect.hasAssertions();
-    // Noon UTC keeps every meeting on the same day in the test machine's time zone.
+    const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
     const { app } = await opened(
       invitation('alex@example.invalid', ['RRULE:FREQ=WEEKLY;COUNT=7'])
-        .replace('T130000Z', 'T120000Z')
-        .replace('T140000Z', 'T130000Z'),
+        .replace(
+          'DTSTART:20261106T130000Z',
+          `DTSTART;TZID=${zone}:20261106T120000`,
+        )
+        .replace(
+          'DTEND:20261106T140000Z',
+          `DTEND;TZID=${zone}:20261106T130000`,
+        ),
     );
     try {
       await expect(screen.findByText(/^Fridays, /u)).resolves.toBeOnTheScreen();
