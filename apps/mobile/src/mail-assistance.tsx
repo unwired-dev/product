@@ -249,6 +249,13 @@ function PrivateCloudChoice({
     () => store?.getSnapshot(),
   );
   const enabled = privateCloudEnabled(enablement, account, profile);
+  const committed = useRef<typeof store>(undefined);
+  useLayoutEffect(() => {
+    committed.current = store;
+    return () => {
+      committed.current = undefined;
+    };
+  }, [store]);
   const failed = store?.getFailedSave();
   // Turning it on failed: it stays off, without the switch claiming otherwise.
   const unsaved =
@@ -284,7 +291,9 @@ function PrivateCloudChoice({
         {
           text: t('privateCloud.turnOn'),
           onPress: () => {
-            void store.setPrivateCloud(account, profile, true);
+            if (committed.current === store) {
+              void store.setPrivateCloud(account, profile, true);
+            }
           },
         },
       ],

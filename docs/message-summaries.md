@@ -97,7 +97,8 @@ operation uses Apple Private Cloud Compute yet; later slices of
 - Turning it on asks first: a native alert on iPhone and iPad and a sheet on the
   Mac name what may be sent to Apple Private Cloud Compute and that the choice
   applies only to that Profile on this device. Only **Turn On** saves it; turning
-  it on checks nothing and generates nothing.
+  it on checks nothing and generates nothing. Closing Settings discards delayed
+  **Turn On** answers.
 - The choice is saved with Mail Assistance Enablement, in the same Keychain item,
   so it has the same scope, stale-read fences, save state and purge on sign-out,
   Product Account deletion and device removal. An item saved before this change

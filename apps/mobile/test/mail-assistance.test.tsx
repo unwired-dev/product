@@ -578,7 +578,7 @@ describe('private Cloud consent and readiness', () => {
     jest.spyOn(Alert, 'alert').mockImplementation((...asked) => {
       alerts.push(asked);
     });
-    await render(
+    const view = await render(
       <MailAssistanceContext value={enablement}>
         <MailAssistanceSettings
           account={owner}
@@ -589,7 +589,7 @@ describe('private Cloud consent and readiness', () => {
         />
       </MailAssistanceContext>,
     );
-    return { alerts, calls, enablement, save };
+    return { alerts, calls, enablement, save, view };
   };
   const switchPrivateCloud = async (name: string, on: boolean) => {
     await act(async () => {
@@ -654,6 +654,16 @@ describe('private Cloud consent and readiness', () => {
       privateCloud: enablement.getSnapshot()?.privateCloud,
       calls,
     }).toStrictEqual({ privateCloud: [defaultProfile], calls: [] });
+  });
+
+  it('rejects a Turn On answer after its Settings owner unmounts', async () => {
+    expect.hasAssertions();
+    const { alerts, enablement, view } = await setUp();
+    await switchPrivateCloud('Use Private Cloud', true);
+    await view.unmount();
+    // The native alert has its own window and can deliver an answer after Settings retires.
+    await answer(alerts, 'Turn On');
+    expect(enablement.getSnapshot()?.privateCloud).toStrictEqual([]);
   });
 
   it.each([
