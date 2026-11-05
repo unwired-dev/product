@@ -285,6 +285,7 @@ export function FloatingBar({
           style={[styles.field, fieldFrame(width, offset)]}>
           {ready ? (
             <GlassGroup
+              search
               style={[
                 styles.searchBar,
                 // The capsule's accent/ink ring replaces the field's own focus ring.

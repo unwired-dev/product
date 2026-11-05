@@ -63,9 +63,13 @@ export const palette = {
     // blending.
     macGlassEdge:
       '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.15), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.15), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
-    // The same rim on glass menu panels, whose fill lets AppKit's own rim show through it.
+    // The search field's 40pt glass shows a fainter top seam than the smaller controls.
+    macSearchGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.107), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.15), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+    // The same rim on glass menu panels, whose fill lets AppKit's own rim show through it; Light's
+    // bottom seam is darker.
     macPanelGlassEdge:
-      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.15), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.15), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.15), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.2), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
     // Glass menu panels, such as the Command Palette: AppKit's glass blurs what lies beneath, and
     // this fill over it lets some of that show through. Over a plain reader the two make the
     // frames' glass fill, as measured: AppKit's glass alone is lighter than the frames' fill.
@@ -113,6 +117,8 @@ export const palette = {
     // are softer and longer.
     macGlassEdge:
       '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px -0.5px 0px 0px rgba(0, 0, 0, 1), 0px 0.5px 0px 0px rgba(0, 0, 0, 1), inset 0px 41px 0px -40px rgba(255, 255, 255, 0.162), inset 0px -41px 0px -40px rgba(255, 255, 255, 0.057), inset 0px -40.5px 0px -40px rgba(255, 255, 255, 0.104), inset 0px 40px 7px -40px rgba(255, 255, 255, 0.093), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.136)',
+    macSearchGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.36), 0px 0.5px 0px 0px rgba(0, 0, 0, 1), inset 0px 41px 0px -40px rgba(255, 255, 255, 0.162), inset 0px -41px 0px -40px rgba(255, 255, 255, 0.057), inset 0px -40.5px 0px -40px rgba(255, 255, 255, 0.104), inset 0px 40px 7px -40px rgba(255, 255, 255, 0.093), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.136)',
     // On a panel AppKit's rim adds to the crests, so they are fainter, and the top glow is fainter
     // still.
     macPanelGlassEdge:

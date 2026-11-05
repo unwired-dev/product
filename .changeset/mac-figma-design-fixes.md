@@ -18,5 +18,5 @@ edge highlights, and the Settings sidebar casts its shadow over the page. The Co
 Palette's glass lets the reader show through, blurred, under the frames' menu shadow. Push buttons are
 6pt rounded rectangles, Settings row values and Text Style are borderless pop-ups, and
 a narrow reader moves the date beneath the sender instead of squeezing it. Welcome's
-benefit symbols and labels, the sidebar's symbols, the Google button's outline and the Settings
+lede and benefit symbols and labels, the sidebar's symbols, the Google button's outline and the Settings
 page's top spacing follow the frames.

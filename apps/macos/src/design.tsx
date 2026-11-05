@@ -83,18 +83,25 @@ const NativePopover = requireNativeComponent<
 export function Glass({
   cornerRadius,
   panel = false,
+  search = false,
   style = StyleSheet.absoluteFill,
   ...props
 }: ViewProps & {
   readonly cornerRadius: number;
   // A menu panel over content, whose glass shows that content blurred beneath the fill.
   readonly panel?: boolean;
+  // The search field's glass, whose top seam is fainter.
+  readonly search?: boolean;
 }) {
   const colors = usePalette();
   const shape: StyleProp<ViewStyle> = [
     style,
     { borderRadius: cornerRadius, overflow: 'hidden' },
   ];
+  let edge = search ? colors.macSearchGlassEdge : colors.macGlassEdge;
+  if (panel) {
+    edge = colors.macPanelGlassEdge;
+  }
   // AppKit's glass takes no dark tint, so Dark backs it with the frames' glass fill, which
   // carries the frames' rim and highlights.
   const fill = (
@@ -106,7 +113,7 @@ export function Glass({
           backgroundColor: panel
             ? colors.macPanelGlassFill
             : colors.macGlassFill,
-          boxShadow: panel ? colors.macPanelGlassEdge : colors.macGlassEdge,
+          boxShadow: edge,
         },
       ]}
     />
@@ -459,9 +466,11 @@ export function useConfirmation() {
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({
   children,
+  search = false,
   style,
 }: {
   readonly children: ReactNode;
+  readonly search?: boolean;
   readonly style?: StyleProp<ViewStyle>;
 }) {
   const colors = usePalette();
@@ -480,6 +489,7 @@ export function GlassGroup({
         cornerRadius={
           typeof cornerRadius === 'number' ? cornerRadius : groupRadius
         }
+        search={search}
         style={StyleSheet.absoluteFill}
       />
       {children}

@@ -43,12 +43,13 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     letterSpacing: -1.04,
   },
-  // The frame's 520pt lede, measured in its untracked SF Pro: AppKit tracks 15pt text tighter,
-  // so 500pt keeps the frame's line breaks.
+  // The frame's 520pt lede in its untracked SF Pro: AppKit tracks 15pt text tighter, so tracking
+  // restores the frame's widths, and 500pt keeps its line breaks.
   lede: {
     maxWidth: 500,
     fontSize: 15,
     lineHeight: 20,
+    letterSpacing: 0.23,
     marginTop: spacing.xl,
     opacity: 0.78,
   },
