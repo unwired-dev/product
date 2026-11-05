@@ -406,16 +406,7 @@ const weeklyStarts = (dtstart: Line | undefined, start: InvitationTime) => {
     if (meeting === undefined) {
       return undefined;
     }
-    const local = DateTime.toParts(meeting);
-    const declared =
-      Date.UTC(
-        local.year,
-        local.month - 1,
-        local.day,
-        local.hour,
-        local.minute,
-        local.second,
-      ) === naive;
+    const declared = DateTime.toDate(meeting).getTime() === naive;
     return declared ? DateTime.toEpochMillis(meeting) : undefined;
   };
   return {
