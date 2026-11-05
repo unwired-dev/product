@@ -1,9 +1,11 @@
+import type { Translate } from '@private-email/localization';
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type {
   AccountRemoval,
   EnrollmentFailure,
   MailboxConnection,
   MailboxRemovalFailure,
+  MailProfile,
   RecoveryFailure,
   RecoveryKeyFailure,
   Registration,
@@ -11,11 +13,12 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 
+import { profileName } from '@private-email/mail-core/profile-windows';
 import {
   profilesOf,
   recoveryKeyEntry,
 } from '@private-email/mail-core/registration';
-import { palette } from '@private-email/mail-core/theme';
+import { palette, typography } from '@private-email/mail-core/theme';
 import { useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
@@ -28,16 +31,28 @@ import {
 
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
-import { AnnouncedAlert, Button, Notice, SFSymbol } from './design.tsx';
+import {
+  AnnouncedAlert,
+  Button,
+  MenuButton,
+  Notice,
+  SFSymbol,
+} from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
+import { updatedOf, useAllMailboxes, useNow } from './mailbox-state.ts';
 import { NotificationSettings } from './notification-settings.tsx';
 import { TrustCard } from './onboarding.tsx';
 import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
-import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  settingsColumns,
+  SettingsBlock,
+  SettingsGroup,
+  SettingsRow,
+} from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TrustedDevices } from './trusted-devices.tsx';
 
@@ -128,20 +143,59 @@ function RemoveConfirmation({
   );
 }
 
+// A connected mailbox's provider and Profile, then when it last synchronized once it has. iPad
+// reports that at the row's end instead.
+const connectedSummary = (
+  t: Translate,
+  summary: Readonly<{
+    provider: string;
+    profile: string;
+    updated: string | undefined;
+  }>,
+) =>
+  summary.updated === undefined || settingsColumns
+    ? t('mailboxes.connectedProfile', summary)
+    : t('mailboxes.connectedProfileUpdated', summary);
+
+// When a connected mailbox last synchronized, at the end of its iPad row as the frames show it.
+function LastSynchronized({
+  updated,
+}: {
+  readonly updated: string | undefined;
+}) {
+  const colors = usePalette();
+  return settingsColumns && updated !== undefined ? (
+    <Text style={[typography.ipadList.body, { color: colors.textSecondary }]}>
+      {updated}
+    </Text>
+  ) : null;
+}
+
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
   mailboxes,
+  profiles,
   button,
   microsoft,
   store,
 }: {
   readonly mailboxes: readonly MailboxConnection[];
+  // The Mail Profiles besides the Default Profile, which name each connection's owner.
+  readonly profiles: readonly MailProfile[];
   readonly button: SettingsButton;
   readonly microsoft: boolean;
   readonly store: Registration;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // Each connection's open Inbox, whose last synchronization the summary reports.
+  const inboxes = useAllMailboxes();
+  const now = useNow();
+  const updatedFor = (mailbox: MailboxConnection) =>
+    mailbox.state === 'connected'
+      ? updatedOf(t, inboxes.find(({ id }) => id === mailbox.id)?.state, now)
+      : undefined;
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
   // The IMAP connection whose password is being entered again, or a new one being added.
   const [imap, setImap] = useState<
@@ -160,6 +214,7 @@ function Mailboxes({
         const repairing = imap?.kind === 'repair' && imap.id === mailbox.id;
         // Saved before SMTP: entering the password again sets up sending.
         const receiveOnly = imapMailbox && mailbox.smtp === undefined;
+        const updated = updatedFor(mailbox);
         return (
           <View key={mailbox.id}>
             <SettingsRow
@@ -167,7 +222,11 @@ function Mailboxes({
               title={mailbox.address}
               subtitle={
                 mailbox.state === 'connected'
-                  ? provider
+                  ? connectedSummary(t, {
+                      provider,
+                      profile: profileName(t, mailbox.profile, profiles),
+                      updated,
+                    })
                   : t(
                       imapMailbox
                         ? `mailboxes.states.imap-${mailbox.state}`
@@ -178,6 +237,7 @@ function Mailboxes({
               subtitleTone={
                 mailbox.state === 'connected' ? undefined : 'warning'
               }>
+              <LastSynchronized updated={updated} />
               {mailbox.state === 'authorization' && !imapMailbox
                 ? button(
                     t('mailboxes.allow', {
@@ -248,27 +308,76 @@ function Mailboxes({
           </View>
         );
       })}
-      <SettingsBlock>
-        {button(t('mailboxes.add'), () => store.addMailbox('gmail', true))}
-        {microsoft
-          ? button(t('mailboxes.addMicrosoft'), () =>
-              store.addMailbox('microsoft-graph'),
-            )
-          : null}
-        {imap?.kind === 'new' ? (
-          <ImapSetup
-            button={button}
-            onClose={() => {
-              setImap(undefined);
-            }}
-            store={store}
+      {settingsColumns ? (
+        // iPad adds every provider from one row's native menu, as the frames group it.
+        <MenuButton
+          accessibilityLabel={t('mailboxes.addConnection')}
+          disabled={busy}
+          sections={[
+            {
+              items: [
+                {
+                  key: 'gmail',
+                  title: t('mailboxes.add'),
+                  symbol: '',
+                  run: () => store.addMailbox('gmail', true),
+                },
+                ...(microsoft
+                  ? [
+                      {
+                        key: 'microsoft-graph',
+                        title: t('mailboxes.addMicrosoft'),
+                        symbol: '',
+                        run: () => store.addMailbox('microsoft-graph'),
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'imap',
+                  title: t('mailboxes.addImap'),
+                  symbol: '',
+                  run: () => {
+                    setImap({ kind: 'new' });
+                  },
+                },
+              ],
+            },
+          ]}>
+          <SettingsRow
+            title={t('mailboxes.addConnection')}
+            titleTone="accent"
           />
-        ) : (
-          button(t('mailboxes.addImap'), async () => {
-            setImap({ kind: 'new' });
-          })
-        )}
-      </SettingsBlock>
+        </MenuButton>
+      ) : null}
+      {settingsColumns && imap?.kind !== 'new' ? null : (
+        <SettingsBlock>
+          {settingsColumns ? null : (
+            <>
+              {button(t('mailboxes.add'), () =>
+                store.addMailbox('gmail', true),
+              )}
+              {microsoft
+                ? button(t('mailboxes.addMicrosoft'), () =>
+                    store.addMailbox('microsoft-graph'),
+                  )
+                : null}
+            </>
+          )}
+          {imap?.kind === 'new' ? (
+            <ImapSetup
+              button={button}
+              onClose={() => {
+                setImap(undefined);
+              }}
+              store={store}
+            />
+          ) : (
+            button(t('mailboxes.addImap'), async () => {
+              setImap({ kind: 'new' });
+            })
+          )}
+        </SettingsBlock>
+      )}
     </SettingsGroup>
   );
 }
@@ -355,6 +464,13 @@ function PrivateSync({
           style={[
             styles.recoveryKey,
             { color: colors.textPrimary, backgroundColor: colors.fillQuiet },
+            brand && [
+              styles.brandRecoveryKey,
+              {
+                backgroundColor: schemeColors.brandWell,
+                borderColor: schemeColors.brandWellBorder,
+              },
+            ],
           ]}>
           {recoveryKey}
         </Text>
@@ -650,7 +766,10 @@ export function AccountActions({
         </SettingsBlock>
       )}
       {selected === undefined ? (
-        <SettingsRow title={t('settings.signOut')}>
+        <SettingsRow
+          title={t('settings.signOut')}
+          // The iPhone frame centres its push button in a 62.4pt row.
+          minHeight={settingsColumns ? undefined : 62.4}>
           {button(
             t('accountRemoval.signOut'),
             async () => {
@@ -749,6 +868,7 @@ export function AccountSettings({
       {shows('mailboxes') ? (
         <Mailboxes
           mailboxes={mailboxes}
+          profiles={profilesOf(snapshot)}
           button={button}
           microsoft={microsoft}
           store={store}

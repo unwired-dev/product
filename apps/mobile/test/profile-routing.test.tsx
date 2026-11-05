@@ -624,34 +624,30 @@ describe('profile-scoped mobile routes', () => {
       const readerPane = screen.getByTestId('compose-reader-pane', {
         includeHiddenElements: true,
       });
-      // UIKit changes the reader width while the 340pt list keeps its local bounds.
+      // New Message is a card centred on the window, whatever width UIKit gives the reader.
+      const card = {
+        left: 40,
+        width: 834 - 80,
+        top: insets.top + 40,
+        bottom: 32,
+      };
       await fireEvent(readerPane, 'layout', {
         nativeEvent: { layout: { x: 0, y: 0, width: 258, height: 1194 } },
       });
-      expect(overlay()).toHaveStyle({ left: 588 });
-      await fireEvent(readerPane, 'layout', {
-        nativeEvent: { layout: { x: 0, y: 0, width: 494, height: 1194 } },
-      });
-      expect(overlay()).toHaveStyle({ left: 352 });
-      // A regular split view can hide both leading columns without collapsing.
+      expect(overlay()).toHaveStyle(card);
       await fireEvent(readerPane, 'layout', {
         nativeEvent: { layout: { x: 0, y: 0, width: 834, height: 1194 } },
       });
-      expect(overlay()).toHaveStyle({ left: 12 });
-      expect(overlay()).toHaveStyle({ bottom: 12, height: 720 });
-      // A docked software keyboard leaves the overlay the height above it.
+      expect(overlay()).toHaveStyle(card);
+      // A docked software keyboard raises the card's bottom edge above it.
       await act(() => {
         keyboard('keyboardWillChangeFrame', 794, 400);
       });
-      expect(overlay()).toHaveStyle({ bottom: 412, height: 794 * 0.7 });
-      // A tall keyboard leaves less than the minimum; the overlay stays below the status bar.
+      expect(overlay()).toHaveStyle({ ...card, bottom: 432 });
       await act(() => {
         keyboard('keyboardWillChangeFrame', 450, 744);
       });
-      expect(overlay()).toHaveStyle({
-        bottom: 756,
-        height: 450 - insets.top - 24,
-      });
+      expect(overlay()).toHaveStyle({ ...card, bottom: 776 });
       // A regular window keeps listening, so a composer closed with its keyboard up hears its hide
       // and reopens unraised.
       const { draft: open } = route.params();
@@ -665,7 +661,7 @@ describe('profile-scoped mobile routes', () => {
       await act(() => {
         route.router.setParams({ draft: open });
       });
-      expect(overlay()).toHaveStyle({ bottom: 12, height: 720 });
+      expect(overlay()).toHaveStyle(card);
       // A conflict copy rebinds the open composer in place; its keyboard stays raised.
       await act(() => {
         keyboard('keyboardWillChangeFrame', 794, 400);
@@ -673,14 +669,14 @@ describe('profile-scoped mobile routes', () => {
       await act(() => {
         route.router.setParams({ draft: `${open}-copy` });
       });
-      expect(overlay()).toHaveStyle({ bottom: 412 });
+      expect(overlay()).toHaveStyle({ bottom: 432 });
       await act(() => {
         route.router.setParams({ draft: open });
       });
       await act(() => {
         keyboard('keyboardWillHide', 1194, 0);
       });
-      expect(overlay()).toHaveStyle({ bottom: 12, height: 720 });
+      expect(overlay()).toHaveStyle(card);
       await fireEvent.changeText(
         await screen.findByLabelText('Message body'),
         'Keep this draft.',
@@ -1375,15 +1371,15 @@ describe('the mobile Profile Switcher', () => {
       // The Primary Profile keeps its name.
       expect(screen.queryByDisplayValue('Primary Profile')).toBeNull();
       await fireEvent.press(work);
-      // The selected Profile keeps the subtle fill; a press stacks a second until release or cancel.
+      // iPhone keeps the selected Profile on the group's fill; a press shows until release or cancel.
       const primary = screen.getByRole('button', { name: 'Primary Profile' });
-      expect([fills(work), fills(primary)]).toStrictEqual([1, 0]);
+      expect([fills(work), fills(primary)]).toStrictEqual([0, 0]);
       expect(work).toBeSelected();
       await fireEvent(work, 'responderGrant', touch);
-      expect(fills(work)).toBe(2);
+      expect(fills(work)).toBe(1);
       await fireEvent(work, 'responderRelease', touch);
       await waitFor(() => {
-        expect(fills(work)).toBe(1);
+        expect(fills(work)).toBe(0);
       });
       await fireEvent(primary, 'responderGrant', touch);
       expect(fills(primary)).toBe(1);

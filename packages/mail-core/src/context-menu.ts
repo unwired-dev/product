@@ -112,6 +112,47 @@ export const messageCommands = (
       command.target?.id === target.id && command.disabled === undefined,
   );
 
+// The offered commands among `entries`, in their order; a command with choices is a submenu.
+const commandItems = (
+  target: CommandTarget,
+  commands: readonly Command[],
+  entries: ReadonlyArray<readonly [CommandId, string, string]>,
+): MenuItem[] =>
+  entries.flatMap(([id, title, symbol]): MenuItem[] => {
+    const command = commands.find((each) => each.id === id);
+    if (command === undefined) {
+      return [];
+    }
+    const { choices = [], run } = command;
+    const key = `${target.id}\n${id}`;
+    const enabled = choices.filter((choice) => choice.disabled === undefined);
+    if (enabled.length > 0) {
+      return [
+        {
+          title,
+          symbol,
+          items: enabled.map((choice) => ({
+            key: `${key}\n${choice.id}`,
+            title: choice.title,
+            symbol: choice.icon ?? 'folder',
+            run: choice.run,
+          })),
+        },
+      ];
+    }
+    return run === undefined
+      ? []
+      : [
+          {
+            key,
+            title,
+            symbol,
+            destructive: id === 'trash',
+            run,
+          },
+        ];
+  });
+
 // The enabled commands for the open message, in the reader menu's fixed groups.
 export const messageContextMenu = (
   t: Translate,
@@ -120,41 +161,7 @@ export const messageContextMenu = (
 ): readonly MenuSection[] => {
   const items = (
     entries: ReadonlyArray<readonly [CommandId, string, string]>,
-  ): MenuItem[] =>
-    entries.flatMap(([id, title, symbol]): MenuItem[] => {
-      const command = commands.find((each) => each.id === id);
-      if (command === undefined) {
-        return [];
-      }
-      const { choices = [], run } = command;
-      const key = `${target.id}\n${id}`;
-      const enabled = choices.filter((choice) => choice.disabled === undefined);
-      if (enabled.length > 0) {
-        return [
-          {
-            title,
-            symbol,
-            items: enabled.map((choice) => ({
-              key: `${key}\n${choice.id}`,
-              title: choice.title,
-              symbol: choice.icon ?? 'folder',
-              run: choice.run,
-            })),
-          },
-        ];
-      }
-      return run === undefined
-        ? []
-        : [
-            {
-              key,
-              title,
-              symbol,
-              destructive: id === 'trash',
-              run,
-            },
-          ];
-    });
+  ) => commandItems(target, commands, entries);
   return [
     {
       palette: true,
@@ -222,5 +229,34 @@ export const rowContextMenu = (
       ]),
     },
     { items: menuItems([['trash', t('contextMenu.trash'), 'trash']]) },
+  ];
+};
+
+// The row menu of the message open in the reader: the reader's Reply, Reply All and Forward first,
+// then the row's organizing actions with the reader's Move to… after Archive.
+export const readerRowMenu = (
+  t: Translate,
+  [organize, ...rest]: readonly MenuSection[],
+  reader: Readonly<{ target: CommandTarget; commands: readonly Command[] }>,
+): readonly MenuSection[] => {
+  const offered = (
+    entries: ReadonlyArray<readonly [CommandId, string, string]>,
+  ) => commandItems(reader.target, reader.commands, entries);
+  return [
+    {
+      palette: true,
+      items: offered([
+        ['reply', t('contextMenu.reply'), 'arrowshape.turn.up.left'],
+        ['replyAll', t('contextMenu.replyAll'), 'arrowshape.turn.up.left.2'],
+        ['forward', t('contextMenu.forward'), 'arrowshape.turn.up.right'],
+      ]),
+    },
+    {
+      items: [
+        ...(organize?.items ?? []),
+        ...offered([['move', t('contextMenu.moveTo'), 'folder']]),
+      ],
+    },
+    ...rest,
   ];
 };

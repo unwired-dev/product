@@ -31,6 +31,7 @@ import {
   BarSpacer,
   FloatingBar,
   NewMessageButton,
+  ScrollEdge,
   SearchField,
   useBarBottomInset,
   useNewMessage,
@@ -224,6 +225,8 @@ export function InboxBar({
   );
 }
 
+const toolbarEdge = StyleSheet.create({ edge: { left: 0, right: 0 } });
+
 // The compact Inbox's system toolbar in place of the floating bar: Filter, the system search field
 // and New Message, which UIKit arranges for each state.
 export function InboxToolbar({
@@ -257,6 +260,10 @@ export function InboxToolbar({
   return (
     <>
       {message?.command}
+      {/* Rows fade out over the window's last 72pt, beneath the toolbar's glass. */}
+      <ScrollEdge
+        style={[toolbarEdge.edge, { display: hidden ? 'none' : 'flex' }]}
+      />
       {/* The safe area ends a spacing above the toolbar's glass, so notices sit on it. Above the
           keyboard, search's field takes the bar's place, floated above the keyboard by UIKit. */}
       <KeyboardStickyView
@@ -294,7 +301,9 @@ export function InboxToolbar({
             onCompose={() => message?.compose()}
             onFilterOpen={onOpen}
             onFilterToggle={onToggle}
-            onPalette={openPalette}
+            onPalette={() => {
+              openPalette();
+            }}
             onSearchClose={close}
             onSearchFocus={focused}
             onSearchText={({ nativeEvent: { text } }) => {

@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import type {
   ColorValue,
   GestureResponderEvent,
+  LayoutRectangle,
   NativeSyntheticEvent,
   StyleProp,
   TextProps,
@@ -43,6 +44,7 @@ const NativeSymbol = requireNativeComponent<
   ViewProps & {
     readonly name: string;
     readonly size: number;
+    readonly symbolScale?: SymbolScale | undefined;
     readonly color: ColorValue;
   }
 >('UnwiredSymbol');
@@ -60,11 +62,13 @@ export function Glass({
   // Controls inside interactive glass get the system press response.
   readonly interactive?: boolean;
 }) {
+  const colors = usePalette();
   return (
     <InteractiveGlass value={interactive}>
       <GlassView
         {...props}
         isInteractive={interactive}
+        tintColor={colors.glassTint}
         style={[style, { borderRadius: cornerRadius }]}
       />
     </InteractiveGlass>
@@ -227,6 +231,27 @@ const iphone = Platform.OS === 'ios' && !Platform.isPad;
 // Toolbar buttons are 44pt for touch; the group adds a 4pt inset and takes half its height.
 const groupRadius = (44 + 2 * spacing.xs) / 2;
 
+// The iPad reader toolbar draws the Mac toolbar at 1.15×: 36.8×32.2pt buttons 2.3pt apart with
+// 18.4pt symbols in 41.4pt groups. Hit slop extends each button to 44pt tall, and 44pt wide at a group's ends.
+export const scaledToolbar = {
+  width: 32 * ipadListScale,
+  height: 28 * ipadListScale,
+  symbol: 16 * ipadListScale,
+  inset: spacing.xs * ipadListScale,
+};
+export const scaledToolbarHeight =
+  scaledToolbar.height + 2 * scaledToolbar.inset;
+export const scaledToolbarSlop = {
+  top: (44 - scaledToolbar.height) / 2,
+  bottom: (44 - scaledToolbar.height) / 2,
+  left: (44 - scaledToolbar.width) / 2,
+  right: (44 - scaledToolbar.width) / 2,
+};
+// The iPad composer's format bar draws its buttons at the same scale.
+export const ScaledToolbar = createContext(false);
+// The iPhone reader's bottom group: 56×48pt buttons 4pt apart, inset 6pt, as its frames draw it.
+const WideToolbar = createContext(false);
+
 const styles = StyleSheet.create({
   menuContent: { flexGrow: 1 },
   // The label keeps its own height and the button centres it: a growing label stretched the
@@ -239,7 +264,24 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: groupRadius,
   },
+  // One line: Yoga sizes a wrapping row without its gaps, which dropped the last button below.
+  scaledGroup: {
+    flexWrap: 'nowrap',
+    padding: scaledToolbar.inset,
+    gap: 2 * ipadListScale,
+    borderRadius: scaledToolbarHeight / 2,
+  },
   panel: { borderRadius: radius.menu, maxWidth: '100%' },
+  wideGroup: { paddingHorizontal: 6, paddingVertical: 2, gap: spacing.xs },
+  wideButton: { minWidth: 56, minHeight: 48 },
+  scaledButton: {
+    width: scaledToolbar.width,
+    height: scaledToolbar.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: scaledToolbar.height / 2,
+    borderCurve: 'continuous',
+  },
   toolbarButton: {
     minWidth: 44,
     minHeight: 44,
@@ -309,15 +351,23 @@ const styles = StyleSheet.create({
   },
 });
 
-// An SF Symbol at regular weight. It is decorative: the control around it carries the label.
+// UIKit draws SF Symbols larger than the iPad frames' 18.4pt artwork; this size matches its ink.
+export const ipadFrameSymbolSize = 14.5 * (18.4 / 18);
+
+type SymbolScale = 'small' | 'medium' | 'large';
+
+// An SF Symbol at regular weight, at the system's default symbol scale unless one is given. It is
+// decorative: the control around it carries the label.
 export function SFSymbol({
   name,
   color,
   size = 16,
+  scale,
 }: {
   readonly name: string;
   readonly color: ColorValue;
   readonly size?: number;
+  readonly scale?: SymbolScale | undefined;
 }) {
   return (
     <NativeSymbol
@@ -325,6 +375,7 @@ export function SFSymbol({
       importantForAccessibility="no-hide-descendants"
       name={name}
       size={size}
+      symbolScale={scale}
       color={color}
       style={{ width: size, height: size }}
     />
@@ -335,6 +386,9 @@ const NativeContextMenu = requireNativeComponent<
   ViewProps & {
     readonly previewColor: ColorValue;
     readonly previewRadius: number;
+    readonly onPreview: (
+      event: NativeSyntheticEvent<{ previewing: boolean }>,
+    ) => void;
     readonly sections: ReadonlyArray<
       Readonly<{
         palette?: boolean | undefined;
@@ -349,16 +403,27 @@ const NativeContextMenu = requireNativeComponent<
 // a pointer or on the Mac. Empty sections are left out.
 export function ContextMenu({
   sections,
+  previewRadius = radius.card,
+  onPreview,
   children,
   ...props
-}: ViewProps & { readonly sections: readonly MenuSection[] }) {
+}: ViewProps & {
+  readonly sections: readonly MenuSection[];
+  // The lifted preview's corner radius.
+  readonly previewRadius?: number;
+  // Whether the content shows as the lifted preview, which draws it live.
+  readonly onPreview?: ((previewing: boolean) => void) | undefined;
+}) {
   const colors = usePalette();
   const menu = menuState(sections);
   return (
     <NativeContextMenu
       {...props}
       previewColor={colors.surfaceContent}
-      previewRadius={radius.card}
+      previewRadius={previewRadius}
+      onPreview={({ nativeEvent }) => {
+        onPreview?.(nativeEvent.previewing);
+      }}
       sections={menu.sections}
       onSelect={({ nativeEvent }) => {
         void menu.runs.get(nativeEvent.id)?.();
@@ -421,17 +486,25 @@ export function MenuButton({
 }
 
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
+// A scaled group holds the iPad reader toolbar's buttons.
 export function GlassGroup({
   children,
   style,
   pointerEvents,
+  scaled = false,
+  wide = false,
 }: {
   readonly children: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
   readonly pointerEvents?: ViewProps['pointerEvents'];
+  readonly scaled?: boolean;
+  readonly wide?: boolean;
 }) {
   const colors = usePalette();
-  const cornerRadius = StyleSheet.flatten(style)?.borderRadius;
+  const cornerRadius = StyleSheet.flatten([
+    scaled && styles.scaledGroup,
+    style,
+  ])?.borderRadius;
   return (
     <Glass
       interactive
@@ -439,8 +512,16 @@ export function GlassGroup({
       cornerRadius={
         typeof cornerRadius === 'number' ? cornerRadius : groupRadius
       }
-      style={[styles.group, { boxShadow: colors.smallGlassShadow }, style]}>
-      {children}
+      style={[
+        styles.group,
+        scaled && styles.scaledGroup,
+        wide && styles.wideGroup,
+        { boxShadow: colors.smallGlassShadow },
+        style,
+      ]}>
+      <ScaledToolbar value={scaled}>
+        <WideToolbar value={wide}>{children}</WideToolbar>
+      </ScaledToolbar>
     </Glass>
   );
 }
@@ -462,30 +543,52 @@ export function GlassPanel({
 }) {
   const colors = usePalette();
   const motion = useMenuMotion(open, 'menu');
+  const [frame, setFrame] = useState<LayoutRectangle>();
   if (!motion.shown) {
     return null;
   }
   return (
-    <Animated.View
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'auto' : 'none'}
-      style={[
-        styles.panel,
-        style,
-        motion.style,
-        {
-          borderRadius: cornerRadius,
-          boxShadow: colors.menuGlassShadow,
-          backgroundColor: colors.surfaceContent,
-          transformOrigin: origin,
-        },
-      ]}>
-      <Glass
-        cornerRadius={cornerRadius}
-        style={StyleSheet.absoluteFill}
-      />
-      {children}
-    </Animated.View>
+    <>
+      {/* UIKit leaves glass inside the panel's own views clear, so it is drawn beside them at the
+          panel's frame and moves with them, as the iPad Command Palette draws its glass. */}
+      {frame === undefined ? null : (
+        <Animated.View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: frame.x,
+            top: frame.y,
+            width: frame.width,
+            height: frame.height,
+            // Fades with the panel, as the Command Palette's layer fades its glass.
+            opacity: motion.style.opacity,
+            transform: motion.style.transform,
+            transformOrigin: origin,
+          }}>
+          <Glass cornerRadius={cornerRadius} />
+        </Animated.View>
+      )}
+      <Animated.View
+        accessibilityElementsHidden={!open}
+        onLayout={(event) => {
+          setFrame(event.nativeEvent.layout);
+        }}
+        pointerEvents={open ? 'auto' : 'none'}
+        style={[
+          styles.panel,
+          style,
+          motion.style,
+          {
+            borderRadius: cornerRadius,
+            boxShadow: colors.menuGlassShadow,
+            transformOrigin: origin,
+          },
+        ]}>
+        {children}
+      </Animated.View>
+    </>
   );
 }
 
@@ -513,6 +616,8 @@ export function ToolbarButton({
 }) {
   const colors = usePalette();
   const inGlass = use(InteractiveGlass);
+  const scaled = use(ScaledToolbar);
+  const wide = use(WideToolbar);
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
@@ -525,9 +630,11 @@ export function ToolbarButton({
       }}
       disabled={disabled}
       focusable
+      hitSlop={scaled ? scaledToolbarSlop : undefined}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.toolbarButton,
+        scaled ? styles.scaledButton : styles.toolbarButton,
+        wide && styles.wideButton,
         {
           backgroundColor:
             (pressed && !inGlass) || expanded === true || selected === true
@@ -540,7 +647,7 @@ export function ToolbarButton({
       ]}>
       <SFSymbol
         name={icon}
-        size={20}
+        size={scaled ? scaledToolbar.symbol : 20}
         color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>

@@ -52,6 +52,23 @@ const placeDocument = (queued?: Array<(...values: number[]) => void>) => {
 };
 /* oxlint-enable typescript/no-unsafe-type-assertion */
 
+// iPhone chooses a policy from its row's native pop-up menu.
+const choosePolicy = async (label: string, choice: string) => {
+  const menu = screen.getByLabelText(new RegExp(`^${label}: `, 'u'));
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ id: string; title: string }>;
+  }> = menu.props.sections;
+  const item = sections
+    .flatMap((section) => section.items)
+    .find(({ title }) => title === choice);
+  if (item === undefined) {
+    throw new Error(`Expected ${choice}`);
+  }
+  await act(() => {
+    fireEvent(menu, 'select', { nativeEvent: { id: item.id } });
+  });
+};
+
 const settingsWith = (stored: string | null) =>
   createRemoteContentSettings({
     remoteContentSettings: () => Promise.resolve({ settings: stored }),
@@ -540,12 +557,7 @@ describe('remote message content in IMAP mail', () => {
       </RemoteContentContext>,
     );
     try {
-      const never = screen.getByRole('radio', {
-        name: 'Remote images for imap@example.invalid: Never',
-      });
-      await act(() => {
-        fireEvent.press(never);
-      });
+      await choosePolicy('Remote images for imap@example.invalid', 'Never');
       expect(settings.getSnapshot()?.overrides).toStrictEqual({
         'imap-a': 'never',
       });
@@ -604,11 +616,7 @@ describe('remote content settings feedback', () => {
         </RemoteContentContext>,
       );
       const choose = async (label: string) => {
-        await act(() => {
-          fireEvent.press(
-            screen.getByRole('radio', { name: `On this device: ${label}` }),
-          );
-        });
+        await choosePolicy('On this device', label);
       };
       try {
         await choose('Always load');

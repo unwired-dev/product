@@ -26,7 +26,7 @@ import {
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
-import { spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -39,7 +39,17 @@ import type { Destination } from './move-sheet.tsx';
 import type { ThreadAction } from './reply-sheet.tsx';
 
 import { RegisterCommands } from './command-palette.tsx';
-import { GlassGroup, GlassPanel, Notice, ToolbarButton } from './design.tsx';
+import {
+  GlassGroup,
+  GlassPanel,
+  MenuButton,
+  Notice,
+  scaledToolbar,
+  scaledToolbarHeight,
+  scaledToolbarSlop,
+  SFSymbol,
+  ToolbarButton,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -47,17 +57,30 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
-import { MoveSheet } from './move-sheet.tsx';
+import {
+  MovePanel,
+  movePanelRadius,
+  movePanelWidth,
+  MoveSheet,
+} from './move-sheet.tsx';
 import { ActionButton } from './organize-action-button.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
+// iPhone moves in a system sheet; iPad in the popover beneath the toolbar's Move.
+const MovePicker = compact ? MoveSheet : MovePanel;
+const placed = (picker: ReactNode) =>
+  compact ? { sheet: picker } : { panel: picker, move: true as const };
+
 // The toolbar panel a reader shows: the folders or labels to move to, or More's remaining actions.
 // Beside the iPhone Reply sheet, which offers those actions, it shows only the labels to add or
 // remove.
 export type ReaderPanel = 'folders' | 'more';
+
+// The iPad reader toolbar's top edge sits 10pt beneath the safe area, at y42 as the frames draw it.
+export const readerToolbarInset = 10;
 
 // At most one panel is open. The reader holds which, so a tap outside the panel can close it.
 type PanelState = Readonly<{
@@ -67,13 +90,26 @@ type PanelState = Readonly<{
 
 const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  // The iPad toolbar's More, sized as the scaled group's other buttons.
+  moreButton: {
+    width: scaledToolbar.width,
+    height: scaledToolbar.height,
+    alignItems: 'center',
+  },
+  groups: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 * ipadListScale },
   // Panels open above a bottom toolbar and below a top one; the reader positions the whole.
   panels: { maxHeight: 280, flexGrow: 0 },
   floatingPanels: {
     position: 'absolute',
-    top: 52 + spacing.m,
+    top: readerToolbarInset + scaledToolbarHeight + spacing.s,
     right: spacing.l,
     gap: spacing.s,
+  },
+  // Move's popover starts 18.4pt before the frames' full 395.6pt toolbar, wherever the actions this
+  // message offers leave the toolbar's own leading edge.
+  movePanel: {
+    right:
+      spacing.l + 344 * ipadListScale + 16 * ipadListScale - movePanelWidth,
   },
   panel: { gap: 4, padding: spacing.l },
   labelRow: {
@@ -172,6 +208,100 @@ export function MessageActions({
 }
 
 // Saved mail remains readable and replyable while provider checks are unavailable.
+
+// iPhone keeps one bottom capsule. The iPad frames set the top toolbar's organizing actions,
+// responses and More apart in their own glass groups, 11.5pt apart as the Mac groups scaled 1.15,
+// with Delete between Archive and Move.
+function ToolbarGroups({
+  archive,
+  trash,
+  folders,
+  respond,
+  more,
+}: {
+  readonly archive: (() => void) | undefined;
+  readonly trash: Named | undefined;
+  readonly folders:
+    | Readonly<{ label: string; open: boolean; toggle: () => void }>
+    | undefined;
+  readonly respond: ReactNode;
+  readonly more: ReactNode;
+}) {
+  const { t } = useLocalization();
+  const organize = [
+    archive === undefined ? null : (
+      <ToolbarButton
+        key="archive"
+        icon="archivebox"
+        label={t('gmailActions.label.archive')}
+        onPress={archive}
+      />
+    ),
+    // iPhone keeps Delete in its Reply sheet and More.
+    compact || trash === undefined ? null : (
+      <ToolbarButton
+        key="trash"
+        icon="trash"
+        label={trash.label}
+        onPress={() => {
+          trash.run();
+        }}
+      />
+    ),
+    folders === undefined ? null : (
+      <ToolbarButton
+        key="folders"
+        icon="folder"
+        label={folders.label}
+        expanded={folders.open}
+        onPress={() => {
+          folders.toggle();
+        }}
+      />
+    ),
+  ];
+  if (compact) {
+    return (
+      <GlassGroup
+        wide
+        pointerEvents="box-none">
+        {organize}
+        {respond}
+        {more}
+      </GlassGroup>
+    );
+  }
+  return (
+    <View
+      pointerEvents="box-none"
+      style={styles.groups}>
+      {archive === undefined &&
+      trash === undefined &&
+      folders === undefined ? null : (
+        <GlassGroup
+          scaled
+          pointerEvents="box-none">
+          {organize}
+        </GlassGroup>
+      )}
+      {respond === null ? null : (
+        <GlassGroup
+          scaled
+          pointerEvents="box-none">
+          {respond}
+        </GlassGroup>
+      )}
+      {more === null ? null : (
+        <GlassGroup
+          scaled
+          pointerEvents="box-none">
+          {more}
+        </GlassGroup>
+      )}
+    </View>
+  );
+}
+
 export function MessageActionsNotice({ id }: { readonly id: string }) {
   const state = useInbox();
   const store = useInboxActions();
@@ -234,6 +364,105 @@ function MorePanel({
   );
 }
 
+// The iPad More menu's titles and symbols, as the row menu names the same actions.
+const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
+  ({
+    read: [t('contextMenu.read'), 'envelope.open'],
+    unread: [t('contextMenu.unread'), 'envelope.badge'],
+    star: [t('contextMenu.star'), 'flag'],
+    unstar: [t('contextMenu.unstar'), 'flag.slash'],
+    restore: [t('contextMenu.restore'), 'tray.and.arrow.down'],
+    spam: [t('contextMenu.spam'), 'xmark.bin'],
+  }) as const;
+
+// More: on iPhone its panel above the bottom toolbar; on iPad the system menu the frames draw:
+// read state, the flag and Move to…, then the actions that take the message elsewhere. Gmail's
+// Labels, which toggle in place, open More's panel.
+function MoreButton({
+  more,
+  folders,
+}: {
+  readonly more: Readonly<{
+    open: boolean;
+    toggle: () => void;
+    actions: readonly Named[];
+    labels?: ReactNode;
+  }>;
+  // Move's destinations, which open beneath the toolbar.
+  readonly folders:
+    | Readonly<{ show: Readonly<{ run: () => void }> }>
+    | undefined;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  if (compact) {
+    return (
+      <ToolbarButton
+        icon="ellipsis"
+        label={t('message.more')}
+        expanded={more.open}
+        onPress={() => {
+          more.toggle();
+        }}
+      />
+    );
+  }
+  const titled = menuActions(t);
+  const items = (names: ReadonlyArray<keyof typeof titled>) =>
+    names.flatMap((name) =>
+      more.actions
+        .filter((action) => action.name === name)
+        .map(({ run }) => {
+          const [title, symbol] = titled[name];
+          return { key: name, title, symbol, run };
+        }),
+    );
+  return (
+    <MenuButton
+      accessibilityLabel={t('message.more')}
+      hitSlop={scaledToolbarSlop}
+      sections={[
+        {
+          items: [
+            ...items(['read', 'unread', 'star', 'unstar']),
+            ...(folders === undefined
+              ? []
+              : [
+                  {
+                    key: 'move',
+                    title: t('contextMenu.moveTo'),
+                    symbol: 'folder',
+                    run: folders.show.run,
+                  },
+                ]),
+          ],
+        },
+        {
+          items: [
+            ...items(['restore', 'spam']),
+            ...(more.labels === undefined
+              ? []
+              : [
+                  {
+                    key: 'labels',
+                    title: t('gmailActions.labels'),
+                    symbol: 'tag',
+                    run: more.toggle,
+                  },
+                ]),
+          ],
+        },
+      ]}
+      style={styles.moreButton}>
+      <SFSymbol
+        name="ellipsis"
+        size={scaledToolbar.symbol}
+        color={colors.textPrimary}
+      />
+    </MenuButton>
+  );
+}
+
 // The organizing actions the iPhone Reply sheet offers, in the design's order.
 const threadActions = (
   t: ReturnType<typeof useLocalization>['t'],
@@ -272,7 +501,7 @@ const threadActions = (
     : [
         {
           name: 'move',
-          label: folders.show.label,
+          label: t('contextMenu.moveMessage'),
           icon: 'folder',
           group: 'place' as const,
           run: folders.show.run,
@@ -291,16 +520,34 @@ const threadActions = (
           },
         },
       ]),
+  // The sheet names its message actions as the reader's message menu does.
   ...['restore', 'spam', 'trash']
     .flatMap((name) => more.actions.filter((action) => action.name === name))
     .map(({ name, label, run }) => ({
       name,
-      label,
+      label:
+        new Map([
+          ['spam', t('contextMenu.spam')],
+          ['trash', t('contextMenu.trashMessage')],
+        ]).get(name) ?? label,
       icon: actionIcons[name] ?? 'ellipsis',
       group: 'place' as const,
       run,
     })),
 ];
+
+// Move's popover keeps the frame's rounder glass and its own place; More and the iPad Labels panel
+// keep the menu's.
+const panelRadius = (movePanel: boolean) =>
+  movePanel ? movePanelRadius : radius.menu;
+const isMovePanel = (
+  shownPanel: ReaderPanel | undefined,
+  folders: object | undefined,
+) =>
+  shownPanel === 'folders' &&
+  folders !== undefined &&
+  'move' in folders &&
+  folders.move === true;
 
 // The toolbar and the panel or sheet one of its buttons opened.
 function Toolbar({
@@ -320,7 +567,14 @@ function Toolbar({
           toggle: () => void;
           // The Reply sheet's entry, which opens the destinations even when they are shown.
           show: Readonly<{ label: string; run: () => void }>;
-        } & ({ panel: ReactNode } | { sheet: ReactNode })
+        } & (
+          | {
+              panel: ReactNode;
+              // The panel is Move's popover, which keeps its own offset and corners.
+              move?: true;
+            }
+          | { sheet: ReactNode }
+        )
       >
     | undefined;
   readonly more: Readonly<{
@@ -360,51 +614,48 @@ function Toolbar({
   } else if (more.open && shownPanel !== 'more') {
     setShownPanel('more');
   }
+  const foldersPanel =
+    shownPanel === 'folders' && folders !== undefined && 'panel' in folders;
+  const movePanel = isMovePanel(shownPanel, folders);
   return (
     <>
       <View
         pointerEvents="box-none"
         style={styles.toolbar}>
-        <GlassGroup pointerEvents="box-none">
-          {archive === undefined ? null : (
-            <ToolbarButton
-              icon="archivebox"
-              label={t('gmailActions.label.archive')}
-              onPress={archive}
-            />
-          )}
-          {folders === undefined ? null : (
-            <ToolbarButton
-              icon="folder"
-              label={folders.label}
-              expanded={folders.open}
-              onPress={() => {
-                folders.toggle();
-              }}
-            />
-          )}
-          <ThreadActionsContext value={thread}>{children}</ThreadActionsContext>
-          {replySheet ? null : (
-            <ToolbarButton
-              icon="ellipsis"
-              label={t('message.more')}
-              expanded={more.open}
-              onPress={() => {
-                more.toggle();
-              }}
-            />
-          )}
-        </GlassGroup>
+        <ToolbarGroups
+          archive={archive}
+          trash={more.actions.find(({ name }) => name === 'trash')}
+          folders={folders}
+          respond={
+            children === null || children === undefined ? null : (
+              <ThreadActionsContext value={thread}>
+                {children}
+              </ThreadActionsContext>
+            )
+          }
+          more={
+            replySheet ? null : (
+              <MoreButton
+                more={more}
+                folders={folders}
+              />
+            )
+          }
+        />
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
       <View
         pointerEvents="box-none"
         testID="reader-panels"
-        style={compact ? undefined : styles.floatingPanels}>
-        <GlassPanel open={foldersOpen || more.open}>
-          {shownPanel === 'folders' &&
-          folders !== undefined &&
-          'panel' in folders ? (
+        style={
+          compact
+            ? undefined
+            : [styles.floatingPanels, movePanel && styles.movePanel]
+        }>
+        <GlassPanel
+          open={foldersOpen || more.open}
+          cornerRadius={panelRadius(movePanel)}>
+          {foldersPanel ? (
             folders.panel
           ) : (
             <MorePanel
@@ -558,64 +809,39 @@ function ImapMessageActions({
                     setPanel('folders');
                   },
                 },
-                ...(compact
-                  ? {
-                      sheet: (
-                        <MoveSheet
-                          open={panel === 'folders'}
-                          message={message}
-                          destinations={state.folders.map(
-                            ({ name, roles, selectable, delimiter }) => {
-                              const path =
-                                delimiter === undefined
-                                  ? [name]
-                                  : name.split(delimiter);
-                              return {
-                                id: name,
-                                path: localizedPath(path, t('inbox.title')),
-                                inboxPath: path[0] === inboxFolder,
-                                icon: folderIcon(name, roles),
-                                current: name === message.folder,
-                                selectable,
-                                count:
-                                  name === inboxFolder
-                                    ? inboxUnread(state.messages)
-                                    : undefined,
-                              };
-                            },
-                          )}
-                          limited={undefined}
-                          onMove={(destination) => {
-                            act({ kind: 'move', destination });
-                          }}
-                          onClose={() => {
-                            setPanel(undefined);
-                          }}
-                        />
-                      ),
-                    }
-                  : {
-                      panel: (
-                        <ScrollView style={styles.panels}>
-                          <View style={styles.panel}>
-                            {targets.map(({ name }) => (
-                              <ActionButton
-                                key={name}
-                                label={t('gmailActions.moveTo', {
-                                  label:
-                                    name === inboxFolder
-                                      ? t('inbox.title')
-                                      : name,
-                                })}
-                                onPress={() => {
-                                  act({ kind: 'move', destination: name });
-                                }}
-                              />
-                            ))}
-                          </View>
-                        </ScrollView>
-                      ),
-                    }),
+                ...placed(
+                  <MovePicker
+                    open={panel === 'folders'}
+                    message={message}
+                    destinations={state.folders.map(
+                      ({ name, roles, selectable, delimiter }) => {
+                        const path =
+                          delimiter === undefined
+                            ? [name]
+                            : name.split(delimiter);
+                        return {
+                          id: name,
+                          path: localizedPath(path, t('inbox.title')),
+                          inboxPath: path[0] === inboxFolder,
+                          icon: folderIcon(name, roles),
+                          current: name === message.folder,
+                          selectable,
+                          count:
+                            name === inboxFolder
+                              ? inboxUnread(state.messages)
+                              : undefined,
+                        };
+                      },
+                    )}
+                    limited={undefined}
+                    onMove={(destination) => {
+                      act({ kind: 'move', destination });
+                    }}
+                    onClose={() => {
+                      setPanel(undefined);
+                    }}
+                  />,
+                ),
               }
         }
         more={{
@@ -803,60 +1029,58 @@ function GmailMessageActions({
               setPanel('folders');
             },
           },
-          ...(compact
-            ? {
-                sheet: (
-                  <MoveSheet
-                    open={panel === 'folders'}
-                    message={message}
-                    destinations={[
-                      // Gmail and Graph list only custom move destinations; Inbox is display-only.
-                      {
-                        id: inboxFolder,
-                        path: [t('inbox.title')],
-                        inboxPath: true,
-                        icon: 'tray',
-                        current: applied.has(inboxFolder),
-                        selectable: false,
-                        count: inboxUnread(state.messages),
-                      },
-                      ...state.labels.map((label): Destination => {
-                        // Graph names may contain slashes; only its listing knows the hierarchy.
-                        const path =
-                          label.path ??
-                          (folders ? [label.name] : label.name.split('/'));
-                        return {
-                          id: label.id,
-                          path:
-                            label.inboxPath === true
-                              ? [t('inbox.title'), ...path.slice(1)]
-                              : path,
-                          inboxPath: label.inboxPath === true,
-                          icon: 'folder',
-                          current: applied.has(label.id),
-                          selectable: true,
-                        };
-                      }),
-                    ]}
-                    empty={t(
-                      folders
-                        ? 'gmailActions.noFolders'
-                        : 'gmailActions.noLabels',
-                    )}
-                    limited={
-                      state.labelsLimited === true
-                        ? state.labels.length
-                        : undefined
-                    }
-                    onMove={(destination) => {
-                      act(gmailAction.move(destination, view, provider));
-                    }}
-                    onClose={() => {
-                      setPanel(undefined);
-                    }}
-                  />
-                ),
-              }
+          ...(picker
+            ? placed(
+                <MovePicker
+                  open={panel === 'folders'}
+                  message={message}
+                  destinations={[
+                    // Gmail and Graph list only custom move destinations; Inbox is display-only.
+                    {
+                      id: inboxFolder,
+                      path: [t('inbox.title')],
+                      inboxPath: true,
+                      icon: 'tray',
+                      current: applied.has(inboxFolder),
+                      selectable: false,
+                      count: inboxUnread(state.messages),
+                    },
+                    ...state.labels.map((label): Destination => {
+                      // Graph names may contain slashes; only its listing knows the hierarchy.
+                      const path =
+                        label.path ??
+                        (folders ? [label.name] : label.name.split('/'));
+                      return {
+                        id: label.id,
+                        path:
+                          label.inboxPath === true
+                            ? [t('inbox.title'), ...path.slice(1)]
+                            : path,
+                        inboxPath: label.inboxPath === true,
+                        icon: 'folder',
+                        current: applied.has(label.id),
+                        selectable: true,
+                      };
+                    }),
+                  ]}
+                  empty={t(
+                    folders
+                      ? 'gmailActions.noFolders'
+                      : 'gmailActions.noLabels',
+                  )}
+                  limited={
+                    state.labelsLimited === true
+                      ? state.labels.length
+                      : undefined
+                  }
+                  onMove={(destination) => {
+                    act(gmailAction.move(destination, view, provider));
+                  }}
+                  onClose={() => {
+                    setPanel(undefined);
+                  }}
+                />,
+              )
             : {
                 panel: (
                   <ScrollView style={styles.panels}>

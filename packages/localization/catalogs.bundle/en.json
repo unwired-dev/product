@@ -77,6 +77,10 @@
     "more": "More",
     "received": "{{date}} UTC",
     "labels": "Labels: {{labels}}",
+    "to": "To: {{recipients}}",
+    "cc": "Cc: {{recipients}}",
+    "summaryTo": "to {{recipients}}",
+    "summaryCc": "cc {{recipients}}",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
@@ -188,7 +192,9 @@
   },
   "settings": {
     "back": "Back",
+    "close": "Close Settings",
     "title": "Settings",
+    "accountPrivateSync": "Account & Devices · Private Sync on",
     "sections": {
       "accounts": "Accounts",
       "automation": "Automation",
@@ -256,7 +262,10 @@
       "imap-authorization": "The mail server needs your password again",
       "imap-cached": "Saved mail only until the mail server can be checked"
     },
+    "connectedProfile": "{{provider}} · {{profile}}",
+    "connectedProfileUpdated": "{{provider}} · {{profile}} · {{updated}}",
     "add": "Add another Gmail mailbox",
+    "addConnection": "Add Mailbox Connection…",
     "addMicrosoft": "Add a Microsoft mailbox",
     "allow": "Allow {{provider}} access for {{address}}",
     "remove": "Remove {{address}}",
@@ -1034,6 +1043,11 @@
       "strikethrough": "Strikethrough",
       "code": "Inline code"
     },
+    "formatStyles": {
+      "title": "Title",
+      "heading": "Heading",
+      "subheading": "Subheading"
+    },
     "blocks": {
       "body": "Body",
       "heading1": "Heading 1",
@@ -1292,6 +1306,8 @@
       "title": "Your mail,\non your devices.",
       "description": "Unwired Mail brings Gmail, iCloud and Microsoft 365 together in one calm, private inbox.",
       "assistance": "Assistance runs on this device.",
+      "assistancePhone": "Assistance runs on this iPhone.",
+      "mailProfiles": "Mail Profiles keep personal and work apart.",
       "privateSync": "Private Sync keeps your devices in step.",
       "continue": "Continue"
     },
@@ -1316,7 +1332,7 @@
       },
       "microsoft": {
         "name": "Microsoft 365 and Outlook",
-        "detail": "Work, school and Outlook.com accounts"
+        "detail": "Work, school and Outlook.com"
       },
       "fastmail": {
         "name": "Fastmail",
@@ -1342,6 +1358,7 @@
     "unread": "Mark as Unread",
     "moveMessage": "Move Message",
     "moveTo": "Move to…",
+    "spam": "Report Spam",
     "openLink": "Open Link",
     "copyLink": "Copy Link",
     "quickLook": "Quick Look",

@@ -11,6 +11,7 @@ import type { TextInput } from 'react-native';
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize, tint } from '@expo/ui/swift-ui/modifiers';
 import { lastUpdated } from '@private-email/localization';
+import { commandTarget } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   leavesView,
@@ -30,14 +31,7 @@ import {
 } from '@private-email/mail-core/mailboxes';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { spacing } from '@private-email/mail-core/theme';
-import {
-  use,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -80,6 +74,7 @@ import {
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { useListedMailbox } from './mailbox-folders.tsx';
+import { useNow } from './mailbox-state.ts';
 import {
   MailboxScope,
   useDrafts,
@@ -174,20 +169,6 @@ const rowContent = (item: Parameters<typeof rowKey>[0]) => {
   }
   return 'draft' in item ? item.draft : item.message;
 };
-
-// The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
-const minute = 60_000;
-const subscribeMinute = (notify: () => void) => {
-  const timer = setInterval(notify, minute);
-  return () => {
-    clearInterval(timer);
-  };
-};
-const useNow = () =>
-  useSyncExternalStore(
-    subscribeMinute,
-    () => Math.floor(Date.now() / minute) * minute,
-  );
 
 // Names the mailbox a notice is about when the Inbox holds more than one.
 const about = (t: Translate, address: string | undefined, text: string) =>
@@ -1271,6 +1252,12 @@ export function Inbox({
                     selected={
                       selected?.mailbox === item.mailbox.id &&
                       selected.id === item.message.id
+                    }
+                    reader={
+                      selected?.mailbox === item.mailbox.id &&
+                      selected.id === item.message.id
+                        ? commandTarget(item.mailbox.id, item.message)
+                        : undefined
                     }
                     status={
                       section.key === 'gmail' || !searching

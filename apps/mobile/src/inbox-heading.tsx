@@ -1,7 +1,14 @@
 import type { ReactNode } from 'react';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
-import { Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { use } from 'react';
+import {
+  Platform,
+  Pressable,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import {
   CommandInput,
@@ -12,7 +19,10 @@ import {
 import { NavigationChrome } from './design.tsx';
 import { barInset, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
+import { SidebarToggle, SidebarToggleContext } from './sidebar-toggle.tsx';
 import { usePalette } from './theme.ts';
+
+const pad = Platform.OS === 'ios' && Platform.isPad;
 
 // The Inbox's title and status line, centered in iPhone's navigation bar clear of its Back.
 export function HeadingTitle({
@@ -130,6 +140,7 @@ export function InboxHeading({
   readonly onSearch: (() => void) | undefined;
 }) {
   const { t } = useLocalization();
+  const sidebar = use(SidebarToggleContext);
   const colors = usePalette();
   const header = usePaletteHeader();
   const inBar = bar === true && !searching;
@@ -177,7 +188,13 @@ export function InboxHeading({
             {inBar ? children : null}
           </NavigationChrome>
         ) : null}
-        <CommandInput style={styles.commands} />
+        {pad ? (
+          // While Mailboxes hides, its toggle leads the list's command row.
+          <View style={styles.commandRow}>
+            {sidebar?.shown === false ? <SidebarToggle /> : null}
+            <CommandInput style={styles.commands} />
+          </View>
+        ) : null}
         {inBar ? null : children}
       </View>
       <PaletteHint />

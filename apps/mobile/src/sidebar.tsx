@@ -18,7 +18,12 @@ import {
   profileName,
   profileStyle,
 } from '@private-email/mail-core/profile-windows';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { Fragment, use, useSyncExternalStore } from 'react';
 import {
   Platform,
@@ -28,6 +33,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
@@ -42,14 +48,11 @@ import {
 } from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
-import {
-  useAllMailboxes,
-  useMailboxes,
-  useProfile,
-  useReloadMailboxes,
-} from './mailbox.tsx';
+import { useAllMailboxes } from './mailbox-state.ts';
+import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import { SidebarToggle } from './sidebar-toggle.tsx';
 import { textStyles, usePalette, useProfilePalette } from './theme.ts';
 
 // What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, or a
@@ -64,7 +67,6 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  heading: { paddingHorizontal: spacing.xl, paddingVertical: spacing.l },
   // iPhone's title sits centered between an empty slot and Account.
   compactHeading: {
     flexDirection: 'row',
@@ -85,49 +87,98 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { ...textStyles.headline, textAlign: 'center' },
+  // The frames set the title 12pt below the header's top, 3pt above its centre.
+  title: { ...textStyles.headline, textAlign: 'center', paddingBottom: 6 },
   grow: { flex: 1 },
-  list: { paddingHorizontal: spacing.s, paddingBottom: spacing.l },
-  // The last rows scroll clear of the floating New Message.
-  compactList: { paddingHorizontal: spacing.l, paddingBottom: 72 },
+  list: { paddingBottom: spacing.l },
+  // The last rows scroll clear of the floating New Message; the Profile Switcher sits 14pt below
+  // the header.
+  compactList: {
+    paddingHorizontal: spacing.l,
+    paddingTop: 14,
+    paddingBottom: 72,
+  },
   group: {
     borderRadius: radius.mailboxGroup,
     borderCurve: 'continuous',
     overflow: 'hidden',
   },
+  // The frames' 28pt section header with 10pt above and below it.
   compactSection: {
     ...textStyles.headline,
     paddingHorizontal: spacing.xs,
-    paddingBottom: spacing.s,
-  },
-  compactRow: { minHeight: 52, paddingHorizontal: spacing.l, borderRadius: 0 },
-  separator: { height: StyleSheet.hairlineWidth, marginHorizontal: spacing.l },
-  section: {
-    ...textStyles.footnote,
-    fontWeight: '600',
-    paddingHorizontal: spacing.s,
     paddingTop: spacing.l,
-    paddingBottom: spacing.xs,
+    paddingBottom: 10,
+  },
+  // Each symbol takes a 24pt slot, so the labels share the frames' x68 axis.
+  compactRow: {
+    minHeight: 52,
+    gap: spacing.m,
+    paddingHorizontal: spacing.l,
+    borderRadius: 0,
+  },
+  compactIcon: { width: 24, alignItems: 'center' },
+  separator: { height: StyleSheet.hairlineWidth, marginHorizontal: spacing.l },
+  // The iPad sidebar follows the Mac recipe at 1.15×, as its frames draw it.
+  section: {
+    ...typography.ipadList.subheadline,
+    fontWeight: '600',
+    paddingHorizontal: spacing.s * ipadListScale,
+    paddingTop: spacing.m * ipadListScale,
+    paddingBottom: spacing.xs * ipadListScale,
   },
   row: {
-    minHeight: 44,
+    minHeight: 28 * ipadListScale,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.s,
-    paddingHorizontal: spacing.s,
-    borderRadius: radius.control,
+    gap: spacing.s * ipadListScale,
+    paddingHorizontal: spacing.s * ipadListScale,
+    borderRadius: radius.control * ipadListScale,
     borderCurve: 'continuous',
   },
-  label: { ...textStyles.body, flex: 1 },
-  count: { ...textStyles.subheadline },
-  footer: { paddingHorizontal: spacing.s, paddingVertical: spacing.s },
+  label: { ...typography.ipadList.body, flex: 1 },
+  compactLabel: { ...textStyles.body, flex: 1 },
+  compactCount: { ...textStyles.subheadline },
+  count: { ...typography.ipadList.body },
+  // As the frames draw it, Settings sits 6.9pt beneath their 1.15pt rule and 11.2pt above the
+  // panel's edge.
+  footer: {
+    paddingTop: 6 * ipadListScale,
+    paddingBottom: 11.2,
+    borderTopWidth: ipadListScale,
+  },
   switcher: {
-    minHeight: 44,
-    marginBottom: spacing.s,
-    borderRadius: radius.control,
+    minHeight: 28 * ipadListScale,
+    marginBottom: spacing.xs * ipadListScale,
+    borderRadius: radius.control * ipadListScale,
     borderCurve: 'continuous',
   },
-  compactSwitcher: { minHeight: 48, borderRadius: radius.mailboxGroup },
+  // The floating sidebar panel, inset 8pt from the column beneath the status bar and from the
+  // window's bottom edge, as the frames draw it from y40 to y826: 271.4pt wide in the 286pt column,
+  // its rows and footer 9.2pt inside it.
+  panel: {
+    flex: 1,
+    margin: spacing.s,
+    marginRight: 286 - spacing.s - 271.4,
+    paddingHorizontal: spacing.s * ipadListScale,
+    borderRadius: radius.window * ipadListScale,
+    borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  // The window controls' row of the panel: its sidebar toggle at the trailing end, and the Profile
+  // Switcher 57.5pt below the panel's top edge.
+  panelTop: {
+    height: 57.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  compactSwitcher: {
+    minHeight: 48,
+    marginBottom: spacing.s,
+    borderRadius: radius.profileSwitcher,
+  },
   switcherRow: {
     flexGrow: 1,
     flexDirection: 'row',
@@ -135,7 +186,17 @@ const styles = StyleSheet.create({
     gap: spacing.s,
     paddingHorizontal: spacing.s,
   },
-  switcherName: { ...textStyles.headline, flex: 1 },
+  // iPhone fills the row itself, since the native menu host's fill would draw twice, 12pt in with
+  // 12pt beside its monogram.
+  compactSwitcherRow: {
+    minHeight: 48,
+    gap: spacing.m,
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.profileSwitcher,
+    borderCurve: 'continuous',
+  },
+  switcherName: { ...typography.ipadList.body, fontWeight: '600', flex: 1 },
+  compactSwitcherName: { ...textStyles.headline, flex: 1 },
 });
 
 // The window's Profile Switcher: its Mail Profile's monogram, name and chevron. Its system menu
@@ -176,18 +237,29 @@ function ProfileSwitcher({
       })}
       style={[
         styles.switcher,
-        compact && styles.compactSwitcher,
-        { backgroundColor: colors.fillQuiet },
+        compact
+          ? styles.compactSwitcher
+          : { backgroundColor: colors.fillQuiet },
       ]}>
-      <View style={styles.switcherRow}>
+      <View
+        style={[
+          styles.switcherRow,
+          compact && [
+            styles.compactSwitcherRow,
+            { backgroundColor: colors.fillQuiet },
+          ],
+        ]}>
         <ProfileMonogram
           name={name}
           style={profileStyle(profiles, profile)}
-          size={28}
+          size={compact ? 28 : 22 * ipadListScale}
         />
         <Text
           numberOfLines={1}
-          style={[styles.switcherName, { color: colors.textPrimary }]}>
+          style={[
+            compact ? styles.compactSwitcherName : styles.switcherName,
+            { color: colors.textPrimary },
+          ]}>
           {name}
         </Text>
         <SFSymbol
@@ -237,14 +309,16 @@ function Item({
           backgroundColor: colors.accentSelectionSubtle,
         },
       ]}>
-      <SFSymbol
-        name={icon}
-        color={colors.accentInk}
-      />
+      <View style={compact && styles.compactIcon}>
+        <SFSymbol
+          name={icon}
+          color={colors.accentInk}
+        />
+      </View>
       <Text
         numberOfLines={1}
         style={[
-          styles.label,
+          compact ? styles.compactLabel : styles.label,
           selected && { fontWeight: '600' },
           { color: colors.textPrimary },
         ]}>
@@ -257,7 +331,11 @@ function Item({
         />
       )}
       {count === 0 || status !== undefined ? null : (
-        <Text style={[styles.count, { color: colors.textSecondary }]}>
+        <Text
+          style={[
+            compact ? styles.compactCount : styles.count,
+            { color: colors.textSecondary },
+          ]}>
           {count}
         </Text>
       )}
@@ -405,7 +483,7 @@ function FolderRows({
 }
 
 // The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
-// its folders, and the account page last.
+// its folders, and Settings last.
 export function Mailboxes({
   view,
   onView,
@@ -429,6 +507,8 @@ export function Mailboxes({
   const colors = usePalette();
   const { t } = useLocalization();
   const header = usePaletteHeader();
+  // iPhone's list runs under the home indicator, behind New Message's scroll edge.
+  const { bottom } = useSafeAreaInsets();
   const sidebar = mailboxSidebar({
     mailboxes,
     connections: account?.mailboxes ?? [],
@@ -448,186 +528,223 @@ export function Mailboxes({
   return (
     // The safe area keeps its insets as margins, so on iPhone the surface around it fills the
     // screen behind the status bar and home indicator.
-    <View
-      style={[
-        styles.fill,
-        compact && { backgroundColor: colors.surfaceContent },
-      ]}>
+    <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       {bar === true ? <NavigationChrome /> : null}
       <SafeAreaView
-        edges={{ top: true, bottom: true, left: true, right: true }}
+        edges={{
+          top: true,
+          bottom: compact && onCompose === undefined,
+          left: true,
+          right: true,
+        }}
         style={styles.fill}>
-        {/* The header opens the Command Palette by a downward swipe or its accessibility action. */}
         <View
-          style={compact ? styles.compactHeading : styles.heading}
-          {...header.swipe}>
-          {compact ? <View style={styles.headingSlot} /> : null}
-          <Text
-            accessibilityRole="header"
-            style={[
-              styles.title,
-              compact && styles.grow,
-              { color: colors.textPrimary },
-            ]}
-            {...header.action}>
-            {t('mailboxes.title')}
-          </Text>
-          {compact && account !== undefined ? (
-            <GlassGroup style={styles.accountGlass}>
-              <Pressable
-                accessibilityLabel={t('inbox.account')}
-                accessibilityRole="button"
-                onPress={() => {
-                  openSettings();
-                }}
-                style={styles.accountButton}>
-                <SFSymbol
-                  name="gearshape"
-                  size={20}
-                  color={colors.textPrimary}
-                />
-              </Pressable>
-            </GlassGroup>
+          style={
+            compact
+              ? styles.fill
+              : [
+                  styles.panel,
+                  {
+                    backgroundColor: colors.surfacePanel,
+                    borderColor: colors.separator,
+                    boxShadow: colors.largeGlassShadow,
+                  },
+                ]
+          }>
+          {compact ? null : (
+            <View style={styles.panelTop}>
+              <SidebarToggle />
+            </View>
+          )}
+          {/* On iPhone the header opens the Command Palette by a downward swipe or its
+            accessibility action. The iPad sidebar has no heading: the frames start it with the
+            Profile Switcher beneath the column's sidebar toggle. */}
+          {compact ? (
+            <View
+              style={styles.compactHeading}
+              {...header.swipe}>
+              <View style={styles.headingSlot} />
+              <Text
+                accessibilityRole="header"
+                style={[
+                  styles.title,
+                  styles.grow,
+                  { color: colors.textPrimary },
+                ]}
+                {...header.action}>
+                {t('mailboxes.title')}
+              </Text>
+              {account === undefined ? null : (
+                <GlassGroup style={styles.accountGlass}>
+                  <Pressable
+                    accessibilityLabel={t('inbox.account')}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      openSettings();
+                    }}
+                    style={styles.accountButton}>
+                    {/* The frames' gear draws 16pt of ink. */}
+                    <SFSymbol
+                      name="gearshape"
+                      size={15.5}
+                      color={colors.textPrimary}
+                    />
+                  </Pressable>
+                </GlassGroup>
+              )}
+            </View>
           ) : null}
-        </View>
-        <ScrollView
-          style={styles.fill}
-          contentContainerStyle={[styles.list, compact && styles.compactList]}>
-          <ProfileSwitcher
-            onProfile={onProfile}
-            onManage={() => {
-              openSettings('profiles');
-            }}
-          />
-          <SectionHeader label={t('mailboxes.favorites')} />
-          <View
-            style={
-              compact && [styles.group, { backgroundColor: colors.fillQuiet }]
-            }>
-            <Item
-              icon="tray.2"
-              label={t('inbox.allInboxes')}
-              count={sidebar.unread}
-              selected={sidebar.allSelected}
-              onPress={() => {
-                onView({});
+          <ScrollView
+            style={styles.fill}
+            contentContainerStyle={[
+              styles.list,
+              compact && styles.compactList,
+              compact &&
+                onCompose !== undefined && {
+                  paddingBottom: styles.compactList.paddingBottom + bottom,
+                },
+            ]}>
+            <ProfileSwitcher
+              onProfile={onProfile}
+              onManage={() => {
+                openSettings('profiles');
               }}
             />
-            {unifiedRoles.map((role) => {
-              const { title, icon } = unifiedRow(t, role);
-              return (
-                <Fragment key={role}>
-                  {compact ? (
-                    <View
-                      style={[
-                        styles.separator,
-                        { backgroundColor: colors.separator },
-                      ]}
+            <SectionHeader label={t('mailboxes.favorites')} />
+            <View
+              style={
+                compact && [styles.group, { backgroundColor: colors.fillQuiet }]
+              }>
+              <Item
+                icon="tray.2"
+                label={t('inbox.allInboxes')}
+                count={sidebar.unread}
+                selected={sidebar.allSelected}
+                onPress={() => {
+                  onView({});
+                }}
+              />
+              {unifiedRoles.map((role) => {
+                const { title, icon } = unifiedRow(t, role);
+                return (
+                  <Fragment key={role}>
+                    {compact ? (
+                      <View
+                        style={[
+                          styles.separator,
+                          { backgroundColor: colors.separator },
+                        ]}
+                      />
+                    ) : null}
+                    <Item
+                      icon={icon}
+                      label={title}
+                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                        row: title,
+                        mailbox: t('mailboxes.allMailboxes'),
+                      })}
+                      selected={view.unified === role}
+                      onPress={() => {
+                        onView({ unified: role });
+                      }}
                     />
-                  ) : null}
-                  <Item
-                    icon={icon}
-                    label={title}
-                    accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                      row: title,
-                      mailbox: t('mailboxes.allMailboxes'),
-                    })}
-                    selected={view.unified === role}
-                    onPress={() => {
-                      onView({ unified: role });
-                    }}
+                  </Fragment>
+                );
+              })}
+            </View>
+            {sidebar.entries.map((entry) => {
+              if ('section' in entry) {
+                const { mailbox, folders, problem } = entry.section;
+                const name = mailbox.address ?? mailbox.id;
+                const provider = t(
+                  `mailProviders.${mailbox.provider ?? 'gmail'}`,
+                );
+                const trouble = problemText(t, problem, {
+                  provider: mailbox.provider,
+                  name: provider,
+                });
+                return (
+                  <Fragment key={mailbox.id}>
+                    <SectionHeader label={`${provider} · ${name}`} />
+                    <FolderRows
+                      mailbox={mailbox}
+                      folders={folders}
+                      trouble={trouble}
+                      onView={onView}
+                    />
+                  </Fragment>
+                );
+              }
+              const { connection, recovery, selected } = entry.waiting;
+              const provider = t(`mailProviders.${connection.provider}`);
+              const imap = recovery === 'account';
+              return (
+                <Fragment key={connection.id}>
+                  <SectionHeader
+                    label={`${provider} · ${connection.address}`}
                   />
+                  <View
+                    style={
+                      compact && [
+                        styles.group,
+                        { backgroundColor: colors.fillQuiet },
+                      ]
+                    }>
+                    <Item
+                      icon="tray"
+                      label={t('inbox.title')}
+                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                        row: t('inbox.title'),
+                        mailbox: connection.address,
+                      })}
+                      status={
+                        imap
+                          ? t('mailboxes.states.imap-authorization')
+                          : t('mailboxes.states.authorization', { provider })
+                      }
+                      selected={selected}
+                      onPress={() => {
+                        // IMAP needs its password entered again in Settings' Email Accounts.
+                        if (imap) {
+                          openSettings('mailboxes');
+                        } else {
+                          void authorize(connection.id);
+                        }
+                      }}
+                    />
+                  </View>
                 </Fragment>
               );
             })}
-          </View>
-          {sidebar.entries.map((entry) => {
-            if ('section' in entry) {
-              const { mailbox, folders, problem } = entry.section;
-              const name = mailbox.address ?? mailbox.id;
-              const provider = t(
-                `mailProviders.${mailbox.provider ?? 'gmail'}`,
-              );
-              const trouble = problemText(t, problem, {
-                provider: mailbox.provider,
-                name: provider,
-              });
-              return (
-                <Fragment key={mailbox.id}>
-                  <SectionHeader label={`${provider} · ${name}`} />
-                  <FolderRows
-                    mailbox={mailbox}
-                    folders={folders}
-                    trouble={trouble}
-                    onView={onView}
-                  />
-                </Fragment>
-              );
-            }
-            const { connection, recovery, selected } = entry.waiting;
-            const provider = t(`mailProviders.${connection.provider}`);
-            const imap = recovery === 'account';
-            return (
-              <Fragment key={connection.id}>
-                <SectionHeader label={`${provider} · ${connection.address}`} />
-                <View
-                  style={
-                    compact && [
-                      styles.group,
-                      { backgroundColor: colors.fillQuiet },
-                    ]
-                  }>
-                  <Item
-                    icon="tray"
-                    label={t('inbox.title')}
-                    accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                      row: t('inbox.title'),
-                      mailbox: connection.address,
-                    })}
-                    status={
-                      imap
-                        ? t('mailboxes.states.imap-authorization')
-                        : t('mailboxes.states.authorization', { provider })
-                    }
-                    selected={selected}
-                    onPress={() => {
-                      // IMAP needs its password entered again in Settings' Email Accounts.
-                      if (imap) {
-                        openSettings('mailboxes');
-                      } else {
-                        void authorize(connection.id);
-                      }
-                    }}
-                  />
-                </View>
-              </Fragment>
-            );
-          })}
-        </ScrollView>
-        {compact && onCompose !== undefined ? (
-          <FloatingBar
-            leading={null}
-            trailing={
-              <NewMessageButton
-                onCompose={onCompose}
-                scope={undefined}
-                registerCommand={false}
+          </ScrollView>
+          {compact && onCompose !== undefined ? (
+            <FloatingBar
+              bottomInset={bottom}
+              // The frames fade the last 140pt of Mailboxes behind New Message.
+              edge={140}
+              leading={null}
+              trailing={
+                <NewMessageButton
+                  onCompose={onCompose}
+                  scope={undefined}
+                  registerCommand={false}
+                />
+              }>
+              <BarSpacer />
+            </FloatingBar>
+          ) : null}
+          {compact || account === undefined ? null : (
+            <View style={[styles.footer, { borderTopColor: colors.separator }]}>
+              <Item
+                icon="gearshape"
+                label={t('settings.title')}
+                onPress={() => {
+                  openSettings();
+                }}
               />
-            }>
-            <BarSpacer />
-          </FloatingBar>
-        ) : null}
-        {compact || account === undefined ? null : (
-          <View style={styles.footer}>
-            <Item
-              icon="gearshape"
-              label={t('inbox.account')}
-              onPress={() => {
-                openSettings();
-              }}
-            />
-          </View>
-        )}
+            </View>
+          )}
+        </View>
       </SafeAreaView>
     </View>
   );

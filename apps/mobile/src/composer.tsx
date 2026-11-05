@@ -76,7 +76,12 @@ import {
   undo,
   withoutImage,
 } from '@private-email/mail-core/semantic-document';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import {
   hasTranslatableText,
   translationInputLimit,
@@ -128,6 +133,7 @@ import {
   GlassGroup,
   GlassPanel,
   MenuButton,
+  scaledToolbar,
   SFSymbol,
   ToolbarButton,
 } from './design.tsx';
@@ -164,6 +170,13 @@ export const ComposerLayoutContext = createContext<{
   readonly top: number;
 }>({ size: 'compact', avoidKeyboard: true, top: 0 });
 
+// The docked iPad reply's title: the kind of response it is.
+const responseTitles = {
+  reply: 'message.reply',
+  replyAll: 'message.replyAll',
+  forward: 'message.forward',
+} as const;
+
 // The composer's file controls: the system pickers, and images on the pasteboard placed inline.
 // Native code reads the chosen files.
 export const assetPickers = [
@@ -173,10 +186,24 @@ export const assetPickers = [
   ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
 ] as const;
 
-// The body and fields sit 20pt in, with an 80pt right-aligned label column.
+// On iPhone the body and fields sit 20pt in, with an 80pt right-aligned label column.
 const inset = 20;
 const fieldInset = 16;
 const fieldLabelWidth = 80;
+const padInset = 32 * ipadListScale;
+const padFieldInset = 24 * ipadListScale;
+const padLabelWidth = 64 * ipadListScale;
+// Compact 36pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
+// iPhone's 1.25pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
+const compactRule = 1.25;
+const compactFieldHeight = 36 - compactRule;
+const padRule = ipadListScale;
+const padFieldHeight = 36 * ipadListScale - padRule;
+const titledSendHeight = 28 * ipadListScale;
+export const fieldSlop = {
+  compact: (44 - compactFieldHeight) / 2,
+  regular: (44 - padFieldHeight) / 2,
+} as const;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -207,6 +234,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
   },
   title: { ...textStyles.headline, textAlign: 'center' },
+  leadingTitle: { textAlign: 'left' },
+  // iPad's New Message header is 63pt with its controls centred 33.8pt down; a docked reply's is
+  // 46pt. Both title in the list's semibold type.
+  cardHeader: { paddingTop: 33.8 - 22, paddingBottom: 63 - 33.8 - 22 },
+  dockedHeader: { paddingVertical: 1 },
+  regularTitle: { ...typography.ipadList.body, fontWeight: '600' },
+  // The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame: their
+  // 32.2pt visuals 10.35pt below the fields and 13.8pt above the bottom, in line with the fields.
+  replyFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingTop: 9 * ipadListScale - (44 - titledSendHeight) / 2,
+    paddingBottom: 12 * ipadListScale - (44 - titledSendHeight) / 2,
+    paddingHorizontal: padFieldInset,
+    borderTopWidth: padRule,
+  },
+  // iPad's Send is the Mac button at 1.15×: 65.6×32.2pt with 6.9pt corners, within its 44pt target.
+  sendTitled: {
+    minHeight: titledSendHeight,
+    minWidth: 57 * ipadListScale,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.m * ipadListScale,
+    borderRadius: radius.control * ipadListScale,
+    borderCurve: 'continuous',
+  },
+  sendLabel: { ...typography.ipadList.body, fontWeight: '600' },
   circle: {
     width: 44,
     height: 44,
@@ -236,8 +291,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: fieldInset,
     paddingBottom: spacing.s,
   },
-  divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
+  // The format bar's separators: 18.4pt tall, 4.6pt from the glyph boxes beside them.
+  divider: {
+    width: padRule,
+    height: 16 * ipadListScale,
+  },
   content: { paddingBottom: spacing.s },
+  // A docked reply's text starts 13.8pt beneath its format bar and its fields meet its footer.
+  dockedContent: { paddingBottom: 0 },
+  dockedBody: { paddingTop: spacing.m * ipadListScale },
+  dockedFormatBar: { height: 36 * ipadListScale },
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -344,6 +407,74 @@ const styles = StyleSheet.create({
   rowDetail: { ...textStyles.footnote },
   footer: { ...textStyles.footnote, paddingHorizontal: spacing.xl },
 });
+
+// Each layout's additions to the shared styles. On both, the body grows to push its attachments
+// and fields to the bottom. iPad scales the Mac recipe by 1.15: the body 36.8pt in, in the Mac
+// composer's 15/22 at that scale; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt
+// label column.
+export const layoutStyles = {
+  // iPhone's fields are 36pt rows of 16.25/20 text beneath 1.25pt rules, 10pt from their labels.
+  // Inputs keep 44pt targets through hit slop, and an entry stays beside recipients while 60pt fit.
+  compact: StyleSheet.create({
+    content: { flexGrow: 1 },
+    body: { flexGrow: 1 },
+    quoted: {},
+    assets: {},
+    fields: {},
+    field: {
+      gap: 10,
+      minHeight: 36,
+      paddingVertical: 0,
+      borderTopWidth: compactRule,
+    },
+    fieldLabel: {
+      fontSize: 16.25,
+      lineHeight: 20,
+      paddingVertical: (compactFieldHeight - 20) / 2,
+    },
+    fieldNotice: { paddingLeft: fieldLabelWidth + 10 },
+    input: {
+      fontSize: 16.25,
+      lineHeight: 20,
+      minHeight: compactFieldHeight,
+      minWidth: 60,
+    },
+    token: { minHeight: compactFieldHeight },
+    // Cc/Bcc's 44pt target overhangs the 36pt row rather than growing it.
+    trailing: { height: compactFieldHeight, justifyContent: 'center' },
+  }),
+  // The New Message card's text starts 23pt down and its fields end 6.9pt above its edge.
+  regular: StyleSheet.create({
+    content: { flexGrow: 1, paddingBottom: 6 * ipadListScale },
+    body: {
+      flexGrow: 1,
+      paddingTop: 20 * ipadListScale,
+      paddingHorizontal: padInset,
+      fontSize: 15 * ipadListScale,
+      lineHeight: 22 * ipadListScale,
+    },
+    quoted: { marginHorizontal: padInset },
+    assets: { paddingHorizontal: padFieldInset },
+    fields: { paddingHorizontal: padFieldInset },
+    field: {
+      gap: spacing.s * ipadListScale,
+      minHeight: 36 * ipadListScale,
+      paddingVertical: 0,
+      borderTopWidth: padRule,
+    },
+    fieldLabel: {
+      ...typography.ipadList.body,
+      width: padLabelWidth,
+      paddingVertical:
+        (padFieldHeight - typography.ipadList.body.lineHeight) / 2,
+    },
+    fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
+    input: { ...typography.ipadList.body, minHeight: padFieldHeight },
+    token: { minHeight: padFieldHeight },
+    // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
+    trailing: { height: padFieldHeight, justifyContent: 'center' },
+  }),
+};
 
 const kindStyles: Record<BlockKind, TextStyle> = {
   paragraph: {},
@@ -698,6 +829,8 @@ export function Recipients({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const { size } = use(ComposerLayoutContext);
+  const sized = layoutStyles[size];
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
@@ -719,8 +852,18 @@ export function Recipients({
   };
   return (
     <View>
-      <View style={[styles.field, { borderTopColor: colors.separator }]}>
-        <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+      <View
+        style={[
+          styles.field,
+          sized.field,
+          { borderTopColor: colors.separator },
+        ]}>
+        <Text
+          style={[
+            styles.fieldLabel,
+            sized.fieldLabel,
+            { color: colors.textSecondary },
+          ]}>
           {`${name}:`}
         </Text>
         <View style={styles.entries}>
@@ -749,7 +892,8 @@ export function Recipients({
                   field,
                 );
               }}
-              style={styles.token}>
+              hitSlop={fieldSlop[size]}
+              style={[styles.token, sized.token]}>
               {({ pressed }) => (
                 <View
                   style={[
@@ -809,12 +953,15 @@ export function Recipients({
             placeholder={t('drafts.recipientPlaceholder')}
             placeholderTextColor={colors.textSecondary}
             returnKeyType="next"
-            style={[styles.input, { color: colors.textPrimary }]}
+            hitSlop={fieldSlop[size]}
+            style={[styles.input, sized.input, { color: colors.textPrimary }]}
             textContentType="emailAddress"
             value={entryOf(draft, field)}
           />
         </View>
-        {trailing}
+        {trailing === undefined ? null : (
+          <View style={sized.trailing}>{trailing}</View>
+        )}
       </View>
       {notice === undefined ? null : (
         <Text
@@ -822,6 +969,7 @@ export function Recipients({
           style={[
             styles.notice,
             styles.fieldNotice,
+            sized.fieldNotice,
             { color: colors.textSecondary },
           ]}>
           {t(`drafts.recipient.${notice}`)}
@@ -1116,6 +1264,7 @@ export function DraftAssets({
 }) {
   const store = useDraftStore();
   const { t } = useLocalization();
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
   const running = useSyncExternalStore(store.subscribe, store.getImports);
   const attachments = draft.attachments ?? [];
   const images = [
@@ -1144,7 +1293,7 @@ export function DraftAssets({
       />
     ));
   return (
-    <View style={styles.assets}>
+    <View style={[styles.assets, sized.assets]}>
       {unsendableAssets(draft).length > 0 ? (
         <Alert message={t('drafts.assets.unsendable')} />
       ) : null}
@@ -1164,8 +1313,9 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const [shown, setShown] = useState(false);
+  const sized = layoutStyles[use(ComposerLayoutContext).size];
   return (
-    <View style={styles.quoted}>
+    <View style={[styles.quoted, sized.quoted]}>
       <Action
         expanded={shown}
         label={
@@ -1387,9 +1537,12 @@ export function CloseQuestion({
 // The header's Send: the accent fill shows at 80% (CC) while pressed and dims to 40% disabled.
 export function SendButton({
   disabled,
+  titled = false,
   onPress,
 }: {
   readonly disabled: boolean;
+  // iPad names Send in a rounded button; iPhone keeps the arrow circle.
+  readonly titled?: boolean;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
@@ -1400,9 +1553,10 @@ export function SendButton({
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
+      hitSlop={titled ? (44 - titledSendHeight) / 2 : undefined}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.circle,
+        titled ? styles.sendTitled : styles.circle,
         {
           backgroundColor: pressed
             ? `${colors.accentFill}CC`
@@ -1410,10 +1564,16 @@ export function SendButton({
           opacity: disabled ? 0.4 : 1,
         },
       ]}>
-      <SFSymbol
-        name="arrow.up"
-        color={colors.accentOnFill}
-      />
+      {titled ? (
+        <Text style={[styles.sendLabel, { color: colors.accentOnFill }]}>
+          {t('drafts.send')}
+        </Text>
+      ) : (
+        <SFSymbol
+          name="arrow.up"
+          color={colors.accentOnFill}
+        />
+      )}
     </Pressable>
   );
 }
@@ -1435,6 +1595,18 @@ export function ComposerNotices({
   readonly onKeepEditing: () => void;
 }) {
   const { t } = useLocalization();
+  const { size } = use(ComposerLayoutContext);
+  const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  // On iPad nothing holds the body down while there is nothing to say; iPhone's body inset counts
+  // the notices' 8pt.
+  if (
+    size === 'regular' &&
+    (closing === undefined || closing === 'saving') &&
+    refused === undefined &&
+    sendingStateOf(draft, mailboxes) === 'available'
+  ) {
+    return null;
+  }
   return (
     <View style={styles.alerts}>
       {closing === 'blocked' || closing === 'discard-blocked' ? (
@@ -1582,7 +1754,7 @@ function WritingTools({
       style={styles.menuControl}>
       <SFSymbol
         name="sparkles"
-        size={20}
+        size={popover ? scaledToolbar.symbol : 20}
         color={colors.textPrimary}
       />
     </MenuButton>
@@ -1606,6 +1778,163 @@ function WritingTools({
       }}
       onGenerate={onGenerate}
     />
+  );
+}
+
+// iPhone's window-filling composer, the iPad New Message card, or an iPad reply docked beneath
+// the message it answers.
+type Presentation = 'compact' | 'card' | 'docked';
+
+// Each presentation's header and title additions.
+const headerStyles = {
+  compact: null,
+  card: styles.cardHeader,
+  docked: styles.dockedHeader,
+} as const;
+const titleStyles = {
+  compact: null,
+  card: styles.regularTitle,
+  docked: [styles.regularTitle, styles.leadingTitle],
+} as const;
+// A docked reply's tighter body, fields and format bar.
+const sharedParts = { content: null, body: null, formatBar: null } as const;
+const partStyles = {
+  compact: sharedParts,
+  card: sharedParts,
+  docked: {
+    content: styles.dockedContent,
+    body: styles.dockedBody,
+    formatBar: styles.dockedFormatBar,
+  },
+} as const;
+
+const presentationOf = (regular: boolean, draft: Draft): Presentation => {
+  if (!regular) {
+    return 'compact';
+  }
+  return draft.response === undefined ? 'card' : 'docked';
+};
+
+// A docked or iPhone response is titled by its kind; otherwise the subject names the Draft. Only a
+// clipped subject is announced as shortened.
+const composerTitle = (
+  t: ReturnType<typeof useLocalization>['t'],
+  draft: Draft,
+  byKind: boolean,
+) => {
+  if (byKind && draft.response !== undefined) {
+    const title = t(responseTitles[draft.response.kind]);
+    return { title, titleLabel: title };
+  }
+  const title = clip(draft.subject) || t('drafts.newMessage');
+  return {
+    title,
+    titleLabel:
+      title.length < draft.subject.length
+        ? t('drafts.titleShortened', { title })
+        : title,
+  };
+};
+
+// The header's trailing controls. iPhone: the Command input, Actions and Send. The iPad card: From,
+// Expand and Send, as Close asks whether to keep the Draft. The docked reply: Expand and Discard, with
+// From and Send beneath its fields.
+function HeaderControls({
+  presentation,
+  sender,
+  expanded,
+  onExpand,
+  discardDisabled,
+  sendDisabled,
+  onDiscard,
+  onSend,
+}: {
+  readonly presentation: Presentation;
+  readonly sender: ReactNode;
+  readonly expanded: boolean | undefined;
+  readonly onExpand: (() => void) | undefined;
+  readonly discardDisabled: boolean;
+  readonly sendDisabled: boolean;
+  readonly onDiscard: () => void;
+  readonly onSend: () => void;
+}) {
+  const { t } = useLocalization();
+  const expand =
+    onExpand === undefined ? null : (
+      <ToolbarButton
+        icon={
+          expanded
+            ? 'arrow.down.right.and.arrow.up.left'
+            : 'arrow.up.left.and.arrow.down.right'
+        }
+        label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
+        onPress={onExpand}
+      />
+    );
+  if (presentation === 'card') {
+    // The frame's card has no Expand; on iPad it still takes the whole window (docs/drafts.md).
+    return (
+      <>
+        {sender}
+        {expand}
+        <SendButton
+          titled
+          disabled={sendDisabled}
+          onPress={onSend}
+        />
+      </>
+    );
+  }
+  if (presentation === 'docked') {
+    return (
+      <>
+        {expand}
+        <ToolbarButton
+          disabled={discardDisabled}
+          icon="trash"
+          label={t('drafts.discard')}
+          onPress={onDiscard}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      <CommandInput />
+      {expand}
+      <ComposerActions
+        disabled={discardDisabled}
+        onDiscard={onDiscard}
+      />
+      <SendButton
+        disabled={sendDisabled}
+        onPress={onSend}
+      />
+    </>
+  );
+}
+
+// The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame.
+function ReplyFooter({
+  sender,
+  disabled,
+  onSend,
+}: {
+  readonly sender: ReactNode;
+  readonly disabled: boolean;
+  readonly onSend: () => void;
+}) {
+  const colors = usePalette();
+  return (
+    <View style={[styles.replyFooter, { borderTopColor: colors.separator }]}>
+      {sender}
+      <View style={styles.grow} />
+      <SendButton
+        titled
+        disabled={disabled}
+        onPress={onSend}
+      />
+    </View>
   );
 }
 
@@ -1768,6 +2097,7 @@ function Editor({
   // Format panel takes the keyboard's place.
   const layout = use(ComposerLayoutContext);
   const regular = layout.size === 'regular';
+  const sized = layoutStyles[layout.size];
   const [formatting, setFormatting] = useState(false);
   const hideFormat = () => {
     setFormatting(false);
@@ -2244,17 +2574,31 @@ function Editor({
       setSending(false);
       return false;
     });
-  const title = clip(draft.subject) || t('drafts.newMessage');
-  const titleLabel =
-    title.length < draft.subject.length
-      ? t('drafts.titleShortened', { title })
-      : title;
+  // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
+  const presentation = presentationOf(regular, draft);
+  const docked = presentation === 'docked';
+  const parts = partStyles[presentation];
+  const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
 
+  const sender = (
+    <SendingMailbox
+      draft={draft}
+      editable={!sending}
+      onChange={(mailbox) => {
+        change(withSender(authored.current, mailbox));
+      }}
+    />
+  );
+  const discardAsked = () => {
+    if (!sendingNow.current && lifetime.current.finishing === 0) {
+      setClosing('discard');
+    }
+  };
   const writingTools = (
     <WritingTools
       // A prompt belongs to the Mail Profile it was opened in.
@@ -2307,7 +2651,8 @@ function Editor({
       kind={kind}
       disabled={sending}
       onBlock={block}
-      onMark={format}>
+      onMark={format}
+      style={parts.formatBar}>
       <LinkEditor
         disabled={sending}
         link={editableLinkAt(draft.body, selection)}
@@ -2401,7 +2746,7 @@ function Editor({
         style={styles.fill}>
         {/* The header opens the Command Palette by a downward swipe, as other screens' do. */}
         <View
-          style={styles.header}
+          style={[styles.header, headerStyles[presentation]]}
           {...paletteHeader.swipe}>
           <CloseButton
             disabled={closing === 'saving'}
@@ -2418,33 +2763,24 @@ function Editor({
             accessibilityLabel={titleLabel}
             accessibilityRole="header"
             numberOfLines={1}
-            style={[styles.grow, styles.title, { color: colors.textPrimary }]}
+            style={[
+              styles.grow,
+              styles.title,
+              titleStyles[presentation],
+              { color: colors.textPrimary },
+            ]}
             {...paletteHeader.action}>
             {title}
           </Text>
-          <CommandInput />
-          {onExpand === undefined ? null : (
-            <ToolbarButton
-              icon={
-                expanded
-                  ? 'arrow.down.right.and.arrow.up.left'
-                  : 'arrow.up.left.and.arrow.down.right'
-              }
-              label={t(expanded ? 'drafts.collapse' : 'drafts.expand')}
-              onPress={onExpand}
-            />
-          )}
-          <ComposerActions
-            disabled={lockedUnless(closing !== 'saving')}
-            onDiscard={() => {
-              if (!sendingNow.current && lifetime.current.finishing === 0) {
-                setClosing('discard');
-              }
-            }}
-          />
-          <SendButton
-            disabled={closing === 'saving'}
-            onPress={() => {
+          <HeaderControls
+            presentation={presentation}
+            sender={sender}
+            expanded={expanded}
+            onExpand={onExpand}
+            discardDisabled={lockedUnless(closing !== 'saving')}
+            sendDisabled={closing === 'saving'}
+            onDiscard={discardAsked}
+            onSend={() => {
               void send();
             }}
           />
@@ -2458,22 +2794,18 @@ function Editor({
             void saveDraft();
           }}
         />
-        <View style={styles.fromRow}>
-          <View style={styles.bar}>
-            <SendingMailbox
-              draft={draft}
-              editable={!sending}
-              onChange={(mailbox) => {
-                change(withSender(authored.current, mailbox));
-              }}
-            />
+        {regular ? null : (
+          <View style={styles.fromRow}>
+            <View style={styles.bar}>{sender}</View>
           </View>
-        </View>
+        )}
         {regular ? formatBar : null}
         <View style={styles.fill}>
           <ScrollView
             contentContainerStyle={[
               styles.content,
+              sized.content,
+              parts.content,
               pillShown && styles.pillInset,
             ]}
             keyboardDismissMode="interactive"
@@ -2530,7 +2862,12 @@ function Editor({
               placeholderTextColor={colors.textSecondary}
               scrollEnabled={false}
               selection={placed}
-              style={[styles.body, { color: colors.textPrimary }]}
+              style={[
+                styles.body,
+                sized.body,
+                parts.body,
+                { color: colors.textPrimary },
+              ]}
               textAlignVertical="top">
               {display.lines.map((line, index) => (
                 <Text
@@ -2572,11 +2909,19 @@ function Editor({
               }}
               onRemove={removeAsset}
             />
-            <View style={styles.fields}>
+            <View style={[styles.fields, sized.fields]}>
               <View
-                style={[styles.field, { borderTopColor: colors.separator }]}>
+                style={[
+                  styles.field,
+                  sized.field,
+                  { borderTopColor: colors.separator },
+                ]}>
                 <Text
-                  style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                  style={[
+                    styles.fieldLabel,
+                    sized.fieldLabel,
+                    { color: colors.textSecondary },
+                  ]}>
                   {`${t('drafts.subject')}:`}
                 </Text>
                 <TextInput
@@ -2616,9 +2961,15 @@ function Editor({
                     subjectCaret.current = undefined;
                     subjectSelection.current = next;
                   }}
-                  placeholder={t('drafts.subject')}
+                  hitSlop={fieldSlop[layout.size]}
+                  // iPad's Subject label already names the empty field.
+                  placeholder={regular ? undefined : t('drafts.subject')}
                   placeholderTextColor={colors.textSecondary}
-                  style={[styles.input, { color: colors.textPrimary }]}
+                  style={[
+                    styles.input,
+                    sized.input,
+                    { color: colors.textPrimary },
+                  ]}
                   value={draft.subject}
                 />
               </View>
@@ -2667,6 +3018,15 @@ function Editor({
           </ScrollView>
           {pillShown ? pill : null}
         </View>
+        {docked ? (
+          <ReplyFooter
+            sender={sender}
+            disabled={closing === 'saving'}
+            onSend={() => {
+              void send();
+            }}
+          />
+        ) : null}
         {regular ? null : (
           <FormatPanel
             open={formatting}
