@@ -257,6 +257,16 @@ describe('meeting invitations', () => {
     });
   });
 
+  it('reads a series that ends at a distant UNTIL', () => {
+    expect.hasAssertions();
+    const { starts } = offered(
+      calendar([...series, 'RRULE:FREQ=WEEKLY;UNTIL=20461231T235959Z']),
+    ).details;
+
+    expect(starts).toHaveLength(1055);
+    expect(starts?.at(-1)).toBe(Date.UTC(2046, 11, 28, 13));
+  });
+
   it('reads a series of up to 9999 meetings', () => {
     expect.hasAssertions();
     expect(
