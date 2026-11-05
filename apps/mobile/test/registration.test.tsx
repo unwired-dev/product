@@ -1371,39 +1371,46 @@ describe('product registration', () => {
     await press('Choose another Google mailbox');
     await backToSettings();
     await openSettings('Privacy & Data');
-    const choice = (name: string) => screen.getByRole('radio', { name });
-    expect(choice('On this device: Ask')).toBeChecked();
+    // iPhone's policy rows name their chosen policy and choose from a native pop-up menu.
+    const shown = (name: string) => screen.getByLabelText(name);
+    const choose = async (name: string) => {
+      const split = name.lastIndexOf(': ');
+      const menu = screen.getByLabelText(
+        new RegExp(`^${name.slice(0, split)}: `, 'u'),
+      );
+      const sections: ReadonlyArray<{
+        items: ReadonlyArray<{ id: string; title: string }>;
+      }> = menu.props.sections;
+      const item = sections
+        .flatMap((section) => section.items)
+        .find(({ title }) => title === name.slice(split + 2));
+      assert.ok(item !== undefined);
+      await act(async () => {
+        await fireEvent(menu, 'select', { nativeEvent: { id: item.id } });
+      });
+    };
+    expect(shown('On this device: Ask')).toBeOnTheScreen();
     expect(
-      choice('Remote images for other@example.invalid: Use device setting'),
-    ).toBeChecked();
-    await act(async () => {
-      await fireEvent.press(choice('On this device: Always load'));
-    });
+      shown('Remote images for other@example.invalid: Use device setting'),
+    ).toBeOnTheScreen();
+    await choose('On this device: Always load');
     // Storage refuses the next choice: the saved one stays selected and the row says so.
     setRemoteContentSettings.mockRejectedValueOnce(
       Object.assign(new Error('Synthetic failure'), { code: 'locked' }),
     );
-    await act(async () => {
-      await fireEvent.press(
-        choice('Remote images for other@example.invalid: Never'),
-      );
-    });
+    await choose('Remote images for other@example.invalid: Never');
     const refusal =
       'Couldn’t save this change. Remote images for other@example.invalid is still set to Use device setting. Try again.';
     expect(
-      choice('Remote images for other@example.invalid: Use device setting'),
-    ).toBeChecked();
+      shown('Remote images for other@example.invalid: Use device setting'),
+    ).toBeOnTheScreen();
     expect(screen.getByText(refusal)).toBeVisible();
     expect(announce).toHaveBeenCalledWith(refusal);
     // The next choice clears the warning.
-    await act(async () => {
-      await fireEvent.press(
-        choice('Remote images for other@example.invalid: Never'),
-      );
-    });
+    await choose('Remote images for other@example.invalid: Never');
     expect(
-      choice('Remote images for other@example.invalid: Never'),
-    ).toBeChecked();
+      shown('Remote images for other@example.invalid: Never'),
+    ).toBeOnTheScreen();
     expect(screen.queryByText(refusal)).toBeNull();
     expect(saved.at(-1)).toBe(
       '{"policy":"always","overrides":{"synthetic-connection-other":"never"}}',

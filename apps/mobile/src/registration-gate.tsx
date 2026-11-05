@@ -20,6 +20,7 @@ import {
   registrationScreen,
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
+import { radius } from '@private-email/mail-core/theme';
 import {
   Fragment,
   createContext,
@@ -45,7 +46,7 @@ import type { SettingsDestination } from './settings.tsx';
 
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
-import { Button, Notice } from './design.tsx';
+import { Button, Glass, Notice } from './design.tsx';
 import {
   ErrorReportingContext,
   ErrorReportingDestination,
@@ -474,24 +475,17 @@ function SettingsPage({
     <AccountPage onInbox={onInbox}>
       <SettingsWorkspace
         account={name}
+        privateSync={snapshot.privateSync === 'ready'}
         destination={selectedDestination}
         onDestination={setDestination}
         detail={detail}
         navigation={{ onBack, onInbox, disabled: busy }}
         accessory={
-          <>
-            {busy ? (
-              <ActivityIndicator
-                accessibilityLabel={t('registration.connecting')}
-              />
-            ) : null}
-            {settingsColumns
-              ? button(t('registration.openInbox'), () => {
-                  onInbox();
-                  return Promise.resolve();
-                })
-              : null}
-          </>
+          busy ? (
+            <ActivityIndicator
+              accessibilityLabel={t('registration.connecting')}
+            />
+          ) : null
         }>
         {failed || actions.signIn.length > 0 ? (
           <SettingsGroup>
@@ -616,11 +610,96 @@ function RegistrationPage({
     snapshot.kind === 'mailbox-needed' &&
     snapshot.reason === 'microsoft-unavailable' &&
     snapshot.removalPending === undefined;
-  return (
+  const text = [styles.text, settingsColumns && styles.padSheetText];
+  const content = (
+    <>
+      <Text
+        accessibilityRole="header"
+        style={[
+          settingsColumns ? styles.padSheetTitle : styles.title,
+          { color: colors.textPrimary },
+        ]}>
+        {copy.title}
+      </Text>
+      {organizationApproval ? (
+        <Notice
+          icon="building.2"
+          iconColor={colors.statusWarning}
+          message={copy.description}
+        />
+      ) : (
+        <Text style={[text, { color: colors.textSecondary }]}>
+          {copy.description}
+        </Text>
+      )}
+      {copy.account === undefined ? null : (
+        <Text style={[text, { color: colors.textSecondary }]}>
+          {copy.account}
+        </Text>
+      )}
+      {busy ? (
+        <ActivityIndicator accessibilityLabel={t('registration.connecting')} />
+      ) : null}
+      {failed ? (
+        <Text
+          accessibilityRole="alert"
+          style={[text, { color: colors.textPrimary }]}>
+          {t('registration.setupFailed')}
+        </Text>
+      ) : null}
+      {actions.firstMailbox ? (
+        <FirstMailbox
+          button={button}
+          busy={busy}
+          microsoft={microsoft}
+          store={store}
+        />
+      ) : null}
+      {actions.signIn.map(({ offer, provider, label }) => (
+        <Fragment key={`${offer}-${provider}`}>
+          {button(label, () => store.register(provider))}
+        </Fragment>
+      ))}
+      {actions.retry ? button(t('common.retry'), store.restore) : null}
+      {actions.settings ? (
+        <AccountSettings
+          assistance={assistance}
+          button={groupButton}
+          microsoft={microsoft}
+          screen={screen}
+          store={store}
+        />
+      ) : null}
+      <AccountActions
+        button={groupButton}
+        failure={removalFailure}
+        pending={snapshot.removalPending}
+        store={store}
+      />
+    </>
+  );
+  return settingsColumns ? (
+    <View style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
+      <View
+        style={[
+          styles.padBackdrop,
+          { backgroundColor: colors.scrimTouch, paddingTop: insets.top + 40 },
+        ]}>
+        <View style={[styles.padSheet, { boxShadow: colors.menuShadow }]}>
+          <Glass cornerRadius={radius.ipadSheet} />
+          <ScrollView
+            style={styles.padSheetScroll}
+            contentContainerStyle={styles.padSheetContent}>
+            {content}
+          </ScrollView>
+        </View>
+      </View>
+    </View>
+  ) : (
     <ScrollView
       contentContainerStyle={[
         styles.scroll,
-        !settingsColumns && {
+        {
           paddingLeft: insets.left + 24,
           paddingRight: insets.right + 24,
           paddingTop: insets.top + 62,
@@ -628,70 +707,7 @@ function RegistrationPage({
         },
       ]}
       style={[styles.page, { backgroundColor: colors.surfaceContent }]}>
-      <View style={[styles.content, !settingsColumns && { gap: 10 }]}>
-        <Text
-          accessibilityRole="header"
-          style={[styles.title, { color: colors.textPrimary }]}>
-          {copy.title}
-        </Text>
-        {organizationApproval ? (
-          <Notice
-            icon="building.2"
-            iconColor={colors.statusWarning}
-            message={copy.description}
-          />
-        ) : (
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
-            {copy.description}
-          </Text>
-        )}
-        {copy.account === undefined ? null : (
-          <Text style={[styles.text, { color: colors.textSecondary }]}>
-            {copy.account}
-          </Text>
-        )}
-        {busy ? (
-          <ActivityIndicator
-            accessibilityLabel={t('registration.connecting')}
-          />
-        ) : null}
-        {failed ? (
-          <Text
-            accessibilityRole="alert"
-            style={[styles.text, { color: colors.textPrimary }]}>
-            {t('registration.setupFailed')}
-          </Text>
-        ) : null}
-        {actions.firstMailbox ? (
-          <FirstMailbox
-            button={button}
-            busy={busy}
-            microsoft={microsoft}
-            store={store}
-          />
-        ) : null}
-        {actions.signIn.map(({ offer, provider, label }) => (
-          <Fragment key={`${offer}-${provider}`}>
-            {button(label, () => store.register(provider))}
-          </Fragment>
-        ))}
-        {actions.retry ? button(t('common.retry'), store.restore) : null}
-        {actions.settings ? (
-          <AccountSettings
-            assistance={assistance}
-            button={groupButton}
-            microsoft={microsoft}
-            screen={screen}
-            store={store}
-          />
-        ) : null}
-        <AccountActions
-          button={groupButton}
-          failure={removalFailure}
-          pending={snapshot.removalPending}
-          store={store}
-        />
-      </View>
+      <View style={[styles.content, { gap: 10 }]}>{content}</View>
     </ScrollView>
   );
 }

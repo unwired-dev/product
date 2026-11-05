@@ -9,6 +9,7 @@ import {
   commandTarget,
   runWhenOffered,
 } from '@private-email/mail-core/commands';
+import { draftOf } from '@private-email/mail-core/drafts';
 import { followOpenedNotifications } from '@private-email/mail-core/notifications';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
@@ -55,6 +56,7 @@ import {
 import { Inbox } from '../src/inbox.tsx';
 import {
   InboxProvider,
+  useDrafts,
   useLeaveComposer,
   useProfile,
   WindowProfileScope,
@@ -63,6 +65,10 @@ import { createWindowProfileChoices } from '../src/profile-choices.ts';
 import { ReaderPane, ReaderPaneWidthContext } from '../src/reader-chrome.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { native, registration, start } from '../src/registration.ts';
+import {
+  SidebarToggleContext,
+  useSidebarToggle,
+} from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { usePalette } from '../src/theme.ts';
 
@@ -72,16 +78,25 @@ const phone = Platform.OS === 'ios' && !Platform.isPad;
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   hidden: { display: 'none' },
-  overlay: {
+  // The iPad Compose frame's New Message card, centred on the window.
+  card: {
     position: 'absolute',
-    right: spacing.m,
-    bottom: spacing.m,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
+    borderRadius: radius.window,
     borderCurve: 'continuous',
   },
+  // The iPad Compose Inline frame's reply, docked across the reading column's lower two thirds.
+  docked: {
+    position: 'absolute',
+    right: 0,
+    overflow: 'hidden',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
 });
+
+// The Compose frame's card at its widest, inset from a narrower window.
+const cardWidth = 874;
 
 // Every gate shows the Registration and remote content settings the host restores once here.
 if (!previewInbox) {
@@ -163,10 +178,12 @@ function ReadingColumn({
   readonly reader: string | undefined;
   readonly compact: boolean;
 }) {
+  const colors = usePalette();
   const showingSpike =
     spike && reader === undefined && CategorizationSpike !== undefined;
+  // The reader's surface also fills beneath the status bar and the home indicator.
   return (
-    <>
+    <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <View style={showingSpike ? styles.hidden : styles.fill}>
         <Slot />
       </View>
@@ -175,8 +192,81 @@ function ReadingColumn({
           <CategorizationSpike compact={compact} />
         </ReaderPane>
       ) : null}
-    </>
+    </View>
   );
+}
+
+// The New Message card dims the window behind it, as the iPad Compose frame does; the window
+// beneath stays usable.
+function ComposerScrim({
+  open,
+  floating,
+  replying,
+}: Readonly<{ open: boolean; floating: boolean; replying: boolean }>) {
+  const colors = usePalette();
+  return open && floating && !replying ? (
+    <View
+      pointerEvents="none"
+      testID="composer-scrim"
+      style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrimTouch }]}
+    />
+  ) : null;
+}
+
+// Whether the open Draft answers a message.
+function useReplying(draft: string | undefined) {
+  return draftOf(useDrafts(), draft)?.response !== undefined;
+}
+
+// Where the regular-width composer floats: a reply docks across the reading column's lower two
+// thirds, beneath the message it answers; a new message opens as a card centred on the window.
+// Both rise above a docked keyboard.
+function floatingComposer({
+  replying,
+  width,
+  height,
+  available,
+  readerWidth,
+  top,
+  colors,
+}: Readonly<{
+  replying: boolean;
+  width: number;
+  height: number;
+  available: number;
+  readerWidth: number;
+  top: number;
+  colors: ReturnType<typeof usePalette>;
+}>) {
+  const keyboard = height - available;
+  if (replying) {
+    return [
+      styles.docked,
+      {
+        left: Math.max(0, width - readerWidth),
+        bottom: keyboard,
+        height: Math.min(
+          Math.max(0, available - top),
+          Math.max(420, available * 0.66),
+        ),
+        backgroundColor: colors.surfaceContent,
+        borderColor: colors.separator,
+      },
+    ];
+  }
+  const card = Math.min(cardWidth, width - 4 * spacing.xl);
+  return [
+    styles.card,
+    {
+      width: card,
+      left: (width - card) / 2,
+      top: top + 2 * spacing.xl,
+      bottom: 2 * spacing.l + keyboard,
+      backgroundColor: colors.surfaceContent,
+      borderColor: colors.separator,
+      boxShadow: colors.menuShadow,
+    },
+  ];
 }
 
 // Presentation choices live below WindowProfileScope, which retires them with the Profile.
@@ -186,6 +276,7 @@ function MailShell() {
   const { width } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
+  const sidebarToggle = useSidebarToggle(regular);
   const [expanded, setExpanded] = useState(false);
   // On iPad the composer floats over the reader until it is expanded to the full window.
   const floating = regular && !expanded;
@@ -262,6 +353,8 @@ function MailShell() {
   // Likewise the open composer's Draft: a command that leaves the composer and then closes the
   // reader runs both closes before the next render.
   const composing = useRef(draft);
+  // A reply docks beneath the message it answers; a new message opens as a card over the window.
+  const replying = useReplying(draft);
   useLayoutEffect(() => {
     composing.current = draft;
   }, [draft]);
@@ -361,97 +454,109 @@ function MailShell() {
         style={styles.fill}>
         <WindowBarContext value={regular ? windowBar : undefined}>
           <ReaderPaneWidthContext value={setReaderWidth}>
-            <Split.Host
-              ref={splitView}
-              testID="mail-split"
-              columnMetrics={{
-                preferredPrimaryColumnWidthOrFraction: 236,
-                preferredSupplementaryColumnWidthOrFraction: 340,
-              }}
-              onCollapse={() => {
-                setCollapsed(true);
-              }}
-              onExpand={() => {
-                setCollapsed(false);
-              }}
-              style={styles.fill}
-              // Both sidebars beside the reader in landscape; portrait hides Mailboxes, which the
-              // system's sidebar button shows over the list.
-              preferredDisplayMode="automatic"
-              preferredSplitBehavior="tile"
-              primaryBackgroundStyle="sidebar"
-              topColumnForCollapsing={reading ? 'secondary' : 'supplementary'}>
-              <Split.Column
-                testID="mailboxes-column"
-                onDidAppear={followBack}>
-                <SafeAreaProvider>
-                  <Mailboxes
-                    view={view}
-                    onProfile={(profile) => {
-                      void switchProfile(profile);
-                    }}
-                    onView={(next) => {
-                      setView(next);
-                      // On iPhone a Mailbox opens its list; beside it, the list is already shown.
-                      splitView.current?.show('supplementary');
-                    }}
-                    onCompose={compose}
-                    bar={bar}
-                  />
-                </SafeAreaProvider>
-              </Split.Column>
-              <Split.Column
-                testID="inbox-column"
-                onWillDisappear={() => {
-                  setInboxVisible(false);
+            <SidebarToggleContext value={sidebarToggle.value}>
+              <Split.Host
+                ref={splitView}
+                testID="mail-split"
+                // The iPad frames: a floating sidebar inset 8pt, beside a 391pt list (the Mac columns
+                // at 1.15×). The system's 1pt column separators place the list at x287 and the
+                // reader at x679, as the frames do.
+                columnMetrics={{
+                  preferredPrimaryColumnWidthOrFraction: 286,
+                  preferredSupplementaryColumnWidthOrFraction: 391,
                 }}
-                onDidAppear={() => {
-                  setInboxVisible(true);
-                  followBack();
-                }}>
-                <SafeAreaProvider>
-                  <Inbox
-                    visible={inboxVisible}
-                    composing={draft}
-                    onClose={closeReader}
-                    bar={bar}
-                    onCompose={compose}
-                    onSelect={selectMessage}
-                    onSelectBehindComposer={
-                      regular && draft !== undefined
-                        ? (selection) => {
-                            // A message chosen in the Inbox clears the previous one's view.
-                            const next = {
-                              ...selection,
-                              folder: selection.folder,
-                            };
-                            reader.current = { ...reader.current, ...next };
-                            router.setParams(next);
-                          }
-                        : undefined
-                    }
-                    onView={setView}
-                    selected={
-                      id === undefined || mailbox === undefined
-                        ? undefined
-                        : {
-                            mailbox,
-                            id,
-                            ...(folder === undefined ? {} : { folder }),
-                          }
-                    }
-                    view={view}
+                displayModeButtonVisibility="never"
+                onDisplayModeWillChange={({ nativeEvent }) => {
+                  sidebarToggle.follow(nativeEvent.nextDisplayMode);
+                }}
+                onCollapse={() => {
+                  setCollapsed(true);
+                }}
+                onExpand={() => {
+                  setCollapsed(false);
+                }}
+                style={styles.fill}
+                // Both sidebars beside the reader in landscape; portrait hides Mailboxes, which the
+                // system's sidebar button shows over the list.
+                preferredDisplayMode={sidebarToggle.displayMode}
+                preferredSplitBehavior="tile"
+                // The sidebar draws its own floating glass panel over the window's surface.
+                primaryBackgroundStyle="none"
+                topColumnForCollapsing={
+                  reading ? 'secondary' : 'supplementary'
+                }>
+                <Split.Column
+                  testID="mailboxes-column"
+                  onDidAppear={followBack}>
+                  <SafeAreaProvider>
+                    <Mailboxes
+                      view={view}
+                      onProfile={(profile) => {
+                        void switchProfile(profile);
+                      }}
+                      onView={(next) => {
+                        setView(next);
+                        // On iPhone a Mailbox opens its list; beside it, the list is already shown.
+                        splitView.current?.show('supplementary');
+                      }}
+                      onCompose={compose}
+                      bar={bar}
+                    />
+                  </SafeAreaProvider>
+                </Split.Column>
+                <Split.Column
+                  testID="inbox-column"
+                  onWillDisappear={() => {
+                    setInboxVisible(false);
+                  }}
+                  onDidAppear={() => {
+                    setInboxVisible(true);
+                    followBack();
+                  }}>
+                  <SafeAreaProvider>
+                    <Inbox
+                      visible={inboxVisible}
+                      composing={draft}
+                      onClose={closeReader}
+                      bar={bar}
+                      onCompose={compose}
+                      onSelect={selectMessage}
+                      onSelectBehindComposer={
+                        regular && draft !== undefined
+                          ? (selection) => {
+                              // A message chosen in the Inbox clears the previous one's view.
+                              const next = {
+                                ...selection,
+                                folder: selection.folder,
+                              };
+                              reader.current = { ...reader.current, ...next };
+                              router.setParams(next);
+                            }
+                          : undefined
+                      }
+                      onView={setView}
+                      selected={
+                        id === undefined || mailbox === undefined
+                          ? undefined
+                          : {
+                              mailbox,
+                              id,
+                              ...(folder === undefined ? {} : { folder }),
+                            }
+                      }
+                      view={view}
+                    />
+                  </SafeAreaProvider>
+                </Split.Column>
+                <Split.Column>
+                  <ReadingColumn
+                    spike={spike}
+                    reader={id}
+                    compact={collapsed}
                   />
-                </SafeAreaProvider>
-              </Split.Column>
-              <Split.Column>
-                <ReadingColumn
-                  spike={spike}
-                  reader={id}
-                  compact={collapsed}
-                />
-              </Split.Column>
-            </Split.Host>
+                </Split.Column>
+              </Split.Host>
+            </SidebarToggleContext>
           </ReaderPaneWidthContext>
           {regular ? (
             <WindowBarHost
@@ -463,25 +568,26 @@ function MailShell() {
             />
           ) : null}
         </WindowBarContext>
+        <ComposerScrim
+          open={draft !== undefined}
+          floating={floating}
+          replying={replying}
+        />
         {draft === undefined ? null : (
           <View
             testID="composer-overlay"
             accessibilityViewIsModal={!floating}
             style={
               floating
-                ? [
-                    styles.overlay,
-                    {
-                      left: Math.max(0, width - readerWidth) + spacing.m,
-                      bottom: spacing.m + height - available,
-                      height: Math.min(
-                        Math.max(0, available - insets.top - 2 * spacing.m),
-                        Math.min(720, Math.max(420, available * 0.7)),
-                      ),
-                      borderColor: colors.separator,
-                      boxShadow: colors.menuShadow,
-                    },
-                  ]
+                ? floatingComposer({
+                    replying,
+                    width,
+                    height,
+                    available,
+                    readerWidth,
+                    top: insets.top,
+                    colors,
+                  })
                 : [
                     StyleSheet.absoluteFill,
                     { backgroundColor: colors.surfaceContent },

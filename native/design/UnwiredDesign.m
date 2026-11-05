@@ -68,6 +68,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @interface UnwiredSymbolView : NSImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
+@property (nonatomic, copy) NSString *symbolScale;
 @property (nonatomic, strong) NSColor *color;
 @end
 
@@ -83,6 +84,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 }
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
+- (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
 - (void)setColor:(NSColor *)color { _color = color; self.contentTintColor = color; }
 - (void)render
 {
@@ -260,6 +262,7 @@ typedef UIView UnwiredPlatformView;
 @interface UnwiredSymbolView : UIImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
+@property (nonatomic, copy) NSString *symbolScale;
 @property (nonatomic, strong) UIColor *color;
 @end
 
@@ -273,11 +276,21 @@ typedef UIView UnwiredPlatformView;
 }
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
+- (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
 - (void)setColor:(UIColor *)color { _color = color; self.tintColor = color; }
 - (void)render
 {
+  NSDictionary<NSString *, NSNumber *> *scales = @{
+    @"small" : @(UIImageSymbolScaleSmall),
+    @"medium" : @(UIImageSymbolScaleMedium),
+    @"large" : @(UIImageSymbolScaleLarge),
+  };
+  UIImageSymbolScale scale =
+      self.symbolScale == nil ? UIImageSymbolScaleDefault : scales[self.symbolScale].integerValue;
   UIImageSymbolConfiguration *configuration =
-      [UIImageSymbolConfiguration configurationWithPointSize:self.size weight:UIImageSymbolWeightRegular];
+      [UIImageSymbolConfiguration configurationWithPointSize:self.size
+                                                      weight:UIImageSymbolWeightRegular
+                                                       scale:scale];
   self.image = self.name == nil ? nil
       : [UIImage systemImageNamed:self.name withConfiguration:configuration];
 }
@@ -843,6 +856,9 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #else
 @property (nonatomic, strong) UIColor *previewColor;
 @property (nonatomic) CGFloat previewRadius;
+// Reports `previewing` as the menu shows and ends, so the content can take the lifted card's
+// layout: the preview draws the view live.
+@property (nonatomic, copy) RCTDirectEventBlock onPreview;
 #endif
 @end
 
@@ -1064,6 +1080,21 @@ static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSS
   return [[UITargetedPreview alloc] initWithView:self parameters:parameters];
 }
 
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+    willDisplayMenuForConfiguration:(UIContextMenuConfiguration *)configuration
+                           animator:(id<UIContextMenuInteractionAnimating>)animator
+{
+  if (self.onPreview) self.onPreview(@{@"previewing": @YES});
+}
+
+// The content returns to its own layout as the card settles back into place.
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+       willEndForConfiguration:(UIContextMenuConfiguration *)configuration
+                      animator:(id<UIContextMenuInteractionAnimating>)animator
+{
+  if (self.onPreview) self.onPreview(@{@"previewing": @NO});
+}
+
 - (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
                                 configuration:(UIContextMenuConfiguration *)configuration
         highlightPreviewForItemWithIdentifier:(id<NSCopying>)identifier
@@ -1092,6 +1123,7 @@ RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 #else
 RCT_EXPORT_VIEW_PROPERTY(previewColor, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(onPreview, RCTDirectEventBlock)
 #endif
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
 @end
@@ -1391,6 +1423,7 @@ RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
 RCT_EXPORT_MODULE(UnwiredSymbol)
 RCT_EXPORT_VIEW_PROPERTY(name, NSString)
 RCT_EXPORT_VIEW_PROPERTY(size, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(symbolScale, NSString)
 RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 - (UnwiredPlatformView *)view { return [UnwiredSymbolView new]; }
 @end

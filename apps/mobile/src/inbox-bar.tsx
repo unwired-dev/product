@@ -449,7 +449,11 @@ export function useBarIndicatorInsets(toolbar = false) {
   return { bottom: lift + barHeight };
 }
 
-function ScrollEdge({ style }: { readonly style: StyleProp<ViewStyle> }) {
+export function ScrollEdge({
+  style,
+}: {
+  readonly style: StyleProp<ViewStyle>;
+}) {
   const colors = usePalette();
   return (
     <View
@@ -535,6 +539,7 @@ export function FloatingBar({
   notice = null,
   listNotice = null,
   bottomInset = 0,
+  edge,
   children,
 }: {
   readonly hidden?: boolean;
@@ -546,6 +551,8 @@ export function FloatingBar({
   readonly listNotice?: ReactNode;
   // The bottom safe area the list runs under; the bar and its notices stay above it.
   readonly bottomInset?: number;
+  // The scroll edge fade's height from the window's bottom edge.
+  readonly edge?: number;
   // The search field, or the button that opens it.
   readonly children: ReactNode;
 }) {
@@ -589,7 +596,7 @@ export function FloatingBar({
         style={[
           styles.listEdge,
           {
-            height: styles.scrollEdge.height + bottomInset,
+            height: edge ?? styles.scrollEdge.height + bottomInset,
             display: hidden ? 'none' : 'flex',
           },
         ]}

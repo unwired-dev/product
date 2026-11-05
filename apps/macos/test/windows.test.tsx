@@ -314,6 +314,17 @@ describe('mac window selection with the shared mock mailbox', () => {
       await fireEvent.press(
         app.getByRole('button', { name: 'Open Command Palette' }),
       );
+      // The open Draft's commands lead, and each section names what its commands act on (#1578).
+      expect(
+        within(app.getByTestId('command-palette'))
+          .getAllByRole('header')
+          .map((item) => String(item.props.accessibilityLabel)),
+      ).toStrictEqual([
+        'Draft',
+        'Selected Message · A little more room to think',
+        'App',
+        'Go To',
+      ]);
       await fireEvent.press(
         within(app.getByTestId('command-palette')).getByRole('button', {
           name: 'New Message',
@@ -422,6 +433,52 @@ describe('mac window selection with the shared mock mailbox', () => {
         window.getByRole('button', { name: 'Compose actions' }),
       ).toBeVisible();
       expect(window.getAllByRole('button', { name: 'Send' })).toHaveLength(1);
+      // #1578: the window's palette lists the Draft's commands, and no Selected Message section.
+      const openPalette = async () => {
+        await fireEvent.press(
+          window.getByRole('button', { name: 'Open Command Palette' }),
+        );
+        return within(window.getByTestId('command-palette'));
+      };
+      let palette = await openPalette();
+      expect(
+        palette
+          .getAllByRole('header')
+          .map((item) => String(item.props.accessibilityLabel)),
+      ).toStrictEqual([
+        `Draft · ${String(window.getByLabelText('Subject').props.value)}`,
+      ]);
+      expect(
+        palette
+          .getAllByRole('button')
+          .map((item) => String(item.props.accessibilityLabel)),
+      ).toStrictEqual([
+        'Send',
+        'Attach File…',
+        'Add Cc and Bcc',
+        'Discard Draft',
+      ]);
+      expect(window.queryByLabelText('Cc')).toBeNull();
+      await fireEvent.press(
+        palette.getByRole('button', { name: 'Add Cc and Bcc' }),
+      );
+      expect(window.getByLabelText('Cc')).toBeVisible();
+      // Discard asks first, as the toolbar's Discard does.
+      palette = await openPalette();
+      expect(
+        palette.queryByRole('button', { name: 'Add Cc and Bcc' }),
+      ).toBeNull();
+      await fireEvent.press(
+        palette.getByRole('button', { name: 'Discard Draft' }),
+      );
+      expect(
+        window.getByRole('alert', {
+          name: 'Discard this Draft? It is deleted from this device.',
+        }),
+      ).toBeVisible();
+      await fireEvent.press(
+        window.getByRole('button', { name: 'Keep Editing' }),
+      );
       // Native Close and Quit must reach this editor's leave guard, including unfinished entries.
       await fireEvent.changeText(
         window.getByLabelText('Subject'),

@@ -1,6 +1,11 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { Fragment } from 'react';
 import {
   Platform,
@@ -20,7 +25,7 @@ import {
 
 import { AccountHeader } from './account-page.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
-import { Glass, SFSymbol } from './design.tsx';
+import { ipadFrameSymbolSize, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -47,7 +52,7 @@ const sections = [
   {
     title: 'application',
     items: [
-      { id: 'language', icon: 'globe' },
+      { id: 'language', icon: 'translate' },
       { id: 'privacy', icon: 'hand.raised' },
     ],
   },
@@ -62,12 +67,41 @@ const type = settingsColumns
       title: typography.ipadList.body,
       detail: typography.ipadList.subheadline,
       page: typography.ipadList.title3Emphasized,
+      account: typography.ipadList.title3Emphasized,
     }
   : {
       title: textStyles.body,
       detail: textStyles.subheadline,
       page: textStyles.headline,
+      // The iPhone frames title the account cards at 20/25 semibold.
+      account: textStyles.title3Emphasized,
     };
+
+// UIKit draws these symbols larger than the iPad frames' artwork at the frames' size; these sizes
+// come closest to the frames' ink in the sidebar and in content rows; no regular-weight symbol
+// configuration matches both of a frame's dimensions. The Dark and Light frames' translate ink
+// sits 1.5pt and 2.5pt right of its slot's centre, and their at ink about 1pt below its row's
+// centre.
+const itemSymbolSizes: Readonly<Partial<Record<string, number>>> = {
+  translate: 11.25,
+};
+const itemSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
+  translate: 2,
+};
+const rowSymbolSizes: Readonly<Partial<Record<string, number>>> = {
+  at: 11.5,
+  photo: 13.8,
+};
+// At the large symbol scale, at draws 15×15pt ink, the closest to the frames' 16×15pt and
+// 16×14pt of any regular-weight configuration.
+const rowSymbolScales: Readonly<
+  Partial<Record<string, 'small' | 'medium' | 'large'>>
+> = {
+  at: 'large',
+};
+const rowSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
+  at: 0.75,
+};
 
 // A push button in a Settings row; `title` is its visible text when the label names its target.
 export type SettingsButton = (
@@ -82,17 +116,43 @@ export type SettingsButton = (
 
 const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 
+// iPad rows follow the frames' Mac recipe at 1.15×: 46pt single-line and 61.3pt two-line rows.
+const rowPadding = settingsColumns ? 10 * ipadListScale : spacing.m;
+const phoneButtonHeight = 36.4;
+const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
+// iPad's row rules are the Mac recipe's point at 1.15×, as its frames draw them.
+const rule = settingsColumns ? ipadListScale : StyleSheet.hairlineWidth;
+
 const styles = StyleSheet.create({
   page: { flex: 1 },
   columns: { flex: 1, flexDirection: 'row' },
+  // The floating sidebar panel the iPad frames draw, beneath the status bar.
   sidebar: {
     width: 248,
     marginLeft: spacing.s,
+    marginTop: spacing.s,
     marginBottom: spacing.s,
     borderRadius: 21,
     borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  sidebarList: { padding: 9 },
+  sidebarList: { padding: 9, paddingTop: 0 },
+  // The panel's top row: Close at its leading end, where Mailboxes has its sidebar toggle. The
+  // frames give it a 32.2pt title bar 16.1pt below the panel's top.
+  sidebarTop: {
+    height: 48.3,
+    paddingTop: 16.1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+  },
+  close: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
   account: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -114,15 +174,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    minHeight: 44,
+    minHeight: 28 * ipadListScale,
     paddingHorizontal: 9,
     borderRadius: 7,
     borderCurve: 'continuous',
   },
   grow: { flex: 1 },
+  // Symbols centre in fixed slots, so a wide one such as translate keeps its label in line.
+  itemIcon: { width: 18, alignItems: 'center' },
+  rowIcon: { width: 20, alignItems: 'center' },
+  // iPad's cards start 28pt beside the sidebar and end 32pt from the window's edge.
   content: {
     gap: settingsColumns ? spacing.s : 10,
-    paddingHorizontal: settingsColumns ? 28 : spacing.l,
+    paddingLeft: settingsColumns ? 28 : spacing.l,
+    paddingRight: settingsColumns ? 32 : spacing.l,
     paddingTop: spacing.s,
     paddingBottom: spacing.xl,
   },
@@ -131,7 +196,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
     paddingTop: spacing.m,
-    paddingHorizontal: settingsColumns ? 14 : spacing.l,
+    paddingHorizontal: rowInset,
   },
   cells: { marginTop: -StyleSheet.hairlineWidth },
   group: {
@@ -142,12 +207,17 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.m,
-    minHeight: 52,
-    paddingHorizontal: settingsColumns ? 14 : spacing.l,
-    paddingVertical: spacing.m,
+    gap: settingsColumns ? rowPadding : spacing.m,
+    minHeight: settingsColumns ? 40 * ipadListScale : 52,
+    paddingHorizontal: rowInset,
+    paddingVertical: rowPadding,
   },
-  rowText: { flex: 1, gap: 2 },
+  // A 24pt symbol slot puts the destinations' titles on the frames' x68 axis.
+  destinationIcon: { width: 24, alignItems: 'center' },
+  // iPad's two-line rows are 61.3pt, as the frames draw them.
+  rowText: { flex: 1, gap: settingsColumns ? 3.8 : 2 },
+  // Trailing controls may take the row's padding, so a push button or the native picker keeps
+  // iPad's 46pt row; on iPhone a 36.4pt push button centres in the 52pt row.
   trailing: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -155,38 +225,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
     flexShrink: 1,
+    marginVertical: settingsColumns
+      ? -rowPadding
+      : (52 - phoneButtonHeight) / 2 - rowPadding,
   },
   block: {
     gap: spacing.s,
-    paddingHorizontal: settingsColumns ? 14 : spacing.l,
+    paddingHorizontal: rowInset,
     paddingVertical: spacing.m,
   },
+  // iPad's thicker rule ends where a hairline would, so the rows keep their places and the group
+  // still hides the first.
   separator: {
     position: 'absolute',
-    top: 0,
-    left: settingsColumns ? 14 : spacing.l,
-    right: settingsColumns ? 14 : spacing.l,
-    height: StyleSheet.hairlineWidth,
+    top: StyleSheet.hairlineWidth - rule,
+    left: rowInset,
+    right: rowInset,
+    height: rule,
   },
-  footer: { paddingHorizontal: settingsColumns ? 14 : spacing.l },
+  footer: { paddingHorizontal: rowInset },
+  // Yoga's pixel rounding can leave a wrapped footer a hair shorter than its lines, and iOS then
+  // draws only the first as one clipped line. A slack off the pixel grid rounds the text's frame up
+  // a pixel, and the matching margin keeps the footer's own height.
+  footerText: { paddingBottom: 0.1, marginBottom: -0.1 },
   monogram: { alignItems: 'center', justifyContent: 'center' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.l,
-    paddingHorizontal: spacing.l,
-    paddingVertical: spacing.m,
+    gap: settingsColumns ? 14 * ipadListScale : 14,
+    paddingHorizontal: settingsColumns ? spacing.l * ipadListScale : spacing.l,
+    paddingVertical: settingsColumns ? 14 * ipadListScale : spacing.m,
     borderRadius: settingsColumns ? radius.card : radius.insetGroup,
     borderCurve: 'continuous',
   },
+  // Account & Devices' own card on iPhone, as its frame draws it.
+  detailCard: {
+    gap: 18.2,
+    paddingHorizontal: 20.8,
+    paddingVertical: 18.2,
+    borderRadius: radius.settingsDetail,
+  },
+  // iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36.4pt one; hit slop keeps
+  // the 44pt target.
   button: {
-    minHeight: 44,
+    minHeight: settingsColumns ? 28 * ipadListScale : phoneButtonHeight,
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
 });
+
+const buttonSlop =
+  (44 - (settingsColumns ? 28 * ipadListScale : phoneButtonHeight)) / 2;
 
 // The Mail Profile and account monogram: the first letter on brand graphite.
 function AccountMonogram({
@@ -246,11 +337,13 @@ function SidebarItem({
           backgroundColor: colors.accentSelectionSubtle,
         },
       ]}>
-      <SFSymbol
-        name={icon}
-        size={18}
-        color={colors.accentInk}
-      />
+      <View style={[styles.itemIcon, { left: itemSymbolOffsets[icon] }]}>
+        <SFSymbol
+          name={icon}
+          size={itemSymbolSizes[icon] ?? ipadFrameSymbolSize}
+          color={colors.accentInk}
+        />
+      </View>
       <Text
         numberOfLines={1}
         style={[
@@ -286,11 +379,13 @@ function DestinationRow({
         pressed && { backgroundColor: colors.accentSelectionSubtle },
       ]}>
       <Hairline />
-      <SFSymbol
-        name={icon}
-        size={20}
-        color={colors.accentInk}
-      />
+      <View style={styles.destinationIcon}>
+        <SFSymbol
+          name={icon}
+          size={20}
+          color={colors.accentInk}
+        />
+      </View>
       <Text
         numberOfLines={1}
         style={[type.title, styles.grow, { color: colors.textPrimary }]}>
@@ -309,6 +404,7 @@ function DestinationRow({
 // list of destinations, or one destination pushed over it in the system navigation bar.
 export function SettingsWorkspace({
   account,
+  privateSync = false,
   destination,
   onDestination,
   navigation,
@@ -319,6 +415,8 @@ export function SettingsWorkspace({
 }: {
   // The Product Account the account item names.
   readonly account: string;
+  // Whether Private Sync is on, which the iPhone account item says.
+  readonly privateSync?: boolean;
   readonly destination: SettingsDestination | undefined;
   readonly onDestination: (
     destination: SettingsDestination | undefined,
@@ -347,8 +445,41 @@ export function SettingsWorkspace({
     const selected = destination ?? 'account';
     return (
       <View style={[styles.columns, { paddingTop: insets.top }]}>
-        <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
-          <Glass cornerRadius={21} />
+        <View
+          style={[
+            styles.sidebar,
+            {
+              backgroundColor: colors.surfacePanel,
+              borderColor: colors.separator,
+              boxShadow: colors.largeGlassShadow,
+            },
+          ]}>
+          <View style={styles.sidebarTop}>
+            {navigation === undefined ? null : (
+              <Pressable
+                accessibilityLabel={t('settings.close')}
+                accessibilityRole="button"
+                disabled={navigation.disabled}
+                hitSlop={6}
+                onPress={() => {
+                  navigation.onInbox();
+                }}
+                style={({ pressed }) => [
+                  styles.close,
+                  {
+                    backgroundColor: pressed
+                      ? colors.accentSelectionSubtle
+                      : colors.fillQuiet,
+                  },
+                ]}>
+                <SFSymbol
+                  name="xmark"
+                  size={14}
+                  color={colors.textPrimary}
+                />
+              </Pressable>
+            )}
+          </View>
           <ScrollView contentContainerStyle={styles.sidebarList}>
             {onWelcome === undefined ? (
               <>
@@ -502,13 +633,15 @@ export function SettingsWorkspace({
           <View style={styles.grow}>
             <Text
               numberOfLines={1}
-              style={[type.page, { color: colors.textPrimary }]}>
+              style={[type.account, { color: colors.textPrimary }]}>
               {account}
             </Text>
             <Text
               numberOfLines={1}
               style={[textStyles.footnote, { color: colors.textSecondary }]}>
-              {t('settings.destinations.account')}
+              {privateSync
+                ? t('settings.accountPrivateSync')
+                : t('settings.destinations.account')}
             </Text>
           </View>
           <SFSymbol
@@ -630,13 +763,20 @@ export function AccountCard({
 }) {
   const colors = usePalette();
   return (
-    <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
+    <View
+      style={[
+        styles.card,
+        !settingsColumns && styles.detailCard,
+        { backgroundColor: colors.fillQuiet },
+      ]}>
       <AccountMonogram
         name={name}
-        size={settingsColumns ? 55 : 62}
+        size={settingsColumns ? 48 * ipadListScale : 62.4}
       />
       <View style={styles.rowText}>
-        <Text style={[type.page, { color: colors.textPrimary }]}>{name}</Text>
+        <Text style={[type.account, { color: colors.textPrimary }]}>
+          {name}
+        </Text>
         <Text style={[type.detail, { color: colors.textSecondary }]}>
           {detail}
         </Text>
@@ -689,7 +829,12 @@ export function SettingsGroup({
       )}
       {footer === undefined ? null : (
         <View style={styles.footer}>
-          <Text style={[type.detail, { color: colors.textSecondary }]}>
+          <Text
+            style={[
+              type.detail,
+              styles.footerText,
+              { color: colors.textSecondary },
+            ]}>
             {footer}
           </Text>
         </View>
@@ -715,6 +860,7 @@ export function SettingsRow({
   disabled = false,
   subtitle,
   subtitleTone,
+  minHeight,
   children,
 }: {
   readonly icon?: string | ReactElement;
@@ -725,18 +871,31 @@ export function SettingsRow({
   readonly subtitle?: string | undefined;
   // A subtitle reporting a problem takes the warning color.
   readonly subtitleTone?: 'warning' | undefined;
+  // A row the frames draw taller than the group's other rows.
+  readonly minHeight?: number | undefined;
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, minHeight === undefined ? null : { minHeight }]}>
       <Hairline />
       {typeof icon === 'string' ? (
-        <SFSymbol
-          name={icon}
-          size={20}
-          color={colors.accentInk}
-        />
+        <View
+          style={[
+            styles.rowIcon,
+            settingsColumns && { top: rowSymbolOffsets[icon] },
+          ]}>
+          <SFSymbol
+            name={icon}
+            size={
+              settingsColumns
+                ? (rowSymbolSizes[icon] ?? 16 * ipadListScale)
+                : 20
+            }
+            scale={settingsColumns ? rowSymbolScales[icon] : undefined}
+            color={colors.accentInk}
+          />
+        </View>
       ) : (
         icon
       )}
@@ -827,6 +986,7 @@ function PushButton({
       accessibilityRole="button"
       accessibilityState={{ disabled: busy }}
       disabled={busy}
+      hitSlop={buttonSlop}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,

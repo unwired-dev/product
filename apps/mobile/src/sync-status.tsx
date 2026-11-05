@@ -14,7 +14,6 @@ import {
   presentationDragIndicator,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { lastUpdated } from '@private-email/localization';
 import { spacing, typography } from '@private-email/mail-core/theme';
 import { Fragment, use, useEffect, useState } from 'react';
 import {
@@ -37,6 +36,7 @@ import {
 } from './design.tsx';
 import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageListDateFormats } from './localization.ts';
+import { updatedOf } from './mailbox-state.ts';
 import { usePalette } from './theme.ts';
 
 // The Sync Status Capsule floating above the Inbox bar, from the "Sync Status Capsule" Figma
@@ -667,12 +667,7 @@ const connectionStatus = (
       ? t('imapSync.syncing')
       : t('gmailSync.syncing', { provider: name });
   }
-  const updated =
-    state.kind === 'ready' &&
-    'synchronizedAt' in state &&
-    state.synchronizedAt !== undefined
-      ? lastUpdated(t, [state.synchronizedAt], now)
-      : undefined;
+  const updated = updatedOf(t, state, now);
   return updated === undefined
     ? t('syncStatus.upToDate')
     : t('syncStatus.upToDateUpdated', { updated });

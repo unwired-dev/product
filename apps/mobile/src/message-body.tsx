@@ -55,10 +55,10 @@ import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
-import { MessageSummary } from './message-summary.tsx';
+import { AssistanceContext, MessageSummary } from './message-summary.tsx';
 import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
-import { MessageTranslation } from './translation.tsx';
+import { MessageTranslation, TranslationContext } from './translation.tsx';
 
 // A taller document scrolls inside its view instead of the reader.
 const heightCap = 20_000;
@@ -1102,7 +1102,7 @@ export function GmailMessageBody({
     quotes === 'collapsible' && withoutQuotedHistory !== undefined;
   return (
     <View style={styles.body}>
-      <View style={styles.assistance}>
+      <AssistanceRow>
         <MessageSummary
           source={inbox}
           id={id}
@@ -1114,7 +1114,7 @@ export function GmailMessageBody({
           id={id}
           body={body.presentation.readable}
         />
-      </View>
+      </AssistanceRow>
       <InvitationCard
         inbox={inbox}
         id={id}
@@ -1168,5 +1168,15 @@ export function GmailMessageBody({
         provider={provider}
       />
     </View>
+  );
+}
+
+// The reader's Summarize and Translate row. While neither can run, it takes no place, so the body
+// keeps the reader's 16pt rhythm beneath the message header.
+export function AssistanceRow({ children }: { readonly children: ReactNode }) {
+  const assistance = use(AssistanceContext);
+  const translation = use(TranslationContext);
+  return assistance === undefined && translation === undefined ? null : (
+    <View style={styles.assistance}>{children}</View>
   );
 }

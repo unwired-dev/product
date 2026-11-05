@@ -499,16 +499,19 @@ export function CommandBar({
     // AppKit keeps the focused control, which closing hands focus back to, since React Native
     // tracks only text fields.
     commandMenu()?.saveFocus(identifier);
-    const placeholders = expectedCommands(t, {
-      disabled: t('commands.selectConversation'),
-    });
+    // A New Message window's toolbar bar has no message to select.
+    const placeholders = toolbar
+      ? []
+      : expectedCommands(t, {
+          disabled: t('commands.selectConversation'),
+        });
     const commands = mergeCommands([
       ...placeholders,
       ...registry.getSnapshot(),
     ]);
     setOpened(orderCommands(commands));
     setOpenings((count) => count + 1);
-  }, [registry, opened, t, identifier]);
+  }, [registry, opened, t, identifier, toolbar]);
   const close = useCallback(() => {
     setOpened(undefined);
     if (!refocusPill.current) {
@@ -751,8 +754,6 @@ function Palette({
     close();
     option.run();
   };
-  const subject = opened.find(({ target }) => target !== undefined)?.target
-    ?.subject;
   const choices =
     choosing?.choices === undefined
       ? undefined
@@ -875,7 +876,7 @@ function Palette({
             <Text
               numberOfLines={1}
               style={[styles.choosingSubject, { color: colors.textSecondary }]}>
-              {subject}
+              {choosing.target?.subject}
             </Text>
           </View>
         )}
@@ -895,7 +896,6 @@ function Palette({
               highlighted={selected?.index}
               onPlace={place}
               onRun={run}
-              subject={subject}
             />
           ) : (
             choices.map((choice, index) => (
@@ -1080,14 +1080,12 @@ function CommandList({
   highlighted,
   onPlace,
   onRun,
-  subject,
 }: {
   readonly commands: readonly Command[];
   readonly highlighted: number | undefined;
   // Records where each command's row sits in the list.
   readonly onPlace: (id: string) => (event: LayoutChangeEvent) => void;
   readonly onRun: (command: Command) => void;
-  readonly subject: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -1107,10 +1105,19 @@ function CommandList({
           <Label
             accessibilityRole="header"
             style={[styles.section, { color: colors.textSecondary }]}>
-            {sectionTitle(t, command.section, subject)}
+            {sectionTitle(
+              t,
+              command.section,
+              // Each section names the Draft or message its commands act on.
+              commands.find(
+                ({ section, target }) =>
+                  section === command.section && target !== undefined,
+              )?.target?.subject,
+            )}
           </Label>
         ) : null}
         <CommandRow
+          destructive={command.destructive}
           detail={command.disabled}
           disabled={command.disabled !== undefined}
           highlighted={highlighted === index}
@@ -1133,6 +1140,7 @@ function CommandRow({
   disabled,
   highlighted,
   more = false,
+  destructive = false,
   onPress,
 }: {
   readonly icon: string;
@@ -1141,10 +1149,12 @@ function CommandRow({
   readonly disabled: boolean;
   readonly highlighted: boolean;
   readonly more?: boolean;
+  readonly destructive?: boolean | undefined;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
-  const color = highlighted ? colors.accentOnFill : colors.textPrimary;
+  const resting = destructive ? colors.statusDestructive : colors.textPrimary;
+  const color = highlighted ? colors.accentOnFill : resting;
   const secondary = highlighted ? colors.accentOnFill : colors.textSecondary;
   const dimmed = disabled ? styles.dimmed : null;
   return (

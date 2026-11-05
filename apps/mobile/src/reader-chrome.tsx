@@ -1,10 +1,16 @@
 import type { ViewProps } from 'react-native';
 
-import { palette, spacing } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  palette,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
 import { createContext, use } from 'react';
 import {
   DynamicColorIOS as dynamicColorIOS,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -37,6 +43,10 @@ export function ReaderPane({ children, ...props }: ViewProps) {
   );
 }
 
+// The iPad reader sets the sender and address on one line at the list's 1.15× scale, the date
+// beside it and the recipients beneath, as the frames draw them.
+const ipad = Platform.OS === 'ios' && Platform.isPad;
+
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
@@ -55,9 +65,27 @@ const styles = StyleSheet.create({
   },
   count: { ...textStyles.subheadline, flex: 1 },
   from: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fromText: { flex: 1, minHeight: 44 },
+  // The sender's long-press target reaches 44pt, 2pt beyond its 40pt of text on each side, without
+  // moving the text. The menu's own padding would count twice: the legacy view interop sizes the
+  // native view to its padded content and mounts its children at their padded offset.
+  fromText: { flex: 1, marginVertical: -2 },
+  fromTarget: { paddingVertical: 2 },
   sender: { ...textStyles.headline },
   secondary: { ...textStyles.footnote },
+  padFrom: { alignItems: 'flex-start' },
+  padFromText: { flex: 1 },
+  padIdentity: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs * ipadListScale,
+  },
+  padSender: { ...typography.ipadList.body, fontWeight: '600', flexShrink: 1 },
+  // A long address gives way before the sender's name.
+  padAddress: { ...typography.ipadList.body, flexShrink: 3 },
+  padSecondary: { ...typography.ipadList.subheadline },
+  padRecipients: { marginTop: 2 * ipadListScale },
+  // Centred in the reader's 46pt leading inset, so the text keeps the body's edge.
+  hangingAvatar: { position: 'absolute', left: -(40 * ipadListScale + 36) / 2 },
 });
 
 // The compact reader's header: the subject beneath the navigation bar, whose system Back shows the
@@ -113,10 +141,18 @@ export function MessageCount({ count }: { readonly count: number }) {
   );
 }
 
-// A message's sender, address and time beside neutral initials.
+const noRecipients: readonly string[] = [];
+
+const summaryLines = (separate: boolean, lines: readonly string[]) =>
+  separate || lines.length === 0 ? lines : [lines.join(' · ')];
+
+// A message's sender, address and time beside neutral initials, and its disclosed recipients.
 export function MessageHeader({
   message,
   highlighted = false,
+  recipients = noRecipients,
+  mailbox,
+  hanging = false,
 }: {
   readonly message: Readonly<{
     sender: string;
@@ -124,6 +160,12 @@ export function MessageHeader({
     receivedAt: string;
   }>;
   readonly highlighted?: boolean;
+  // Lines such as "To: …" and "Cc: …", once the message's headers are read.
+  readonly recipients?: readonly string[];
+  // The line naming the mailbox it arrived in.
+  readonly mailbox?: string | undefined;
+  // The initials hang in the reader's leading inset rather than indenting the text.
+  readonly hanging?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -132,11 +174,14 @@ export function MessageHeader({
   const copyAddress = () => {
     void setStringAsync(message.address);
   };
+  const secondary = ipad ? styles.padSecondary : styles.secondary;
   return (
-    <View style={styles.from}>
-      <Monogram name={message.sender} />
+    <View style={[styles.from, ipad && styles.padFrom]}>
+      <View style={hanging && styles.hangingAvatar}>
+        <Monogram name={message.sender} />
+      </View>
       <ContextMenu
-        style={styles.fromText}
+        style={ipad ? styles.padFromText : styles.fromText}
         sections={[
           {
             items: [
@@ -149,34 +194,67 @@ export function MessageHeader({
             ],
           },
         ]}>
-        <Text
-          accessibilityActions={[
-            { name: 'copy', label: t('contextMenu.copyAddress') },
-          ]}
-          onAccessibilityAction={({ nativeEvent }) => {
-            if (nativeEvent.actionName === 'copy') {
-              copyAddress();
-            }
-          }}
-          accessibilityState={highlighted ? { selected: true } : undefined}
-          numberOfLines={1}
-          style={[styles.sender, { color: colors.textPrimary }]}>
-          {message.sender}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.secondary, { color: colors.textSecondary }]}>
-          {message.address}
-        </Text>
+        <View style={ipad ? null : styles.fromTarget}>
+          <View style={ipad ? styles.padIdentity : null}>
+            <Text
+              accessibilityActions={[
+                { name: 'copy', label: t('contextMenu.copyAddress') },
+              ]}
+              onAccessibilityAction={({ nativeEvent }) => {
+                if (nativeEvent.actionName === 'copy') {
+                  copyAddress();
+                }
+              }}
+              accessibilityState={highlighted ? { selected: true } : undefined}
+              numberOfLines={1}
+              style={[
+                ipad ? styles.padSender : styles.sender,
+                { color: colors.textPrimary },
+              ]}>
+              {message.sender}
+            </Text>
+            {/* iPhone's header keeps one summary line: the recipients once read, else the address,
+              which Copy Address still offers. */}
+            {ipad || recipients.length === 0 ? (
+              <Text
+                numberOfLines={1}
+                style={[
+                  ipad ? styles.padAddress : styles.secondary,
+                  { color: colors.textSecondary },
+                ]}>
+                {message.address}
+              </Text>
+            ) : null}
+          </View>
+          {/* iPhone's frames give the sender one summary line beneath it. */}
+          {summaryLines(ipad, [
+            ...recipients,
+            ...(mailbox === undefined ? [] : [mailbox]),
+          ]).map((line) => (
+            <Text
+              key={line}
+              numberOfLines={ipad ? 2 : 1}
+              style={[
+                secondary,
+                ipad && styles.padRecipients,
+                { color: colors.textSecondary },
+              ]}>
+              {line}
+            </Text>
+          ))}
+        </View>
       </ContextMenu>
       <Text
         accessibilityLabel={t('message.received', {
           date: fullDateFormat.format(new Date(message.receivedAt)),
         })}
-        style={[styles.secondary, { color: colors.textSecondary }]}>
-        {t('message.received', {
-          date: dateFormat.format(new Date(message.receivedAt)),
-        })}
+        style={[secondary, { color: colors.textSecondary }]}>
+        {/* iPhone's compact header leaves the time zone to the spoken date. */}
+        {ipad
+          ? t('message.received', {
+              date: dateFormat.format(new Date(message.receivedAt)),
+            })
+          : dateFormat.format(new Date(message.receivedAt))}
       </Text>
     </View>
   );
