@@ -161,6 +161,7 @@ const GraphCheckpointSchema = Schema.Union([
 
 // An Invitation Response this device sent, or may have sent, for one revision of an invitation,
 // with the time it answered so a later revision can say what changed; older records lack it.
+// `recurrence` names one meeting of a series by its RECURRENCE-ID instant.
 // `boundary` finds an unconfirmed send in Sent.
 const InvitationTime = Schema.Struct({
   at: Schema.Finite,
@@ -169,6 +170,7 @@ const InvitationTime = Schema.Struct({
 const InvitationRevision = {
   uid: Schema.String,
   sequence: Schema.Int,
+  recurrence: Schema.optionalKey(Schema.Finite),
   choice: Schema.Literals(['accepted', 'tentative', 'declined']),
   start: Schema.optionalKey(InvitationTime),
   end: Schema.optionalKey(InvitationTime),

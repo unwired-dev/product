@@ -94,7 +94,17 @@ separately.
   start's weekday if any, an optional `WKST`, and exactly one of a UTC `UNTIL` or a
   `COUNT`, and at most 9999 meetings. The last meeting is counted in the meeting's time zone, so it
   keeps its local time across daylight-saving changes.
-- Other recurring meetings, single meetings of a series (`RECURRENCE-ID`), series
+- One meeting of a series ([#1847](https://github.com/unwired-dev/product/issues/1847)),
+  sent alone with its `RECURRENCE-ID`, reads **Invitation from {organizer} · one
+  meeting**, shows that meeting's date and times with **One meeting in a series**
+  below, and the unanswered card says **Your response applies only to {date}.**
+  The reply repeats the `RECURRENCE-ID`, so it answers that meeting only, and its
+  response is recorded apart from the series' and other meetings'. A cancellation or
+  an invitation for another address of that meeting shows the same line. The
+  invitation carries no rule, so the card does not say how the series repeats. The
+  `RECURRENCE-ID` must be the only one, without a `RANGE`, the same timed or all-day
+  type as the start and in a readable time zone, with no `RRULE`, `RDATE` or `EXDATE`.
+- Other recurring meetings, a range of a series' meetings (`RANGE`), series
   with `RDATE` or `EXDATE`, all-day series, floating or unknown time zones,
   a timed meeting whose `DURATION` counts days, and damaged calendar text show
   **Unwired can’t read this invitation**, with no response.

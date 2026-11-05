@@ -14,6 +14,7 @@ import {
   invitationRepeats,
   invitationReply,
   invitationResponses,
+  invitationScope,
   invitationStatus,
   invitationWas,
   invitationWhen,
@@ -262,6 +263,57 @@ describe('meeting invitations', () => {
     });
   });
 
+  // Gmail sends a change to one meeting of a series as that meeting alone, named by its original start.
+  const occurrence = 'RECURRENCE-ID;TZID=Europe/Prague:20261113T140000';
+  const moved = [
+    ...meeting.map((line) => line.replace('20261106', '20261113')),
+    occurrence,
+  ];
+
+  it('reads one meeting of a series and answers only that meeting', () => {
+    expect.hasAssertions();
+    const offer = offered(calendar(moved));
+
+    expect(offer.details).toMatchObject({
+      start: { at: Date.UTC(2026, 10, 13, 13), allDay: false },
+      recurrence: Date.UTC(2026, 10, 13, 13),
+    });
+    expect(offer.details.starts).toBeUndefined();
+    expect(invitationReply(offer, 'declined', 0)).toContain(
+      `SEQUENCE:2\r\n${occurrence}\r\nDTSTAMP:`,
+    );
+    for (const [address, method, kind] of [
+      [me, 'CANCEL', 'cancelled'],
+      ['mara@example.invalid', 'REQUEST', 'elsewhere'],
+    ] as const) {
+      expect(
+        invitationOf(documentOf(calendar(moved, method)), address),
+      ).toMatchObject({
+        kind,
+        details: { recurrence: Date.UTC(2026, 10, 13, 13) },
+      });
+    }
+  });
+
+  it.each([
+    ['a range of meetings', occurrence.replace(';', ';RANGE=THISANDFUTURE;')],
+    [
+      'an all-day meeting of a timed series',
+      'RECURRENCE-ID;VALUE=DATE:20261113',
+    ],
+    ['a floating original start', 'RECURRENCE-ID:20261113T140000'],
+    ['two original starts', `${occurrence}\r\n${occurrence}`],
+    ['a rule beside it', `${occurrence}\r\nRRULE:FREQ=WEEKLY;COUNT=4`],
+  ])('keeps one meeting of a series with %s unreadable', (_, lines) => {
+    expect.hasAssertions();
+    expect(
+      invitationOf(
+        documentOf(calendar([...moved.slice(0, -1), ...lines.split('\r\n')])),
+        me,
+      ),
+    ).toStrictEqual({ kind: 'unreadable' });
+  });
+
   it('reads a series that ends at a distant UNTIL', () => {
     expect.hasAssertions();
     const { starts } = offered(
@@ -426,13 +478,6 @@ describe('meeting invitations', () => {
     [
       'a recurring cancellation',
       calendar([...meeting, 'RRULE:FREQ=WEEKLY'], 'CANCEL'),
-    ],
-    [
-      'a cancellation of one occurrence',
-      calendar(
-        [...meeting, 'RECURRENCE-ID;TZID=Europe/Prague:20261106T140000'],
-        'CANCEL',
-      ),
     ],
     [
       'a cancellation whose status is not cancelled',
@@ -700,6 +745,37 @@ describe('meeting invitations', () => {
     expect(replyOf(gmail.sends[1])).toContain('SEQUENCE:3');
 
     close();
+  });
+
+  it('keeps a response to one meeting of a series apart from the others', async () => {
+    expect.hasAssertions();
+    const { gmail, id, invitation, responses, close } = await invited();
+    const meetingOn = (at: number) => ({
+      ...invitation,
+      details: { ...invitation.details, recurrence: at },
+    });
+    const friday = meetingOn(Date.UTC(2026, 10, 13, 13));
+    await responses.respond(friday, 'declined', copy);
+
+    expect(responses.state(invitation)).toStrictEqual({ kind: 'unanswered' });
+    expect(
+      responses.state(meetingOn(Date.UTC(2026, 10, 20, 13))),
+    ).toStrictEqual({ kind: 'unanswered' });
+
+    await responses.respond(invitation, 'accepted', copy);
+    close();
+    const later = await relaunched(gmail, id);
+
+    expect([
+      later.responses.state(friday),
+      later.responses.state(invitation),
+    ]).toStrictEqual([
+      { kind: 'sent', choice: 'declined', at: Date.UTC(2026, 10, 2, 9, 52) },
+      { kind: 'sent', choice: 'accepted', at: Date.UTC(2026, 10, 2, 9, 52) },
+    ]);
+    expect(gmail.sends).toHaveLength(2);
+
+    later.close();
   });
 
   it('names the earlier answer to a revision that moved the meeting', async () => {
@@ -1527,6 +1603,32 @@ describe('meeting invitations', () => {
       ).toBeUndefined();
     });
 
+    it('says which meetings a response answers', () => {
+      expect.hasAssertions();
+      const start = { at: Date.UTC(2026, 10, 13, 13), allDay: false };
+      const one = { organizer, start, recurrence: start.at };
+      expect([
+        invitationRepeats(english, formats, one),
+        invitationScope(english, formats, one),
+        invitationScope(english, formats, {
+          ...one,
+          start: { at: Date.UTC(2026, 10, 13), allDay: true },
+        }),
+        invitationScope(english, formats, {
+          organizer,
+          start,
+          starts: [start.at, start.at + 7 * 86_400_000],
+        }),
+        invitationScope(english, formats, { organizer, start }),
+      ]).toStrictEqual([
+        'One meeting in a series',
+        'Your response applies only to Fri, Nov 13.',
+        'Your response applies only to Fri, Nov 13.',
+        'Your response applies to every meeting in the series.',
+        undefined,
+      ]);
+    });
+
     it('names the first meeting when a clock change moves only a later end', () => {
       expect.hasAssertions();
       const prague = (options: Intl.DateTimeFormatOptions) =>
@@ -1678,10 +1780,13 @@ describe('meeting invitations', () => {
         },
       ]);
       expect(
-        invitationStatus({ kind: 'unanswered' }, { ...context, series: true }),
+        invitationStatus(
+          { kind: 'unanswered' },
+          { ...context, scope: 'Your response applies only to Fri, Nov 13.' },
+        ),
       ).toStrictEqual({
         title: 'Not answered yet',
-        detail: 'Your response applies to every meeting in the series.',
+        detail: 'Your response applies only to Fri, Nov 13.',
       });
       expect([
         invitationBlockedBy('retry'),
