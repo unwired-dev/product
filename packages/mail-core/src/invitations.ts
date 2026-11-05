@@ -338,7 +338,7 @@ const endOf = (
     : end;
 };
 
-const weekdays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+const weekdays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const;
 
 // A UTC time an UNTIL names.
 const untilOf = (value: string) => {
@@ -354,7 +354,7 @@ const readableParts: Readonly<
   FREQ: (value) => value === 'WEEKLY',
   INTERVAL: (value) => value === '1',
   BYDAY: (value, weekday) => value === weekday,
-  WKST: (value) => weekdays.includes(value),
+  WKST: (value) => weekdays.some((weekday) => weekday === value),
   COUNT: (value) => /^[1-9]\d{0,3}$/u.test(value),
   UNTIL: (value) => untilOf(value) !== undefined,
 };
@@ -980,7 +980,6 @@ export type InvitationFormats = Readonly<{
   day: Intl.DateTimeFormat;
   allDay: Intl.DateTimeFormat;
   time: Intl.DateTimeFormat;
-  weekday: Intl.DateTimeFormat;
   dayMonth: Intl.DateTimeFormat;
   date: Intl.DateTimeFormat;
   year: Intl.DateTimeFormat;
@@ -1001,7 +1000,6 @@ export const createInvitationFormats = (locale: string): InvitationFormats => ({
     timeZone: 'UTC',
   }),
   time: new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }),
-  weekday: new Intl.DateTimeFormat(locale, { weekday: 'long' }),
   dayMonth: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }),
   date: new Intl.DateTimeFormat(locale, {
     day: 'numeric',
@@ -1041,7 +1039,9 @@ export function invitationWhen(
     formats.day.format(start.at) === formats.day.format(end.at);
   const date =
     lastStart !== undefined && (end === undefined || sameDay)
-      ? t('invitation.weekdays', { weekday: formats.weekday.format(start.at) })
+      ? t('invitation.weekdays', {
+          context: weekdays[new Date(start.at).getDay()] ?? 'SU',
+        })
       : formats.day.format(start.at);
   if (end === undefined) {
     return t('invitation.dateTime', {

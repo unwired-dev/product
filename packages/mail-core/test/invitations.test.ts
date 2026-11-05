@@ -1253,7 +1253,6 @@ describe('meeting invitations', () => {
         year: 'numeric',
       }),
       time: utc({ hour: 'numeric', minute: '2-digit' }),
-      weekday: utc({ weekday: 'long' }),
       dayMonth: utc({ day: 'numeric', month: 'short' }),
       date: utc({ day: 'numeric', month: 'short', year: 'numeric' }),
       year: utc({ year: 'numeric' }),
@@ -1300,6 +1299,34 @@ describe('meeting invitations', () => {
       );
       expect(when(at(6, 13))).toBe('Fri, Nov 6, 2026, 1:00 PM');
     });
+
+    it.each(['cs-CZ', 'fr-FR'])(
+      'keeps weekly weekday labels in the interface language with %s regional formats',
+      (locale) => {
+        expect.hasAssertions();
+        const regional = createInvitationFormats(locale);
+        const labels = [
+          'Sundays',
+          'Mondays',
+          'Tuesdays',
+          'Wednesdays',
+          'Thursdays',
+          'Fridays',
+          'Saturdays',
+        ];
+        for (const [index, label] of labels.entries()) {
+          const start = new Date(2026, 10, 8 + index, 14).getTime();
+          expect(
+            invitationWhen(english, regional, {
+              organizer,
+              start: { at: start, allDay: false },
+              end: { at: start + 3_600_000, allDay: false },
+              lastStart: start + 7 * 86_400_000,
+            }),
+          ).toBe(`${label}, 14:00–15:00`);
+        }
+      },
+    );
 
     it('names the weekday and the first and last meetings of a weekly series', () => {
       expect.hasAssertions();
