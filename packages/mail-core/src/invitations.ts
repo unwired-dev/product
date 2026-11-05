@@ -55,7 +55,6 @@ export type Invitation = Readonly<{
     organizer: Line;
     attendee: Line;
     summary?: Line;
-    recurrence?: Line;
   }>;
 }>;
 
@@ -577,7 +576,6 @@ const meetingOf = (event: readonly Line[]) => {
     details,
     organizerLine: organizer.line,
     summary: find(event, 'SUMMARY'),
-    recurrence: find(event, 'RECURRENCE-ID'),
   };
 };
 
@@ -597,8 +595,7 @@ export function invitationOf(
     return unreadable;
   }
   const { method, event } = calendar;
-  const { uid, sequence, details, organizerLine, summary, recurrence } =
-    meeting;
+  const { uid, sequence, details, organizerLine, summary } = meeting;
   // A cancellation needs no attendee: there is nothing to answer. Its STATUS can only be CANCELLED.
   if (method === 'CANCEL') {
     const statuses = event.filter((line) => line.name === 'STATUS');
@@ -640,7 +637,6 @@ export function invitationOf(
       organizer: organizerLine,
       attendee,
       ...(summary === undefined ? {} : { summary }),
-      ...(recurrence === undefined ? {} : { recurrence }),
     },
   };
 }
@@ -698,8 +694,8 @@ export function invitationReply(
   choice: InvitationChoice,
   at: number,
 ) {
-  const { attendee, organizer, summary, recurrence } = invitation.lines;
-  const { start, recurrence: original } = invitation.details;
+  const { attendee, organizer, summary } = invitation.lines;
+  const { start, recurrence } = invitation.details;
   const answered: Line = {
     ...attendee,
     parameters: [
@@ -718,12 +714,12 @@ export function invitationReply(
     `UID:${invitation.uid}`,
     `SEQUENCE:${invitation.sequence.toString()}`,
     // A timed meeting is named by its original start in UTC, which needs no VTIMEZONE beside it.
-    ...(recurrence === undefined || original === undefined
+    ...(recurrence === undefined
       ? []
       : [
           start.allDay
-            ? written(recurrence)
-            : `RECURRENCE-ID:${stamp(original)}`,
+            ? `RECURRENCE-ID;VALUE=DATE:${stamp(recurrence).slice(0, 8)}`
+            : `RECURRENCE-ID:${stamp(recurrence)}`,
         ]),
     `DTSTAMP:${stamp(at)}`,
     written(organizer),

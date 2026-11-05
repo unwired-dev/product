@@ -775,6 +775,7 @@ describe('meeting invitations', () => {
     const friday = meetingOn(Date.UTC(2026, 10, 13, 13));
     await responses.respond(friday, 'declined', copy);
 
+    expect(replyOf(gmail.sends[0])).toContain('RECURRENCE-ID:20261113T130000Z');
     expect(responses.state(invitation)).toStrictEqual({ kind: 'unanswered' });
     expect(
       responses.state(meetingOn(Date.UTC(2026, 10, 20, 13))),
