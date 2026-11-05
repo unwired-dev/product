@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Monogram, SFSymbol } from './design.tsx';
+import { GlassGroup, Monogram, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, useAppearance, usePalette } from './theme.ts';
 
@@ -46,6 +46,8 @@ const responseIcons = {
 } as const;
 
 const styles = StyleSheet.create({
+  // The sheet's empty host sits beside Reply in the toolbar group without taking a gap.
+  host: { position: 'absolute' },
   // The frames' 18pt insets, 14pt between the sheet's parts and 10pt between its tiles.
   replyContent: {
     gap: 14,
@@ -55,10 +57,15 @@ const styles = StyleSheet.create({
   replyHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   replyFrom: { flex: 1 },
   replySender: { ...textStyles.headline },
+  // Close is the frames' 44pt glass control.
+  replyCloseGlass: {
+    padding: 0,
+    borderRadius: 22,
+    backgroundColor: 'transparent',
+  },
   replyClose: {
     width: 44,
     height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -157,7 +164,9 @@ export function ReplySheet({
     onClose();
   };
   return (
-    <Host matchContents>
+    <Host
+      matchContents
+      style={styles.host}>
       <BottomSheet
         isPresented={open}
         onIsPresentedChange={(presented) => {
@@ -213,23 +222,18 @@ export function ReplySheet({
                     {message.subject}
                   </Text>
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t('message.closeResponses')}
-                  onPress={onClose}
-                  style={({ pressed }) => [
-                    styles.replyClose,
-                    {
-                      backgroundColor: pressed
-                        ? colors.accentSelectionSubtle
-                        : colors.fillQuiet,
-                    },
-                  ]}>
-                  <SFSymbol
-                    name="xmark"
-                    color={colors.textPrimary}
-                  />
-                </Pressable>
+                <GlassGroup style={styles.replyCloseGlass}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('message.closeResponses')}
+                    onPress={onClose}
+                    style={styles.replyClose}>
+                    <SFSymbol
+                      name="xmark"
+                      color={colors.textPrimary}
+                    />
+                  </Pressable>
+                </GlassGroup>
               </View>
               <View style={styles.replyTiles}>
                 {tiles.map(({ name, label, icon }) => (

@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
   },
   count: { ...textStyles.subheadline, flex: 1 },
   from: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fromText: { flex: 1, minHeight: 44 },
+  fromText: { flex: 1 },
   sender: { ...textStyles.headline },
   secondary: { ...textStyles.footnote },
   padFrom: { alignItems: 'flex-start' },

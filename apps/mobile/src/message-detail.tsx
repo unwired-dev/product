@@ -145,8 +145,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     gap: spacing.l,
   },
-  // A single message on iPhone lines its sender and body up with a thread's cards, 24pt in.
-  compactContent: { paddingHorizontal: 24 },
+  // A single message on iPhone lines its sender and body up with a thread's cards, 24pt in, 8pt
+  // below its count.
+  compactContent: { paddingHorizontal: 24, gap: spacing.s },
   // On iPad the sender sits 18.4pt beneath the frames' 29pt subject line, which holds the 25pt
   // Reading Subject, so it keeps the frames' y.
   padSingleContent: { paddingTop: spacing.l * ipadListScale + (29 - 25) },
@@ -167,6 +168,8 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  // iPhone's frames draw the 40pt sender header alone, its body 10pt beneath.
+  compactMetadata: { marginBottom: 2 },
   secondary: { ...textStyles.footnote },
   body: { ...textStyles.reading.body },
   empty: {
@@ -768,6 +771,23 @@ const recipientNames = (header: string | undefined) =>
     .map(({ name, address }) => name ?? address)
     .join(', ');
 
+// iPhone's frames summarize the recipients as "to …".
+const recipientKeys = compact
+  ? ({ to: 'message.summaryTo', cc: 'message.summaryCc' } as const)
+  : ({ to: 'message.to', cc: 'message.cc' } as const);
+
+// Whether the message names the mailbox among its recipients, which iPhone's summary then leaves
+// out.
+const addresses = (
+  headers: ReadonlyArray<string | undefined>,
+  address: string | undefined,
+) =>
+  headers
+    .flatMap((header) => recipientsOf(header ?? ''))
+    .some(
+      (recipient) => recipient.address.toLowerCase() === address?.toLowerCase(),
+    );
+
 // The opened message's header with its recipients once its headers are read, then its mailbox and
 // labels above a hairline.
 function MessageMetadata({
@@ -797,16 +817,23 @@ function MessageMetadata({
       : [];
   return (
     <MessageMenu target={commandTarget(mailbox?.id, message)}>
-      <View style={[styles.metadata, { borderBottomColor: colors.separator }]}>
+      <View
+        style={
+          compact
+            ? styles.compactMetadata
+            : [styles.metadata, { borderBottomColor: colors.separator }]
+        }>
         <MessageHeader
           message={message}
           recipients={[
-            ...(to === '' ? [] : [t('message.to', { recipients: to })]),
-            ...(cc === '' ? [] : [t('message.cc', { recipients: cc })]),
+            ...(to === '' ? [] : [t(recipientKeys.to, { recipients: to })]),
+            ...(cc === '' ? [] : [t(recipientKeys.cc, { recipients: cc })]),
           ]}
           // iPhone keeps the mailbox in the header's metadata, as its frames draw it.
           mailbox={
-            compact && address !== undefined
+            compact &&
+            address !== undefined &&
+            !addresses([headers?.to, headers?.cc], address)
               ? t('inbox.inMailbox', { mailbox: address })
               : undefined
           }

@@ -66,15 +66,10 @@ export function LanguageSelector({
             modifiers={[
               pickerStyle('menu'),
               tint(colors.textPrimary),
-              // The iPhone frames show the chosen language in semibold.
+              // The iPhone frames show the chosen language in SF Pro Medium at 16.9pt.
               ...(settingsColumns
                 ? []
-                : [
-                    font({
-                      size: textStyles.headline.fontSize,
-                      weight: 'semibold',
-                    }),
-                  ]),
+                : [font({ size: 16.9, weight: 'medium' })]),
               disabled(pending !== undefined),
             ]}>
             <Text modifiers={[tag(systemDefault)]}>

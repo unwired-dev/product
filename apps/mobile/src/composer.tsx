@@ -439,7 +439,8 @@ export const layoutStyles = {
       minWidth: 60,
     },
     token: { minHeight: compactFieldHeight },
-    trailing: {},
+    // Cc/Bcc's 44pt target overhangs the 36pt row rather than growing it.
+    trailing: { height: compactFieldHeight, justifyContent: 'center' },
   }),
   // The New Message card's text starts 23pt down and its fields end 6.9pt above its edge.
   regular: StyleSheet.create({

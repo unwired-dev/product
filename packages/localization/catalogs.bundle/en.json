@@ -79,6 +79,8 @@
     "labels": "Labels: {{labels}}",
     "to": "To: {{recipients}}",
     "cc": "Cc: {{recipients}}",
+    "summaryTo": "to {{recipients}}",
+    "summaryCc": "cc {{recipients}}",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
@@ -261,6 +263,7 @@
       "imap-cached": "Saved mail only until the mail server can be checked"
     },
     "connectedProfile": "{{provider}} · {{profile}}",
+    "connectedProfileUpdated": "{{provider}} · {{profile}} · {{updated}}",
     "add": "Add another Gmail mailbox",
     "addConnection": "Add Mailbox Connection…",
     "addMicrosoft": "Add a Microsoft mailbox",

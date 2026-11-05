@@ -48,12 +48,8 @@ import {
 } from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
-import {
-  useAllMailboxes,
-  useMailboxes,
-  useProfile,
-  useReloadMailboxes,
-} from './mailbox.tsx';
+import { useAllMailboxes } from './mailbox-state.ts';
+import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { SidebarToggle } from './sidebar-toggle.tsx';
@@ -180,7 +176,7 @@ const styles = StyleSheet.create({
   compactSwitcher: {
     minHeight: 48,
     marginBottom: spacing.s,
-    borderRadius: radius.mailboxGroup,
+    borderRadius: radius.profileSwitcher,
   },
   switcherRow: {
     flexGrow: 1,
@@ -195,7 +191,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     gap: spacing.m,
     paddingHorizontal: spacing.m,
-    borderRadius: radius.mailboxGroup,
+    borderRadius: radius.profileSwitcher,
     borderCurve: 'continuous',
   },
   switcherName: { ...typography.ipadList.body, fontWeight: '600', flex: 1 },
@@ -586,9 +582,10 @@ export function Mailboxes({
                       openSettings();
                     }}
                     style={styles.accountButton}>
+                    {/* The frames' gear draws 16pt of ink. */}
                     <SFSymbol
                       name="gearshape"
-                      size={20}
+                      size={15.5}
                       color={colors.textPrimary}
                     />
                   </Pressable>

@@ -1,3 +1,4 @@
+import type { Translate } from '@private-email/localization';
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type {
   AccountRemoval,
@@ -40,6 +41,7 @@ import {
 import { ImapSetup } from './imap-setup.tsx';
 import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
+import { updatedOf, useAllMailboxes, useNow } from './mailbox-state.ts';
 import { NotificationSettings } from './notification-settings.tsx';
 import { TrustCard } from './onboarding.tsx';
 import { MailProfilesSettings } from './profile-settings.tsx';
@@ -141,6 +143,19 @@ function RemoveConfirmation({
   );
 }
 
+// A connected mailbox's provider and Profile, then when it last synchronized once it has.
+const connectedSummary = (
+  t: Translate,
+  summary: Readonly<{
+    provider: string;
+    profile: string;
+    updated: string | undefined;
+  }>,
+) =>
+  summary.updated === undefined
+    ? t('mailboxes.connectedProfile', summary)
+    : t('mailboxes.connectedProfileUpdated', summary);
+
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
   mailboxes,
@@ -159,6 +174,9 @@ function Mailboxes({
   const colors = usePalette();
   const { t } = useLocalization();
   const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // Each connection's open Inbox, whose last synchronization the summary reports.
+  const inboxes = useAllMailboxes();
+  const now = useNow();
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
   // The IMAP connection whose password is being entered again, or a new one being added.
   const [imap, setImap] = useState<
@@ -184,9 +202,14 @@ function Mailboxes({
               title={mailbox.address}
               subtitle={
                 mailbox.state === 'connected'
-                  ? t('mailboxes.connectedProfile', {
+                  ? connectedSummary(t, {
                       provider,
                       profile: profileName(t, mailbox.profile, profiles),
+                      updated: updatedOf(
+                        t,
+                        inboxes.find(({ id }) => id === mailbox.id)?.state,
+                        now,
+                      ),
                     })
                   : t(
                       imapMailbox
