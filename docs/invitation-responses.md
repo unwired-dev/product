@@ -22,6 +22,14 @@ separately.
   names the opened mailbox's address as an attendee. Nothing is sent until the
   person chooses. For any other attendee list it says **You can’t respond from
   here** and names the invited addresses.
+- When the invitation also names another mailbox address of the same Mail
+  Profile, **Invited** lists each of the Profile's invited addresses with its
+  provider, the opened mailbox first. Until a response is chosen the status
+  reads **Responding as {address}**: **You’re invited at two of your addresses.
+  This copy responds only for {address}.** At three or more addresses the
+  detail gives the count, such as **You’re invited at 3 of your addresses.**
+  Each copy responds only from its own mailbox, and another Profile's addresses
+  are never listed.
 - Choosing a response sends one iCalendar `METHOD:REPLY` from the invited
   address to the organizer, in the invitation's Gmail thread, as a reply to the
   invitation message, with the invitation's subject prefixed `Re:` so Gmail keeps
