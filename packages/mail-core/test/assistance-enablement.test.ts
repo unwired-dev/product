@@ -3,6 +3,7 @@ import type { NativeMailAssistance } from '../src/assistance-enablement.ts';
 import {
   createMailAssistanceEnablement,
   mailAssistanceEnabled,
+  privateCloudEnabled,
 } from '../src/assistance-enablement.ts';
 import { createRegistration, defaultProfile } from '../src/registration.ts';
 import { createMockMailSession } from '../src/testing/mock-session.ts';
@@ -37,7 +38,11 @@ describe('mail Assistance Enablement', () => {
     // Nothing is enabled before this device's enablement is read, nor after it is read.
     expect(enabled()).toBe(false);
     await store.load('first');
-    expect(store.getSnapshot()).toStrictEqual({ owner: account, profiles: [] });
+    expect(store.getSnapshot()).toStrictEqual({
+      owner: account,
+      profiles: [],
+      privateCloud: [],
+    });
     expect(enabled()).toBe(false);
 
     await store.setEnabled(account, defaultProfile, true);
@@ -60,17 +65,116 @@ describe('mail Assistance Enablement', () => {
     // Sign-out purges it; the same account signing in again starts with assistance off.
     await session.registration.signOut();
     await store.load('signed-out');
-    expect(store.getSnapshot()).toStrictEqual({ owner: null, profiles: [] });
+    expect(store.getSnapshot()).toStrictEqual({
+      owner: null,
+      profiles: [],
+      privateCloud: [],
+    });
     await store.setEnabled(account, defaultProfile, true);
-    expect(store.getSnapshot()).toStrictEqual({ owner: null, profiles: [] });
+    expect(store.getSnapshot()).toStrictEqual({
+      owner: null,
+      profiles: [],
+      privateCloud: [],
+    });
     // This installation signs in again as a new device, which the Recovery Key admits.
     await session.registration.register('google');
     await session.registration.recoverWithRecoveryKey(session.recoveryKey);
     const loading = store.load('again');
     expect(store.getSnapshot()).toBeUndefined();
     await loading;
-    expect(store.getSnapshot()).toStrictEqual({ owner: account, profiles: [] });
+    expect(store.getSnapshot()).toStrictEqual({
+      owner: account,
+      profiles: [],
+      privateCloud: [],
+    });
     expect(enabled()).toBe(false);
+  });
+
+  it('keeps Private Cloud consent separate, per Profile, behind Mail Assistance, and purged', async () => {
+    expect.hasAssertions();
+    const session = await signedIn();
+    const store = createMailAssistanceEnablement(session.mailAssistance);
+    const cloud = (owner = account, profile = defaultProfile) =>
+      privateCloudEnabled(store.getSnapshot(), owner, profile);
+    await store.load('first');
+    // Earlier local consent never permits Private Cloud Compute.
+    await store.setEnabled(account, defaultProfile, true);
+    expect(cloud()).toBe(false);
+    await store.setPrivateCloud(account, defaultProfile, true);
+    expect(cloud()).toBe(true);
+    expect(cloud('another-product-account')).toBe(false);
+    expect(cloud(account, 'work')).toBe(false);
+    // A Profile without Mail Assistance Enablement cannot consent, so enabling it later does not
+    // turn Private Cloud on.
+    await store.setPrivateCloud(account, 'work', true);
+    await store.setEnabled(account, 'work', true);
+    expect(cloud(account, 'work')).toBe(false);
+    const relaunched = createMailAssistanceEnablement(session.mailAssistance);
+    await relaunched.load('first');
+    expect(
+      privateCloudEnabled(relaunched.getSnapshot(), account, defaultProfile),
+    ).toBe(true);
+
+    // Turning Mail Assistance off withdraws Private Cloud at once; turning it on again does not
+    // bring Private Cloud back.
+    const off = store.setEnabled(account, defaultProfile, false);
+    expect(cloud()).toBe(false);
+    await off;
+    await store.setEnabled(account, defaultProfile, true);
+    expect(cloud()).toBe(false);
+    expect(store.getSnapshot()?.privateCloud).toStrictEqual([]);
+
+    await store.setPrivateCloud(account, defaultProfile, true);
+    await session.registration.signOut();
+    await store.load('signed-out');
+    await session.registration.register('google');
+    await session.registration.recoverWithRecoveryKey(session.recoveryKey);
+    await store.load('again');
+    expect(store.getSnapshot()).toStrictEqual({
+      owner: account,
+      profiles: [],
+      privateCloud: [],
+    });
+  });
+
+  it('keeps a failed Private Cloud save off and retries that choice', async () => {
+    expect.hasAssertions();
+    const owner = account;
+    // The first save fails; the retry succeeds.
+    const save = vi
+      .fn<NativeMailAssistance['setMailAssistance']>(
+        (_owner, profiles, privateCloud) =>
+          Promise.resolve({ owner, profiles, privateCloud }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error('full'), { code: 'full' }),
+      );
+    const store = createMailAssistanceEnablement({
+      mailAssistance: () =>
+        Promise.resolve({ owner, profiles: [defaultProfile] }),
+      setMailAssistance: save,
+    });
+    await store.load(owner);
+    await store.setPrivateCloud(owner, defaultProfile, true);
+    expect(store.getSaveState()).toBe('failed');
+    expect(store.getFailedSave()).toStrictEqual({
+      owner,
+      profile: defaultProfile,
+      enabled: true,
+      choice: 'privateCloud',
+    });
+    expect(
+      privateCloudEnabled(store.getSnapshot(), owner, defaultProfile),
+    ).toBe(false);
+    await store.retrySave(owner);
+    expect(store.getFailedSave()).toBeUndefined();
+    expect(
+      privateCloudEnabled(store.getSnapshot(), owner, defaultProfile),
+    ).toBe(true);
+    expect(save.mock.calls.map((call) => call[2])).toStrictEqual([
+      [defaultProfile],
+      [defaultProfile],
+    ]);
   });
 
   it('keeps assistance off for a stale or unreadable read and a removed account', async () => {
@@ -121,7 +225,11 @@ describe('mail Assistance Enablement', () => {
     // Deleting the account removes its enablement from this device too.
     await session.registration.deleteProductAccount();
     await enable.load('deleted');
-    expect(enable.getSnapshot()).toStrictEqual({ owner: null, profiles: [] });
+    expect(enable.getSnapshot()).toStrictEqual({
+      owner: null,
+      profiles: [],
+      privateCloud: [],
+    });
   });
 
   it('lets Mock Mail Sessions select enabled and disabled outcomes', async () => {
@@ -136,6 +244,7 @@ describe('mail Assistance Enablement', () => {
       expect(store.getSnapshot()).toStrictEqual({
         owner: 'mock-product-account',
         profiles,
+        privateCloud: [],
       });
     }
   });
@@ -167,7 +276,11 @@ describe('mail Assistance Enablement', () => {
     });
     answers[2]?.({ owner: account, profiles: [] });
     await reentered;
-    expect(store.getSnapshot()).toStrictEqual({ owner: account, profiles: [] });
+    expect(store.getSnapshot()).toStrictEqual({
+      owner: account,
+      profiles: [],
+      privateCloud: [],
+    });
   });
 
   it('turns off immediately behind a pending save and rejects queued account changes', async () => {
@@ -235,13 +348,18 @@ describe('mail Assistance Enablement', () => {
     expect(store.getSnapshot()).toStrictEqual({
       owner,
       profiles: [defaultProfile],
+      privateCloud: [],
     });
     const replacementOff = store.setEnabled(owner, defaultProfile, false);
     failures[1]?.({ code: 'locked' });
     await replacementOff;
     expect(store.getSaveState()).toBe('failed');
     await store.retrySave(account);
-    expect(store.getSnapshot()).toStrictEqual({ owner, profiles: [] });
+    expect(store.getSnapshot()).toStrictEqual({
+      owner,
+      profiles: [],
+      privateCloud: [],
+    });
     expect(failures).toHaveLength(2);
   });
 });

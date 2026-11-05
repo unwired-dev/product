@@ -57,7 +57,10 @@ type SyntheticDevice = ReturnType<typeof createSyntheticDevice>;
 
 // Native device storage's Mail Assistance Enablement by Product Account; every purge removes it.
 const assistanceOf = (shared: SyntheticDevice) => {
-  const enabled = new Map<string, readonly string[]>();
+  const enabled = new Map<
+    string,
+    Readonly<{ profiles: readonly string[]; privateCloud: readonly string[] }>
+  >();
   // Pending and removing accounts have no owner.
   const owner = () => {
     const product = shared.device.record?.product;
@@ -70,12 +73,14 @@ const assistanceOf = (shared: SyntheticDevice) => {
   const mailAssistance: NativeMailAssistance = {
     mailAssistance: () => {
       const current = owner();
+      const choice = current === null ? undefined : enabled.get(current);
       return Promise.resolve({
         owner: current,
-        profiles: current === null ? [] : (enabled.get(current) ?? []),
+        profiles: choice?.profiles ?? [],
+        privateCloud: choice?.privateCloud ?? [],
       });
     },
-    setMailAssistance: (account, profiles) => {
+    setMailAssistance: (account, profiles, privateCloud) => {
       if (account !== owner()) {
         return Promise.reject(
           Object.assign(new Error('Synthetic account changed'), {
@@ -83,8 +88,8 @@ const assistanceOf = (shared: SyntheticDevice) => {
           }),
         );
       }
-      enabled.set(account, profiles);
-      return Promise.resolve({ owner: account, profiles });
+      enabled.set(account, { profiles, privateCloud });
+      return Promise.resolve({ owner: account, profiles, privateCloud });
     },
   };
   return {

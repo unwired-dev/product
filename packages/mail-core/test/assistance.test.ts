@@ -11,6 +11,7 @@ import {
   capturePrompt,
   createDraftAssistance,
   createMessageSummary,
+  createPrivateCloudReadiness,
   replyInput,
   rewriteInput,
   summaryInput,
@@ -1099,6 +1100,66 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     expect(unavailable.getSnapshot(reply)).toStrictEqual({
       kind: 'unavailable',
       reason: 'model-not-ready',
+    });
+  });
+});
+
+describe('private Cloud readiness', () => {
+  it('reports each platform outcome and fails closed on a failed or unknown check', async () => {
+    expect.hasAssertions();
+    for (const [reply, readiness] of [
+      [Promise.resolve('ready'), 'ready'],
+      [Promise.resolve('limit-reached'), 'limit-reached'],
+      [Promise.resolve('device-ineligible'), 'device-ineligible'],
+      [Promise.resolve('quota: 3 of 10'), 'unavailable'],
+      [Promise.reject(new Error('offline')), 'unavailable'],
+    ] as const) {
+      const check = createPrivateCloudReadiness({ readiness: () => reply });
+      expect(check.getSnapshot('account/personal')).toStrictEqual({
+        kind: 'idle',
+      });
+      await check.start('account/personal');
+      expect(check.getSnapshot('account/personal')).toStrictEqual({
+        kind: 'checked',
+        readiness,
+      });
+      // The result belongs to that account's Profile only.
+      expect(check.getSnapshot('account/work')).toStrictEqual({ kind: 'idle' });
+    }
+  });
+
+  it('drops a late result once the check is discarded or replaced', async () => {
+    expect.hasAssertions();
+    const replies: Array<(value: unknown) => void> = [];
+    const check = createPrivateCloudReadiness({
+      readiness: () =>
+        // oxlint-disable-next-line promise/avoid-new -- Hold the native reply until the test answers it.
+        new Promise((resolve) => {
+          replies.push(resolve);
+        }),
+    });
+    const discarded = check.start('account/personal');
+    expect(check.getSnapshot('account/personal')).toStrictEqual({
+      kind: 'checking',
+    });
+    check.discard();
+    replies[0]?.('ready');
+    await discarded;
+    expect(check.getSnapshot('account/personal')).toStrictEqual({
+      kind: 'idle',
+    });
+
+    const replaced = check.start('account/personal');
+    const current = check.start('account/work');
+    replies[1]?.('ready');
+    replies[2]?.('limit-reached');
+    await Promise.all([replaced, current]);
+    expect(check.getSnapshot('account/personal')).toStrictEqual({
+      kind: 'idle',
+    });
+    expect(check.getSnapshot('account/work')).toStrictEqual({
+      kind: 'checked',
+      readiness: 'limit-reached',
     });
   });
 });

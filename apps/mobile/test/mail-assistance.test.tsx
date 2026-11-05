@@ -1,4 +1,7 @@
-import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type {
+  NativeAssistance,
+  NativePrivateCloud,
+} from '@private-email/mail-core/assistance';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
@@ -13,6 +16,7 @@ import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-stor
 import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Profiler, use } from 'react';
+import { Alert } from 'react-native';
 
 import { Action } from '../src/action.tsx';
 import {
@@ -535,6 +539,207 @@ describe('account settings availability', () => {
       }
     },
   );
+});
+
+// Real enablement and readiness stores; only Private Cloud Compute's readiness and the alert are
+// substituted.
+describe('private Cloud consent and readiness', () => {
+  const owner = 'synthetic-account';
+  const setUp = async (
+    readiness: () => Promise<unknown> = () => Promise.resolve('ready'),
+  ) => {
+    const calls: string[] = [];
+    let saved: Readonly<{
+      profiles: readonly string[];
+      privateCloud: readonly string[];
+    }> = { profiles: [defaultProfile], privateCloud: [] };
+    const save = jest.fn(
+      (
+        account: string,
+        profiles: readonly string[],
+        privateCloud: readonly string[],
+      ) => {
+        saved = { profiles, privateCloud };
+        return Promise.resolve({ owner: account, ...saved });
+      },
+    );
+    const enablement = createMailAssistanceEnablement({
+      mailAssistance: () => Promise.resolve({ owner, ...saved }),
+      setMailAssistance: save,
+    });
+    await enablement.load(owner);
+    const privateCloud: NativePrivateCloud = {
+      readiness: () => {
+        calls.push('readiness');
+        return readiness();
+      },
+    };
+    const alerts: Array<Parameters<typeof Alert.alert>> = [];
+    jest.spyOn(Alert, 'alert').mockImplementation((...asked) => {
+      alerts.push(asked);
+    });
+    await render(
+      <MailAssistanceContext value={enablement}>
+        <MailAssistanceSettings
+          account={owner}
+          assistance={scriptedAssistance().native}
+          button={settingsButton}
+          privateCloud={privateCloud}
+          profiles={[{ id: 'work', name: 'Work' }]}
+        />
+      </MailAssistanceContext>,
+    );
+    return { alerts, calls, enablement, save };
+  };
+  const switchPrivateCloud = async (name: string, on: boolean) => {
+    await act(async () => {
+      await fireEvent(screen.getByRole('switch', { name }), 'valueChange', on);
+    });
+  };
+  const answer = async (
+    alerts: ReadonlyArray<Parameters<typeof Alert.alert>>,
+    text: string,
+  ) => {
+    await act(async () => {
+      await alerts
+        .at(-1)?.[2]
+        ?.find((button) => button.text === text)
+        ?.onPress?.();
+    });
+  };
+
+  // oxlint-disable-next-line vitest/no-hooks -- Each test spies on the alert anew.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('keeps Private Cloud off until that Profile’s Mail Assistance is on', async () => {
+    expect.hasAssertions();
+    await setUp();
+    // Work has no Mail Assistance Enablement, so its Private Cloud switch cannot turn on.
+    expect(
+      screen.getByRole('switch', { name: 'Use Private Cloud for Work' }).props,
+    ).toHaveProperty('disabled', true);
+    expect(
+      screen.getByText('Turn on Mail Assistance above to use Private Cloud.'),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        'Off by default. Applies only to Primary Profile on this iPhone.',
+      ),
+    ).toBeVisible();
+  });
+
+  it('turns on only after confirmation and checks nothing', async () => {
+    expect.hasAssertions();
+    const { calls, enablement, alerts } = await setUp();
+    await switchPrivateCloud('Use Private Cloud', true);
+    expect(alerts.map(([title]) => title)).toStrictEqual([
+      'Use Private Cloud for Mail Assistance on this iPhone?',
+    ]);
+    await answer(alerts, 'Cancel');
+    expect(
+      screen.getByRole('switch', { name: 'Use Private Cloud' }),
+    ).not.toBeChecked();
+
+    await switchPrivateCloud('Use Private Cloud', true);
+    await answer(alerts, 'Turn On');
+    expect(
+      screen.getByText('On for Primary Profile on this iPhone only.'),
+    ).toBeVisible();
+    expect(screen.getByText('Not checked yet')).toBeVisible();
+    // Saved for this Profile only, and opening Settings and turning it on asked Private Cloud
+    // Compute nothing.
+    expect({
+      privateCloud: enablement.getSnapshot()?.privateCloud,
+      calls,
+    }).toStrictEqual({ privateCloud: [defaultProfile], calls: [] });
+  });
+
+  it.each([
+    ['ready', 'Ready on this iPhone · checked just now'],
+    [
+      'limit-reached',
+      'Apple’s usage limit is reached for now. Try again later.',
+    ],
+    ['device-ineligible', 'This iPhone can’t use Private Cloud.'],
+    [
+      'unavailable',
+      'Not available right now. Private Cloud isn’t used until a check succeeds.',
+    ],
+    [
+      'quota: 3 of 10',
+      'Not available right now. Private Cloud isn’t used until a check succeeds.',
+    ],
+  ])('reports %s only after an explicit check', async (outcome, copy) => {
+    expect.hasAssertions();
+    const { calls, enablement } = await setUp(() => Promise.resolve(outcome));
+    await act(async () => {
+      await enablement.setPrivateCloud(owner, defaultProfile, true);
+    });
+    expect(calls).toStrictEqual([]);
+    await press('Check Private Cloud readiness for Primary Profile');
+    expect(screen.getByText(copy)).toBeVisible();
+    expect(calls).toStrictEqual(['readiness']);
+  });
+
+  it('cancels a pending check when turned off and never brings back its result', async () => {
+    expect.hasAssertions();
+    const answers: Array<(result: string) => void> = [];
+    const { enablement } = await setUp(
+      () =>
+        // oxlint-disable-next-line promise/avoid-new -- Release readiness after Private Cloud is turned off.
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    await act(async () => {
+      await enablement.setPrivateCloud(owner, defaultProfile, true);
+    });
+    await press('Check Private Cloud readiness for Primary Profile');
+    expect(screen.getByText('Checking readiness…')).toBeVisible();
+    await switchPrivateCloud('Use Private Cloud', false);
+    expect(screen.queryByText('Checking readiness…')).not.toBeOnTheScreen();
+    await act(async () => {
+      await enablement.setPrivateCloud(owner, defaultProfile, true);
+    });
+    await act(async () => {
+      answers[0]?.('ready');
+    });
+    expect(screen.getByText('Not checked yet')).toBeVisible();
+
+    // Turning Mail Assistance off withdraws Private Cloud too; turning it on again does not.
+    await switchAssistance(false);
+    await switchAssistance(true);
+    expect(
+      screen.getByRole('switch', { name: 'Use Private Cloud' }),
+    ).not.toBeChecked();
+    expect(enablement.getSnapshot()?.privateCloud).toStrictEqual([]);
+  });
+
+  it('keeps a failed save off, says so and retries it', async () => {
+    expect.hasAssertions();
+    const { alerts, enablement, save } = await setUp();
+    save.mockRejectedValueOnce(
+      Object.assign(new Error('locked'), { code: 'locked' }),
+    );
+    await switchPrivateCloud('Use Private Cloud', true);
+    await answer(alerts, 'Turn On');
+    expect(
+      screen.getByText('Couldn’t turn on Private Cloud. It’s still off.'),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('switch', { name: 'Use Private Cloud' }),
+    ).not.toBeChecked();
+    expect(screen.queryByText('Not checked yet')).not.toBeOnTheScreen();
+    await press('Try saving assistance choice again');
+    expect(
+      screen.getByRole('switch', { name: 'Use Private Cloud' }),
+    ).toBeChecked();
+    expect(enablement.getSnapshot()?.privateCloud).toStrictEqual([
+      defaultProfile,
+    ]);
+  });
 });
 
 describe('mail Assistance Enablement on iPhone and iPad', () => {
