@@ -822,11 +822,8 @@ describe('meeting invitations', () => {
 
     later.close();
     // The answered message left the mailbox, so nothing opens it.
-    await responses.respond(
-      { ...revised, sequence: revised.sequence + 1, message: 'gone' },
-      'accepted',
-      copy,
-    );
+    gmail.remove(newer);
+    await inbox.load();
 
     expect(responses.latest(invitation)).toBeUndefined();
   });
