@@ -69,7 +69,7 @@ separately.
   of the whole series shows the same lines. The series must be a timed meeting with
   one `RRULE` of `FREQ=WEEKLY`, an `INTERVAL` of 1 if any, a `BYDAY` naming only the
   start's weekday if any, an optional `WKST`, and exactly one of a UTC `UNTIL` or a
-  `COUNT` of up to 9999. The last meeting is counted in the meeting's time zone, so it
+  `COUNT`, and at most 9999 meetings. The last meeting is counted in the meeting's time zone, so it
   keeps its local time across daylight-saving changes.
 - Other recurring meetings, single meetings of a series (`RECURRENCE-ID`), series
   with `RDATE` or `EXDATE`, all-day series, floating or unknown time zones,

@@ -442,6 +442,28 @@ const lastWeekOf = (
   return week;
 };
 
+// The most meetings a readable series holds, whether a COUNT or an UNTIL ends it, which bounds the
+// work of listing them.
+const maxMeetings = 9999;
+
+// Each meeting's start through the last week, or undefined for none or more than the most.
+const meetingsOf = (last: number, at: (week: number) => number | undefined) => {
+  const meetings: number[] = [];
+  for (
+    let week = 0;
+    week <= last && meetings.length <= maxMeetings;
+    week += 1
+  ) {
+    const meeting = at(week);
+    if (meeting !== undefined) {
+      meetings.push(meeting);
+    }
+  }
+  return meetings.length === 0 || meetings.length > maxMeetings
+    ? undefined
+    : meetings;
+};
+
 // A timed meeting's weekly series: {} without a rule, undefined for a rule it can't read.
 const seriesOf = (
   event: readonly Line[],
@@ -459,15 +481,8 @@ const seriesOf = (
   if (starts === undefined || rule === undefined) {
     return undefined;
   }
-  const last = lastWeekOf(rule, start, starts.at);
-  const meetings: number[] = [];
-  for (let week = 0; week <= last; week += 1) {
-    const at = starts.at(week);
-    if (at !== undefined) {
-      meetings.push(at);
-    }
-  }
-  return meetings.length === 0 ? undefined : { starts: meetings };
+  const meetings = meetingsOf(lastWeekOf(rule, start, starts.at), starts.at);
+  return meetings === undefined ? undefined : { starts: meetings };
 };
 
 const detailsOf = (

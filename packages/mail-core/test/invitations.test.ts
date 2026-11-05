@@ -280,6 +280,7 @@ describe('meeting invitations', () => {
     ['with no meetings', 'FREQ=WEEKLY;COUNT=0'],
     ['for more than 9999 meetings', 'FREQ=WEEKLY;COUNT=10000'],
     ['until a floating time', 'FREQ=WEEKLY;UNTIL=20261106T130000'],
+    ['until after 9999 meetings', 'FREQ=WEEKLY;UNTIL=99991231T235959Z'],
     ['in some months', 'FREQ=WEEKLY;BYMONTH=10;COUNT=4'],
     ['with a repeated part', 'FREQ=WEEKLY;COUNT=4;COUNT=5'],
   ])('keeps a series repeating %s unreadable', (_, rule) => {
