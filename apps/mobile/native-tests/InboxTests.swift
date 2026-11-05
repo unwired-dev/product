@@ -851,31 +851,39 @@ final class InboxTests: XCTestCase {
       app.buttons["New Message"].tap()
       let composer = app.otherElements["composer-overlay"]
       XCTAssertTrue(composer.waitForExistence(timeout: 15))
-      // #1165: the format bar stays directly above the software keyboard while the body is edited.
+      // #1644: the floating controls stay above the software keyboard while the body is edited.
+      // Without Mail Assistance or Translation, the composer has no Writing tools.
       let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
         .firstMatch
       XCTAssertTrue(body.waitForExistence(timeout: 15))
       body.tap()
       let keyboard = app.keyboards.firstMatch
       XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
-      formatBarOnKeyboard(app)
-      // Typing keeps the bar in place, and Undo and Redo further along its rail stay reachable.
+      controlsOnKeyboard(app, writingTools: false)
+      // Typing keeps the controls in place, and Format shows Undo and Redo in the keyboard's place.
       keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", "h")).firstMatch.tap()
       waitUntil { (body.value as? String ?? "").contains("H") }
-      app.buttons["Bold"].swipeLeft()
-      for control in ["Undo", "Redo"] {
-        let button = app.buttons[control]
-        waitUntil { button.isHittable && button.frame.maxY <= keyboard.frame.minY }
-      }
+      controlsOnKeyboard(app, writingTools: false)
+      app.buttons["Format"].tap()
+      XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
+      let undo = app.buttons["Undo"]
+      waitUntil { undo.isHittable && undo.isEnabled && app.buttons["Redo"].isHittable }
+      let panel = XCTAttachment(screenshot: app.screenshot())
+      panel.name = "Composer Format panel in place of the keyboard"
+      panel.lifetime = .keepAlways
+      add(panel)
+      // Close Format resumes typing.
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
       // Delete the letter so Close keeps no Draft for the later Outbox checks.
       keyboard.keys["delete"].tap()
       waitUntil { !(body.value as? String ?? "").contains("H") }
-      formatBarOnKeyboard(app)
+      controlsOnKeyboard(app, writingTools: false)
       let raised = XCTAttachment(screenshot: app.screenshot())
-      raised.name = "Composer format bar above the keyboard"
+      raised.name = "Composer controls above the keyboard"
       raised.lifetime = .keepAlways
       add(raised)
-      // Hiding and showing the keyboard, and rotating, keep the bar on the keyboard.
+      // Hiding and showing the keyboard, and rotating, keep the controls on the keyboard.
       // The body's scroll view dismisses the keyboard interactively when dragged down.
       for _ in 0..<3 where keyboard.exists {
         composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
@@ -884,20 +892,20 @@ final class InboxTests: XCTestCase {
       }
       XCTAssertFalse(keyboard.exists)
       let hidden = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-      hidden.name = "Composer format bar with the keyboard hidden"
+      hidden.name = "Composer controls with the keyboard hidden"
       hidden.lifetime = .keepAlways
       add(hidden)
       body.tap()
       XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
-      formatBarOnKeyboard(app)
+      controlsOnKeyboard(app, writingTools: false)
       XCUIDevice.shared.orientation = .landscapeLeft
       waitUntil {
         let window = app.windows.firstMatch.frame
         return window.width > window.height
       }
-      formatBarOnKeyboard(app)
+      controlsOnKeyboard(app, writingTools: false)
       let landscape = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-      landscape.name = "Composer format bar above the keyboard in landscape"
+      landscape.name = "Composer controls above the keyboard in landscape"
       landscape.lifetime = .keepAlways
       add(landscape)
       XCUIDevice.shared.orientation = .portrait
@@ -905,20 +913,9 @@ final class InboxTests: XCTestCase {
         let window = app.windows.firstMatch.frame
         return window.height > window.width
       }
-      formatBarOnKeyboard(app)
+      controlsOnKeyboard(app, writingTools: false)
       app.buttons["Close"].tap()
       waitUntil { !composer.exists && switcher.isHittable }
-    }
-  }
-
-  // #1165: the iPhone format bar sits on the software keyboard's suggestion strip, which the
-  // keyboard element's frame excludes.
-  private func formatBarOnKeyboard(_ app: XCUIApplication) {
-    let keyboard = app.keyboards.firstMatch
-    let textStyle = app.buttons["Text style"]
-    waitUntil {
-      keyboard.exists && textStyle.isHittable && textStyle.frame.maxY <= keyboard.frame.minY
-        && keyboard.frame.minY - textStyle.frame.maxY < 60
     }
   }
 
@@ -1448,6 +1445,10 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(typed.waitForExistence(timeout: 20))
     if UIDevice.current.userInterfaceIdiom == .phone {
       controlsOnKeyboard(app)
+      let raised = XCTAttachment(screenshot: app.screenshot())
+      raised.name = "Evaluation controls above the keyboard"
+      raised.lifetime = .keepAlways
+      add(raised)
     }
     // Open Settings through the composer's palette without finishing this Draft.
     if UIDevice.current.userInterfaceIdiom == .pad {
@@ -1533,16 +1534,12 @@ final class InboxTests: XCTestCase {
 
   // #1166: iPhone's floating controls stay above the software keyboard. Its suggestion strip lies
   // outside the keyboard element's frame, so only a hittable control proves it clears the strip.
-  private func controlsOnKeyboard(_ app: XCUIApplication) {
+  private func controlsOnKeyboard(_ app: XCUIApplication, writingTools: Bool = true) {
     let keyboard = app.keyboards.firstMatch
-    for name in ["Format", "Add files", "Writing tools"] {
+    for name in ["Format", "Add files"] + (writingTools ? ["Writing tools"] : []) {
       let control = app.buttons[name]
       waitUntil { keyboard.exists && control.isHittable && control.frame.maxY <= keyboard.frame.minY }
     }
-    let raised = XCTAttachment(screenshot: app.screenshot())
-    raised.name = "Evaluation controls above the keyboard"
-    raised.lifetime = .keepAlways
-    add(raised)
   }
 
   // iPhone shows its Format and writing tools controls, and iPad its format bar, once the page is ready.
@@ -2955,9 +2952,10 @@ final class InboxTests: XCTestCase {
 
   // Sign In's Language menu keeps a chosen language across relaunch, then returns to System
   // Default. iPhone's pop-up gives its choice as the value; iPad's SwiftUI picker announces its
-  // label and choice together.
+  // label and choice together. iPhone's native pop-up button inside the menu also reports the
+  // identifier, without the value, so the outer element is the one checked.
   private func verifyLanguagePreference(in app: XCUIApplication) {
-    let language = app.buttons["language"]
+    let language = app.buttons["language"].firstMatch
     func shows(_ name: String) {
       XCTAssertEqual(
         XCTWaiter.wait(
