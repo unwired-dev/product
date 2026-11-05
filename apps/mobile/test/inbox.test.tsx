@@ -2481,7 +2481,7 @@ describe('connected Gmail Inbox', () => {
 
   it('reads message bodies from Gmail or this device and opens links only after confirmation', async () => {
     expect.hasAssertions();
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
     const gmail = createSyntheticGmail();
     gmail.deliver({
       from: 'Maya Chen <maya@example.invalid>',
@@ -2675,7 +2675,7 @@ describe('connected Gmail Inbox', () => {
 
   it('explains a deceptive link and offers copying it instead of opening it', async () => {
     expect.hasAssertions();
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
     const copy = jest.mocked(setStringAsync).mockResolvedValue(true);
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({

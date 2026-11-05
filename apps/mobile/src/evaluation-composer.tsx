@@ -133,7 +133,9 @@ function EvaluationEditor({
   const pageNow = useRef<PageState>(undefined);
   // Selection reports may arrive before the body at their revision.
   const bodyRevision = useRef(0);
-  const view = useRef<WebView>(null);
+  // react-native-webview 14 defaults the class's extra props to `undefined`, which makes every
+  // prop `never` (react-native-webview#3970); `object` adds none.
+  const view = useRef<WebView<object>>(null);
   const pageStopped = useRef(false);
   const [open, setOpen] = useState<Open>();
   const hide = useCallback(() => {

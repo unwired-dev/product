@@ -52,14 +52,14 @@ the Mac retains its AppKit glass view manager without importing Expo. Native
 visual, Dynamic Type and accessibility qualification remains required;
 JavaScript tests and bundle checks do not establish that evidence.
 
-The pinned `expo-glass-effect@57.0.4` patch keeps its internal effect/content views
+The pinned `expo-glass-effect@58.0.5` patch keeps its internal effect/content views
 from claiming empty-space hits. React Native can then apply `pointerEvents` to
 the enclosing Expo view, so the reader's `box-none` toolbar padding reaches the
 menu dismissal beneath while control children stay inside interactive glass.
 Remove the patch when the supported upstream version preserves that hit-testing
 contract. A JavaScript component mock cannot validate this native behavior.
 
-The pinned `@expo/ui@57.0.26` patch keeps `BottomSheet` children mounted after
+The pinned `@expo/ui@58.0.27` patch keeps `BottomSheet` children mounted after
 their first presentation. On an interactive swipe, SwiftUI reports dismissal
 when the swipe commits, while the sheet still slides away. Unmounting the React
 children then leaves the bare sheet covering the Inbox floating bar. SwiftUI
@@ -69,10 +69,12 @@ supported upstream version retains content through the complete dismissal.
 
 ## Composer keyboard tracking
 
-Both mobile composers use `react-native-keyboard-controller@1.21.9`'s
-`KeyboardAvoidingView`. React Native 0.86.3 schedules its padding change through
-`LayoutAnimation`, but Reanimated 4.5.1 replaces Fabric's animation delegate, so
-the core component jumps instead of following the keyboard.
+Both mobile composers use `react-native-keyboard-controller@1.22.7`'s
+`KeyboardAvoidingView`. The original investigation used React Native 0.86.3 and
+Reanimated 4.5.1: core keyboard avoidance scheduled its padding change through
+`LayoutAnimation`, while Reanimated replaced Fabric's animation delegate, so the
+core component jumped instead of following the keyboard. The SDK 58 upgrade
+retains keyboard-controller; core keyboard avoidance has not been requalified.
 
 The library's disabled animated-style branch returns an empty object. Reanimated
 retains previously applied values unless they are explicitly cleared, so disabling

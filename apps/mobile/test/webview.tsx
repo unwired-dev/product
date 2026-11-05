@@ -11,7 +11,7 @@ export const injectedScripts: string[] = [];
 export function WebView({
   ref,
   ...props
-}: ComponentProps<typeof View> & {
+}: Omit<ComponentProps<typeof View>, 'ref'> & {
   readonly ref?: Ref<{ injectJavaScript: (script: string) => void }>;
 }) {
   useImperativeHandle(ref, () => ({

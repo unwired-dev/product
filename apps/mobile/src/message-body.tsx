@@ -10,7 +10,12 @@ import type {
   ReadableBody,
 } from '@private-email/mail-core/message-body';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import type { LayoutChangeEvent, ScrollViewProps } from 'react-native';
+import type {
+  LayoutChangeEvent,
+  ScrollViewInstance,
+  ScrollViewProps,
+  ViewInstance,
+} from 'react-native';
 import type {
   ShouldStartLoadRequest,
   WebViewEvent,
@@ -399,9 +404,7 @@ function ReadableText({
 interface ReaderViewport {
   readonly subscribe: (listener: () => void) => () => void;
   readonly get: () => Readonly<{ offset: number; height: number }>;
-  readonly content: () =>
-    | ReturnType<ScrollView['getNativeScrollRef']>
-    | undefined;
+  readonly content: () => ScrollViewInstance | null | undefined;
   readonly scrollTo: (offset: number) => void;
 }
 
@@ -432,7 +435,7 @@ export function ReaderScrollView({
   | 'maintainVisibleContentPosition'
   | 'onScrollBeginDrag'
 >) {
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   // oxlint-disable-next-line react/hook-use-state -- The viewport store is created once and updates its listeners.
   const [viewport] = useState(() => {
     const listeners = new Set<() => void>();
@@ -508,7 +511,7 @@ function RichDocument({
       t('messageBody.imageNotLoaded'),
     ),
   }));
-  const container = useRef<View>(null);
+  const container = useRef<ViewInstance>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
   const [height, setHeight] = useState<number>();
@@ -598,7 +601,7 @@ function RichDocument({
           javaScriptEnabled={false}
           mediaPlaybackRequiresUserAction
           onContentProcessDidTerminate={onFailure}
-          onContentSizeChange={(event: WebViewEvent) => {
+          onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
             if (measured !== undefined) {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));

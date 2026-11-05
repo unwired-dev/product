@@ -1,5 +1,5 @@
 diff --git a/ios/GlassView.swift b/ios/GlassView.swift
-index 862c16a9231450de940024abb051a1d90e1e8eeb..d8869361883dec00b6a2ecb719782cd0324395bd 100644
+index 862c16a92..d88693618 100644
 --- a/ios/GlassView.swift
 +++ b/ios/GlassView.swift
 @@ -5,7 +5,7 @@ import React

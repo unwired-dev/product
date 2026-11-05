@@ -51,8 +51,17 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
   [Effect lint policy](agents/effect.md#enforcement) applies to every configuration.
 - Vitest tests the shared core; Jest Expo and React Native Testing Library test
   message selection and unavailable routes. Their animation resolver uses the
-  Reanimated and Worklets JavaScript implementations; native motion still needs
-  device qualification. Fallow scans the root and mobile entry points separately.
+  Worklets and Reanimated web implementations that Reanimated's own Jest resolver
+  selects, matching package directories exactly because pnpm names Worklets in
+  other packages' directories; native motion still needs device qualification.
+  Fallow scans the root and mobile entry points separately.
+- Types use React Native's Strict TypeScript API, the default since React Native
+  0.87: refs use instance types such as `ViewInstance` and `TextInputInstance`,
+  and optional props accept `undefined`. React Native removes the legacy types after
+  0.88, so do not opt back into them. `react-native-webview` 14 types every prop of
+  `WebView<P>` as `never` unless `P` is set
+  ([react-native-webview#3970](https://github.com/react-native-webview/react-native-webview/issues/3970)),
+  so typed refs use `WebView<object>`.
 
 One root `pnpm-workspace.yaml` and lockfile manage all packages under
 [ADR 0064](adr/0064-isolate-mobile-and-macos-native-dependencies.md). Shared tooling
@@ -95,6 +104,14 @@ native peers (gesture handler, Reanimated and Worklets) are explicitly installed
 for reproducible autolinking. `react-dom` is a development peer requirement and
 must not appear in the iOS production bundle.
 
+The selected baseline is Expo SDK 58 (`expo` 58.0.23, React Native 0.88.1,
+React 19.3.0), the SDK the [Expo Duo guide](https://expo.dev/blog/supporting-iphone-duo) names
+for Duo development, with every native peer at its SDK 58 bundled version. The
+Mac host keeps its separate `catalogs.macos` renderer (react-native-macos 0.81.9)
+and its own `react-native-webview` 13.16.1 patch. SDK 58 generates the UIKit
+scene lifecycle and no longer installs `expo-symbols` for Expo Router, which loads
+it only when present; the app draws SF Symbols through its own design views.
+
 Inbox keyboard tracking uses `react-native-keyboard-controller` and Reanimated's
 `IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS` static flag so React commits do not pause the
 bar's transform. Rebuild the native app after changing this flag. Both composers
@@ -111,9 +128,9 @@ patch for this.
 Keep the Effect patcher, Oxlint and `oxlint-tsgolint` on the compatible catalog
 versions and update them together. TypeScript 7 is intentionally
 excluded from `expo install --check` because Expo recommends TypeScript 6 while
-the selected Effect tooling patches TypeScript 7. Jest remains on 29 for
-`jest-expo`'s watch plugin. Testing Library's `test-renderer` is pinned to 1.2.0;
-1.3 requires a newer React renderer. When updating the Expo companion versions,
+the selected Effect tooling patches TypeScript 7. Jest follows the major
+`jest-expo` builds on (30 for SDK 58), and Testing Library's `test-renderer`
+follows the version `jest-expo` depends on. When updating the Expo companion versions,
 replace the exact `minimumReleaseAgeExclude` entries in
 [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) they needed, drop obsolete
 exceptions for the same packages, then verify a frozen install and
@@ -122,8 +139,8 @@ exceptions for the same packages, then verify a frozen install and
 
 ### Navigation
 
-The shell uses the navigation React Native Screens 4.26.2 and Expo Router 57.0.30
-provide on Expo 57.0.32 and React Native 0.86.3:
+The shell uses the navigation React Native Screens 4.30.1 and Expo Router 58.0.30
+provide on Expo 58.0.23 and React Native 0.88.1:
 
 - `Split.Host` with Mailboxes, Inbox and reader `Split.Column`s in
   [`app/_layout.tsx`](../apps/mobile/app/_layout.tsx). The split API is experimental
@@ -150,7 +167,7 @@ fill the remaining gaps. Delete each when its condition holds:
 | Adapter                                        | Gap                                                                                                                                                                                                                                                                                                                                                  | Delete when                                                                                                           |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `UnwiredNavigationChrome` (`NavigationChrome`) | `Split.Column` takes no header configuration. `headerConfig` and `ScreenStackHeaderCenterView` work only inside a `ScreenStack`, and one nested in a column adds a second bar without the split view's Back. The adapter hides a compact column's bar while it shows its own header, or keeps it with the screen's Back label, count and title view. | Split columns accept header configuration, including a title view and Back item.                                      |
-| `UnwiredSearchToolbar` (`SearchToolbar`)       | Expo Router's `Stack.SearchBar` and `Stack.Toolbar` work only in a stack, React Native 0.86.3 has no toolbar or search controller, and items on the outer collapsed stack never render. The adapter gives the iPhone Inbox column its toolbar and integrated search field ([#1534](https://github.com/unwired-dev/product/issues/1534)).             | Split columns, or Expo Router over them, accept toolbar items and `headerSearchBarOptions` with integrated placement. |
+| `UnwiredSearchToolbar` (`SearchToolbar`)       | Expo Router's `Stack.SearchBar` and `Stack.Toolbar` work only in a stack, React Native 0.88.1 has no toolbar or search controller, and items on the outer collapsed stack never render. The adapter gives the iPhone Inbox column its toolbar and integrated search field ([#1534](https://github.com/unwired-dev/product/issues/1534)).             | Split columns, or Expo Router over them, accept toolbar items and `headerSearchBarOptions` with integrated placement. |
 
 The adapters' Back items show no menu, which would show an empty capsule
 ([#968](https://github.com/unwired-dev/product/issues/968)).
@@ -161,17 +178,17 @@ the list and reader columns. The owner chose to keep that placement
 ([#1055](https://github.com/unwired-dev/product/issues/1055#issuecomment-6531549529)).
 No provided API places search there:
 
-- React Native Screens 4.26.2 configures search only in a `ScreenStack` header
+- React Native Screens 4.30.1 configures search only in a `ScreenStack` header
   (`RNSScreenStackHeaderConfig`, `RNSSearchBar`). A `Split.Column` takes only
   children and appearance events (`SplitScreen.types.ts`).
 - Expo Router's `Stack.SearchBar` and `Stack.Toolbar` need a stack, and React
-  Native 0.86.3 has no search controller.
+  Native 0.88.1 has no search controller.
 - UIKit's `searchController` belongs to one column's navigation item
   (`UINavigationItem.h`, iOS 27.2 SDK). `UINavigationItemSearchBarPlacement` puts
   it in that column's navigation bar, or centres it there (`IntegratedCentered`).
   `searchBarPlacementAllowsToolbarIntegration` moves it into an iPhone toolbar, and
   `searchBarPlacementAllowsExternalIntegration` into the trailing column's bar.
-- `@expo/ui` 57.0.26's `searchable` placements (`automatic`, `toolbar`, `sidebar`,
+- `@expo/ui` 58.0.27's `searchable` placements (`automatic`, `toolbar`, `sidebar`,
   `navigationBarDrawer`) belong to a SwiftUI navigation container's bars.
 
 [`inbox-bar.tsx`](../apps/mobile/src/inbox-bar.tsx) retains `createWindowBar`,
@@ -230,9 +247,10 @@ other native design views the Mac host shares: it copies their sources into the
 generated project, so regenerate after editing them and check the built binary
 contains the changed symbol. Liquid Glass uses `expo-glass-effect`. The bundle ID is `dev.unwired.mail`, the version comes from
 `apps/mobile/package.json`, and the icon is the Icon Composer document in
-`native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0 and
-[`enableSceneSupport: true`](https://docs.expo.dev/versions/latest/sdk/build-properties/#pluginconfigtypeios):
-apps built with the iOS 27 SDK cannot launch with the old application lifecycle.
+`native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0. Expo SDK 58
+generates the UIKit scene lifecycle that apps built with the iOS 27 SDK need to
+launch; its scene delegate forwards opened URLs to the app delegate overrides the
+private-inbox config plugin adds.
 The `expo-background-task` and `expo-task-manager` plugins add the `fetch` and
 `processing` background modes and the scheduler identifier for
 [Gmail freshness](gmail-inbox.md#freshness-across-app-lifecycles). The app adds the

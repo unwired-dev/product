@@ -4,7 +4,7 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { TextStyle, useColorScheme } from 'react-native';
+import type { StyleProp, TextStyle, useColorScheme } from 'react-native';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
@@ -465,17 +465,20 @@ const shownFormatting = (body: Shown) =>
       ? []
       : [
           {
-            align: StyleSheet.flatten<TextStyle>(line.props.style).textAlign,
+            align: StyleSheet.flatten<StyleProp<TextStyle>>(line.props.style)
+              ?.textAlign,
             spans: line.children.flatMap((span) =>
               typeof span === 'string'
                 ? []
                 : [
                     {
-                      color: StyleSheet.flatten<TextStyle>([
+                      color: StyleSheet.flatten<StyleProp<TextStyle>>([
                         body.props.style,
                         line.props.style,
-                      ]).color,
-                      ...StyleSheet.flatten<TextStyle>(span.props.style),
+                      ])?.color,
+                      ...StyleSheet.flatten<StyleProp<TextStyle>>(
+                        span.props.style,
+                      ),
                     },
                   ],
             ),

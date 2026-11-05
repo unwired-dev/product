@@ -6,7 +6,7 @@ import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ComponentProps, ContextType, ReactNode } from 'react';
-import type { TextInput } from 'react-native';
+import type { TextInputInstance } from 'react-native';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize, tint } from '@expo/ui/swift-ui/modifiers';
@@ -740,7 +740,7 @@ export function Inbox({
   const colors = usePalette();
   const { t } = useLocalization();
   const profile = useProfile();
-  const search = useRef<TextInput>(null);
+  const search = useRef<TextInputInstance>(null);
   const insets = useSafeAreaInsets();
   const inWindow = use(WindowBarContext) !== undefined;
   const listInset = useListBottomInset(visible !== false);
@@ -1165,7 +1165,9 @@ export function Inbox({
             }}
             extraData={rows}
             keyExtractor={rowKey}
-            ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
+            ListHeaderComponent={
+              onCompose === undefined ? undefined : <DraftList />
+            }
             ListFooterComponent={
               searching ? (
                 <OnlineResults

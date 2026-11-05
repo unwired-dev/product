@@ -1,8 +1,8 @@
 diff --git a/src/swift-ui/BottomSheet/index.tsx b/src/swift-ui/BottomSheet/index.tsx
-index c6327bba32ced43c7b206c014eb93bf665ed6a38..9e489d58250c9ea1a1903552996baa141cd5d189 100644
+index 3f111f57a..41c567cb7 100644
 --- a/src/swift-ui/BottomSheet/index.tsx
 +++ b/src/swift-ui/BottomSheet/index.tsx
-@@ -62,8 +62,9 @@ function BottomSheet(props: BottomSheetProps) {
+@@ -76,8 +76,9 @@ function BottomSheet(props: BottomSheetProps) {
      setIsMounted(true);
    }
  
@@ -14,7 +14,7 @@ index c6327bba32ced43c7b206c014eb93bf665ed6a38..9e489d58250c9ea1a1903552996baa14
    return (
      <BottomSheetNativeView
        modifiers={modifiers}
-@@ -73,7 +74,6 @@ function BottomSheet(props: BottomSheetProps) {
+@@ -87,7 +88,6 @@ function BottomSheet(props: BottomSheetProps) {
          onIsPresentedChange?.(isPresented);
        }}
        onDismiss={() => {

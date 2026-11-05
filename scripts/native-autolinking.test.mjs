@@ -61,10 +61,9 @@ class AppDelegate {
   func launch() {
     ${launch}
   }
-  func open() {
-    return super.application(app, open: url, options: options)
-  }
-  // Universal Links
+}
+
+class ReactNativeDelegate {
 }
 `;
   let previous = template;
@@ -87,6 +86,11 @@ class AppDelegate {
         contents.indexOf('UnwiredNotifications.start()') <
           contents.indexOf(launch),
       );
+      assert.equal(
+        contents.split('GIDSignIn.sharedInstance.handle(url)').length,
+        2,
+      );
+      assert.equal(contents.split('import GoogleSignIn').length, 2);
     }
     // The prior plugin generated the same delegate with push wakes, but no notification delegate.
     previous = contents.replace('UnwiredNotifications.start()\n    ', '');

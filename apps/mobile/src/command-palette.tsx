@@ -8,8 +8,9 @@ import type { ReactNode } from 'react';
 import type {
   GestureResponderEvent,
   LayoutRectangle,
-  TextInput as TextInputHandle,
+  TextInputInstance,
   StyleProp,
+  ViewInstance,
   ViewProps,
   ViewStyle,
 } from 'react-native';
@@ -457,7 +458,7 @@ function Palette({
   // Commands whose message disappeared after the palette opened.
   const [gone, setGone] = useState<readonly string[]>([]);
   const [panel, setPanel] = useState<LayoutRectangle>();
-  const input = useRef<TextInputHandle>(null);
+  const input = useRef<TextInputInstance>(null);
   // Closing hands the keyboard back unless another control already took focus.
   useEffect(() => {
     if (!open) {
@@ -845,7 +846,7 @@ export function CommandInput({
   const { open } = useCommandPalette();
   const colors = usePalette();
   const { t } = useLocalization();
-  const input = useRef<View>(null);
+  const input = useRef<ViewInstance>(null);
   // Measured as the press begins, so the popover opens beneath the input wherever it has moved.
   const frame = useRef<Anchor>(undefined);
   if (!pad) {
@@ -899,7 +900,7 @@ const swipe = 24;
 // Open Command Palette action.
 export function usePaletteHeader(): Readonly<{
   swipe: ViewProps;
-  action: ViewProps;
+  action: Pick<ViewProps, 'accessibilityActions' | 'onAccessibilityAction'>;
 }> {
   const { open } = useCommandPalette();
   const { t } = useLocalization();

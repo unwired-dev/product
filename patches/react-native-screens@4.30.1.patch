@@ -1,0 +1,75 @@
+diff --git a/ios/gamma/split/RNSSplitHostController.mm b/ios/gamma/split/RNSSplitHostController.mm
+index c7d2db759..24684c9fb 100644
+--- a/ios/gamma/split/RNSSplitHostController.mm
++++ b/ios/gamma/split/RNSSplitHostController.mm
+@@ -159,7 +159,11 @@ - (void)refreshSecondaryNavBar
+ 
+   /** The assumption is that it should come in a single batch and it won't cause any delays in rendering the content. */
+   [navigationController setNavigationBarHidden:YES animated:NO];
+-  [navigationController setNavigationBarHidden:NO animated:NO];
++  // Unwired Mail: the bar returns only where the split view shows one (collapsed).
++  BOOL showsBar = [navigationController isKindOfClass:RNSSplitNavigationController.class]
++      ? ((RNSSplitNavigationController *)navigationController).columnsShowBars
++      : YES;
++  [navigationController setNavigationBarHidden:!showsBar animated:NO];
+ }
+ 
+ #pragma mark - Helpers
+diff --git a/ios/gamma/split/RNSSplitNavigationController.h b/ios/gamma/split/RNSSplitNavigationController.h
+index 06c34c761..6dc8a1d9d 100644
+--- a/ios/gamma/split/RNSSplitNavigationController.h
++++ b/ios/gamma/split/RNSSplitNavigationController.h
+@@ -26,6 +26,11 @@ NS_ASSUME_NONNULL_BEGIN
+                  frameOriginChangeDelegate:
+                      (nullable id<RNSSplitNavigationControllerFrameOriginChangeDelegate>)frameOriginChangeDelegate;
+ 
++/**
++ * Unwired Mail: whether this column shows its navigation bar. Only a collapsed split view does.
++ */
++@property (nonatomic, readonly) BOOL columnsShowBars;
++
+ @end
+ 
+ NS_ASSUME_NONNULL_END
+diff --git a/ios/gamma/split/RNSSplitNavigationController.mm b/ios/gamma/split/RNSSplitNavigationController.mm
+index 612a1c037..ac4bb20ec 100644
+--- a/ios/gamma/split/RNSSplitNavigationController.mm
++++ b/ios/gamma/split/RNSSplitNavigationController.mm
+@@ -5,6 +5,7 @@
+ @implementation RNSSplitNavigationController {
+   RNSSplitNavigationControllerFrameObserver *_frameObserver;
+   id<RNSSplitNavigationControllerFrameOriginChangeDelegate> __weak _frameOriginChangeDelegate;
++  BOOL _barsHiddenForColumns;
+ }
+ 
+ - (instancetype)initWithRootViewController:(UIViewController *)rootViewController
+@@ -41,6 +42,29 @@ - (void)viewDidLoad
+   [_frameObserver registerForViewFrameChanges];
+ }
+ 
++// Unwired Mail: while the split view shows its columns side by side, each column draws its own
++// header and controls, so the columns start beneath the status bar. Collapsing returns the bars,
++// whose Back moves between the stacked columns; after that each collapsed screen decides, as
++// iPhone's Mailboxes hides the bar above its own header.
++- (BOOL)columnsShowBars
++{
++  return self.splitViewController == nil || self.splitViewController.isCollapsed;
++}
++
++- (void)viewWillLayoutSubviews
++{
++  [super viewWillLayoutSubviews];
++  if (!self.columnsShowBars) {
++    _barsHiddenForColumns = YES;
++    if (!self.isNavigationBarHidden) {
++      [self setNavigationBarHidden:YES animated:NO];
++    }
++  } else if (_barsHiddenForColumns) {
++    _barsHiddenForColumns = NO;
++    [self setNavigationBarHidden:NO animated:NO];
++  }
++}
++
+ - (void)dealloc
+ {
+   [_frameObserver unregisterForViewFrameChanges];

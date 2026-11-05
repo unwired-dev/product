@@ -636,8 +636,9 @@ These are native configuration requirements, not assumptions about a wrapper's
 plain-text fallback. On-device MIME decoding and presentation sanitization belong
 in shared TypeScript; native code supplies the platform WebKit boundary.
 
-Both hosts render with `react-native-webview` 13.16.1 under the repository patch
-`patches/react-native-webview@13.16.1.patch`. The patch disables page JavaScript
+Both hosts render with `react-native-webview` under repository patches: 14.0.1 on
+iPhone and iPad (`patches/react-native-webview@14.0.1.patch`) and 13.16.1 on the
+Mac (`patches/react-native-webview@13.16.1.patch`). The patch disables page JavaScript
 through `allowsContentJavaScript` and reports the laid-out document size. It
 measures with an app-owned script in WebKit's isolated client content world after
 load; page JavaScript stays disabled. This is the owner-approved measurement
