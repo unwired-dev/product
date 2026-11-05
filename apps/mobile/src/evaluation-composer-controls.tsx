@@ -23,7 +23,12 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
-import { FormatBar, LinkEditor, MenuItem } from './composer-controls.tsx';
+import {
+  FormatBar,
+  LinkEditor,
+  type LinkEditorState,
+  MenuItem,
+} from './composer-controls.tsx';
 import {
   assetPickers,
   CloseButton,
@@ -292,6 +297,7 @@ export function PadFormatBar({
   onAdd,
   onCapture,
   onLink,
+  linkEditor,
 }: {
   readonly draft: Draft;
   readonly page: PageState;
@@ -301,6 +307,7 @@ export function PadFormatBar({
   readonly onAdd: Add;
   readonly onCapture: Capture;
   readonly onLink: EditLink;
+  readonly linkEditor: LinkEditorState;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -318,6 +325,7 @@ export function PadFormatBar({
           run({ type: 'mark', mark });
         }}>
         <LinkEditor
+          state={linkEditor}
           disabled={false}
           link={editableLinkAt(draft.body, page.selection)}
           popover

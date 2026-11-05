@@ -4020,6 +4020,92 @@ describe('composing Drafts', () => {
     },
   );
 
+  it.each([
+    ['regular', 'compact'],
+    ['compact', 'regular'],
+  ] as const)(
+    'keeps an open Generate a Draft prompt and Link Editor with their edits through a resize from %s to %s',
+    async (from, to) => {
+      expect.hasAssertions();
+      const presenters = { compact: 'bottom-sheet', regular: 'popover' };
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await drafts.load();
+      const created = await drafts.create({
+        id: alex,
+        address: 'alex@example.invalid',
+      });
+      ok(created);
+      const id: string = created;
+      const draft = draftsOf(drafts.getSnapshot()).find(
+        (each) => each.id === id,
+      );
+      ok(draft);
+      const lease = 'https://docs.example.invalid/lease';
+      await drafts.update(
+        {
+          ...draft,
+          body: [
+            {
+              kind: 'paragraph',
+              spans: [{ text: 'Read ' }, { text: 'the lease', link: lease }],
+            },
+          ],
+        },
+        draft,
+      );
+      const { native } = scriptedDraftAssistance();
+      const view = (size: 'compact' | 'regular') => (
+        <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+          <AssistanceContext value={native}>
+            <App
+              drafts={drafts}
+              registration={registration}
+              initialDraft={id}
+            />
+          </AssistanceContext>
+        </ComposerLayoutContext>
+      );
+      await render(view(from));
+      const body = await screen.findByLabelText('Message body');
+
+      await chooseWritingTool(
+        'Generate a draft from a description of what to write',
+      );
+      await fireEvent.changeText(
+        screen.getByLabelText('What to write'),
+        'thank Maya',
+      );
+      await screen.rerender(view(to));
+      expect(screen.getByTestId(presenters[to])).toBeOnTheScreen();
+      expect(screen.getByLabelText('What to write')).toHaveDisplayValue(
+        'thank Maya',
+      );
+      await press('Close Generate a Draft');
+      await screen.rerender(view(from));
+
+      await fireEvent(body, 'selectionChange', {
+        nativeEvent: { selection: { start: 8, end: 8 } },
+      });
+      await openFormat();
+      await press('Edit Link');
+      await fireEvent.changeText(screen.getByLabelText('Text'), 'new lease');
+      await fireEvent.changeText(screen.getByLabelText('Link'), `${lease}-v3`);
+      await screen.rerender(view(to));
+      expect(screen.getByTestId(presenters[to])).toBeOnTheScreen();
+      expect(screen.getByLabelText('Text')).toHaveDisplayValue('new lease');
+      expect(screen.getByLabelText('Link')).toHaveDisplayValue(`${lease}-v3`);
+      await press('Apply');
+      expect(shownSpans()).toStrictEqual([
+        { text: 'Read ' },
+        { text: 'new lease', underlined: true },
+      ]);
+      await press('Edit Link');
+      expect(screen.getByLabelText('Link')).toHaveDisplayValue(`${lease}-v3`);
+    },
+  );
+
   it('offers each Writing tool in its group and applies its reviewed result like Rewrite', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

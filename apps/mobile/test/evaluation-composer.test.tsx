@@ -667,6 +667,65 @@ describe('the Tiptap evaluation composer', () => {
     },
   );
 
+  it.each([
+    ['regular', 'compact'],
+    ['compact', 'regular'],
+  ] as const)(
+    'keeps an open Link Editor with its edits through a resize from %s to %s',
+    async (from, to) => {
+      expect.hasAssertions();
+      injectedScripts.length = 0;
+      const presenters = { compact: 'bottom-sheet', regular: 'popover' };
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const view = (size: 'compact' | 'regular') => (
+        <ComposerLayoutContext
+          value={{ size, avoidKeyboard: size === 'compact', top: 0 }}>
+          <App drafts={drafts} />
+        </ComposerLayoutContext>
+      );
+      await render(view(from));
+      await press('New Message');
+      const { report, revision } = simulatedPage();
+      const lease = 'https://docs.example.invalid/lease';
+      await report({
+        document: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Read ' }, { text: 'the lease', link: lease }],
+          },
+        ],
+        selection: { start: 8, end: 8 },
+      });
+      if (from === 'compact') {
+        await press('Format');
+      }
+      await press('Edit Link');
+      await fireEvent.changeText(screen.getByLabelText('Text'), 'new lease');
+      await fireEvent.changeText(screen.getByLabelText('Link'), `${lease}-v3`);
+      await screen.rerender(view(to));
+      expect(screen.getByTestId(presenters[to])).toBeOnTheScreen();
+      expect(screen.getByLabelText('Text')).toHaveDisplayValue('new lease');
+      expect(screen.getByLabelText('Link')).toHaveDisplayValue(`${lease}-v3`);
+      await press('Apply');
+      expect(lastCommand()).toBe(
+        commandScript({
+          type: 'replace',
+          revision: revision(),
+          document: [
+            {
+              kind: 'paragraph',
+              spans: [
+                { text: 'Read ' },
+                { text: 'new lease', link: `${lease}-v3` },
+              ],
+            },
+          ],
+          selection: { start: 14, end: 14 },
+        }),
+      );
+    },
+  );
   it.each(['onError', 'onContentProcessDidTerminate'])(
     'retires captures and queued page input when the page reports %s',
     async (event) => {

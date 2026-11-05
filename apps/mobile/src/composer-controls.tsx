@@ -688,6 +688,7 @@ export function FormatPanel({
   active,
   kind,
   link,
+  linkEditor,
   undo,
   redo,
   disabled,
@@ -703,6 +704,7 @@ export function FormatPanel({
   readonly active: readonly Mark[];
   readonly kind: BlockKind;
   readonly link: Link | undefined;
+  readonly linkEditor: LinkEditorState;
   // Whether there is an edit to undo or redo.
   readonly undo: boolean;
   readonly redo: boolean;
@@ -719,7 +721,7 @@ export function FormatPanel({
   const colors = usePalette();
   const { t } = useLocalization();
   // Typing in the Link Editor shows the keyboard too, and its sheet lives in this panel.
-  const [linking, setLinking] = useState(false);
+  const linking = linkEditor.shown;
   // Tapping into the body again brings the keyboard back in place of the panel.
   useEffect(() => {
     if (!open || linking) {
@@ -828,11 +830,11 @@ export function FormatPanel({
               {key === 'code' ? (
                 <View style={styles.formatChoice}>
                   <LinkEditor
+                    state={linkEditor}
                     disabled={disabled}
                     link={link}
                     popover={false}
                     onChange={onLink}
-                    onShown={setLinking}
                   />
                 </View>
               ) : null}
@@ -880,35 +882,60 @@ export function FormatPanel({
   );
 }
 
+// The Link Editor's link and edits. The composer keeps them above its layouts, so a resize between
+// the iPad popover and the iPhone sheet re-presents the editor as it was.
+export function useLinkEditor() {
+  const [editing, setEditing] = useState<Link>();
+  const [shown, setShown] = useState(false);
+  const [text, setText] = useState('');
+  const [destination, setDestination] = useState('');
+  // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
+  const [checked, setChecked] = useState(false);
+  return {
+    editing,
+    setEditing,
+    shown,
+    setShown,
+    text,
+    setText,
+    destination,
+    setDestination,
+    checked,
+    setChecked,
+  };
+}
+export type LinkEditorState = ReturnType<typeof useLinkEditor>;
+
 // The format bar's Link control and the Link Editor it opens for the link at the caret, or to
 // add one to selected unlinked text: a popover below the control on iPad, a sheet on iPhone. It
 // is unavailable otherwise.
 export function LinkEditor({
+  state,
   link,
   disabled,
   popover,
   onChange,
-  onShown,
 }: {
+  readonly state: LinkEditorState;
   readonly link: Link | undefined;
   readonly disabled: boolean;
   readonly popover: boolean;
   readonly onChange: (link: Link, text: string, href?: string) => void;
-  // Reports when the editor opens and closes, for a parent that must stay while it is shown.
-  readonly onShown?: (shown: boolean) => void;
 }) {
   const { t } = useLocalization();
-  const [editing, setEditing] = useState<Link>();
-  const [shown, setShown] = useState(false);
-  const show = (next: boolean) => {
-    setShown(next);
-    onShown?.(next);
-  };
-  const [text, setText] = useState('');
-  const [destination, setDestination] = useState('');
+  const {
+    editing,
+    setEditing,
+    shown,
+    setShown: show,
+    text,
+    setText,
+    destination,
+    setDestination,
+    checked,
+    setChecked,
+  } = state;
   const destinationInput = useRef<TextInputInstance>(null);
-  // Whether to say why the destination cannot be applied, once Return or leaving Link checked it.
-  const [checked, setChecked] = useState(false);
   // An empty Link is the editor's starting state, not an invalid destination.
   const check = () => {
     setChecked(destination.trim() !== '');
@@ -1241,28 +1268,59 @@ function LinkSheet({
   );
 }
 
+// Generate a Draft's open prompt. The composer keeps it above its layouts, so a resize between the
+// iPad popover and the iPhone sheet re-presents it as it was. It belongs to its owner, the Mail
+// Profile it was opened in, and closes once that changes or Mail Assistance becomes unavailable.
+export function useGeneratePrompt(owner: string | undefined) {
+  const [state, setState] = useState({
+    owner,
+    shown: false,
+    opening: 0,
+    prompt: '',
+  });
+  if (state.owner !== owner) {
+    setState({ ...state, owner, shown: false, prompt: '' });
+  }
+  return {
+    shown: state.shown,
+    opening: state.opening,
+    prompt: state.prompt,
+    // Each opening is a new prompt.
+    open: () => {
+      setState((current) => ({
+        ...current,
+        shown: true,
+        opening: current.opening + 1,
+      }));
+    },
+    close: () => {
+      setState((current) => ({ ...current, shown: false, prompt: '' }));
+    },
+    setPrompt: (prompt: string) => {
+      setState((current) => ({ ...current, prompt }));
+    },
+  };
+}
+export type GeneratePromptState = ReturnType<typeof useGeneratePrompt>;
+
 // Generate a Draft's prompt, opened from Writing tools: a popover below the trigger on iPad, a
-// sheet on iPhone. Each opening is a new prompt. Only the shown opening may close or generate, and
-// every dismissal retires it, so already-queued input cannot generate a closed prompt.
+// sheet on iPhone. Only the shown opening may close or generate, and every dismissal retires it,
+// so already-queued input cannot generate a closed prompt.
 export function GeneratePrompt({
+  state,
   popover,
-  shown,
-  opening,
   disabled,
   trigger,
-  onClose,
   onGenerate,
 }: {
+  readonly state: GeneratePromptState;
   readonly popover: boolean;
-  readonly shown: boolean;
-  readonly opening: number;
   readonly disabled: boolean;
   readonly trigger: ReactElement;
-  readonly onClose: () => void;
   readonly onGenerate: (prompt: string) => void;
 }) {
+  const { shown, opening, prompt } = state;
   const active = useRef<number | undefined>(undefined);
-  const [prompt, setPrompt] = useState('');
   useLayoutEffect(() => {
     active.current = shown ? opening : undefined;
     return () => {
@@ -1272,8 +1330,7 @@ export function GeneratePrompt({
   const close = (at: number) => {
     if (active.current === at) {
       active.current = undefined;
-      setPrompt('');
-      onClose();
+      state.close();
     }
   };
   const dismiss = (next: boolean) => {
@@ -1289,7 +1346,7 @@ export function GeneratePrompt({
       prompt={prompt}
       onPrompt={(text) => {
         if (active.current === opening) {
-          setPrompt(text);
+          state.setPrompt(text);
         }
       }}
       onClose={() => {

@@ -121,9 +121,12 @@ import {
   FormatBar,
   FormatPanel,
   GeneratePrompt,
+  type GeneratePromptState,
   LinkEditor,
   MenuItem,
   PopUp,
+  useGeneratePrompt,
+  useLinkEditor,
 } from './composer-controls.tsx';
 import {
   Notice as Banner,
@@ -1662,6 +1665,7 @@ function WritingTools({
   selection,
   sending,
   popover,
+  prompt,
   onGenerate,
   onTextTool,
   onTranslate,
@@ -1674,6 +1678,7 @@ function WritingTools({
   readonly selection: Selection;
   readonly sending: boolean;
   readonly popover: boolean;
+  readonly prompt: GeneratePromptState;
   readonly onGenerate: (prompt: string) => void;
   readonly onTextTool: (tool: TextTool) => void;
   readonly onTranslate: () => void;
@@ -1681,12 +1686,6 @@ function WritingTools({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  // Each opening of Generate a Draft is a new prompt; none outlives Mail Assistance.
-  const [prompting, setPrompting] = useState(false);
-  const [openings, setOpenings] = useState(0);
-  if (prompting && !assistance) {
-    setPrompting(false);
-  }
   if (!assistance && !translation) {
     return null;
   }
@@ -1719,10 +1718,7 @@ function WritingTools({
     title: t('assistance.generate'),
     accessibilityLabel: t('assistance.generateLabel'),
     symbol: 'square.and.pencil',
-    run: () => {
-      setOpenings(openings + 1);
-      setPrompting(true);
-    },
+    run: prompt.open,
   };
   const suggestReply = {
     key: 'reply',
@@ -1756,9 +1752,8 @@ function WritingTools({
   );
   return (
     <GeneratePrompt
+      state={prompt}
       popover={popover}
-      shown={prompting}
-      opening={openings}
       disabled={sending}
       // On iPhone the menu floats in its own glass beside the pill.
       trigger={
@@ -1768,9 +1763,6 @@ function WritingTools({
           <GlassGroup style={styles.pillGroup}>{menu}</GlassGroup>
         )
       }
-      onClose={() => {
-        setPrompting(false);
-      }}
       onGenerate={onGenerate}
     />
   );
@@ -2114,6 +2106,19 @@ function Editor({
   const draft = history.present;
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
+  // Open presenters outlive a resize between the iPad and iPhone layouts. On iPhone the Link
+  // Editor's sheet opens from the Format panel, and Generate a Draft's from the pill it replaces.
+  const linkEditor = useLinkEditor();
+  const generatePrompt = useGeneratePrompt(
+    assistance === undefined ? undefined : profile,
+  );
+  if (
+    !regular &&
+    (linkEditor.shown || generatePrompt.shown) &&
+    formatting !== linkEditor.shown
+  ) {
+    setFormatting(linkEditor.shown);
+  }
   if (
     captured !== undefined &&
     retires(captured, draft, { assistance, translation, profile })
@@ -2596,8 +2601,6 @@ function Editor({
   };
   const writingTools = (
     <WritingTools
-      // A prompt belongs to the Mail Profile it was opened in.
-      key={profile}
       assistance={assistance !== undefined}
       translation={translation !== undefined}
       reply={canSuggestReply(draft)}
@@ -2605,6 +2608,7 @@ function Editor({
       selection={selection}
       sending={sending}
       popover={regular}
+      prompt={generatePrompt}
       onGenerate={(prompt) => {
         if (lifetime.current.mounted) {
           capture((latest) =>
@@ -2649,6 +2653,7 @@ function Editor({
       onMark={format}
       style={parts.formatBar}>
       <LinkEditor
+        state={linkEditor}
         disabled={sending}
         link={editableLinkAt(draft.body, selection)}
         popover
@@ -3028,6 +3033,7 @@ function Editor({
             active={active}
             kind={kind}
             link={editableLinkAt(draft.body, selection)}
+            linkEditor={linkEditor}
             undo={history.past.length > 0}
             redo={history.future.length > 0}
             disabled={sending}
