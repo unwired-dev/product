@@ -390,7 +390,7 @@
     "confirmMessage": "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Previews are temporary; accepted edits are saved to your Draft. Applies only to {{profile}} on this {{device}}. Other devices, accounts and Profiles keep their own choices.",
     "turnOn": "Turn On",
     "readiness": "Readiness",
-    "readinessLabel": "Check Private Cloud readiness for {{profile}}",
+    "readinessLabel": "{{action}}, Private Cloud readiness for {{profile}}",
     "notChecked": "Not checked yet",
     "check": "Check",
     "checkAgain": "Check Again",

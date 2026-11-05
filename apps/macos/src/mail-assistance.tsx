@@ -372,6 +372,9 @@ function PrivateCloudReadiness({
   const state = useSyncExternalStore(check.subscribe, () =>
     check.getSnapshot(input),
   );
+  const action = t(
+    state.kind === 'checked' ? 'privateCloud.checkAgain' : 'privateCloud.check',
+  );
   const subtitle = () => {
     if (state.kind !== 'checked') {
       return t(
@@ -397,12 +400,12 @@ function PrivateCloudReadiness({
         />
       ) : (
         <Action
-          label={t(
-            state.kind === 'checked'
-              ? 'privateCloud.checkAgain'
-              : 'privateCloud.check',
-          )}
-          accessibilityLabel={t('privateCloud.readinessLabel', named)}
+          label={action}
+          // Begins with the visible title, so Voice Control finds it by what it shows.
+          accessibilityLabel={t('privateCloud.readinessLabel', {
+            ...named,
+            action,
+          })}
           onPress={() => {
             if (committed.current === check && enabled()) {
               void check.start(input);

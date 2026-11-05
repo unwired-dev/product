@@ -688,7 +688,7 @@ describe('private Cloud consent and readiness', () => {
       await enablement.setPrivateCloud(owner, defaultProfile, true);
     });
     expect(calls).toStrictEqual([]);
-    await press('Check Private Cloud readiness for Primary Profile');
+    await press('Check, Private Cloud readiness for Primary Profile');
     expect(screen.getByText(copy)).toBeVisible();
     expect(calls).toStrictEqual(['readiness']);
   });
@@ -706,7 +706,7 @@ describe('private Cloud consent and readiness', () => {
     await act(async () => {
       await enablement.setPrivateCloud(owner, defaultProfile, true);
     });
-    await press('Check Private Cloud readiness for Primary Profile');
+    await press('Check, Private Cloud readiness for Primary Profile');
     expect(screen.getByText('Checking readiness…')).toBeVisible();
     await switchPrivateCloud('Use Private Cloud', false);
     expect(screen.queryByText('Checking readiness…')).not.toBeOnTheScreen();
