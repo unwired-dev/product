@@ -273,6 +273,7 @@ describe('mac window selection with the shared mock mailbox', () => {
       account: 'synthetic-product-account',
       profiles: [{ id: 'work', name: 'Work' }],
       createProfile: () => Promise.resolve(undefined),
+      chooseFolders: () => Promise.resolve(true),
     };
     const app = await render(
       <AccountContext value={accountActions}>
@@ -2035,6 +2036,7 @@ describe('mac windows of different Mail Profiles', () => {
               ? [{ id: 'work', name: 'Work', color: 'teal', icon: 'laptop' }]
               : [],
           createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
         }}>
         {children}
       </AccountContext>
@@ -2901,6 +2903,7 @@ describe('mac windows of different Mail Profiles', () => {
             account: 'synthetic-product-account',
             profiles: [],
             createProfile,
+            chooseFolders: () => Promise.resolve(true),
           }}>
           <InboxWindow windowId="create" />
         </AccountContext>,

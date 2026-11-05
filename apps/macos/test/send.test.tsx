@@ -93,6 +93,7 @@ function App({
           account: 'synthetic-product-account',
           profiles: [],
           createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
         }}>
         <InboxProvider
           drafts={sender.drafts}

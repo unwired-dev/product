@@ -94,6 +94,7 @@ async function opened(
         account: 'synthetic-product-account',
         profiles: [],
         createProfile: () => Promise.resolve(undefined),
+        chooseFolders: () => Promise.resolve(true),
       }}>
       <InboxProvider
         mailboxes={{

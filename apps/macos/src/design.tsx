@@ -53,6 +53,7 @@ const NativePushButton = requireNativeComponent<
     readonly destructive: boolean;
     readonly enabled: boolean;
     readonly returnKey: boolean;
+    readonly escapeKey: boolean;
     readonly large: boolean;
     readonly onPress: () => void;
   }
@@ -750,6 +751,7 @@ export function Button({
   disabled = false,
   destructive = false,
   isDefault = false,
+  isCancel = false,
   accessibilityLabel,
 }: {
   readonly label: string;
@@ -758,6 +760,8 @@ export function Button({
   readonly disabled?: boolean;
   readonly destructive?: boolean;
   readonly isDefault?: boolean;
+  // Escape presses it, as it does a sheet's Cancel.
+  readonly isCancel?: boolean;
   readonly accessibilityLabel?: string;
 }) {
   const colors = usePalette();
@@ -789,6 +793,7 @@ export function Button({
         focusColor={dark ? processColor(colors.accentInk) : undefined}
         onPress={onPress}
         returnKey={isDefault}
+        escapeKey={isCancel}
         large={fill === 'brand'}
         style={StyleSheet.absoluteFill}
         label={accessibilityLabel ?? label}

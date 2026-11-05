@@ -160,14 +160,15 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   selectable `\Junk` and one `\Trash` folder is not included either, with a notice
   that it doesn't say which folders hold Spam and Trash; a folder named like one is
   never taken for it. The connection can instead store chosen Spam and Trash
-  folders. On iPhone and iPad, Choose Folders… under that All Mail notice opens a
-  sheet listing the connection's folders by name in a system menu for each role the
+  folders. Choose Folders… under that All Mail notice opens a sheet (on the Mac, an
+  AppKit sheet on that window) listing the connection's folders by name in a system menu for each role the
   server leaves unmarked, with nothing chosen for the person; the Inbox, folders
   holding another role and the other role's choice are dimmed, and a role the server
   marks shows its folder without a menu. Save waits for an existing folder for each
   such role; a failed save keeps the sheet open with the previous choice in use, and a
-  saved folder the server no longer lists is marked unavailable so another can be chosen. Mac and
-  the Settings › Email Accounts entry do not offer the control yet. The choice
+  saved folder the server no longer lists is marked unavailable so another can be chosen. On the
+  Mac, Return saves and Escape cancels. The Settings › Email Accounts entry does not offer
+  the control yet. The choice
   synchronizes through Product Sync for that connection only
   until it is removed. A chosen folder supplies a role only where the server marks no
   folder with it, and a server marking still wins. A server marking several folders

@@ -55,6 +55,7 @@ import {
 } from './composer.tsx';
 import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
+import { FolderChoice } from './folder-choice.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
 import {
   DateDivider,
@@ -1129,8 +1130,16 @@ export function Inbox({
               })}
               detail={t(detail, {
                 view: folderTitle,
-              })}
-            />
+              })}>
+              {detail === 'mailboxes.notIncludedSpamTrash' &&
+              mailbox.state.kind === 'ready' &&
+              'folders' in mailbox.state ? (
+                <FolderChoice
+                  connection={mailbox.id}
+                  folders={mailbox.state.folders}
+                />
+              ) : null}
+            </Notice>
           ))}
           {shown.map((mailbox) => (
             <MailboxScope

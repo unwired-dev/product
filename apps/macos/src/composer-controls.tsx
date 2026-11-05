@@ -120,6 +120,8 @@ const textStyleKinds: readonly BlockKind[] = [
 export type PopUpItem = Readonly<{
   key: string;
   title: string;
+  // A second line AppKit shows under the title.
+  subtitle?: string | undefined;
   accessibilityLabel?: string;
   // An SF Symbol beside the title, in its own color when given.
   symbol?: string;

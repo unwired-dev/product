@@ -38,6 +38,9 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *inboxWindows;
 @property(nonatomic, strong) NSMutableArray<NSWindowController *> *composerWindows;
 @property(nonatomic, strong) NSWindowController *settingsWindow;
+// Each Inbox window's sheet, by its identifier, from opening until it ends.
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSWindow *> *sheets;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSWindow *> *sheetParents;
 @property(nonatomic, strong) NSNumber *settingsRequestSerial;
 @property(nonatomic) NSUInteger nextWindowNumber;
 @property(nonatomic) NSUInteger nextComposerNumber;
@@ -66,6 +69,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
   self.inboxWindows = [NSMutableArray new];
   self.composerWindows = [NSMutableArray new];
+  self.sheets = [NSMutableDictionary new];
+  self.sheetParents = [NSMutableDictionary new];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
@@ -252,6 +257,65 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [controller showWindow:self];
   [window makeKeyAndOrderFront:self];
   [NSApp addWindowsItem:window title:window.title filename:NO];
+}
+
+// Choose Folders… in an Inbox window's notice opens an IMAP connection's Spam and Trash choice as
+// a sheet on that window, in a React root of its own. React Native macOS 0.81.9's Modal is
+// iOS-only; remove these sheet methods when React Native macOS presents a Modal as a sheet.
+- (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile
+{
+  NSWindow *window = nil;
+  for (NSWindowController *controller in self.inboxWindows) {
+    if ([controller.window.identifier isEqualToString:identifier]) window = controller.window;
+  }
+  NSString *sheetID = [identifier stringByAppendingString:@"-folder-choice"];
+  if (window == nil || window.attachedSheet != nil || self.sheets[sheetID] != nil) return;
+  NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 480, 240)
+      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView
+      backing:NSBackingStoreBuffered defer:NO];
+  sheet.identifier = sheetID;
+  sheet.accessibilityIdentifier = sheetID;
+  sheet.restorable = NO;
+  sheet.releasedWhenClosed = NO;
+  sheet.autorecalculatesKeyViewLoop = YES;
+  NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredFolderChoice"
+      initialProperties:@{@"window": sheetID, @"connection": connection, @"profile": profile}];
+  rootView.frame = sheet.contentView.bounds;
+  NSViewController *content = [NSViewController new];
+  content.view = rootView;
+  sheet.contentViewController = content;
+  self.sheets[sheetID] = sheet;
+  self.sheetParents[sheetID] = window;
+}
+
+// The sheet takes its content's height, and shows once it first has one.
+- (void)fitSheet:(NSString *)identifier height:(double)height
+{
+  NSWindow *sheet = self.sheets[identifier];
+  if (sheet == nil || height <= 0) return;
+  [sheet setContentSize:NSMakeSize(NSWidth(sheet.contentView.frame), ceil(height))];
+  if (sheet.sheetParent != nil) return;
+  [self.sheetParents[identifier] beginSheet:sheet completionHandler:^(NSModalResponse response) {
+    [self forgetSheet:identifier];
+  }];
+}
+
+- (void)closeSheet:(NSString *)identifier
+{
+  NSWindow *sheet = self.sheets[identifier];
+  if (sheet.sheetParent != nil) {
+    [sheet.sheetParent endSheet:sheet];
+  } else {
+    [self forgetSheet:identifier];
+  }
+}
+
+- (void)forgetSheet:(NSString *)identifier
+{
+  // Destroy this React surface while the application factory and JS runtime remain alive.
+  self.sheets[identifier].contentViewController = nil;
+  [self.sheets removeObjectForKey:identifier];
+  [self.sheetParents removeObjectForKey:identifier];
 }
 
 // Command-, and every Inbox window's Settings entry points open the one Settings window, or bring

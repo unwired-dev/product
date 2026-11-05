@@ -2,6 +2,7 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { MailAssistanceEnablementStore } from '@private-email/mail-core/assistance-enablement';
 import type { ErrorReporting } from '@private-email/mail-core/error-reporting';
 import type {
+  ChosenFolders,
   InboxChoice,
   MailboxConnection,
   MailProfile,
@@ -14,6 +15,7 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
+  mailboxesOf,
   profilesOf,
   registrationScreen,
 } from '@private-email/mail-core/registration';
@@ -86,6 +88,11 @@ export const AccountContext = createContext<
       profiles: readonly MailProfile[];
       // Names a new Mail Profile; resolves why it was refused, if it was.
       createProfile: (name: string) => Promise<ProfileFailure | undefined>;
+      // Saves an IMAP connection's Spam and Trash folders; resolves whether they were saved.
+      chooseFolders: (
+        connection: string,
+        folders: ChosenFolders,
+      ) => Promise<boolean>;
     }>
   | undefined
 >(undefined);
@@ -229,6 +236,19 @@ function RegistrationGateContent({
       createProfile: async (name: string) => {
         await store.createProfile(name);
         return store.getSnapshot().profileFailure;
+      },
+      chooseFolders: async (connection: string, folders: ChosenFolders) => {
+        await store.chooseFolders(connection, folders);
+        const state = store.getSnapshot();
+        const saved = mailboxesOf(state.snapshot).find(
+          ({ id }) => id === connection,
+        )?.folders;
+        return (
+          state.foldersFailure !== connection &&
+          saved !== undefined &&
+          saved.junk === folders.junk &&
+          saved.trash === folders.trash
+        );
       },
     }),
     [store, screen.mailboxes, choices, profiles],

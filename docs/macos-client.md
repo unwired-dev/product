@@ -74,6 +74,12 @@ React Native macOS 0.81.9's `Alert` asks over the key window, ignores its `cance
 and `destructive` button styles and cannot withdraw a question. Remove the presenter
 when the host's alert can target a window, mark a destructive button and be
 dismissed.
+Choose Folders… in an IMAP connection's All Mail notice opens its Spam and Trash
+choice in an AppKit sheet on that Inbox window: the host gives the sheet its own React
+surface (`UnwiredFolderChoice`), sizes it to that content and ends it on Cancel
+(Escape), a successful Save (Return), or once the connection no longer needs the
+choice. React Native macOS 0.81.9's `Modal` is iOS-only, so React content cannot be
+presented as a window sheet; remove the host sheet when `Modal` presents one on macOS.
 Sign In's **Sign in with Apple** is AppKit's `ASAuthorizationAppleIDButton` through
 `UnwiredAppleIDButton`: black in Light, white in Dark, and turned off while a
 sign-in runs. The system draws and localizes its title and exposes it to VoiceOver;
@@ -88,8 +94,9 @@ as native buttons with a press action. A view's main action, such as Send, takes
 graphite `accent/fill` bezel tint with a semibold title. Welcome's Continue takes the
 cinnabar `brand/seal` tint. The others keep the standard bezel, and Destructive also
 draws its title in `status/destructive`. In Dark, an `accent/ink` ring replaces the
-system focus ring. Only a Writing tools result's main push button takes Return as its key
-equivalent; no Send button does, so Return never sends an open Draft. React Native macOS
+system focus ring. A Writing tools result's main push button and the folder-choice
+sheet's Save take Return as their key equivalent; no Send button does, so Return never
+sends an open Draft. React Native macOS
 0.81.9's `Button` is a `TouchableOpacity`. Remove the adapter when React Native macOS
 offers an `NSButton`.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.

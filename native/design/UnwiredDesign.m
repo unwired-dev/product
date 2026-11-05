@@ -199,6 +199,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @property (nonatomic) BOOL destructive;
 @property (nonatomic) BOOL enabled;
 @property (nonatomic) BOOL returnKey;
+@property (nonatomic) BOOL escapeKey;
 // Welcome's Continue: the extra large size.
 @property (nonatomic) BOOL large;
 @property (nonatomic, copy) RCTDirectEventBlock onPress;
@@ -235,7 +236,10 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 - (void)setDestructive:(BOOL)destructive { _destructive = destructive; _button.hasDestructiveAction = destructive; }
 - (void)setEnabled:(BOOL)enabled { _enabled = enabled; [self render]; }
 // Return presses the window's default button when the focused view does not take the key itself.
-- (void)setReturnKey:(BOOL)returnKey { _returnKey = returnKey; _button.keyEquivalent = returnKey ? @"\r" : @""; }
+- (void)setReturnKey:(BOOL)returnKey { _returnKey = returnKey; [self updateKeyEquivalent]; }
+// Escape presses a sheet's Cancel button.
+- (void)setEscapeKey:(BOOL)escapeKey { _escapeKey = escapeKey; [self updateKeyEquivalent]; }
+- (void)updateKeyEquivalent { _button.keyEquivalent = self.returnKey ? @"\r" : self.escapeKey ? @"\033" : @""; }
 - (void)setLarge:(BOOL)large
 {
   _large = large;
@@ -1473,6 +1477,7 @@ RCT_EXPORT_VIEW_PROPERTY(focusColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(returnKey, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(escapeKey, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(large, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }

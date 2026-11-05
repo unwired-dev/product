@@ -70,6 +70,11 @@ const OutsideClickContext = createContext<
   }>
 >({ close: undefined, setClose: () => undefined });
 
+// The AppKit window this screen shows in, such as the Inbox window a sheet opens on.
+export function useWindowIdentifier() {
+  return use(PaletteContext).identifier;
+}
+
 // Offers commands while it is mounted, with the same handlers the owning screen's buttons use.
 // They are built outside rendering, so a handler may read a ref.
 export function RegisterCommands({
