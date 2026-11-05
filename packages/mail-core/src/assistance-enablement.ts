@@ -9,10 +9,15 @@ import {
 } from './diagnostics.ts';
 
 // Mail Assistance Enablement as native device storage returns it: the signed-in, admitted Product
-// Account, or null without one, and the Mail Profiles that opted in on this device.
+// Account, or null without one, the Mail Profiles that opted in on this device, and those of them
+// that also opted in to Private Cloud Mail Assistance. Storage saved before that separate consent
+// has none, so earlier local consent never permits Private Cloud Compute.
 const Enablement = Schema.Struct({
   owner: Schema.NullOr(Schema.NonEmptyString),
   profiles: Schema.Array(Schema.NonEmptyString),
+  privateCloud: Schema.Array(Schema.NonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 export type MailAssistanceEnablement = typeof Enablement.Type;
 
@@ -21,12 +26,15 @@ const decodeEnablement = Schema.decodeUnknownEffect(Enablement);
 // The native host's device-only enablement for the signed-in Product Account. It is never
 // synchronized, and every account purge removes it.
 export interface NativeMailAssistance {
-  // Resolves `{ owner, profiles }`; an account that is pending or being removed has no owner.
+  // Resolves `{ owner, profiles, privateCloud }`; an account that is pending or being removed has
+  // no owner.
   readonly mailAssistance: () => Promise<unknown>;
-  // Replaces the enabled Profiles; refused unless `owner` is still the signed-in account.
+  // Replaces both sets of enabled Profiles together; refused unless `owner` is still the signed-in
+  // account.
   readonly setMailAssistance: (
     owner: string,
     profiles: readonly string[],
+    privateCloud: readonly string[],
   ) => Promise<unknown>;
 }
 
@@ -40,6 +48,22 @@ export const mailAssistanceEnabled = (
   account !== undefined &&
   enablement.owner === account &&
   enablement.profiles.includes(profile);
+
+// Private Cloud Mail Assistance also needs that Profile's Mail Assistance Enablement.
+export const privateCloudEnabled = (
+  enablement: MailAssistanceEnablement | undefined,
+  account: string | undefined,
+  profile: string,
+) =>
+  mailAssistanceEnabled(enablement, account, profile) &&
+  enablement?.privateCloud.includes(profile) === true;
+
+// What one Settings switch changes: a Profile's Mail Assistance, or its Private Cloud consent.
+type Choice = Readonly<{
+  profile: string;
+  enabled: boolean;
+  choice: 'local' | 'privateCloud';
+}>;
 
 // A native call or its reply failed; its cause is logged only as a diagnostic.
 class MailAssistanceNativeFailure extends Schema.TaggedError<MailAssistanceNativeFailure>()(
@@ -76,9 +100,8 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
   let change = 0;
   let desired: MailAssistanceEnablement | undefined = undefined;
   let saveState: 'idle' | 'saving' | 'failed' = 'idle';
-  let failedSave:
-    | Readonly<{ owner: string; profile: string; enabled: boolean }>
-    | undefined = undefined;
+  let failedSave: (Choice & Readonly<{ owner: string }>) | undefined =
+    undefined;
   const listeners = new Set<() => void>();
   const publish = (next: MailAssistanceEnablement | undefined) => {
     enablement = next;
@@ -87,68 +110,116 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
     }
   };
   // Turning it on never starts inference; each assistance action stays an explicit request.
-  const setEnabled = (owner: string, profile: string, enabled: boolean) => {
-    if (desired?.owner !== owner) {
+  // Turning a Profile's Mail Assistance off also withdraws its Private Cloud consent.
+  const save = (owner: string, { profile, enabled, choice }: Choice) => {
+    // Private Cloud consent is only given on top of that Profile's Mail Assistance Enablement.
+    if (
+      desired?.owner !== owner ||
+      (choice === 'privateCloud' &&
+        enabled &&
+        !desired.profiles.includes(profile))
+    ) {
       return Promise.resolve();
     }
     const saving = generation;
     change += 1;
     const revision = change;
-    const others = desired.profiles.filter((item) => item !== profile);
-    const profiles = enabled ? [...others, profile] : others;
-    desired = { owner, profiles };
+    const without = (profiles: readonly string[]) =>
+      profiles.filter((item) => item !== profile);
+    const chosen = (profiles: readonly string[]) =>
+      enabled ? [...without(profiles), profile] : without(profiles);
+    const update = (current: MailAssistanceEnablement) =>
+      choice === 'local'
+        ? {
+            owner,
+            profiles: chosen(current.profiles),
+            privateCloud: enabled
+              ? current.privateCloud
+              : without(current.privateCloud),
+          }
+        : {
+            owner,
+            profiles: current.profiles,
+            privateCloud: chosen(current.privateCloud),
+          };
     failedSave = undefined;
     saveState = 'saving';
     // Off applies before queueing storage, and earlier saves cannot turn it back on.
     if (!enabled) {
-      enablement = {
-        owner,
-        profiles: (enablement?.profiles ?? []).filter(
-          (item) => item !== profile,
-        ),
-      };
+      enablement = update(
+        enablement ?? { owner, profiles: [], privateCloud: [] },
+      );
     }
     publish(enablement);
     return runLogged(
-      operations
-        .withPermit(
-          Effect.gen(function* () {
-            if (generation !== saving) {
-              return;
-            }
-            const saved = yield* call(() =>
-              native.setMailAssistance(owner, profiles),
-            );
-            // A registration change meanwhile reads the enablement again instead.
-            if (generation === saving && change === revision) {
+      operations.withPermit(
+        Effect.gen(function* () {
+          if (generation !== saving || desired?.owner !== owner) {
+            return;
+          }
+          if (
+            choice === 'privateCloud' &&
+            enabled &&
+            !desired.profiles.includes(profile)
+          ) {
+            if (change === revision) {
               saveState = 'idle';
-              publish(saved);
+              publish(desired);
             }
-          }),
-        )
-        .pipe(
-          Effect.catchTag('MailAssistanceNativeFailure', (failure) =>
-            Effect.gen(function* () {
-              yield* logFailure(
-                'Mail Assistance Enablement could not be saved:',
-              )(failure);
-              if (generation === saving && change === revision) {
-                failedSave = { owner, profile, enabled };
-                saveState = 'failed';
-                publish(enablement);
-              }
-            }),
-          ),
-        ),
+            return;
+          }
+          // Queued choices build on completed saves, never a pending turn-on.
+          const previous = desired;
+          desired = update(desired);
+          const { profiles, privateCloud } = desired;
+          yield* call(() =>
+            native.setMailAssistance(owner, profiles, privateCloud),
+          ).pipe(
+            Effect.tap((saved) =>
+              Effect.sync(() => {
+                // A registration change meanwhile reads the enablement again instead.
+                if (generation === saving && change === revision) {
+                  saveState = 'idle';
+                  publish(saved);
+                }
+              }),
+            ),
+            Effect.catchTag('MailAssistanceNativeFailure', (failure) =>
+              Effect.gen(function* () {
+                yield* logFailure(
+                  'Mail Assistance Enablement could not be saved:',
+                )(failure);
+                if (generation === saving) {
+                  // Failed turn-ons need an explicit retry; failed Off stays withdrawn.
+                  if (enabled) {
+                    desired = previous;
+                  }
+                  if (change === revision) {
+                    failedSave = { owner, profile, enabled, choice };
+                    saveState = 'failed';
+                    publish(desired);
+                  }
+                }
+              }),
+            ),
+          );
+        }),
+      ),
     );
   };
   return {
     getSaveState: () => saveState,
+    // The choice that failed to save, until a later change or retry.
+    getFailedSave: () => failedSave,
     retrySave: (owner: string) =>
       failedSave === undefined || failedSave.owner !== owner
         ? Promise.resolve()
-        : setEnabled(failedSave.owner, failedSave.profile, failedSave.enabled),
-    setEnabled,
+        : save(failedSave.owner, failedSave),
+    setEnabled: (owner: string, profile: string, enabled: boolean) =>
+      save(owner, { profile, enabled, choice: 'local' }),
+    // A Profile's Private Cloud consent, given only while its Mail Assistance is on.
+    setPrivateCloud: (owner: string, profile: string, enabled: boolean) =>
+      save(owner, { profile, enabled, choice: 'privateCloud' }),
     getSnapshot: () => enablement,
     subscribe: (listener: () => void) => {
       listeners.add(listener);

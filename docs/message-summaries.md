@@ -81,6 +81,44 @@ On-Device Mail Assistance action, **Summarize**, Draft
   cannot enable a replacement account or restore a discarded preview. Turning it
   off also prevents pending language lookups from reaching Apple Translation.
 
+## Private Cloud consent and readiness
+
+[#1469](https://github.com/unwired-dev/product/issues/1469) adds the separate
+consent and readiness check for
+[Private Cloud Mail Assistance](product/private-cloud-mail-assistance.md). No
+operation uses Apple Private Cloud Compute yet; later slices of
+[#1451](https://github.com/unwired-dev/product/issues/1451) add them.
+
+- Settings' **Privacy & Data** has a **Private Cloud** group after
+  **Mail Assistance**, with one **Use Private Cloud** switch for each Mail
+  Profile, off by default. It is unavailable, with **Turn on Mail Assistance
+  above to use Private Cloud.**, until that Profile's Mail Assistance is on.
+  Earlier Mail Assistance consent never turns it on.
+- Turning it on asks first: a native alert on iPhone and iPad and a sheet on the
+  Mac name what may be sent to Apple Private Cloud Compute and that the choice
+  applies only to that Profile on this device. Only **Turn On** saves it; turning
+  it on checks nothing and generates nothing. Closing Settings discards delayed
+  **Turn On** answers.
+- The choice is saved with Mail Assistance Enablement, in the same Keychain item,
+  so it has the same scope, stale-read fences, save state and purge on sign-out,
+  Product Account deletion and device removal. An item saved before this change
+  reads as Private Cloud off. A save that fails leaves it off with **Couldn’t turn
+  on Private Cloud. It’s still off.** and the shared retry. Another Profile's
+  choice, including one made while that save was pending, never retries the
+  failed turn-on. Later choices preserve a failed withdrawal.
+- Turning Mail Assistance off for a Profile also turns its Private Cloud off, so
+  turning Mail Assistance on again does not bring Private Cloud back. Turning
+  either off takes effect at once, before saving finishes, and retires that
+  Profile's pending readiness check and its late result.
+- While it is on, **Check** explicitly asks the native module whether Private
+  Cloud Compute could serve this device, without a session, prewarming or
+  generation. The row reports **Ready on this device · checked just now**, Apple's
+  usage limit, an ineligible device, or **Not available right now. Private Cloud
+  isn’t used until a check succeeds.** for every other outcome, including a failed
+  or malformed check. Apple reports no Apple Intelligence or language reason for
+  Private Cloud Compute, so none is shown, and no quota counts are shown.
+- Mail and On-Device Mail Assistance work the same whatever the check reports.
+
 Planned [Catch Up](catch-up.md#summaries) background summaries reuse this binding
 but run without a per-message request; they are not part of this slice.
 
@@ -88,13 +126,15 @@ but run without a per-message request; they are not part of this slice.
 
 Both hosts compile `native/private-inbox/bridge/UnwiredAssistance.swift` from the
 shared bridge folder, so no setup step is needed. It uses `FoundationModels`
-`SystemLanguageModel.default` and never `PrivateCloudComputeLanguageModel`. The
+`SystemLanguageModel.default` for generation. It reads only the availability
+and quota of `PrivateCloudComputeLanguageModel`, for the readiness check. The
 module offers:
 
 | Method                      | Result                                                                                                                                 |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `availability()`            | `available`, `device-ineligible`, `assistance-disabled`, `model-not-ready` or `unsupported-locale`                                     |
 | `summarize(request, input)` | The summary text, or a rejection coded `refused`, `cancelled`, `unsupported-language`, `model-not-ready` or `unavailable`              |
+| `privateCloudReadiness()`   | `ready`, `limit-reached`, `device-ineligible` or `unavailable`, read from Private Cloud Compute's availability and quota usage         |
 | `cancel(request)`           | Cancels that request's generation, including a [Draft rewrite or reply](draft-assistance.md), or [translation](message-translation.md) |
 
 The shared core supplies `input` as a typed JSON request with `operation: summary`

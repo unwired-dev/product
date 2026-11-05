@@ -5,7 +5,8 @@ import React
 import Translation
 
 // On-device assistance through Apple's system language model and Translation. It reads only the
-// text the app passes, never fetches mail and has no cloud fallback.
+// text the app passes, never fetches mail and has no cloud fallback; Private Cloud Compute is only
+// checked for readiness.
 @objc(UnwiredAssistance)
 final class UnwiredAssistance: NSObject {
   // Generation and translation requests by id, so `cancel` stops any of them.
@@ -216,6 +217,24 @@ final class UnwiredAssistance: NSObject {
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     resolve(Self.unavailable() ?? "available")
+  }
+
+  // Whether Apple Private Cloud Compute could serve this device now. Only reads its state: no
+  // session, generation or prewarming.
+  @objc(privateCloudReadiness:rejecter:)
+  func privateCloudReadiness(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    #if UNWIRED_ASSISTANCE_MOCK
+      resolve("ready")
+    #else
+      let model = PrivateCloudComputeLanguageModel()
+      switch model.availability {
+      case .available: resolve(model.quotaUsage.isLimitReached ? "limit-reached" : "ready")
+      case .unavailable(.deviceNotEligible): resolve("device-ineligible")
+      case .unavailable: resolve("unavailable")
+      }
+    #endif
   }
 
   private static func respond(

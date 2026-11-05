@@ -1,6 +1,7 @@
 import type {
   MessageSummary as SummaryStore,
   NativeAssistance,
+  NativePrivateCloud,
   SummaryState,
 } from '@private-email/mail-core/assistance';
 import type { ReadableBody } from '@private-email/mail-core/message-body';
@@ -54,7 +55,9 @@ const styles = StyleSheet.create({
   secondary: { ...textStyles.body },
 });
 
-interface AssistanceModule extends TurboModule, NativeAssistance {}
+interface AssistanceModule extends TurboModule, NativeAssistance {
+  readonly privateCloudReadiness: () => Promise<unknown>;
+}
 
 const native = () =>
   TurboModuleRegistry.getEnforcing<AssistanceModule>('UnwiredAssistance');
@@ -66,6 +69,11 @@ export const nativeAssistance: NativeAssistance = {
   rewrite: (request, input) => native().rewrite(request, input),
   suggestReply: (request, input) => native().suggestReply(request, input),
   cancel: (request) => native().cancel(request),
+};
+
+// The host's Apple Private Cloud Compute, read only for its readiness.
+export const nativePrivateCloud: NativePrivateCloud = {
+  readiness: () => native().privateCloudReadiness(),
 };
 
 // The model while Mail Assistance Enablement permits On-Device Mail Assistance; without it every

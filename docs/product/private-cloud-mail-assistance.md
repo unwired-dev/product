@@ -12,6 +12,10 @@ records this accepted decision and its scoped amendments.
 
 Delivery is tracked in [#1451](https://github.com/unwired-dev/product/issues/1451).
 
+The separate consent and readiness check (delivery step 3's consent) are
+implemented: see [Private Cloud consent and readiness](../message-summaries.md#private-cloud-consent-and-readiness).
+No operation uses Private Cloud Compute yet.
+
 ## Confirmed direction
 
 - Private Cloud Mail Assistance uses Apple's Private Cloud Compute, with a

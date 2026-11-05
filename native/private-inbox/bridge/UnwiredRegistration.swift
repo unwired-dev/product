@@ -2000,13 +2000,13 @@ extension UnwiredRegistration {
     mailbox("mailAssistance", resolve, reject: reject) { try $0.mailAssistance() }
   }
 
-  @objc(setMailAssistance:profiles:resolver:rejecter:)
+  @objc(setMailAssistance:profiles:privateCloud:resolver:rejecter:)
   func setMailAssistance(
-    _ owner: String, profiles: [String], resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
+    _ owner: String, profiles: [String], privateCloud: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("setMailAssistance", resolve, reject: reject) {
-      try $0.setMailAssistance(owner: owner, profiles: profiles)
+      try $0.setMailAssistance(owner: owner, profiles: profiles, privateCloud: privateCloud)
     }
   }
 

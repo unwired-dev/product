@@ -557,6 +557,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `assistance-enablement.ts.createMailAssistanceEnablement` carrying an
+  unacknowledged turn-on into another queued choice's persistence payload.
+  Hold the native save, queue an unrelated Profile change, then reject the
+  turn-on and reload through the public store. The failed choice must remain off
+  unless explicitly retried; preserve existing consent for other choices,
+  including Private Cloud's local prerequisite. Build queued choices from
+  completed outcomes, handling failure before releasing serialization; preserve
+  successful independent choices, immediate Off and failed withdrawal intent,
+  and recheck the local-consent prerequisite at admission. Otherwise a failed
+  opt-in silently enables assistance when another setting saves.
+
 - `gmail-inbox.ts` or `imap-inbox.ts` scheduling recent-body prefetch and history backfill through
   independent speculative owners. Share one connection-owned permit between a
   prefetch pass and each history step, while explicit reads remain outside it.

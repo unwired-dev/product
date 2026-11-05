@@ -1,12 +1,19 @@
-import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type {
+  NativeAssistance,
+  NativePrivateCloud,
+} from '@private-email/mail-core/assistance';
 import type { MailProfile } from '@private-email/mail-core/registration';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
-import { createAssistanceAvailability } from '@private-email/mail-core/assistance';
+import {
+  createAssistanceAvailability,
+  createPrivateCloudReadiness,
+} from '@private-email/mail-core/assistance';
 import {
   createMailAssistanceEnablement,
   mailAssistanceEnabled,
+  privateCloudEnabled,
 } from '@private-email/mail-core/assistance-enablement';
 import { defaultProfile } from '@private-email/mail-core/registration';
 import {
@@ -17,7 +24,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import { Switch } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Switch } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
@@ -29,7 +36,7 @@ import {
   MailAssistanceProfileContext,
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
-import { AssistanceContext } from './message-summary.tsx';
+import { AssistanceContext, nativePrivateCloud } from './message-summary.tsx';
 import { native } from './registration.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { usePalette } from './theme.ts';
@@ -40,8 +47,8 @@ export { MailAssistanceContext } from './mail-assistance-lifetime.ts';
 // This device's Mail Assistance Enablement.
 export const mailAssistance = createMailAssistanceEnablement({
   mailAssistance: () => native().mailAssistance(),
-  setMailAssistance: (owner, profiles) =>
-    native().setMailAssistance(owner, profiles),
+  setMailAssistance: (owner, profiles, privateCloud) =>
+    native().setMailAssistance(owner, profiles, privateCloud),
 });
 
 const noSubscription = () => () => undefined;
@@ -113,17 +120,21 @@ export function ProfileMailAssistanceGate({
   );
 }
 
+const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
+
 // The account page's opt-in for this device: one switch for each Mail Profile, as each Profile
-// gives its own consent.
+// gives its own consent, and then each Profile's separate Private Cloud choice.
 export function MailAssistanceSettings({
   account,
   assistance,
   button,
+  privateCloud = nativePrivateCloud,
   profiles,
 }: {
   readonly account: string;
   readonly assistance: NativeAssistance;
   readonly button: SettingsButton;
+  readonly privateCloud?: NativePrivateCloud;
   // The Mail Profiles besides the Default Profile.
   readonly profiles: readonly MailProfile[];
 }) {
@@ -145,46 +156,253 @@ export function MailAssistanceSettings({
     (profile) => mailAssistanceEnabled(enablement, account, profile),
   );
   return (
-    <SettingsGroup
-      title={t('mailAssistance.title')}
-      accessory={<OnDeviceMarker label={t('settings.onDevice')} />}
-      footer={t('mailAssistance.description')}>
-      <ProfileSwitch
-        account={account}
-        label={t('mailAssistance.title')}
-        profile={defaultProfile}
-        saveState={saveState}
+    <>
+      <SettingsGroup
         title={t('mailAssistance.title')}
-      />
-      {profiles.map(({ id, name }) => (
+        accessory={<OnDeviceMarker label={t('settings.onDevice')} />}
+        footer={t('mailAssistance.description')}>
         <ProfileSwitch
-          key={id}
           account={account}
-          label={t('mailAssistance.profile', { name })}
-          profile={id}
+          label={t('mailAssistance.title')}
+          profile={defaultProfile}
           saveState={saveState}
-          title={name}
+          title={t('mailAssistance.title')}
         />
-      ))}
-      {saveState === 'failed' ? (
-        <SettingsBlock>
-          {button(t('mailAssistance.retrySave'), () =>
-            store.retrySave(account),
-          )}
-        </SettingsBlock>
-      ) : null}
-      {enabled === undefined ? null : (
-        <MailAssistanceProfileContext
-          key={enabled}
-          value={enabled}>
-          <AssistanceAvailability
-            key={account}
+        {profiles.map(({ id, name }) => (
+          <ProfileSwitch
+            key={id}
             account={account}
-            assistance={assistance}
+            label={t('mailAssistance.profile', { name })}
+            profile={id}
+            saveState={saveState}
+            title={name}
           />
-        </MailAssistanceProfileContext>
+        ))}
+        {saveState === 'failed' ? (
+          <SettingsBlock>
+            {button(t('mailAssistance.retrySave'), () =>
+              store.retrySave(account),
+            )}
+          </SettingsBlock>
+        ) : null}
+        {enabled === undefined ? null : (
+          <MailAssistanceProfileContext
+            key={enabled}
+            value={enabled}>
+            <AssistanceAvailability
+              key={account}
+              account={account}
+              assistance={assistance}
+            />
+          </MailAssistanceProfileContext>
+        )}
+      </SettingsGroup>
+      <SettingsGroup
+        title={t('privateCloud.title')}
+        footer={t('privateCloud.footer', {
+          device: t('privateCloud.device', { context: device }),
+        })}>
+        {[{ id: defaultProfile, name: t('profiles.primary') }, ...profiles].map(
+          ({ id, name }) => (
+            <MailAssistanceProfileContext
+              key={id}
+              value={id}>
+              <PrivateCloudChoice
+                key={account}
+                account={account}
+                name={name}
+                privateCloud={privateCloud}
+                saveState={saveState}
+                titled={id !== defaultProfile}
+              />
+            </MailAssistanceProfileContext>
+          ),
+        )}
+      </SettingsGroup>
+    </>
+  );
+}
+
+// One Mail Profile's Private Cloud consent, confirmed before it turns on, and its explicit
+// readiness check. Neither opening Settings nor turning it on checks or generates anything.
+function PrivateCloudChoice({
+  account,
+  name,
+  privateCloud,
+  saveState,
+  titled,
+}: {
+  readonly account: string;
+  readonly name: string;
+  readonly privateCloud: NativePrivateCloud;
+  readonly saveState: 'idle' | 'saving' | 'failed';
+  // The Default Profile's switch carries the section's own title.
+  readonly titled: boolean;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const store = use(MailAssistanceContext);
+  const profile = use(MailAssistanceProfileContext);
+  const assisted = useEnabled(account, profile);
+  const enablement = useSyncExternalStore(
+    store?.subscribe ?? noSubscription,
+    () => store?.getSnapshot(),
+  );
+  const enabled = privateCloudEnabled(enablement, account, profile);
+  const committed = useRef<typeof store>(undefined);
+  useLayoutEffect(() => {
+    committed.current = store;
+    return () => {
+      committed.current = undefined;
+    };
+  }, [store]);
+  const failed = store?.getFailedSave();
+  // Turning it on failed: it stays off, without the switch claiming otherwise.
+  const unsaved =
+    saveState === 'failed' &&
+    failed?.choice === 'privateCloud' &&
+    failed.enabled &&
+    failed.profile === profile;
+  const named = {
+    profile: name,
+    device: t('privateCloud.device', { context: device }),
+  };
+  if (store === undefined) {
+    return null;
+  }
+  const subtitle = () => {
+    if (!assisted) {
+      return t('privateCloud.needsAssistance');
+    }
+    if (unsaved) {
+      return t('privateCloud.saveFailed');
+    }
+    if (saveState === 'saving') {
+      return t('mailAssistance.saving');
+    }
+    return t(enabled ? 'privateCloud.on' : 'privateCloud.off', named);
+  };
+  const turnOn = () => {
+    Alert.alert(
+      t('privateCloud.confirmTitle', named),
+      t('privateCloud.confirmMessage', named),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('privateCloud.turnOn'),
+          onPress: () => {
+            if (committed.current === store) {
+              void store.setPrivateCloud(account, profile, true);
+            }
+          },
+        },
+      ],
+    );
+  };
+  return (
+    <>
+      <SettingsRow
+        title={titled ? name : t('privateCloud.use')}
+        subtitle={subtitle()}
+        subtitleTone={assisted && unsaved ? 'warning' : undefined}
+        disabled={!assisted}>
+        <Switch
+          accessibilityLabel={
+            titled ? t('privateCloud.profile', { name }) : t('privateCloud.use')
+          }
+          disabled={!assisted}
+          onValueChange={(on) => {
+            if (on) {
+              turnOn();
+            } else {
+              void store.setPrivateCloud(account, profile, false);
+            }
+          }}
+          trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+          value={enabled}
+        />
+      </SettingsRow>
+      {enabled ? (
+        <PrivateCloudReadiness
+          account={account}
+          named={named}
+          privateCloud={privateCloud}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function PrivateCloudReadiness({
+  account,
+  named,
+  privateCloud,
+}: {
+  readonly account: string;
+  readonly named: Readonly<{ profile: string; device: string }>;
+  readonly privateCloud: NativePrivateCloud;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const profile = use(MailAssistanceProfileContext);
+  const check = useMemo(
+    () => createPrivateCloudReadiness(privateCloud),
+    [privateCloud],
+  );
+  const enabled = useMailAssistanceLifetime(check.discard, privateCloudEnabled);
+  const committed = useRef<typeof check>(undefined);
+  useLayoutEffect(() => {
+    committed.current = check;
+    return () => {
+      committed.current = undefined;
+      check.discard();
+    };
+  }, [check]);
+  const input = JSON.stringify([account, profile]);
+  const state = useSyncExternalStore(check.subscribe, () =>
+    check.getSnapshot(input),
+  );
+  const action = t(
+    state.kind === 'checked' ? 'privateCloud.checkAgain' : 'privateCloud.check',
+  );
+  const subtitle =
+    state.kind === 'checked'
+      ? t(`privateCloud.${state.readiness}`, named)
+      : t(
+          state.kind === 'checking'
+            ? 'privateCloud.checking'
+            : 'privateCloud.notChecked',
+        );
+  return (
+    <SettingsRow
+      title={t('privateCloud.readiness')}
+      subtitle={subtitle}
+      subtitleTone={
+        state.kind === 'checked' && state.readiness !== 'ready'
+          ? 'warning'
+          : undefined
+      }>
+      {state.kind === 'checking' ? (
+        <ActivityIndicator
+          size="small"
+          color={colors.textSecondary}
+        />
+      ) : (
+        <Action
+          label={action}
+          // Begins with the visible title, so Voice Control finds it by what it shows.
+          accessibilityLabel={t('privateCloud.readinessLabel', {
+            ...named,
+            action,
+          })}
+          onPress={() => {
+            if (committed.current === check && enabled()) {
+              void check.start(input);
+            }
+          }}
+        />
       )}
-    </SettingsGroup>
+    </SettingsRow>
   );
 }
 

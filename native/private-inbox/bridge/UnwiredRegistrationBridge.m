@@ -119,7 +119,7 @@ RCT_EXTERN_METHOD(restoreOpenedNotification:(NSDictionary *)opened resolver:(RCT
 RCT_EXTERN_METHOD(preference:(NSString *)key resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setPreference:(NSString *)key value:(NSString *)value resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(mailAssistance:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(setMailAssistance:(NSString *)owner profiles:(NSArray *)profiles resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(setMailAssistance:(NSString *)owner profiles:(NSArray *)profiles privateCloud:(NSArray *)privateCloud resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openDrafts:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitDrafts:(NSString *)owner expectedRevision:(double)expectedRevision commit:(NSDictionary *)commit resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(importDraftAsset:(NSString *)owner id:(NSString *)id source:(NSDictionary *)source resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

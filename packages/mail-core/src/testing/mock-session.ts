@@ -62,8 +62,11 @@ export function createMockMailSession(selection: unknown) {
           owner: identity.account,
           profiles: scenario === 'assistance-disabled' ? [] : [defaultProfile],
         }),
-      setMailAssistance: (owner: string, profiles: readonly string[]) =>
-        Promise.resolve({ owner, profiles }),
+      setMailAssistance: (
+        owner: string,
+        profiles: readonly string[],
+        privateCloud: readonly string[],
+      ) => Promise.resolve({ owner, profiles, privateCloud }),
     }) satisfies NativeMailAssistance,
     // The native assistance contract with fixed outcomes; it never reads the input it is given.
     assistance: Object.freeze({

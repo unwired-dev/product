@@ -164,11 +164,18 @@ extension PrivateInboxTests {
     // Mail Assistance Enablement belongs to this Product Account alone.
     #expect(try store.mailAssistance()["profiles"] as? [String] == [])
     #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      try store.setMailAssistance(owner: "account-other", profiles: ["default"])
+      try store.setMailAssistance(owner: "account-other", profiles: ["default"], privateCloud: [])
     }
-    _ = try store.setMailAssistance(owner: account, profiles: ["default"])
+    // An item saved before Private Cloud consent never permits Private Cloud Mail Assistance.
+    try keys.save(
+      JSONEncoder().encode(["default"]), account: store.mailAssistanceAccount(account))
+    #expect(try store.mailAssistance()["profiles"] as? [String] == ["default"])
+    #expect(try store.mailAssistance()["privateCloud"] as? [String] == [])
+    _ = try store.setMailAssistance(
+      owner: account, profiles: ["default"], privateCloud: ["default"])
     #expect(try store.mailAssistance()["owner"] as? String == account)
     #expect(try store.mailAssistance()["profiles"] as? [String] == ["default"])
+    #expect(try store.mailAssistance()["privateCloud"] as? [String] == ["default"])
     try await store.purge(notice: notice)
     #expect(try holdsNothing(keys, account: account))
     #expect(try store.mailAssistance()["owner"] is NSNull)
@@ -206,7 +213,7 @@ extension PrivateInboxTests {
     // An account being removed permits no assistance.
     #expect(try store.mailAssistance()["owner"] is NSNull)
     #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      try store.setMailAssistance(owner: account, profiles: ["default"])
+      try store.setMailAssistance(owner: account, profiles: ["default"], privateCloud: [])
     }
     try store.recordRemoval(nil)
     #expect(try store.load()?.accountRemoval == nil)

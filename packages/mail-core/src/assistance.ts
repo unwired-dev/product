@@ -33,6 +33,23 @@ export interface NativeAssistance {
   readonly cancel: (request: string) => Promise<unknown>;
 }
 
+// The host's Apple Private Cloud Compute. Only its readiness is read; nothing is generated there.
+export interface NativePrivateCloud {
+  readonly readiness: () => Promise<unknown>;
+}
+
+// Whether Private Cloud Compute could serve this device now; `unavailable` is every other reason,
+// including a failed check.
+const Readiness = Schema.Literals([
+  'ready',
+  'limit-reached',
+  'device-ineligible',
+  'unavailable',
+]);
+export type PrivateCloudReadiness = typeof Readiness.Type;
+
+const decodeReadiness = Schema.decodeUnknownEffect(Readiness);
+
 // Why the system model cannot run now. Mail stays readable in every case.
 const Unavailable = Schema.Literals([
   'device-ineligible',
@@ -443,6 +460,15 @@ export type AssistanceAvailabilityState =
   | Exclude<AssistanceState<'checking'>, { kind: 'ready' }>
   | { readonly kind: 'available' };
 
+// A readiness check has no cancellable native handle; discard fences its late reply.
+const explicitCheck = {
+  cancel: () => Promise.resolve(null),
+  same: (left: string, right: string) => left === right,
+  idle: { kind: 'idle' },
+  pending: { kind: 'checking' },
+  cancelled: { kind: 'cancelled' },
+} as const;
+
 // An explicit, account-scoped check only: no input, prewarming or generation.
 export function createAssistanceAvailability(native: NativeAssistance) {
   return createAssistanceRequest<string, AssistanceAvailabilityState>({
@@ -460,12 +486,35 @@ export function createAssistanceAvailability(native: NativeAssistance) {
           ),
         ),
       ),
-    // availability() has no cancellable native handle; discard fences its late reply.
-    cancel: () => Promise.resolve(null),
-    same: (left, right) => left === right,
-    idle: { kind: 'idle' },
-    pending: { kind: 'checking' },
-    cancelled: { kind: 'cancelled' },
+    ...explicitCheck,
+  });
+}
+
+export type PrivateCloudReadinessState =
+  | { readonly kind: 'idle' | 'checking' | 'cancelled' }
+  | { readonly kind: 'checked'; readonly readiness: PrivateCloudReadiness };
+
+// An explicit check for one account's Mail Profile only: no session, prewarming or generation. A
+// failed or malformed check fails closed as `unavailable`.
+export function createPrivateCloudReadiness(native: NativePrivateCloud) {
+  return createAssistanceRequest<string, PrivateCloudReadinessState>({
+    run: () =>
+      runLogged(
+        call(() => native.readiness()).pipe(
+          Effect.flatMap((value) =>
+            decodeReadiness(value).pipe(Effect.mapError(malformed)),
+          ),
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('AssistanceFailure', (error) =>
+            Effect.logError(
+              'Private Cloud readiness check failed:',
+              error.diagnostic,
+            ).pipe(Effect.as('unavailable' as const)),
+          ),
+          Effect.map((readiness) => ({ kind: 'checked', readiness }) as const),
+        ),
+      ),
+    ...explicitCheck,
   });
 }
 
