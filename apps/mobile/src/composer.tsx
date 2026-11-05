@@ -114,6 +114,8 @@ import {
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import type { GeneratePromptState } from './composer-controls.tsx';
+
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
 import {
@@ -121,7 +123,6 @@ import {
   FormatBar,
   FormatPanel,
   GeneratePrompt,
-  type GeneratePromptState,
   LinkEditor,
   MenuItem,
   PopUp,
@@ -1768,6 +1769,34 @@ function WritingTools({
   );
 }
 
+// The Link Editor and Generate a Draft's prompt, kept above the composer's layouts so an open one
+// outlives a resize between them. On iPhone the Link Editor's sheet opens from the Format panel,
+// and Generate a Draft's from the pill the panel replaces.
+function useOpenPresenters({
+  regular,
+  assisted,
+  profile,
+  formatting,
+  setFormatting,
+}: {
+  readonly regular: boolean;
+  readonly assisted: boolean;
+  readonly profile: string;
+  readonly formatting: boolean;
+  readonly setFormatting: (formatting: boolean) => void;
+}) {
+  const linkEditor = useLinkEditor();
+  const generatePrompt = useGeneratePrompt(assisted ? profile : undefined);
+  if (
+    !regular &&
+    (linkEditor.shown || generatePrompt.shown) &&
+    formatting !== linkEditor.shown
+  ) {
+    setFormatting(linkEditor.shown);
+  }
+  return { linkEditor, generatePrompt };
+}
+
 // iPhone's window-filling composer, the iPad New Message card, or an iPad reply docked beneath
 // the message it answers.
 type Presentation = 'compact' | 'card' | 'docked';
@@ -2106,19 +2135,13 @@ function Editor({
   const draft = history.present;
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
-  // Open presenters outlive a resize between the iPad and iPhone layouts. On iPhone the Link
-  // Editor's sheet opens from the Format panel, and Generate a Draft's from the pill it replaces.
-  const linkEditor = useLinkEditor();
-  const generatePrompt = useGeneratePrompt(
-    assistance === undefined ? undefined : profile,
-  );
-  if (
-    !regular &&
-    (linkEditor.shown || generatePrompt.shown) &&
-    formatting !== linkEditor.shown
-  ) {
-    setFormatting(linkEditor.shown);
-  }
+  const { linkEditor, generatePrompt } = useOpenPresenters({
+    regular,
+    assisted: assistance !== undefined,
+    profile,
+    formatting,
+    setFormatting,
+  });
   if (
     captured !== undefined &&
     retires(captured, draft, { assistance, translation, profile })

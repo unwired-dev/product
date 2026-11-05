@@ -667,12 +667,13 @@ describe('the Tiptap evaluation composer', () => {
     },
   );
 
+  // iPhone keeps the Link control in the Format panel.
   it.each([
-    ['regular', 'compact'],
-    ['compact', 'regular'],
+    ['regular', 'compact', []],
+    ['compact', 'regular', ['Format']],
   ] as const)(
     'keeps an open Link Editor with its edits through a resize from %s to %s',
-    async (from, to) => {
+    async (from, to, controls) => {
       expect.hasAssertions();
       injectedScripts.length = 0;
       const presenters = { compact: 'bottom-sheet', regular: 'popover' };
@@ -697,8 +698,8 @@ describe('the Tiptap evaluation composer', () => {
         ],
         selection: { start: 8, end: 8 },
       });
-      if (from === 'compact') {
-        await press('Format');
+      for (const control of controls) {
+        await press(control);
       }
       await press('Edit Link');
       await fireEvent.changeText(screen.getByLabelText('Text'), 'new lease');
@@ -726,6 +727,7 @@ describe('the Tiptap evaluation composer', () => {
       );
     },
   );
+
   it.each(['onError', 'onContentProcessDidTerminate'])(
     'retires captures and queued page input when the page reports %s',
     async (event) => {

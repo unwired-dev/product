@@ -21,14 +21,11 @@ import {
 import { use } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
+import type { LinkEditorState } from './composer-controls.tsx';
+
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
-import {
-  FormatBar,
-  LinkEditor,
-  type LinkEditorState,
-  MenuItem,
-} from './composer-controls.tsx';
+import { FormatBar, LinkEditor, MenuItem } from './composer-controls.tsx';
 import {
   assetPickers,
   CloseButton,
