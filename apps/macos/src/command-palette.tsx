@@ -840,7 +840,7 @@ function Palette({
             // The account page's input sits at the window's trailing edge, so its panel hangs
             // from there.
             ...(trailing ? { right: 0 } : { left: panelLeft }),
-            boxShadow: colors.menuShadow,
+            boxShadow: colors.macMenuGlassShadow,
           },
           style,
         ]}
@@ -850,7 +850,10 @@ function Palette({
         <View
           collapsable={false}
           style={StyleSheet.absoluteFill}>
-          <Glass cornerRadius={radius.card + 2} />
+          <Glass
+            cornerRadius={radius.card + 2}
+            panel
+          />
         </View>
         {choosing === undefined ? null : (
           <View

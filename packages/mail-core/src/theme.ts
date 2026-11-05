@@ -57,10 +57,15 @@ export const palette = {
     // against the frames.
     macGlassFill: '#F8F8F8',
     macGlassOpacity: 0.1,
-    // Around and inside that fill, the frames' Liquid Glass - Medium: a 0.5pt rim, darker at the
-    // sides, and soft highlights along the inside of the top and bottom edges.
+    // Around and inside that fill, the frames' Liquid Glass - Medium: a soft 0.5pt rim, darker at
+    // the sides, and highlights along the inside of the top and bottom edges. The frames burn and
+    // dodge these into the backdrop; these are their measured equivalents in ordinary blending.
     macGlassEdge:
-      '0px 0px 0px 0.5px rgba(0, 0, 0, 0.14), -1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.14), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.14), inset 0px 40px 10px -40px rgba(255, 255, 255, 1), inset 0px -40px 10px -40px rgba(255, 255, 255, 1)',
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px 0px 0px 0.5px rgba(0, 0, 0, 0.046), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+    // Glass menu panels, such as the Command Palette: AppKit's glass blurs what lies beneath, and
+    // this fill over it lets some of that show through. Over a plain reader the two make the
+    // frames' glass fill, as measured: AppKit's glass alone is lighter than the frames' fill.
+    macPanelGlassFill: 'rgba(246, 246, 246, 0.7)',
     fillQuiet: 'rgba(0, 0, 0, 0.05)',
     fillTrack: 'rgba(0, 0, 0, 0.09)',
     separator: 'rgba(0, 0, 0, 0.1)',
@@ -70,6 +75,8 @@ export const palette = {
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.08)',
     menuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
+    // The Mac frames' glass menu panels, such as the Command Palette.
+    macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
     scrimTouch: 'rgba(0, 0, 0, 0.22)',
     // Menus, popovers and sheets, which float above the content.
     menuShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
@@ -99,7 +106,8 @@ export const palette = {
     macGlassFill: '#1A1A1A',
     macGlassOpacity: 0.1,
     macGlassEdge:
-      '0px 0px 0px 0.5px rgba(0, 0, 0, 1), -1.25px 0px 0px -0.75px rgba(0, 0, 0, 1), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 1), inset 0px 40px 10px -40px rgba(255, 255, 255, 0.25), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.25)',
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px 0px 0px 0.5px rgba(255, 255, 255, 0.04), inset 0px 41.25px 1px -40px rgba(255, 255, 255, 0.1), inset 0px -41.25px 1px -40px rgba(255, 255, 255, 0.1), inset 0px 40px 10px -40px rgba(255, 255, 255, 0.11), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.11)',
+    macPanelGlassFill: 'rgba(14, 14, 14, 0.7)',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
     fillTrack: 'rgba(255, 255, 255, 0.16)',
     separator: 'rgba(255, 255, 255, 0.1)',
@@ -108,6 +116,7 @@ export const palette = {
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
     largeGlassShadow: '0px 4px 16px rgba(0, 0, 0, 0.3)',
     menuGlassShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
+    macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.4)',
     scrimTouch: 'rgba(0, 0, 0, 0.45)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
     toastShadow: '0px 6px 9px rgba(0, 0, 0, 0.18)',

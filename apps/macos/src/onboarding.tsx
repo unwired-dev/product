@@ -72,6 +72,8 @@ const styles = StyleSheet.create({
     gap: spacing.m,
     paddingBottom: 14,
   },
+  // The frame's symbols are 70% of the label's ink.
+  pointIcon: { opacity: 0.7 },
   pointText: { fontSize: 15, lineHeight: 20, opacity: 0.85 },
   continue: { alignSelf: 'flex-start', minWidth: 160 },
   split: { flex: 1, flexDirection: 'row' },
@@ -235,7 +237,7 @@ export function Welcome({
   const ink = { color: colors.brandOnDeep };
   const concealed = restoring ? styles.hidden : undefined;
   // Each symbol takes its own width, as in the frame. tray.2 is wider than the 1.25× cap on a
-  // symbol's size, which draws it at the frame's 18pt at 14.4pt.
+  // symbol's size, so at 13pt its ink is the frame's 14.4pt.
   const points = [
     {
       icon: 'lock.fill',
@@ -245,7 +247,7 @@ export function Welcome({
     },
     {
       icon: 'tray.2',
-      size: 14.4,
+      size: 13,
       width: 18,
       text: t('onboarding.welcome.mailProfiles'),
     },
@@ -291,12 +293,16 @@ export function Welcome({
                 <View
                   key={icon}
                   style={styles.point}>
-                  <SFSymbol
-                    name={icon}
-                    size={size}
-                    color={colors.brandOnDeep}
-                    style={{ width, height: 20 }}
-                  />
+                  {/* A plain view takes the opacity once; the native symbol view would apply it
+                      twice. */}
+                  <View style={styles.pointIcon}>
+                    <SFSymbol
+                      name={icon}
+                      size={size}
+                      color={colors.brandOnDeep}
+                      style={{ width, height: 20 }}
+                    />
+                  </View>
                   <Label style={[styles.pointText, ink]}>{text}</Label>
                 </View>
               ))}

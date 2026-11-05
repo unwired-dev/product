@@ -208,7 +208,8 @@ function Item({
       <SFSymbol
         name={icon}
         color={colors.accentInk}
-        size={13}
+        // tray.2's ink at 13pt is larger than the frames' 13.3pt glyph.
+        size={icon === 'tray.2' ? 11.7 : 13}
         style={styles.icon}
       />
       <Text

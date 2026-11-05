@@ -82,33 +82,51 @@ const NativePopover = requireNativeComponent<
 
 export function Glass({
   cornerRadius,
+  panel = false,
   style = StyleSheet.absoluteFill,
   ...props
-}: ViewProps & { readonly cornerRadius: number }) {
+}: ViewProps & {
+  readonly cornerRadius: number;
+  // A menu panel over content, whose glass shows that content blurred beneath the fill.
+  readonly panel?: boolean;
+}) {
   const colors = usePalette();
   const shape: StyleProp<ViewStyle> = [
     style,
     { borderRadius: cornerRadius, overflow: 'hidden' },
   ];
-  return (
+  // AppKit's glass takes no dark tint, so Dark backs it with the frames' glass fill, which
+  // carries the frames' rim and highlights.
+  const fill = (
+    <View
+      pointerEvents="none"
+      style={[
+        shape,
+        {
+          backgroundColor: panel
+            ? colors.macPanelGlassFill
+            : colors.macGlassFill,
+          boxShadow: colors.macGlassEdge,
+        },
+      ]}
+    />
+  );
+  const glass = (
+    <NativeGlass
+      {...props}
+      cornerRadius={cornerRadius}
+      style={[shape, { opacity: panel ? 1 : colors.macGlassOpacity }]}
+    />
+  );
+  return panel ? (
     <>
-      {/* AppKit's glass takes no dark tint, so Dark backs it with the frames' glass fill, which
-          carries the frames' rim and highlights. */}
-      <View
-        pointerEvents="none"
-        style={[
-          shape,
-          {
-            backgroundColor: colors.macGlassFill,
-            boxShadow: colors.macGlassEdge,
-          },
-        ]}
-      />
-      <NativeGlass
-        {...props}
-        cornerRadius={cornerRadius}
-        style={[shape, { opacity: colors.macGlassOpacity }]}
-      />
+      {glass}
+      {fill}
+    </>
+  ) : (
+    <>
+      {fill}
+      {glass}
     </>
   );
 }
