@@ -137,7 +137,7 @@ minimumReleaseAgeExclude:
 
 catalogs:
   mobile:
-    '@expo/log-box': '57.0.4'
+    '@expo/log-box': '57.0.5'
     '@expo/ui': '57.0.26'
     '@expo/metro-runtime': '57.0.18'
     '@react-native/jest-preset': '0.86.3'
@@ -145,7 +145,7 @@ catalogs:
     '@testing-library/react-native': '14.0.1'
     '@types/jest': '29.5.14'
     '@types/react': '19.2.18'
-    'babel-preset-expo': '57.0.16'
+    'babel-preset-expo': '57.0.17'
     'expo': '57.0.32'
     'expo-background-task': '57.0.22'
     'expo-build-properties': '57.0.23'
