@@ -142,8 +142,6 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
             profiles: current.profiles,
             privateCloud: chosen(current.privateCloud),
           };
-    desired = update(desired);
-    const { profiles, privateCloud } = desired;
     failedSave = undefined;
     saveState = 'saving';
     // Off applies before queueing storage, and earlier saves cannot turn it back on.
@@ -154,46 +152,59 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
     }
     publish(enablement);
     return runLogged(
-      operations
-        .withPermit(
-          Effect.gen(function* () {
-            if (generation !== saving) {
-              return;
-            }
-            const saved = yield* call(() =>
-              native.setMailAssistance(owner, profiles, privateCloud),
-            );
-            // A registration change meanwhile reads the enablement again instead.
-            if (generation === saving && change === revision) {
+      operations.withPermit(
+        Effect.gen(function* () {
+          if (generation !== saving || desired?.owner !== owner) {
+            return;
+          }
+          if (
+            choice === 'privateCloud' &&
+            enabled &&
+            !desired.profiles.includes(profile)
+          ) {
+            if (change === revision) {
               saveState = 'idle';
-              publish(saved);
+              publish(desired);
             }
-          }),
-        )
-        .pipe(
-          Effect.catchTag('MailAssistanceNativeFailure', (failure) =>
-            Effect.gen(function* () {
-              yield* logFailure(
-                'Mail Assistance Enablement could not be saved:',
-              )(failure);
-              if (generation === saving && change === revision) {
-                failedSave = { owner, profile, enabled, choice };
-                saveState = 'failed';
-                // A failed turn-on lives only in the retry, never in what later saves write.
-                if (enabled && desired?.owner === owner) {
-                  desired =
-                    choice === 'local'
-                      ? { ...desired, profiles: without(desired.profiles) }
-                      : {
-                          ...desired,
-                          privateCloud: without(desired.privateCloud),
-                        };
+            return;
+          }
+          // Queued choices build on completed saves, never a pending turn-on.
+          const previous = desired;
+          desired = update(desired);
+          const { profiles, privateCloud } = desired;
+          const saved = yield* call(() =>
+            native.setMailAssistance(owner, profiles, privateCloud),
+          ).pipe(
+            Effect.catchTag('MailAssistanceNativeFailure', (failure) =>
+              Effect.gen(function* () {
+                yield* logFailure(
+                  'Mail Assistance Enablement could not be saved:',
+                )(failure);
+                if (generation === saving) {
+                  // Failed turn-ons need an explicit retry; failed Off stays withdrawn.
+                  if (enabled) {
+                    desired = previous;
+                  }
+                  if (change === revision) {
+                    failedSave = { owner, profile, enabled, choice };
+                    saveState = 'failed';
+                    publish(desired);
+                  }
                 }
-                publish(enablement);
-              }
-            }),
-          ),
-        ),
+              }),
+            ),
+          );
+          // A registration change meanwhile reads the enablement again instead.
+          if (
+            saved !== undefined &&
+            generation === saving &&
+            change === revision
+          ) {
+            saveState = 'idle';
+            publish(saved);
+          }
+        }),
+      ),
     );
   };
   return {

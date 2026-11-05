@@ -203,6 +203,126 @@ describe('mail Assistance Enablement', () => {
     });
   });
 
+  it.each(['local', 'privateCloud'] as const)(
+    'keeps a failed %s turn-on out of an already queued save',
+    async (choice) => {
+      expect.hasAssertions();
+      const owner = account;
+      const profile = choice === 'local' ? 'personal' : defaultProfile;
+      let persisted: unknown = { owner, profiles: [defaultProfile] };
+      const pending = Promise.withResolvers<unknown>();
+      const save = vi
+        .fn<NativeMailAssistance['setMailAssistance']>(
+          (_owner, profiles, privateCloud) => {
+            persisted = { owner, profiles, privateCloud };
+            return Promise.resolve(persisted);
+          },
+        )
+        .mockImplementationOnce(() => pending.promise);
+      const native = {
+        mailAssistance: () => Promise.resolve(persisted),
+        setMailAssistance: save,
+      };
+      const store = createMailAssistanceEnablement(native);
+      await store.load(owner);
+      const enabling =
+        choice === 'local'
+          ? store.setEnabled(owner, profile, true)
+          : store.setPrivateCloud(owner, profile, true);
+      const queued = store.setEnabled(owner, 'work', true);
+      expect(save).toHaveBeenCalledTimes(1);
+      pending.reject({ code: 'locked' });
+      await enabling;
+      await queued;
+      const relaunched = createMailAssistanceEnablement(native);
+      await relaunched.load(owner);
+      expect(relaunched.getSnapshot()).toStrictEqual({
+        owner,
+        profiles: [defaultProfile, 'work'],
+        privateCloud: [],
+      });
+    },
+  );
+
+  it.each(['local', 'privateCloud'] as const)(
+    'preserves a failed %s withdrawal in an already queued save',
+    async (choice) => {
+      expect.hasAssertions();
+      const owner = account;
+      let persisted: unknown = {
+        owner,
+        profiles: [defaultProfile],
+        privateCloud: [defaultProfile],
+      };
+      const pending = Promise.withResolvers<unknown>();
+      const save = vi
+        .fn<NativeMailAssistance['setMailAssistance']>(
+          (_owner, profiles, privateCloud) => {
+            persisted = { owner, profiles, privateCloud };
+            return Promise.resolve(persisted);
+          },
+        )
+        .mockImplementationOnce(() => pending.promise);
+      const native = {
+        mailAssistance: () => Promise.resolve(persisted),
+        setMailAssistance: save,
+      };
+      const store = createMailAssistanceEnablement(native);
+      await store.load(owner);
+      const withdrawing =
+        choice === 'local'
+          ? store.setEnabled(owner, defaultProfile, false)
+          : store.setPrivateCloud(owner, defaultProfile, false);
+      const queued = store.setEnabled(owner, 'work', true);
+      expect(
+        privateCloudEnabled(store.getSnapshot(), owner, defaultProfile),
+      ).toBe(false);
+      pending.reject({ code: 'locked' });
+      await withdrawing;
+      await queued;
+      const relaunched = createMailAssistanceEnablement(native);
+      await relaunched.load(owner);
+      expect(relaunched.getSnapshot()).toStrictEqual({
+        owner,
+        profiles: choice === 'local' ? ['work'] : [defaultProfile, 'work'],
+        privateCloud: [],
+      });
+    },
+  );
+
+  it('retains a completed choice when the next queued turn-on fails', async () => {
+    expect.hasAssertions();
+    const owner = account;
+    const pending = Promise.withResolvers<unknown>();
+    const save = vi
+      .fn<NativeMailAssistance['setMailAssistance']>(
+        (_owner, profiles, privateCloud) =>
+          Promise.resolve({ owner, profiles, privateCloud }),
+      )
+      .mockImplementationOnce(() => pending.promise)
+      .mockRejectedValueOnce({ code: 'locked' });
+    const store = createMailAssistanceEnablement({
+      mailAssistance: () => Promise.resolve({ owner, profiles: [] }),
+      setMailAssistance: save,
+    });
+    await store.load(owner);
+    const enabling = store.setEnabled(owner, defaultProfile, true);
+    const queued = store.setEnabled(owner, 'work', true);
+    pending.resolve({ owner, profiles: [defaultProfile], privateCloud: [] });
+    await enabling;
+    await queued;
+    expect(store.getSnapshot()).toStrictEqual({
+      owner,
+      profiles: [defaultProfile],
+      privateCloud: [],
+    });
+    await store.retrySave(owner);
+    expect(store.getSnapshot()?.profiles).toStrictEqual([
+      defaultProfile,
+      'work',
+    ]);
+  });
+
   it('keeps assistance off for a stale or unreadable read and a removed account', async () => {
     expect.hasAssertions();
     const session = await signedIn();
