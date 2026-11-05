@@ -92,10 +92,17 @@ export function Glass({
   ];
   return (
     <>
-      {/* AppKit's glass takes no dark tint, so Dark backs it with the frames' glass fill. */}
+      {/* AppKit's glass takes no dark tint, so Dark backs it with the frames' glass fill, which
+          carries the frames' rim and highlights. */}
       <View
         pointerEvents="none"
-        style={[shape, { backgroundColor: colors.macGlassFill }]}
+        style={[
+          shape,
+          {
+            backgroundColor: colors.macGlassFill,
+            boxShadow: colors.macGlassEdge,
+          },
+        ]}
       />
       <NativeGlass
         {...props}
@@ -171,10 +178,13 @@ export function SFSymbol({
   name,
   color,
   size = 16,
+  style,
 }: {
   readonly name: string;
   readonly color: ColorValue;
   readonly size?: number;
+  // A slot other than the square of its point size, the symbol centred in it.
+  readonly style?: StyleProp<ViewStyle>;
 }) {
   return (
     <NativeSymbol
@@ -183,7 +193,7 @@ export function SFSymbol({
       name={name}
       size={size}
       color={color}
-      style={{ width: size, height: size }}
+      style={[{ width: size, height: size }, style]}
     />
   );
 }

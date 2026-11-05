@@ -78,6 +78,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
+  // The frames' 16pt symbol slot, its glyph drawn at 13pt.
+  icon: { width: 16, height: 16 },
   label: { ...textStyles.body, flex: 1 },
   count: { ...textStyles.body },
   footer: {
@@ -206,6 +208,8 @@ function Item({
       <SFSymbol
         name={icon}
         color={colors.accentInk}
+        size={13}
+        style={styles.icon}
       />
       <Text
         numberOfLines={1}

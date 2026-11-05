@@ -57,6 +57,10 @@ export const palette = {
     // against the frames.
     macGlassFill: '#F8F8F8',
     macGlassOpacity: 0.1,
+    // Around and inside that fill, the frames' Liquid Glass - Medium: a 0.5pt rim, darker at the
+    // sides, and soft highlights along the inside of the top and bottom edges.
+    macGlassEdge:
+      '0px 0px 0px 0.5px rgba(0, 0, 0, 0.14), -1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.14), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.14), inset 0px 40px 10px -40px rgba(255, 255, 255, 1), inset 0px -40px 10px -40px rgba(255, 255, 255, 1)',
     fillQuiet: 'rgba(0, 0, 0, 0.05)',
     fillTrack: 'rgba(0, 0, 0, 0.09)',
     separator: 'rgba(0, 0, 0, 0.1)',
@@ -94,6 +98,8 @@ export const palette = {
     surfaceBubble: '#2C2C2E',
     macGlassFill: '#1A1A1A',
     macGlassOpacity: 0.1,
+    macGlassEdge:
+      '0px 0px 0px 0.5px rgba(0, 0, 0, 1), -1.25px 0px 0px -0.75px rgba(0, 0, 0, 1), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 1), inset 0px 40px 10px -40px rgba(255, 255, 255, 0.25), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.25)',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
     fillTrack: 'rgba(255, 255, 255, 0.16)',
     separator: 'rgba(255, 255, 255, 0.1)',

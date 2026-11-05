@@ -12,3 +12,10 @@ focus ring. The composer keeps its fields directly above From and Send, centres
 them with their labels, shows From inside its pop-up and Aa in Text Style. Delete
 Product Account is a full Settings row, Language an inline pop-up, and the Mail
 Assistance On device marker a compact lock.
+
+Glass controls, sidebars and the Command Palette show the frames' rim and edge
+highlights, and the Settings sidebar casts its shadow over the page. Push buttons are
+6pt rounded rectangles, Settings row values and Text Style are borderless pop-ups, and
+a narrow reader moves the date beneath the sender instead of squeezing it. Welcome's
+benefit symbols, the sidebar's symbols, the Google button's outline and the Settings
+page's top spacing follow the frames.

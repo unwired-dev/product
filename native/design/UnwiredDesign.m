@@ -197,7 +197,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @property (nonatomic) BOOL destructive;
 @property (nonatomic) BOOL enabled;
 @property (nonatomic) BOOL returnKey;
-// Welcome's Continue: the extra large size in a rounded rectangle rather than a capsule.
+// Welcome's Continue: the extra large size.
 @property (nonatomic) BOOL large;
 @property (nonatomic, copy) RCTDirectEventBlock onPress;
 @end
@@ -212,6 +212,8 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
     _button = [UnwiredFocusButton new];
     _button.bezelStyle = NSBezelStylePush;
     _button.controlSize = NSControlSizeLarge;
+    // A rounded rectangle, as the frames draw every push button, rather than the large size's capsule.
+    _button.borderShape = NSControlBorderShapeRoundedRectangle;
     _button.wantsLayer = YES;
     _button.target = self;
     _button.action = @selector(press);
@@ -236,7 +238,6 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 {
   _large = large;
   _button.controlSize = large ? NSControlSizeExtraLarge : NSControlSizeLarge;
-  _button.borderShape = large ? NSControlBorderShapeRoundedRectangle : NSControlBorderShapeAutomatic;
 }
 - (void)render
 {

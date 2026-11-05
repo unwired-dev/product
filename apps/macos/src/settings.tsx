@@ -58,6 +58,8 @@ const styles = StyleSheet.create({
     marginRight: 0,
     borderRadius: 18,
     borderCurve: 'continuous',
+    // Its shadow falls over the detail pane beside it.
+    zIndex: 1,
   },
   sidebarBacking: {
     ...StyleSheet.absoluteFillObject,
@@ -96,13 +98,14 @@ const styles = StyleSheet.create({
   },
   itemText: { flex: 1 },
   detail: { flex: 1 },
+  // The frames' 20pt title at 22pt, and the page's content 22pt below it.
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
     paddingTop: 22,
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
+    paddingBottom: 22,
   },
   content: {
     gap: spacing.s,

@@ -224,7 +224,6 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: radius.card + 2,
     borderCurve: 'continuous',
-    borderWidth: StyleSheet.hairlineWidth,
   },
   backRow: {
     flexDirection: 'row',
@@ -841,14 +840,13 @@ function Palette({
             // The account page's input sits at the window's trailing edge, so its panel hangs
             // from there.
             ...(trailing ? { right: 0 } : { left: panelLeft }),
-            borderColor: colors.separator,
             boxShadow: colors.menuShadow,
           },
           style,
         ]}
         testID="command-palette">
         {/* React Native's legacy view interop mounts a nested native view without its offset,
-            so the glass sits in a plain view inside the panel's border. */}
+            so the glass sits in a plain view; its rim edges the panel. */}
         <View
           collapsable={false}
           style={StyleSheet.absoluteFill}>

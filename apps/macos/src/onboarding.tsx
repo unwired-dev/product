@@ -43,7 +43,15 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     letterSpacing: -1.04,
   },
-  lede: { fontSize: 15, lineHeight: 20, marginTop: spacing.xl, opacity: 0.78 },
+  // The frame's 520pt lede, measured in its untracked SF Pro: AppKit tracks 15pt text tighter,
+  // so 500pt keeps the frame's line breaks.
+  lede: {
+    maxWidth: 500,
+    fontSize: 15,
+    lineHeight: 20,
+    marginTop: spacing.xl,
+    opacity: 0.78,
+  },
   status: { fontSize: 15, lineHeight: 20, opacity: 0.78 },
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   restoringStatus: { position: 'absolute', top: 0, left: 0, right: 0 },
@@ -226,10 +234,27 @@ export function Welcome({
   const [privacyFocused, setPrivacyFocused] = useState(false);
   const ink = { color: colors.brandOnDeep };
   const concealed = restoring ? styles.hidden : undefined;
+  // Each symbol takes its own width, as in the frame. tray.2 is wider than the 1.25× cap on a
+  // symbol's size, which draws it at the frame's 18pt at 14.4pt.
   const points = [
-    { icon: 'lock.fill', text: t('onboarding.welcome.assistance') },
-    { icon: 'tray.2', text: t('onboarding.welcome.mailProfiles') },
-    { icon: 'arrow.clockwise', text: t('onboarding.welcome.privateSync') },
+    {
+      icon: 'lock.fill',
+      size: 13,
+      width: 12.2,
+      text: t('onboarding.welcome.assistance'),
+    },
+    {
+      icon: 'tray.2',
+      size: 14.4,
+      width: 18,
+      text: t('onboarding.welcome.mailProfiles'),
+    },
+    {
+      icon: 'arrow.clockwise',
+      size: 13,
+      width: 13.4,
+      text: t('onboarding.welcome.privateSync'),
+    },
   ];
   return (
     <ScrollView
@@ -262,14 +287,15 @@ export function Welcome({
               {t('onboarding.welcome.description')}
             </Label>
             <View style={styles.points}>
-              {points.map(({ icon, text }) => (
+              {points.map(({ icon, size, width, text }) => (
                 <View
                   key={icon}
                   style={styles.point}>
                   <SFSymbol
                     name={icon}
-                    size={13}
+                    size={size}
                     color={colors.brandOnDeep}
+                    style={{ width, height: 20 }}
                   />
                   <Label style={[styles.pointText, ink]}>{text}</Label>
                 </View>
@@ -419,7 +445,7 @@ export function OnboardingAction({
       style={({ pressed }) => [
         styles.action,
         {
-          borderWidth: StyleSheet.hairlineWidth,
+          borderWidth: 1,
           borderColor: colors.separator,
           backgroundColor: pressed
             ? colors.accentSelectionSubtle
