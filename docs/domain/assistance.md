@@ -20,7 +20,7 @@ for launch scope; a term's presence does not establish implementation or release
 ## Language
 
 **Private Cloud Mail Assistance**:
-Planned help with mail through Apple's Private Cloud Compute after a separate explicit opt-in. The opt-in and its readiness check exist; no operation uses it yet.
+Planned help with mail through Apple's Private Cloud Compute after a separate explicit opt-in. See its [consent and readiness check](../message-summaries.md#private-cloud-consent-and-readiness).
 _Avoid_: Product-backend AI, cloud fallback
 
 **On-Device Mail Assistance**:

@@ -179,6 +179,16 @@ export function createMailAssistanceEnablement(native: NativeMailAssistance) {
               if (generation === saving && change === revision) {
                 failedSave = { owner, profile, enabled, choice };
                 saveState = 'failed';
+                // A failed turn-on lives only in the retry, never in what later saves write.
+                if (enabled && desired?.owner === owner) {
+                  desired =
+                    choice === 'local'
+                      ? { ...desired, profiles: without(desired.profiles) }
+                      : {
+                          ...desired,
+                          privateCloud: without(desired.privateCloud),
+                        };
+                }
                 publish(enablement);
               }
             }),

@@ -177,6 +177,32 @@ describe('mail Assistance Enablement', () => {
     ]);
   });
 
+  it('never saves a failed Private Cloud consent with a later choice', async () => {
+    expect.hasAssertions();
+    const owner = account;
+    const save = vi
+      .fn<NativeMailAssistance['setMailAssistance']>(
+        (_owner, profiles, privateCloud) =>
+          Promise.resolve({ owner, profiles, privateCloud }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error('full'), { code: 'full' }),
+      );
+    const store = createMailAssistanceEnablement({
+      mailAssistance: () =>
+        Promise.resolve({ owner, profiles: [defaultProfile] }),
+      setMailAssistance: save,
+    });
+    await store.load(owner);
+    await store.setPrivateCloud(owner, defaultProfile, true);
+    await store.setEnabled(owner, 'work', true);
+    expect(store.getSnapshot()).toStrictEqual({
+      owner,
+      profiles: [defaultProfile, 'work'],
+      privateCloud: [],
+    });
+  });
+
   it('keeps assistance off for a stale or unreadable read and a removed account', async () => {
     expect.hasAssertions();
     const session = await signedIn();
