@@ -2823,7 +2823,8 @@ final class InboxTests: XCTestCase {
   }
 
   // Sign In's Language menu keeps a chosen language across relaunch, then returns to System
-  // Default; the SwiftUI picker announces its label and choice together.
+  // Default. iPhone's pop-up gives its choice as the value; iPad's SwiftUI picker announces its
+  // label and choice together.
   private func verifyLanguagePreference(in app: XCUIApplication) {
     let language = app.buttons["language"]
     func shows(_ name: String) {
@@ -2831,7 +2832,10 @@ final class InboxTests: XCTestCase {
         XCTWaiter.wait(
           for: [
             XCTNSPredicateExpectation(
-              predicate: NSPredicate(format: "label == %@", "Language, \(name)"), object: language)
+              predicate: NSPredicate(
+                format: "label == %@ OR (label == %@ AND value == %@)", "Language, \(name)",
+                "Language", name),
+              object: language)
           ], timeout: 10),
         .completed)
     }

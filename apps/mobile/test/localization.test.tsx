@@ -74,6 +74,26 @@ function Surface() {
   );
 }
 
+type Query = ReturnType<typeof within>;
+// The iPhone Language pop-up's native menu items.
+const itemOf = (screen: Query, title: string) => {
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ id: string; title: string; checked?: boolean }>;
+  }> = screen.getByTestId('language').props.sections;
+  const item = sections
+    .flatMap((section) => section.items)
+    .find((each) => each.title === title);
+  if (item === undefined) {
+    throw new Error(`Expected ${title}`);
+  }
+  return item;
+};
+const choose = async (screen: Query, title: string) => {
+  await fireEvent(screen.getByTestId('language'), 'select', {
+    nativeEvent: { id: itemOf(screen, title).id },
+  });
+};
+
 async function prepare() {
   jest.restoreAllMocks();
   await localization.setLanguage('en');
@@ -93,9 +113,9 @@ describe('language selection', () => {
     await prepare();
     const app = await render(<Surface />);
     const first = within(app.getByTestId('first'));
-    await fireEvent.press(first.getByRole('radio', { name: 'System Default' }));
+    await choose(first, 'System Default');
     await expect(first.findByText('Boîte de réception')).resolves.toBeVisible();
-    expect(first.getByRole('radio', { name: 'System Default' })).toBeChecked();
+    expect(itemOf(first, 'System Default').checked).toBe(true);
     expect(
       first.getByText(/unread(?: messages)? pour Preview mailbox$/u),
     ).toBeVisible();
@@ -105,9 +125,9 @@ describe('language selection', () => {
       }),
     ).toBeVisible();
     expect(first.getByText('Saturday, by the river?')).toBeVisible();
-    await fireEvent.press(first.getByRole('radio', { name: 'English' }));
+    await choose(first, 'English');
     await expect(first.findByText('Inbox')).resolves.toBeVisible();
-    expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
+    expect(itemOf(first, 'English').checked).toBe(true);
   });
   /* oxlint-enable vitest/max-expects */
 
@@ -119,12 +139,12 @@ describe('language selection', () => {
       .mockRejectedValueOnce(new Error('unavailable'));
     const app = await render(<Surface />);
     const first = within(app.getByTestId('first'));
-    await fireEvent.press(first.getByRole('radio', { name: 'System Default' }));
+    await choose(first, 'System Default');
     await expect(first.findByRole('alert')).resolves.toHaveTextContent(
       'The language could not be saved. Try again.',
     );
-    expect(first.getByRole('radio', { name: 'English' })).toBeChecked();
-    await fireEvent.press(first.getByRole('radio', { name: 'System Default' }));
+    expect(itemOf(first, 'English').checked).toBe(true);
+    await choose(first, 'System Default');
     await expect(first.findByText('Boîte de réception')).resolves.toBeVisible();
     expect(first.queryByRole('alert')).toBeNull();
   });

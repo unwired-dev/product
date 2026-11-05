@@ -65,7 +65,9 @@ const styles = StyleSheet.create({
   },
   count: { ...textStyles.subheadline, flex: 1 },
   from: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fromText: { flex: 1 },
+  // The sender's long-press target reaches 44pt, 2pt beyond its 40pt of text on each side, without
+  // moving the text.
+  fromText: { flex: 1, marginVertical: -2, paddingVertical: 2 },
   sender: { ...textStyles.headline },
   secondary: { ...textStyles.footnote },
   padFrom: { alignItems: 'flex-start' },

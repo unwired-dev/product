@@ -168,8 +168,9 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  // iPhone's frames draw the 40pt sender header alone, its body 10pt beneath.
-  compactMetadata: { marginBottom: 2 },
+  // iPhone's frames draw the 40pt sender header alone, its body 10pt beneath. The menu's bounds take
+  // in the sender's 44pt target, 2pt beyond the header on each side.
+  compactMetadata: { marginTop: -2, paddingVertical: 2 },
   secondary: { ...textStyles.footnote },
   body: { ...textStyles.reading.body },
   empty: {
