@@ -50,7 +50,8 @@ separately.
   ([#1642](https://github.com/unwired-dev/product/issues/1642)). Before sending,
   the response is recorded in the mailbox's encrypted cache, which the Apple host
   stores and removes on this device: the invitation's UID and SEQUENCE, the choice,
-  and the MIME boundary that finds it in Sent, plus the confirmation time once
+  the meeting's start and end, and the MIME boundary that finds it in Sent, plus
+  the confirmation time once
   Gmail confirms. After relaunch a confirmed response shows its choice and time,
   and choosing it again sends nothing. A response the app quit while sending shows
   **Delivery unknown**, as above. When the record cannot be saved, nothing is sent
@@ -60,6 +61,20 @@ separately.
   leaves the earlier record. If saving Gmail's confirmation fails, relaunch
   restores **Delivery unknown**; **Check Again** can confirm it without sending
   another response.
+- A revision that moved the meeting after a confirmed response
+  ([#1834](https://github.com/unwired-dev/product/issues/1834)) shows an
+  **Updated** badge, **Was** and the earlier time under **When**, and
+  **{organizer} changed the time** with **You accepted the earlier time. Respond
+  to the new time.** (or tentatively accepted, declined). No choice is selected,
+  since the earlier answer was for the old time; after a response the card shows
+  it and keeps the badge and the earlier time. This status takes the place of
+  **Responding as**; **Invited** still lists every invited address. The card takes the highest earlier
+  SEQUENCE this device answered for the opened address and shows the update only
+  when that answer was confirmed and its start or end differs. An unknown delivery
+  there, or a record saved before #1834 without a time, shows the plain unanswered
+  card rather than an older answer that may no longer stand. A revision that
+  changes only other details, or an older revision (a later SEQUENCE was answered),
+  is unchanged.
 - A `METHOD:CANCEL` for one meeting
   ([#1826](https://github.com/unwired-dev/product/issues/1826)) shows the same
   details under **Cancelled by** the organizer, with a **Cancelled** badge, the
@@ -95,7 +110,8 @@ separately.
 
 - `packages/mail-core/test/invitations.test.ts` parses invitations and drives
   responses through a synthetic Gmail mailbox, including lost and refused sends,
-  a send the app quit during, and restore after relaunch and mailbox removal.
+  a send the app quit during, restore after relaunch and mailbox removal, and a
+  revision that moved the meeting after an earlier answer.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
   render each reader with a synthetic Gmail mailbox; they are component tests, not
   native evidence.

@@ -1,4 +1,7 @@
-import type { ResponseState } from '@private-email/mail-core/invitations';
+import type {
+  InvitationChoice,
+  ResponseState,
+} from '@private-email/mail-core/invitations';
 import type { BodyDocument } from '@private-email/mail-core/message-body';
 
 import { english } from '@private-email/localization';
@@ -11,6 +14,7 @@ import {
   invitationReply,
   invitationResponses,
   invitationStatus,
+  invitationWas,
   invitationWhen,
 } from '@private-email/mail-core/invitations';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
@@ -556,6 +560,118 @@ describe('meeting invitations', () => {
 
     expect(gmail.sends).toHaveLength(2);
     expect(replyOf(gmail.sends[1])).toContain('SEQUENCE:3');
+
+    close();
+  });
+
+  it('names the earlier answer to a revision that moved the meeting', async () => {
+    expect.hasAssertions();
+    const { gmail, id, invitation, responses, close } = await invited();
+    const hour = 60 * 60 * 1000;
+    // The fixture meeting has an end.
+    const { start, end = start } = invitation.details;
+    const later = (time: typeof start) => ({
+      ...time,
+      at: time.at + 20 * hour,
+    });
+    const moved = {
+      ...invitation,
+      sequence: 3,
+      details: {
+        ...invitation.details,
+        start: later(start),
+        end: later(end),
+      },
+    };
+    await responses.respond(invitation, 'accepted', copy);
+
+    expect(responses.earlier(moved)).toMatchObject({
+      choice: 'accepted',
+      start,
+      end,
+    });
+    expect(responses.earlier({ ...invitation, sequence: 3 })).toBeUndefined();
+    expect(responses.state(moved)).toStrictEqual({ kind: 'unanswered' });
+
+    close();
+    const relaunch = await relaunched(gmail, id);
+    await relaunch.responses.respond(moved, 'declined', copy);
+
+    expect(relaunch.responses.earlier(moved)).toMatchObject({
+      choice: 'accepted',
+      start,
+    });
+    expect(relaunch.responses.state(moved)).toMatchObject({
+      kind: 'sent',
+      choice: 'declined',
+    });
+
+    relaunch.close();
+  });
+
+  it('names the latest earlier answer, and none once a newer revision was answered', async () => {
+    expect.hasAssertions();
+    const { inbox, invitation, responses, close } = await invited();
+    const { uid, sequence } = invitation;
+    const { start, end = start } = invitation.details;
+    const at = Date.UTC(2026, 10, 1, 8, 0);
+    const answered = (
+      revision: number,
+      choice: InvitationChoice,
+      until: typeof end,
+    ) =>
+      inbox.recordResponse(
+        { uid, sequence: revision },
+        {
+          kind: 'sent',
+          uid,
+          sequence: revision,
+          choice,
+          at,
+          start,
+          end: until,
+        },
+      );
+    await answered(sequence - 2, 'accepted', { ...end, at: end.at + 1 });
+    // Only the end moved since this answer.
+    await answered(sequence - 1, 'tentative', { ...end, at: end.at - 1 });
+
+    expect(responses.earlier(invitation)).toMatchObject({
+      choice: 'tentative',
+    });
+
+    await answered(sequence + 1, 'declined', end);
+
+    expect(responses.earlier(invitation)).toBeUndefined();
+
+    close();
+  });
+
+  it('names no earlier answer it cannot compare or that was never confirmed', async () => {
+    expect.hasAssertions();
+    const { inbox, invitation, responses, close } = await invited();
+    const { uid } = invitation;
+    const at = Date.UTC(2026, 10, 1, 8, 0);
+    await inbox.recordResponse(
+      { uid, sequence: 1 },
+      { kind: 'sent', uid, sequence: 1, choice: 'declined', at },
+    );
+
+    expect(responses.earlier(invitation)).toBeUndefined();
+
+    await inbox.recordResponse(
+      { uid, sequence: 1 },
+      {
+        kind: 'unknown',
+        uid,
+        sequence: 1,
+        choice: 'declined',
+        boundary: 'b',
+        start: { at, allDay: false },
+      },
+    );
+
+    expect(responses.earlier(invitation)).toBeUndefined();
 
     close();
   });
@@ -1159,6 +1275,7 @@ describe('meeting invitations', () => {
         year: 'numeric',
       }),
       time: utc({ hour: 'numeric', minute: '2-digit' }),
+      earlierDay: utc({ weekday: 'short', day: 'numeric', month: 'short' }),
     };
     const organizer = {
       name: 'Lena Fischer',
@@ -1201,6 +1318,40 @@ describe('meeting invitations', () => {
         'Fri, Nov 6, 2026, 10:00 PM – Sat, Nov 7, 2026, 1:00 AM',
       );
       expect(when(at(6, 13))).toBe('Fri, Nov 6, 2026, 1:00 PM');
+    });
+
+    it('names the earlier answer and time of a moved meeting', () => {
+      expect.hasAssertions();
+
+      const earlier = {
+        choice: 'tentative',
+        start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+        end: { at: Date.UTC(2026, 10, 6, 14), allDay: false },
+      } as const;
+
+      expect(
+        invitationStatus(
+          { kind: 'unanswered' },
+          {
+            t: english,
+            name: 'Lena Fischer',
+            address: me,
+            provider: 'Gmail',
+            time: formats.time,
+            // The moved time takes the status; Invited still names the address.
+            alsoInvited: 1,
+            earlier: earlier.choice,
+          },
+        ),
+      ).toStrictEqual({
+        icon: 'info.circle',
+        title: 'Lena Fischer changed the time',
+        detail:
+          'You tentatively accepted the earlier time. Respond to the new time.',
+      });
+      expect(
+        invitationWas(english, formats, earlier).replaceAll('\u202F', ' '),
+      ).toBe('Was Fri, Nov 6, 1:00 PM–2:00 PM');
     });
 
     it('describes each response state', () => {
