@@ -28,6 +28,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
+  alsoInvited,
   invitationOf,
   invitationResponses,
   createInvitationFormats,
@@ -59,7 +60,7 @@ import {
 
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { useProviderName } from './mailbox.tsx';
+import { useMailboxes, useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -150,8 +151,8 @@ function Details({
   invited,
 }: {
   readonly details: InvitationDetails;
-  // Who was invited, then a secondary line about them; a cancelled meeting has no row.
-  readonly invited?: readonly [string, string];
+  // Who was invited, then secondary lines about them; a cancelled meeting has no row.
+  readonly invited?: readonly string[];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -252,12 +253,19 @@ function Details({
           <DetailRow
             label={t('invitation.invited')}
             spoken={invited}>
-            <Text style={[styles.text, { color: colors.textPrimary }]}>
-              {invited[0]}
-            </Text>
-            <Text style={[styles.text, { color: colors.textSecondary }]}>
-              {invited[1]}
-            </Text>
+            {invited.map((line, index) => (
+              <Text
+                key={line}
+                style={[
+                  styles.text,
+                  {
+                    color:
+                      index === 0 ? colors.textPrimary : colors.textSecondary,
+                  },
+                ]}>
+                {line}
+              </Text>
+            ))}
           </DetailRow>
         )}
       </View>
@@ -386,11 +394,14 @@ function Action({
 function Responding({
   inbox,
   invitation,
+  others,
   connection,
   current,
 }: {
   readonly inbox: InvitationInbox;
   readonly invitation: Invitation;
+  // How many of the Profile's other addresses the invitation also names.
+  readonly others: number;
   readonly connection: string | undefined;
   readonly current: () => boolean;
 }) {
@@ -424,6 +435,7 @@ function Responding({
       provider,
       time,
       series: invitation.details.starts !== undefined,
+      alsoInvited: others,
     },
   );
   // iOS ignores live regions, so VoiceOver hears the status when it changes, not when it opens.
@@ -603,7 +615,6 @@ export function InvitationCard({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const provider = useProviderName();
   const document = useSyncExternalStore(inbox.subscribe, () =>
     inbox.responseSource(id),
   );
@@ -678,19 +689,60 @@ export function InvitationCard({
     );
   }
   return (
-    <View style={card}>
+    <Invited
+      inbox={inbox}
+      invitation={offer}
+      connection={connection}
+      current={current}
+    />
+  );
+}
+
+// An invitation the opened mailbox's address can answer.
+function Invited({
+  inbox,
+  invitation,
+  connection,
+  current,
+}: {
+  readonly inbox: InvitationInbox;
+  readonly invitation: Invitation;
+  readonly connection: string | undefined;
+  readonly current: () => boolean;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const provider = useProviderName();
+  // Invited at other addresses of the Profile too, each address is listed instead of You.
+  const others = alsoInvited(invitation, useMailboxes());
+  const yours = t('invitation.yourAddress', {
+    address: invitation.address,
+    provider,
+  });
+  return (
+    <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
       <Details
-        details={offer.details}
-        invited={[
-          t('invitation.you'),
-          t('invitation.yourAddress', { address: offer.address, provider }),
-        ]}
+        details={invitation.details}
+        invited={
+          others.length === 0
+            ? [t('invitation.you'), yours]
+            : [
+                yours,
+                ...others.map(({ address: other, provider: kind }) =>
+                  t('invitation.yourAddress', {
+                    address: other,
+                    provider: t(`mailProviders.${kind ?? 'gmail'}`),
+                  }),
+                ),
+              ]
+        }
       />
       {/* A new invitation starts with no open question or announcement from the last one. */}
       <Responding
-        key={`${offer.address}\n${offer.uid}\n${offer.sequence}`}
+        key={`${invitation.address}\n${invitation.uid}\n${invitation.sequence}`}
         inbox={inbox}
-        invitation={offer}
+        invitation={invitation}
+        others={others.length}
         connection={connection}
         current={current}
       />
