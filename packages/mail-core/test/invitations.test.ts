@@ -222,8 +222,9 @@ describe('meeting invitations', () => {
           .replace('Europe/Prague:20261106T1500', `${from.slice(0, -4)}2359`),
       );
       expect(
-        offered(calendar([...gap, `RRULE:FREQ=WEEKLY;${end}`])).details
-          .lastStart,
+        offered(
+          calendar([...gap, `RRULE:FREQ=WEEKLY;${end}`]),
+        ).details.starts?.at(-1),
       ).toBe(lastStart);
     },
   );
@@ -237,7 +238,12 @@ describe('meeting invitations', () => {
 
     expect(offer.details).toMatchObject({
       start: { at: Date.UTC(2026, 9, 16, 12), allDay: false },
-      lastStart: Date.UTC(2026, 10, 6, 13),
+      starts: [
+        Date.UTC(2026, 9, 16, 12),
+        Date.UTC(2026, 9, 23, 12),
+        Date.UTC(2026, 9, 30, 13),
+        Date.UTC(2026, 10, 6, 13),
+      ],
     });
     // One response answers the whole series, so the reply names no single meeting.
     expect(invitationReply(offer, 'accepted', 0)).not.toContain(
@@ -247,7 +253,7 @@ describe('meeting invitations', () => {
       invitationOf(documentOf(calendar([...series, rrule], 'CANCEL')), me),
     ).toMatchObject({
       kind: 'cancelled',
-      details: { lastStart: Date.UTC(2026, 10, 6, 13) },
+      details: { starts: expect.arrayContaining([Date.UTC(2026, 10, 6, 13)]) },
     });
   });
 
@@ -1321,7 +1327,7 @@ describe('meeting invitations', () => {
               organizer,
               start: { at: start, allDay: false },
               end: { at: start + 3_600_000, allDay: false },
-              lastStart: start + 7 * 86_400_000,
+              starts: [start, start + 7 * 86_400_000],
             }),
           ).toBe(`${label}, 14:00–15:00`);
         }
@@ -1336,7 +1342,12 @@ describe('meeting invitations', () => {
         allDay: false,
       });
       const series = (lastStart: number, end = at(6, 14)) => {
-        const details = { organizer, start: at(6, 13), end, lastStart };
+        const details = {
+          organizer,
+          start: at(6, 13),
+          end,
+          starts: [at(6, 13).at, lastStart],
+        };
         return [
           invitationWhen(english, formats, details),
           invitationRepeats(english, formats, details),
@@ -1349,6 +1360,12 @@ describe('meeting invitations', () => {
       expect(series(Date.UTC(2027, 0, 8, 13), at(7, 1))).toStrictEqual([
         'Fri, Nov 6, 2026, 1:00 PM – Sat, Nov 7, 2026, 1:00 AM',
         'Every week from Nov 6, 2026 to Jan 8, 2027',
+      ]);
+      // A daylight-saving change in only one of the event's and the device's zones moves later
+      // meetings to another device-local time, so the card names the first meeting's day.
+      expect(series(Date.UTC(2026, 10, 13, 12))).toStrictEqual([
+        'Fri, Nov 6, 2026, 1:00 PM–2:00 PM',
+        'Every week from Nov 6 to Nov 13, 2026',
       ]);
       expect(
         invitationRepeats(english, formats, { organizer, start: at(6, 13) }),

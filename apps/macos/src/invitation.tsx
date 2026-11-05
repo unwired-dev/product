@@ -329,7 +329,7 @@ function Responding({
       address: invitation.address,
       provider,
       time,
-      series: invitation.details.lastStart !== undefined,
+      series: invitation.details.starts !== undefined,
     },
   );
   const copy = (choice: InvitationChoice) => ({

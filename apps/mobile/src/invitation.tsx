@@ -423,7 +423,7 @@ function Responding({
       address: invitation.address,
       provider,
       time,
-      series: invitation.details.lastStart !== undefined,
+      series: invitation.details.starts !== undefined,
     },
   );
   // iOS ignores live regions, so VoiceOver hears the status when it changes, not when it opens.
