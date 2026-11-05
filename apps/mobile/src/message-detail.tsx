@@ -11,11 +11,15 @@ import {
   responseCommands,
 } from '@private-email/mail-core/commands';
 import { messageContextMenu } from '@private-email/mail-core/context-menu';
-import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
+import {
+  profileOf,
+  recipientsOf,
+  sendingMailboxes,
+} from '@private-email/mail-core/drafts';
 import { listedMessage } from '@private-email/mail-core/gmail-inbox';
 import { threadMessages } from '@private-email/mail-core/gmail-inbox';
 import { startResponse } from '@private-email/mail-core/responses';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -49,7 +53,12 @@ import {
   useMessageCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
-import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
+import {
+  ContextMenu,
+  GlassGroup,
+  scaledToolbarHeight,
+  ToolbarButton,
+} from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
@@ -65,6 +74,7 @@ import {
   useProfile,
 } from './mailbox.tsx';
 import {
+  AssistanceRow,
   AttachContext,
   GmailMessageBody,
   LinkConfirmationProvider,
@@ -74,10 +84,15 @@ import {
   useReaderViewport,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
-import { MessageActions, MessageActionsNotice } from './organize.tsx';
+import {
+  MessageActions,
+  MessageActionsNotice,
+  readerToolbarInset,
+} from './organize.tsx';
 import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReplySheet } from './reply-sheet.tsx';
+import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { textStyles, usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
@@ -88,6 +103,10 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 // floating toolbar's 52pt glass sits 2pt above the bottom safe area, as the frames place them.
 const readerEdges = { top: true, bottom: !compact, left: true, right: true };
 const toolbarLift = 2;
+// The iPad reader follows the Mac reading pane at 1.15×: 46pt side padding, and the subject 82.8pt
+// beneath the safe area, under the toolbar.
+const sideInset = compact ? spacing.l : 40 * ipadListScale;
+const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
 // The content's bottom padding clears iPhone's bottom toolbar or a regular window's floating bar,
 // and on iPhone the home indicator it runs beneath.
 const clearsBottom = (bar: boolean, inset: number) => ({
@@ -97,10 +116,10 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   // The regular-width toolbar: glass groups at the pane's trailing edge.
   topToolbar: {
-    height: 52 + spacing.m,
+    height: topToolbarHeight,
     zIndex: 1,
     alignItems: 'flex-end',
-    paddingTop: spacing.m,
+    paddingTop: readerToolbarInset,
     paddingHorizontal: spacing.l,
   },
   // The compact toolbar floats over the content's bottom edge.
@@ -122,10 +141,16 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    paddingHorizontal: spacing.l,
+    paddingHorizontal: sideInset,
     paddingVertical: spacing.s,
     gap: spacing.l,
   },
+  // A single message on iPhone lines its sender and body up with a thread's cards, 24pt in, 8pt
+  // below its count.
+  compactContent: { paddingHorizontal: 24, gap: spacing.s },
+  // On iPad the sender sits 18.4pt beneath the frames' 29pt subject line, which holds the 25pt
+  // Reading Subject, so it keeps the frames' y.
+  padSingleContent: { paddingTop: spacing.l * ipadListScale + (29 - 25) },
   header: {
     width: '100%',
     maxWidth: 760,
@@ -133,8 +158,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.m,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
+    paddingHorizontal: compact ? spacing.xl : sideInset,
+    paddingTop: compact ? spacing.xl : 72 * ipadListScale - topToolbarHeight,
   },
   headerText: { flex: 1 },
   subject: { ...textStyles.reading.subject },
@@ -143,7 +168,12 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  assistance: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl },
+  // iPhone's frames draw the 40pt sender header alone, its body 10pt beneath. The message menu's
+  // bounds take in the sender's 44pt target, 2pt beyond the header on each side, as the native menu
+  // only receives touches within them; its padding sits on the content, which the menu would offset
+  // twice.
+  compactMenu: { marginTop: -2 },
+  compactMetadata: { paddingVertical: 2 },
   secondary: { ...textStyles.footnote },
   body: { ...textStyles.reading.body },
   empty: {
@@ -155,19 +185,31 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { ...textStyles.headline, textAlign: 'center' },
   emptyDescription: { ...textStyles.body, textAlign: 'center' },
+  // iPhone's Thread is flat: each message sits on the content's 24pt axis between thin separators,
+  // as its frames align the cards' contents, without the iPad's card.
   threadMessage: {
     gap: 10,
     paddingVertical: 14,
-    paddingHorizontal: spacing.l,
+    paddingHorizontal: compact ? 0 : spacing.l,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
+    borderRadius: compact ? 0 : radius.card,
   },
   // A bar beside the opened message, so it stands out without relying on color.
   openedMessage: { borderLeftWidth: 4 },
 });
 
+const singleContent = [
+  styles.content,
+  compact ? styles.compactContent : styles.padSingleContent,
+];
+
 // Keeps the message being read in place while bodies above it load.
 const keepVisibleMessage = { minIndexForVisible: 0 };
+
+// Beside the list, its command input serves the reader too; a reader alone keeps its own.
+function ReaderCommandRow() {
+  return use(SidebarToggleContext) === undefined ? <CommandInputRow /> : null;
+}
 
 // Nothing selected, or a message that is not in any open mailbox.
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
@@ -178,7 +220,7 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-      <CommandInputRow />
+      <ReaderCommandRow />
       <View
         style={styles.empty}
         {...header.swipe}>
@@ -375,6 +417,7 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
 function RegularHeader({ subject }: { readonly subject: string }) {
   const colors = usePalette();
   const header = usePaletteHeader();
+  const besideList = use(SidebarToggleContext) !== undefined;
   return (
     <View
       style={styles.header}
@@ -391,7 +434,7 @@ function RegularHeader({ subject }: { readonly subject: string }) {
           {subject}
         </Text>
       </View>
-      <CommandInput />
+      {besideList ? null : <CommandInput />}
     </View>
   );
 }
@@ -676,12 +719,15 @@ function MessageToolbar({
       onClose={onClose}
       panel={panel}
       onPanel={onPanel}>
-      <ResponseActions
-        key={`${address}:${message.id}`}
-        message={message}
-        onCompose={onCompose}
-        onPanel={onPanel}
-      />
+      {/* The reader beneath an open composer offers no responses. */}
+      {onCompose === undefined ? null : (
+        <ResponseActions
+          key={`${address}:${message.id}`}
+          message={message}
+          onCompose={onCompose}
+          onPanel={onPanel}
+        />
+      )}
     </MessageActions>
   );
 }
@@ -719,19 +765,53 @@ function MessageMenu({
   const { t } = useLocalization();
   const commands = useMessageCommands(target);
   return (
-    <ContextMenu sections={messageContextMenu(t, target, commands)}>
+    <ContextMenu
+      style={compact && styles.compactMenu}
+      sections={messageContextMenu(t, target, commands)}>
       {children}
     </ContextMenu>
   );
 }
 
-// The opened message's header, mailbox and labels above a hairline.
+// The names a received address-list header lists, or nothing without one.
+const recipientNames = (header: string | undefined) =>
+  recipientsOf(header ?? '')
+    .map(({ name, address }) => name ?? address)
+    .join(', ');
+
+// iPhone's frames summarize the recipients as "to …".
+const recipientKeys = compact
+  ? ({ to: 'message.summaryTo', cc: 'message.summaryCc' } as const)
+  : ({ to: 'message.to', cc: 'message.cc' } as const);
+
+// Whether the message names the mailbox among its recipients, which iPhone's summary then leaves
+// out.
+const addresses = (
+  headers: ReadonlyArray<string | undefined>,
+  address: string | undefined,
+) =>
+  headers
+    .flatMap((header) => recipientsOf(header ?? ''))
+    .some(
+      (recipient) => recipient.address.toLowerCase() === address?.toLowerCase(),
+    );
+
+// The opened message's header with its recipients once its headers are read, then its mailbox and
+// labels above a hairline.
 function MessageMetadata({
   message,
 }: {
   readonly message: NonNullable<ReturnType<typeof shownMessage>>;
 }) {
   const state = useInbox();
+  const inbox = useInboxActions();
+  const headers = useSyncExternalStore(inbox.subscribe, () =>
+    'responseSource' in inbox
+      ? inbox.responseSource(message.id)?.headers
+      : undefined,
+  );
+  const to = recipientNames(headers?.to);
+  const cc = recipientNames(headers?.cc);
   const mailbox = useMailbox();
   const address = mailbox?.address;
   const colors = usePalette();
@@ -745,9 +825,29 @@ function MessageMetadata({
       : [];
   return (
     <MessageMenu target={commandTarget(mailbox?.id, message)}>
-      <View style={[styles.metadata, { borderBottomColor: colors.separator }]}>
-        <MessageHeader message={message} />
-        {address === undefined ? null : (
+      <View
+        style={
+          compact
+            ? styles.compactMetadata
+            : [styles.metadata, { borderBottomColor: colors.separator }]
+        }>
+        <MessageHeader
+          message={message}
+          hanging={!compact}
+          recipients={[
+            ...(to === '' ? [] : [t(recipientKeys.to, { recipients: to })]),
+            ...(cc === '' ? [] : [t(recipientKeys.cc, { recipients: cc })]),
+          ]}
+          // iPhone keeps the mailbox in the header's metadata, as its frames draw it.
+          mailbox={
+            compact &&
+            address !== undefined &&
+            !addresses([headers?.to, headers?.cc], address)
+              ? t('inbox.inMailbox', { mailbox: address })
+              : undefined
+          }
+        />
+        {compact || address === undefined ? null : (
           <Text style={[styles.secondary, { color: colors.textSecondary }]}>
             {t('inbox.inMailbox', { mailbox: address })}
           </Text>
@@ -772,7 +872,7 @@ function StorageProblem({ kind }: { readonly kind: 'locked' | 'failed' }) {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={styles.fill}>
-      <CommandInputRow />
+      <ReaderCommandRow />
       <View
         style={styles.empty}
         {...header.swipe}>
@@ -803,7 +903,7 @@ function ReaderLoading() {
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}
       style={styles.fill}>
-      <CommandInputRow />
+      <ReaderCommandRow />
       <View
         style={styles.fill}
         {...header.swipe}>
@@ -851,7 +951,7 @@ function ReaderBody({
   }
   return (
     <>
-      <View style={styles.assistance}>
+      <AssistanceRow>
         <MessageSummary
           source={inbox}
           id={message.id}
@@ -863,7 +963,7 @@ function ReaderBody({
           id={message.id}
           body={'body' in message ? message.body : message.preview}
         />
-      </View>
+      </AssistanceRow>
       <Text
         selectable
         style={[styles.body, { color: colors.textPrimary }]}>
@@ -962,9 +1062,11 @@ function MailboxMessage({
           {header ? null : <RegularHeader subject={message.subject} />}
           <ReaderScrollView
             contentContainerStyle={[
-              styles.content,
+              singleContent,
               clearsBottom(compact || windowBar !== undefined, insets.bottom),
             ]}>
+            {/* iPhone counts a single message as its frames count a thread's. */}
+            {compact ? <MessageCount count={1} /> : null}
             <MessageMetadata message={message} />
             <MessageActionsNotice id={message.id} />
             <ResponseStatusNotice
@@ -1095,7 +1197,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
           )}
           <ReaderScrollView
             contentContainerStyle={[
-              styles.content,
+              compact ? singleContent : styles.content,
               clearsBottom(windowBar !== undefined, insets.bottom),
             ]}
             maintainVisibleContentPosition={keepVisibleMessage}
@@ -1245,7 +1347,7 @@ function ThreadMessage({
       style={[
         styles.threadMessage,
         { borderBottomColor: colors.separator },
-        highlighted
+        highlighted && !compact
           ? [
               styles.openedMessage,
               {

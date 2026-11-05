@@ -12,7 +12,7 @@ nothing more from the person, launch opens the Inbox. The **Account** button ope
 beside the Inbox, which keeps its Draft, mailbox and selected message. The account page
 opens instead while a Recovery Key needs confirming, a device approval is waiting on
 either side, the mailbox is not yet saved to private sync, or a sign-out or deletion is
-unfinished. **Open Inbox** can leave that setup for later, but not an unfinished
+unfinished. **Open Inbox** (**Close Settings** on iPad) can leave that setup for later, but not an unfinished
 sign-out or deletion, which keeps the Inbox closed until it settles. Optional Recovery Key
 entry on a Trusted Device that lost its local keys does not hold back available mail:
 launch opens the Inbox, and Settings offers the entry under **Account & Devices**.
@@ -41,8 +41,8 @@ Mailboxes or the kept Inbox, reader or composer. Mailboxes offers **Account** in
 its header. When Settings opened from Mailboxes (**Account**, **Manage
 Mail Profiles** or an IMAP password repair), **Open Inbox** shows the kept Inbox.
 Reopening **Account** starts Settings on its list of destinations. iPad
-opens its two-column workspace over that same kept content, with **Open Inbox**
-to return. Sign-out or locked storage closes Settings. On mobile, pending setup
+opens its two-column workspace over that same kept content, with **Close Settings**
+in its sidebar in place of **Open Inbox** to return. Sign-out or locked storage closes Settings. On mobile, pending setup
 or a different Product Account closes it too; an open Mac Settings window starts
 the replacement account afresh on Account & Devices.
 
@@ -60,7 +60,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
 - **Adding.** Settings' **Email Accounts** lists every Mailbox Connection, Gmail,
   [Microsoft](microsoft-mail.md) and [IMAP](imap-mailboxes.md), with its state and
   offers **Add another Gmail mailbox**, **Add an IMAP mailbox** and, when Microsoft
-  mail is configured for this build, **Add a Microsoft mailbox**. Adding Gmail asks Google for an
+  mail is configured for this build, **Add a Microsoft mailbox**. On iPad these are the
+  native menu of one **Add Mailbox Connection…** row. Adding Gmail asks Google for an
   account and explicit Gmail consent. Choosing a Google account that is already
   connected authorizes that connection again instead of adding a second one; the
   Google account, not the address, identifies it. A cancelled or refused addition
@@ -886,7 +887,8 @@ sources, including plain HTTP and internationalized host names, stay placeholder
 
 - **Policies.** The **Remote Content** group in Settings' **Privacy & Data**
   chooses **Ask** (the default), **Never** or **Always load** for this device, and
-  each Gmail mailbox's row there can use the device setting or its own choice. Choices stay on this device in its
+  each Gmail mailbox's row there can use the device setting or its own choice, each
+  from its row's native pop-up menu. Choices stay on this device in its
   local defaults and are never synchronized; unreadable settings ask. Until the
   saved choices are read at launch, readers show no remote content and offer no
   **Load images**, so a saved **Never** is never preceded by Ask's cache restoration.

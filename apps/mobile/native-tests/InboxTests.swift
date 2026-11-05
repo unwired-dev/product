@@ -130,7 +130,8 @@ final class InboxTests: XCTestCase {
     // More (#1404): its Reply sheet offers the actions and opens Gmail's labels in that panel.
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let labels = app.staticTexts["Labels"]
-    let panelItem = phone ? labels : app.buttons["Star"]
+    // iPad's More is the system menu, titled as the row menu names its actions.
+    let panelItem = phone ? labels : app.buttons["Flag"]
     if phone {
       XCTAssertFalse(app.buttons["More"].exists)
       app.buttons["Reply"].tap()
@@ -147,20 +148,25 @@ final class InboxTests: XCTestCase {
     // Organizing goes through the packaged native Gmail modify: a star from the Reply sheet on
     // iPhone or the More panel on iPad, then an archive and Undo.
     app.buttons[phone ? "Reply" : "More"].tap()
-    app.buttons["Star"].tap()
+    app.buttons[phone ? "Star" : "Flag"].tap()
+    // Choosing closes the sheet or menu; it reopens with the new star state.
     if phone {
-      // Choosing closes the sheet; it reopens with the new star state.
       XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
-      app.buttons["Reply"].tap()
     }
-    XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
+    app.buttons[phone ? "Reply" : "More"].tap()
+    let unstar = app.buttons[phone ? "Remove star" : "Unflag"]
+    XCTAssertTrue(unstar.waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
-    XCTAssertTrue(app.buttons["Remove star"].exists)
+    XCTAssertTrue(unstar.exists)
+    if !phone {
+      bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+      XCTAssertTrue(unstar.waitForNonExistence(timeout: 5))
+    }
     // The starred row names its flag.
     let starred = app.buttons["Unread. Rowan Hale. Garden plans for spring. Flagged"]
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
-      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report spam"))
+      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report Spam"))
       app.buttons["Labels"].tap()
       XCTAssertTrue(labels.waitForExistence(timeout: 5))
       app.buttons["Reply"].tap()
@@ -263,6 +269,11 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     openSettings("Email Accounts", in: app)
+    // iPad groups the add actions in one row's menu; iPhone lists them as buttons.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.buttons["Add Mailbox Connection…"].waitForExistence(timeout: 15))
+      app.buttons["Add Mailbox Connection…"].tap()
+    }
     XCTAssertTrue(app.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add another Gmail mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
@@ -284,7 +295,7 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     // The account page stays open until the person chooses the Inbox.
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     // The unified Inbox names each message's mailbox.
     let jordan = app.buttons.matching(
       NSPredicate(
@@ -381,7 +392,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     XCTAssertTrue(contact.exists)
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -520,7 +531,7 @@ final class InboxTests: XCTestCase {
     item?.tap()
     // The moved mailbox leaves its former Profile's list once the move is stored.
     XCTAssertTrue(popUp.waitForNonExistence(timeout: 30))
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     if UIDevice.current.userInterfaceIdiom == .phone {
       let back = app.buttons["Back to Mailboxes"]
       waitUntil { back.isHittable && !switcher.isHittable }
@@ -779,7 +790,7 @@ final class InboxTests: XCTestCase {
           && primary.frame.width == portraitWidth
       }, timeout: 10)
     }
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     if UIDevice.current.userInterfaceIdiom == .phone {
       let back = app.buttons["Back to Mailboxes"]
       waitUntil { back.isHittable && !switcher.isHittable }
@@ -1199,6 +1210,11 @@ final class InboxTests: XCTestCase {
     waitUntil { account.isHittable && !settings.exists }
   }
 
+  // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Close Settings.
+  private var settingsExit: String {
+    UIDevice.current.userInterfaceIdiom == .pad ? "Close Settings" : "Open Inbox"
+  }
+
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
@@ -1410,7 +1426,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(assistance.waitForExistence(timeout: 15))
     assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
     let body = app.webViews.textViews["Message body"]
@@ -1445,7 +1461,7 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 10))
     app.buttons["Account"].tap()
-    XCTAssertTrue(app.buttons["Open Inbox"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Save Draft"].exists)
     XCTAssertFalse(typed.exists)
     if UIDevice.current.userInterfaceIdiom == .phone {
@@ -1454,10 +1470,10 @@ final class InboxTests: XCTestCase {
       edge.press(forDuration: 0.1, thenDragTo:
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
     } else {
-      app.buttons["Open Inbox"].tap()
+      app.buttons[settingsExit].tap()
     }
     XCTAssertTrue(typed.waitForExistence(timeout: 15))
-    XCTAssertFalse(app.buttons["Open Inbox"].exists)
+    XCTAssertFalse(app.buttons[settingsExit].exists)
     let focused = XCTAttachment(screenshot: app.screenshot())
     focused.name = "Evaluation editor typed"
     focused.lifetime = .keepAlways
@@ -1967,7 +1983,7 @@ final class InboxTests: XCTestCase {
     try audit(app, "Command Palette")
     press("Account\n", in: app)
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
-    let settings = app.buttons["Open Inbox"]
+    let settings = app.buttons[settingsExit]
     XCTAssertTrue(settings.waitForExistence(timeout: 10))
     try audit(app, "Settings")
     openPalette(app, header: app.staticTexts["Settings"].firstMatch)
@@ -2936,7 +2952,8 @@ final class InboxTests: XCTestCase {
   }
 
   // Sign In's Language menu keeps a chosen language across relaunch, then returns to System
-  // Default; the SwiftUI picker announces its label and choice together.
+  // Default. iPhone's pop-up gives its choice as the value; iPad's SwiftUI picker announces its
+  // label and choice together.
   private func verifyLanguagePreference(in app: XCUIApplication) {
     let language = app.buttons["language"]
     func shows(_ name: String) {
@@ -2944,7 +2961,10 @@ final class InboxTests: XCTestCase {
         XCTWaiter.wait(
           for: [
             XCTNSPredicateExpectation(
-              predicate: NSPredicate(format: "label == %@", "Language, \(name)"), object: language)
+              predicate: NSPredicate(
+                format: "label == %@ OR (label == %@ AND value == %@)", "Language, \(name)",
+                "Language", name),
+              object: language)
           ], timeout: 10),
         .completed)
     }

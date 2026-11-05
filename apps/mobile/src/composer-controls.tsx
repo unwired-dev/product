@@ -4,7 +4,7 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactElement, ReactNode, RefObject } from 'react';
-import type { StyleProp, TextStyle } from 'react-native';
+import type { Insets, StyleProp, TextStyle, ViewStyle } from 'react-native';
 
 import {
   BottomSheet,
@@ -47,6 +47,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Animated,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -54,10 +55,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   Glass,
   GlassPanel,
+  MenuButton,
+  ScaledToolbar,
+  scaledToolbar,
   SFSymbol,
   ToolbarButton,
   useMenuMotion,
@@ -66,6 +71,16 @@ import {
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
 import { textStyles, usePalette } from './theme.ts';
+
+const phone = Platform.OS === 'ios' && !Platform.isPad;
+// iPad's rules are the Mac recipe's point at 1.15×, as its frames draw them.
+const rule = phone ? StyleSheet.hairlineWidth : ipadListScale;
+// The From pop-up shows a 33.6pt capsule on iPhone and a 32.2pt one on iPad within its 44pt
+// target, as the Compose frames draw it.
+const quietHeight = phone ? 33.6 : 28 * ipadListScale;
+const quietSlop = (44 - quietHeight) / 2;
+// The Format panel's 40pt style choices reach 44pt through the row's 4pt inset.
+const formatStyleSlop = { top: 2, bottom: 2 };
 
 const styles = StyleSheet.create({
   // iPad draws the Mac Link Editor popover at the iPad list scale.
@@ -129,23 +144,42 @@ const styles = StyleSheet.create({
   generateTitle: { ...textStyles.headline, flex: 1 },
   generatePrompt: { ...textStyles.subheadline, minHeight: 44, padding: 0 },
   generateActions: { flexDirection: 'row', justifyContent: 'flex-end' },
+  // The iPad frames' Mac recipe at 1.15: Text style 18.4pt from the leading edge and the scaled
+  // toolbar's 36.8pt glyph boxes 18.4pt from the trailing one, 41.4pt apart, each keeping its 44pt
+  // target. The bar is 43.7pt with its rules; a docked reply's is 41.4pt. Its 44pt controls
+  // overhang it, above the body beneath, so the rules don't clip their targets.
   formatBar: {
+    zIndex: 1,
+    height: 38 * ipadListScale,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.xs,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.l * ipadListScale,
+    borderTopWidth: rule,
+    borderBottomWidth: rule,
   },
   formatRail: { flex: 1 },
+  formatTarget: { height: 44 },
   formatRailContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
     flexGrow: 1,
+    gap: spacing.xs * ipadListScale,
   },
-  divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
+  // 18.4pt tall, 4.6pt from the glyph boxes beside it.
+  divider: {
+    width: rule,
+    height: 16 * ipadListScale,
+  },
+  // The Text style pull-down's label: its symbol, the style and the pop-up chevrons.
+  textStyle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6 * ipadListScale,
+    minHeight: 44,
+    paddingLeft: spacing.s * ipadListScale,
+    paddingRight: 6 * ipadListScale,
+  },
   formatPanel: { margin: spacing.s, marginTop: 0 },
   formatContent: { padding: spacing.l, gap: spacing.m },
   formatHeader: {
@@ -159,17 +193,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.s,
   },
+  // The frames' 40pt style choices, 2pt apart within the row's 4pt inset.
   formatStyles: {
     flexDirection: 'row',
+    gap: 2,
     padding: spacing.xs,
     borderRadius: radius.insetGroup,
   },
+  formatStyle: { minHeight: 40, borderRadius: 18 },
   formatGroup: {
     flex: 1,
     flexDirection: 'row',
     borderRadius: radius.insetGroup,
     overflow: 'hidden',
   },
+  formatGlyph: { fontSize: 17, lineHeight: 20 },
   formatChoice: {
     flex: 1,
     minHeight: 44,
@@ -189,6 +227,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
+  quietPopUp: { minHeight: quietHeight, marginVertical: quietSlop },
+  phoneQuietPopUp: { borderRadius: 7.2 },
   iconPopUp: {
     width: 44,
     justifyContent: 'center',
@@ -278,8 +318,26 @@ const textStyleKinds: readonly BlockKind[] = [
   'quote',
   'code',
 ];
-// The iPhone Format panel's rows: text styles, marks, then lists, quotes and code blocks.
-const headings = ['heading1', 'heading2', 'heading3', 'paragraph'] as const;
+// The iPhone Format panel's rows: text styles, marks, then lists, quotes and code blocks. Its text
+// styles name the heading levels by their role, each shown in its own type.
+const headings = [
+  [
+    'heading1',
+    'drafts.formatStyles.title',
+    { fontSize: 19, fontWeight: '700' },
+  ],
+  [
+    'heading2',
+    'drafts.formatStyles.heading',
+    { fontSize: 16, fontWeight: '600' },
+  ],
+  [
+    'heading3',
+    'drafts.formatStyles.subheading',
+    { fontSize: 13, fontWeight: '600' },
+  ],
+  ['paragraph', 'drafts.blocks.body', { fontSize: 15 }],
+] as const;
 const markGroups = {
   marks: markControls.slice(0, 4),
   code: markControls.slice(4),
@@ -325,9 +383,12 @@ export function PopUp({
         accessibilityRole="button"
         accessibilityState={{ expanded: open, disabled, selected }}
         disabled={disabled}
+        hitSlop={quiet ? quietSlop : undefined}
         onPress={onToggle}
         style={[
           styles.popUp,
+          quiet && styles.quietPopUp,
+          phone && quiet && styles.phoneQuietPopUp,
           label === undefined ? styles.iconPopUp : null,
           { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
         ]}>
@@ -474,6 +535,7 @@ export function FormatBar({
   disabled,
   onBlock,
   onMark,
+  style,
   children,
 }: {
   readonly active: readonly Mark[];
@@ -481,76 +543,95 @@ export function FormatBar({
   readonly disabled: boolean;
   readonly onBlock: (kind: BlockKind) => void;
   readonly onMark: (mark: Mark) => void;
+  readonly style?: StyleProp<ViewStyle>;
   readonly children: ReactNode;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [styleMenu, setStyleMenu] = useState(false);
   return (
     <View
       accessibilityLabel={t('drafts.formatting')}
       accessibilityRole="toolbar"
-      style={[styles.formatBar, { borderColor: colors.separator }]}>
-      <PopUp
+      style={[styles.formatBar, { borderColor: colors.separator }, style]}>
+      {/* The system menu marks the current style with its leading checkmark. */}
+      <MenuButton
         accessibilityLabel={t('drafts.textStyle')}
         disabled={disabled}
-        icon="textformat"
-        label={t(blockNames[kind])}
-        open={styleMenu}
-        onToggle={() => {
-          setStyleMenu((current) => !current);
-        }}>
-        {textStyleKinds.map((value) => (
-          <MenuItem
-            key={value}
-            disabled={disabled}
-            label={t(blockNames[value])}
-            selected={kind === value}
-            onPress={() => {
-              setStyleMenu(false);
-              onBlock(value);
-            }}
+        style={styles.formatTarget}
+        sections={[
+          {
+            items: textStyleKinds.map((value) => ({
+              key: value,
+              title: t(blockNames[value]),
+              symbol: '',
+              checked: kind === value,
+              run: () => {
+                onBlock(value);
+              },
+            })),
+          },
+        ]}>
+        <View style={styles.textStyle}>
+          <SFSymbol
+            name="textformat"
+            color={colors.textPrimary}
           />
-        ))}
-      </PopUp>
+          <Text
+            numberOfLines={1}
+            style={[styles.popUpText, { color: colors.textPrimary }]}>
+            {t(blockNames[kind])}
+          </Text>
+          <SFSymbol
+            name="chevron.up.chevron.down"
+            size={12}
+            color={colors.textSecondary}
+          />
+        </View>
+      </MenuButton>
       <ScrollView
         horizontal
         keyboardShouldPersistTaps="always"
-        style={styles.formatRail}
+        style={[styles.formatRail, styles.formatTarget]}
         contentContainerStyle={styles.formatRailContent}>
-        <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-        {markControls.map(([mark, , name]) => (
+        <ScaledToolbar value>
+          <View
+            style={[styles.divider, { backgroundColor: colors.separator }]}
+          />
+          {markControls.map(([mark, , name]) => (
+            <ToolbarButton
+              key={mark}
+              disabled={disabled}
+              icon={markIcons[mark]}
+              label={t(name)}
+              selected={active.includes(mark)}
+              onPress={() => {
+                onMark(mark);
+              }}
+            />
+          ))}
+          <View
+            style={[styles.divider, { backgroundColor: colors.separator }]}
+          />
           <ToolbarButton
-            key={mark}
             disabled={disabled}
-            icon={markIcons[mark]}
-            label={t(name)}
-            selected={active.includes(mark)}
+            icon="list.bullet"
+            label={t('drafts.blocks.bulleted')}
+            selected={kind === 'bulleted'}
             onPress={() => {
-              onMark(mark);
+              onBlock('bulleted');
             }}
           />
-        ))}
-        <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-        <ToolbarButton
-          disabled={disabled}
-          icon="list.bullet"
-          label={t('drafts.blocks.bulleted')}
-          selected={kind === 'bulleted'}
-          onPress={() => {
-            onBlock('bulleted');
-          }}
-        />
-        <ToolbarButton
-          disabled={disabled}
-          icon="list.number"
-          label={t('drafts.blocks.numbered')}
-          selected={kind === 'numbered'}
-          onPress={() => {
-            onBlock('numbered');
-          }}
-        />
-        {children}
+          <ToolbarButton
+            disabled={disabled}
+            icon="list.number"
+            label={t('drafts.blocks.numbered')}
+            selected={kind === 'numbered'}
+            onPress={() => {
+              onBlock('numbered');
+            }}
+          />
+          {children}
+        </ScaledToolbar>
       </ScrollView>
     </View>
   );
@@ -562,12 +643,16 @@ function FormatChoice({
   selected,
   disabled,
   onPress,
+  style,
+  hitSlop,
   children,
 }: {
   readonly name: string;
   readonly selected: boolean;
   readonly disabled: boolean;
   readonly onPress: () => void;
+  readonly style?: StyleProp<ViewStyle>;
+  readonly hitSlop?: Insets;
   readonly children: (color: string) => ReactNode;
 }) {
   const colors = usePalette();
@@ -577,9 +662,11 @@ function FormatChoice({
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
+      hitSlop={hitSlop}
       onPress={onPress}
       style={[
         styles.formatChoice,
+        style,
         selected && { backgroundColor: colors.accentFill },
         disabled && { opacity: 0.4 },
       ]}>
@@ -637,11 +724,13 @@ export function FormatPanel({
       shown.remove();
     };
   }, [linking, onHide, open]);
+  const insets = useSafeAreaInsets();
   const rowFill = { backgroundColor: colors.fillQuiet };
   return (
     <GlassPanel
       open={open}
-      style={styles.formatPanel}
+      // The panel takes the keyboard's place, 8pt from the screen's bottom edge.
+      style={[styles.formatPanel, { marginBottom: spacing.s - insets.bottom }]}
       cornerRadius={radius.formatPanel}>
       <View
         accessibilityLabel={t('drafts.formatting')}
@@ -661,7 +750,7 @@ export function FormatPanel({
           />
           <ToolbarButton
             disabled={disabled || !redo}
-            icon="arrow.uturn.forward"
+            icon="arrow.clockwise"
             label={t('drafts.redo')}
             onPress={onRedo}
           />
@@ -675,19 +764,23 @@ export function FormatPanel({
           </View>
         </View>
         <View style={[styles.formatStyles, rowFill]}>
-          {headings.map((value) => {
-            const name = t(blockNames[value]);
+          {headings.map(([value, label, type]) => {
+            const name = t(label);
             return (
               <FormatChoice
                 key={value}
                 disabled={disabled}
                 name={name}
                 selected={kind === value}
+                style={styles.formatStyle}
+                hitSlop={formatStyleSlop}
                 onPress={() => {
                   onBlock(value);
                 }}>
                 {(color) => (
-                  <Text style={[textStyles.subheadline, { color }]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[type, { color }]}>
                     {name}
                   </Text>
                 )}
@@ -699,11 +792,7 @@ export function FormatPanel({
           {Object.entries(markGroups).map(([key, group]) => (
             <View
               key={key}
-              style={[
-                styles.formatGroup,
-                rowFill,
-                { minWidth: (key === 'code' ? 2 : group.length) * 44 },
-              ]}>
+              style={[styles.formatGroup, rowFill]}>
               {group.map(([mark, , name]) => (
                 <FormatChoice
                   key={mark}
@@ -713,13 +802,20 @@ export function FormatPanel({
                   onPress={() => {
                     onMark(mark);
                   }}>
-                  {(color) => (
-                    <SFSymbol
-                      name={markIcons[mark]}
-                      size={20}
-                      color={color}
-                    />
-                  )}
+                  {(color) =>
+                    mark === 'code' ? (
+                      <Text style={[styles.formatGlyph, { color }]}>
+                        {'</>'}
+                      </Text>
+                    ) : (
+                      <SFSymbol
+                        name={markIcons[mark]}
+                        // The frame draws Bold's mark 13×16pt.
+                        size={23}
+                        color={color}
+                      />
+                    )
+                  }
                 </FormatChoice>
               ))}
               {/* The Link control follows Code, as in the iPhone Format frame. */}
@@ -743,7 +839,7 @@ export function FormatPanel({
             <View
               key={key}
               style={[styles.formatGroup, rowFill]}>
-              {group.map(([value, , name]) => (
+              {group.map(([value, glyph, name]) => (
                 <FormatChoice
                   key={value}
                   disabled={disabled}
@@ -758,17 +854,14 @@ export function FormatPanel({
                         name={
                           value === 'bulleted' ? 'list.bullet' : 'list.number'
                         }
-                        size={20}
+                        // The frame draws the bulleted list 16×11pt.
+                        size={16}
                         color={color}
                       />
                     ) : (
-                      <SFSymbol
-                        name={
-                          value === 'quote' ? 'quote.opening' : 'curlybraces'
-                        }
-                        size={20}
-                        color={color}
-                      />
+                      <Text style={[styles.formatGlyph, { color }]}>
+                        {glyph}
+                      </Text>
                     )
                   }
                 </FormatChoice>
@@ -854,7 +947,7 @@ export function LinkEditor({
       modifiers={[
         labelStyle('iconOnly'),
         buttonStyle('plain'),
-        font({ size: 20 }),
+        font({ size: popover ? scaledToolbar.symbol : 20 }),
         foregroundStyle(colors.textPrimary),
         frame({ minWidth: 44, minHeight: 44 }),
         inactive(disabled || link === undefined),
