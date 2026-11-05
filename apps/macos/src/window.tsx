@@ -42,6 +42,7 @@ import { FolderChoiceSheet } from './folder-choice.tsx';
 import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
 import { listWidth } from './inbox-styles.ts';
 import { Inbox } from './inbox.tsx';
+import { OpenMessageContext } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import {
   InboxProvider,
@@ -426,13 +427,22 @@ function WindowContents({
                       <CategorizationSpike />
                     ) : (
                       <ReaderToolbarWidthContext value={setToolbarWidth}>
-                        <MessageDetail
-                          id={selected?.id}
-                          mailbox={selected?.mailbox}
-                          folder={selected?.folder}
-                          onClose={close}
-                          onCompose={compose}
-                        />
+                        {/* Another message of the same mailbox replaces the reader's, beneath an
+                            open composer. */}
+                        <OpenMessageContext
+                          value={(id) => {
+                            if (selected !== undefined) {
+                              setSelected({ mailbox: selected.mailbox, id });
+                            }
+                          }}>
+                          <MessageDetail
+                            id={selected?.id}
+                            mailbox={selected?.mailbox}
+                            folder={selected?.folder}
+                            onClose={close}
+                            onCompose={compose}
+                          />
+                        </OpenMessageContext>
                       </ReaderToolbarWidthContext>
                     )}
                     {composing === undefined ? null : (

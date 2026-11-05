@@ -792,6 +792,67 @@ describe('meeting invitations', () => {
     later.close();
   });
 
+  it('opens the newest answered revision’s message from an older one while the mailbox has it', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox, invitation, responses, close } = await invited();
+    const newer = gmail.deliver({
+      from: 'Lena Fischer <lena@northwind.example>',
+      subject: 'Updated invitation: Q4 roadmap review',
+      content: { text: 'Moved.' },
+    });
+    await inbox.load();
+    const revised = {
+      ...invitation,
+      sequence: invitation.sequence + 1,
+      message: newer,
+    };
+
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(revised, 'declined', copy);
+
+    expect(responses.latest(invitation)).toBe(newer);
+    expect(responses.latest(revised)).toBeUndefined();
+
+    close();
+    const later = await relaunched(gmail, id);
+
+    expect(later.responses.latest(invitation)).toBe(newer);
+
+    later.close();
+    // The answered message left the mailbox, so nothing opens it.
+    await responses.respond(
+      { ...revised, sequence: revised.sequence + 1, message: 'gone' },
+      'accepted',
+      copy,
+    );
+
+    expect(responses.latest(invitation)).toBeUndefined();
+  });
+
+  it('opens nothing from a record saved without its message', async () => {
+    expect.hasAssertions();
+    const { inbox, invitation, responses, close } = await invited();
+    const { uid, sequence } = invitation;
+    await inbox.recordResponse(
+      { uid, sequence: sequence + 1 },
+      {
+        kind: 'sent',
+        uid,
+        sequence: sequence + 1,
+        choice: 'accepted',
+        at: 1,
+        start: invitation.details.start,
+      },
+    );
+
+    expect(responses.state(invitation)).toStrictEqual({ kind: 'older' });
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    close();
+  });
+
   it('treats a revision as older when a newer response’s delivery is unknown', async () => {
     expect.hasAssertions();
     const { inbox, invitation, responses, close } = await invited();

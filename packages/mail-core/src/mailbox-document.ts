@@ -174,6 +174,8 @@ const InvitationRevision = {
   choice: Schema.Literals(['accepted', 'tentative', 'declined']),
   start: Schema.optionalKey(InvitationTime),
   end: Schema.optionalKey(InvitationTime),
+  // The Gmail message that carried the revision; records saved before it was kept have none.
+  message: Schema.optionalKey(Schema.String),
 };
 const InvitationResponseSchema = Schema.Union([
   Schema.Struct({

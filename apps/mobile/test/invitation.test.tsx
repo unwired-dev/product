@@ -5,6 +5,7 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 
+import { OpenMessageContext } from '../src/invitation.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
@@ -75,6 +76,8 @@ async function opened(
   });
   const inbox = createGmailInbox(gmail.native);
   await inbox.load();
+  // The messages the reader's route opened in its place.
+  const shown: string[] = [];
   const mailboxes = [
     { provider: 'gmail' as const, address: me, profile: 'default' },
     ...others,
@@ -103,16 +106,21 @@ async function opened(
           load: () => Promise.resolve(),
         }}>
         <ProfileScope profile="default">
-          <GmailMessageBody
-            inbox={inbox}
-            id={id}
-            connection="gmail-connection"
-          />
+          <OpenMessageContext
+            value={(opened) => {
+              shown.push(opened);
+            }}>
+            <GmailMessageBody
+              inbox={inbox}
+              id={id}
+              connection="gmail-connection"
+            />
+          </OpenMessageContext>
         </ProfileScope>
       </InboxProvider>
     </AccountContext>,
   );
-  return { gmail, inbox, id, app };
+  return { gmail, inbox, id, app, shown };
 }
 
 describe('meeting invitations in the iPhone and iPad reader', () => {
@@ -483,11 +491,51 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
         ),
       ).toBeOnTheScreen();
       expect(screen.queryByText('Invited')).toBeNull();
+      // A response recorded before it kept its message names none to show.
       expect(
-        ['Accept', 'Maybe', 'Decline'].map((name) =>
+        ['Accept', 'Maybe', 'Decline', 'Show Latest'].map((name) =>
           screen.queryByRole('button', { name }),
         ),
-      ).toStrictEqual([null, null, null]);
+      ).toStrictEqual([null, null, null, null]);
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('opens the newer invitation it answered from an older revision', async () => {
+    expect.hasAssertions();
+    const { app, gmail, inbox, shown } = await opened(
+      invitation('alex@example.invalid'),
+    );
+    try {
+      await screen.findByText('Not answered yet');
+      const newer = gmail.deliver({
+        from: 'Lena Fischer <lena@northwind.example>',
+        subject: 'Updated invitation: Q4 roadmap review',
+        content: { text: 'Moved.' },
+      });
+      const uid = 'roadmap-42@northwind.example';
+      await act(async () => {
+        await inbox.load();
+        await inbox.recordResponse(
+          { uid, sequence: 1 },
+          {
+            kind: 'sent',
+            uid,
+            sequence: 1,
+            choice: 'accepted',
+            at: Date.UTC(2026, 10, 2, 9, 52),
+            start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+            message: newer,
+          },
+        );
+      });
+
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Show Latest' }),
+      );
+
+      expect(shown).toStrictEqual([newer]);
     } finally {
       await app.unmount();
     }

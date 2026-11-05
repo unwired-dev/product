@@ -795,9 +795,10 @@ const answerable = (
   !(current.kind === 'sent' && current.choice === choice);
 
 // The record that restores `state` after relaunch; other states are not recorded. It keeps the
-// time it answered, so a later revision can say what changed.
+// time it answered, so a later revision can say what changed, and the message it answered, which
+// an older revision opens.
 const responseOf = (
-  { uid, sequence, details: { start, end, recurrence } }: Invitation,
+  { uid, sequence, message, details: { start, end, recurrence } }: Invitation,
   state: ResponseState,
 ): InvitationResponse | undefined => {
   const revision = {
@@ -806,6 +807,7 @@ const responseOf = (
     ...(recurrence === undefined ? {} : { recurrence }),
     start,
     ...(end === undefined ? {} : { end }),
+    message,
   };
   if (state.kind === 'sent') {
     return { kind: 'sent', ...revision, choice: state.choice, at: state.at };
@@ -922,10 +924,9 @@ function createInvitationResponses(
     recordsOf(invitation).find(
       ({ sequence }) => sequence === invitation.sequence,
     );
-  // The confirmed response to the latest earlier revision, when that revision was at another time.
-  const earlierOf = (invitation: Invitation): EarlierResponse | undefined => {
-    // A newer answered revision makes this one an older version, which names no earlier answer.
-    const latest = recordsOf(invitation)
+  // The record of the newest other revision of the invitation's meeting that was answered.
+  const newestOtherOf = (invitation: Invitation) =>
+    recordsOf(invitation)
       .filter(({ sequence }) => sequence !== invitation.sequence)
       .reduce<InvitationResponse | undefined>(
         (found, record) =>
@@ -934,6 +935,10 @@ function createInvitationResponses(
             : found,
         undefined,
       );
+  // The confirmed response to the latest earlier revision, when that revision was at another time.
+  const earlierOf = (invitation: Invitation): EarlierResponse | undefined => {
+    // A newer answered revision makes this one an older version, which names no earlier answer.
+    const latest = newestOtherOf(invitation);
     return latest !== undefined &&
       latest.sequence < invitation.sequence &&
       timed(latest) &&
@@ -1064,6 +1069,17 @@ function createInvitationResponses(
     },
     state: stateOf,
     earlier: earlierOf,
+    // The message of the newest revision this device answered after `invitation`'s, while the
+    // mailbox still has it.
+    latest: (invitation: Invitation) => {
+      const newest = newestOtherOf(invitation);
+      return newest !== undefined &&
+        newest.sequence > invitation.sequence &&
+        newest.message !== undefined &&
+        receivedOf(newest.message) !== undefined
+        ? newest.message
+        : undefined;
+    },
     // Sends `choice` to the organizer, unless a response is under way or its delivery is unknown.
     respond: (
       invitation: Invitation,

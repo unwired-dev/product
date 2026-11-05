@@ -24,6 +24,7 @@ import {
 } from '@private-email/mail-core/invitations';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
+  createContext,
   use,
   useLayoutEffect,
   useMemo,
@@ -37,6 +38,12 @@ import { useLocalization } from './localization.ts';
 import { useMailboxes, useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
+
+// Opens another message of the reader's mailbox in its place, such as an invitation's newer
+// version; a reader without it opens none.
+export const OpenMessageContext = createContext<
+  ((id: string) => void) | undefined
+>(undefined);
 
 const styles = StyleSheet.create({
   card: {
@@ -348,6 +355,10 @@ function Responding({
   const recorded = useSyncExternalStore(responses.subscribe, () =>
     responses.state(invitation),
   );
+  const latest = useSyncExternalStore(responses.subscribe, () =>
+    responses.latest(invitation),
+  );
+  const open = use(OpenMessageContext);
   const sync = useSyncExternalStore(inbox.subscribe, () => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready' ? state.sync : undefined;
@@ -423,7 +434,20 @@ function Responding({
   };
   // An older revision cannot respond, so it only points to the newer one.
   if (recorded.kind === 'older') {
-    return <Status {...shown} />;
+    return (
+      <Status {...shown}>
+        {latest === undefined || open === undefined ? undefined : (
+          <Button
+            label={t('invitation.showLatest')}
+            onPress={() => {
+              if (current()) {
+                open(latest);
+              }
+            }}
+          />
+        )}
+      </Status>
+    );
   }
   if (blocked === 'authentication' || recorded.kind === 'authentication') {
     return (
