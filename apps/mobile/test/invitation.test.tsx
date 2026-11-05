@@ -453,6 +453,46 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     }
   });
 
+  it('shows an older revision with nothing to respond to once a newer one was answered', async () => {
+    expect.hasAssertions();
+    const opening = await opened(invitation('alex@example.invalid'));
+    const { app } = opening;
+    try {
+      await screen.findByText('Not answered yet');
+      const uid = 'roadmap-42@northwind.example';
+      await act(async () => {
+        await opening.inbox.recordResponse(
+          { uid, sequence: 1 },
+          {
+            kind: 'sent',
+            uid,
+            sequence: 1,
+            choice: 'accepted',
+            at: Date.UTC(2026, 10, 2, 9, 52),
+            start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+          },
+        );
+      });
+
+      expect(
+        screen.getByLabelText('Invitation from Lena Fischer, Older version'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText(
+          'There’s a newer version of this invitation. Respond from the latest invitation so your answer matches it.',
+        ),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText('Invited')).toBeNull();
+      expect(
+        ['Accept', 'Maybe', 'Decline'].map((name) =>
+          screen.queryByRole('button', { name }),
+        ),
+      ).toStrictEqual([null, null, null]);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('shows a cancelled meeting with nothing to respond to', async () => {
     expect.hasAssertions();
     const { app } = await opened(

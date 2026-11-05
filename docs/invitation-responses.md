@@ -73,8 +73,17 @@ separately.
   when that answer was confirmed and its start or end differs. An unknown delivery
   there, or a record saved before #1834 without a time, shows the plain unanswered
   card rather than an older answer that may no longer stand. A revision that
-  changes only other details, or an older revision (a later SEQUENCE was answered),
-  is unchanged.
+  changes only other details is unchanged.
+- An older revision ([#1851](https://github.com/unwired-dev/product/issues/1851)),
+  opened after this device recorded a response (confirmed or delivery unknown) to a
+  higher SEQUENCE of the same meeting for the opened address, shows an **Older
+  version** badge, **When** and **Organizer** without **Invited**, and **There’s a
+  newer version of this invitation** with **Respond from the latest invitation so
+  your answer matches it.** It offers no response, and a choice made on a card
+  shown before the newer response was recorded sends nothing. **Show Latest**
+  ([#1852](https://github.com/unwired-dev/product/issues/1852)) is not built yet,
+  and a newer revision this device never answered does not mark the opened one as
+  older.
 - A `METHOD:CANCEL` for one meeting
   ([#1826](https://github.com/unwired-dev/product/issues/1826)) shows the same
   details under **Cancelled by** the organizer, with a **Cancelled** badge, the

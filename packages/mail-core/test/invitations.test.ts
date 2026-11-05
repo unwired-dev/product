@@ -765,6 +765,64 @@ describe('meeting invitations', () => {
     close();
   });
 
+  it('sends nothing from an older revision once a newer one was answered', async () => {
+    expect.hasAssertions();
+    const { gmail, id, invitation, responses, close } = await invited();
+    await responses.respond(invitation, 'accepted', copy);
+    const revised = { ...invitation, sequence: invitation.sequence + 1 };
+    await responses.respond(revised, 'declined', copy);
+
+    expect(responses.state(invitation)).toStrictEqual({ kind: 'older' });
+    expect(responses.earlier(invitation)).toBeUndefined();
+
+    await responses.respond(invitation, 'tentative', copy);
+    await responses.respondAgain(invitation, 'tentative', copy);
+
+    expect(gmail.sends).toHaveLength(2);
+
+    close();
+    const later = await relaunched(gmail, id);
+
+    expect(later.responses.state(invitation)).toStrictEqual({ kind: 'older' });
+    expect(later.responses.state(revised)).toMatchObject({
+      kind: 'sent',
+      choice: 'declined',
+    });
+
+    later.close();
+  });
+
+  it('treats a revision as older when a newer response’s delivery is unknown', async () => {
+    expect.hasAssertions();
+    const { inbox, invitation, responses, close } = await invited();
+    const { uid, sequence } = invitation;
+    const { start } = invitation.details;
+    await inbox.recordResponse(
+      { uid, sequence: sequence + 1 },
+      {
+        kind: 'unknown',
+        uid,
+        sequence: sequence + 1,
+        choice: 'accepted',
+        boundary: 'newer',
+        start,
+      },
+    );
+
+    expect(responses.state(invitation)).toStrictEqual({ kind: 'older' });
+    expect(
+      responses.state({ ...invitation, sequence: sequence + 2 }),
+    ).toStrictEqual({ kind: 'unanswered' });
+    expect(
+      responses.state({
+        ...invitation,
+        details: { ...invitation.details, recurrence: start.at },
+      }),
+    ).toStrictEqual({ kind: 'unanswered' });
+
+    close();
+  });
+
   it('keeps a response to one meeting of a series apart from the others', async () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();
