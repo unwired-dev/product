@@ -130,7 +130,8 @@ final class InboxTests: XCTestCase {
     // More (#1404): its Reply sheet offers the actions and opens Gmail's labels in that panel.
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let labels = app.staticTexts["Labels"]
-    let panelItem = phone ? labels : app.buttons["Star"]
+    // iPad's More is the system menu, titled as the row menu names its actions.
+    let panelItem = phone ? labels : app.buttons["Flag"]
     if phone {
       XCTAssertFalse(app.buttons["More"].exists)
       app.buttons["Reply"].tap()
@@ -147,20 +148,25 @@ final class InboxTests: XCTestCase {
     // Organizing goes through the packaged native Gmail modify: a star from the Reply sheet on
     // iPhone or the More panel on iPad, then an archive and Undo.
     app.buttons[phone ? "Reply" : "More"].tap()
-    app.buttons["Star"].tap()
+    app.buttons[phone ? "Star" : "Flag"].tap()
+    // Choosing closes the sheet or menu; it reopens with the new star state.
     if phone {
-      // Choosing closes the sheet; it reopens with the new star state.
       XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
-      app.buttons["Reply"].tap()
     }
-    XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
+    app.buttons[phone ? "Reply" : "More"].tap()
+    let unstar = app.buttons[phone ? "Remove star" : "Unflag"]
+    XCTAssertTrue(unstar.waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
-    XCTAssertTrue(app.buttons["Remove star"].exists)
+    XCTAssertTrue(unstar.exists)
+    if !phone {
+      bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+      XCTAssertTrue(unstar.waitForNonExistence(timeout: 5))
+    }
     // The starred row names its flag.
     let starred = app.buttons["Unread. Rowan Hale. Garden plans for spring. Flagged"]
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
-      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report spam"))
+      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report Spam"))
       app.buttons["Labels"].tap()
       XCTAssertTrue(labels.waitForExistence(timeout: 5))
       app.buttons["Reply"].tap()
