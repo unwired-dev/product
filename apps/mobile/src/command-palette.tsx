@@ -134,6 +134,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.s,
     maxHeight: '80%',
   },
+  sheetPanel: { flexShrink: 1 },
   // The iPad popover: the query field over the command input, the commands 8pt beneath it.
   popover: { position: 'absolute', gap: spacing.s },
   anchoredInput: {
@@ -388,7 +389,9 @@ function paletteFrame(
       ],
       inputRow: styles.inputRow,
       field: [styles.field, { backgroundColor: colors.fillQuiet }],
-      panel: styles.fill,
+      // Sized by its commands up to the sheet's cap; `flex: 1` would collapse it in the
+      // content-sized sheet (#1841).
+      panel: styles.sheetPanel,
     };
   }
   return {
