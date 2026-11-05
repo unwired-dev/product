@@ -1255,7 +1255,7 @@ describe('composing Drafts', () => {
     await answer('Save');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Settings opens in its own window, so the Draft stays open beside it.
-    await press('Account');
+    await press('Settings');
     expect(openAccount).toHaveBeenCalledWith();
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     storage.setLocked(false);
@@ -1279,7 +1279,7 @@ describe('composing Drafts', () => {
 
   // The password repair opens Settings on Email Accounts.
   it.each([
-    ['Account', []],
+    ['Settings', []],
     ['Enter the password for imap@example.invalid again', ['mailboxes']],
   ] as const)(
     'opens %s in Settings beside an open composer',

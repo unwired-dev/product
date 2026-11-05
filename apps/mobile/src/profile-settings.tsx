@@ -420,7 +420,10 @@ export function MailProfilesSettings({
             onPress={() => {
               setChosen(id);
             }}
+            // iPhone's frames keep the selected Profile on the group's quiet fill; the group
+            // below it is titled by its name.
             style={
+              settingsColumns &&
               id === selected && {
                 backgroundColor: colors.accentSelectionSubtle,
               }

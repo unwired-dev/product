@@ -1,15 +1,23 @@
 import type { Message } from '@private-email/mail-core';
+import type { Command, CommandTarget } from '@private-email/mail-core/commands';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { ReactNode } from 'react';
 
 import { messageDay } from '@private-email/localization';
-import { rowContextMenu } from '@private-email/mail-core/context-menu';
+import {
+  messageCommands,
+  readerRowMenu,
+  rowContextMenu,
+} from '@private-email/mail-core/context-menu';
 import { matchedRanges } from '@private-email/mail-core/mailboxes';
+import { radius } from '@private-email/mail-core/theme';
+import { useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
+import { useCommandRegistry } from './command-palette.tsx';
 import { ContextMenu, SFSymbol } from './design.tsx';
-import { styles } from './inbox-styles.ts';
+import { ipad, styles } from './inbox-styles.ts';
 import {
   useLocalization,
   useMessageDateFormat,
@@ -24,6 +32,8 @@ export type RowAction = Readonly<{
   run: () => void;
 }>;
 const noActions: readonly RowAction[] = [];
+const noCommands: readonly Command[] = [];
+const noSubscription = () => () => undefined;
 
 // A field with the search's matched words in bold.
 function Marked({
@@ -63,6 +73,7 @@ export function MessageRow({
   now,
   beforeDivider = false,
   query,
+  reader,
 }: {
   readonly message: Message | GmailMessage | ImapMessage;
   // Shown when the Inbox holds more than one mailbox.
@@ -79,12 +90,21 @@ export function MessageRow({
   readonly beforeDivider?: boolean | undefined;
   // The search that listed it, whose matched words the sender and subject mark.
   readonly query?: string | undefined;
+  // The reader's command target while this message is open in it; only then does the row follow
+  // the commands the reader offers.
+  readonly reader?: CommandTarget | undefined;
 }) {
   const colors = usePalette();
   const primaryColor = selected ? colors.accentOnFill : colors.textPrimary;
   const secondaryColor = selected ? colors.accentOnFill : colors.textSecondary;
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
+  const [previewing, setPreviewing] = useState(false);
+  const registry = useCommandRegistry();
+  const offered = useSyncExternalStore(
+    reader === undefined ? noSubscription : registry.subscribe,
+    () => (reader === undefined ? noCommands : registry.getSnapshot()),
+  );
   // Gmail's star and IMAP's \Flagged are the list's flag; Microsoft mail lists none yet.
   const flagged =
     'flagged' in message
@@ -108,7 +128,20 @@ export function MessageRow({
     status,
   });
   return (
-    <ContextMenu sections={rowContextMenu(t, message.id, actions)}>
+    <ContextMenu
+      // iPhone lifts the row as its 22pt contextual preview, which holds the text 16pt in on both
+      // sides rather than the list's 18pt leading and 2pt trailing.
+      previewRadius={ipad ? radius.card : radius.insetGroup}
+      onPreview={ipad ? undefined : setPreviewing}
+      style={styles.rowSpacing}
+      sections={
+        reader === undefined
+          ? rowContextMenu(t, message.id, actions)
+          : readerRowMenu(t, rowContextMenu(t, message.id, actions), {
+              target: reader,
+              commands: messageCommands(offered, reader),
+            })
+      }>
       <Pressable
         accessibilityActions={actions.map(({ name, label: actionLabel }) => ({
           name,
@@ -130,6 +163,7 @@ export function MessageRow({
               : 'transparent',
           },
           selected && { backgroundColor: colors.accentFill },
+          previewing && styles.rowPreview,
         ]}>
         {({ pressed }) => (
           <>

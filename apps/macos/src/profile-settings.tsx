@@ -387,6 +387,7 @@ export function MailProfilesSettings({
             </Text>
           ) : (
             <PopUp
+              variant="inline"
               accessibilityLabel={t('profiles.color')}
               disabled={busy}
               label={t(`profiles.colors.${color}`)}
@@ -416,6 +417,7 @@ export function MailProfilesSettings({
             </Text>
           ) : (
             <PopUp
+              variant="inline"
               accessibilityLabel={t('profiles.icon')}
               disabled={busy}
               label={t(`profiles.icons.${icon ?? 'firstLetter'}`)}
@@ -456,6 +458,7 @@ export function MailProfilesSettings({
               subtitle={t(`mailProviders.${mailbox.provider}`)}>
               {progress(mailbox.id)}
               <PopUp
+                variant="inline"
                 accessibilityLabel={t('profiles.moveMailbox', {
                   address: mailbox.address,
                 })}
@@ -518,6 +521,7 @@ export function MailProfilesSettings({
           footer={t('profiles.settings.deviceFooter')}>
           <SettingsRow title={t('profiles.startup')}>
             <PopUp
+              variant="inline"
               accessibilityLabel={t('profiles.startup')}
               label={nameOf(startup)}
               items={ids.map((id) => ({

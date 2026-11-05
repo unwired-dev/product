@@ -29,6 +29,8 @@ import {
   CloseButton,
   ComposerLayoutContext,
   composerStyles,
+  fieldSlop,
+  layoutStyles,
   Recipients,
   SendButton,
   textToolLabel,
@@ -395,6 +397,8 @@ export function DraftFields({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const { size } = use(ComposerLayoutContext);
+  const sized = layoutStyles[size];
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
   const copiesShown =
     draft.copies === true || draft.cc.length + draft.bcc.length > 0;
@@ -410,9 +414,15 @@ export function DraftFields({
     />
   );
   return (
-    <View style={s.fields}>
-      <View style={[s.field, { borderTopColor: colors.separator }]}>
-        <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>
+    <View style={[s.fields, sized.fields]}>
+      <View
+        style={[s.field, sized.field, { borderTopColor: colors.separator }]}>
+        <Text
+          style={[
+            s.fieldLabel,
+            sized.fieldLabel,
+            { color: colors.textSecondary },
+          ]}>
           {`${t('drafts.subject')}:`}
         </Text>
         <TextInput
@@ -422,9 +432,11 @@ export function DraftFields({
           onChangeText={(subject) => {
             onChange({ ...getDraft(), subject });
           }}
-          placeholder={t('drafts.subject')}
+          hitSlop={fieldSlop[size]}
+          // iPad's Subject label already names the empty field.
+          placeholder={size === 'regular' ? undefined : t('drafts.subject')}
           placeholderTextColor={colors.textSecondary}
-          style={[s.input, { color: colors.textPrimary }]}
+          style={[s.input, sized.input, { color: colors.textPrimary }]}
           value={draft.subject}
         />
       </View>

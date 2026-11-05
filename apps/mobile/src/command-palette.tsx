@@ -7,6 +7,7 @@ import type {
 import type { ReactNode } from 'react';
 import type {
   GestureResponderEvent,
+  LayoutRectangle,
   TextInput as TextInputHandle,
   StyleProp,
   ViewProps,
@@ -24,7 +25,7 @@ import {
   sectionTitle,
 } from '@private-email/mail-core/commands';
 import { messageCommands } from '@private-email/mail-core/context-menu';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -43,6 +44,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -57,15 +59,22 @@ const PaletteContext = createContext<
     registry: CommandRegistry;
     // The commands as listed when the palette opened, while it is open.
     opened: readonly Command[] | undefined;
-    open: () => void;
+    // Where the iPad command input that opens the palette sits in the window.
+    anchor: Anchor | undefined;
+    open: (from?: Anchor) => void;
     close: () => void;
   }>
 >({
   registry: createCommandRegistry(),
   opened: undefined,
+  anchor: undefined,
   open: () => undefined,
   close: () => undefined,
 });
+
+// An iPad command input's frame in the window. The palette opens as a popover beneath it, its
+// field taking the input's place, as the iPad Palette frames draw it.
+type Anchor = Readonly<{ x: number; y: number; width: number }>;
 
 export function useCommandPalette() {
   const { opened, open, close } = use(PaletteContext);
@@ -112,6 +121,8 @@ const hint = createPaletteHint({
 // iPad keeps a visible command input; iPhone opens the palette by gesture alone.
 const pad = Platform.OS === 'ios' && Platform.isPad;
 const scrim = 'rgba(0, 0, 0, 0.3)';
+// The iPad Palette frames' popover: 460pt beside a landscape reader, 420pt in portrait.
+const popoverWidth = (width: number) => (width > 1000 ? 460 : 420);
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -122,6 +133,33 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     paddingBottom: spacing.s,
     maxHeight: '80%',
+  },
+  sheetPanel: { flexShrink: 1 },
+  // The iPad popover: the query field over the command input, the commands 8pt beneath it.
+  popover: { position: 'absolute', gap: spacing.s },
+  anchoredInput: {
+    height: 36,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 18,
+    borderCurve: 'continuous',
+  },
+  anchoredField: { minHeight: 36, borderRadius: 18 },
+  // The frames outline the focused query; esc beside it cancels, as its key does.
+  focusRing: { borderWidth: 3 },
+  keyCap: {
+    ...typography.ipadList.subheadline,
+    paddingHorizontal: 6,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+  },
+  // The commands on the frames' 16pt glass panel.
+  popoverPanel: {
+    flexShrink: 1,
+    paddingVertical: spacing.s,
+    borderRadius: radius.window,
+    borderCurve: 'continuous',
   },
   inputRow: {
     flexDirection: 'row',
@@ -172,13 +210,14 @@ const styles = StyleSheet.create({
   },
   backText: { ...textStyles.subheadline },
   choosing: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
-  list: { paddingHorizontal: spacing.m },
+  // iPad's commands sit 8pt inside their panel, beneath 32pt group headers, in the list's type.
+  list: { paddingHorizontal: pad ? spacing.s : spacing.m },
   section: {
     ...textStyles.footnote,
     fontWeight: '600',
-    paddingTop: spacing.m,
+    paddingTop: pad ? 10 : spacing.m,
     paddingBottom: spacing.xs,
-    paddingHorizontal: spacing.s,
+    paddingHorizontal: pad ? spacing.m : spacing.s,
   },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.s },
   row: {
@@ -186,25 +225,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.m,
     minHeight: 44,
-    paddingHorizontal: spacing.s,
+    paddingHorizontal: pad ? spacing.m : spacing.s,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
-  title: { ...textStyles.body, flex: 1 },
+  title: { ...(pad ? typography.ipadList.body : textStyles.body), flex: 1 },
   // A command that cannot run keeps its name legible but recedes behind its reason.
   dimmed: { opacity: 0.35 },
   detail: { ...textStyles.footnote },
   empty: { ...textStyles.subheadline, padding: spacing.l },
+  // 36pt as the iPad frames draw the command input; its hit slop keeps a 44pt touch target.
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    minHeight: 44,
+    height: 36,
     paddingHorizontal: spacing.m,
-    borderRadius: 22,
+    borderRadius: 18,
     borderCurve: 'continuous',
   },
-  pillText: { ...textStyles.subheadline },
+  pillText: { ...typography.ipadList.body },
   // Matches the reader's header and the composer's top bar, where the input otherwise sits.
   commandRow: {
     width: '100%',
@@ -253,6 +293,7 @@ export function CommandPaletteProvider({
   const registry = useMemo(() => createCommandRegistry(), []);
   const { t } = useLocalization();
   const [opened, setOpened] = useState<readonly Command[]>();
+  const [anchor, setAnchor] = useState<Anchor>();
   // The palette drops in from the top and fades away; it keeps the last commands while it leaves,
   // and each opening starts afresh.
   const motion = useMenuMotion(opened !== undefined, 'drop');
@@ -274,10 +315,12 @@ export function CommandPaletteProvider({
     () => ({
       registry,
       opened,
-      open: () => {
+      anchor,
+      open: (from?: Anchor) => {
         if (opened !== undefined) {
           return;
         }
+        setAnchor(from);
         void hint.dismiss();
         previous.current = TextInput.State.currentlyFocusedInput();
         const placeholders = expectedCommands(t, {
@@ -296,7 +339,7 @@ export function CommandPaletteProvider({
         previous.current = null;
       },
     }),
-    [registry, opened, t],
+    [registry, opened, anchor, t],
   );
   return (
     <PaletteContext value={value}>
@@ -305,6 +348,7 @@ export function CommandPaletteProvider({
         {motion.shown && shown !== undefined ? (
           <Palette
             key={openings}
+            anchor={pad ? anchor : undefined}
             motion={motion}
             open={opened !== undefined}
             opened={shown}
@@ -315,14 +359,88 @@ export function CommandPaletteProvider({
   );
 }
 
+// The palette's frame: on iPad a popover beneath the command input that opened it, its field in
+// the input's place and no dimming behind it; otherwise a sheet attached to the top over a scrim.
+function paletteFrame(
+  anchor: Anchor | undefined,
+  {
+    insets,
+    colors,
+    window,
+  }: Readonly<{
+    insets: ReturnType<typeof useSafeAreaInsets>;
+    colors: ReturnType<typeof usePalette>;
+    window: Readonly<{ width: number; height: number }>;
+  }>,
+) {
+  if (anchor === undefined) {
+    return {
+      scrim,
+      body: [
+        styles.sheet,
+        {
+          // The sheet floats over the screens, so it clears the status bar itself.
+          paddingTop: insets.top,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+          backgroundColor: colors.surfaceContent,
+          boxShadow: colors.menuShadow,
+        },
+      ],
+      inputRow: styles.inputRow,
+      field: [styles.field, { backgroundColor: colors.fillQuiet }],
+      // Sized by its commands up to the sheet's cap; `flex: 1` would collapse it in the
+      // content-sized sheet (#1841).
+      panel: styles.sheetPanel,
+    };
+  }
+  return {
+    scrim: 'transparent',
+    body: [
+      styles.popover,
+      {
+        left: anchor.x,
+        top: anchor.y,
+        width: Math.min(
+          popoverWidth(window.width),
+          window.width - anchor.x - spacing.l,
+        ),
+        maxHeight: window.height - anchor.y - spacing.l,
+      },
+    ],
+    // The frames fill the popover and its field with the glass panel's colour.
+    inputRow: [
+      styles.inputRow,
+      styles.anchoredInput,
+      styles.focusRing,
+      {
+        width: anchor.width,
+        backgroundColor: colors.surfacePanel,
+        borderColor: colors.focusRing,
+        boxShadow: colors.smallGlassShadow,
+      },
+    ],
+    field: [styles.field, styles.anchoredField],
+    // The commands over the frames' glass, which PanelGlass lays beneath them.
+    panel: [styles.popoverPanel, { boxShadow: colors.menuGlassShadow }],
+  };
+}
+
+// The first command or choice that can run, which Return runs.
+const firstEnabled = <T extends Readonly<{ disabled?: string | undefined }>>(
+  items: readonly T[],
+) => items.find(({ disabled }) => disabled === undefined);
+
 // The open palette: a sheet attached to the top with the query focused and matching commands
 // beneath, or the choices of the command being completed. Closed, it stops taking input at once
 // while it fades away.
 function Palette({
+  anchor,
   opened,
   open,
   motion,
 }: {
+  readonly anchor: Anchor | undefined;
   readonly opened: readonly Command[];
   readonly open: boolean;
   readonly motion: ReturnType<typeof useMenuMotion>;
@@ -330,12 +448,15 @@ function Palette({
   const { registry, close } = use(PaletteContext);
   const colors = usePalette();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  const frame = paletteFrame(anchor, { insets, colors, window });
   const { t } = useLocalization();
   const [query, setQuery] = useState('');
   const [choosing, setChoosing] = useState<Command>();
   const [choiceQuery, setChoiceQuery] = useState('');
   // Commands whose message disappeared after the palette opened.
   const [gone, setGone] = useState<readonly string[]>([]);
+  const [panel, setPanel] = useState<LayoutRectangle>();
   const input = useRef<TextInputHandle>(null);
   // Closing hands the keyboard back unless another control already took focus.
   useEffect(() => {
@@ -389,13 +510,13 @@ function Palette({
       return;
     }
     if (choices === undefined) {
-      const first = listed.find(({ disabled }) => disabled === undefined);
+      const first = firstEnabled(listed);
       if (first !== undefined) {
         run(first);
       }
       return;
     }
-    const first = choices.find(({ disabled }) => disabled === undefined);
+    const first = firstEnabled(choices);
     if (first !== undefined) {
       choose(first);
     }
@@ -416,23 +537,17 @@ function Palette({
         accessibilityLabel={t('commands.close')}
         accessibilityRole="button"
         onPress={close}
-        style={[StyleSheet.absoluteFill, { backgroundColor: scrim }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: frame.scrim }]}
+      />
+      <PanelGlass
+        anchor={anchor}
+        motion={motion}
+        panel={panel}
       />
       <Animated.View
-        style={[
-          styles.sheet,
-          { transform: motion.style.transform },
-          {
-            // The sheet floats over the screens, so it clears the status bar itself.
-            paddingTop: insets.top,
-            paddingLeft: insets.left,
-            paddingRight: insets.right,
-            backgroundColor: colors.surfaceContent,
-            boxShadow: colors.menuShadow,
-          },
-        ]}>
-        <View style={styles.inputRow}>
-          <View style={[styles.field, { backgroundColor: colors.fillQuiet }]}>
+        style={[{ transform: motion.style.transform }, frame.body]}>
+        <View style={frame.inputRow}>
+          <View style={frame.field}>
             <SFSymbol
               name="command"
               color={colors.textSecondary}
@@ -468,14 +583,34 @@ function Palette({
               style={[styles.input, { color: colors.textPrimary }]}
               value={choosing === undefined ? query : choiceQuery}
             />
+            {anchor === undefined ? null : (
+              <Pressable
+                accessibilityLabel={t('common.cancel')}
+                accessibilityRole="button"
+                hitSlop={spacing.s}
+                onPress={close}>
+                <Text
+                  style={[
+                    styles.keyCap,
+                    {
+                      backgroundColor: colors.fillQuiet,
+                      color: colors.textSecondary,
+                    },
+                  ]}>
+                  {t('commands.escape')}
+                </Text>
+              </Pressable>
+            )}
           </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={close}>
-            <Text style={[styles.cancel, { color: colors.accentInk }]}>
-              {t('common.cancel')}
-            </Text>
-          </Pressable>
+          {anchor === undefined ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={close}>
+              <Text style={[styles.cancel, { color: colors.accentInk }]}>
+                {t('common.cancel')}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
         {choosing === undefined ? null : (
           <View
@@ -507,42 +642,95 @@ function Palette({
             </Text>
           </View>
         )}
-        <ScrollView
-          // The sheet can reach below the software keyboard; the commands it covers scroll above it.
-          automaticallyAdjustKeyboardInsets
-          contentContainerStyle={styles.list}
-          keyboardShouldPersistTaps="handled">
-          {choices === undefined ? (
-            <CommandList
-              commands={listed}
-              onRun={run}
-              subject={subject}
-            />
-          ) : (
-            choices.map((choice) => (
-              <CommandRow
-                detail={choice.disabled}
-                disabled={choice.disabled !== undefined}
-                icon={choice.icon ?? 'folder'}
-                key={choice.id}
-                onPress={() => {
-                  choose(choice);
-                }}
-                title={choice.title}
+        <View
+          onLayout={(event) => {
+            setPanel(event.nativeEvent.layout);
+          }}
+          style={frame.panel}>
+          <ScrollView
+            // The sheet can reach below the software keyboard; the commands it covers scroll above it.
+            automaticallyAdjustKeyboardInsets
+            contentContainerStyle={styles.list}
+            keyboardShouldPersistTaps="handled">
+            {choices === undefined ? (
+              <CommandList
+                commands={listed}
+                onRun={run}
+                subject={subject}
               />
-            ))
-          )}
-          {(choices ?? listed).length === 0 ? (
-            <Text style={[styles.empty, { color: colors.textSecondary }]}>
-              {t('commands.empty')}
-            </Text>
-          ) : null}
-        </ScrollView>
+            ) : (
+              <ChoiceList
+                choices={choices}
+                onChoose={choose}
+              />
+            )}
+            {(choices ?? listed).length === 0 ? (
+              <Text style={[styles.empty, { color: colors.textSecondary }]}>
+                {t('commands.empty')}
+              </Text>
+            ) : null}
+          </ScrollView>
+        </View>
       </Animated.View>
     </Animated.View>
   );
 }
 
+// The iPad popover's glass beneath its commands. UIKit leaves glass inside the popover's own views
+// clear, so it is drawn beside them at the panel's frame and moves with them.
+function PanelGlass({
+  anchor,
+  panel,
+  motion,
+}: {
+  readonly anchor: Anchor | undefined;
+  readonly panel: LayoutRectangle | undefined;
+  readonly motion: ReturnType<typeof useMenuMotion>;
+}) {
+  if (anchor === undefined || panel === undefined) {
+    return null;
+  }
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: anchor.x + panel.x,
+        top: anchor.y + panel.y,
+        width: panel.width,
+        height: panel.height,
+        transform: motion.style.transform,
+      }}>
+      <Glass cornerRadius={radius.window} />
+    </Animated.View>
+  );
+}
+
+// The choices of the command being completed, the one Return chooses highlighted.
+function ChoiceList({
+  choices,
+  onChoose,
+}: {
+  readonly choices: readonly CommandChoice[];
+  readonly onChoose: (choice: CommandChoice) => void;
+}) {
+  const current = firstEnabled(choices)?.id;
+  return choices.map((choice) => (
+    <CommandRow
+      detail={choice.disabled}
+      disabled={choice.disabled !== undefined}
+      highlighted={choice.id === current}
+      icon={choice.icon ?? 'folder'}
+      key={choice.id}
+      onPress={() => {
+        onChoose(choice);
+      }}
+      title={choice.title}
+    />
+  ));
+}
+
+// The matching commands under their section headers, the one Return runs highlighted.
 function CommandList({
   commands,
   onRun,
@@ -554,6 +742,7 @@ function CommandList({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const current = firstEnabled(commands)?.id;
   return commands.map((command, index) => {
     const first =
       index === 0 || commands[index - 1]?.section !== command.section;
@@ -575,6 +764,7 @@ function CommandList({
         <CommandRow
           detail={command.disabled}
           disabled={command.disabled !== undefined}
+          highlighted={command.id === current}
           icon={command.icon}
           more={command.choices !== undefined}
           onPress={() => {
@@ -587,11 +777,13 @@ function CommandList({
   });
 }
 
+// A command, highlighted in the accent fill while Return would run it.
 function CommandRow({
   icon,
   title,
   detail,
   disabled,
+  highlighted = false,
   more = false,
   onPress,
 }: {
@@ -599,11 +791,14 @@ function CommandRow({
   readonly title: string;
   readonly detail: string | undefined;
   readonly disabled: boolean;
+  readonly highlighted?: boolean;
   readonly more?: boolean;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
   const dimmed = disabled ? styles.dimmed : null;
+  const ink = highlighted ? colors.accentOnFill : colors.textPrimary;
+  const secondaryInk = highlighted ? colors.accentOnFill : colors.textSecondary;
   return (
     <Pressable
       accessibilityLabel={detail === undefined ? title : `${title}. ${detail}`}
@@ -613,28 +808,27 @@ function CommandRow({
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        pressed ? { backgroundColor: colors.accentSelectionSubtle } : null,
+        pressed && { backgroundColor: colors.accentSelectionSubtle },
+        highlighted && { backgroundColor: colors.accentFill },
       ]}>
       <View style={dimmed}>
         <SFSymbol
           name={icon}
-          color={colors.textPrimary}
+          color={ink}
         />
       </View>
       <Text
         numberOfLines={1}
-        style={[styles.title, dimmed, { color: colors.textPrimary }]}>
+        style={[styles.title, dimmed, { color: ink }]}>
         {title}
       </Text>
       {detail === undefined ? null : (
-        <Text style={[styles.detail, { color: colors.textSecondary }]}>
-          {detail}
-        </Text>
+        <Text style={[styles.detail, { color: secondaryInk }]}>{detail}</Text>
       )}
       {more ? (
         <SFSymbol
           name="chevron.right"
-          color={colors.textSecondary}
+          color={secondaryInk}
           size={12}
         />
       ) : null}
@@ -651,16 +845,28 @@ export function CommandInput({
   const { open } = useCommandPalette();
   const colors = usePalette();
   const { t } = useLocalization();
+  const input = useRef<View>(null);
+  // Measured as the press begins, so the popover opens beneath the input wherever it has moved.
+  const frame = useRef<Anchor>(undefined);
   if (!pad) {
     return null;
   }
   return (
     <Pressable
+      ref={input}
       accessibilityLabel={t('commands.openPalette')}
       accessibilityRole="button"
-      onPress={open}
+      hitSlop={4}
+      onPressIn={() => {
+        input.current?.measureInWindow((x, y, width) => {
+          frame.current = { x, y, width };
+        });
+      }}
+      onPress={() => {
+        open(frame.current);
+      }}
       style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
-      <Glass cornerRadius={22} />
+      <Glass cornerRadius={18} />
       <SFSymbol
         name="command"
         color={colors.textSecondary}

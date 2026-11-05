@@ -119,7 +119,9 @@ whose devices all run this build. These controls exist only
 in the shared test fixture; hosted native tests separately prove multi-epoch
 cryptographic catch-up and reenrollment on the same Keychain installation.
 
-In `registration-removal`, the journey saves and confirms its Recovery Key, then
+In `registration-removal`, the Mac journey first narrows its window to the 760pt
+minimum and checks that Sign In's Google action stays inside it. The journey saves and
+confirms its Recovery Key, then
 signs out and relaunches with nothing kept.
 Signing in again leads to an approval request. It then deletes the account, but
 the deletion's reply is lost. After relaunch, **Confirm account deletion** retries

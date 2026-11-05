@@ -122,8 +122,8 @@ exceptions for the same packages, then verify a frozen install and
 
 ### Navigation
 
-The shell uses the navigation React Native Screens 4.26.2 and Expo Router 57.0.29
-provide on Expo 57.0.31 and React Native 0.86.3:
+The shell uses the navigation React Native Screens 4.26.2 and Expo Router 57.0.30
+provide on Expo 57.0.32 and React Native 0.86.3:
 
 - `Split.Host` with Mailboxes, Inbox and reader `Split.Column`s in
   [`app/_layout.tsx`](../apps/mobile/app/_layout.tsx). The split API is experimental
@@ -216,7 +216,11 @@ Native projects are generated and ignored. Regenerate with `pnpm native:generate
 after changing native dependencies or app configuration. Root `pnpm install`
 applies the pinned `expo-glass-effect` patch; regenerate and rebuild after changing
 it, and verify reader toolbar padding dismisses an open menu while buttons still work.
-It also applies the pinned `@expo/ui` patch. Changes to that JavaScript patch
+The pinned `react-native-screens` patch is native as well: CocoaPods records the
+patched package's directory, whose name carries the patch hash, so after changing
+the patch regenerate before rebuilding, or Xcode keeps compiling the previous patch.
+Check the built binary contains the changed symbol.
+Root `pnpm install` also applies the pinned `@expo/ui` patch. Changes to that JavaScript patch
 require rebundling without regenerating the native project. Verify by swiping
 the Filters sheet away and confirming the floating bar stays visible throughout
 dismissal; repeat after Apply.

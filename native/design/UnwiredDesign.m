@@ -68,6 +68,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @interface UnwiredSymbolView : NSImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
+@property (nonatomic, copy) NSString *symbolScale;
 @property (nonatomic, strong) NSColor *color;
 @end
 
@@ -83,6 +84,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 }
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
+- (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
 - (void)setColor:(NSColor *)color { _color = color; self.contentTintColor = color; }
 - (void)render
 {
@@ -198,6 +200,8 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @property (nonatomic) BOOL enabled;
 @property (nonatomic) BOOL returnKey;
 @property (nonatomic) BOOL escapeKey;
+// Welcome's Continue: the extra large size.
+@property (nonatomic) BOOL large;
 @property (nonatomic, copy) RCTDirectEventBlock onPress;
 @end
 
@@ -211,6 +215,8 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
     _button = [UnwiredFocusButton new];
     _button.bezelStyle = NSBezelStylePush;
     _button.controlSize = NSControlSizeLarge;
+    // A rounded rectangle, as the frames draw every push button, rather than the large size's capsule.
+    _button.borderShape = NSControlBorderShapeRoundedRectangle;
     _button.wantsLayer = YES;
     _button.target = self;
     _button.action = @selector(press);
@@ -234,6 +240,11 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 // Escape presses a sheet's Cancel button.
 - (void)setEscapeKey:(BOOL)escapeKey { _escapeKey = escapeKey; [self updateKeyEquivalent]; }
 - (void)updateKeyEquivalent { _button.keyEquivalent = self.returnKey ? @"\r" : self.escapeKey ? @"\033" : @""; }
+- (void)setLarge:(BOOL)large
+{
+  _large = large;
+  _button.controlSize = large ? NSControlSizeExtraLarge : NSControlSizeLarge;
+}
 - (void)render
 {
   _button.enabled = self.enabled;
@@ -264,6 +275,7 @@ typedef UIView UnwiredPlatformView;
 @interface UnwiredSymbolView : UIImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
+@property (nonatomic, copy) NSString *symbolScale;
 @property (nonatomic, strong) UIColor *color;
 @end
 
@@ -277,11 +289,21 @@ typedef UIView UnwiredPlatformView;
 }
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
+- (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
 - (void)setColor:(UIColor *)color { _color = color; self.tintColor = color; }
 - (void)render
 {
+  NSDictionary<NSString *, NSNumber *> *scales = @{
+    @"small" : @(UIImageSymbolScaleSmall),
+    @"medium" : @(UIImageSymbolScaleMedium),
+    @"large" : @(UIImageSymbolScaleLarge),
+  };
+  UIImageSymbolScale scale =
+      self.symbolScale == nil ? UIImageSymbolScaleDefault : scales[self.symbolScale].integerValue;
   UIImageSymbolConfiguration *configuration =
-      [UIImageSymbolConfiguration configurationWithPointSize:self.size weight:UIImageSymbolWeightRegular];
+      [UIImageSymbolConfiguration configurationWithPointSize:self.size
+                                                      weight:UIImageSymbolWeightRegular
+                                                       scale:scale];
   self.image = self.name == nil ? nil
       : [UIImage systemImageNamed:self.name withConfiguration:configuration];
 }
@@ -847,6 +869,9 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #else
 @property (nonatomic, strong) UIColor *previewColor;
 @property (nonatomic) CGFloat previewRadius;
+// Reports `previewing` as the menu shows and ends, so the content can take the lifted card's
+// layout: the preview draws the view live.
+@property (nonatomic, copy) RCTDirectEventBlock onPreview;
 #endif
 @end
 
@@ -1068,6 +1093,21 @@ static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSS
   return [[UITargetedPreview alloc] initWithView:self parameters:parameters];
 }
 
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+    willDisplayMenuForConfiguration:(UIContextMenuConfiguration *)configuration
+                           animator:(id<UIContextMenuInteractionAnimating>)animator
+{
+  if (self.onPreview) self.onPreview(@{@"previewing": @YES});
+}
+
+// The content returns to its own layout as the card settles back into place.
+- (void)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+       willEndForConfiguration:(UIContextMenuConfiguration *)configuration
+                      animator:(id<UIContextMenuInteractionAnimating>)animator
+{
+  if (self.onPreview) self.onPreview(@{@"previewing": @NO});
+}
+
 - (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
                                 configuration:(UIContextMenuConfiguration *)configuration
         highlightPreviewForItemWithIdentifier:(id<NSCopying>)identifier
@@ -1096,6 +1136,7 @@ RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 #else
 RCT_EXPORT_VIEW_PROPERTY(previewColor, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(onPreview, RCTDirectEventBlock)
 #endif
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
 @end
@@ -1160,6 +1201,8 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 @property (nonatomic) BOOL pullsDown;
 // A reader toolbar's pull-down: only its symbol, like the toolbar's buttons, with no bezel or arrow.
 @property (nonatomic) BOOL toolbar;
+// A Settings row's trailing value: its title and chevrons on the row, with no bezel.
+@property (nonatomic) BOOL borderless;
 @property (nonatomic, copy) NSString *label;
 @property (nonatomic, copy) NSColor *destructiveColor;
 @property (nonatomic) BOOL enabled;
@@ -1195,12 +1238,12 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
     if (self.toolbar) {
       // Drawn as UnwiredSymbolView draws the toolbar's buttons.
-      shown.image = UnwiredSymbolImage(self.symbol, 16);
+      shown.image = UnwiredSymbolImage(self.symbol, 14);
     }
   }
   // A pull-down shows its first item, which its menu leaves out.
   _button.pullsDown = self.pullsDown;
-  _button.bordered = !self.toolbar;
+  _button.bordered = !self.toolbar && !self.borderless;
   _button.imagePosition = self.toolbar ? NSImageOnly : NSImageLeft;
   _button.contentTintColor = self.toolbar ? NSColor.labelColor : nil;
   if (_button.pullsDown) [menu insertItem:shown atIndex:0];
@@ -1395,6 +1438,7 @@ RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
 RCT_EXPORT_MODULE(UnwiredSymbol)
 RCT_EXPORT_VIEW_PROPERTY(name, NSString)
 RCT_EXPORT_VIEW_PROPERTY(size, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(symbolScale, NSString)
 RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 - (UnwiredPlatformView *)view { return [UnwiredSymbolView new]; }
 @end
@@ -1434,6 +1478,7 @@ RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(returnKey, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(escapeKey, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(large, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }
 @end
@@ -1448,6 +1493,7 @@ RCT_EXPORT_VIEW_PROPERTY(text, NSString)
 RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
 RCT_EXPORT_VIEW_PROPERTY(pullsDown, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(toolbar, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(borderless, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(label, NSString)
 RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)

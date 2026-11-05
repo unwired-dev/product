@@ -229,7 +229,6 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: radius.card + 2,
     borderCurve: 'continuous',
-    borderWidth: StyleSheet.hairlineWidth,
   },
   backRow: {
     flexDirection: 'row',
@@ -270,6 +269,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
+  // An 18pt slot, so names start 34pt into the row.
+  rowIcon: { width: 18, alignItems: 'center' },
   title: { ...textStyles.body, flex: 1 },
   // A command that cannot run keeps its name legible but recedes behind its reason.
   dimmed: { opacity: 0.35 },
@@ -504,16 +505,19 @@ export function CommandBar({
     // AppKit keeps the focused control, which closing hands focus back to, since React Native
     // tracks only text fields.
     commandMenu()?.saveFocus(identifier);
-    const placeholders = expectedCommands(t, {
-      disabled: t('commands.selectConversation'),
-    });
+    // A New Message window's toolbar bar has no message to select.
+    const placeholders = toolbar
+      ? []
+      : expectedCommands(t, {
+          disabled: t('commands.selectConversation'),
+        });
     const commands = mergeCommands([
       ...placeholders,
       ...registry.getSnapshot(),
     ]);
     setOpened(orderCommands(commands));
     setOpenings((count) => count + 1);
-  }, [registry, opened, t, identifier]);
+  }, [registry, opened, t, identifier, toolbar]);
   const close = useCallback(() => {
     setOpened(undefined);
     if (!refocusPill.current) {
@@ -621,6 +625,7 @@ export function CommandBar({
               <SFSymbol
                 name="command"
                 color={colors.textSecondary}
+                size={13}
               />
               {compact ? null : (
                 <>
@@ -756,8 +761,6 @@ function Palette({
     close();
     option.run();
   };
-  const subject = opened.find(({ target }) => target !== undefined)?.target
-    ?.subject;
   const choices =
     choosing?.choices === undefined
       ? undefined
@@ -843,18 +846,20 @@ function Palette({
             // The account page's input sits at the window's trailing edge, so its panel hangs
             // from there.
             ...(trailing ? { right: 0 } : { left: panelLeft }),
-            borderColor: colors.separator,
-            boxShadow: colors.menuShadow,
+            boxShadow: colors.macMenuGlassShadow,
           },
           style,
         ]}
         testID="command-palette">
         {/* React Native's legacy view interop mounts a nested native view without its offset,
-            so the glass sits in a plain view inside the panel's border. */}
+            so the glass sits in a plain view; its rim edges the panel. */}
         <View
           collapsable={false}
           style={StyleSheet.absoluteFill}>
-          <Glass cornerRadius={radius.card + 2} />
+          <Glass
+            cornerRadius={radius.card + 2}
+            panel
+          />
         </View>
         {choosing === undefined ? null : (
           <View
@@ -880,7 +885,7 @@ function Palette({
             <Text
               numberOfLines={1}
               style={[styles.choosingSubject, { color: colors.textSecondary }]}>
-              {subject}
+              {choosing.target?.subject}
             </Text>
           </View>
         )}
@@ -900,7 +905,6 @@ function Palette({
               highlighted={selected?.index}
               onPlace={place}
               onRun={run}
-              subject={subject}
             />
           ) : (
             choices.map((choice, index) => (
@@ -1003,6 +1007,7 @@ function QueryField({
       <SFSymbol
         name="command"
         color={colors.textPrimary}
+        size={13}
       />
       {choosing === undefined ? null : (
         <Text
@@ -1020,6 +1025,8 @@ function QueryField({
         accessibilityLabel={prompt}
         autoCapitalize="none"
         autoCorrect={false}
+        // The ring around the whole input shows its focus.
+        enableFocusRing={false}
         key={choosing === undefined ? 'commands' : 'choices'}
         keyDownEvents={handledKeys}
         onChangeText={onChangeText}
@@ -1085,14 +1092,12 @@ function CommandList({
   highlighted,
   onPlace,
   onRun,
-  subject,
 }: {
   readonly commands: readonly Command[];
   readonly highlighted: number | undefined;
   // Records where each command's row sits in the list.
   readonly onPlace: (id: string) => (event: LayoutChangeEvent) => void;
   readonly onRun: (command: Command) => void;
-  readonly subject: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -1112,10 +1117,19 @@ function CommandList({
           <Label
             accessibilityRole="header"
             style={[styles.section, { color: colors.textSecondary }]}>
-            {sectionTitle(t, command.section, subject)}
+            {sectionTitle(
+              t,
+              command.section,
+              // Each section names the Draft or message its commands act on.
+              commands.find(
+                ({ section, target }) =>
+                  section === command.section && target !== undefined,
+              )?.target?.subject,
+            )}
           </Label>
         ) : null}
         <CommandRow
+          destructive={command.destructive}
           detail={command.disabled}
           disabled={command.disabled !== undefined}
           highlighted={highlighted === index}
@@ -1138,6 +1152,7 @@ function CommandRow({
   disabled,
   highlighted,
   more = false,
+  destructive = false,
   onPress,
 }: {
   readonly icon: string;
@@ -1146,10 +1161,12 @@ function CommandRow({
   readonly disabled: boolean;
   readonly highlighted: boolean;
   readonly more?: boolean;
+  readonly destructive?: boolean | undefined;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
-  const color = highlighted ? colors.accentOnFill : colors.textPrimary;
+  const resting = destructive ? colors.statusDestructive : colors.textPrimary;
+  const color = highlighted ? colors.accentOnFill : resting;
   const secondary = highlighted ? colors.accentOnFill : colors.textSecondary;
   const dimmed = disabled ? styles.dimmed : null;
   return (
@@ -1164,10 +1181,11 @@ function CommandRow({
         pressed ? { backgroundColor: colors.accentSelectionSubtle } : null,
         highlighted ? { backgroundColor: colors.accentFill } : null,
       ]}>
-      <View style={dimmed}>
+      <View style={[styles.rowIcon, dimmed]}>
         <SFSymbol
           name={icon}
           color={color}
+          size={14}
         />
       </View>
       <Text

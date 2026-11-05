@@ -48,6 +48,7 @@ import {
   isTextTool,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
+import { draftCommands } from '@private-email/mail-core/commands';
 import {
   addRecipients,
   draftOf,
@@ -121,7 +122,7 @@ import {
 import type { PopUpItem } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { useCloseGuard } from './command-palette.tsx';
+import { RegisterCommands, useCloseGuard } from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -198,7 +199,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.s,
   },
   divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
-  content: { paddingBottom: spacing.s },
+  // The body takes the height the fields leave, so they sit directly above the action row.
+  content: { flexGrow: 1, paddingBottom: spacing.s },
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -209,6 +211,7 @@ const styles = StyleSheet.create({
   review: { paddingHorizontal: fieldInset, paddingTop: spacing.m },
   body: {
     ...textStyles.reading.body,
+    flexGrow: 1,
     minHeight: 160,
     paddingHorizontal: bodyInset,
     paddingTop: spacing.m,
@@ -277,12 +280,13 @@ const styles = StyleSheet.create({
     paddingLeft: fieldLabelWidth + spacing.s,
     paddingBottom: spacing.xs,
   },
+  // Its text centred on the first 28pt line, level with the field's label.
   input: {
     ...textStyles.body,
     flex: 1,
     minWidth: 120,
     minHeight: 28,
-    paddingVertical: 0,
+    paddingVertical: 6,
   },
   // The whole 28pt row height removes the recipient; its chip stays compact.
   token: { minHeight: 28, justifyContent: 'center' },
@@ -307,13 +311,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing.l,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  sender: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-  },
-  senderPrefix: textStyles.body,
+  sender: { flexShrink: 1 },
   section: {
     ...textStyles.bodyEmphasized,
     paddingHorizontal: spacing.xl,
@@ -650,19 +648,12 @@ export function SendingMailbox({
       from,
     });
   }
-  const colors = usePalette();
   return (
     <View style={styles.sender}>
-      <Text
-        importantForAccessibility="no"
-        accessibilityElementsHidden
-        style={[styles.senderPrefix, { color: colors.textSecondary }]}>
-        {t('drafts.fromLabel')}
-      </Text>
       <PopUp
         accessibilityLabel={label}
         disabled={!editable}
-        label={from}
+        label={t('drafts.fromAddress', { address: from })}
         items={senders.map((mailbox) => ({
           key: mailbox.id,
           title: mailbox.address,
@@ -2519,14 +2510,16 @@ function Editor({
       : title;
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
+  // Discard asks first, from the toolbar and the Command Palette alike.
+  const askDiscard = () => {
+    if (!pausedNow.current && lifetime.current.finishing === 0) {
+      setClosing('discard');
+    }
+  };
   const actions = (
     <ComposerActions
       disabled={lockedUnless(closing !== 'saving')}
-      onDiscard={() => {
-        if (!pausedNow.current && lifetime.current.finishing === 0) {
-          setClosing('discard');
-        }
-      }}
+      onDiscard={askDiscard}
     />
   );
   const sender = (
@@ -2566,6 +2559,37 @@ function Editor({
         );
       }}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+      {/* The palette offers each Draft control while it is available, with the same handler. */}
+      <RegisterCommands
+        offer={() =>
+          draftCommands(
+            t,
+            { id: draft.id, subject: draft.subject },
+            {
+              send:
+                closing === 'saving'
+                  ? undefined
+                  : () => {
+                      void send();
+                    },
+              attach: paused
+                ? undefined
+                : () => {
+                    void choose('files', false);
+                  },
+              copies:
+                paused || copiesShown
+                  ? undefined
+                  : () => {
+                      change({ ...authored.current, copies: true });
+                    },
+              discard: lockedUnless(closing !== 'saving')
+                ? undefined
+                : askDiscard,
+            },
+          )
+        }
+      />
       {renderToolbar === undefined ? (
         <View style={styles.header}>
           <ToolbarButton

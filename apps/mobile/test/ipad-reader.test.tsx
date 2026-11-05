@@ -128,13 +128,18 @@ describe('iPad reader', () => {
       screen.getByRole('button', { name: 'Folders', expanded: false }),
     ).toBeVisible();
     expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(screen.getByRole('button', { name: 'Mark as read' })).toBeVisible();
+    // On iPad More is the system menu the frames draw.
+    const sections: ReadonlyArray<{ items: ReadonlyArray<{ title: string }> }> =
+      screen.getByLabelText('More').props.sections;
+    expect(
+      sections.flatMap(({ items }) => items.map(({ title }) => title)),
+    ).toContain('Mark as Read');
   });
 
   it('opens another message in the same reader with its panels closed', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
+    imap.addFolder('Projects');
     const first = imap.deliver('INBOX', { subject: 'Project plans' });
     const second = imap.deliver('INBOX', { subject: 'Garden plans' });
     const inbox = createImapInbox(imap.native);
@@ -150,11 +155,11 @@ describe('iPad reader', () => {
       </InboxProvider>
     );
     await render(reader(first));
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
     await screen.rerender(reader(second));
     expect(
-      screen.getByRole('button', { name: 'More', expanded: false }),
+      screen.getByRole('button', { name: 'Folders', expanded: false }),
     ).toBeVisible();
     expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
   });

@@ -154,6 +154,7 @@ function PolicyChoice({
   const { t } = useLocalization();
   return (
     <PopUp
+      variant="inline"
       accessibilityLabel={label}
       label={t(`remoteContent.policies.${selected}`)}
       items={choices.map((choice) => ({

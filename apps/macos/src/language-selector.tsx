@@ -23,7 +23,7 @@ const styles = StyleSheet.create({
 
 // The interface language as a pop-up whose AppKit menu checks the saved choice, and the alert
 // when saving a choice fails.
-function useLanguageChoice() {
+function useLanguageChoice(variant: 'compact' | 'inline' = 'compact') {
   const { t, settings } = useLocalization();
   const colors = usePalette();
   const [saving, setSaving] = useState(false);
@@ -49,6 +49,7 @@ function useLanguageChoice() {
       <PopUp
         accessibilityLabel={t('language.title')}
         disabled={saving}
+        variant={variant}
         label={
           options.find(({ code }) => code === settings.preference)?.name ?? ''
         }
@@ -73,7 +74,7 @@ function useLanguageChoice() {
 // Settings › Language.
 export function LanguageSettings() {
   const { t } = useLocalization();
-  const { popUp, failure } = useLanguageChoice();
+  const { popUp, failure } = useLanguageChoice('inline');
   return (
     <SettingsGroup
       title={t('language.title')}

@@ -16,10 +16,14 @@ import type { ResponseKind } from './responses.ts';
 import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { createSubscribable } from './subscribable.ts';
 
-export type CommandSection = 'selection' | 'app' | 'navigation';
+export type CommandSection = 'draft' | 'selection' | 'app' | 'navigation';
 
 // Every command the palette can list, in the fixed order within each section.
 const commandOrder = [
+  'send',
+  'attach',
+  'copies',
+  'discard',
   'reply',
   'replyAll',
   'forward',
@@ -77,12 +81,15 @@ export interface Command extends SearchableCommand {
   readonly choosing?: string | undefined;
   // What the input's chip says while choosing, when the title's ellipsis would not fit.
   readonly chip?: string | undefined;
+  // Shown in the destructive color, as Discard Draft is.
+  readonly destructive?: boolean | undefined;
 }
 
 const sectionOrder: Record<CommandSection, number> = {
-  selection: 0,
-  app: 1,
-  navigation: 2,
+  draft: 0,
+  selection: 1,
+  app: 2,
+  navigation: 3,
 };
 
 const byPlace = Order.combine(
@@ -285,6 +292,10 @@ export const commandTarget = (
 });
 
 const icons: Record<CommandId, string> = {
+  send: 'paperplane',
+  attach: 'paperclip',
+  copies: 'person.2',
+  discard: 'trash',
   reply: 'arrowshape.turn.up.left',
   replyAll: 'arrowshape.turn.up.left.2',
   forward: 'arrowshape.turn.up.right',
@@ -488,6 +499,43 @@ export const composeCommand = (t: Translate, run: () => void): Command =>
   });
 
 /**
+ * The open Draft's commands, each offered while its control is.
+ *
+ * @param {Translate} t The current translation.
+ * @param {CommandTarget} target The Draft they act on, named over them.
+ * @param {object} handlers What each command does, or undefined while it is
+ *   unavailable: sending, attaching files, showing Cc and Bcc, and discarding.
+ * @returns {readonly Command[]} The commands the Draft offers now.
+ */
+export const draftCommands = (
+  t: Translate,
+  target: CommandTarget,
+  handlers: Readonly<{
+    send?: (() => void) | undefined;
+    attach?: (() => void) | undefined;
+    copies?: (() => void) | undefined;
+    discard?: (() => void) | undefined;
+  }>,
+): readonly Command[] =>
+  (
+    [
+      { id: 'send', title: t('drafts.send'), run: handlers.send },
+      { id: 'attach', title: t('commands.attach'), run: handlers.attach },
+      { id: 'copies', title: t('commands.copies'), run: handlers.copies },
+      {
+        id: 'discard',
+        title: t('drafts.discardDraft'),
+        run: handlers.discard,
+        destructive: true,
+      },
+    ] as const
+  ).flatMap(({ run, ...details }) =>
+    run === undefined
+      ? []
+      : [command(t, { ...details, section: 'draft', target, run })],
+  );
+
+/**
  * The heading over a section of listed commands.
  *
  * @param {Translate} t The current translation.
@@ -501,6 +549,11 @@ export const sectionTitle = (
   section: CommandSection,
   subject: string | undefined,
 ) => {
+  if (section === 'draft') {
+    return subject === undefined || subject === ''
+      ? t('commands.draft')
+      : t('commands.draftWith', { subject });
+  }
   if (section === 'selection') {
     return subject === undefined
       ? t('commands.selection')

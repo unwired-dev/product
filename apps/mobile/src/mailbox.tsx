@@ -31,6 +31,11 @@ import type {
 } from './private-storage.ts';
 
 import { useLocalization } from './localization.ts';
+import {
+  MailboxesContext,
+  useAllMailboxes,
+  useMailboxList,
+} from './mailbox-state.ts';
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
@@ -38,7 +43,6 @@ import {
   outbox as defaultOutbox,
 } from './registration.ts';
 
-const MailboxesContext = createContext<MailboxList>(defaultMailboxes);
 const DraftsContext = createContext<Drafts>(defaultDrafts);
 const OutboxContext = createContext<Outbox>(defaultOutbox);
 // The Mail Profile whose mail the hooks below read.
@@ -218,14 +222,8 @@ export function useMailboxes() {
   return useMemo(() => profileMailboxes(all, profile), [all, profile]);
 }
 
-// Every Profile's mailboxes, which only the Profile Menu's unread counts read.
-export function useAllMailboxes() {
-  const mailboxes = use(MailboxesContext);
-  return useSyncExternalStore(mailboxes.subscribe, mailboxes.getSnapshot);
-}
-
 export function useReloadMailboxes() {
-  return use(MailboxesContext).load;
+  return useMailboxList().load;
 }
 
 // Scopes the Inbox hooks below to one of the scoped Profile's mailboxes; without it, `fallback`
@@ -284,7 +282,7 @@ export function useSavedBodies(
   results: readonly Result[] | undefined,
   refresh: string,
 ) {
-  const { bodies } = use(MailboxesContext);
+  const { bodies } = useMailboxList();
   const [answer, setAnswer] = useState<
     Readonly<{
       results: readonly Result[];

@@ -33,13 +33,16 @@ export const styles = StyleSheet.create({
   },
   headingText: { flex: 1, alignItems: ipad ? 'flex-start' : 'center' },
   barTitle: { position: 'absolute', alignItems: 'center' },
-  // iPad's command input takes its own row above the heading, as the frames place it, so the
-  // heading's top padding is the gap beneath it.
-  commands: {
-    alignSelf: 'flex-start',
-    marginLeft: 14 * scale,
+  // iPad's command input takes its own row above the heading, across the list column as the
+  // frames place it, so the heading's top padding is the gap beneath it.
+  commandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    marginHorizontal: 14 * scale,
     marginTop: spacing.l * scale,
   },
+  commands: { flex: 1 },
   title: {
     ...(ipad ? typography.ipadList.title3Emphasized : textStyles.headline),
   },
@@ -81,13 +84,18 @@ export const styles = StyleSheet.create({
     paddingBottom: spacing.xs,
     paddingHorizontal: spacing.xs,
   },
-  // Rows scroll under the floating bar.
+  // Rows scroll under the floating bar. The iPhone frames open the list with 20pt above its first
+  // divider.
   list: {
     paddingHorizontal: ipad ? 6 * scale : spacing.l,
+    paddingTop: ipad ? 0 : 12 + spacing.s,
     paddingBottom: 72,
     flexGrow: 1,
   },
   listFooter: { flexGrow: 1 },
+  // iPhone rows stand 8pt apart, their hairline 2pt above the next row, outside the row's menu
+  // preview.
+  rowSpacing: { marginBottom: ipad ? 0 : spacing.s },
   // The design's 10/12/18pt row insets.
   row: {
     paddingTop: ipad ? 8 * scale : 10,
@@ -98,11 +106,13 @@ export const styles = StyleSheet.create({
     borderRadius: radius.row * scale,
     borderCurve: 'continuous',
   },
+  // The iPhone row's lifted preview: the card's 16pt insets on both sides.
+  rowPreview: { paddingLeft: spacing.l, paddingRight: spacing.l },
   separator: {
     position: 'absolute',
     left: 2,
     right: 2,
-    bottom: 2,
+    bottom: ipad ? 2 : 2 - spacing.s,
     height: StyleSheet.hairlineWidth,
   },
   rowHeading: {
@@ -129,7 +139,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10 * scale,
     paddingTop: ipad ? 14 * scale : spacing.l,
-    paddingBottom: ipad ? spacing.s * scale : 10,
+    paddingBottom: ipad ? spacing.s * scale : 10 + spacing.s,
     paddingHorizontal: ipad ? 10 * scale : spacing.xs,
   },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },

@@ -54,6 +54,7 @@ const NativePushButton = requireNativeComponent<
     readonly enabled: boolean;
     readonly returnKey: boolean;
     readonly escapeKey: boolean;
+    readonly large: boolean;
     readonly onPress: () => void;
   }
 >('UnwiredPushButton');
@@ -82,15 +83,59 @@ const NativePopover = requireNativeComponent<
 
 export function Glass({
   cornerRadius,
+  panel = false,
+  search = false,
   style = StyleSheet.absoluteFill,
   ...props
-}: ViewProps & { readonly cornerRadius: number }) {
-  return (
+}: ViewProps & {
+  readonly cornerRadius: number;
+  // A menu panel over content, whose glass shows that content blurred beneath the fill.
+  readonly panel?: boolean;
+  // The search field's glass, whose top seam is fainter.
+  readonly search?: boolean;
+}) {
+  const colors = usePalette();
+  const shape: StyleProp<ViewStyle> = [
+    style,
+    { borderRadius: cornerRadius, overflow: 'hidden' },
+  ];
+  let edge = search ? colors.macSearchGlassEdge : colors.macGlassEdge;
+  if (panel) {
+    edge = colors.macPanelGlassEdge;
+  }
+  // AppKit's glass takes no dark tint, so Dark backs it with the frames' glass fill, which
+  // carries the frames' rim and highlights.
+  const fill = (
+    <View
+      pointerEvents="none"
+      style={[
+        shape,
+        {
+          backgroundColor: panel
+            ? colors.macPanelGlassFill
+            : colors.macGlassFill,
+          boxShadow: edge,
+        },
+      ]}
+    />
+  );
+  const glass = (
     <NativeGlass
       {...props}
       cornerRadius={cornerRadius}
-      style={[style, { borderRadius: cornerRadius, overflow: 'hidden' }]}
+      style={[shape, { opacity: panel ? 1 : colors.macGlassOpacity }]}
     />
+  );
+  return panel ? (
+    <>
+      {glass}
+      {fill}
+    </>
+  ) : (
+    <>
+      {fill}
+      {glass}
+    </>
   );
 }
 
@@ -120,6 +165,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
+  compactMarker: { alignItems: 'center' },
   markerText: { ...textStyles.subheadline, flex: 1 },
   notice: {
     gap: spacing.s,
@@ -148,6 +194,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
   },
+  // Welcome's Continue: AppKit's extra large rounded rectangle.
+  buttonLarge: { height: 36 },
   buttonSizing: { opacity: 0 },
 });
 
@@ -156,10 +204,13 @@ export function SFSymbol({
   name,
   color,
   size = 16,
+  style,
 }: {
   readonly name: string;
   readonly color: ColorValue;
   readonly size?: number;
+  // A slot other than the square of its point size, the symbol centred in it.
+  readonly style?: StyleProp<ViewStyle>;
 }) {
   return (
     <NativeSymbol
@@ -168,7 +219,7 @@ export function SFSymbol({
       name={name}
       size={size}
       color={color}
-      style={{ width: size, height: size }}
+      style={[{ width: size, height: size }, style]}
     />
   );
 }
@@ -416,9 +467,11 @@ export function useConfirmation() {
 // A Liquid Glass toolbar group on the navigation layer; never place it on content or other glass.
 export function GlassGroup({
   children,
+  search = false,
   style,
 }: {
   readonly children: ReactNode;
+  readonly search?: boolean;
   readonly style?: StyleProp<ViewStyle>;
 }) {
   const colors = usePalette();
@@ -437,6 +490,7 @@ export function GlassGroup({
         cornerRadius={
           typeof cornerRadius === 'number' ? cornerRadius : groupRadius
         }
+        search={search}
         style={StyleSheet.absoluteFill}
       />
       {children}
@@ -605,7 +659,7 @@ export function ToolbarButton({
       ]}>
       <SFSymbol
         name={icon}
-        size={16}
+        size={14}
         color={destructive ? colors.statusDestructive : colors.textPrimary}
       />
     </Pressable>
@@ -688,8 +742,8 @@ export function Notice({
 }
 
 // A push button, 28pt tall, that AppKit draws: the accent tint carries the view's main action and
-// the brand tint Welcome's Continue; the others take the standard bezel. The default button also
-// answers Return.
+// the brand tint Welcome's 36pt Continue; the others take the standard bezel. The default button
+// also answers Return.
 export function Button({
   label,
   onPress,
@@ -719,7 +773,7 @@ export function Button({
   } as const;
   const [tint, textColor] = tints[fill];
   return (
-    <View style={styles.button}>
+    <View style={[styles.button, fill === 'brand' && styles.buttonLarge]}>
       {/* The hidden title sizes the button, which AppKit draws over it. */}
       <Text
         style={[
@@ -740,6 +794,7 @@ export function Button({
         onPress={onPress}
         returnKey={isDefault}
         escapeKey={isCancel}
+        large={fill === 'brand'}
         style={StyleSheet.absoluteFill}
         label={accessibilityLabel ?? label}
         text={label}
@@ -750,18 +805,26 @@ export function Button({
   );
 }
 
-// The existing disclosure stays beside unaccepted assistance output and disappears with it.
-export function OnDeviceMarker({ label }: { readonly label: string }) {
+// The existing disclosure stays beside unaccepted assistance output and disappears with it. A
+// Settings section header takes the compact one, its lock sized to the header's 11/14 text.
+export function OnDeviceMarker({
+  label,
+  compact = false,
+}: {
+  readonly label: string;
+  readonly compact?: boolean;
+}) {
   const colors = usePalette();
   return (
     <View
       accessible
       accessibilityLabel={label}
       accessibilityRole="text"
-      style={styles.marker}>
+      style={[styles.marker, compact && styles.compactMarker]}>
       <SFSymbol
         name="lock.fill"
         color={colors.onDeviceInk}
+        size={compact ? 9 : 16}
       />
       <Text
         selectable

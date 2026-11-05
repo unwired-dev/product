@@ -330,6 +330,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `invitations.ts.seriesOf` materializing every recurrence of an UNTIL-bounded
+  series on the synchronous reader path. A COUNT limit does not bound an UNTIL
+  expansion. Exercise a tiny calendar with a distant supported UNTIL and trace
+  parsing and formatting through the host render caller; otherwise a short
+  untrusted invitation can block the shared JavaScript thread for seconds.
+  Preserve the admitted input contract when bounding work; narrowing supported
+  recurrence requires the workflow's authorized scope decision.
+
 - `invitations.ts.contentLines` or another synchronous reader parser using
   overlapping regex repetitions or a delimiter split that rescans the remaining
   suffix for every match. Check damaged inputs as well as valid delimiter-heavy
@@ -793,6 +801,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A service identifier that does not follow `@private-email/<package>/<Name>`; identifiers key the context, and a collision silently resolves the wrong service.
 
 #### Product behavior the stores own
+
+- `invitations.ts.invitationWhen` presenting the first occurrence's local
+  weekday and time range as a weekly invariant without checking every displayed
+  endpoint. Exercise event/device zones with different clock changes and a
+  meeting spanning a transition, including equal first/last times with a varying
+  interior occurrence; stable starts do not imply stable ends. Derive the
+  translated weekday context in the formatters' zone and keep interface-language
+  labels separate from regional date/time formatting. Otherwise the card and
+  its spoken detail promise the wrong recurring day or time range.
 
 - `invitations.ts.send` replacing an earlier unknown delivery after a new
   attempt's pre-send record fails. No new submission occurred, so retain the

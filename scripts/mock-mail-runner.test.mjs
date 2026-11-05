@@ -319,6 +319,8 @@ if (command === 'xcodebuild') {
         'security',
         'codesign',
         'xcodebuild',
+        // record-host-load.sh asks xcrun for booted simulators; the host's can hang (#1596).
+        'xcrun',
       ]) {
         writeFileSync(path.join(directory, 'bin', command), stub, {
           mode: 0o755,

@@ -388,6 +388,71 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     }
   });
 
+  // Opens a revision that moved the meeting, then records an answer to the earlier time.
+  const answeredBeforeMove = async () => {
+    const opening = await opened(
+      invitation('alex@example.invalid')
+        .replace('SEQUENCE:0', 'SEQUENCE:1')
+        .replace('DTSTART:20261106T130000Z', 'DTSTART:20261107T090000Z')
+        .replace('DTEND:20261106T140000Z', 'DTEND:20261107T100000Z'),
+    );
+    await screen.findByText('Not answered yet');
+    const uid = 'roadmap-42@northwind.example';
+    await act(async () => {
+      await opening.inbox.recordResponse(
+        { uid, sequence: 0 },
+        {
+          kind: 'sent',
+          uid,
+          sequence: 0,
+          choice: 'accepted',
+          at: Date.UTC(2026, 10, 2, 9, 52),
+          start: { at: Date.UTC(2026, 10, 6, 13), allDay: false },
+          end: { at: Date.UTC(2026, 10, 6, 14), allDay: false },
+        },
+      );
+    });
+    return opening;
+  };
+
+  it('shows an updated invitation that moved the meeting after an earlier answer', async () => {
+    expect.hasAssertions();
+    const { app } = await answeredBeforeMove();
+    try {
+      expect(
+        screen.getByLabelText('Invitation from Lena Fischer, Updated'),
+      ).toBeOnTheScreen();
+      expect(screen.getByText(/^Was /u)).toBeOnTheScreen();
+      expect(
+        screen.getByText('Lena Fischer changed the time'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          'You accepted the earlier time. Respond to the new time.',
+        ),
+      ).toBeOnTheScreen();
+      // The earlier answer was for the old time, so none is chosen.
+      expect(screen.queryByRole('button', { name: 'Accepted' })).toBeNull();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('keeps the update marks after responding to the moved meeting', async () => {
+    expect.hasAssertions();
+    const { gmail, app } = await answeredBeforeMove();
+    try {
+      await fireEvent.press(screen.getByRole('button', { name: 'Decline' }));
+      await expect(screen.findByText('Declined')).resolves.toBeOnTheScreen();
+
+      expect(gmail.sends).toHaveLength(1);
+      expect(screen.getByText('Updated')).toBeOnTheScreen();
+      expect(screen.getByText(/^Was /u)).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('shows a cancelled meeting with nothing to respond to', async () => {
     expect.hasAssertions();
     const { app } = await opened(
@@ -414,6 +479,47 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
       await app.unmount();
     }
   });
+
+  it.each([
+    ['COUNT=7', 'Every week from Nov 6 to Dec 18, 2026'],
+    ['UNTIL=20461231T235959Z', 'Every week from Nov 6, 2026 to Dec 28, 2046'],
+  ])(
+    'shows the weekday and span of a weekly series ending %s',
+    async (end, repeats) => {
+      expect.hasAssertions();
+      const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { app } = await opened(
+        invitation('alex@example.invalid', [`RRULE:FREQ=WEEKLY;${end}`])
+          .replace(
+            'DTSTART:20261106T130000Z',
+            `DTSTART;TZID=${zone}:20261106T120000`,
+          )
+          .replace(
+            'DTEND:20261106T140000Z',
+            `DTEND;TZID=${zone}:20261106T130000`,
+          ),
+      );
+      try {
+        await expect(
+          screen.findByText(/^Fridays, /u),
+        ).resolves.toBeOnTheScreen();
+
+        expect(screen.getByText(repeats)).toBeOnTheScreen();
+        expect(
+          screen.getByLabelText(
+            new RegExp(`^When, Fridays, .+, ${repeats}$`, 'u'),
+          ),
+        ).toBeOnTheScreen();
+        expect(
+          screen.getByText(
+            'Your response applies to every meeting in the series.',
+          ),
+        ).toBeOnTheScreen();
+      } finally {
+        await app.unmount();
+      }
+    },
+  );
 
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();

@@ -159,12 +159,19 @@ const GraphCheckpointSchema = Schema.Union([
   }),
 ]);
 
-// An Invitation Response this device sent, or may have sent, for one revision of an invitation.
+// An Invitation Response this device sent, or may have sent, for one revision of an invitation,
+// with the time it answered so a later revision can say what changed; older records lack it.
 // `boundary` finds an unconfirmed send in Sent.
+const InvitationTime = Schema.Struct({
+  at: Schema.Finite,
+  allDay: Schema.Boolean,
+});
 const InvitationRevision = {
   uid: Schema.String,
   sequence: Schema.Int,
   choice: Schema.Literals(['accepted', 'tentative', 'declined']),
+  start: Schema.optionalKey(InvitationTime),
+  end: Schema.optionalKey(InvitationTime),
 };
 const InvitationResponseSchema = Schema.Union([
   Schema.Struct({

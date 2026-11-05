@@ -77,6 +77,10 @@
     "more": "More",
     "received": "{{date}} UTC",
     "labels": "Labels: {{labels}}",
+    "to": "To: {{recipients}}",
+    "cc": "Cc: {{recipients}}",
+    "summaryTo": "to {{recipients}}",
+    "summaryCc": "cc {{recipients}}",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",
@@ -188,7 +192,9 @@
   },
   "settings": {
     "back": "Back",
+    "close": "Close Settings",
     "title": "Settings",
+    "accountPrivateSync": "Account & Devices · Private Sync on",
     "sections": {
       "accounts": "Accounts",
       "automation": "Automation",
@@ -256,7 +262,10 @@
       "imap-authorization": "The mail server needs your password again",
       "imap-cached": "Saved mail only until the mail server can be checked"
     },
+    "connectedProfile": "{{provider}} · {{profile}}",
+    "connectedProfileUpdated": "{{provider}} · {{profile}} · {{updated}}",
     "add": "Add another Gmail mailbox",
+    "addConnection": "Add Mailbox Connection…",
     "addMicrosoft": "Add a Microsoft mailbox",
     "allow": "Allow {{provider}} access for {{address}}",
     "remove": "Remove {{address}}",
@@ -548,12 +557,27 @@
     "dateTime": "{{date}}, {{time}}",
     "timeRange": "{{date}}, {{start}}–{{end}}",
     "dateRange": "{{start}} – {{end}}",
+    "weekdays_SU": "Sundays",
+    "weekdays_MO": "Mondays",
+    "weekdays_TU": "Tuesdays",
+    "weekdays_WE": "Wednesdays",
+    "weekdays_TH": "Thursdays",
+    "weekdays_FR": "Fridays",
+    "weekdays_SA": "Saturdays",
+    "everyWeek": "Every week from {{start}} to {{end}}",
     "accept": "Accept",
     "maybe": "Maybe",
     "decline": "Decline",
     "chosen": "✓ {{choice}}",
     "unanswered": "Not answered yet",
     "unansweredDetail": "Your response goes to {{name}} from {{address}}.",
+    "seriesDetail": "Your response applies to every meeting in the series.",
+    "updated": "Updated",
+    "was": "Was {{when}}",
+    "changedTime": "{{name}} changed the time",
+    "acceptedEarlier": "You accepted the earlier time. Respond to the new time.",
+    "tentativeEarlier": "You tentatively accepted the earlier time. Respond to the new time.",
+    "declinedEarlier": "You declined the earlier time. Respond to the new time.",
     "respondingAs": "Responding as {{address}}",
     "invitedTwice": "You’re invited at two of your addresses. This copy responds only for {{address}}.",
     "invitedMoreThanTwice": "You’re invited at {{count}} of your addresses. This copy responds only for {{address}}.",
@@ -945,6 +969,7 @@
     "rowLabelShortened": "Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened.",
     "from": "From {{from}}",
     "fromLabel": "From",
+    "fromAddress": "From {{address}}",
     "noSubject": "No subject",
     "noRecipients": "No recipients",
     "fields": {
@@ -1034,6 +1059,11 @@
       "underline": "Underline",
       "strikethrough": "Strikethrough",
       "code": "Inline code"
+    },
+    "formatStyles": {
+      "title": "Title",
+      "heading": "Heading",
+      "subheading": "Subheading"
     },
     "blocks": {
       "body": "Body",
@@ -1240,6 +1270,10 @@
     "escape": "esc",
     "selection": "Selected Message",
     "selectionWith": "Selected Message · {{subject}}",
+    "draft": "Draft",
+    "draftWith": "Draft · {{subject}}",
+    "attach": "Attach File…",
+    "copies": "Add Cc and Bcc",
     "app": "App",
     "navigation": "Go To",
     "empty": "No matching commands",
@@ -1269,6 +1303,10 @@
       "move": "Move"
     },
     "keywords": {
+      "send": "deliver submit mail",
+      "attach": "attachment add upload document photo image",
+      "copies": "cc bcc copy recipients",
+      "discard": "delete remove trash bin",
       "reply": "respond answer",
       "replyAll": "respond answer everyone",
       "forward": "send share",
@@ -1293,6 +1331,8 @@
       "title": "Your mail,\non your devices.",
       "description": "Unwired Mail brings Gmail, iCloud and Microsoft 365 together in one calm, private inbox.",
       "assistance": "Assistance runs on this device.",
+      "assistancePhone": "Assistance runs on this iPhone.",
+      "mailProfiles": "Mail Profiles keep personal and work apart.",
       "privateSync": "Private Sync keeps your devices in step.",
       "continue": "Continue"
     },
@@ -1317,7 +1357,7 @@
       },
       "microsoft": {
         "name": "Microsoft 365 and Outlook",
-        "detail": "Work, school and Outlook.com accounts"
+        "detail": "Work, school and Outlook.com"
       },
       "fastmail": {
         "name": "Fastmail",
@@ -1343,6 +1383,7 @@
     "unread": "Mark as Unread",
     "moveMessage": "Move Message",
     "moveTo": "Move to…",
+    "spam": "Report Spam",
     "openLink": "Open Link",
     "copyLink": "Copy Link",
     "quickLook": "Quick Look",

@@ -1,5 +1,6 @@
 import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type {
+  EarlierResponse,
   Invitation,
   InvitationChoice,
   InvitationDetails,
@@ -15,6 +16,8 @@ import {
   invitationBlockedBy,
   invitationChoiceKeys,
   invitationStatus,
+  invitationRepeats,
+  invitationWas,
   invitationWhen,
   organizerName,
 } from '@private-email/mail-core/invitations';
@@ -117,19 +120,28 @@ function DetailRow({
 function Details({
   details,
   invited,
+  earlier,
 }: {
   readonly details: InvitationDetails;
   // Who was invited, then secondary lines about them; a cancelled meeting has no row.
   readonly invited?: readonly string[];
+  // The response to an earlier revision at another time, which marks this one as updated.
+  readonly earlier?: EarlierResponse | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useFormats();
   const when = invitationWhen(t, formats, details);
+  const repeats = invitationRepeats(t, formats, details);
+  const was =
+    earlier === undefined ? undefined : invitationWas(t, formats, earlier);
   const cancelled = invited === undefined;
   const from = t(cancelled ? 'invitation.cancelledBy' : 'invitation.from', {
     name: organizerName(details),
   });
+  const badge = cancelled
+    ? t('invitation.cancelled')
+    : was && t('invitation.updated');
   const title = details.summary ?? t('invitation.untitled');
   const organizer = [
     ...new Set([organizerName(details), details.organizer.address]),
@@ -138,7 +150,7 @@ function Details({
     <>
       <View
         accessible
-        accessibilityLabel={from}
+        accessibilityLabel={was === undefined ? from : `${from}, ${badge}`}
         style={styles.heading}>
         <SFSymbol
           name={cancelled ? 'xmark' : 'calendar'}
@@ -152,17 +164,17 @@ function Details({
           ]}>
           {from}
         </Text>
-        {cancelled ? (
+        {badge === undefined ? null : (
           <View
             style={[
               styles.badge,
               { backgroundColor: colors.accentSelectionSubtle },
             ]}>
             <Text style={[styles.smallEmphasized, { color: colors.accentInk }]}>
-              {t('invitation.cancelled')}
+              {badge}
             </Text>
           </View>
-        ) : null}
+        )}
       </View>
       <View
         accessible
@@ -180,10 +192,20 @@ function Details({
       <View style={styles.details}>
         <DetailRow
           label={t('invitation.when')}
-          spoken={[when]}>
+          spoken={[when, repeats, was].filter((line) => line !== undefined)}>
           <Text style={[styles.text, { color: colors.textPrimary }]}>
             {when}
           </Text>
+          {repeats === undefined ? null : (
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
+              {repeats}
+            </Text>
+          )}
+          {was === undefined ? null : (
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
+              {was}
+            </Text>
+          )}
         </DetailRow>
         {details.location === undefined ? null : (
           <DetailRow
@@ -286,12 +308,14 @@ function Status({
 function Responding({
   inbox,
   invitation,
+  earlier,
   others,
   connection,
   current,
 }: {
   readonly inbox: InvitationInbox;
   readonly invitation: Invitation;
+  readonly earlier: EarlierResponse | undefined;
   // How many of the Profile's other addresses the invitation also names.
   readonly others: number;
   readonly connection: string | undefined;
@@ -333,7 +357,9 @@ function Responding({
       address: invitation.address,
       provider,
       time,
+      series: invitation.details.starts !== undefined,
       alsoInvited: others,
+      earlier: earlier?.choice,
     },
   );
   const copy = (choice: InvitationChoice) => ({
@@ -566,6 +592,10 @@ function Invited({
   const provider = useProviderName();
   // Invited at other addresses of the Profile too, each address is listed instead of You.
   const others = alsoInvited(invitation, useMailboxes());
+  const responses = invitationResponses(inbox);
+  const earlier = useSyncExternalStore(responses.subscribe, () =>
+    responses.earlier(invitation),
+  );
   const yours = t('invitation.yourAddress', {
     address: invitation.address,
     provider,
@@ -574,6 +604,7 @@ function Invited({
     <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
       <Details
         details={invitation.details}
+        earlier={earlier}
         invited={
           others.length === 0
             ? [t('invitation.you'), yours]
@@ -592,6 +623,7 @@ function Invited({
         inbox={inbox}
         invitation={invitation}
         others={others.length}
+        earlier={earlier}
         connection={connection}
         current={current}
       />
