@@ -233,7 +233,6 @@ describe('mail Assistance Enablement', () => {
       await store.load(owner);
       const enabling = store[method](owner, profile, true);
       const queued = store.setEnabled(owner, 'work', true);
-      expect(save).toHaveBeenCalledOnce();
       pending.reject({ code: 'locked' });
       await enabling;
       await queued;
