@@ -53,6 +53,7 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 @interface UnwiredSymbolView : NSImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
+@property (nonatomic, copy) NSString *symbolScale;
 @property (nonatomic, strong) NSColor *color;
 @end
 
@@ -68,11 +69,21 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 }
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
+- (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
 - (void)setColor:(NSColor *)color { _color = color; self.contentTintColor = color; }
 - (void)render
 {
-  NSImageSymbolConfiguration *configuration =
-      [NSImageSymbolConfiguration configurationWithPointSize:self.size weight:NSFontWeightRegular];
+  NSDictionary<NSString *, NSNumber *> *scales = @{
+    @"small" : @(NSImageSymbolScaleSmall),
+    @"medium" : @(NSImageSymbolScaleMedium),
+    @"large" : @(NSImageSymbolScaleLarge),
+  };
+  NSNumber *scale = self.symbolScale == nil ? nil : scales[self.symbolScale];
+  NSImageSymbolConfiguration *configuration = scale == nil
+      ? [NSImageSymbolConfiguration configurationWithPointSize:self.size weight:NSFontWeightRegular]
+      : [NSImageSymbolConfiguration configurationWithPointSize:self.size
+                                                         weight:NSFontWeightRegular
+                                                          scale:scale.integerValue];
   self.image = self.name == nil ? nil
       : [[NSImage imageWithSystemSymbolName:self.name accessibilityDescription:nil]
             imageWithSymbolConfiguration:configuration];
@@ -249,6 +260,7 @@ typedef UIView UnwiredPlatformView;
 @interface UnwiredSymbolView : UIImageView
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
+@property (nonatomic, copy) NSString *symbolScale;
 @property (nonatomic, strong) UIColor *color;
 @end
 
@@ -262,11 +274,21 @@ typedef UIView UnwiredPlatformView;
 }
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
+- (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
 - (void)setColor:(UIColor *)color { _color = color; self.tintColor = color; }
 - (void)render
 {
+  NSDictionary<NSString *, NSNumber *> *scales = @{
+    @"small" : @(UIImageSymbolScaleSmall),
+    @"medium" : @(UIImageSymbolScaleMedium),
+    @"large" : @(UIImageSymbolScaleLarge),
+  };
+  UIImageSymbolScale scale =
+      self.symbolScale == nil ? UIImageSymbolScaleDefault : scales[self.symbolScale].integerValue;
   UIImageSymbolConfiguration *configuration =
-      [UIImageSymbolConfiguration configurationWithPointSize:self.size weight:UIImageSymbolWeightRegular];
+      [UIImageSymbolConfiguration configurationWithPointSize:self.size
+                                                      weight:UIImageSymbolWeightRegular
+                                                       scale:scale];
   self.image = self.name == nil ? nil
       : [UIImage systemImageNamed:self.name withConfiguration:configuration];
 }
@@ -1385,6 +1407,7 @@ RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
 RCT_EXPORT_MODULE(UnwiredSymbol)
 RCT_EXPORT_VIEW_PROPERTY(name, NSString)
 RCT_EXPORT_VIEW_PROPERTY(size, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(symbolScale, NSString)
 RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 - (UnwiredPlatformView *)view { return [UnwiredSymbolView new]; }
 @end

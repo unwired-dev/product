@@ -44,6 +44,7 @@ const NativeSymbol = requireNativeComponent<
   ViewProps & {
     readonly name: string;
     readonly size: number;
+    readonly symbolScale?: SymbolScale | undefined;
     readonly color: ColorValue;
   }
 >('UnwiredSymbol');
@@ -353,15 +354,20 @@ const styles = StyleSheet.create({
 // UIKit draws SF Symbols larger than the iPad frames' 18.4pt artwork; this size matches its ink.
 export const ipadFrameSymbolSize = 14.5 * (18.4 / 18);
 
-// An SF Symbol at regular weight. It is decorative: the control around it carries the label.
+type SymbolScale = 'small' | 'medium' | 'large';
+
+// An SF Symbol at regular weight, at the system's default symbol scale unless one is given. It is
+// decorative: the control around it carries the label.
 export function SFSymbol({
   name,
   color,
   size = 16,
+  scale,
 }: {
   readonly name: string;
   readonly color: ColorValue;
   readonly size?: number;
+  readonly scale?: SymbolScale | undefined;
 }) {
   return (
     <NativeSymbol
@@ -369,6 +375,7 @@ export function SFSymbol({
       importantForAccessibility="no-hide-descendants"
       name={name}
       size={size}
+      symbolScale={scale}
       color={color}
       style={{ width: size, height: size }}
     />

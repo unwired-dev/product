@@ -79,20 +79,28 @@ const type = settingsColumns
 
 // UIKit draws these symbols larger than the iPad frames' artwork at the frames' size; these sizes
 // come closest to the frames' ink in the sidebar and in content rows; no regular-weight symbol
-// configuration matches both of a frame's dimensions. The frames' translate ink sits 1.5pt right of
-// its slot's centre, and their at ink 1.5pt below its row's centre.
+// configuration matches both of a frame's dimensions. The Dark and Light frames' translate ink
+// sits 1.5pt and 2.5pt right of its slot's centre, and their at ink about 1pt below its row's
+// centre.
 const itemSymbolSizes: Readonly<Partial<Record<string, number>>> = {
   translate: 11.25,
 };
 const itemSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
-  translate: 1.5,
+  translate: 2,
 };
 const rowSymbolSizes: Readonly<Partial<Record<string, number>>> = {
-  at: 15,
+  at: 18.75,
   photo: 13.8,
 };
+// The frames' at has the stroke weight of the small symbol scale, which also keeps its ink as
+// wide as it is tall.
+const rowSymbolScales: Readonly<
+  Partial<Record<string, 'small' | 'medium' | 'large'>>
+> = {
+  at: 'small',
+};
 const rowSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
-  at: 1.5,
+  at: 0.75,
 };
 
 // A push button in a Settings row; `title` is its visible text when the label names its target.
@@ -884,6 +892,7 @@ export function SettingsRow({
                 ? (rowSymbolSizes[icon] ?? 16 * ipadListScale)
                 : 20
             }
+            scale={settingsColumns ? rowSymbolScales[icon] : undefined}
             color={colors.accentInk}
           />
         </View>

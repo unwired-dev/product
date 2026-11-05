@@ -38,6 +38,13 @@ export const movePanelRadius = 13.8 * ipadListScale;
 const panelRowGap = 8 * ipadListScale;
 // Rows other than the message's own folder keep the frame's unseen checkmark column before the icon.
 const panelCheckWidth = 9.625 * ipadListScale;
+// The frame's symbols have the stroke weight of the small symbol scale; these sizes come closest to
+// its 10×10pt magnifier and 13×9pt tray, with other destinations at its 13×11pt folder.
+const panelSearchSymbolSize = 13.5;
+const panelSymbolSizes: Readonly<Partial<Record<string, number>>> = {
+  tray: 14.25,
+};
+const panelSymbolSize = 15;
 
 const styles = StyleSheet.create({
   sheet: { flex: 1, paddingHorizontal: spacing.l },
@@ -110,6 +117,8 @@ const styles = StyleSheet.create({
     borderRadius: 7 * ipadListScale,
     borderCurve: 'continuous',
   },
+  // The frame's 12.0175pt magnifier slot; the symbol's own frame may overhang it.
+  panelSearchIcon: { width: 10.45 * ipadListScale, alignItems: 'center' },
   panelSearchInput: { ...textStyles.subheadline, flex: 1, padding: 0 },
   panelCaption: {
     ...typography.ipadList.subheadline,
@@ -383,7 +392,8 @@ function DestinationRow({
       <View style={dense ? styles.panelIcon : styles.rowIcon}>
         <SFSymbol
           name={row.icon}
-          size={dense ? 15 : 18}
+          size={dense ? (panelSymbolSizes[row.icon] ?? panelSymbolSize) : 18}
+          scale={dense ? 'small' : undefined}
           color={unavailable || dense ? colors.textSecondary : colors.accentInk}
         />
       </View>
@@ -715,11 +725,14 @@ export function MovePanel({
       testID="move-panel"
       style={styles.panel}>
       <View style={[styles.panelSearch, { backgroundColor: colors.fillQuiet }]}>
-        <SFSymbol
-          name="magnifyingglass"
-          size={13}
-          color={colors.textSecondary}
-        />
+        <View style={styles.panelSearchIcon}>
+          <SFSymbol
+            name="magnifyingglass"
+            size={panelSearchSymbolSize}
+            scale="small"
+            color={colors.textSecondary}
+          />
+        </View>
         <TextInput
           accessibilityLabel={t('contextMenu.moveTo')}
           autoCapitalize="none"
