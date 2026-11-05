@@ -986,6 +986,8 @@ export type InvitationFormats = Readonly<{
   day: Intl.DateTimeFormat;
   allDay: Intl.DateTimeFormat;
   time: Intl.DateTimeFormat;
+  // English short weekday names in the formats' time zone, read only for their iCalendar code.
+  weekday: Intl.DateTimeFormat;
   dayMonth: Intl.DateTimeFormat;
   date: Intl.DateTimeFormat;
   year: Intl.DateTimeFormat;
@@ -1006,6 +1008,7 @@ export const createInvitationFormats = (locale: string): InvitationFormats => ({
     timeZone: 'UTC',
   }),
   time: new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }),
+  weekday: new Intl.DateTimeFormat('en-US', { weekday: 'short' }),
   dayMonth: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }),
   date: new Intl.DateTimeFormat(locale, {
     day: 'numeric',
@@ -1046,14 +1049,19 @@ export function invitationWhen(
     end !== undefined &&
     formats.day.format(start.at) === formats.day.format(end.at);
   const local = (meeting: number) =>
-    `${new Date(meeting).getDay()} ${formats.time.format(meeting)}`;
+    `${formats.weekday.format(meeting)} ${formats.time.format(meeting)}`;
   const weekly =
     starts !== undefined &&
     (end === undefined || sameDay) &&
     starts.every((meeting) => local(meeting) === local(start.at));
   const date = weekly
     ? t('invitation.weekdays', {
-        context: weekdays[new Date(start.at).getDay()] ?? 'SU',
+        context:
+          weekdays.find(
+            (weekday) =>
+              weekday ===
+              formats.weekday.format(start.at).slice(0, 2).toUpperCase(),
+          ) ?? 'SU',
       })
     : formats.day.format(start.at);
   if (end === undefined) {

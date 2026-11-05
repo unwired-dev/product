@@ -257,6 +257,14 @@ describe('meeting invitations', () => {
     });
   });
 
+  it('reads a series of up to 9999 meetings', () => {
+    expect.hasAssertions();
+    expect(
+      offered(calendar([...series, 'RRULE:FREQ=WEEKLY;COUNT=9999'])).details
+        .starts,
+    ).toHaveLength(9999);
+  });
+
   it.each([
     ['every other week', 'FREQ=WEEKLY;INTERVAL=2;COUNT=4'],
     ['on two weekdays', 'FREQ=WEEKLY;BYDAY=MO,FR;COUNT=4'],
@@ -270,6 +278,8 @@ describe('meeting invitations', () => {
     ['until a date', 'FREQ=WEEKLY;UNTIL=20261106'],
     ['until before it starts', 'FREQ=WEEKLY;UNTIL=20261001T000000Z'],
     ['with no meetings', 'FREQ=WEEKLY;COUNT=0'],
+    ['for more than 9999 meetings', 'FREQ=WEEKLY;COUNT=10000'],
+    ['until a floating time', 'FREQ=WEEKLY;UNTIL=20261106T130000'],
     ['in some months', 'FREQ=WEEKLY;BYMONTH=10;COUNT=4'],
     ['with a repeated part', 'FREQ=WEEKLY;COUNT=4;COUNT=5'],
   ])('keeps a series repeating %s unreadable', (_, rule) => {
@@ -1259,6 +1269,7 @@ describe('meeting invitations', () => {
         year: 'numeric',
       }),
       time: utc({ hour: 'numeric', minute: '2-digit' }),
+      weekday: utc({ weekday: 'short' }),
       dayMonth: utc({ day: 'numeric', month: 'short' }),
       date: utc({ day: 'numeric', month: 'short', year: 'numeric' }),
       year: utc({ year: 'numeric' }),
