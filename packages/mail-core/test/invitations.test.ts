@@ -11,6 +11,7 @@ import {
   createInvitationFormats,
   invitationBlockedBy,
   invitationOf,
+  invitationRepeats,
   invitationReply,
   invitationResponses,
   invitationStatus,
@@ -192,6 +193,118 @@ describe('meeting invitations', () => {
     });
   });
 
+  // Prague leaves summer time on 25 October 2026, so the last Fridays start an hour later in UTC.
+  const series = meeting.map((line) => line.replace('20261106', '20261016'));
+
+  // Prague has no 02:30 on 28 March 2027, and Apia skipped Friday 30 December 2011, so those
+  // weeks' meetings don't happen or count; a first meeting in the gap keeps the declared time later.
+  it.each([
+    ['Europe/Prague:20270321T0230', 'COUNT=3', Date.UTC(2027, 3, 11, 0, 30)],
+    [
+      'Europe/Prague:20270321T0230',
+      'UNTIL=20270328T020000Z',
+      Date.UTC(2027, 2, 21, 1, 30),
+    ],
+    ['Europe/Prague:20270328T0230', 'COUNT=2', Date.UTC(2027, 3, 4, 0, 30)],
+    [
+      'Europe/Prague:20270328T0230',
+      'UNTIL=20270404T003000Z',
+      Date.UTC(2027, 3, 4, 0, 30),
+    ],
+    ['Pacific/Apia:20111223T1400', 'COUNT=3', Date.UTC(2012, 0, 13)],
+    [
+      'Pacific/Apia:20111223T1400',
+      'UNTIL=20111231T010000Z',
+      Date.UTC(2011, 11, 24),
+    ],
+  ])(
+    'skips meetings a time-zone gap removes from a series from %s, %s',
+    (from, end, lastStart) => {
+      expect.hasAssertions();
+      const gap = meeting.map((line) =>
+        line
+          .replace('Europe/Prague:20261106T1400', from)
+          .replace('Europe/Prague:20261106T1500', `${from.slice(0, -4)}2359`),
+      );
+      expect(
+        offered(
+          calendar([...gap, `RRULE:FREQ=WEEKLY;${end}`]),
+        ).details.starts?.at(-1),
+      ).toBe(lastStart);
+    },
+  );
+
+  it.each([
+    ['until a time', 'RRULE:FREQ=WEEKLY;BYDAY=FR;UNTIL=20261106T130000Z'],
+    ['for a count', 'RRULE:FREQ=WEEKLY;COUNT=4;WKST=MO;INTERVAL=1'],
+  ])('reads a weekly series that ends %s', (_, rrule) => {
+    expect.hasAssertions();
+    const offer = offered(calendar([...series, rrule]));
+
+    expect(offer.details).toMatchObject({
+      start: { at: Date.UTC(2026, 9, 16, 12), allDay: false },
+      starts: [
+        Date.UTC(2026, 9, 16, 12),
+        Date.UTC(2026, 9, 23, 12),
+        Date.UTC(2026, 9, 30, 13),
+        Date.UTC(2026, 10, 6, 13),
+      ],
+    });
+    // One response answers the whole series, so the reply names no single meeting.
+    expect(invitationReply(offer, 'accepted', 0)).not.toContain(
+      'RECURRENCE-ID',
+    );
+    expect(
+      invitationOf(documentOf(calendar([...series, rrule], 'CANCEL')), me),
+    ).toMatchObject({
+      kind: 'cancelled',
+      details: { starts: expect.arrayContaining([Date.UTC(2026, 10, 6, 13)]) },
+    });
+  });
+
+  it('reads a series that ends at a distant UNTIL', () => {
+    expect.hasAssertions();
+    const { starts } = offered(
+      calendar([...series, 'RRULE:FREQ=WEEKLY;UNTIL=20461231T235959Z']),
+    ).details;
+
+    expect(starts).toHaveLength(1055);
+    expect(starts?.at(-1)).toBe(Date.UTC(2046, 11, 28, 13));
+  });
+
+  it('reads a series of up to 9999 meetings', () => {
+    expect.hasAssertions();
+    expect(
+      offered(calendar([...series, 'RRULE:FREQ=WEEKLY;COUNT=9999'])).details
+        .starts,
+    ).toHaveLength(9999);
+  });
+
+  it.each([
+    ['every other week', 'FREQ=WEEKLY;INTERVAL=2;COUNT=4'],
+    ['on two weekdays', 'FREQ=WEEKLY;BYDAY=MO,FR;COUNT=4'],
+    ['on another weekday', 'FREQ=WEEKLY;BYDAY=MO;COUNT=4'],
+    ['daily', 'FREQ=DAILY;COUNT=4'],
+    ['without an end', 'FREQ=WEEKLY'],
+    [
+      'with both a count and an end',
+      'FREQ=WEEKLY;COUNT=4;UNTIL=20261106T130000Z',
+    ],
+    ['until a date', 'FREQ=WEEKLY;UNTIL=20261106'],
+    ['until before it starts', 'FREQ=WEEKLY;UNTIL=20261001T000000Z'],
+    ['with no meetings', 'FREQ=WEEKLY;COUNT=0'],
+    ['for more than 9999 meetings', 'FREQ=WEEKLY;COUNT=10000'],
+    ['until a floating time', 'FREQ=WEEKLY;UNTIL=20261106T130000'],
+    ['until after 9999 meetings', 'FREQ=WEEKLY;UNTIL=99991231T235959Z'],
+    ['in some months', 'FREQ=WEEKLY;BYMONTH=10;COUNT=4'],
+    ['with a repeated part', 'FREQ=WEEKLY;COUNT=4;COUNT=5'],
+  ])('keeps a series repeating %s unreadable', (_, rule) => {
+    expect.hasAssertions();
+    expect(
+      invitationOf(documentOf(calendar([...series, `RRULE:${rule}`])), me),
+    ).toStrictEqual({ kind: 'unreadable' });
+  });
+
   it.each([
     ['names the mailbox', me],
     ['names only other addresses', 'mara@example.invalid'],
@@ -285,6 +398,31 @@ describe('meeting invitations', () => {
 
   it.each([
     ['a recurring meeting', calendar([...meeting, 'RRULE:FREQ=WEEKLY'])],
+    [
+      'an all-day weekly series',
+      calendar([
+        ...meeting.slice(0, 3),
+        'DTSTART;VALUE=DATE:20261106',
+        ...meeting.slice(5),
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+      ]),
+    ],
+    [
+      'a weekly series with an exception',
+      calendar([
+        ...meeting,
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+        'EXDATE;TZID=Europe/Prague:20261113T140000',
+      ]),
+    ],
+    [
+      'two recurrence rules',
+      calendar([
+        ...meeting,
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+      ]),
+    ],
     [
       'a recurring cancellation',
       calendar([...meeting, 'RRULE:FREQ=WEEKLY'], 'CANCEL'),
@@ -1275,6 +1413,10 @@ describe('meeting invitations', () => {
         year: 'numeric',
       }),
       time: utc({ hour: 'numeric', minute: '2-digit' }),
+      weekday: utc({ weekday: 'short' }),
+      dayMonth: utc({ day: 'numeric', month: 'short' }),
+      date: utc({ day: 'numeric', month: 'short', year: 'numeric' }),
+      year: utc({ year: 'numeric' }),
       earlierDay: utc({ weekday: 'short', day: 'numeric', month: 'short' }),
     };
     const organizer = {
@@ -1318,6 +1460,108 @@ describe('meeting invitations', () => {
         'Fri, Nov 6, 2026, 10:00 PM – Sat, Nov 7, 2026, 1:00 AM',
       );
       expect(when(at(6, 13))).toBe('Fri, Nov 6, 2026, 1:00 PM');
+    });
+
+    it.each(['cs-CZ', 'fr-FR'])(
+      'keeps weekly weekday labels in the interface language with %s regional formats',
+      (locale) => {
+        expect.hasAssertions();
+        const regional = createInvitationFormats(locale);
+        const labels = [
+          'Sundays',
+          'Mondays',
+          'Tuesdays',
+          'Wednesdays',
+          'Thursdays',
+          'Fridays',
+          'Saturdays',
+        ];
+        for (const [index, label] of labels.entries()) {
+          const start = new Date(2026, 10, 8 + index, 14).getTime();
+          expect(
+            invitationWhen(english, regional, {
+              start: { at: start, allDay: false },
+              end: { at: start + 3_600_000, allDay: false },
+              starts: [start, start + 7 * 86_400_000],
+            }),
+          ).toBe(`${label}, 14:00–15:00`);
+        }
+      },
+    );
+
+    it('names the weekday and the first and last meetings of a weekly series', () => {
+      expect.hasAssertions();
+
+      const at = (date: number, hour: number) => ({
+        at: Date.UTC(2026, 10, date, hour),
+        allDay: false,
+      });
+      const series = (lastStart: number, end = at(6, 14)) => {
+        const details = {
+          organizer,
+          start: at(6, 13),
+          end,
+          starts: [at(6, 13).at, lastStart],
+        };
+        return [
+          invitationWhen(english, formats, details),
+          invitationRepeats(english, formats, details),
+        ].map((line) => line?.replaceAll('\u202F', ' '));
+      };
+      expect(series(Date.UTC(2026, 11, 18, 13))).toStrictEqual([
+        'Fridays, 1:00 PM–2:00 PM',
+        'Every week from Nov 6 to Dec 18, 2026',
+      ]);
+      expect(series(Date.UTC(2027, 0, 8, 13), at(7, 1))).toStrictEqual([
+        'Fri, Nov 6, 2026, 1:00 PM – Sat, Nov 7, 2026, 1:00 AM',
+        'Every week from Nov 6, 2026 to Jan 8, 2027',
+      ]);
+      // A daylight-saving change in only one of the event's and the device's zones moves later
+      // meetings to another device-local time, so the card names the first meeting's day.
+      expect(series(Date.UTC(2026, 10, 13, 12))).toStrictEqual([
+        'Fri, Nov 6, 2026, 1:00 PM–2:00 PM',
+        'Every week from Nov 6 to Nov 13, 2026',
+      ]);
+      expect(
+        invitationRepeats(english, formats, { organizer, start: at(6, 13) }),
+      ).toBeUndefined();
+    });
+
+    it('names the first meeting when a clock change moves only a later end', () => {
+      expect.hasAssertions();
+      const prague = (options: Intl.DateTimeFormatOptions) =>
+        new Intl.DateTimeFormat('en-US', {
+          ...options,
+          timeZone: 'Europe/Prague',
+        });
+      const { details } = offered(
+        calendar([
+          ...meeting.map((line) =>
+            line
+              .replace('20261106T140000', '20270321T013000')
+              .replace('20261106T150000', '20270321T033000'),
+          ),
+          'RRULE:FREQ=WEEKLY;COUNT=3',
+        ]),
+      );
+
+      expect(
+        invitationWhen(
+          english,
+          {
+            ...formats,
+            day: prague({
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            }),
+            time: prague({ hour: 'numeric', minute: '2-digit' }),
+            weekday: prague({ weekday: 'short' }),
+          },
+          details,
+        ).replaceAll('\u202F', ' '),
+      ).toBe('Sun, Mar 21, 2027, 1:30 AM–3:30 AM');
     });
 
     it('names the earlier answer and time of a moved meeting', () => {
@@ -1433,6 +1677,12 @@ describe('meeting invitations', () => {
           detail: `${me} can’t send responses until you sign in. Nothing has been sent.`,
         },
       ]);
+      expect(
+        invitationStatus({ kind: 'unanswered' }, { ...context, series: true }),
+      ).toStrictEqual({
+        title: 'Not answered yet',
+        detail: 'Your response applies to every meeting in the series.',
+      });
       expect([
         invitationBlockedBy('retry'),
         invitationBlockedBy('authentication'),

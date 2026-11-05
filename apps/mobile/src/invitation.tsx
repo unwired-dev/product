@@ -36,6 +36,7 @@ import {
   invitationBlockedBy,
   invitationChoiceKeys,
   invitationStatus,
+  invitationRepeats,
   invitationWas,
   invitationWhen,
   organizerName,
@@ -162,6 +163,7 @@ function Details({
   const { t } = useLocalization();
   const formats = useFormats();
   const when = invitationWhen(t, formats, details);
+  const repeats = invitationRepeats(t, formats, details);
   const was =
     earlier === undefined ? undefined : invitationWas(t, formats, earlier);
   const cancelled = invited === undefined;
@@ -221,10 +223,15 @@ function Details({
       <View style={styles.details}>
         <DetailRow
           label={t('invitation.when')}
-          spoken={was === undefined ? [when] : [when, was]}>
+          spoken={[when, repeats, was].filter((line) => line !== undefined)}>
           <Text style={[styles.text, { color: colors.textPrimary }]}>
             {when}
           </Text>
+          {repeats === undefined ? null : (
+            <Text style={[styles.text, { color: colors.textSecondary }]}>
+              {repeats}
+            </Text>
+          )}
           {was === undefined ? null : (
             <Text style={[styles.text, { color: colors.textSecondary }]}>
               {was}
@@ -444,6 +451,7 @@ function Responding({
       address: invitation.address,
       provider,
       time,
+      series: invitation.details.starts !== undefined,
       alsoInvited: others,
       earlier: earlier?.choice,
     },

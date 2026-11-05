@@ -427,6 +427,47 @@ describe('meeting invitations in the Mac reader', () => {
     }
   });
 
+  it.each([
+    ['COUNT=7', 'Every week from Nov 6 to Dec 18, 2026'],
+    ['UNTIL=20461231T235959Z', 'Every week from Nov 6, 2026 to Dec 28, 2046'],
+  ])(
+    'shows the weekday and span of a weekly series ending %s',
+    async (end, repeats) => {
+      expect.hasAssertions();
+      const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { app } = await opened(
+        invitation('alex@example.invalid', [`RRULE:FREQ=WEEKLY;${end}`])
+          .replace(
+            'DTSTART:20261106T130000Z',
+            `DTSTART;TZID=${zone}:20261106T120000`,
+          )
+          .replace(
+            'DTEND:20261106T140000Z',
+            `DTEND;TZID=${zone}:20261106T130000`,
+          ),
+      );
+      try {
+        await expect(
+          screen.findByText(/^Fridays, /u),
+        ).resolves.toBeOnTheScreen();
+
+        expect(screen.getByText(repeats)).toBeOnTheScreen();
+        expect(
+          screen.getByLabelText(
+            new RegExp(`^When, Fridays, .+, ${repeats}$`, 'u'),
+          ),
+        ).toBeOnTheScreen();
+        expect(
+          screen.getByText(
+            'Your response applies to every meeting in the series.',
+          ),
+        ).toBeOnTheScreen();
+      } finally {
+        await app.unmount();
+      }
+    },
+  );
+
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();
     const { app } = await opened(
