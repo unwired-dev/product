@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import type {
   ColorValue,
   GestureResponderEvent,
+  LayoutRectangle,
   NativeSyntheticEvent,
   StyleProp,
   TextProps,
@@ -531,30 +532,50 @@ export function GlassPanel({
 }) {
   const colors = usePalette();
   const motion = useMenuMotion(open, 'menu');
+  const [frame, setFrame] = useState<LayoutRectangle>();
   if (!motion.shown) {
     return null;
   }
   return (
-    <Animated.View
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'auto' : 'none'}
-      style={[
-        styles.panel,
-        style,
-        motion.style,
-        {
-          borderRadius: cornerRadius,
-          boxShadow: colors.menuGlassShadow,
-          backgroundColor: colors.surfaceContent,
-          transformOrigin: origin,
-        },
-      ]}>
-      <Glass
-        cornerRadius={cornerRadius}
-        style={StyleSheet.absoluteFill}
-      />
-      {children}
-    </Animated.View>
+    <>
+      {/* UIKit leaves glass inside the panel's own views clear, so it is drawn beside them at the
+          panel's frame and moves with them, as the iPad Command Palette draws its glass. */}
+      {frame === undefined ? null : (
+        <Animated.View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: frame.x,
+            top: frame.y,
+            width: frame.width,
+            height: frame.height,
+            transform: motion.style.transform,
+            transformOrigin: origin,
+          }}>
+          <Glass cornerRadius={cornerRadius} />
+        </Animated.View>
+      )}
+      <Animated.View
+        accessibilityElementsHidden={!open}
+        onLayout={(event) => {
+          setFrame(event.nativeEvent.layout);
+        }}
+        pointerEvents={open ? 'auto' : 'none'}
+        style={[
+          styles.panel,
+          style,
+          motion.style,
+          {
+            borderRadius: cornerRadius,
+            boxShadow: colors.menuGlassShadow,
+            transformOrigin: origin,
+          },
+        ]}>
+        {children}
+      </Animated.View>
+    </>
   );
 }
 

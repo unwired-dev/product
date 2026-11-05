@@ -78,13 +78,14 @@ const type = settingsColumns
     };
 
 // UIKit draws these symbols larger than the iPad frames' artwork at the frames' size; these sizes
-// match the frames' ink in the sidebar and in content rows. The frames' translate ink sits a point
-// right of its slot's centre, and their at ink 1.5pt below its row's centre.
+// come closest to the frames' ink in the sidebar and in content rows; no regular-weight symbol
+// configuration matches both of a frame's dimensions. The frames' translate ink sits 1.5pt right of
+// its slot's centre, and their at ink 1.5pt below its row's centre.
 const itemSymbolSizes: Readonly<Partial<Record<string, number>>> = {
-  translate: 11.5,
+  translate: 11.25,
 };
 const itemSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
-  translate: 1,
+  translate: 1.5,
 };
 const rowSymbolSizes: Readonly<Partial<Record<string, number>>> = {
   at: 15,

@@ -6,7 +6,12 @@ import {
   presentationBackground,
   presentationDetents,
 } from '@expo/ui/swift-ui/modifiers';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
   Pressable,
@@ -26,6 +31,13 @@ import { textStyles, usePalette } from './theme.ts';
 
 // The iPad popover's width in the Move to Folder frame; it starts 20pt before the toolbar.
 export const movePanelWidth = 322;
+// Its glass corners, the frame's 13.8pt menu radius at the iPad's 1.15 scale.
+export const movePanelRadius = 13.8 * ipadListScale;
+
+// The popover's rows: 32.2pt, their contents 9.2pt apart, with the label 24.7pt after the icon.
+const panelRowGap = 8 * ipadListScale;
+// Rows other than the message's own folder keep the frame's unseen checkmark column before the icon.
+const panelCheckWidth = 9.625 * ipadListScale;
 
 const styles = StyleSheet.create({
   sheet: { flex: 1, paddingHorizontal: spacing.l },
@@ -86,32 +98,42 @@ const styles = StyleSheet.create({
   rowName: { ...textStyles.body, flex: 1 },
   count: { ...textStyles.body },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
-  // The iPad Move to Folder frame's popover: search, the account, then its folders.
-  panel: { width: movePanelWidth, padding: spacing.s, gap: spacing.xs },
+  // The iPad Move to Folder frame's popover: search, the account, then its folders, at the
+  // Mac menu recipe scaled 1.15.
+  panel: { width: movePanelWidth, padding: 6 * ipadListScale },
   panelSearch: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.s,
-    minHeight: 32,
-    paddingHorizontal: spacing.s,
-    borderRadius: radius.row,
+    gap: 6 * ipadListScale,
+    height: 28 * ipadListScale,
+    paddingHorizontal: 8 * ipadListScale,
+    borderRadius: 7 * ipadListScale,
     borderCurve: 'continuous',
   },
   panelSearchInput: { ...textStyles.subheadline, flex: 1, padding: 0 },
   panelCaption: {
-    ...textStyles.footnote,
+    ...typography.ipadList.subheadline,
     fontWeight: '600',
-    paddingHorizontal: spacing.s,
-    paddingTop: spacing.xs,
+    minHeight: 22.8 * ipadListScale,
+    paddingLeft: 10 * ipadListScale,
+    paddingTop: 6 * ipadListScale,
+    paddingBottom: 2 * ipadListScale,
   },
   panelList: { maxHeight: 360, flexGrow: 0 },
   panelRow: {
-    minHeight: 32,
-    paddingVertical: 6,
-    paddingHorizontal: spacing.s,
+    gap: panelRowGap,
+    minHeight: 28 * ipadListScale,
+    paddingVertical: 6 * ipadListScale,
+    paddingHorizontal: 10 * ipadListScale,
     borderRadius: radius.row,
   },
-  panelName: { ...textStyles.subheadline, flex: 1 },
+  panelCheck: { width: panelCheckWidth },
+  panelIcon: {
+    width: 21.485 * ipadListScale - panelRowGap,
+    alignItems: 'center',
+  },
+  panelName: { ...typography.ipadList.body, flex: 1 },
+  panelCount: { ...typography.ipadList.body },
 });
 
 // Each level of nesting indents a folder by one icon column.
@@ -356,7 +378,9 @@ function DestinationRow({
       onPress={() => {
         onChoose(row.id);
       }}>
-      <View style={styles.rowIcon}>
+      {/* The message's own folder takes the checkmark column's place, as the frame selects it. */}
+      {dense && !row.current ? <View style={styles.panelCheck} /> : null}
+      <View style={dense ? styles.panelIcon : styles.rowIcon}>
         <SFSymbol
           name={row.icon}
           size={dense ? 15 : 18}
@@ -372,7 +396,11 @@ function DestinationRow({
         {row.name}
       </Text>
       {row.count === undefined ? null : (
-        <Text style={[styles.count, { color: colors.textSecondary }]}>
+        <Text
+          style={[
+            dense ? styles.panelCount : styles.count,
+            { color: colors.textSecondary },
+          ]}>
           {row.count}
         </Text>
       )}

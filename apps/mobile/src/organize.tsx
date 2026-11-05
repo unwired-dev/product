@@ -26,7 +26,7 @@ import {
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
-import { ipadListScale, spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -57,7 +57,12 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
-import { MovePanel, movePanelWidth, MoveSheet } from './move-sheet.tsx';
+import {
+  MovePanel,
+  movePanelRadius,
+  movePanelWidth,
+  MoveSheet,
+} from './move-sheet.tsx';
 import { ActionButton } from './organize-action-button.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -531,6 +536,10 @@ const threadActions = (
     })),
 ];
 
+// Move's popover keeps the frame's rounder glass; More keeps the menu's.
+const panelRadius = (movePanel: boolean) =>
+  movePanel ? movePanelRadius : radius.menu;
+
 // The toolbar and the panel or sheet one of its buttons opened.
 function Toolbar({
   archive,
@@ -589,6 +598,8 @@ function Toolbar({
   } else if (more.open && shownPanel !== 'more') {
     setShownPanel('more');
   }
+  const movePanel =
+    shownPanel === 'folders' && folders !== undefined && 'panel' in folders;
   return (
     <>
       <View
@@ -627,10 +638,10 @@ function Toolbar({
                 shownPanel === 'folders' && styles.movePanel,
               ]
         }>
-        <GlassPanel open={foldersOpen || more.open}>
-          {shownPanel === 'folders' &&
-          folders !== undefined &&
-          'panel' in folders ? (
+        <GlassPanel
+          open={foldersOpen || more.open}
+          cornerRadius={panelRadius(movePanel)}>
+          {movePanel ? (
             folders.panel
           ) : (
             <MorePanel
