@@ -98,7 +98,8 @@ separately.
   sent alone with its `RECURRENCE-ID`, reads **Invitation from {organizer} · one
   meeting**, shows that meeting's date and times with **One meeting in a series**
   below, and the unanswered card says **Your response applies only to {date}.**
-  The reply repeats the `RECURRENCE-ID`, so it answers that meeting only, and its
+  The reply repeats the `RECURRENCE-ID`, in UTC for a timed meeting so it needs no
+  `VTIMEZONE`, so it answers that meeting only, and its
   response is recorded apart from the series' and other meetings'. A cancellation or
   an invitation for another address of that meeting shows the same line. The
   invitation carries no rule, so the card does not say how the series repeats. The

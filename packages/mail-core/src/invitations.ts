@@ -699,6 +699,7 @@ export function invitationReply(
   at: number,
 ) {
   const { attendee, organizer, summary, recurrence } = invitation.lines;
+  const { start, recurrence: original } = invitation.details;
   const answered: Line = {
     ...attendee,
     parameters: [
@@ -716,7 +717,14 @@ export function invitationReply(
     'BEGIN:VEVENT',
     `UID:${invitation.uid}`,
     `SEQUENCE:${invitation.sequence.toString()}`,
-    ...(recurrence === undefined ? [] : [written(recurrence)]),
+    // A timed meeting is named by its original start in UTC, which needs no VTIMEZONE beside it.
+    ...(recurrence === undefined || original === undefined
+      ? []
+      : [
+          start.allDay
+            ? written(recurrence)
+            : `RECURRENCE-ID:${stamp(original)}`,
+        ]),
     `DTSTAMP:${stamp(at)}`,
     written(organizer),
     written(answered),

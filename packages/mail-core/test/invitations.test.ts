@@ -279,8 +279,9 @@ describe('meeting invitations', () => {
       recurrence: Date.UTC(2026, 10, 13, 13),
     });
     expect(offer.details.starts).toBeUndefined();
+    // In UTC, so the reply needs no VTIMEZONE for Europe/Prague.
     expect(invitationReply(offer, 'declined', 0)).toContain(
-      `SEQUENCE:2\r\n${occurrence}\r\nDTSTAMP:`,
+      'SEQUENCE:2\r\nRECURRENCE-ID:20261113T130000Z\r\nDTSTAMP:',
     );
     for (const [address, method, kind] of [
       [me, 'CANCEL', 'cancelled'],
@@ -293,6 +294,23 @@ describe('meeting invitations', () => {
         details: { recurrence: Date.UTC(2026, 10, 13, 13) },
       });
     }
+  });
+
+  it('answers one all-day meeting of a series by its date', () => {
+    expect.hasAssertions();
+    const offer = offered(
+      calendar([
+        ...meeting.slice(0, 3),
+        'DTSTART;VALUE=DATE:20261113',
+        ...meeting.slice(5),
+        'RECURRENCE-ID;VALUE=DATE:20261113',
+      ]),
+    );
+
+    expect(offer.details.recurrence).toBe(Date.UTC(2026, 10, 13));
+    expect(invitationReply(offer, 'accepted', 0)).toContain(
+      'SEQUENCE:2\r\nRECURRENCE-ID;VALUE=DATE:20261113\r\nDTSTAMP:',
+    );
   });
 
   it.each([
