@@ -89,15 +89,15 @@ const itemSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
   translate: 2,
 };
 const rowSymbolSizes: Readonly<Partial<Record<string, number>>> = {
-  at: 18.75,
+  at: 11.5,
   photo: 13.8,
 };
-// The frames' at has the stroke weight of the small symbol scale, which also keeps its ink as
-// wide as it is tall.
+// At the large symbol scale, at draws 15×15pt ink, the closest to the frames' 16×15pt and
+// 16×14pt of any regular-weight configuration.
 const rowSymbolScales: Readonly<
   Partial<Record<string, 'small' | 'medium' | 'large'>>
 > = {
-  at: 'small',
+  at: 'large',
 };
 const rowSymbolOffsets: Readonly<Partial<Record<string, number>>> = {
   at: 0.75,
