@@ -1259,6 +1259,10 @@
     "escape": "esc",
     "selection": "Selected Message",
     "selectionWith": "Selected Message · {{subject}}",
+    "draft": "Draft",
+    "draftWith": "Draft · {{subject}}",
+    "attach": "Attach File…",
+    "copies": "Add Cc and Bcc",
     "app": "App",
     "navigation": "Go To",
     "empty": "No matching commands",
@@ -1288,6 +1292,10 @@
       "move": "Move"
     },
     "keywords": {
+      "send": "deliver submit mail",
+      "attach": "attachment add upload document photo image",
+      "copies": "cc bcc copy recipients",
+      "discard": "delete remove trash bin",
       "reply": "respond answer",
       "replyAll": "respond answer everyone",
       "forward": "send share",
