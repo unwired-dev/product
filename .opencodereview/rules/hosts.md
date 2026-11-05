@@ -756,6 +756,18 @@ still applies. See `docs/architecture/macos-client.md`.
   otherwise dismissed private input remains in a hidden native field or returns
   through a delayed edit. Test retained hidden content rather than a presenter
   mock that unmounts it on close.
+  Include queued menu choices that open lifted prompt state after its Profile or
+  assistance owner retires, including leaving and returning to the same Profile;
+  otherwise an old control can open a new owner's prompt despite closed-field guards.
+
+- `composer.tsx.Editor` or `evaluation-composer.tsx.EvaluationEditor` moving
+  Link Editor or Generate a Draft presenters between adaptive subtrees while
+  leaving their open state or entered values in those subtrees. Exercise both
+  compact-to-regular and regular-to-compact changes through `ComposerLayoutContext`
+  with each presenter open, checking entered values and the new presentation.
+  Preserve the compact Format panel when it owns the Link Editor's sheet;
+  otherwise resizing dismisses an unfinished edit or loses its text. Keep native
+  re-presentation, dismissal ordering and focus evidence distinct from component mocks.
 
 - `MessageDetail` or `ThreadView` inheriting the Account/Draft gate’s Default
   Profile consent for a reader of another Profile. Check the reader gate and

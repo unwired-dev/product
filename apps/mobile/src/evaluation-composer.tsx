@@ -50,7 +50,7 @@ import { WebView } from 'react-native-webview';
 import type { Closing } from './composer.tsx';
 import type { Open, PageState } from './evaluation-composer-controls.tsx';
 
-import { FormatPanel } from './composer-controls.tsx';
+import { FormatPanel, useLinkEditor } from './composer-controls.tsx';
 import {
   CapturedAssistance,
   CloseQuestion,
@@ -141,6 +141,12 @@ function EvaluationEditor({
   const hide = useCallback(() => {
     setOpen(undefined);
   }, []);
+  // An open Link Editor outlives a resize between the iPad and iPhone layouts. On iPhone its sheet
+  // opens from the Format panel.
+  const linkEditor = useLinkEditor();
+  if (layout.size === 'compact' && linkEditor.shown && open !== 'format') {
+    setOpen('format');
+  }
   const [closing, setClosing] = useState<Closing>();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
@@ -642,6 +648,7 @@ function EvaluationEditor({
               {...retained.input}>
               <PadFormatBar
                 page={retained.pad}
+                linkEditor={linkEditor}
                 {...controls}
               />
             </View>
@@ -815,6 +822,7 @@ function EvaluationEditor({
             active={retained.phone.marks}
             kind={retained.phone.kind}
             link={editableLinkAt(draft.body, retained.phone.selection)}
+            linkEditor={linkEditor}
             undo={retained.phone.undo}
             redo={retained.phone.redo}
             disabled={false}

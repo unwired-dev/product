@@ -183,7 +183,9 @@ it with the destination in angle brackets unless the text is the destination.
 The composer underlines linked text. With the caret in a link or a selection
 inside one, the format bar's **Edit Link** control opens the Link Editor, a
 popover on Mac and iPad and an **Edit Link** sheet on iPhone, with the link's
-text and destination. **Apply** replaces both and is available only while the
+text and destination. Resizing an iPad window between compact and regular layouts
+keeps the open Link Editor and its entered text and destination in the new
+presentation. **Apply** replaces both and is available only while the
 text is not empty, contains no line break or inline-image placeholder, and the
 destination is one a Draft may keep; after Return, or on leaving the Link field,
 an entered destination it cannot keep is named as invalid and announced to

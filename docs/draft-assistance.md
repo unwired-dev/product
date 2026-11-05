@@ -38,7 +38,9 @@ results for changed details on Mac, and on iPhone and iPad.
 - **Generate a Draft…** needs no text, so it is enabled whenever the menu is. It
   opens a prompt field and **Generate**, which is disabled while the prompt is
   blank; Return also generates. On Mac and iPad the prompt is a popover below the
-  menu button; on iPhone it is a sheet. The close button, Escape, a click or tap
+  menu button; on iPhone it is a sheet. Resizing an iPad window between compact
+  and regular layouts keeps an open prompt and its text in the new presentation.
+  The close button, Escape, a click or tap
   elsewhere, or dismissing the sheet closes it without changing the Draft. The model reads only the prompt, never the Draft, and the
   result opens in the review panel titled **Generated draft**. **Insert** places
   it at the caret, after any selection without replacing it, as one undoable
