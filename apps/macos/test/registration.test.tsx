@@ -73,6 +73,7 @@ import {
   inboxFocused,
   reopenSettingsWhileClosing,
   settingsOpen,
+  settingsOpenings,
   settingsWindow,
 } from './settings-window.tsx';
 import { started } from './started.ts';
@@ -1184,6 +1185,7 @@ describe('product registration', () => {
                   onSelect={() => undefined}
                   selected={undefined}
                 />
+                <CommandBar />
               </InboxProvider>
             </RegistrationGate>
           </CommandPaletteProvider>
@@ -1224,13 +1226,17 @@ describe('product registration', () => {
       ).toBeNull();
       // The Inbox palette's Account command reaches the same window, which keeps its place.
       await menu.choose('account');
+      expect(screen.getByPlaceholderText('Type a command')).toBeVisible();
+      const openings = settingsOpenings();
       await act(async () => {
-        await fireEvent.press(screen.getByRole('button', { name: 'Settings' }));
+        await fireEvent.press(screen.getByRole('button', { name: 'Account' }));
       });
       expect({
+        opened: settingsOpenings() - openings,
         windows: screen.getAllByTestId('settings-window'),
         selected: selected(),
       }).toStrictEqual({
+        opened: 1,
         windows: [expect.anything()],
         selected: ['Email Accounts'],
       });

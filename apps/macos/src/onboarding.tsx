@@ -95,10 +95,20 @@ const styles = StyleSheet.create({
   wordmark: { fontSize: 22, lineHeight: 26 },
   tagline: { ...textStyles.body, marginTop: spacing.s, opacity: 0.85 },
   // The form keeps the frame's place, 200pt into its pane and 250pt down; anything the page adds
-  // follows below it.
-  form: { flexGrow: 1, paddingLeft: 200, paddingTop: 250, paddingBottom: 40 },
-  formContent: { width: 341, gap: spacing.m },
-  formActions: { width: 320, gap: spacing.m },
+  // follows below it. A narrower window gives up the inset first, then the form's width, down to
+  // 16pt margins.
+  form: {
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.l,
+    paddingTop: 250,
+    paddingBottom: 40,
+  },
+  // The rest of the frame's 200pt inset, from the pane's free width only.
+  formInset: { flexGrow: 1, maxWidth: 200 - spacing.l },
+  formContent: { flexBasis: 341, flexShrink: 1, gap: spacing.m },
+  formActions: { maxWidth: 320, gap: spacing.m },
   title: { fontSize: 22, lineHeight: 26 },
   description: { ...textStyles.body },
   finePrint: { ...textStyles.subheadline, marginTop: spacing.m },
@@ -401,6 +411,7 @@ export function SignIn({
         </Label>
       </View>
       <ScrollView contentContainerStyle={styles.form}>
+        <View style={styles.formInset} />
         <View style={styles.formContent}>
           <Label
             accessibilityRole="header"

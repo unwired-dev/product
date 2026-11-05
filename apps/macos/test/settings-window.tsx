@@ -10,6 +10,7 @@ import { SettingsWindowRoot } from '../src/window.tsx';
 // surface, and closeSettings or its close button removes it.
 let shown = false;
 let focused = 0;
+let openings = 0;
 let requestSerial = 0;
 let holdOpen = false;
 let pendingOpen: (() => void) | undefined = undefined;
@@ -27,6 +28,7 @@ const show = (next: boolean) => {
 };
 const host = {
   openSettings: (serial?: number) => {
+    openings += 1;
     const open = () => {
       requestSerial = serial ?? requestSerial;
       show(true);
@@ -77,6 +79,7 @@ afterEach(() => {
   Reflect.set(TurboModuleRegistry, 'get', get);
   shown = false;
   focused = 0;
+  openings = 0;
   requestSerial = 0;
   holdOpen = false;
   pendingOpen = undefined;
@@ -126,6 +129,9 @@ export const composerWindows = (): ReadonlyArray<{
 export const closedWindows = (): readonly string[] => closed;
 
 export const toggledSidebars = (): readonly string[] => sidebarToggles;
+
+// How often JavaScript asked AppKit to open the Settings window, or bring it forward.
+export const settingsOpenings = () => openings;
 
 // How often the Settings window brought an Inbox window forward.
 export const inboxFocused = () => focused;

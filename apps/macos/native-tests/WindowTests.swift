@@ -179,7 +179,15 @@ final class WindowTests: XCTestCase {
   private func removalJourney(_ app: XCUIApplication, first: XCUIElement) {
     XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
     first.buttons["Continue"].click()
-    first.buttons["Sign in with Google"].click()
+    // At the narrowest window the sign-in actions stay whole beside the brand panel.
+    let google = first.buttons["Sign in with Google"]
+    XCTAssertTrue(google.waitForExistence(timeout: 10))
+    let corner = first.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+      .withOffset(CGVector(dx: -2, dy: -2))
+    corner.click(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: -600, dy: 0)))
+    XCTAssertEqual(first.frame.width, 760, accuracy: 1)
+    XCTAssertLessThanOrEqual(google.frame.maxX, first.frame.maxX)
+    google.click()
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let key = recoveryKey(in: first).value as? String ?? ""
     let entry = first.textFields["Last four characters"]
