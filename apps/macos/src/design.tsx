@@ -106,7 +106,7 @@ export function Glass({
           backgroundColor: panel
             ? colors.macPanelGlassFill
             : colors.macGlassFill,
-          boxShadow: colors.macGlassEdge,
+          boxShadow: panel ? colors.macPanelGlassEdge : colors.macGlassEdge,
         },
       ]}
     />

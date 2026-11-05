@@ -74,7 +74,14 @@ const styles = StyleSheet.create({
   },
   // The frame's symbols are 70% of the label's ink.
   pointIcon: { opacity: 0.7 },
-  pointText: { fontSize: 15, lineHeight: 20, opacity: 0.85 },
+  // AppKit tracks 15pt SF Pro tighter than the frame's untracked labels; this restores their
+  // measured widths.
+  pointText: {
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: 0.22,
+    opacity: 0.85,
+  },
   continue: { alignSelf: 'flex-start', minWidth: 160 },
   split: { flex: 1, flexDirection: 'row' },
   brandPanel: {

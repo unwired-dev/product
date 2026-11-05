@@ -57,11 +57,15 @@ export const palette = {
     // against the frames.
     macGlassFill: '#F8F8F8',
     macGlassOpacity: 0.1,
-    // Around and inside that fill, the frames' Liquid Glass - Medium: a soft 0.5pt rim, darker at
-    // the sides, and highlights along the inside of the top and bottom edges. The frames burn and
-    // dodge these into the backdrop; these are their measured equivalents in ordinary blending.
+    // Around and inside that fill, the frames' Liquid Glass - Medium: a 0.5pt rim outside it,
+    // darker at the sides, and highlights along the inside of the top and bottom edges. The frames
+    // burn and dodge these into the backdrop; these are their measured equivalents in ordinary
+    // blending.
     macGlassEdge:
-      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px 0px 0px 0.5px rgba(0, 0, 0, 0.046), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.15), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.15), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
+    // The same rim on glass menu panels, whose fill lets AppKit's own rim show through it.
+    macPanelGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.105), 0px -0.5px 0px 0px rgba(0, 0, 0, 0.15), 0px 0.5px 0px 0px rgba(0, 0, 0, 0.15), inset 0px 45px 3px -40px rgba(255, 255, 255, 1), inset 0px -45px 3px -40px rgba(255, 255, 255, 1)',
     // Glass menu panels, such as the Command Palette: AppKit's glass blurs what lies beneath, and
     // this fill over it lets some of that show through. Over a plain reader the two make the
     // frames' glass fill, as measured: AppKit's glass alone is lighter than the frames' fill.
@@ -105,8 +109,14 @@ export const palette = {
     surfaceBubble: '#2C2C2E',
     macGlassFill: '#1A1A1A',
     macGlassOpacity: 0.1,
+    // Dark's rim burns to black; a 1pt crest tops a short glow, and the bottom's crest and glow
+    // are softer and longer.
     macGlassEdge:
-      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px 0px 0px 0.5px rgba(255, 255, 255, 0.04), inset 0px 41.25px 1px -40px rgba(255, 255, 255, 0.1), inset 0px -41.25px 1px -40px rgba(255, 255, 255, 0.1), inset 0px 40px 10px -40px rgba(255, 255, 255, 0.11), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.11)',
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px -0.5px 0px 0px rgba(0, 0, 0, 1), 0px 0.5px 0px 0px rgba(0, 0, 0, 1), inset 0px 41px 0px -40px rgba(255, 255, 255, 0.162), inset 0px -41px 0px -40px rgba(255, 255, 255, 0.057), inset 0px -40.5px 0px -40px rgba(255, 255, 255, 0.104), inset 0px 40px 7px -40px rgba(255, 255, 255, 0.093), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.136)',
+    // On a panel AppKit's rim adds to the crests, so they are fainter, and the top glow is fainter
+    // still.
+    macPanelGlassEdge:
+      '-1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 1.25px 0px 0px -0.75px rgba(0, 0, 0, 0.66), 0px -0.5px 0px 0px rgba(0, 0, 0, 1), 0px 0.5px 0px 0px rgba(0, 0, 0, 1), inset 0px 41px 0px -40px rgba(255, 255, 255, 0.14), inset 0px -41px 0px -40px rgba(255, 255, 255, 0.065), inset 0px 40px 10px -40px rgba(255, 255, 255, 0.05), inset 0px -40px 10px -40px rgba(255, 255, 255, 0.11)',
     macPanelGlassFill: 'rgba(14, 14, 14, 0.7)',
     fillQuiet: 'rgba(255, 255, 255, 0.06)',
     fillTrack: 'rgba(255, 255, 255, 0.16)',
