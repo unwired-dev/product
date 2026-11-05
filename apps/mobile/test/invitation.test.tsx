@@ -521,6 +521,43 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     },
   );
 
+  it('answers only the one meeting of a series it invites to', async () => {
+    expect.hasAssertions();
+    const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { gmail, app } = await opened(
+      invitation('alex@example.invalid', [
+        `RECURRENCE-ID;TZID=${zone}:20261106T120000`,
+      ])
+        .replace(
+          'DTSTART:20261106T130000Z',
+          `DTSTART;TZID=${zone}:20261106T120000`,
+        )
+        .replace(
+          'DTEND:20261106T140000Z',
+          `DTEND;TZID=${zone}:20261106T130000`,
+        ),
+    );
+    try {
+      await expect(
+        screen.findByText('Invitation from Lena Fischer · one meeting'),
+      ).resolves.toBeOnTheScreen();
+
+      expect(
+        screen.getByLabelText(/^When, Fri, .+, One meeting in a series$/u),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText('Your response applies only to Fri, Nov 6.'),
+      ).toBeOnTheScreen();
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Decline' }));
+      await expect(screen.findByText('Declined')).resolves.toBeOnTheScreen();
+
+      expect(gmail.sends).toHaveLength(1);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();
     const { app } = await opened(

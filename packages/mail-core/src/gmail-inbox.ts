@@ -3987,10 +3987,12 @@ export function createGmailInbox(
     );
   });
 
-  // Replaces the record of one invitation revision's response, or removes it, in the opened
-  // mailbox's cache. Resolves whether it was saved.
+  // Replaces the record of one invitation revision's response, or one series meeting's, or removes
+  // it, in the opened mailbox's cache. Resolves whether it was saved.
   const recordResponse = (
-    revision: Readonly<Pick<InvitationResponse, 'uid' | 'sequence'>>,
+    revision: Readonly<
+      Pick<InvitationResponse, 'uid' | 'sequence' | 'recurrence'>
+    >,
     response: InvitationResponse | undefined,
   ) => {
     const scope = opened;
@@ -4011,8 +4013,10 @@ export function createGmailInbox(
       const responses = [
         ...(response === undefined ? [] : [response]),
         ...(document.responses ?? []).filter(
-          ({ uid, sequence }) =>
-            uid !== revision.uid || sequence !== revision.sequence,
+          ({ uid, sequence, recurrence }) =>
+            uid !== revision.uid ||
+            sequence !== revision.sequence ||
+            recurrence !== revision.recurrence,
         ),
       ];
       const next = {
@@ -5073,7 +5077,9 @@ export function createGmailInbox(
       );
     },
     recordResponse: (
-      revision: Readonly<Pick<InvitationResponse, 'uid' | 'sequence'>>,
+      revision: Readonly<
+        Pick<InvitationResponse, 'uid' | 'sequence' | 'recurrence'>
+      >,
       response: InvitationResponse | undefined,
     ) => runLogged(persistence.withPermit(recordResponse(revision, response))),
     // An opened message's body and headers, which Reply, Reply All and Forward start from;

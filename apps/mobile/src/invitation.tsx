@@ -37,6 +37,7 @@ import {
   invitationChoiceKeys,
   invitationStatus,
   invitationRepeats,
+  invitationScope,
   invitationWas,
   invitationWhen,
   organizerName,
@@ -167,7 +168,11 @@ function Details({
   const was =
     earlier === undefined ? undefined : invitationWas(t, formats, earlier);
   const cancelled = invited === undefined;
-  const from = t(cancelled ? 'invitation.cancelledBy' : 'invitation.from', {
+  const invitedBy =
+    details.recurrence === undefined
+      ? 'invitation.from'
+      : 'invitation.fromOneMeeting';
+  const from = t(cancelled ? 'invitation.cancelledBy' : invitedBy, {
     name: organizerName(details),
   });
   const badge = cancelled
@@ -435,7 +440,7 @@ function Responding({
     const state = inbox.getSnapshot();
     return state.kind === 'ready' ? state.sync : undefined;
   });
-  const { time } = useFormats();
+  const formats = useFormats();
   const name = organizerName(invitation.details);
   const blocked =
     recorded.kind === 'unanswered' ||
@@ -450,8 +455,8 @@ function Responding({
       name,
       address: invitation.address,
       provider,
-      time,
-      series: invitation.details.starts !== undefined,
+      time: formats.time,
+      scope: invitationScope(t, formats, invitation.details),
       alsoInvited: others,
       earlier: earlier?.choice,
     },
