@@ -282,6 +282,7 @@
     "enterPassword": "Enter the password for {{address}} again",
     "confirm_imap": "Removing {{address}} deletes its password and the mail saved for it from this device, and removes it from your other devices when they next connect. Your mail stays on the mail server.",
     "favorites": "Favorites",
+    "collapsed": "Collapsed",
     "allMail": "All Mail",
     "spam": "Spam",
     "trash": "Trash",
@@ -539,6 +540,10 @@
   "invitation": {
     "heading": "Invitation",
     "from": "Invitation from {{name}}",
+    "cancelledBy": "Cancelled by {{name}}",
+    "cancelled": "Cancelled",
+    "meetingCancelled": "This meeting was cancelled",
+    "meetingCancelledDetail": "There’s nothing to respond to.",
     "untitled": "Untitled meeting",
     "when": "When",
     "where": "Where",

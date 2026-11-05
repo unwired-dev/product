@@ -64,7 +64,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderCurve: 'continuous',
   },
-  sidebarList: { padding: spacing.s },
+  // Below the window controls, which AppKit draws on the glass.
+  sidebarList: { padding: spacing.s, paddingTop: 40 },
   account: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -280,8 +281,17 @@ export function SettingsWindow({
   const [accountFocused, setAccountFocused] = useState(false);
   const selected = destination === 'account';
   return (
-    <View style={styles.window}>
-      <View style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+    <View style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
+      {/* The surface beneath the glass gives AppKit a layer to cast the sidebar's shadow from, as
+          the Inbox window's glass sidebar does. */}
+      <View
+        style={[
+          styles.sidebar,
+          {
+            backgroundColor: colors.surfaceContent,
+            boxShadow: colors.largeGlassShadow,
+          },
+        ]}>
         <Glass cornerRadius={18} />
         <View
           style={[

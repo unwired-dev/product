@@ -1217,6 +1217,31 @@ still applies. See `docs/architecture/macos-client.md`.
 
 #### Platform behavior
 
+- `command-palette.tsx.CommandBar` moving its entry within a Mac window while
+  leaving the open query or panel at a fixed width and leading offset. Check
+  both horizontal bounds at the initial and minimum window sizes and on each
+  side of AppKit's sidebar-collapse threshold, including resizing while open.
+  Keep the query and every command row within the owning window; otherwise
+  relocated chrome clips commands even when the closed entry fits. Verify
+  native geometry, since component tests do not calculate window clipping.
+  Check the closed input against `message-detail.tsx`'s reader toolbar too:
+  `window.tsx.commandsWidth` can allocate zero while the compact entry still
+  renders at its symbol-only width. Reserve that minimum plus a gap before
+  `organize.tsx.Toolbar` wraps its groups; otherwise the input covers reader
+  actions and intercepts their clicks. Exercise both the input and reader
+  actions with the sidebar visible in a narrow window.
+  Let the reader toolbar grow when those groups wrap; a fixed one-row height
+  leaves the next group over the subject even after horizontal overlap is fixed.
+
+- `sidebar.tsx.SectionHeader` or another Mac disclosure relying only on
+  `accessibilityState.expanded` to expose both states. Trace the installed
+  renderer, including its Fabric value and native state mapping: the 0.81.9
+  Fabric value includes true as "expanded" but omits false. Preserve explicit
+  collapsed-state text where the host omits it, without duplicating the expanded
+  announcement. Otherwise component state matchers pass while VoiceOver cannot
+  identify a collapsed section. Keep native speech qualification distinct from
+  component accessibility-value assertions.
+
 - Mac `design.tsx.ModalBackground` callers or another legacy native container
   changing their content frame without checking direct legacy native children.
   Trace the installed Fabric interop's child mounting as well as Yoga layout:
@@ -1709,6 +1734,10 @@ still applies. See `docs/architecture/macos-client.md`.
   the hidden bar's guarded command, and the explicit Mac Search Mail reveal that
   shows that bar without closing its Draft. Focus search after the
   revealed bar commits; otherwise command availability or keyboard entry breaks.
+  When the bar spans the reader, keep the revealed bar above the composer in
+  native paint and hit-test order. Click the part of Search that overlaps the
+  Draft and type through the window, checking the query and retained Draft;
+  imperative focus alone can work while the overlay still intercepts clicks.
 - A floating Mac panel such as the Command Palette's, documented as closing on
   an outside click, that only handles Escape and Cancel. Render a transparent
   `Pressable` scrim with an accessible name while the panel is open, and keep it
