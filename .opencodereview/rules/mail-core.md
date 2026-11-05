@@ -560,8 +560,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `assistance-enablement.ts.createMailAssistanceEnablement` carrying an
   unacknowledged turn-on into another queued choice's persistence payload.
   Hold the native save, queue an unrelated Profile change, then reject the
-  turn-on and reload through the public store. Both local and Private Cloud
-  consent must remain off unless explicitly retried. Build queued choices from
+  turn-on and reload through the public store. The failed choice must remain off
+  unless explicitly retried; preserve existing consent for other choices,
+  including Private Cloud's local prerequisite. Build queued choices from
   completed outcomes, handling failure before releasing serialization; preserve
   successful independent choices, immediate Off and failed withdrawal intent,
   and recheck the local-consent prerequisite at admission. Otherwise a failed
