@@ -1031,29 +1031,31 @@ const statuses: {
     context: StatusContext,
   ) => InvitationStatus;
 } = {
-  unanswered: (_, { t, name, address, alsoInvited: others, earlier }) =>
+  unanswered: (_, { t, name, address, alsoInvited: others, earlier }) => {
     // A moved meeting asks for a new answer first; the address it answers from stays in Invited.
-    earlier === undefined
-      ? others === 0
-        ? {
-            title: t('invitation.unanswered'),
-            detail: t('invitation.unansweredDetail', { name, address }),
-          }
-        : {
-            icon: 'info.circle',
-            title: t('invitation.respondingAs', { address }),
-            detail: t(
-              others === 1
-                ? 'invitation.invitedTwice'
-                : 'invitation.invitedMoreThanTwice',
-              { address, count: others + 1 },
-            ),
-          }
+    if (earlier !== undefined) {
+      return {
+        icon: 'info.circle',
+        title: t('invitation.changedTime', { name }),
+        detail: t(`invitation.${earlier}Earlier`),
+      };
+    }
+    return others === 0
+      ? {
+          title: t('invitation.unanswered'),
+          detail: t('invitation.unansweredDetail', { name, address }),
+        }
       : {
           icon: 'info.circle',
-          title: t('invitation.changedTime', { name }),
-          detail: t(`invitation.${earlier}Earlier`),
-        },
+          title: t('invitation.respondingAs', { address }),
+          detail: t(
+            others === 1
+              ? 'invitation.invitedTwice'
+              : 'invitation.invitedMoreThanTwice',
+            { address, count: others + 1 },
+          ),
+        };
+  },
   sending: (state, { t, address }) => ({
     busy: true,
     title: t('invitation.sending'),
