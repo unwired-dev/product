@@ -562,6 +562,8 @@ export function GlassPanel({
             top: frame.y,
             width: frame.width,
             height: frame.height,
+            // Fades with the panel, as the Command Palette's layer fades its glass.
+            opacity: motion.style.opacity,
             transform: motion.style.transform,
             transformOrigin: origin,
           }}>

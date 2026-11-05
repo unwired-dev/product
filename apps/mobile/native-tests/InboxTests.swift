@@ -289,7 +289,7 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     // The account page stays open until the person chooses the Inbox.
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     // The unified Inbox names each message's mailbox.
     let jordan = app.buttons.matching(
       NSPredicate(
@@ -386,7 +386,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
     XCTAssertTrue(text("casey@example.invalid", in: app).exists)
     XCTAssertTrue(contact.exists)
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -525,7 +525,7 @@ final class InboxTests: XCTestCase {
     item?.tap()
     // The moved mailbox leaves its former Profile's list once the move is stored.
     XCTAssertTrue(popUp.waitForNonExistence(timeout: 30))
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     if UIDevice.current.userInterfaceIdiom == .phone {
       let back = app.buttons["Back to Mailboxes"]
       waitUntil { back.isHittable && !switcher.isHittable }
@@ -784,7 +784,7 @@ final class InboxTests: XCTestCase {
           && primary.frame.width == portraitWidth
       }, timeout: 10)
     }
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     if UIDevice.current.userInterfaceIdiom == .phone {
       let back = app.buttons["Back to Mailboxes"]
       waitUntil { back.isHittable && !switcher.isHittable }
@@ -1204,6 +1204,11 @@ final class InboxTests: XCTestCase {
     waitUntil { account.isHittable && !settings.exists }
   }
 
+  // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Close Settings.
+  private var settingsExit: String {
+    UIDevice.current.userInterfaceIdiom == .pad ? "Close Settings" : "Open Inbox"
+  }
+
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
@@ -1415,7 +1420,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(assistance.waitForExistence(timeout: 15))
     assistance.tap()
     XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
-    app.buttons["Open Inbox"].tap()
+    app.buttons[settingsExit].tap()
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
     let body = app.webViews.textViews["Message body"]
@@ -1450,7 +1455,7 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 10))
     app.buttons["Account"].tap()
-    XCTAssertTrue(app.buttons["Open Inbox"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Save Draft"].exists)
     XCTAssertFalse(typed.exists)
     if UIDevice.current.userInterfaceIdiom == .phone {
@@ -1459,10 +1464,10 @@ final class InboxTests: XCTestCase {
       edge.press(forDuration: 0.1, thenDragTo:
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
     } else {
-      app.buttons["Open Inbox"].tap()
+      app.buttons[settingsExit].tap()
     }
     XCTAssertTrue(typed.waitForExistence(timeout: 15))
-    XCTAssertFalse(app.buttons["Open Inbox"].exists)
+    XCTAssertFalse(app.buttons[settingsExit].exists)
     let focused = XCTAttachment(screenshot: app.screenshot())
     focused.name = "Evaluation editor typed"
     focused.lifetime = .keepAlways
@@ -1972,7 +1977,7 @@ final class InboxTests: XCTestCase {
     try audit(app, "Command Palette")
     press("Account\n", in: app)
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
-    let settings = app.buttons["Open Inbox"]
+    let settings = app.buttons[settingsExit]
     XCTAssertTrue(settings.waitForExistence(timeout: 10))
     try audit(app, "Settings")
     openPalette(app, header: app.staticTexts["Settings"].firstMatch)

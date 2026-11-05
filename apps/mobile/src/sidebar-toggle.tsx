@@ -76,6 +76,11 @@ export function useSidebarToggle(sideBySide: boolean) {
     displayMode,
     follow: (next: string) => {
       setShown(next.startsWith('two'));
+      // Once the person has chosen a mode, record the one UIKit reports, so the next toggle always
+      // asks for a change; until then UIKit keeps choosing for the orientation.
+      if (next === 'oneBesideSecondary' || next === 'twoBesideSecondary') {
+        setDisplayMode((mode) => (mode === 'automatic' ? mode : next));
+      }
     },
   };
 }

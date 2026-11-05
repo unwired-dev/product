@@ -1815,15 +1815,26 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   return draft.response === undefined ? 'card' : 'docked';
 };
 
-// A docked or iPhone response is titled by its kind; otherwise the subject names the Draft.
+// A docked or iPhone response is titled by its kind; otherwise the subject names the Draft. Only a
+// clipped subject is announced as shortened.
 const composerTitle = (
   t: ReturnType<typeof useLocalization>['t'],
   draft: Draft,
   byKind: boolean,
-) =>
-  byKind && draft.response !== undefined
-    ? t(responseTitles[draft.response.kind])
-    : clip(draft.subject) || t('drafts.newMessage');
+) => {
+  if (byKind && draft.response !== undefined) {
+    const title = t(responseTitles[draft.response.kind]);
+    return { title, titleLabel: title };
+  }
+  const title = clip(draft.subject) || t('drafts.newMessage');
+  return {
+    title,
+    titleLabel:
+      title.length < draft.subject.length
+        ? t('drafts.titleShortened', { title })
+        : title,
+  };
+};
 
 // The header's trailing controls. iPhone: the Command input, Actions and Send. The iPad card: From,
 // Expand and Send, as Close asks whether to keep the Draft. The docked reply: Expand and Discard, with
@@ -2567,11 +2578,7 @@ function Editor({
   const presentation = presentationOf(regular, draft);
   const docked = presentation === 'docked';
   const parts = partStyles[presentation];
-  const title = composerTitle(t, draft, docked || !regular);
-  const titleLabel =
-    title.length < draft.subject.length
-      ? t('drafts.titleShortened', { title })
-      : title;
+  const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.

@@ -9,6 +9,8 @@ colors:
   accent-ink-dark: '#C8CBD2'
   accent-selection-subtle: 'rgba(58, 61, 68, 0.12)'
   accent-selection-subtle-dark: 'rgba(200, 203, 210, 0.16)'
+  accent-focus-ring: 'rgba(58, 61, 68, 0.32)'
+  accent-focus-ring-dark: 'rgba(106, 110, 120, 0.28)'
   on-device-ink: '#A3321F'
   on-device-ink-dark: '#FF9E88'
   on-device-surface: '#FBEEEA'
@@ -19,6 +21,8 @@ colors:
   brand-on-seal: '#FFFFFF'
   brand-monogram: '#15171B'
   brand-monogram-dark: '#6A6E78'
+  brand-well: 'rgba(255, 255, 255, 0.08)'
+  brand-well-border: 'rgba(255, 255, 255, 0.16)'
   profile-blue: '#0A58CA'
   profile-blue-dark: '#3B6FD6'
   profile-indigo: '#3634A3'
@@ -49,6 +53,8 @@ colors:
   surface-panel-dark: '#1A1A1A'
   material-sidebar-backing: 'transparent'
   material-sidebar-backing-dark: 'rgba(42, 42, 44, 0.92)'
+  material-glass-tint: '#C6C6C6'
+  material-glass-tint-dark: '#3B3B3B'
   surface-bubble: '#F1F1F4'
   surface-bubble-dark: '#2C2C2E'
   fill-quiet: 'rgba(0, 0, 0, 0.05)'
@@ -59,6 +65,8 @@ colors:
   fill-track-dark: 'rgba(255, 255, 255, 0.16)'
   separator: 'rgba(0, 0, 0, 0.1)'
   separator-dark: 'rgba(255, 255, 255, 0.1)'
+  scrim-touch: 'rgba(0, 0, 0, 0.22)'
+  scrim-touch-dark: 'rgba(0, 0, 0, 0.4)'
   status-warning: '#C93400'
   status-warning-dark: '#FFB340'
   status-destructive: '#D70015'
@@ -273,41 +281,46 @@ content without the marker.
 
 Graphite neutrals with a single warm seal.
 
-| Role              | Token                      | Light         | Dark          | Use                                                           |
-| ----------------- | -------------------------- | ------------- | ------------- | ------------------------------------------------------------- |
-| Accent fill       | `accent/fill`              | `#3A3D44`     | `#6A6E78`     | Selected message row, primary button, unread dot, sent bubble |
-| On accent         | `accent/on-fill`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on the accent fill                             |
-| Accent ink        | `accent/ink`               | `#3A3D44`     | `#C8CBD2`     | Links, tinted sidebar icons, New Message                      |
-| Subtle selection  | `accent/selection-subtle`  | `#3A3D44` 12% | `#C8CBD2` 16% | Selected sidebar item, pressed controls                       |
-| On device ink     | `on-device/ink`            | `#A3321F`     | `#FF9E88`     | The cinnabar seal: On device marker text and icon             |
-| On device surface | `on-device/surface`        | `#FBEEEA`     | `#3A2420`     | Summary card and Mail Assistance surfaces                     |
-| Brand deep        | `brand/deep`               | `#15171B`     | `#15171B`     | Welcome, Recovery Key, Undo Send toast                        |
-| On brand deep     | `brand/on-deep`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep                                  |
-| Brand seal        | `brand/seal`               | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                       |
-| On brand seal     | `brand/on-seal`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                  |
-| Monogram          | `brand/monogram`           | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                 |
-| Profile Blue      | `profile/blue`             | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                         |
-| Profile Indigo    | `profile/indigo`           | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                         |
-| Profile Purple    | `profile/purple`           | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                         |
-| Profile Pink      | `profile/pink`             | `#C2185B`     | `#D6336C`     | A Mail Profile monogram in this Color                         |
-| Profile Teal      | `profile/teal`             | `#0E7490`     | `#117C97`     | A Mail Profile monogram in this Color                         |
-| Profile Green     | `profile/green`            | `#237A3A`     | `#2A8443`     | A Mail Profile monogram in this Color                         |
-| Profile Brown     | `profile/brown`            | `#7A5C3E`     | `#8C6A4A`     | A Mail Profile monogram in this Color                         |
-| Apple button      | `apple/button`             | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles            |
-| On Apple button   | `apple/on-button`          | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                   |
-| Primary text      | `text/primary`             | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                  |
-| Secondary text    | `text/secondary`           | `#4F4F54`     | `#B0B0B5`     | Previews, timestamps, captions, section headers               |
-| Content surface   | `surface/content`          | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                 |
-| Sidebar surface   | `surface/sidebar`          | `#F3F2F5`     | `#2A2A2C`     | Opaque stand-in for the sidebar material                      |
-| Panel surface     | `surface/panel`            | `#F8F8F8`     | `#1A1A1A`     | iPad floating sidebar panels, as the frames' glass reads      |
-| Sidebar backing   | `material/sidebar-backing` | transparent   | `#2A2A2C` 92% | Mac sidebars only, between the glass and its text             |
-| Bubble surface    | `surface/bubble`           | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                     |
-| Quiet fill        | `fill/quiet`               | black 5%      | white 6%      | Secondary buttons, search field, banners, chips               |
-| Control fill      | `fill/control`             | black 8%      | white 7%      | Pop-up button disc within a grouped row                       |
-| Track             | `fill/track`               | black 9%      | white 16%     | Off switch track                                              |
-| Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                              |
-| Warning           | `status/warning`           | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                           |
-| Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Product Account, Delete                                |
+| Role              | Token                      | Light         | Dark          | Use                                                            |
+| ----------------- | -------------------------- | ------------- | ------------- | -------------------------------------------------------------- |
+| Accent fill       | `accent/fill`              | `#3A3D44`     | `#6A6E78`     | Selected message row, primary button, unread dot, sent bubble  |
+| On accent         | `accent/on-fill`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on the accent fill                              |
+| Accent ink        | `accent/ink`               | `#3A3D44`     | `#C8CBD2`     | Links, tinted sidebar icons, New Message                       |
+| Subtle selection  | `accent/selection-subtle`  | `#3A3D44` 12% | `#C8CBD2` 16% | Selected sidebar item, pressed controls                        |
+| Focus ring        | `accent/focus-ring`        | `#3A3D44` 32% | `#6A6E78` 28% | iPad Command Palette outline around the focused query          |
+| On device ink     | `on-device/ink`            | `#A3321F`     | `#FF9E88`     | The cinnabar seal: On device marker text and icon              |
+| On device surface | `on-device/surface`        | `#FBEEEA`     | `#3A2420`     | Summary card and Mail Assistance surfaces                      |
+| Brand deep        | `brand/deep`               | `#15171B`     | `#15171B`     | Welcome, Recovery Key, Undo Send toast                         |
+| On brand deep     | `brand/on-deep`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep                                   |
+| Brand seal        | `brand/seal`               | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                        |
+| On brand seal     | `brand/on-seal`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                   |
+| Monogram          | `brand/monogram`           | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                  |
+| Brand well        | `brand/well`               | white 8%      | white 8%      | iPhone Recovery Key's well on brand deep                       |
+| Brand well border | `brand/well-border`        | white 16%     | white 16%     | The Recovery Key well's outline                                |
+| Profile Blue      | `profile/blue`             | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                          |
+| Profile Indigo    | `profile/indigo`           | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                          |
+| Profile Purple    | `profile/purple`           | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                          |
+| Profile Pink      | `profile/pink`             | `#C2185B`     | `#D6336C`     | A Mail Profile monogram in this Color                          |
+| Profile Teal      | `profile/teal`             | `#0E7490`     | `#117C97`     | A Mail Profile monogram in this Color                          |
+| Profile Green     | `profile/green`            | `#237A3A`     | `#2A8443`     | A Mail Profile monogram in this Color                          |
+| Profile Brown     | `profile/brown`            | `#7A5C3E`     | `#8C6A4A`     | A Mail Profile monogram in this Color                          |
+| Apple button      | `apple/button`             | `#000000`     | `#FFFFFF`     | Sign in with Apple only, per Apple's button styles             |
+| On Apple button   | `apple/on-button`          | `#FFFFFF`     | `#000000`     | Text and the Apple logo on the Apple button                    |
+| Primary text      | `text/primary`             | black 85%     | white 85%     | Mirrors macOS Labels/Primary                                   |
+| Secondary text    | `text/secondary`           | `#4F4F54`     | `#B0B0B5`     | Previews, timestamps, captions, section headers                |
+| Content surface   | `surface/content`          | `#FFFFFF`     | `#1E1E1E`     | Message list and reading pane                                  |
+| Sidebar surface   | `surface/sidebar`          | `#F3F2F5`     | `#2A2A2C`     | Opaque stand-in for the sidebar material                       |
+| Panel surface     | `surface/panel`            | `#F8F8F8`     | `#1A1A1A`     | iPad floating sidebar panels, as the frames' glass reads       |
+| Sidebar backing   | `material/sidebar-backing` | transparent   | `#2A2A2C` 92% | Mac sidebars only, between the glass and its text              |
+| Glass tint        | `material/glass-tint`      | `#C6C6C6`     | `#3B3B3B`     | iPhone and iPad Liquid Glass tint; over content reads as panel |
+| Bubble surface    | `surface/bubble`           | `#F1F1F4`     | `#2C2C2E`     | Received Catch Up bubbles                                      |
+| Quiet fill        | `fill/quiet`               | black 5%      | white 6%      | Secondary buttons, search field, banners, chips                |
+| Control fill      | `fill/control`             | black 8%      | white 7%      | Pop-up button disc within a grouped row                        |
+| Track             | `fill/track`               | black 9%      | white 16%     | Off switch track                                               |
+| Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                               |
+| Scrim             | `scrim/touch`              | black 22%     | black 40%     | iPad composer and setup sheet; link alert backdrops on touch   |
+| Warning           | `status/warning`           | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                            |
+| Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Product Account, Delete                                 |
 
 Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 
@@ -324,6 +337,7 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | Warning on content                 | 5.28  | 9.35  |
 | Destructive on content             | 5.38  | 5.91  |
 | White on brand deep                | 17.94 | 17.94 |
+| White on brand well                | 14.46 | 14.46 |
 | White on brand seal                | 5.14  | 5.14  |
 | White on monogram                  | 17.94 | 5.10  |
 | White on Profile Colors (lowest)   | 5.36  | 4.62  |
@@ -337,6 +351,11 @@ whatever is behind the window
 Mac contrast audit flags are tracked in
 [#1550](https://github.com/unwired-dev/product/issues/1550).
 The macOS Labels/Secondary 50% black reaches only 3.95:1 on white and fails AA for text.
+`brand/well` is measured over `brand/deep`. `material/glass-tint` is measured on iOS 27 so the
+glass over `surface/content` renders `surface/panel`. The `accent/focus-ring` outline follows the
+iPad Palette frames at 1.79:1 (Light) and 1.35:1 (Dark) against `surface/panel`; it is not the
+field's only focus indicator, as its caret and the keyboard show focus. The Dark `scrim/touch`
+dims `surface/content` to `#121212`, as the iPad Compose frames draw it.
 
 ## Typography
 
@@ -518,6 +537,10 @@ content.
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner radius
   and arrow.
+- iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
+  centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 29.095pt.
+  iPhone's Profile Switcher above the Mailboxes groups uses `radius.profileSwitcher`,
+  14pt.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
   20pt. Glass groups take half their height.
 - The iPhone meeting invitation card uses `radius.touchCard`, 18pt; iPad keeps the

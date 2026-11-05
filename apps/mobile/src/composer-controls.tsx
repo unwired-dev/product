@@ -4,7 +4,7 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactElement, ReactNode, RefObject } from 'react';
-import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
+import type { Insets, StyleProp, TextStyle, ViewStyle } from 'react-native';
 
 import {
   BottomSheet,
@@ -79,6 +79,8 @@ const rule = phone ? StyleSheet.hairlineWidth : ipadListScale;
 // target, as the Compose frames draw it.
 const quietHeight = phone ? 33.6 : 28 * ipadListScale;
 const quietSlop = (44 - quietHeight) / 2;
+// The Format panel's 40pt style choices reach 44pt through the row's 4pt inset.
+const formatStyleSlop = { top: 2, bottom: 2 };
 
 const styles = StyleSheet.create({
   // iPad draws the Mac Link Editor popover at the iPad list scale.
@@ -642,6 +644,7 @@ function FormatChoice({
   disabled,
   onPress,
   style,
+  hitSlop,
   children,
 }: {
   readonly name: string;
@@ -649,6 +652,7 @@ function FormatChoice({
   readonly disabled: boolean;
   readonly onPress: () => void;
   readonly style?: StyleProp<ViewStyle>;
+  readonly hitSlop?: Insets;
   readonly children: (color: string) => ReactNode;
 }) {
   const colors = usePalette();
@@ -658,6 +662,7 @@ function FormatChoice({
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
+      hitSlop={hitSlop}
       onPress={onPress}
       style={[
         styles.formatChoice,
@@ -768,6 +773,7 @@ export function FormatPanel({
                 name={name}
                 selected={kind === value}
                 style={styles.formatStyle}
+                hitSlop={formatStyleSlop}
                 onPress={() => {
                   onBlock(value);
                 }}>

@@ -220,7 +220,7 @@ The pinned `react-native-screens` patch is native as well: CocoaPods records the
 patched package's directory, whose name carries the patch hash, so after changing
 the patch regenerate before rebuilding, or Xcode keeps compiling the previous patch.
 Check the built binary contains the changed symbol.
-It also applies the pinned `@expo/ui` patch. Changes to that JavaScript patch
+Root `pnpm install` also applies the pinned `@expo/ui` patch. Changes to that JavaScript patch
 require rebundling without regenerating the native project. Verify by swiping
 the Filters sheet away and confirming the floating bar stays visible throughout
 dismissal; repeat after Apply.

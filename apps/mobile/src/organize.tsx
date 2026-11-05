@@ -72,7 +72,7 @@ const compact = Platform.OS === 'ios' && !Platform.isPad;
 // iPhone moves in a system sheet; iPad in the popover beneath the toolbar's Move.
 const MovePicker = compact ? MoveSheet : MovePanel;
 const placed = (picker: ReactNode) =>
-  compact ? { sheet: picker } : { panel: picker };
+  compact ? { sheet: picker } : { panel: picker, move: true as const };
 
 // The toolbar panel a reader shows: the folders or labels to move to, or More's remaining actions.
 // Beside the iPhone Reply sheet, which offers those actions, it shows only the labels to add or
@@ -536,9 +536,18 @@ const threadActions = (
     })),
 ];
 
-// Move's popover keeps the frame's rounder glass; More keeps the menu's.
+// Move's popover keeps the frame's rounder glass and its own place; More and the iPad Labels panel
+// keep the menu's.
 const panelRadius = (movePanel: boolean) =>
   movePanel ? movePanelRadius : radius.menu;
+const isMovePanel = (
+  shownPanel: ReaderPanel | undefined,
+  folders: object | undefined,
+) =>
+  shownPanel === 'folders' &&
+  folders !== undefined &&
+  'move' in folders &&
+  folders.move === true;
 
 // The toolbar and the panel or sheet one of its buttons opened.
 function Toolbar({
@@ -558,7 +567,14 @@ function Toolbar({
           toggle: () => void;
           // The Reply sheet's entry, which opens the destinations even when they are shown.
           show: Readonly<{ label: string; run: () => void }>;
-        } & ({ panel: ReactNode } | { sheet: ReactNode })
+        } & (
+          | {
+              panel: ReactNode;
+              // The panel is Move's popover, which keeps its own offset and corners.
+              move?: true;
+            }
+          | { sheet: ReactNode }
+        )
       >
     | undefined;
   readonly more: Readonly<{
@@ -598,8 +614,9 @@ function Toolbar({
   } else if (more.open && shownPanel !== 'more') {
     setShownPanel('more');
   }
-  const movePanel =
+  const foldersPanel =
     shownPanel === 'folders' && folders !== undefined && 'panel' in folders;
+  const movePanel = isMovePanel(shownPanel, folders);
   return (
     <>
       <View
@@ -633,15 +650,12 @@ function Toolbar({
         style={
           compact
             ? undefined
-            : [
-                styles.floatingPanels,
-                shownPanel === 'folders' && styles.movePanel,
-              ]
+            : [styles.floatingPanels, movePanel && styles.movePanel]
         }>
         <GlassPanel
           open={foldersOpen || more.open}
           cornerRadius={panelRadius(movePanel)}>
-          {movePanel ? (
+          {foldersPanel ? (
             folders.panel
           ) : (
             <MorePanel
