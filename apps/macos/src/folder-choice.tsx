@@ -5,42 +5,35 @@ import {
   folderChoice,
   startingPicks,
 } from '@private-email/mail-core/mailboxes';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { spacing } from '@private-email/mail-core/theme';
 import { use, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useWindowIdentifier } from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
 import { Button, SFSymbol } from './design.tsx';
+import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailboxes, useProfile } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { windowHost } from './settings-window-client.ts';
+import { SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
-  sheet: { gap: spacing.m, padding: spacing.xl },
+  sheet: { gap: spacing.m, padding: 24 },
   title: textStyles.title3Emphasized,
   text: textStyles.body,
-  group: { borderRadius: radius.card, borderCurve: 'continuous' },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s,
-    minHeight: 44,
-    paddingHorizontal: spacing.m,
-  },
+  value: textStyles.body,
+  warning: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  saving: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  note: textStyles.subheadline,
   rowText: { flex: 1 },
-  label: textStyles.body,
-  subtitle: textStyles.subheadline,
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 36 },
-  message: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.s },
-  note: { ...textStyles.subheadline, flex: 1 },
   actions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: spacing.s,
-    paddingTop: spacing.xs,
+    paddingTop: 6,
   },
   choose: { alignSelf: 'flex-start' },
 });
@@ -174,95 +167,74 @@ function FolderSheet({
       onLayout={({ nativeEvent }) => {
         windowHost()?.fitSheet(window, nativeEvent.layout.height);
       }}>
-      <Text
+      <Label
         accessibilityRole="header"
         style={[styles.title, { color: colors.textPrimary }]}>
         {choice.title}
-      </Text>
-      <Text style={[styles.text, { color: colors.textPrimary }]}>
+      </Label>
+      <Label style={[styles.text, { color: colors.textSecondary }]}>
         {choice.intro}
-      </Text>
-      <View style={[styles.group, { backgroundColor: colors.fillQuiet }]}>
-        {choice.rows.map((row, index) => (
-          <View key={row.role}>
-            {index === 0 ? null : (
-              <View
-                style={[
-                  styles.separator,
-                  { backgroundColor: colors.separator },
-                ]}
-              />
-            )}
-            <View style={styles.row}>
-              <SFSymbol
-                name={row.symbol}
-                color={colors.textSecondary}
-                size={16}
-              />
-              <View style={styles.rowText}>
-                <Text style={[styles.label, { color: colors.textPrimary }]}>
-                  {row.name}
-                </Text>
-                <Text
-                  style={[
-                    styles.subtitle,
-                    {
-                      color: row.missing
-                        ? colors.statusDestructive
-                        : colors.textSecondary,
+      </Label>
+      <SettingsGroup>
+        {choice.rows.map((row) => (
+          <SettingsRow
+            key={row.role}
+            icon={row.symbol}
+            title={row.name}
+            subtitle={row.subtitle}
+            subtitleTone={row.missing ? 'warning' : undefined}>
+            {row.server === undefined ? (
+              <PopUp
+                label={row.value}
+                accessibilityLabel={row.name}
+                disabled={saving}
+                sections={row.options.map((section) => ({
+                  items: section.map((option) => ({
+                    key: option.name,
+                    title: option.title,
+                    subtitle: option.holding,
+                    checked: option.checked,
+                    disabled: option.taken,
+                    run: () => {
+                      setPicks((current) => ({
+                        ...current,
+                        [row.role]: option.name,
+                      }));
+                      setFailed(false);
                     },
-                  ]}>
-                  {row.subtitle}
-                </Text>
-              </View>
-              {row.server === undefined ? (
-                <PopUp
-                  label={row.value}
-                  accessibilityLabel={row.name}
-                  disabled={saving}
-                  sections={row.options.map((section) => ({
-                    items: section.map((option) => ({
-                      key: option.name,
-                      title: option.title,
-                      subtitle: option.holding,
-                      checked: option.checked,
-                      disabled: option.taken,
-                      run: () => {
-                        setPicks((current) => ({
-                          ...current,
-                          [row.role]: option.name,
-                        }));
-                        setFailed(false);
-                      },
-                    })),
-                  }))}
-                />
-              ) : (
-                <Text style={[styles.label, { color: colors.textSecondary }]}>
-                  {row.value}
-                </Text>
-              )}
-            </View>
-          </View>
+                  })),
+                }))}
+              />
+            ) : (
+              <Label style={[styles.value, { color: colors.textSecondary }]}>
+                {row.value}
+              </Label>
+            )}
+          </SettingsRow>
         ))}
-      </View>
+      </SettingsGroup>
       {choice.warning === undefined ? null : (
-        <View style={styles.message}>
+        <View style={styles.warning}>
           <SFSymbol
             name="exclamationmark.triangle.fill"
             color={colors.statusWarning}
-            size={13}
+            size={14}
           />
-          <Text
-            accessibilityRole="alert"
-            style={[styles.note, { color: colors.textPrimary }]}>
-            {choice.warning}
-          </Text>
+          <View style={styles.rowText}>
+            <Label
+              accessibilityRole="alert"
+              style={[styles.note, { color: colors.textPrimary }]}>
+              {choice.warning}
+            </Label>
+          </View>
         </View>
       )}
-      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-        {choice.note}
-      </Text>
+      {/* While saving, the saving status below the buttons takes the note's place. */}
+      {saving ? null : (
+        <Label style={[styles.note, { color: colors.textSecondary }]}>
+          {choice.note}
+        </Label>
+      )}
       <View style={styles.actions}>
         <Button
           label={t('common.cancel')}
@@ -280,11 +252,15 @@ function FolderSheet({
         />
       </View>
       {saving ? (
-        <View style={styles.message}>
+        <View style={styles.saving}>
           <ActivityIndicator size="small" />
-          <Text style={[styles.note, { color: colors.textSecondary }]}>
-            {t('mailboxes.folders.saving')}
-          </Text>
+          <View style={styles.rowText}>
+            <Label
+              accessibilityLiveRegion="polite"
+              style={[styles.note, { color: colors.textSecondary }]}>
+              {t('mailboxes.folders.saving')}
+            </Label>
+          </View>
         </View>
       ) : null}
     </View>

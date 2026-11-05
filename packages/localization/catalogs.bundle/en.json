@@ -305,7 +305,8 @@
         "readyNote": "After saving, All Mail includes {{address}} and leaves out messages in these two folders."
       },
       "single": {
-        "title": "{{role}} Folder",
+        "title": "Choose a {{role}} Folder",
+        "title_iphone": "{{role}} Folder",
         "intro": "{{address}} marks its {{marked}} folder but not {{role}}. Choose the folder that holds {{role}} so All Mail can leave it out. Unwired Mail doesn’t guess from folder names.",
         "note": "After saving, All Mail includes {{address}} and leaves out messages in Spam and Trash.",
         "readyNote": "After saving, All Mail includes {{address}} and leaves out messages in Spam and Trash."
