@@ -184,11 +184,13 @@ results for changed details on Mac, and on iPhone and iPad.
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
   offered or applied. Closing the Draft cancels the request. Controls rendered for
   an earlier state cannot affect a replaced or closed one.
-- When a body edit, including Undo, drops a Writing tools rewrite that was being made or waited to be used,
-  an on-device card in its place says "Your Draft changed while this rewrite was being made, so it wasn’t
-  used. Your text is as you left it." VoiceOver hears it once. **Rewrite again** runs the same tool on the
-  current text and selection, as the Writing tools menu does, and is unavailable when no text is left to
-  rewrite; **Close** dismisses the card. On iPhone the two
+- When a body edit, including Undo, drops a text tool result (**Rewrite**, **Proofread**, **Break into
+  Paragraphs**, **Expand Text**, **Shorten Text**, **Make More Friendly** or **Make More Neutral**) that was
+  being made or waited to be used, an on-device card in its place says "Your Draft changed while this
+  rewrite was being made, so it wasn’t used. Your text is as you left it." The card requests one
+  accessibility announcement of that message; native VoiceOver qualification is still pending.
+  **Rewrite again** runs the same tool on the current text and selection, as the Writing tools menu does,
+  and is unavailable when no text is left to rewrite; **Close** dismisses the card. On iPhone the two
   buttons share the card's width. A failed, refused or cancelled request has no result to drop, so an edit
   closes it without the card, as do Send and applying or keeping a result.
 - Send closes any assistance preview and cancels its pending request. Rewrite and
