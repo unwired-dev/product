@@ -291,6 +291,11 @@ mise exec -- pnpm --filter @private-email/mobile test:native \
 
 Add `UNWIRED_APPEARANCE=light` to audit Light; the runner's default is Dark.
 
+On the iOS 27 simulator, XCUITest's `typeKey(.escape, modifierFlags: [])` never reaches
+the app, while letters and Command shortcuts do. UIKit delivers Command-period as Escape
+to key commands, so journeys press Command-period to check Escape, as the Inbox
+journey does for the iPad Filters popover (#1396).
+
 The journey signs in with Apple and connects the synthetic Microsoft mailbox.
 On iPhone it then drags the Inbox up 200pt and checks that the first row follows
 the finger, scrolls further, and checks that the navigation title and the floating
