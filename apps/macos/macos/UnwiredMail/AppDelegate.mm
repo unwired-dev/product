@@ -259,12 +259,13 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [NSApp addWindowsItem:window title:window.title filename:NO];
 }
 
-// Choose Folders… in an Inbox window's notice opens an IMAP connection's Spam and Trash choice as
-// a sheet on that window, in a React root of its own. React Native macOS 0.81.9's Modal is
-// iOS-only; remove these sheet methods when React Native macOS presents a Modal as a sheet.
+// Choose Folders… in an Inbox window's notice, or in Settings › Email Accounts, opens an IMAP
+// connection's Spam and Trash choice as a sheet on that window, in a React root of its own. React
+// Native macOS 0.81.9's Modal is iOS-only; remove these sheet methods when React Native macOS
+// presents a Modal as a sheet.
 - (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile
 {
-  NSWindow *window = nil;
+  NSWindow *window = [self.settingsWindow.window.identifier isEqualToString:identifier] ? self.settingsWindow.window : nil;
   for (NSWindowController *controller in self.inboxWindows) {
     if ([controller.window.identifier isEqualToString:identifier]) window = controller.window;
   }
@@ -296,7 +297,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [sheet setContentSize:NSMakeSize(NSWidth(sheet.contentView.frame), ceil(height))];
   if (sheet.sheetParent != nil) return;
   [self.sheetParents[identifier] beginSheet:sheet completionHandler:^(NSModalResponse response) {
-    [self forgetSheet:identifier];
+    // The parent can close and reopen its sheet before this completion arrives.
+    if (self.sheets[identifier] == sheet) [self forgetSheet:identifier];
   }];
 }
 
@@ -434,6 +436,13 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 - (void)windowWillClose:(NSNotification *)notification
 {
   NSWindow *window = notification.object;
+  // Also retire a sheet still waiting for its React content's first layout.
+  for (NSString *identifier in self.sheetParents.allKeys) {
+    if (self.sheetParents[identifier] != window) continue;
+    NSWindow *sheet = self.sheets[identifier];
+    if (sheet.sheetParent != nil) [sheet.sheetParent endSheet:sheet];
+    [self forgetSheet:identifier];
+  }
   [NSApp removeWindowsItem:window];
   if (window == self.settingsWindow.window) {
     NSNumber *closedRequestSerial = self.settingsRequestSerial;

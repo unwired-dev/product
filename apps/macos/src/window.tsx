@@ -582,8 +582,8 @@ export function ComposerWindowRoot(
   );
 }
 
-// An IMAP connection's Spam and Trash choice, in the sheet Choose Folders… opens on an Inbox
-// window; the sheet ends rather than showing account pages once no Inbox can open.
+// An IMAP connection's Spam and Trash choice, in the sheet Choose Folders… opens on an Inbox or
+// Settings window; the sheet ends rather than showing account pages once no Inbox can open.
 export function FolderChoiceWindowRoot({
   window,
   connection,
@@ -625,23 +625,30 @@ const closeSettings = () => {
 
 // The Settings window, which AppKit opens with Command-, and every Inbox window's Settings entry
 // points open; its Command Palette offers the way back to an Inbox window.
-export function SettingsWindowRoot(
-  props: Omit<
-    Parameters<typeof SettingsGate>[0],
-    'request' | 'onInbox' | 'onClose'
-  >,
-) {
+export function SettingsWindowRoot({
+  inbox,
+  ...props
+}: Omit<
+  Parameters<typeof SettingsGate>[0],
+  'request' | 'onInbox' | 'onClose'
+> & {
+  // The Inbox's mailboxes, drafts and Outbox, which default to this process's; Settings › Email
+  // Accounts reads their IMAP folders.
+  readonly inbox?: Omit<Parameters<typeof InboxProvider>[0], 'children'>;
+}) {
   const request = useSettingsRequest();
   return (
     <CommandPaletteProvider
       windowId="settings"
       identifier="settings-window">
-      <SettingsGate
-        {...props}
-        request={request}
-        onInbox={focusInbox}
-        onClose={closeSettings}
-      />
+      <InboxProvider {...inbox}>
+        <SettingsGate
+          {...props}
+          request={request}
+          onInbox={focusInbox}
+          onClose={closeSettings}
+        />
+      </InboxProvider>
     </CommandPaletteProvider>
   );
 }

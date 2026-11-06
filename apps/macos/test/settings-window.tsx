@@ -21,7 +21,7 @@ const composers: Array<{ draft: string; profile: string }> = [];
 const closed: string[] = [];
 // The Inbox windows whose sidebar JavaScript asked AppKit to show or hide.
 const sidebarToggles: string[] = [];
-// The Choose Folders… sheet AppKit shows on an Inbox window.
+// The Choose Folders… sheet AppKit shows on an Inbox window or the Settings window.
 let sheet: { window: string; connection: string; profile: string } | undefined =
   undefined;
 const listeners = new Set<() => void>();
@@ -114,6 +114,16 @@ const subscribe = (listener: () => void) => {
   };
 };
 
+// Settings › Email Accounts without IMAP connections.
+const none: readonly never[] = [];
+const noMailboxes: NonNullable<
+  Parameters<typeof InboxProvider>[0]['mailboxes']
+> = {
+  getSnapshot: () => none,
+  subscribe: () => () => undefined,
+  load: async () => undefined,
+};
+
 // The app's windows: the given Inbox window, the Settings window while it is open, and the
 // Choose Folders… sheet over `mailboxes` while AppKit shows it.
 export function MacWindows({
@@ -131,7 +141,10 @@ export function MacWindows({
       {children}
       {open ? (
         <View testID="settings-window">
-          <SettingsWindowRoot {...gate} />
+          <SettingsWindowRoot
+            {...gate}
+            inbox={{ mailboxes: mailboxes ?? noMailboxes }}
+          />
         </View>
       ) : null}
       {choice === undefined ? null : (
@@ -151,6 +164,10 @@ export function MacWindows({
 
 export const folderChoiceSheet = () =>
   within(screen.getByTestId('folder-choice-sheet'));
+
+// The window AppKit shows the Choose Folders… sheet on, or undefined while none is shown.
+export const folderChoiceParent = () =>
+  sheet?.window.slice(0, -'-folder-choice'.length);
 
 // The Choose Folders… sheet, or null while none is shown.
 export const folderChoice = () => screen.queryByTestId('folder-choice-sheet');
