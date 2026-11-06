@@ -537,10 +537,12 @@ export function DraftAssistance({
 // shown. Rewrite again starts the tool over from the current text.
 export function DroppedAssistance({
   purpose,
+  rewritable,
   onRewrite,
   onClose,
 }: {
   readonly purpose: TextTool;
+  readonly rewritable: boolean;
   readonly onRewrite: () => void;
   readonly onClose: () => void;
 }) {
@@ -581,6 +583,7 @@ export function DroppedAssistance({
         <Button
           label={t('assistance.rewriteAgain')}
           accessibilityLabel={t('assistance.rewriteAgainLabel')}
+          disabled={!rewritable}
           onPress={() => {
             if (active.current) {
               onRewrite();

@@ -2885,6 +2885,7 @@ function Editor({
               <View style={styles.review}>
                 <DroppedAssistance
                   purpose={dropped}
+                  rewritable={canRewrite(draft.body, selection)}
                   onRewrite={() => {
                     rewrite(dropped);
                   }}

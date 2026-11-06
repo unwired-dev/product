@@ -19,6 +19,7 @@ import {
 import {
   buttonStyle,
   controlSize,
+  disabled,
   frame,
   accessibilityLabel as spokenLabel,
   tint,
@@ -624,10 +625,12 @@ export function DraftAssistance({
 // equal halves of the card; iPad sets them out at their own width.
 export function DroppedAssistance({
   purpose,
+  rewritable,
   onRewrite,
   onClose,
 }: {
   readonly purpose: TextTool;
+  readonly rewritable: boolean;
   readonly onRewrite: () => void;
   readonly onClose: () => void;
 }) {
@@ -645,11 +648,12 @@ export function DroppedAssistance({
   const rewrite = (
     <SwiftUIButton
       onPress={() => {
-        if (active.current) {
+        if (active.current && rewritable) {
           onRewrite();
         }
       }}
       modifiers={[
+        disabled(!rewritable),
         buttonStyle('bordered'),
         controlSize('large'),
         tint(colors.textPrimary),

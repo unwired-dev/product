@@ -3673,6 +3673,12 @@ describe('composing Drafts', () => {
     await fireEvent.changeText(body(), 'lets meet sunday. thanks');
     expect(screen.queryByText('Let us meet on Saturday.')).toBeNull();
     expect(screen.getByText(dropped)).toBeOnTheScreen();
+    // With no text left to rewrite, Rewrite again is unavailable, as in the menu.
+    await fireEvent.changeText(body(), ' ');
+    expect(
+      screen.getByLabelText('Rewrite your current text again'),
+    ).toBeDisabled();
+    await fireEvent.changeText(body(), 'lets meet sunday. thanks');
     await press('Close this notice');
     expect(screen.queryByText(dropped)).toBeNull();
     // A failure has no result to drop, so an edit just closes it.
