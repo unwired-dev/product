@@ -3031,6 +3031,12 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(apply.waitForExistence(timeout: 10))
       XCTAssertTrue(unread.waitForExistence(timeout: 5))
     }
+    // Confirms the edit landed, so a later discard is not passing on an unchanged filter.
+    func clearUnread() {
+      XCTAssertEqual(unread.value as? String, "checkbox, checked")
+      unread.tap()
+      waitUntil { unread.value as? String == "checkbox, unchecked" }
+    }
     func dismiss() {
       if pad {
         // Outside the popover, which sits on the bar at the bottom of the window.
@@ -3052,14 +3058,14 @@ final class InboxTests: XCTestCase {
     try audit(app, "Filters")
     // Clearing Unread alone would turn filtering off once applied, so the summary proves the
     // dismissal discarded it.
-    unread.tap()
+    clearUnread()
     dismiss()
     XCTAssertTrue(unreadSummary.waitForExistence(timeout: 5))
     if pad {
       // Escape discards the same way, through SwiftUI's own popover key command. XCUITest's
       // Escape never reaches the simulator, but UIKit delivers Command-period as Escape.
       open()
-      unread.tap()
+      clearUnread()
       app.typeKey(".", modifierFlags: .command)
       XCTAssertTrue(apply.waitForNonExistence(timeout: 10))
       XCTAssertTrue(unreadSummary.waitForExistence(timeout: 5))
