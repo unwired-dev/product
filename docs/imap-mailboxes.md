@@ -167,8 +167,12 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   marks shows its folder without a menu. Save waits for an existing folder for each
   such role; a failed save keeps the sheet open with the previous choice in use, and a
   saved folder the server no longer lists is marked unavailable so another can be chosen. On the
-  Mac, Return saves and Escape cancels. The Settings › Email Accounts entry does not offer
-  the control yet. The choice
+  Mac, Return saves and Escape cancels. On iPhone and iPad, Settings › Email Accounts
+  also lists each such connection under Spam and Trash Folders: before a choice its row
+  warns which role is not chosen and that the connection is not in All Mail, and after
+  one it names both folders; Choose Folders… or Change… (the whole row on iPhone) opens
+  the same sheet with the saved folders. The Mac Settings entry does not offer the
+  control yet. The choice
   synchronizes through Product Sync for that connection only
   until it is removed. A chosen folder supplies a role only where the server marks no
   folder with it, and a server marking still wins. A server marking several folders

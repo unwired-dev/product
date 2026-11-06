@@ -335,7 +335,16 @@
       "placeholder": "Choose a Folder",
       "gone": "{{folder}} is no longer on the server. Choose another folder for {{role}}. This account is not included in All Mail.",
       "saveFailed": "Couldn’t save your folder choices. Check your connection and try again. Your previous folders are still in use.",
-      "saving": "Updating All Mail… Your current folders stay in use until this finishes."
+      "saving": "Updating All Mail… Your current folders stay in use until this finishes.",
+      "settings": {
+        "title": "Spam and Trash Folders",
+        "both": "Spam and Trash",
+        "needed": "{{roles}} not chosen · not in All Mail",
+        "chosen": "Spam: {{junk}} · Trash: {{trash}} · chosen by you",
+        "neededFooter": "Its server doesn’t mark which folders hold Spam and Trash. Until you choose both, this connection isn’t included in All Mail.",
+        "chosenFooter": "Its server doesn’t mark these folders, so you chose them. All Mail leaves out messages in Spam and Trash.",
+        "change": "Change…"
+      }
     }
   },
   "remoteContent": {

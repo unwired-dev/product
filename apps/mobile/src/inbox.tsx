@@ -1050,14 +1050,21 @@ export function Inbox({
                   view: folderName,
                   ...(ipad ? {} : { context: 'iphone' }),
                 })}>
-                {detail === 'mailboxes.notIncludedSpamTrash' &&
+                {account !== undefined &&
+                detail === 'mailboxes.notIncludedSpamTrash' &&
                 mailbox.state.kind === 'ready' &&
                 'folders' in mailbox.state ? (
                   <FolderChoice
-                    connection={mailbox.id}
                     address={mailbox.address ?? mailbox.state.address}
                     folders={mailbox.state.folders}
                     marked={mailbox.state.marked}
+                    saved={
+                      account.mailboxes.find(({ id }) => id === mailbox.id)
+                        ?.folders
+                    }
+                    onSave={(chosen) =>
+                      account.chooseFolders(mailbox.id, chosen)
+                    }
                   />
                 ) : null}
               </Notice>

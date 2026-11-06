@@ -1,5 +1,9 @@
 import type { ImapFolder } from '@private-email/mail-core/imap-inbox';
-import type { ChosenFolders } from '@private-email/mail-core/registration';
+import type {
+  ChosenFolders,
+  Registration,
+} from '@private-email/mail-core/registration';
+import type { ReactNode } from 'react';
 
 import {
   BottomSheet,
@@ -22,14 +26,14 @@ import {
   folderChoice,
   startingPicks,
 } from '@private-email/mail-core/mailboxes';
+import { mailboxesOf } from '@private-email/mail-core/registration';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { use, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Button, MenuButton, SFSymbol } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
-import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -60,38 +64,63 @@ const styles = StyleSheet.create({
   choose: { alignSelf: 'flex-start' },
 });
 
-// Choose Folders… under an IMAP connection's not-included notice: a sheet where the person
-// picks the folders that hold Spam and Trash for the roles its server marks no folder with.
+// Saves an IMAP connection's Spam and Trash folders; resolves whether the connection now holds them.
+export const saveFolders =
+  (store: Registration) =>
+  async (connection: string, folders: ChosenFolders) => {
+    await store.chooseFolders(connection, folders);
+    const state = store.getSnapshot();
+    const saved = mailboxesOf(state.snapshot).find(
+      ({ id }) => id === connection,
+    )?.folders;
+    return (
+      state.foldersFailure !== connection &&
+      saved !== undefined &&
+      saved.junk === folders.junk &&
+      saved.trash === folders.trash
+    );
+  };
+
+// A sheet where the person picks the folders that hold Spam and Trash for the roles an IMAP
+// connection's server marks no folder with. `children` opens it: Choose Folders… under the
+// connection's not-included notice by default, or its Settings row.
 export function FolderChoice({
-  connection,
   address,
   folders,
   marked,
+  saved,
+  onSave,
+  children,
 }: {
-  readonly connection: string;
   readonly address: string;
   readonly folders: readonly ImapFolder[];
   readonly marked: ChosenFolders;
+  readonly saved: ChosenFolders | undefined;
+  readonly onSave: (chosen: ChosenFolders) => Promise<boolean>;
+  readonly children?: (open: () => void) => ReactNode;
 }) {
   const { t } = useLocalization();
-  const account = use(AccountContext);
   const [shown, setShown] = useState(false);
   const [session, setSession] = useState(0);
-  if (account === undefined || ambiguousFolders(folders)) {
+  if (ambiguousFolders(folders)) {
     return null;
   }
-  const saved = account.mailboxes.find(({ id }) => id === connection)?.folders;
+  const open = () => {
+    setSession((previous) => previous + 1);
+    setShown(true);
+  };
   return (
     <>
-      <View style={styles.choose}>
-        <Button
-          label={t('mailboxes.folders.choose')}
-          onPress={() => {
-            setSession((previous) => previous + 1);
-            setShown(true);
-          }}
-        />
-      </View>
+      {children === undefined ? (
+        <View style={styles.choose}>
+          <Button
+            label={t('mailboxes.folders.choose')}
+            onPress={open}
+          />
+        </View>
+      ) : (
+        children(open)
+      )}
       <Host matchContents>
         <BottomSheet
           isPresented={shown}
@@ -104,7 +133,7 @@ export function FolderChoice({
                 folders={folders}
                 marked={marked}
                 saved={saved}
-                onSave={(chosen) => account.chooseFolders(connection, chosen)}
+                onSave={onSave}
                 onClose={() => {
                   setShown(false);
                 }}

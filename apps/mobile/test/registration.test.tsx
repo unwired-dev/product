@@ -46,6 +46,7 @@ import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Inbox } from '../src/inbox.tsx';
+import { MailboxesContext } from '../src/mailbox-state.ts';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { NotificationsContext } from '../src/notification-settings.tsx';
@@ -2983,6 +2984,174 @@ describe('product registration', () => {
     ).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Choose Folders…' }),
+    ).toBeNull();
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  it('chooses and changes Spam and Trash folders for an IMAP connection from Settings › Email Accounts, asking again for a removed folder and leaving once its server marks both', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves the needed row, saved values, removed folders and server-role eligibility. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept IMAP message' });
+    imap.addFolder('Bulk Mail');
+    imap.addFolder('Deleted Messages');
+    const { synthetic, setup } = await signedIn();
+    const connection = await connectImap(setup);
+    await confirmRecoveryKey(setup);
+    const store = createRegistration(synthetic.relaunch());
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const list = { ...connections, getSnapshot: connections.getConnections };
+    // Settings and the Inbox read one list, as both read the default list in the app.
+    await render(
+      <MailboxesContext value={list}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider mailboxes={list}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MailboxesContext>,
+    );
+    await expect(
+      screen.findByRole('button', { name: /Kept IMAP message/u }),
+    ).resolves.toBeVisible();
+    await openAccount();
+    await openSettings('Email Accounts');
+    await expect(
+      screen.findByRole('header', { name: 'Spam and Trash Folders' }),
+    ).resolves.toBeVisible();
+    const row = () => screen.getByHintText(/^(?:Choose Folders…|Change…)$/u);
+    expect(row()).toHaveAccessibleName('alex@example.invalid');
+    expect(row()).toHaveAccessibilityValue({
+      text: 'Spam and Trash not chosen · not in All Mail',
+    });
+    expect(
+      screen.getByText(
+        'Its server doesn’t mark which folders hold Spam and Trash. Until you choose both, this connection isn’t included in All Mail.',
+      ),
+    ).toBeVisible();
+    const choose = async (role: string, folder: string) => {
+      const menu = screen.getByLabelText(role);
+      const sections: ReadonlyArray<{
+        items: ReadonlyArray<{ id: string; title: string }>;
+      }> = menu.props.sections;
+      const item = sections
+        .flatMap(({ items }) => items)
+        .find(({ title }) => title === folder);
+      await act(async () => {
+        await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
+      });
+    };
+    await act(async () => {
+      await fireEvent.press(row());
+    });
+    await choose('Spam', 'Bulk Mail');
+    await choose('Trash', 'Deleted Messages');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Save' }));
+    });
+    // Saved, the row names the chosen folders and offers to change them.
+    await waitFor(() => {
+      expect(screen.getByHintText('Change…')).toBe(row());
+    });
+    expect(row()).toHaveAccessibilityValue({
+      text: 'Spam: Bulk Mail · Trash: Deleted Messages · chosen by you',
+    });
+    expect(mailboxesOf(store.getSnapshot().snapshot)[0]?.folders).toStrictEqual(
+      { junk: 'Bulk Mail', trash: 'Deleted Messages' },
+    );
+    expect(
+      screen.getByText(
+        'Its server doesn’t mark these folders, so you chose them. All Mail leaves out messages in Spam and Trash.',
+      ),
+    ).toBeVisible();
+    // Change… reopens the sheet with the saved folders, ready to save again.
+    await act(async () => {
+      await fireEvent.press(row());
+    });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(screen.getByLabelText('Spam')).toHaveAccessibilityValue({
+      text: 'Bulk Mail',
+    });
+    expect(screen.getByLabelText('Trash')).toHaveAccessibilityValue({
+      text: 'Deleted Messages',
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    });
+    // A chosen folder removed at the server leaves the connection out of All Mail again.
+    imap.removeFolder('Bulk Mail');
+    await act(connections.load);
+    expect(row()).toHaveAccessibilityValue({
+      text: 'Spam not chosen · not in All Mail',
+    });
+    expect(screen.getByHintText('Choose Folders…')).toBe(row());
+    // A readable All folder prevents a choice; an unselectable one does not.
+    imap.addFolder('Everything', ['all']);
+    await act(connections.load);
+    expect(
+      screen.queryByRole('header', { name: 'Spam and Trash Folders' }),
+    ).toBeNull();
+    imap.addFolder('Everything', ['all'], false);
+    await act(connections.load);
+    expect(row()).toHaveAccessibilityValue({
+      text: 'Spam not chosen · not in All Mail',
+    });
+    // Several server-marked folders cannot be repaired by choosing just one of them.
+    imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Old Junk', ['junk']);
+    await act(connections.load);
+    expect(
+      screen.queryByRole('header', { name: 'Spam and Trash Folders' }),
+    ).toBeNull();
+    imap.removeFolder('Old Junk');
+    await act(connections.load);
+    expect(row()).toHaveAccessibilityValue({
+      text: 'Spam: Junk · Trash: Deleted Messages · chosen by you',
+    });
+    // iPad's separate button retains its visible action and identifies the connection.
+    const columns = jest.replaceProperty(
+      jest.requireActual<{ settingsColumns: boolean }>('../src/settings.tsx'),
+      'settingsColumns',
+      true,
+    );
+    try {
+      await act(connections.load);
+      const change = screen.getByRole('button', {
+        name: 'Change… alex@example.invalid',
+      });
+      await act(async () => {
+        await fireEvent.press(change);
+      });
+      expect(screen.getByLabelText('Trash')).toHaveAccessibilityValue({
+        text: 'Deleted Messages',
+      });
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      });
+      imap.removeFolder('Junk');
+      await act(connections.load);
+      expect(
+        screen.getByRole('button', {
+          name: 'Choose Folders… alex@example.invalid',
+        }),
+      ).toBeVisible();
+    } finally {
+      columns.restore();
+    }
+    imap.addFolder('Junk', ['junk']);
+    // Once its server marks both, the connection needs no choice and the group leaves.
+    imap.addFolder('Deleted Messages', ['trash']);
+    await act(connections.load);
+    expect(
+      screen.queryByRole('header', { name: 'Spam and Trash Folders' }),
     ).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
