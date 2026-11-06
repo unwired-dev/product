@@ -5,7 +5,12 @@ import type {
 import type { ReactNode } from 'react';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
-import { buttonStyle, tint } from '@expo/ui/swift-ui/modifiers';
+import {
+  accessibilityHint,
+  accessibilityLabel,
+  buttonStyle,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
 import { folderSummary } from '@private-email/mail-core/mailboxes';
 import { Pressable } from 'react-native';
 
@@ -83,10 +88,13 @@ export function SpamTrashFolders({
                   <Host matchContents>
                     <SwiftUIButton
                       label={label}
-                      // A Secondary push button: the quiet fill with primary text.
+                      // A Secondary push button: the quiet fill with primary text. VoiceOver
+                      // names the connection, as the iPhone row does.
                       modifiers={[
                         buttonStyle('bordered'),
                         tint(colors.textPrimary),
+                        accessibilityLabel(mailbox.address),
+                        accessibilityHint(label),
                       ]}
                       onPress={open}
                     />
