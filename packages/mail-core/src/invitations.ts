@@ -600,7 +600,10 @@ export function invitationOf(
   const { uid, sequence, details, organizerLine, summary } = meeting;
   // A RECURRENCE-ID beside a rule names one meeting yet carries the whole series, so neither a
   // response nor a change can be matched to a meeting.
-  if (details.starts !== undefined && find(event, 'RECURRENCE-ID') !== undefined) {
+  if (
+    details.starts !== undefined &&
+    find(event, 'RECURRENCE-ID') !== undefined
+  ) {
     return { kind: 'ambiguous', details };
   }
   // A cancellation needs no attendee: there is nothing to answer. Its STATUS can only be CANCELLED.

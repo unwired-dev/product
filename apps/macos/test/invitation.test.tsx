@@ -648,7 +648,9 @@ describe('meeting invitations in the Mac reader', () => {
       expect(
         screen.getByLabelText('Invitation from Lena Fischer'),
       ).toBeOnTheScreen();
-      expect(screen.getByLabelText(/^When, Fridays, [^,]+$/u)).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText(/^When, Fridays, [^,]+$/u),
+      ).toBeOnTheScreen();
       expect(screen.queryByText('Invited')).toBeNull();
       for (const action of ['Accept', 'Maybe', 'Decline', 'Add to Calendar']) {
         expect(screen.queryByRole('button', { name: action })).toBeNull();

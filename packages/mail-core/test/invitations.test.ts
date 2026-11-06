@@ -356,7 +356,9 @@ describe('meeting invitations', () => {
 
       expect(offer).toMatchObject({
         kind: 'ambiguous',
-        details: { starts: expect.arrayContaining([Date.UTC(2026, 9, 16, 12)]) },
+        details: {
+          starts: expect.arrayContaining([Date.UTC(2026, 9, 16, 12)]),
+        },
       });
       expect(offer).not.toHaveProperty('details.recurrence');
     }
