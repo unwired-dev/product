@@ -633,6 +633,7 @@
     "sentDetail": "{{provider}} confirmed it sent your response to {{name}} at {{time}}. Choose another response to change it.",
     "refused": "Not sent",
     "refusedDetail": "{{provider}} refused your {{choice}} response, so {{name}} didn’t get it. Choose a response to try again.",
+    "removedDetail": "{{address}} was removed from Unwired before your response was sent. Unwired won’t send it from another address.",
     "unknown": "Delivery unknown",
     "unknownDetail": "{{provider}} may have sent your {{choice}} response. Unwired won’t send it again on its own — check Sent in {{provider}}, or check again.",
     "checkAgain": "Check Again",
