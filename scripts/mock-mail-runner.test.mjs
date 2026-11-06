@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import {
   cpSync,
   existsSync,
@@ -44,6 +45,69 @@ function run(directory, [command, ...args], extra = {}) {
     },
     encoding: 'utf8',
   });
+}
+
+// Holds the journey lock like another runner until released.
+async function holdJourneyLock(directory) {
+  const holder = spawn('zsh', [
+    '-c',
+    'zmodload zsh/system; zsystem flock -f fd "$1"; (print $$ > "$1"); print held; read -r',
+    'holder',
+    path.join(directory, 'unwired-mac-journey.lock'),
+  ]);
+  const closed = once(holder, 'close');
+  await once(holder.stdout, 'data');
+  return {
+    pid: holder.pid,
+    release: () => {
+      holder.stdin.end();
+      return closed;
+    },
+  };
+}
+
+// Runs the Mac runner. When contended, another process holds the journey lock
+// until the runner reports that it waits.
+async function runMacRunner(directory, [command, ...args], { env, contended }) {
+  const holder = contended
+    ? await holdJourneyLock(directory)
+    : { release: async () => undefined };
+  const child = spawn(command, args, {
+    cwd: directory,
+    env: {
+      ...process.env,
+      PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
+      ...env,
+    },
+  });
+  const output = { stdout: '', stderr: '' };
+  child.stdout.on('data', (chunk) => {
+    output.stdout += chunk;
+    if (output.stdout.includes('Waiting for the Mac journey lock')) {
+      void holder.release();
+    }
+  });
+  child.stderr.on('data', (chunk) => {
+    output.stderr += chunk;
+  });
+  const closed = once(child, 'close');
+  try {
+    await closed;
+  } finally {
+    // The holder is released even when the runner never waits for it.
+    await holder.release();
+  }
+  const [status] = await closed;
+  const waited =
+    /Waiting for the Mac journey lock held by pid (?<pid>\d+)\n[^]*Waited \d+ s for the Mac journey lock/u.exec(
+      output.stdout,
+    );
+  return {
+    ...output,
+    status,
+    holderPid: holder.pid,
+    waitedFor: waited ? Number(waited.groups.pid) : undefined,
+  };
 }
 
 test('preparation refuses production builds before copying or signing', () => {
@@ -247,6 +311,8 @@ const macScenarios = [
   ['assertion', 65, 65, 'Executed 1 test, with 1 failure', 0, false],
   ['cleanup-failure', 1, 0, successLog, 1, false],
   ['terminated', 143, 143, '', 0, true],
+  // Another journey holds the lock until this runner reports that it waits.
+  ['contended', 0, 0, successLog, 0, false, true],
 ];
 
 for (const [
@@ -256,48 +322,53 @@ for (const [
   log,
   cleanupExit,
   terminate,
+  contended,
 ] of macScenarios) {
-  test(`Mac runner preserves evidence and cleans only its disposable resources: ${scenario}`, () => {
-    const directory = workspace();
-    try {
-      const scripts = path.join(directory, 'apps/macos/scripts');
-      const nativeTests = path.join(directory, 'apps/macos/native-tests');
-      const sharedScripts = path.join(directory, 'scripts');
-      const source = path.join(directory, 'Preview.app');
-      for (const directoryPath of [
-        scripts,
-        nativeTests,
-        sharedScripts,
-        path.join(source, 'Contents'),
-      ]) {
-        mkdirSync(directoryPath, { recursive: true });
-      }
-      cpSync(
-        path.join(root, 'apps/macos/scripts/test-native.zsh'),
-        path.join(scripts, 'test-native.zsh'),
-      );
-      cpSync(
-        path.join(root, 'scripts/prepare-mock-app.py'),
-        path.join(sharedScripts, 'prepare-mock-app.py'),
-      );
-      cpSync(
-        path.join(root, 'scripts/record-host-load.sh'),
-        path.join(sharedScripts, 'record-host-load.sh'),
-      );
-      cpSync(
-        path.join(root, 'scripts/mock-mail-scenarios.json'),
-        path.join(sharedScripts, 'mock-mail-scenarios.json'),
-      );
-      writeFileSync(path.join(sharedScripts, 'cleanup-mock-macos.swift'), '');
-      writeFileSync(path.join(nativeTests, 'WindowTests.swift'), '');
-      writeFileSync(path.join(nativeTests, 'create-project.rb'), '');
-      const original = plist({
-        CFBundleIdentifier: 'dev.unwired.mail',
-        UnwiredMockScenario: 'open-read-relaunch',
-      });
-      writeFileSync(path.join(source, 'Contents/Info.plist'), original);
-      writeFileSync(path.join(directory, 'profile'), 'synthetic-profile');
-      const stub = `#!${process.execPath}
+  test(
+    `Mac runner preserves evidence and cleans only its disposable resources: ${scenario}`,
+    { timeout: 120_000 },
+    async () => {
+      const directory = workspace();
+      try {
+        const scripts = path.join(directory, 'apps/macos/scripts');
+        const nativeTests = path.join(directory, 'apps/macos/native-tests');
+        const sharedScripts = path.join(directory, 'scripts');
+        const source = path.join(directory, 'Preview.app');
+        for (const directoryPath of [
+          scripts,
+          nativeTests,
+          sharedScripts,
+          path.join(source, 'Contents'),
+        ]) {
+          mkdirSync(directoryPath, { recursive: true });
+        }
+        cpSync(
+          path.join(root, 'apps/macos/scripts/test-native.zsh'),
+          path.join(scripts, 'test-native.zsh'),
+        );
+        cpSync(
+          path.join(root, 'scripts/prepare-mock-app.py'),
+          path.join(sharedScripts, 'prepare-mock-app.py'),
+        );
+        cpSync(
+          path.join(root, 'scripts/record-host-load.sh'),
+          path.join(sharedScripts, 'record-host-load.sh'),
+        );
+        cpSync(
+          path.join(root, 'scripts/mock-mail-scenarios.json'),
+          path.join(sharedScripts, 'mock-mail-scenarios.json'),
+        );
+        writeFileSync(path.join(sharedScripts, 'cleanup-mock-macos.swift'), '');
+        writeFileSync(path.join(nativeTests, 'WindowTests.swift'), '');
+        writeFileSync(path.join(nativeTests, 'create-project.rb'), '');
+        const original = plist({
+          CFBundleIdentifier: 'dev.unwired.mail',
+          UnwiredMockScenario: 'open-read-relaunch',
+        });
+        writeFileSync(path.join(source, 'Contents/Info.plist'), original);
+        writeFileSync(path.join(directory, 'profile'), 'synthetic-profile');
+        const stub = `#!${process.execPath}
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 const base = ${JSON.stringify(directory)};
@@ -306,104 +377,125 @@ const command = path.basename(process.argv[1]);
 if (command === 'swiftc') {
   fs.writeFileSync(args[args.indexOf('-o') + 1], '#!${process.execPath}\\nimport fs from "node:fs"; fs.writeFileSync(' + JSON.stringify(path.join(base, 'cleaned')) + ', process.argv[2]); process.exit(${cleanupExit});\\n', { mode: 0o755 });
 }
+if (command === 'getconf') console.log(base + '/');
 if (command === 'security') console.log('<?xml version="1.0"?><plist version="1.0"><dict><key>TeamIdentifier</key><array><string>SYNTHETIC</string></array><key>Entitlements</key><dict><key>com.apple.application-identifier</key><string>LEGACY1234.dev.unwired.mock.*</string></dict></dict></plist>');
 if (command === 'xcodebuild') {
+  // Status 2: another process cannot take the journey lock while the test runs.
+  const probe = spawnSync('zsh', ['-c', 'zmodload zsh/system; zsystem flock -t 0.1 -f fd "$1"', 'probe', path.join(base, 'unwired-mac-journey.lock')]);
+  fs.writeFileSync(path.join(base, 'lock-probe'), String(probe.status));
   if (${terminate}) { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
   console.log(${JSON.stringify(log)});
   process.exit(${testExit});
 }
 `;
-      for (const command of [
-        'ruby',
-        'swiftc',
-        'security',
-        'codesign',
-        'xcodebuild',
-        // record-host-load.sh asks xcrun for booted simulators; the host's can hang (#1596).
-        'xcrun',
-      ]) {
-        writeFileSync(path.join(directory, 'bin', command), stub, {
-          mode: 0o755,
-        });
-      }
-      const result = run(
-        directory,
-        [
-          'zsh',
-          path.relative(directory, path.join(scripts, 'test-native.zsh')),
-          source,
-        ],
-        {
-          RUBY: path.join(directory, 'bin/ruby'),
-          UNWIRED_SIGNING_IDENTITY: 'Synthetic signer',
-          UNWIRED_MOCK_PROFILE: path.join(directory, 'profile'),
-        },
-      );
-      assert.ifError(result.error);
-      assert.equal(result.status, expectedExit, result.stdout + result.stderr);
-      const artifacts = path.join(directory, 'artifacts/macos-inbox');
-      const entries = readdirSync(artifacts);
-      assert.equal(entries.length, 1);
-      const evidence = path.join(artifacts, entries[0]);
-      const ownership = parseJson(
-        readFileSync(path.join(evidence, 'ownership.json'), 'utf8'),
-      );
-      assert.match(
-        ownership.bundleIdentifier,
-        /^dev\.unwired\.mock\.[0-9a-f]{32}$/u,
-      );
-      assert.equal(
-        readFileSync(path.join(directory, 'cleaned'), 'utf8'),
-        ownership.bundleIdentifier,
-      );
-      const entitlements = readFileSync(
-        path.join(evidence, 'mock-entitlements.plist'),
-        'utf8',
-      );
-      assert.ok(
-        entitlements.includes(
-          `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
-        ),
-      );
-      assert.match(entitlements, /<string>SYNTHETIC<\/string>/u);
-      assert.match(
-        entitlements,
-        /<key>com\.apple\.security\.app-sandbox<\/key>\s*<true\/>/u,
-      );
-      assert.doesNotMatch(entitlements, /SYNTHETIC\.dev\.unwired\.mock/u);
-      assert.equal(
-        readFileSync(path.join(source, 'Contents/Info.plist'), 'utf8'),
-        original,
-      );
-      assert.equal(existsSync(path.join(evidence, 'Mock.app')), false);
-      assert.equal(
-        existsSync(path.join(evidence, 'Cleanup.app')),
-        cleanupExit !== 0,
-      );
-      assert.equal(
-        parseJson(readFileSync(path.join(evidence, 'result.json'), 'utf8'))
-          .exitCode,
-        result.status,
-      );
-      assert.ok(existsSync(path.join(evidence, 'xcodebuild.log')));
-      const hostLoad = readFileSync(
-        path.join(evidence, 'host-load.txt'),
-        'utf8',
-      );
-      assert.match(
-        hostLoad,
-        /before testIndependentWindowsCloseReopenAndQuit/u,
-      );
-      if (!terminate) {
+        for (const command of [
+          'ruby',
+          'swiftc',
+          'security',
+          'codesign',
+          'xcodebuild',
+          // record-host-load.sh asks xcrun for booted simulators; the host's can hang (#1596).
+          'xcrun',
+          'getconf',
+        ]) {
+          writeFileSync(path.join(directory, 'bin', command), stub, {
+            mode: 0o755,
+          });
+        }
+        // A dead owner's pid stays in the file, but the kernel released its lock.
+        const lock = path.join(directory, 'unwired-mac-journey.lock');
+        writeFileSync(lock, '999999\n');
+        const result = await runMacRunner(
+          directory,
+          [
+            'zsh',
+            path.relative(directory, path.join(scripts, 'test-native.zsh')),
+            source,
+          ],
+          {
+            env: {
+              RUBY: path.join(directory, 'bin/ruby'),
+              UNWIRED_SIGNING_IDENTITY: 'Synthetic signer',
+              UNWIRED_MOCK_PROFILE: path.join(directory, 'profile'),
+            },
+            contended,
+          },
+        );
+        assert.equal(
+          result.status,
+          expectedExit,
+          result.stdout + result.stderr,
+        );
+        assert.equal(result.waitedFor, result.holderPid);
+        assert.match(readFileSync(lock, 'utf8'), /^(?!999999\n)\d+\n$/u);
+        assert.equal(
+          readFileSync(path.join(directory, 'lock-probe'), 'utf8'),
+          '2',
+        );
+        const artifacts = path.join(directory, 'artifacts/macos-inbox');
+        const entries = readdirSync(artifacts);
+        assert.equal(entries.length, 1);
+        const evidence = path.join(artifacts, entries[0]);
+        const ownership = parseJson(
+          readFileSync(path.join(evidence, 'ownership.json'), 'utf8'),
+        );
+        assert.match(
+          ownership.bundleIdentifier,
+          /^dev\.unwired\.mock\.[0-9a-f]{32}$/u,
+        );
+        assert.equal(
+          readFileSync(path.join(directory, 'cleaned'), 'utf8'),
+          ownership.bundleIdentifier,
+        );
+        const entitlements = readFileSync(
+          path.join(evidence, 'mock-entitlements.plist'),
+          'utf8',
+        );
+        assert.ok(
+          entitlements.includes(
+            `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
+          ),
+        );
+        assert.match(entitlements, /<string>SYNTHETIC<\/string>/u);
+        assert.match(
+          entitlements,
+          /<key>com\.apple\.security\.app-sandbox<\/key>\s*<true\/>/u,
+        );
+        assert.doesNotMatch(entitlements, /SYNTHETIC\.dev\.unwired\.mock/u);
+        assert.equal(
+          readFileSync(path.join(source, 'Contents/Info.plist'), 'utf8'),
+          original,
+        );
+        assert.equal(existsSync(path.join(evidence, 'Mock.app')), false);
+        assert.equal(
+          existsSync(path.join(evidence, 'Cleanup.app')),
+          cleanupExit !== 0,
+        );
+        assert.equal(
+          parseJson(readFileSync(path.join(evidence, 'result.json'), 'utf8'))
+            .exitCode,
+          result.status,
+        );
+        assert.ok(existsSync(path.join(evidence, 'xcodebuild.log')));
+        const hostLoad = readFileSync(
+          path.join(evidence, 'host-load.txt'),
+          'utf8',
+        );
         assert.match(
           hostLoad,
-          /after testIndependentWindowsCloseReopenAndQuit/u,
+          /before testIndependentWindowsCloseReopenAndQuit/u,
         );
+        if (!terminate) {
+          assert.match(
+            hostLoad,
+            /after testIndependentWindowsCloseReopenAndQuit/u,
+          );
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
       }
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 }
 
 // Each scenario's Metro resolution of `moduleName`: a substituted source file or the normal module.

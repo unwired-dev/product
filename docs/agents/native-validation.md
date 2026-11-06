@@ -19,6 +19,10 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   `xcodebuild` processes, booted Simulators) before and after each journey.
   Before attributing a timing or idle-wait failure to the host, compare it with
   a passing baseline and reproduce it without your own concurrent native work.
+- The Mac runner holds a per-user lock for its whole XCUITest run; another Mac
+  journey waits for it and logs how long. An event-synthesis timeout during a
+  concurrent desktop UI automation run is contention, not a product failure:
+  rerun the journey alone before reporting it.
 - Run `scripts/pre-handoff.sh` without a concurrent native build, journey or
   other heavy local job.
 
