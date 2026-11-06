@@ -2,10 +2,15 @@ import type { Draft } from '@private-email/mail-core/drafts';
 import type {
   Block,
   SemanticDocument,
+  Table,
+  TableDocument,
 } from '@private-email/mail-core/semantic-document';
 
 import { documentFromHtml } from '@private-email/mail-core/draft-html';
-import { outgoingMessage } from '@private-email/mail-core/outgoing-message';
+import {
+  htmlOf,
+  outgoingMessage,
+} from '@private-email/mail-core/outgoing-message';
 import {
   BlockKindSchema,
   formatStyleOf,
@@ -622,9 +627,9 @@ describe('a Semantic Message Document from Draft HTML', () => {
 
     expect(
       documentFromHtml(
-        '<table><tr><td>Cell</td></tr></table><p><img src="cid:x"></p><h4>Small</h4><hr>',
+        '<table><caption>Cells</caption><tr><td>Cell</td></tr></table><p><img src="cid:x"></p><h4>Small</h4><hr>',
       ),
-    ).toStrictEqual({ unsupported: ['table', 'img', 'h4', 'hr'] });
+    ).toStrictEqual({ unsupported: ['caption', 'img', 'h4', 'hr'] });
     expect(
       documentFromHtml(
         '<ul><li>One<ul><li>Nested</li></ul></li></ul><blockquote><h1>Title</h1></blockquote>' +
@@ -1013,6 +1018,261 @@ describe('a Semantic Message Document from Draft HTML', () => {
     ]) {
       expect(documentFromHtml(html)).toStrictEqual({ unsupported: ['color'] });
     }
+  });
+});
+
+const cell = (
+  text: string,
+  more: Readonly<{ columns?: number; rows?: number }> = {},
+): Table['rows'][number][number] => ({
+  blocks: [{ kind: 'paragraph', spans: text === '' ? [] : [{ text }] }],
+  ...more,
+});
+
+describe('tables in a Semantic Message Document from Draft HTML', () => {
+  it('reads back rows, merged cells and formatted cell text that outgoing mail writes', () => {
+    expect.hasAssertions();
+
+    const document: TableDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Before' }] },
+      {
+        kind: 'table',
+        rows: [
+          [
+            {
+              blocks: [
+                {
+                  kind: 'paragraph',
+                  spans: [{ text: 'Date', marks: ['bold'] }],
+                  align: 'center',
+                },
+              ],
+            },
+            cell('Place', { rows: 2 }),
+          ],
+          [
+            {
+              blocks: [
+                { kind: 'bulleted', spans: [{ text: 'One' }] },
+                { kind: 'bulleted', spans: [{ text: 'Two' }] },
+                {
+                  kind: 'paragraph',
+                  spans: [
+                    { text: 'Link', link: 'https://example.invalid' },
+                    { text: ' red', color: '#d1242f', font: 'Arial' },
+                  ],
+                },
+              ],
+            },
+          ],
+          [cell('', { columns: 2 })],
+        ],
+      },
+      { kind: 'table', rows: [[cell('Second')]] },
+      { kind: 'paragraph', spans: [{ text: 'After' }] },
+    ];
+
+    expect(
+      documentFromHtml(
+        `<!DOCTYPE html><html><body>${htmlOf(document)}</body></html>`,
+      ),
+    ).toStrictEqual({ document });
+  });
+
+  it('reads header cells as bold centered text, empty cells as an empty paragraph, and ignores sizing', () => {
+    expect.hasAssertions();
+
+    expect(
+      documentFromHtml(
+        '<table cellspacing="0" cellpadding="4" border="0" width="100%" style="border-collapse:collapse;border-spacing:0;width:100%">' +
+          '<thead><tr><th>Date</th><th style="text-align:left">Place</th></tr></thead>' +
+          '<tbody style="text-align:left"><tr><th>Left</th></tr></tbody>' +
+          '<tbody><tr align="right"><th>Total</th><td style="width:50%;height:20px;padding:2px;border:0"></td></tr></tbody></table>',
+      ),
+    ).toStrictEqual({
+      document: [
+        {
+          kind: 'table',
+          rows: [
+            [
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Date', marks: ['bold'] }],
+                    align: 'center',
+                  },
+                ],
+              },
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Place', marks: ['bold'] }],
+                  },
+                ],
+              },
+            ],
+            [
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Left', marks: ['bold'] }],
+                  },
+                ],
+              },
+            ],
+            [
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Total', marks: ['bold'] }],
+                    align: 'right',
+                  },
+                ],
+              },
+              { blocks: [{ kind: 'paragraph', spans: [], align: 'right' }] },
+            ],
+          ],
+        },
+      ],
+    });
+  });
+
+  it('reads an Apple Mail Draft table', () => {
+    expect.hasAssertions();
+
+    const html =
+      '<html><body style="overflow-wrap: break-word; -webkit-nbsp-mode: space; line-break: after-white-space;">' +
+      '<div>Schedule:</div><div><br></div>' +
+      '<table cellspacing="0" cellpadding="0" style="border-collapse: collapse;"><tbody>' +
+      '<tr><td valign="middle" style="width: 120px; padding: 4px;"><div><b>Date</b></div></td>' +
+      '<td style="width: 120px; padding: 4px;"><div><b>Place</b></div></td></tr>\n' +
+      '<tr><td style="padding: 4px;"><div>2 Dec</div></td><td style="padding: 4px;"><div>Oslo</div></td></tr>' +
+      '</tbody></table><div>Thanks</div></body></html>';
+
+    expect(documentFromHtml(html)).toStrictEqual({
+      unsupported: ['valign'],
+    });
+    expect(
+      documentFromHtml(html.replace(' valign="middle"', '')),
+    ).toStrictEqual({
+      document: [
+        { kind: 'paragraph', spans: [{ text: 'Schedule:' }] },
+        { kind: 'paragraph', spans: [] },
+        {
+          kind: 'table',
+          rows: [
+            [
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Date', marks: ['bold'] }],
+                  },
+                ],
+              },
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Place', marks: ['bold'] }],
+                  },
+                ],
+              },
+            ],
+            [cell('2 Dec'), cell('Oslo')],
+          ],
+        },
+        { kind: 'paragraph', spans: [{ text: 'Thanks' }] },
+      ],
+    });
+  });
+
+  it('reports the borders, alignment and columns of Gmail and Outlook Draft tables', () => {
+    expect.hasAssertions();
+
+    expect(
+      documentFromHtml(
+        '<div dir="ltr"><table cellspacing="0" cellpadding="0" dir="ltr" border="1" style="table-layout:fixed;font-size:10pt;font-family:Arial;width:0px;border-collapse:collapse;border:none">' +
+          '<colgroup><col width="100"></colgroup><tbody><tr style="height:21px">' +
+          '<td style="border:1px solid rgb(204,204,204);overflow:hidden;padding:2px 3px;vertical-align:bottom">Date</td>' +
+          '</tr></tbody></table></div>',
+      ),
+    ).toStrictEqual({
+      unsupported: ['border', 'colgroup', 'overflow', 'vertical-align'],
+    });
+    expect(
+      documentFromHtml(
+        `<table class=MsoTableGrid border=1 cellspacing=0 cellpadding=0 style='border-collapse:collapse;border:none;mso-border-alt:solid windowtext .5pt;mso-yfti-tbllook:1184'>
+<tr style='mso-yfti-irow:0'><td width=312 valign=top style='width:233.75pt;border:solid windowtext 1.0pt;padding:0in 5.4pt 0in 5.4pt'>
+<p class=MsoNormal>Date<o:p></o:p></p></td></tr></table>`,
+      ),
+    ).toStrictEqual({ unsupported: ['border', 'valign'] });
+  });
+
+  it('reports tables the document cannot hold yet instead of flattening them', () => {
+    expect.hasAssertions();
+
+    const row = '<tr><td>x</td></tr>';
+
+    expect(
+      [
+        `<table>${row}<tfoot>${row}</tfoot></table>`,
+        `<table><tr><td><table>${row}</table></td></tr></table>`,
+        `<table><tr><td><img src="cid:x"></td></tr></table>`,
+        `<ul><li><table>${row}</table></li></ul>`,
+        `<blockquote><table>${row}</table></blockquote>`,
+        `<b><table>${row}</table></b>`,
+        `<div style="text-align:center"><table>${row}</table></div>`,
+        `<table align="center">${row}</table>`,
+        `<table style="border:1px solid #000000">${row}</table>`,
+        `<table><tr><td bgcolor="#ffffff">x</td></tr></table>`,
+        `<table><tr><td style="background:#ffffff">x</td></tr></table>`,
+        '<table></table>',
+        '<table><tr></tr></table>',
+        '<table><tr><td rowspan="0">x</td></tr></table>',
+        '<table><tr><td rowspan="1001">x</td></tr></table>',
+        '<font color="#ff0000"><table><tr><td>x</td></tr></table></font>',
+        '<h1><table><tr><td>x</td></tr></table></h1>',
+        '<table style="border:1px solid rgba(0,0,0,0.5)"><tr><td>x</td></tr></table>',
+        '<table><tr><td style="border-width:0 1px">x</td></tr></table>',
+        '<table style="margin:0 auto"><tr><td>x</td></tr></table>',
+        '<table><tbody bgcolor="#ff0000"><tr><td>x</td></tr></tbody></table>',
+        '<table><tr background="a.png"><td>x</td></tr></table>',
+        '<table><tbody><tr><td>B</td></tr></tbody><thead><tr><td>A</td></tr></thead></table>',
+        '<table><thead><tr><th rowspan="2">A</th></tr></thead><tbody><tr><td>C</td></tr></tbody></table>',
+      ].map(documentFromHtml),
+    ).toStrictEqual(
+      [
+        'tfoot',
+        'table',
+        'img',
+        'table',
+        'table',
+        'table',
+        'table',
+        'align',
+        'border',
+        'bgcolor',
+        'background',
+        'table',
+        'tr',
+        'rowspan',
+        'rowspan',
+        'table',
+        'table',
+        'border',
+        'border-width',
+        'margin',
+        'bgcolor',
+        'background',
+        'thead',
+        'rowspan',
+      ].map((name) => ({ unsupported: [name] })),
+    );
   });
 });
 

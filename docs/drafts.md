@@ -284,7 +284,7 @@ width, a transparent color, an omitted line style in a shorthand or an unvetted
 function is reported rather than turning an indentation into a quote.
 Browser-dependent active/visited
 link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
-Anything else, such as a table, an image, headings four to six, a nested list
+Anything else, such as an image, headings four to six, a nested list
 or quote, a color name, a relative size, a block background (including an inherited one), a popover, list
 markers with colors or fonts (including bold and italic), custom or reversed
 list numbering, adjacent ordered lists that restart numbering without a
@@ -299,6 +299,22 @@ content is reported rather than discarding potentially visible text. An empty
 paragraph shows nothing and adds no line; a blank line is `<p><br></p>`. Outgoing HTML reads back to the same
 document, apart from the spaces HTML collapses, a trailing empty code line and
 code alignment, which is not sent.
+
+The same reader keeps a table as rows of cells
+([#1878](https://github.com/unwired-dev/product/issues/1878), a first slice of
+[#1268](https://github.com/unwired-dev/product/issues/1268)). Each cell holds its
+own blocks and may span several columns or rows; a header cell reads as bold
+centered text, and an empty cell as one empty paragraph. Widths, heights, cell
+padding and spacing, `border="0"`, collapsed borders and borders that do not show
+are ignored. Visible borders, backgrounds, vertical alignment, table alignment
+(including auto margins), captions, footers, column groups, a header after body
+rows, a merged cell that crosses row groups, nested tables, images in cells, empty
+tables and rows, and tables inside lists, quotes, headings, inline formatting,
+text color, links or alignment are reported, because the document cannot hold them yet or standards
+and quirks mode show them differently. Outgoing HTML writes tables as plain rows
+and cells and reads back to the same document. Drafts do not store tables yet;
+Draft storage, the plain-text part and editing tables in the composers follow in
+later #1268 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
