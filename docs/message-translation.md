@@ -1,7 +1,7 @@
 # On-device translation
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/message-translation.md).
+Architecture notes live in the separate [architecture companion](architecture/message-translation.md).
 
 [#622](https://github.com/unwired-dev/product/issues/622) adds
 [Translation Assistance](domain/assistance.md) on iPhone, iPad and Mac: an

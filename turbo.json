@@ -1,6 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "agentGuidance": false,
   "globalEnv": [
     "APPLE_BUNDLE_ID",
     "APPLE_PRODUCT_CLIENT_IDS",

@@ -1,7 +1,7 @@
 # Storage and Private Sync export
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/storage-and-product-sync-export.md).
+Architecture notes live in the separate [architecture companion](architecture/storage-and-product-sync-export.md).
 
 Scope: the SwiftUI and Mac Catalyst prototype, removed in
 [#1371](https://github.com/unwired-dev/product/issues/1371). This document records its

@@ -1,7 +1,7 @@
 # Tiptap Draft editor evaluation
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/draft-editor-evaluation.md).
+Architecture notes live in the separate [architecture companion](architecture/draft-editor-evaluation.md).
 
 [#818](https://github.com/unwired-dev/product/issues/818) asks whether a locally
 packaged [Tiptap](https://tiptap.dev) editor can open, edit, save and reopen a Draft

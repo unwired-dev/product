@@ -41,10 +41,7 @@ unmounted or dismissed interaction appear live.
 
 For Convex, exercise public backend operations with the test database and
 identity context, checking stored state and authorization outcomes rather than
-mocking each internal helper. As persistence, Gmail and Outbox slices land, add
-integration coverage for their actual boundaries and E2E coverage for the
-corresponding user journeys. These are testing requirements, not claims that
-those replacement features already exist.
+mocking each internal helper.
 
 [Deterministic Mock Mail Sessions](../mock-mail-sessions.md) supply synthetic
 identity, mail and assistance providers for app journeys. Linux CI exercises
@@ -108,96 +105,35 @@ does not establish the check's status. Unavailable or skipped checks do not prov
 skip reason describes the current environment, enable the check or report it
 as unexecuted.
 
-For experiments and benchmarks, validate isolation across every stratum and run
-a cheap end-to-end baseline before long compute; record the corpus and
-configuration identity.
-
 Run the smallest meaningful checks first. Broaden validation when shared configuration,
 workspace wiring, cross-package behavior, or a high-consequence boundary changes.
 
 ## Execution environment
 
 Required tests should run in the environment needed to exercise their contract.
-For trusted local development and trusted scheduled or automated tasks, use the
-available host-execution or approval mechanism to retry the exact validation
-command when sandbox restrictions deny required sockets, child services or
-native tooling. Follow the session's permissions; if no permitted route exists,
-report the check as unavailable. Keep host access command-scoped, use the pinned
-toolchain, and report the host-side result. Do not weaken tests to accommodate
-the sandbox.
+Keep tests unchanged when the sandbox blocks them; rerun outside it.
 
-This exception never applies to the PR babysitter workflow,
-including trusted-base validation. Follow its
-[credential-free isolation and remote-CI policy](pull-request-babysitting.md).
 Automated native checks follow the
 [resource ownership and cleanup policy](native-validation.md).
 
-## Current checks and release evidence
+## Current checks
 
-The maintained checks cover the Expo and Mac apps, shared core/contracts and retained
-Convex backend:
-
-| Lane            | Evidence                                                                                                                                                                                             |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CI: TypeScript  | Repository lint and formatting; types and tests for mobile, Mac and Convex with their workspace dependencies; Effect import-policy and native autolinking fixture tests and agent workflow contracts |
-| CI: Fallow      | Root unused-code and complexity audit                                                                                                                                                                |
-| CI: Expo mobile | Mobile Fallow scan, Expo compatibility, production Hermes export, bundle boundary and native autolinking checks                                                                                      |
-| CI: Mac bundle  | Mac production JavaScript export, renderer inventory, shared source, native autolinking and Podfile pod scope                                                                                        |
-| CI: Expo native | Real Keychain/encrypted-store checks, Expo Release build and parallel iPhone/iPad relaunch journeys; selected memory-backed native reporting contracts and real Hermes/Mach-O artifact preparation   |
-| Pre-release     | Real Gmail authorization and transport, encrypted persistence, credentials, APNs, accessibility, physical devices and native Mac qualification                                                       |
-
-The workflow files [CI](../../.github/workflows/ci.yml) and
-[Mobile](../../.github/workflows/mobile.yml) and [Mac](../../.github/workflows/macos.yml) define the automated commands.
-Pull requests that change only `docs/`, `.agents/` and Markdown files skip the Mobile and Mac
-jobs, which no build input reaches; GitHub accepts the skipped required `Expo mobile` check.
-TypeScript and Fallow still run, and pushes to `main` run every job.
+The [workflow files](../../.github/workflows/) define the automated checks;
 [Expo validation](../expo-client.md#validate) documents local commands and their
-limits. The native E2E jobs run the iPhone and iPad Inbox journeys on hosted macOS;
-no nightly validation matrix is currently configured. The Swift prototype tests
-and local mail harness were removed in
-[#1371](https://github.com/unwired-dev/product/issues/1371). The standalone SwiftMail
-provider-qualification workflow remains disabled by maintainer decision.
-
-Add affected regression and contract checks as replacement slices land.
-Deterministic Mock Mail Sessions must remain distinct from real integration
-evidence under [ADR 0060](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
-Retain coverage for privacy, identity isolation, data loss and duplicate delivery
-when retiring the old client. Track unavailable native and protected checks in
+limits. Pull requests that change only `docs/`, `.agents/` and Markdown files skip
+the Mobile and Mac jobs, and GitHub accepts the skipped required `Expo mobile`
+check. TypeScript and Fallow still run, and pushes to `main` run every job. Track
+unavailable native and protected checks in
 [platform qualification](../qualification/expo-react-native-client.md); they
 remain required before release.
 
 ## Consolidation and retirement
 
-Prefer one canonical reusable contract plus tests for each implementation's genuine
-differences. Table-driven or generated cases may replace many named permutations when
-they preserve the invariant and leave failures diagnosable.
-
-A test may be retired when it:
-
-- duplicates a canonical contract at another layer or implementation;
-- asserts an implementation detail or fixture rather than supported behavior;
-- depends on incidental scheduling and deterministic coverage replaces it;
-- protects behavior that has been explicitly superseded.
-
-The pull request must identify the risk and either point to retained coverage or explain
-why the risk no longer exists. Do not run blanket test purges or set a numeric reduction
-target. Replace scheduler-sensitive absence checks with controlled clocks, explicit
-synchronization, or observable state transitions before removing them.
-
-## Feedback budgets and measurement
-
-| Feedback lane                                            | Budget             |
-| -------------------------------------------------------- | ------------------ |
-| Focused local validation from a warm checkout            | At most 2 minutes  |
-| Required pull-request validation after runner allocation | 20-minute p95      |
-| Superseded pull-request runs                             | Cancel immediately |
-
-These are feedback targets. The native build and E2E jobs each have a 25-minute
-timeout to accommodate a cold build or simulator. Measure the slower of the
-independent storage checks and the build followed by the slower journey against
-the PR target.
-Measure setup and build time separately from test execution. Record timing-related or
-flaky failures and classify failures as product, test, or infrastructure defects. Review
-the initial four weeks of evidence before adjusting the budgets, then review trends
-monthly. Do not add coverage or mutation-testing quotas unless later evidence shows that
-they address a specific risk the portfolio is missing.
+Prefer one canonical contract plus tests for each implementation's genuine
+differences; table-driven cases may replace named permutations when failures
+stay diagnosable. Retire a test only when it duplicates a canonical contract,
+asserts an implementation detail, depends on incidental scheduling that
+deterministic coverage replaces, or protects superseded behavior. The PR names
+the risk and its retained coverage, or why the risk no longer exists. Keep
+privacy, identity-isolation, data-loss and duplicate-delivery coverage. Do not
+run blanket purges or set reduction targets.

@@ -250,7 +250,7 @@ Microsoft tokens must stay device-local, outside Private Sync, JavaScript and lo
 Other Trusted Devices learn the connection's provider and removal through encrypted
 Private Sync, but each device authorizes the mailbox itself. Requests must be
 limited to the signed-in person's own mail over authenticated HTTPS; a Microsoft
-credential must never reach Gmail or another host. The reviewer-only
+credential must never reach Gmail or another host. The
 [architecture companion](architecture/microsoft-mail.md) records adapter evaluation,
 credential custody and synchronization mechanisms.
 

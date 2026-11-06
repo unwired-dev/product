@@ -1,7 +1,7 @@
 # Gmail Inbox synchronization
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/gmail-inbox.md).
+Architecture notes live in the separate [architecture companion](architecture/gmail-inbox.md).
 
 [#604](https://github.com/unwired-dev/product/issues/604) shows a connected
 Gmail mailbox's Inbox on iPhone, iPad and Mac, and

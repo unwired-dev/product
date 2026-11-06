@@ -1,7 +1,6 @@
 # Microsoft mail: architecture notes
 
-Reviewer-only companion to [the operational guide](../microsoft-mail.md), under
-[the implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [the operational guide](../microsoft-mail.md).
 Issue [#634](https://github.com/unwired-dev/product/issues/634) adds a fresh Graph
 reader for the replacement hosts, without reusing the prototype mail engine.
 [ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md) establishes

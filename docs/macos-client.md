@@ -1,7 +1,7 @@
 # Native Mac client and mock Inbox
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/macos-client.md).
+Architecture notes live in the separate [architecture companion](architecture/macos-client.md).
 
 `apps/macos` implements [#593](https://github.com/unwired-dev/product/issues/593)
 with AppKit windows and React Native macOS views. It reads the same synthetic
@@ -213,7 +213,7 @@ Shift-Command-Z history.
 Link confirmations are AppKit alert sheets, which own their keyboard focus,
 Return and Escape, VoiceOver and the return of focus to the window.
 
-The [keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
+The [keyboard and accessibility journey](native-journeys.md#mac-keyboard-and-accessibility-journey)
 covers what the keyboard reaches today: Command Palette commands, Search Mail,
 editing, window commands and Settings. Tab only cycles the focused text field,
 so opening a message, placing the caret in a new reply and Send still need the
@@ -329,8 +329,8 @@ component, bundle and runner contracts remain available.
 The runner selects one XCTest journey: the mailbox lifecycle journey by default,
 or the journey named after the app path, such as the
 [language journey](localization.md#verify), the
-[performance journey](agents/native-validation.md#mac-performance-journey) or the
-[keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey). The lifecycle journey opens two windows, selects different messages, focuses a
+[performance journey](native-journeys.md#mac-performance-journey) or the
+[keyboard and accessibility journey](native-journeys.md#mac-keyboard-and-accessibility-journey). The lifecycle journey opens two windows, selects different messages, focuses a
 window through its menu, closes both, checks continued application work, reopens
 through Launch Services, reads another message, and chooses the native Quit menu.
 Command-Q is checked separately through direct native UI automation because
@@ -357,7 +357,7 @@ press and release, key press with the display's maximum-refresh interval, focuse
 non-field-editor text edit, that text view's first draw after each edit with a recent
 display frame start and the frame interval, and observed main-queue delays of 100 ms
 or longer, with their uptime and duration where applicable, for the
-[performance journey](agents/native-validation.md#mac-performance-journey). In
+[performance journey](native-journeys.md#mac-performance-journey). In
 text-edit records it includes the text and its per-UTF-16-unit bold, italic and
 underline marks; the journey uses synthetic composer content. In
 registration Mock Mail Sessions, the synthetic relay also appends the uptime of

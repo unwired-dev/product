@@ -1,7 +1,6 @@
 # Private inbox storage: architecture notes
 
-Reviewer-only companion to [docs/private-inbox-storage.md](../private-inbox-storage.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [docs/private-inbox-storage.md](../private-inbox-storage.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 
@@ -50,7 +49,7 @@ Connections, Drafts, assets, Outbox attempts, caches and encrypted records retai
 their identities and locations. The staging decision and its panel outcome are
 recorded in [ADR 0048's replacement amendment](../adr/0048-separate-encrypted-mail-profile-ownership.md#replacement-staging-amendment--2026-10-11).
 The [caller inventory and release evidence requirements](../private-inbox-storage.md#mail-profiles)
-remain implementer-readable. #1036 supplies incompatible-client fencing, and
+remain in the operational guide. #1036 supplies incompatible-client fencing, and
 #1037 exposes Profile creation, switching and window restoration within #922.
 The linked guide owns current support and remaining release evidence.
 The [synchronized Profile foundation](private-product-sync.md#synchronized-mail-profiles)
