@@ -297,7 +297,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [sheet setContentSize:NSMakeSize(NSWidth(sheet.contentView.frame), ceil(height))];
   if (sheet.sheetParent != nil) return;
   [self.sheetParents[identifier] beginSheet:sheet completionHandler:^(NSModalResponse response) {
-    [self forgetSheet:identifier];
+    // The parent can close and reopen its sheet before this completion arrives.
+    if (self.sheets[identifier] == sheet) [self forgetSheet:identifier];
   }];
 }
 
@@ -435,6 +436,13 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 - (void)windowWillClose:(NSNotification *)notification
 {
   NSWindow *window = notification.object;
+  // Also retire a sheet still waiting for its React content's first layout.
+  for (NSString *identifier in self.sheetParents.allKeys) {
+    if (self.sheetParents[identifier] != window) continue;
+    NSWindow *sheet = self.sheets[identifier];
+    if (sheet.sheetParent != nil) [sheet.sheetParent endSheet:sheet];
+    [self forgetSheet:identifier];
+  }
   [NSApp removeWindowsItem:window];
   if (window == self.settingsWindow.window) {
     NSNumber *closedRequestSerial = self.settingsRequestSerial;

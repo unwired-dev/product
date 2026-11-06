@@ -78,8 +78,9 @@ Choose Folders… in an IMAP connection's All Mail notice, or Choose Folders… 
 Change… under Settings › Email Accounts › Spam and Trash Folders, opens its Spam and
 Trash choice in an AppKit sheet on that Inbox or Settings window: the host gives the sheet its own React
 surface (`UnwiredFolderChoice`), sizes it to that content and ends it on Cancel
-(Escape), a successful Save (Return), or once the connection no longer needs the
-choice. React Native macOS 0.81.9's `Modal` is iOS-only, so React content cannot be
+(Escape), a successful Save (Return), once the connection no longer needs the
+choice, or when its parent window closes, including before the sheet appears.
+React Native macOS 0.81.9's `Modal` is iOS-only, so React content cannot be
 presented as a window sheet; remove the host sheet when `Modal` presents one on macOS.
 Sign In's **Sign in with Apple** is AppKit's `ASAuthorizationAppleIDButton` through
 `UnwiredAppleIDButton`: black in Light, white in Dark, and turned off while a
