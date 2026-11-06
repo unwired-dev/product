@@ -1078,7 +1078,9 @@ final class InboxTests: XCTestCase {
   // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
   // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
   // is within one screen of the visible range.
-  private func threadJourney(_ app: XCUIApplication) {
+  // Registers with the synthetic Gmail mailbox another device already connected, confirming its
+  // Recovery Key.
+  private func connectAlternateMailbox(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     let recoveryKey = app.staticTexts["recovery-key"]
@@ -1090,6 +1092,39 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+  }
+
+  // The registration-invitation mailbox's Gmail invitation: its card offers Accept, Maybe and
+  // Decline, and Accept reports Gmail's confirmation.
+  private func invitationJourney(_ app: XCUIApplication) {
+    connectAlternateMailbox(app)
+    let row = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Unread. Lena Fischer. Invitation: Q4 roadmap review")
+    ).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 20))
+    row.tap()
+    let accept = app.buttons["Accept"].firstMatch
+    XCTAssertTrue(accept.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["Maybe"].firstMatch.exists)
+    XCTAssertTrue(app.buttons["Decline"].firstMatch.exists)
+    let card = XCTAttachment(screenshot: app.screenshot())
+    card.name = "Invitation card"
+    card.lifetime = .keepAlways
+    add(card)
+    accept.tap()
+    let confirmed = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Accepted. Gmail confirmed")
+    ).firstMatch
+    XCTAssertTrue(confirmed.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["Accepted"].firstMatch.isSelected)
+    let accepted = XCTAttachment(screenshot: app.screenshot())
+    accepted.name = "Invitation accepted"
+    accepted.lifetime = .keepAlways
+    add(accepted)
+  }
+
+  private func threadJourney(_ app: XCUIApplication) {
+    connectAlternateMailbox(app)
     // The connection's opaque ID, as native code derives it from the synthetic Gmail subject.
     let connection = SHA256.hash(
       data: Data("dev.unwired.mailbox-connection\nsynthetic-alternate-mailbox".utf8)
@@ -2311,6 +2346,7 @@ final class InboxTests: XCTestCase {
       case "registration-thread": threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
       case "registration-sync-status": try syncStatusJourney(app)
+      case "registration-invitation": invitationJourney(app)
       default:
         try registrationJourney(app)
       }
