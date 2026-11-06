@@ -1,3 +1,4 @@
+import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type {
   InvitationChoice,
   ResponseState,
@@ -6,7 +7,6 @@ import type { BodyDocument } from '@private-email/mail-core/message-body';
 
 import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   alsoInvited,
   createInvitationFormats,
@@ -813,7 +813,9 @@ describe('meeting invitations', () => {
             bytes: [
               ...Buffer.from(
                 calendar(
-                  meeting.map((line) => line.replace('SEQUENCE:2', 'SEQUENCE:3')),
+                  meeting.map((line) =>
+                    line.replace('SEQUENCE:2', 'SEQUENCE:3'),
+                  ),
                 ),
               ),
             ],
