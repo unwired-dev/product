@@ -734,12 +734,12 @@ export function invitationReply(
 
 // Where a response to one invitation stands on this device. `unknown` and `checking` keep the
 // sent message's boundary, which finds its Sent copy. `older` is a revision older than one this
-// device answered, which cannot respond.
+// device answered, and `removed` one whose mailbox left Unwired while sending; neither can respond.
 export type ResponseState =
   | Readonly<{ kind: 'unanswered' }>
   | Readonly<{ kind: 'older' }>
   | Readonly<{
-      kind: 'sending' | 'refused' | 'offline' | 'authentication';
+      kind: 'sending' | 'refused' | 'removed' | 'offline' | 'authentication';
       choice: InvitationChoice;
     }>
   | Readonly<{ kind: 'sent'; choice: InvitationChoice; at: number }>
@@ -781,6 +781,10 @@ const outcomeState = (
   if (outcome.problem === 'authorization') {
     return { kind: 'authentication', choice };
   }
+  // No other mailbox ever sends it in the removed one's place.
+  if (outcome.problem === 'mailbox') {
+    return { kind: 'removed', choice };
+  }
   return outcome.kind === 'queued' && outcome.problem === 'offline'
     ? { kind: 'offline', choice }
     : { kind: 'refused', choice };
@@ -795,6 +799,7 @@ const answerable = (
 ) =>
   current.kind !== 'sending' &&
   current.kind !== 'older' &&
+  current.kind !== 'removed' &&
   current.kind !== 'checking' &&
   (current.kind === 'unknown') === again &&
   !(current.kind === 'sent' && current.choice === choice);
@@ -1438,6 +1443,12 @@ const statuses: {
       choice: choiceOf(t, state),
       name,
     }),
+  }),
+  removed: (_, { t, address }) => ({
+    icon: 'exclamationmark.triangle.fill',
+    tone: 'statusDestructive',
+    title: t('invitation.refused'),
+    detail: t('invitation.removedDetail', { address }),
   }),
   unknown: (state, { t, provider }) => ({
     icon: 'exclamationmark.triangle.fill',

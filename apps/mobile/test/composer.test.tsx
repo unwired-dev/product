@@ -3807,6 +3807,127 @@ describe('composing Drafts', () => {
   });
 
   it.each([false, true])(
+    'says when an edit drops a rewrite and rewrites the current text again (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        const registration = account(connected(['alex@example.invalid']));
+        const storage = createSyntheticDrafts(
+          () => 'synthetic-product-account',
+        );
+        const { native, asked, cancelled } = scriptedDraftAssistance();
+        await render(
+          <AssistanceContext value={native}>
+            <App
+              drafts={createDrafts(storage.native, registration)}
+              registration={registration}
+            />
+          </AssistanceContext>,
+        );
+        await press('New Message');
+        await fireEvent.changeText(
+          screen.getByLabelText('Message body'),
+          'lets meet friday. thanks',
+        );
+        const body = () => screen.getByLabelText('Message body');
+        const dropped =
+          'Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.';
+
+        // An edit while the rewrite is made drops it, and the panel says so once.
+        await chooseWritingTool('Rewrite the message body');
+        await fireEvent.changeText(body(), 'lets meet saturday. thanks');
+        expect(cancelled).toStrictEqual([asked[0]?.request]);
+        expect(screen.getByText(dropped)).toBeOnTheScreen();
+        expect(screen.getByText('Rewrite · On device')).toBeOnTheScreen();
+        expect(
+          jest.mocked(AccessibilityInfo.announceForAccessibility),
+        ).toHaveBeenLastCalledWith(dropped);
+        asked[0]?.answer.resolve('Too late.');
+        await act(async () => {
+          await asked[0]?.answer.promise;
+        });
+        expect(screen.queryByText('Too late.')).toBeNull();
+
+        // Rewrite again starts over from the current text; a shown result is dropped the same way.
+        await press('Rewrite your current text again');
+        expect(screen.queryByText(dropped)).toBeNull();
+        expect(parseJson(asked[1]!.input)).toStrictEqual({
+          operation: 'rewrite',
+          authoredText: 'lets meet saturday. thanks',
+        });
+        asked[1]?.answer.resolve('Let us meet on Saturday.');
+        await screen.findByText('Let us meet on Saturday.');
+        await fireEvent.changeText(body(), 'lets meet sunday. thanks');
+        expect(screen.queryByText('Let us meet on Saturday.')).toBeNull();
+        expect(screen.getByText(dropped)).toBeOnTheScreen();
+        // With no text left to rewrite, Rewrite again is unavailable, as in the menu.
+        await fireEvent.changeText(body(), ' ');
+        expect(
+          screen.getByLabelText('Rewrite your current text again'),
+        ).toBeDisabled();
+        await fireEvent.changeText(body(), 'lets meet sunday. thanks');
+        await press('Close this notice');
+        expect(screen.queryByText(dropped)).toBeNull();
+        expect(body()).toHaveTextContent('lets meet sunday. thanks', {
+          exact: true,
+        });
+
+        // A failure has no result to drop, so an edit just closes it.
+        await chooseWritingTool('Rewrite the message body');
+        const failed =
+          'The suggestion could not be created. Your text is unchanged.';
+        await act(async () => {
+          asked[2]?.answer.reject(new Error('failed'));
+          await asked[2]?.answer.promise.catch(() => undefined);
+        });
+        await screen.findByText(failed);
+        await fireEvent.changeText(body(), 'lets meet monday. thanks');
+        expect(screen.queryByText(failed)).toBeNull();
+        expect(screen.queryByText(dropped)).toBeNull();
+
+        // Cancel and Retry change request ownership before React commits the next panel.
+        await chooseWritingTool('Rewrite the message body');
+        const cancel = queuedPress('Cancel writing help');
+        const edit = body().props.onChangeText;
+        await act(() => {
+          cancel();
+          edit('lets meet tuesday. thanks');
+        });
+        expect(screen.queryByText(dropped)).toBeNull();
+        await chooseWritingTool('Rewrite the message body');
+        await press('Cancel writing help');
+        const retry = queuedPress('Try writing help again');
+        await act(() => {
+          retry();
+          edit('lets meet wednesday. thanks');
+        });
+        expect(screen.getByText(dropped)).toBeOnTheScreen();
+        expect(body()).toHaveTextContent('lets meet wednesday. thanks', {
+          exact: true,
+        });
+        const oldRewrite = queuedPress('Rewrite your current text again');
+        const close = queuedPress('Close this notice');
+        await act(() => {
+          close();
+          oldRewrite();
+        });
+        expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+        await act(() => {
+          oldRewrite();
+        });
+        expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+      } finally {
+        platform.restore();
+      }
+    },
+  );
+
+  it.each([false, true])(
     'flags the details a rewrite changed and applies it only when chosen with its changes (isPad=%s)',
     async (isPad) => {
       expect.hasAssertions();
@@ -4433,6 +4554,20 @@ describe('composing Drafts', () => {
       expect(asked).toHaveLength(1);
       expect(writingTool('Rewrite the message body') !== undefined).toBe(
         offered,
+      );
+      // A later edit cannot drop the request already retired by the Profile move.
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body'),
+        'lets meet saturday. thanks',
+      );
+      expect(
+        screen.queryByText(
+          'Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.',
+        ),
+      ).toBeNull();
+      expect(screen.getByLabelText('Message body')).toHaveTextContent(
+        'lets meet saturday. thanks',
+        { exact: true },
       );
 
       // An unfinished prompt is also retired when its Draft moves, even with target consent.

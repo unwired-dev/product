@@ -139,7 +139,7 @@ import {
   ToolbarButton,
   useOutcomeAnnouncement,
 } from './design.tsx';
-import { DraftAssistance } from './draft-assistance.tsx';
+import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceProfileContext,
@@ -1642,6 +1642,7 @@ export function CapturedAssistance({
   translation,
   onApply,
   onClose,
+  onPending,
 }: {
   readonly captured: CapturedDraftText & {
     readonly target?: TranslationLanguage | undefined;
@@ -1650,6 +1651,7 @@ export function CapturedAssistance({
   readonly translation: NativeTranslation | undefined;
   readonly onApply: (text: string) => void;
   readonly onClose: () => void;
+  readonly onPending?: ((pending: boolean) => void) | undefined;
 }) {
   if (captured.purpose === 'translate') {
     return translation === undefined || captured.target === undefined ? null : (
@@ -1671,6 +1673,7 @@ export function CapturedAssistance({
       input={captured.input}
       onApply={onApply}
       onClose={onClose}
+      onPending={onPending}
     />
   );
 }
@@ -1859,10 +1862,15 @@ function Editor({
     }
   >();
   const captureNow = useRef<typeof captured>(undefined);
+  // The capture whose request is running or whose result waits to be used.
+  const pendingNow = useRef<number>(undefined);
+  // The text tool whose result a body edit dropped, until Rewrite again or Close.
+  const [dropped, setDropped] = useState<TextTool>();
   const assistanceEnabled = useMailAssistanceLifetime(
     useCallback(() => {
       captureNow.current = undefined;
       setCaptured(undefined);
+      setDropped(undefined);
     }, []),
   );
   const captureGeneration = useRef(0);
@@ -1934,6 +1942,13 @@ function Editor({
     ) {
       captureNow.current = undefined;
       setCaptured(undefined);
+      if (
+        capture !== undefined &&
+        isTextTool(capture.purpose) &&
+        pendingNow.current === capture.id
+      ) {
+        setDropped(capture.purpose);
+      }
     }
     authored.current = bound;
     if (!discarded.current) {
@@ -2181,6 +2196,13 @@ function Editor({
     };
     captureNow.current = next;
     setCaptured(next);
+    setDropped(undefined);
+  };
+  const rewrite = (tool: TextTool) => {
+    const at = selectionNow.current;
+    if (canRewrite(authored.current.body, at)) {
+      capture(captureDraftText(tool, authored.current, at));
+    }
   };
   const block = (kind: BlockKind) => {
     if (pausedNow.current) {
@@ -2423,6 +2445,7 @@ function Editor({
     setPaused(true);
     captureNow.current = undefined;
     setCaptured(undefined);
+    setDropped(undefined);
     // Later edits wait: the version shown at Send is the one sent.
     discarded.current = true;
     lifetime.current.finishing += 1;
@@ -2684,14 +2707,18 @@ function Editor({
           disabled={paused}
           onCapture={(purpose, target) => {
             const at = selectionNow.current;
-            const { body } = authored.current;
-            const available = isTextTool(purpose)
-              ? canRewrite(body, at)
-              : purpose === 'reply' ||
-                hasTranslatableText(
-                  selectedText(body, at, translationInputLimit + 1),
-                );
-            if (available) {
+            if (isTextTool(purpose)) {
+              rewrite(purpose);
+            } else if (
+              purpose === 'reply' ||
+              hasTranslatableText(
+                selectedText(
+                  authored.current.body,
+                  at,
+                  translationInputLimit + 1,
+                ),
+              )
+            ) {
               capture(captureDraftText(purpose, authored.current, at), target);
             }
           }}
@@ -2746,6 +2773,23 @@ function Editor({
                 applyCaptured(replacement);
               }}
               onClose={closeCaptured}
+              onPending={(pending) => {
+                pendingNow.current = pending ? captured.id : undefined;
+              }}
+            />
+          </View>
+        )}
+        {dropped === undefined ? null : (
+          <View style={styles.review}>
+            <DroppedAssistance
+              purpose={dropped}
+              rewritable={canRewrite(draft.body, selection)}
+              onRewrite={() => {
+                rewrite(dropped);
+              }}
+              onClose={() => {
+                setDropped(undefined);
+              }}
             />
           </View>
         )}
