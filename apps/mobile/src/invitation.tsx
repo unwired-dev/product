@@ -44,6 +44,7 @@ import {
 } from '@private-email/mail-core/invitations';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
+  createContext,
   use,
   useEffect,
   useMemo,
@@ -66,6 +67,12 @@ import { useLocalization } from './localization.ts';
 import { useMailboxes, useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
+
+// Opens another message of the reader's mailbox in its place, such as an invitation's newer
+// version; a reader without it opens none.
+export const OpenMessageContext = createContext<
+  ((id: string) => void) | undefined
+>(undefined);
 
 // The iPhone and iPad card follows the Mac one in touch sizes: 14pt inset, Subheadline text, 18pt
 // corners on iPhone and the 10pt card corners iPad shares with Mac.
@@ -108,6 +115,7 @@ type InvitationInbox = Pick<
   GmailInbox,
   | 'send'
   | 'findSent'
+  | 'findMessage'
   | 'getSnapshot'
   | 'subscribe'
   | 'responseSource'
@@ -442,6 +450,17 @@ function Responding({
   const recorded = useSyncExternalStore(responses.subscribe, () =>
     responses.state(invitation),
   );
+  const latest = useSyncExternalStore(responses.subscribe, () =>
+    responses.latest(invitation),
+  );
+  const older = recorded.kind === 'older';
+  // An archived newer revision is asked of Gmail, so Show Latest can open it.
+  useEffect(() => {
+    if (older && latest === undefined) {
+      void responses.findLatest(invitation);
+    }
+  }, [responses, invitation, older, latest]);
+  const open = use(OpenMessageContext);
   const sync = useSyncExternalStore(inbox.subscribe, () => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready' ? state.sync : undefined;
@@ -515,8 +534,23 @@ function Responding({
     }
   };
   // An older revision cannot respond, so it only points to the newer one.
-  if (recorded.kind === 'older') {
-    return <Status {...shown} />;
+  if (older) {
+    return (
+      <Status {...shown}>
+        {latest === undefined || open === undefined ? undefined : (
+          <Actions>
+            <Action
+              label={t('invitation.showLatest')}
+              onPress={() => {
+                if (current()) {
+                  open(latest);
+                }
+              }}
+            />
+          </Actions>
+        )}
+      </Status>
+    );
   }
   if (blocked === 'authentication' || recorded.kind === 'authentication') {
     return (

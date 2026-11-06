@@ -1,3 +1,4 @@
+import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type {
   InvitationChoice,
   ResponseState,
@@ -117,20 +118,25 @@ async function invited(
   const inbox = createGmailInbox(native(gmail.native));
   await inbox.load();
   const close = inbox.retainMessage(id);
+  return {
+    gmail,
+    id,
+    inbox,
+    close,
+    invitation: await invitationIn(inbox, id),
+    responses: invitationResponses(inbox, () => Date.UTC(2026, 10, 2, 9, 52)),
+  };
+}
+
+// The invitation a retained message offers the mailbox.
+async function invitationIn(inbox: GmailInbox, id: string) {
   await inbox.readMessage(id);
   const document = inbox.responseSource(id);
   const offer = document === undefined ? undefined : invitationOf(document, me);
   if (offer?.kind !== 'invited') {
     throw new Error('Expected an invitation for the mailbox');
   }
-  return {
-    gmail,
-    id,
-    inbox,
-    close,
-    invitation: offer,
-    responses: invitationResponses(inbox, () => Date.UTC(2026, 10, 2, 9, 52)),
-  };
+  return offer;
 }
 
 // The same mailbox's responses after the app relaunches and opens the invitation again.
@@ -790,6 +796,127 @@ describe('meeting invitations', () => {
     });
 
     later.close();
+  });
+
+  it('opens the newest answered revision’s message from an older one while the mailbox has it', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox, invitation, responses, close } = await invited();
+    const newer = gmail.deliver({
+      from: 'Lena Fischer <lena@northwind.example>',
+      subject: 'Updated invitation: Q4 roadmap review',
+      content: {
+        text: 'Moved.',
+        attachments: [
+          {
+            filename: 'invite.ics',
+            mimeType: 'text/calendar',
+            bytes: [
+              ...Buffer.from(
+                calendar(
+                  meeting.map((line) =>
+                    line.replace('SEQUENCE:2', 'SEQUENCE:3'),
+                  ),
+                ),
+              ),
+            ],
+          },
+        ],
+      },
+    });
+    await inbox.load();
+    const release = inbox.retainMessage(newer);
+    const revised = await invitationIn(inbox, newer);
+    release();
+
+    expect(revised).toMatchObject({ sequence: 3, message: newer });
+
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(revised, 'declined', copy);
+
+    expect(responses.latest(invitation)).toBe(newer);
+    expect(responses.latest(revised)).toBeUndefined();
+
+    close();
+    const later = await relaunched(gmail, id);
+
+    expect(later.responses.latest(invitation)).toBe(newer);
+
+    later.close();
+    // An archived message is still in the mailbox, so Gmail is asked for it.
+    gmail.archive(newer);
+    await inbox.load();
+
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    await responses.findLatest(invitation);
+
+    expect(responses.latest(invitation)).toBe(newer);
+
+    // The answered message left the mailbox, so nothing opens it.
+    gmail.remove(newer);
+    await inbox.load();
+
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    await responses.findLatest(invitation);
+
+    expect(responses.latest(invitation)).toBeUndefined();
+  });
+
+  it('does not hold a message Gmail deleted while it was being looked up', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Updated invitation' });
+    gmail.archive(id);
+    const lookup = Promise.withResolvers<undefined>();
+    const answered = Promise.withResolvers<undefined>();
+    const native: NativeGmail = {
+      ...gmail.native,
+      gmailRequest: async (path, query, request) => {
+        const reply = gmail.native.gmailRequest(path, query, request);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the lookup's answer is held.
+        if (path === `messages/${id}`) {
+          answered.resolve(undefined);
+          await lookup.promise;
+        }
+        return reply;
+      },
+    };
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    const found = inbox.findMessage(id);
+    await answered.promise;
+    gmail.remove(id);
+    const synchronized = inbox.load();
+    lookup.resolve(undefined);
+    await Promise.all([found, synchronized]);
+
+    expect(inbox.getSnapshot()).toMatchObject({ kind: 'ready' });
+    expect(inbox.getSnapshot()).not.toHaveProperty('found');
+  });
+
+  it('opens nothing from a record saved without its message', async () => {
+    expect.hasAssertions();
+    const { inbox, invitation, responses, close } = await invited();
+    const { uid, sequence } = invitation;
+    await inbox.recordResponse(
+      { uid, sequence: sequence + 1 },
+      {
+        kind: 'sent',
+        uid,
+        sequence: sequence + 1,
+        choice: 'accepted',
+        at: 1,
+        start: invitation.details.start,
+      },
+    );
+
+    expect(responses.state(invitation)).toStrictEqual({ kind: 'older' });
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    close();
   });
 
   it('treats a revision as older when a newer response’s delivery is unknown', async () => {
