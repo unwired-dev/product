@@ -1217,7 +1217,7 @@ final class InboxTests: XCTestCase {
   }
 
   private func enter(_ value: String, into field: XCUIElement, in app: XCUIApplication) {
-    field.tap()
+    focus(field) { self.hasFocus(field) }
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     type(value, into: field)
     field.typeText("\n")
@@ -1225,17 +1225,19 @@ final class InboxTests: XCTestCase {
 
   // Types one character at a time, confirming each reached the field before the next: the software
   // keyboard drops characters typed in a burst while the field re-renders or, on CI's Xcode 27.0,
-  // just after the keyboard first appears (#970).
+  // just after the keyboard first appears (#970). A character still missing after 5 seconds is
+  // typed once more (#1510).
   private func type(_ value: String, into field: XCUIElement) {
     var confirmation = ""
     for character in value {
-      field.typeText(String(character))
       confirmation += String(character)
       let entered = NSPredicate(format: "value == %@", confirmation)
-      XCTAssertEqual(
-        XCTWaiter.wait(
-          for: [XCTNSPredicateExpectation(predicate: entered, object: field)], timeout: 5),
-        .completed)
+      for _ in 0..<2 where field.value as? String != confirmation {
+        field.typeText(String(character))
+        _ = XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: field)], timeout: 5)
+      }
+      XCTAssertEqual(field.value as? String, confirmation)
     }
   }
 
@@ -1975,14 +1977,14 @@ final class InboxTests: XCTestCase {
     openPalette(app, header: inbox)
     waitForFocus(query)
     try audit(app, "Command Palette")
-    press("Account\n", in: app)
+    submit("Account", into: query, in: app)
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     let settings = app.buttons[settingsExit]
     XCTAssertTrue(settings.waitForExistence(timeout: 10))
     try audit(app, "Settings")
     openPalette(app, header: app.staticTexts["Settings"].firstMatch)
     waitForFocus(query)
-    press("Inbox\n", in: app)
+    submit("Inbox", into: query, in: app)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
     // Portrait iPad shows the empty reader with the list behind Show Sidebar; Search Mail brings it
     // forward.
@@ -1992,7 +1994,7 @@ final class InboxTests: XCTestCase {
     // the query and puts the keyboard away.
     openPalette(app, header: inbox)
     waitForFocus(query)
-    press("Search Mail\n", in: app)
+    submit("Search Mail", into: query, in: app)
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     let search = app.searchFields.firstMatch
     waitForFocus(search)
@@ -2015,7 +2017,7 @@ final class InboxTests: XCTestCase {
     // moves on to the recipients, and the body takes typing once touched.
     openPalette(app, header: app.staticTexts["Outlook update 003"].firstMatch)
     waitForFocus(query)
-    press("Reply\n", in: app)
+    submit("Reply", into: query, in: app)
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     let subject = app.textFields["Subject"]
     XCTAssertTrue(subject.waitForExistence(timeout: 15))
@@ -2031,17 +2033,18 @@ final class InboxTests: XCTestCase {
       app.buttons["Collapse"].tap()
       XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
     }
-    subject.tap()
-    waitForFocus(subject)
+    focus(subject) { self.hasFocus(subject) }
     app.typeKey(.rightArrow, modifierFlags: .command)
     press(" by keyboard", in: app)
     waitUntil { subject.value as? String == "Re: Outlook update 003 by keyboard" }
     press("\t", in: app)
-    waitForFocus(app.textFields["To"])
-    // XCUITest never reports the multiline body as focused, so typing goes to the app.
+    let to = app.textFields["To"]
+    waitForFocus(to)
+    // XCUITest never reports the multiline body as focused, so typing goes to the app once To has
+    // given up focus.
     let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
       .firstMatch
-    body.tap()
+    focus(body) { !self.hasFocus(to) }
     press("Keyboard reply", in: app)
     waitUntil { body.value as? String == "Keyboard reply" }
     try linkEditorJourney(app, body: body, pad: pad)
@@ -2109,7 +2112,7 @@ final class InboxTests: XCTestCase {
     }
     try audit(app, "Link Editor")
 
-    press("not a link\n", in: app)
+    submit("not a link", into: destination, in: app)
     XCTAssertTrue(
       self.text("Enter a valid web, email or phone link.", in: app).waitForExistence(timeout: 10))
     XCTAssertFalse(apply.isEnabled)
@@ -2126,7 +2129,7 @@ final class InboxTests: XCTestCase {
     waitForFocus(destination)
     XCTAssertEqual(text.value as? String, "reply")
     XCTAssertEqual(destination.value as? String, initialDestination)
-    press("https://example.com\n", in: app)
+    submit("https://example.com", into: destination, in: app)
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
     let edit = formatControl("Edit Link", in: app)
@@ -2175,6 +2178,30 @@ final class InboxTests: XCTestCase {
   // Types with hardware key presses, one key per character; "\n" is Return and "\t" Tab.
   private func press(_ keys: String, in app: XCUIApplication) {
     for key in keys { app.typeKey(String(key), modifierFlags: []) }
+  }
+
+  // Presses Return only once `field` shows `text`, so Return never runs before a loaded host has
+  // delivered the keys before it (#1510).
+  private func submit(_ text: String, into field: XCUIElement, in app: XCUIApplication) {
+    press(text, in: app)
+    waitUntil { field.value as? String == text }
+    press("\n", in: app)
+  }
+
+  private func hasFocus(_ element: XCUIElement) -> Bool {
+    element.value(forKey: "hasKeyboardFocus") as? Bool == true
+  }
+
+  // Taps `element` until `taken` holds: on a loaded host a tap can land while the screen is still
+  // settling and leave focus where it was (#1510).
+  private func focus(_ element: XCUIElement, until taken: @escaping () -> Bool) {
+    for _ in 0..<3 where !taken() {
+      element.tap()
+      _ = XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in taken() }, object: nil)],
+        timeout: 5)
+    }
+    XCTAssertTrue(taken(), "\(element) never took keyboard focus")
   }
 
   private func waitForFocus(

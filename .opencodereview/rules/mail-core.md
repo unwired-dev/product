@@ -813,6 +813,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `invitations.ts.latest` treating absence from the reader's retained metadata as
+  proof that Gmail no longer has the recorded response's message. Resolve an
+  archived target through the mailbox-scoped provider lookup before offering
+  navigation, and admit its result without undoing a deletion synchronization
+  already observed. An owner check alone cannot fence a same-mailbox deletion.
+  Exercise archive, lookup, deletion and a held lookup overlapping synchronization
+  through the public stores; otherwise Show Latest disappears for existing mail
+  or returns for deleted mail. Keep legacy records without a message readable
+  without substituting a different revision's message.
+
 - `invitations.ts.invitationReply` or another outgoing calendar writer copying a
   time-zone reference without its definition. Inspect the decoded outgoing
   calendar, including `RECURRENCE-ID` when `DTSTART` moves: every emitted `TZID`

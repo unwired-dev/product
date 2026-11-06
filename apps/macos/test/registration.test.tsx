@@ -76,6 +76,7 @@ import {
   closeSettings,
   commandComma,
   folderChoice,
+  folderChoiceParent,
   folderChoiceSheet,
   inboxFocused,
   reopenSettingsWhileClosing,
@@ -95,11 +96,19 @@ function ConfirmationCommitProbe({
   return null;
 }
 
+// A connected Inbox's account page lists none of this list's IMAP folders.
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
-jest.mock('../src/private-storage.ts', () => ({
-  __esModule: true,
-  mailboxes: undefined,
-}));
+jest.mock('../src/private-storage.ts', () => {
+  const none: readonly never[] = [];
+  return {
+    __esModule: true,
+    mailboxes: {
+      getSnapshot: () => none,
+      subscribe: () => () => undefined,
+      load: async () => undefined,
+    },
+  };
+});
 
 // The Enrollment Code a Pending Device shows.
 const enrollmentCodeOf = (store: Registration) => {
@@ -915,6 +924,139 @@ describe('product registration', () => {
       chosen: { junk: 'Deleted Messages', trash: 'Bulk Mail' },
       spam: null,
     });
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  it('chooses and changes Spam and Trash folders for an IMAP connection in a sheet from Settings › Email Accounts, asking again for a removed folder', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves the needed row, the sheet on Settings, the chosen row and a removed folder. */
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Kept IMAP message' });
+    imap.addFolder('Bulk Mail');
+    imap.addFolder('Deleted Messages');
+    const account = await signedIn();
+    const connection = await connectImap(account, {
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      username: 'alex',
+    });
+    const store = createRegistration(account.synthetic.vault);
+    const connections = createMailboxes(
+      syntheticConnections({}, { [connection]: imap.native }),
+      store,
+    );
+    const mailboxes = {
+      ...connections,
+      getSnapshot: connections.getConnections,
+    };
+    await render(
+      <MacWindows
+        store={store}
+        mailboxes={mailboxes}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Shell
+              onSelect={() => undefined}
+              selected={undefined}
+            />
+          </InboxProvider>
+        </RegistrationGate>
+      </MacWindows>,
+    );
+    await openAccount();
+    await settings('Email Accounts');
+    await expect(
+      settingsWindow().findByRole('header', { name: 'Spam and Trash Folders' }),
+    ).resolves.toBeVisible();
+    const button = (label: string) =>
+      settingsWindow().getByRole('button', {
+        name: `${label} alex@example.invalid`,
+      });
+    expect(
+      settingsWindow().getByText('Spam and Trash not chosen · not in All Mail'),
+    ).toBeVisible();
+    expect(
+      settingsWindow().getByText(
+        'Its server doesn’t mark which folders hold Spam and Trash. Until you choose both, this connection isn’t included in All Mail.',
+      ),
+    ).toBeVisible();
+    expect(button('Choose Folders…')).toBeVisible();
+    const choose = async (role: string, folder: string) => {
+      await act(async () => {
+        await fireEvent.press(
+          folderChoiceSheet().getByRole('button', { name: role }),
+        );
+      });
+      await chooseMenuItem(folder);
+    };
+    // The sheet opens on the Settings window.
+    await act(async () => {
+      await fireEvent.press(button('Choose Folders…'));
+    });
+    expect(folderChoiceParent()).toBe('settings-window');
+    await choose('Spam', 'Bulk Mail');
+    await choose('Trash', 'Deleted Messages');
+    await act(async () => {
+      await fireEvent.press(
+        folderChoiceSheet().getByRole('button', { name: 'Save' }),
+      );
+    });
+    await waitFor(() => {
+      expect(folderChoice()).toBeNull();
+    });
+    // Saved, the row names the chosen folders and offers to change them.
+    await waitFor(() => {
+      expect(button('Change…')).toBeVisible();
+    });
+    expect(
+      settingsWindow().getByText(
+        'Spam: Bulk Mail · Trash: Deleted Messages · chosen by you',
+      ),
+    ).toBeVisible();
+    expect(
+      settingsWindow().getByText(
+        'Its server doesn’t mark these folders, so you chose them. All Mail leaves out messages in Spam and Trash.',
+      ),
+    ).toBeVisible();
+    expect(mailboxesOf(store.getSnapshot().snapshot)[0]?.folders).toStrictEqual(
+      { junk: 'Bulk Mail', trash: 'Deleted Messages' },
+    );
+    // Change… reopens the sheet with the saved folders, ready to save again.
+    await act(async () => {
+      await fireEvent.press(button('Change…'));
+    });
+    expect(
+      folderChoiceSheet()
+        .getAllByRole('button', { name: /^(?:Spam|Trash)$/u })
+        .map((choice): unknown => choice.props.accessibilityValue?.text),
+    ).toStrictEqual(['Bulk Mail', 'Deleted Messages']);
+    expect(
+      folderChoiceSheet().getByRole('button', { name: 'Save' }),
+    ).toBeEnabled();
+    await act(async () => {
+      await fireEvent.press(
+        folderChoiceSheet().getByRole('button', { name: 'Cancel' }),
+      );
+    });
+    expect(folderChoice()).toBeNull();
+    // A chosen folder removed at the server leaves the connection out of All Mail again.
+    imap.removeFolder('Bulk Mail');
+    await act(connections.load);
+    expect(
+      settingsWindow().getByText('Spam not chosen · not in All Mail'),
+    ).toBeVisible();
+    expect(button('Choose Folders…')).toBeVisible();
+    // Once its server marks both, the group leaves Settings.
+    imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Trash', ['trash']);
+    await act(connections.load);
+    expect(
+      settingsWindow().queryByRole('header', {
+        name: 'Spam and Trash Folders',
+      }),
+    ).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 

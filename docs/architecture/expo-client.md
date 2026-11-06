@@ -67,6 +67,25 @@ still owns presentation, dismissal and gestures; the patch preserves both
 dismissal callbacks. It also applies to the reply sheet. Remove the patch when a
 supported upstream version retains content through the complete dismissal.
 
+## Inbox keyboard tracking
+
+On React Native 0.88.1 and Reanimated 4.7.1, `KeyboardLift` in
+`apps/mobile/src/inbox-bar.tsx` replaces keyboard-controller 1.22.7's
+`KeyboardStickyView` for the Inbox bar and notices (#1508). It uses the same
+keyboard height and progress, but updates layout `top` and `bottom` instead of a
+transform. With synchronous UI props enabled, the transform can leave
+Pressability's measured region behind the drawn control and cancel a moving
+press. The absolute-fill wrapper preserves its height and `box-none` hit testing.
+Plain React Native controls retain one accessibility element each.
+
+`KeyboardAvoidingView`'s position behavior can add a vertical offset, but its
+disabled branch does not clear an applied `bottom`, and its inner container needs
+separate hit-testing configuration. Retain the small layout wrapper until a
+supported provided component preserves these contracts, or the supported renderer
+keeps Pressability's measurements aligned with synchronous transforms. The iPhone
+simulator probe does not qualify compact-iPad keyboard motion or physical-device
+performance; follow the [native validation guide](../agents/native-validation.md).
+
 ## Composer keyboard tracking
 
 Both mobile composers use `react-native-keyboard-controller@1.22.7`'s

@@ -42,6 +42,7 @@ import {
   SettingsRow,
   SettingsRowButton,
 } from './settings.tsx';
+import { SpamTrashFolders } from './spam-trash-settings.tsx';
 import { usePalette } from './theme.ts';
 import { TrustedDevices } from './trusted-devices.tsx';
 
@@ -717,12 +718,18 @@ export function AccountSettings({
   return (
     <>
       {shows('mailboxes') ? (
-        <Mailboxes
-          mailboxes={mailboxes}
-          button={button}
-          microsoft={microsoft}
-          store={store}
-        />
+        <>
+          <Mailboxes
+            mailboxes={mailboxes}
+            button={button}
+            microsoft={microsoft}
+            store={store}
+          />
+          <SpamTrashFolders
+            mailboxes={mailboxes}
+            button={button}
+          />
+        </>
       ) : null}
       {destination === 'profiles' ? (
         <MailProfilesSettings
