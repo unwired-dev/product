@@ -74,6 +74,7 @@ export type { UnifiedRole } from './mailbox-views.ts';
 export {
   ambiguousFolders,
   folderChoice,
+  folderSummary,
   startingPicks,
 } from './folder-choice.ts';
 export type { FolderRole } from './folder-choice.ts';
