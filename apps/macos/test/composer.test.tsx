@@ -4091,6 +4091,20 @@ describe('composing Drafts', () => {
       });
       expect(asked).toHaveLength(1);
       expect((await writingToolsItem('Rewrite')) !== undefined).toBe(offered);
+      // A later edit cannot drop the request already retired by the Profile move.
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body'),
+        'lets meet saturday. thanks',
+      );
+      expect(
+        screen.queryByText(
+          'Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.',
+        ),
+      ).toBeNull();
+      expect(screen.getByLabelText('Message body')).toHaveTextContent(
+        'lets meet saturday. thanks',
+        { exact: true },
+      );
     },
   );
   /* oxlint-enable vitest/max-expects */
