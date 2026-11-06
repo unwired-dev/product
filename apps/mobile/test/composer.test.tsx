@@ -5557,7 +5557,18 @@ describe('replying to and forwarding from the reader', () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const drafts = createDrafts(storage.native, registration);
+    // Drafts open only when the test opens them, after the body.
+    const opened = Promise.withResolvers<undefined>();
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        openDrafts: async () => {
+          await opened.promise;
+          return storage.native.openDrafts();
+        },
+      },
+      registration,
+    );
     const gmail = createSyntheticGmail({ messages: 0 });
     const message = gmail.deliver({
       subject: 'Slow plans',
@@ -5584,7 +5595,14 @@ describe('replying to and forwarding from the reader', () => {
       answered.resolve(undefined);
     });
     await screen.findByText('Meet on Saturday?');
-    expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    await act(() => {
+      opened.resolve(undefined);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled();
+    });
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
   });
 
