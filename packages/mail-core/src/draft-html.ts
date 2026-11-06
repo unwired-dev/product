@@ -42,6 +42,8 @@ type Context = Readonly<{
   kind: BlockKind;
   list?: 'bulleted' | 'numbered';
   align?: Block['align'];
+  // Set by an explicit `left`, which differs from the initial `start` only for header cells.
+  left?: boolean;
   linkColor?: string;
   format: Format;
   // Inside a table, where text belongs in cells; inside a cell, the columns and rows it spans.
@@ -56,6 +58,7 @@ const tableStarts = (context: Context) =>
   context.list === undefined &&
   context.table === undefined &&
   context.align === undefined &&
+  context.left !== true &&
   context.format.marks.length === 0 &&
   context.format.link === undefined &&
   context.format.background === undefined &&
@@ -143,13 +146,13 @@ const structureTags: ReadonlyMap<
   ['thead', tableParts((context) => context)],
   ['tr', tableParts((context) => context)],
   ['td', tableParts((context) => ({ ...context, cell: {} }))],
-  // A header cell is bold, and centered unless its row sets an alignment.
+  // A header cell is bold, and centered unless its row sets an alignment, including left.
   [
     'th',
     tableParts((context) => ({
       ...context,
       format: withMark(context.format, 'bold'),
-      align: context.align ?? 'center',
+      align: context.align ?? (context.left === true ? undefined : 'center'),
       cell: {},
     })),
   ],
@@ -287,7 +290,7 @@ const fontRule: Rule = (context, value) => {
 const alignRule: Rule = (context, value) => {
   const lower = value.toLowerCase();
   return alignments.has(lower)
-    ? { ...context, align: alignments.get(lower) }
+    ? { ...context, align: alignments.get(lower), left: lower === 'left' }
     : undefined;
 };
 const decorations: ReadonlyMap<string, Mark> = new Map([
@@ -594,7 +597,14 @@ const inheritedRules: ReadonlyMap<
         ? undefined
         : formatted(context, { size: parent.format.size }),
   ],
-  ['text-align', (context, parent) => ({ ...context, align: parent.align })],
+  [
+    'text-align',
+    (context, parent) => ({
+      ...context,
+      align: parent.align,
+      left: parent.left === true,
+    }),
+  ],
   [
     'font-weight',
     (context, parent) =>

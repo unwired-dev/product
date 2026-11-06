@@ -1087,6 +1087,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
       documentFromHtml(
         '<table cellspacing="0" cellpadding="4" border="0" width="100%" style="border-collapse:collapse;border-spacing:0;width:100%">' +
           '<thead><tr><th>Date</th><th style="text-align:left">Place</th></tr></thead>' +
+          '<tbody style="text-align:left"><tr><th>Left</th></tr></tbody>' +
           '<tbody><tr align="right"><th>Total</th><td style="width:50%;height:20px;padding:2px;border:0"></td></tr></tbody></table>',
       ),
     ).toStrictEqual({
@@ -1109,6 +1110,16 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
                   {
                     kind: 'paragraph',
                     spans: [{ text: 'Place', marks: ['bold'] }],
+                  },
+                ],
+              },
+            ],
+            [
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Left', marks: ['bold'] }],
                   },
                 ],
               },
@@ -1224,6 +1235,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
         '<table></table>',
         '<table><tr></tr></table>',
         '<table><tr><td rowspan="0">x</td></tr></table>',
+        '<table><tr><td rowspan="1001">x</td></tr></table>',
       ].map(documentFromHtml),
     ).toStrictEqual(
       [
@@ -1240,6 +1252,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
         'background',
         'table',
         'tr',
+        'rowspan',
         'rowspan',
       ].map((name) => ({ unsupported: [name] })),
     );

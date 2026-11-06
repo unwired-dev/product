@@ -125,7 +125,11 @@ export type SemanticDocument = typeof SemanticDocumentSchema.Type;
 
 // A table between body blocks: rows of cells, each cell holding its own text blocks and
 // optionally spanning several columns or rows.
-const CellSpanSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(2));
+// Up to the 1000 columns browsers allow, and as many rows.
+const CellSpanSchema = Schema.Int.check(
+  Schema.isGreaterThanOrEqualTo(2),
+  Schema.isLessThanOrEqualTo(1000),
+);
 export const TableSchema = Schema.Struct({
   kind: Schema.Literal('table'),
   rows: Schema.NonEmptyArray(
