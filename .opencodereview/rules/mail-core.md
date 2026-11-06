@@ -330,6 +330,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Untrusted boundaries fail closed
 
+- `invitations.ts.invitationOf` returning an unanswerable state before validating
+  the calendar method's required properties. Check ambiguous weekly updates for
+  both REQUEST and CANCEL, including invalid or repeated cancellation STATUS
+  lines. Preserve unreadable classification for damaged inputs before selecting
+  the readable terminal state; otherwise an early ambiguity branch bypasses the
+  existing cancellation contract and presents damaged calendar details as readable.
+
 - `invitations.ts.seriesOf` materializing every recurrence of an UNTIL-bounded
   series on the synchronous reader path. A COUNT limit does not bound an UNTIL
   expansion. Exercise a tiny calendar with a distant supported UNTIL and trace

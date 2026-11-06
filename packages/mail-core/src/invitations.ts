@@ -598,6 +598,15 @@ export function invitationOf(
   }
   const { method, event } = calendar;
   const { uid, sequence, details, organizerLine, summary } = meeting;
+  // A cancellation's STATUS can only be CANCELLED, even when its meeting is ambiguous.
+  const statuses = event.filter((line) => line.name === 'STATUS');
+  if (
+    method === 'CANCEL' &&
+    (statuses.length > 1 ||
+      statuses.some((line) => line.value.trim().toUpperCase() !== 'CANCELLED'))
+  ) {
+    return unreadable;
+  }
   // A RECURRENCE-ID beside a rule names one meeting yet carries the whole series, so neither a
   // response nor a change can be matched to a meeting.
   if (
@@ -606,13 +615,9 @@ export function invitationOf(
   ) {
     return { kind: 'ambiguous', details };
   }
-  // A cancellation needs no attendee: there is nothing to answer. Its STATUS can only be CANCELLED.
+  // A cancellation needs no attendee: there is nothing to answer.
   if (method === 'CANCEL') {
-    const statuses = event.filter((line) => line.name === 'STATUS');
-    return statuses.length <= 1 &&
-      statuses.every((line) => line.value.trim().toUpperCase() === 'CANCELLED')
-      ? { kind: 'cancelled', details }
-      : unreadable;
+    return { kind: 'cancelled', details };
   }
   const attendees = event.filter((line) => line.name === 'ATTENDEE');
   const attendee = attendees.find(

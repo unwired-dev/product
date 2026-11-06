@@ -537,6 +537,31 @@ describe('meeting invitations', () => {
       'a cancellation with two statuses',
       calendar([...meeting, 'STATUS:CANCELLED', 'STATUS:CANCELLED'], 'CANCEL'),
     ],
+    [
+      'an ambiguous cancellation whose status is not cancelled',
+      calendar(
+        [
+          ...series,
+          'RRULE:FREQ=WEEKLY;COUNT=4',
+          occurrence,
+          'STATUS:CONFIRMED',
+        ],
+        'CANCEL',
+      ),
+    ],
+    [
+      'an ambiguous cancellation with two statuses',
+      calendar(
+        [
+          ...series,
+          'RRULE:FREQ=WEEKLY;COUNT=4',
+          occurrence,
+          'STATUS:CANCELLED',
+          'STATUS:CANCELLED',
+        ],
+        'CANCEL',
+      ),
+    ],
     ['an unsupported method', calendar(meeting, 'PUBLISH')],
     [
       'a floating time',
