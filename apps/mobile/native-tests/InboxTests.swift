@@ -1409,14 +1409,11 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
     // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
-    // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
-    let account = app.buttons["Account"]
-    if !account.waitForExistence(timeout: 5) || !account.isHittable {
-      if UIDevice.current.userInterfaceIdiom == .phone {
-        app.buttons["Back to Mailboxes"].tap()
-      } else {
-        app.navigationBars.buttons.firstMatch.tap()
-      }
+    // iPad's sidebar opens Settings; iPhone's account page is one Back away, in the Mailboxes column.
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let account = app.buttons[phone ? "Account" : "Settings"]
+    if phone && (!account.waitForExistence(timeout: 5) || !account.isHittable) {
+      app.buttons["Back to Mailboxes"].tap()
     }
     XCTAssertTrue(account.waitForExistence(timeout: 10))
     account.tap()
