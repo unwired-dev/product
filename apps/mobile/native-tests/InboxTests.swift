@@ -2273,15 +2273,17 @@ final class InboxTests: XCTestCase {
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
-    // Undiagnosed: the same unlocated text while iPad's system Filters or Link Editor popover is
-    // open, and while the Sync Status details' sheet or popover is open, whose elements are all
-    // labelled.
+    // An open iPad popover hides the window behind it from accessibility, as a modal should, and
+    // the audit reports the text it can still see there, such as the Mailboxes sidebar's rows, as
+    // text it locates no element for. A plain UIKit split view behind a SwiftUI popover does the
+    // same (#1403).
     case .elementDetection
-    where (["Filters", "Link Editor"].contains(screen) && UIDevice.current.userInterfaceIdiom == .pad
-      || screen.hasPrefix("Sync Status Details "))
+    where UIDevice.current.userInterfaceIdiom == .pad
+      && ["Filters", "Link Editor", "Sync Status Details Progress", "Sync Status Details Attention"]
+        .contains(screen)
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
-      return "#1403"
+      return "system popover"
     default:
       return nil
     }
