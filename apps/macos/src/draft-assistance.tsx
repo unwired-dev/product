@@ -406,14 +406,16 @@ export function DraftAssistance({
   useLayoutEffect(() => {
     // Native Cancel, Retry and body edits can arrive before React commits another state.
     const report = () => {
-      const current = input === undefined ? idle : store.getSnapshot(input);
-      onPending?.(
-        input !== undefined && (!finished(current) || current.kind === 'ready'),
-      );
+      // Discarding publishes idle, which is not pending.
+      const { kind } = input === undefined ? idle : store.getSnapshot(input);
+      onPending?.(kind === 'generating' || kind === 'ready');
     };
     const unsubscribe = store.subscribe(report);
     report();
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      onPending?.(false);
+    };
   }, [input, onPending, store]);
   const check =
     state.kind === 'ready' && isTextTool(purpose)
