@@ -49,6 +49,10 @@ new version and retain any that upstream has not incorporated.
 - Include Android icons in cross-platform NativeTabs examples and explicit
   dimensions on remote images in zoom examples.
 
+- Replace the tsconfig path-alias advice and `@/` example import with the
+  repository's relative imports, and add previews and context menus only where
+  the design or issue asks, rather than "frequently".
+
 - Preserve special route filenames and distinguish screen default exports from
   [special-file contracts such as `+native-intent`](https://docs.expo.dev/router/advanced/native-intent/).
 - Use the named `Stack` export and import `SymbolView` in its example.
@@ -61,4 +65,5 @@ new version and retain any that upstream has not incorporated.
   [modal destination requirement for zoom previews](https://docs.expo.dev/router/advanced/zoom-transition/).
 
 These are reference and tooling corrections. They do not change the maintained
-apps, install `@expo/ui`, or expand the Mac host's dependency boundary.
+apps or expand the Mac host's dependency boundary; `@expo/ui` belongs to the
+mobile host only.

@@ -76,7 +76,7 @@ copying it into the app.
 
 ## Testing-only draw observation
 
-The [Mac performance journey](../agents/native-validation.md#mac-performance-journey)
+The [Mac performance journey](../native-journeys.md#mac-performance-journey)
 observes the focused composer body's first draw after a text-storage edit. The
 probe wraps the first edited text view class's `drawRect:` once, calls the saved
 implementation first, and records completion only for the pending edited view.

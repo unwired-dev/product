@@ -39,7 +39,7 @@ mise install
 mise exec -- pnpm install
 ```
 
-For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
+For the app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
 For Mac, follow [native Mac setup](docs/macos-client.md).
 
 For optional [Graft](https://trailhq.com/graft) code navigation, install the CLI once and
@@ -88,11 +88,6 @@ credentials and developer-specific deployment values out of source control.
 
 ## Validation
 
-This is the canonical shared-command list. Select relevant evidence under the
-[testing policy](docs/agents/testing.md); host guides add only their platform checks.
-Manifests, `pnpm-workspace.yaml` and `.mise.toml` own current dependency/toolchain
-versions. Keep compatibility and upgrade constraints in the host guides.
-
 ```sh
 mise exec -- pnpm lint
 mise exec -- pnpm lint:boundaries
@@ -134,13 +129,8 @@ Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 ownership during native checks. [Isolated Mock Mail Sessions](docs/mock-mail-sessions.md) keep
 deterministic mocked journeys distinct from real integration evidence.
 
-CI covers both replacement hosts, shared core/contracts, and the retained Convex backend. The
-legacy SwiftMail provider-qualification job is disabled by maintainer decision; its test
-sources and local commands remain available.
-
 ## Working on the project
 
-- [Documentation index and historical status](docs/README.md)
 - [Agent guide](AGENTS.md)
 - [Implementation and review workflow](docs/agents/implementation-review.md)
 - [Product terminology](GLOSSARY.md)

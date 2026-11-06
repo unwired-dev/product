@@ -19,7 +19,7 @@ step() {
   "$@" || failed+=("$*")
 }
 
-step bash scripts/check-pr-babysitter-contract.sh
+step bash scripts/check-workflow-permissions.sh
 step node scripts/check-changesets.mjs
 step node --test scripts/check-changesets.test.mjs scripts/release.test.mjs scripts/auto-merge.test.mjs
 step pnpm test:native-runner

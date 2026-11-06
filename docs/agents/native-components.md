@@ -7,13 +7,12 @@ not a precedent to copy.
 
 ## Choose the provided implementation
 
-Before implementing a standard interaction, record the component choice in the
-existing issue or task plan. Name the supported API, the installed host/package
-versions and the declaration or official reference checked. State which behavior
-the framework owns and which mail requirements remain application-owned, such as
-Draft save guards or a nonmodal composer. Record any remaining gap under
-[exceptions and review](#exceptions-and-review). This is part of planning, not a
-separate approval or review stage.
+Before implementing a standard interaction, record the component choice, with
+the API and installed versions checked, in the existing issue or task plan. State
+which behavior the framework owns and which mail requirements remain
+application-owned, such as Draft save guards or a nonmodal composer. Record any
+remaining gap under [exceptions and review](#exceptions-and-review). This is part
+of planning, not a separate approval or review stage.
 
 1. Check the public components and APIs supported by the host's installed React
    Native, Expo and navigation versions. Use the provided control or presenter
@@ -36,7 +35,9 @@ dialogs, sheets, popovers, buttons, switches and pickers follow this rule. Use
 public framework composition rather than creating another navigation adapter,
 presentation state machine or shared widget framework. A dependency upgrade
 must preserve the host's supported compatibility set; a fork or experimental API
-is not the default shortcut to a missing control.
+is not the default shortcut to a missing control. Existing native menus,
+file/photo pickers, sharing and window integration can already satisfy this
+policy; preserve them unless a provided equivalent removes maintenance.
 
 Confirm skill examples against the installed package's exports and declarations.
 When compatibility or behavior is uncertain, use the smallest task-owned probe
@@ -55,11 +56,12 @@ library migration merely to satisfy this policy.
 Use DESIGN.md's tokens where the component supports customization. Prefer its
 system appearance and behavior over rebuilding it to reproduce a mockup's
 dimensions or animation curve. Product requirements still govern behavior and
-Draft safety. Resolve requirement changes through the existing
-[decision authority policy](implementation-review.md#decisions) and reconcile the
-relevant documents. A visible design change follows the existing
-[Figma design approval](implementation-review.md#design-approval) before UI code.
-This policy does not authorize dropping required behavior to fit a component.
+Draft safety. This policy does not authorize dropping required behavior to fit a
+component.
+
+Layouts hold at window and screen sizes other than the frame's, keep 44pt touch
+targets on iPhone and iPad, and keep controls and final content rows clear of
+floating chrome such as the search bar, toolbar groups and the composer.
 
 ## Exceptions and review
 
@@ -76,72 +78,47 @@ gap or replace the standard interaction within the agreed scope.
 
 Every migration moves all affected callers and removes its superseded controls,
 bridges, presence state and motion in the same change. Add a replacement wrapper
-only when the remaining requirement needs it. Verify completed and cancelled
-navigation/presentations, keyboard/focus, VoiceOver, Reduced Motion and responsive
-layouts through the [native validation guide](native-validation.md). Component
-mocks cannot establish that a system gesture or presenter works; unavailable
-native checks remain deferred before release.
+only when the remaining requirement needs it. Before expanding the change,
+exercise the smallest affected native journey (open, interact, cancel and
+reopen), then verify completed and cancelled navigation/presentations,
+keyboard/focus, VoiceOver, Reduced Motion and responsive layouts under the
+[native validation guide](native-validation.md) and the
+[testing policy](testing.md#proportionate-verification); mocks do not validate a
+system gesture, presenter or presentation workaround.
 
-Exercise the smallest affected native journey before expanding the change:
-open, interact, cancel and reopen, including keyboard/focus where relevant.
-Use the existing native runner and its resource-ownership rules. When the target
-is unavailable, record that limitation and use the strongest deterministic
-evidence under the [testing policy](testing.md#proportionate-verification).
-Keep the native interaction check deferred; passing mocks do not validate a
-presentation workaround.
+The [migration epic #1053](https://github.com/unwired-dev/product/issues/1053)
+tracks remaining migrations, and the mobile [navigation](../expo-client.md#navigation)
+docs record its navigation exceptions. Each exception stays until its deletion
+condition holds.
 
 ### Recorded exceptions
 
-**iOS SF Symbols (`UnwiredSymbol`).** `SFSymbol` in `apps/mobile/src/design.tsx`
-must draw each symbol at its DESIGN.md point size, regular weight, centered in a
-`size`×`size` box. Checked: `expo-symbols` 57.0.3 through `expo-router` 57.0.29,
-Expo 57.0.31, React Native 0.86.3, iOS 27. `SymbolViewProps` in
-`build/SymbolModule.types.d.ts` exposes `size`, `resizeMode`, `scale`, `weight`
-and `tintColor`, but no point-size prop. `size` sets the view's square dimensions
-(`build/SymbolView.ios.js`); `scale` selects a preset, not a point size.
-`SymbolView` builds glyphs at `UIFont.systemFontSize` (`getSymbolConfig` in
-`ios/SymbolView.swift`). The default `resizeMode="scaleAspectFit"` rescales the
-glyph to fit the box; `resizeMode="center"` leaves its configured point size
-fixed. Neither preserves the required point sizes across symbols. 58.0.4, the
-latest release on 30 October 2026, has the same sizing limitation. The owner
-chose to keep the bridge over box-fit sizing or a package patch
-([#1121](https://github.com/unwired-dev/product/issues/1121)).
-The retained part is the iOS `UnwiredSymbolView` and `UnwiredSymbolManager` in
-`native/design/UnwiredDesign.m`. Delete them, and move `SFSymbol` to `SymbolView`,
-once a supported `expo-symbols` release renders at a given point size with the
-designed glyph sizes. The Mac `UnwiredSymbolView` is not part of this exception:
-Expo stays out of the Mac bundle.
+**iOS SF Symbols.** `expo-symbols` `SymbolView` has no point-size prop (checked
+through 58.0.4), so `SFSymbol` in `apps/mobile/src/design.tsx` keeps the iOS
+`UnwiredSymbolView` and `UnwiredSymbolManager` in `native/design/UnwiredDesign.m`;
+delete them and use `SymbolView` once a supported release renders at a given
+point size. The Mac `UnwiredSymbolView` is not part of this exception.
 
 ## Skills
 
 For React, React Native or Expo implementation and review, load
-`vercel-react-native-skills` and `vercel-composition-patterns` before editing.
-Select further skills by the task below. Resolve installed skills through the
-session catalogue; discover and vet a missing skill only for a needed capability.
+`vercel-react-native-skills` and `vercel-composition-patterns` before editing;
+apply composition patterns only to the components the task needs. Then select by
+task:
 
-- React Native rendering, lists and native integration: `vercel-react-native-skills`.
 - Expo controls and presenters: the project-local [expo-ui skill](../../.agents/skills/expo-ui/SKILL.md).
 - Expo routes, native stacks, headers, search and sheets: the project-local [expo-router skill](../../.agents/skills/expo-router/SKILL.md).
-- Other Expo SDK, native module, development build and EAS work: the matching
-  project-local `expo-*` or `eas-*` skill in `.agents/skills`, such as
-  `expo-native-ui`, `expo-module`, `expo-dev-client` or `eas-workflows`.
+- Expo SDK upgrades: the project-local [expo-upgrade skill](../../.agents/skills/expo-upgrade/SKILL.md).
 - Animation and motion: the [animation skills](#animation-skills) below.
-- Component APIs and refactors: apply `vercel-composition-patterns` only to the components the task needs.
-- TypeScript models and contracts: `typescript-best-practices`.
-- Behavior and regression coverage: `functionality-testing`, with real native evidence where the behavior depends on the host.
-- Measured performance problems: Callstack's `react-native-best-practices`; resolve it through skill discovery when needed, rather than installing it for every task.
+- Measured performance problems: Callstack's `react-native-best-practices`.
 
 Apply guidance to the host's installed versions. Repository component selection,
 design, Effect and dependency-boundary rules take precedence over generic skill
 examples. Expo guidance applies to the mobile host; it does not authorize adding
 Expo to the Mac bundle. Load relevant references, rather than treating every
 skill as a reason to add dependencies, wrappers or a component framework.
-
-The project-local skills are vendored from the revisions in `skills-lock.json`.
-`expo-ui` and `expo-router` stay on their older pin: preserve it and reapply the
-documented [local corrections](expo-skill-patches.md) when updating them. The
-local `expo-ui` package manifest keeps its CommonJS discovery helper compatible
-with this ESM workspace.
+When updating `expo-ui` or `expo-router`, reapply the
+[local corrections](expo-skill-patches.md).
 
 ### Animation skills
 
@@ -151,27 +128,10 @@ or editing, in addition to the design skills in the root guide:
 
 - React Native and Expo motion, including Reanimated, Gesture Handler, screen
   and sheet transitions, press feedback and expo-haptics: the project-local
-  [expo-animation skill](../../.agents/skills/expo-animation/SKILL.md).
-- SwiftUI motion in native Swift code: the project-local
-  [ios-animations skill](../../.agents/skills/ios-animations/SKILL.md). Apply its
-  spring, timing, gesture and Reduce Motion rules. Its architecture mandates,
-  such as `@Equatable` on every view, `Motion.*` and `Spacing.*` tokens and the
-  clinic MVVM-C module layout, come from another project and do not apply here.
+  [expo-animation skill](../../.agents/skills/expo-animation/SKILL.md), and
+  `animate-expo` when the session catalogue has it.
 - Motion principles and review: `apple-design`.
 
 The native presenter still owns its own transitions under
 [native behavior and design](#native-behavior-and-design). Repository design
 tokens and Reduced Motion requirements take precedence over skill examples.
-
-## Rewrite tracking
-
-The [migration epic #1053](https://github.com/unwired-dev/product/issues/1053)
-and its child issues own current scope, claims and native blocking dependencies.
-Existing native
-menus, file/photo pickers, sharing and window integration can already satisfy
-this policy; preserve them unless a provided equivalent removes maintenance.
-The mobile [navigation](../expo-client.md#navigation) docs record the remaining
-navigation exceptions, including iPad's window-wide Search bar. Cleanup keeps
-each one until its deletion condition holds.
-The comparison with T3 Code is evidence for the migration, not a requirement to
-copy its custom navigator or vendored screens fork.

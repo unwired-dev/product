@@ -28,7 +28,7 @@ references/
 - Use kebab-case for ordinary file names, e.g. `comment-card.tsx`. Preserve Expo Router notation such as `_layout.tsx`, `[id].tsx`, `(group)`, and `+not-found.tsx`.
 - Always remove old route files when moving or restructuring navigation
 - Use special characters in route names only as required by Expo Router conventions.
-- Configure tsconfig.json with path aliases, and prefer aliases over relative imports for refactors.
+- Follow the repository's existing import style; it uses relative imports and package names, not tsconfig path aliases.
 
 ## Routes
 
@@ -65,7 +65,7 @@ import { Link } from 'expo-router';
 </Link>
 ```
 
-Whenever possible, include a `<Link.Preview>` to follow iOS conventions. Add context menus and previews frequently to enhance navigation.
+Add a `<Link.Preview>` or context menu when the design or issue calls for one.
 
 ## Stack
 
@@ -120,7 +120,7 @@ import { Link } from "expo-router";
 
 ## Link Previews
 
-Use link previews frequently to enhance navigation:
+Use link previews where the design calls for them:
 
 ```tsx
 <Link href="/settings">
@@ -203,7 +203,7 @@ Create a shared group route so both tabs can push common screens:
 ```tsx
 // app/(index,search)/_layout.tsx
 import { Stack } from "expo-router/stack";
-import { colors } from "@/theme/colors";
+import { colors } from "../../theme/colors";
 
 export default function Layout({ segment }) {
   const screen = segment.match(/\((.*)\)/)?.[1]!;

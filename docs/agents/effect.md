@@ -87,21 +87,9 @@ and test fetch mocks.
 
 Test stores and Convex functions through their public interfaces, as the
 [testing policy](testing.md) requires. Test an exported Effect-returning API with
-`@effect/vitest` (`it.effect`, `layer`), adding it as a development dependency at
-the first such test.
+`@effect/vitest` (`it.effect`, `layer`).
 
 ## Enforcement
 
-`scripts/oxlint-effect-policy.ts` applies to the root, mobile, and Mac lint
-configurations:
-
-- Effect `recommended` rules, plus the rules that reject console, time,
-  randomness, `fetch`, timers, `process.env`, and JSON globals inside Effect code.
-- `effect-boundaries/no-object-typeof-guard` rejects `typeof … === 'object'`
-  guards, `effect-boundaries/no-json-parse` rejects `JSON.parse`, and
-  `effecttsgo/extends-native-error` rejects untagged error classes, in tests as
-  in production code. Other hand-rolled parsing is a review concern.
-- `effect-imports/namespace-imports` requires
-  `import * as Module from 'effect/Module'`.
-
-`pnpm test:tooling` checks the custom rules in every configuration.
+`scripts/oxlint-effect-policy.ts` applies the Effect lint rules to the root,
+mobile, and Mac configurations. Other hand-rolled parsing is a review concern.

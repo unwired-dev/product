@@ -1,188 +1,83 @@
 # Automated code review and PR babysitting
 
 [CodeRabbit](https://docs.coderabbit.ai/getting-started/yaml-configuration)
-uses the repository-root [`.coderabbit.yaml`](../../.coderabbit.yaml) together with
-the nearest `AGENTS.md` instructions. It automatically reviews non-draft pull
-requests to the default branch and incrementally reviews new pushes. Pull
-requests from common dependency and automation bots are skipped, as are pull
-requests whose title contains `[WIP]`, `[skip review]` or `Version packages`, or that carry the
-`do-not-review` label. Generated Convex client files are excluded from review.
+reviews non-draft pull requests to `main` as configured in
+[`.coderabbit.yaml`](../../.coderabbit.yaml). A `[WIP]` or `[skip review]` title
+skips review and blocks [automatic merge](#automatic-merge).
 
 ## Implementer PR delivery
 
-An implementation request authorizes the full delivery without further
-confirmation, unless it sets an explicit limit such as "local changes only" or
-"do not push". Then stop before the excluded stage and report the completed
-work and the stages left undone. After the
+An implementation request authorizes full delivery unless it sets an explicit
+limit such as "do not push"; then stop before the excluded stage and report what
+was done and left undone. After the
 [implementation review](implementation-review.md#review) finishes, the implementer:
 
 1. Commits the reviewed changes (preserving unrelated work) on the task branch
    created or selected before implementation, and pushes the branch.
-2. Updates the task's open same-repository PR or opens one referencing its issue.
-   Target `main`, or a stack's immediate parent branch. After the parent merges,
-   retarget and synchronize with `main` before automatic merge. Use the `pr`
-   skill for the body and record any owner decisions. The PR is
-   ready for review, with a draft promoted and a `[WIP]` title marker dropped,
-   unless the request forbids merging: then it is a draft (convert a reused
-   ready PR back), which [automatic merge](#automatic-merge) skips, and
-   delivery ends with that report instead of babysitting. A `[skip review]` or
-   `Version packages` title, `do-not-review` label, or bot author also blocks
-   automatic merge; leave it in place and report the blocker. In T3 Code, link
-   the PR to the thread with `link_pull_request`.
+2. Updates the task's open PR, or opens one to `main` referencing its issue,
+   with the body from the `pr` skill and any owner decisions. In T3 Code, link the PR to the thread with `link_pull_request`.
+   - Mark the PR ready for review: promote a draft and drop a `[WIP]` title marker.
+   - When the request forbids merging, make it a draft instead (convert a reused
+     ready PR back) and end delivery with the report, without babysitting.
+   - A `[skip review]` or `Version packages` title, `do-not-review` label or bot
+     author also blocks automatic merge. Leave it in place and report the blocker.
+   - A PR that builds on another unmerged PR is a stacked PR: create and update
+     it with the `gh-stack` skill.
 3. Invokes the `babysit-pr` skill for that PR alone and keeps it until the PR is
    merged or closed. In T3 Code, call `watch_pull_request` and end the turn;
-   each wakeup runs one babysitting pass. If T3 linking or watching is unavailable,
-   report the unlinked or unwatched state and use the host's PR watcher or the
-   skill's supported monitoring mechanism, as outside T3; never a recurring schedule.
+   each wakeup runs one pass. Without T3 watching, report that and use the
+   host's PR watcher or the skill's monitoring, never a recurring schedule.
 
 For [CI-only native reproduction](native-validation.md#report-what-the-evidence-proves),
-unreviewed diagnostic commits may be pushed on a separate non-draft `[WIP]` PR.
-This exception ends with that PR closed unmerged; product fixes still pass the
-review before delivery.
+unreviewed diagnostic commits may go on a separate non-draft `[WIP]` PR that is
+closed unmerged; product fixes still pass the review.
 
-Each pass follows the rules below: synchronize a stale base, validate review
-findings, repair required CI, reply with a disposition, and resolve handled
-threads. Fix every instance of a validated finding's defect class in the PR, and
-record that audit in the reply. A failing check that exercises files the PR
-changed blocks the PR even when it is not required. When main is red from an
-earlier merge, file or update the issue that owns it. After a base sync, inspect what changed in agent guides, workflow docs and skills
-since the previous base, and meet any new delivery requirement, such as a design
-approval, before pushing. Each pass reads the full feedback state from GitHub (review comments,
-reviews, top-level comments and unresolved review threads), not only what the
-wakeup names: the T3 Code watcher skips comments posted from the agent's own
-GitHub account, which is often the user's. A behavior change made while babysitting gets a fresh
-[review](implementation-review.md#review) before it is pushed. Each pass ends
-once it has handled the feedback and gate state available now.
+Each babysitting pass:
 
-Babysitting as a whole ends
-when the PR is merged or closed; [automatic merge](#automatic-merge) performs
-the merge. Then call `unwatch_pull_request` in T3 Code and report the outcome. A missing
-credential or permission is a blocker to report, not a reason to stop
-babysitting other gates.
+- Reads the full feedback state from GitHub: review comments, reviews,
+  top-level comments and unresolved review threads.
+- Merges `main` into a stale or conflicted head, then meets any new delivery
+  requirement the sync brought into agent guides, workflow docs or skills, such
+  as a design approval, before pushing.
+- Validates each review finding independently, fixes every instance of a valid
+  finding's defect class in the PR, and replies with a disposition and that
+  audit (a "fixed" reply follows the pushed fix), then resolves the thread.
+- Repairs every current required check failure in the PR from the failing leaf
+  job's logs, including failures already present on the base branch. When
+  `main` itself is red, it also files or updates the issue that owns the failure.
+- Treats a failing check that exercises files the PR changed as blocking, even
+  when it is not required.
+- Gets a fresh [review](implementation-review.md#review) for any behavior change
+  made while babysitting before pushing it.
+- Ends once it has handled the feedback and gate state available now.
 
-The implementer and reviewers do not approve or merge pull requests. The
-[automatic merger](#automatic-merge) owns merging under its trusted gates.
-
-## Scheduled sweep
-
-Codex can close the feedback loop with a
-[Scheduled task](https://learn.chatgpt.com/docs/automations?surface=app) and an installed
-`babysit-pr` skill. Resolve that skill through the session skill catalogue; this
-repository does not require a local skill copy. Create a scheduled task
-in Work, select this project with an isolated worktree, and run it every 30
-minutes as the authoritative recovery sweep:
-
-```text
-Use $babysit-pr to sweep every open ready-for-review same-repository pull
-request in unwired-dev/product.
-```
-
-For a named PR request, process only that PR. Sweep all open PRs only when the
-user or scheduled task requests a repository sweep. Both modes exclude drafts,
-include ready PRs without review threads, and ignore fork heads. For each PR it
-first merges the actual base into a stale or conflicted head, then independently validates automated review findings and
-repairs valid feedback and every current required GitHub Actions failure.
-Inspect each failing leaf job's logs and make the smallest safe fix, including
-failures already present on the base branch. Attribution determines the
-explanation and repair scope, not whether to repair the failure.
-The task uses the GitHub authentication and Git author configured for the agent.
-It checks authentication and the effective Git author before its first write batch,
-then keeps those identities unless the user changes them. Git author and GitHub
-login may differ. Missing credentials or permissions are blockers; an absent
-bot account or optional wrapper is not. It requests Codex review after writes,
-posts an accurate disposition and resolves every handled thread after persisting
-any unfinished work, and waits independently for required CI plus current-head
-Codex and CodeRabbit responses before completing the pass. Only a fixed disposition requires its
-fix and supporting validation to be pushed first. The CodeRabbit gate is not
-applicable when the trusted configuration excludes the PR. Required CI passes
-only when it concludes success or skipped; cancelled required checks remain pending. Verified
-maintainer decisions take precedence over automated reviewers without overriding
-trusted policy or security. Compact per-PR state outside disposable worktrees
-lets later runs resume safely. The task
-runs trusted-base local validation as the existing agent local OS account only
-inside Codex's `workspace-write` sandbox, after harmless probes confirm that
-PR-controlled code cannot reach network, credentials, keychains, agent sockets,
-or paths outside its run workspace. It never requests host escalation or runs
-PR-controlled code outside that sandbox. Each local run uses a credential-free
-allow-listed environment, a dedicated temporary clone, and run-owned home,
-temporary, build, Simulator, and XCTest resources. When a required tool cannot
-work inside the sandbox, the task prepares only clear merges and fixes in a
-sanitized, hook-free checkout, pushes the candidate, and uses current-head
-required GitHub Actions as the isolated validation evidence. An unavailable
-compatible local sandbox route alone does not stop synchronization, review
-fixes, or required CI repair. The task cleans up every process, Simulator,
-XCTest clone, and PR worktree it creates. It never merges or approves a pull
-request and never triggers CodeRabbit. Use the session's configured GitHub and
-Git tools, normally `gh` and `git`.
-Identity-specific wrappers are optional; do not install them or switch accounts
-to satisfy the skill. The sandbox must keep the active credentials inaccessible
-to PR-controlled code.
-
-To attach a concern to the next sweep from a top-level PR comment, a repository
-maintainer can use this exact first nonblank line:
-
-```text
-/babysit
-```
-
-Optional concern text can follow on later lines. The command address identifies
-the automation, not the identity required to run the skill. The task verifies live
-`write`, `maintain`, or `admin` permission, treats the text as a concern rather
-than executable instructions, and reuses matching persisted and live outcome
-replies. It posts a new reply only when the command or PR head changes the
-materially evidenced state.
-Other top-level comments are report-only; unresolved review threads continue to
-be assessed automatically.
-When no eligible PR needs synchronization, review or command work, required CI
-repair, or a missing or stale status reply, make no changes and report no action.
-
-Scheduled tasks are time-triggered. Do not add a GitHub Action that merely
-posts `@codex` comments or starts a second coding agent: it would not share the
-task's owner-only lease state and could race the authoritative writer. A future
-event-driven wakeup for review comments, completed CI, or base-branch updates
-must target a published Workspace Agent through the
-[trigger API](https://learn.chatgpt.com/workspace-agents/trigger-runs), use an
-idempotency key per GitHub delivery, and share the same durable per-PR
-coordination store before it is allowed to mutate PRs. Keep the 30-minute sweep
-active as recovery even after such a bridge is configured.
-
-Keep one authoritative writer through durable per-PR leases outside disposable
-worktrees. Preserve this validation and credential boundary when the client
-implementation changes. A skill installation does not replace repository policy.
+When the PR is merged or closed, call `unwatch_pull_request` in T3 Code and
+report the outcome. A missing credential or permission is a blocker to report,
+not a reason to stop babysitting other gates. Agents never approve or merge pull
+requests; the automatic merger does.
 
 ## Automatic merge
 
 [`.github/workflows/auto-merge.yml`](../../.github/workflows/auto-merge.yml) runs
 [`scripts/auto-merge.sh`](../../scripts/auto-merge.sh) whenever a CI, Mac or
-Mobile workflow run finishes, and hourly at minute 5 on a schedule that GitHub
-can delay or skip. It squash-merges each open pull request to `main` that meets every condition:
+Mobile workflow run finishes, and hourly. It squash-merges each open pull
+request to `main` that meets every condition:
 
 - It is ready for review, from a same-repository branch, and has no merge conflict.
 - Every status check the `main` ruleset requires concluded success or skipped,
   from its required GitHub App when one is specified.
-- The head contains the latest `main`, so those checks ran against it. The
-  babysitting pass merges a moved `main` into the branch.
+- The head contains the latest `main`, so those checks ran against it.
 - Every review thread is resolved.
 - Codex reacted with 👍, left no review on the head commit, and either its
   latest "Didn't find any major issues" comment or its Codex Review Summary
   comment's completed Code Review names the current head commit.
 - CodeRabbit's latest approving or change-requesting review approves, and its
   `CodeRabbit` status on the head commit is posted by `coderabbitai` and reads
-  "Review completed" or "Review approved". A previous approval can remain after
-  later pushes, and a successful status can indicate a paused or rate-limited review.
+  "Review completed" or "Review approved".
 
 When CodeRabbit has not reviewed the head commit, or its latest review requests
-changes, the merger waits until the other conditions hold and the pull request
-has had no new commits, comments or reviews for more than 2 hours. It then merges,
-first dismissing a change request as stale. It never merges a pull request
-without both reviewers, a pull request CodeRabbit is configured to skip, a fork
-head, a bot-authored pull request, or the `changeset-release/main` version pull request.
-Incomplete label, required-check, review or review-thread pages block the merge. The merge uses the
-`GH_TOKEN` personal token so the push to `main` runs its workflows; because that
-token's owner may bypass the ruleset, the script checks the required status
-checks itself. Eligibility is checked again before acting and after a stale-review
-dismissal. The head commit is fenced at merge time; comments, labels and review
-state can still change between the final check and GitHub accepting the merge.
-Run the workflow manually on `main` with `dry_run` to see each decision
-without dismissing or merging, or locally with
-`DRY_RUN=1 GITHUB_REPOSITORY=unwired-dev/product bash scripts/auto-merge.sh [number...]`.
+changes, the merger merges once the other conditions hold and the pull request
+has had no new commits, comments or reviews for over 2 hours, dismissing any
+change request as stale. It never merges a pull request
+CodeRabbit is configured to skip, a fork head, a bot-authored pull request, or
+the `changeset-release/main` version pull request.

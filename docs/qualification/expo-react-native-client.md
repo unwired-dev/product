@@ -26,7 +26,7 @@ under #625, #626, #822 and #830; this update records no test run.
 
 This extends the earlier storage-only evidence for
 [#626](https://github.com/unwired-dev/product/issues/626) with the
-[Mac performance journey](../agents/native-validation.md#mac-performance-journey)'s
+[Mac performance journey](../native-journeys.md#mac-performance-journey)'s
 first post-edit draw. It records app drawing against a constant-refresh frame
 grid, without observing window-server compositing or display presentation. It
 does not establish a passing Mac baseline or complete #626.
@@ -154,7 +154,7 @@ tracked by [#1228](https://github.com/unwired-dev/product/issues/1228).
 
 This extends the composer timing evidence below for
 [#626](https://github.com/unwired-dev/product/issues/626), using the
-[Mac performance journey](../agents/native-validation.md#mac-performance-journey).
+[Mac performance journey](../native-journeys.md#mac-performance-journey).
 The journey now clicks Bold, Bold, Italic, Italic, Underline and Underline twice
 over on the selected last word after the shortcut samples. Its 12 samples run
 from an app-recorded mouse release to the first app-recorded text-storage edit
@@ -238,7 +238,7 @@ authentication or transport. No legacy coverage is retired.
 ## Mac composer text-storage timing slice, 2026-10-24
 
 This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),
-using the [Mac performance journey](../agents/native-validation.md#mac-performance-journey).
+using the [Mac performance journey](../native-journeys.md#mac-performance-journey).
 It measures key-to-text-storage updates. It does not establish next-rendered-frame
 feedback or a passing Mac performance baseline, and does not complete #626.
 
@@ -337,7 +337,7 @@ CI feedback-time p95.
 ## Mac keyboard and accessibility slice, 2026-10-23
 
 This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),
-using the [Mac keyboard and accessibility journey](../agents/native-validation.md#mac-keyboard-and-accessibility-journey).
+using the [Mac keyboard and accessibility journey](../native-journeys.md#mac-keyboard-and-accessibility-journey).
 The runtime snapshot was `9b6e6db652a4bade1a12b22a96ffa7e7faa36930`, with root
 lockfile SHA-256 `98d06dd1ca5033ca5aa7e9c8aad2a2ea532380edfa59aadf305487e1e04fd39a`.
 The reference was the Mac mini M4 with 16 GB memory, `Mac16,10`, macOS 27.0.1
@@ -403,7 +403,7 @@ storage/privacy checks, and retires no legacy coverage.
 ## Mac warm-cache performance slice, 2026-10-22
 
 This is partial evidence for [#626](https://github.com/unwired-dev/product/issues/626),
-using the [Mac performance journey](../agents/native-validation.md#mac-performance-journey).
+using the [Mac performance journey](../native-journeys.md#mac-performance-journey).
 It does not complete #626 or establish a passing Mac performance baseline.
 
 ### Round-one evidence

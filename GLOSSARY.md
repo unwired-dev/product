@@ -25,28 +25,6 @@ scope. Verify it against
 | External agents and their connections                   | [Agent access](docs/domain/agent-access.md)                   | [Agent access requirements](docs/product/agent-access.md)                                                |
 | Mock sessions, scenarios and evidence                   | [Testing](docs/domain/testing.md)                             | [Testing policy](docs/agents/testing.md), [Mock Mail Sessions](docs/mock-mail-sessions.md)               |
 
-## Relationships
-
-Behavior notes are grouped by topic in the table above. They preserve the former
-observable relationship rules, including prototype constraints. Separate architecture
-companions contain architecture and links to decisions that establish or supersede
-those rules. Read those sources
-before applying or approving a rule that mentions v1, first release, migration or
-platform-specific behavior.
-
-## Example dialogue
-
-The earlier interview examples are preserved in
-[historical domain discussions](docs/archive/domain-discussions.md#example-dialogue).
-
-## Flagged ambiguities
-
-The earlier resolutions are preserved in
-[historical domain discussions](docs/archive/domain-discussions.md#flagged-ambiguities).
-New unresolved questions belong in the relevant issue or design discussion.
-
-## Maintaining this index
-
-Follow the [domain documentation policy](docs/agents/domain.md) when adding,
-renaming or moving terms. Keep each definition in one topic glossary, put behavior
-in feature documentation or ADRs, and keep this file as the reading index.
+Superseded interview examples and resolved ambiguities are in
+[historical domain discussions](docs/archive/domain-discussions.md); new
+unresolved questions belong in the relevant issue or design discussion.

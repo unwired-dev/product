@@ -130,6 +130,10 @@ components, styles, copy, icons, motion, notifications and accessibility labels.
    placement, copy and truncation, empty/loading/error/disabled states and
    accessibility (contrast, target size, labels). Differences the frames show
    deliberately between platforms are intended.
+   Resize to window sizes the frame doesn't show: layouts hold, touch targets
+   stay at least 44pt and content clears floating controls. When copy or
+   accessibility labels change, update the native journey queries that find
+   them; on macOS a disclosure needs the `button` role, not `header`.
 4. Fix confirmed deviations and recapture. Where a frame differs from a product
    requirement, the requirement wins; list the difference in the PR as a design
    follow-up. Record a capture you could not take as deferred.
