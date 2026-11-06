@@ -161,7 +161,7 @@ reach them above the outside-click layer.
 The [Expo native journey](expo-client.md#validate) opens the palette over a
 reader with larger text and the software keyboard shown, scrolls its last
 command above the keyboard and runs it. The
-[iPhone and iPad keyboard journey](agents/native-validation.md#iphone-and-ipad-keyboard-and-accessibility-journey)
+[iPhone and iPad keyboard journey](native-journeys.md#iphone-and-ipad-keyboard-and-accessibility-journey)
 narrows the list with a hardware keyboard and runs the command with Return; a
 hardware Escape does not yet close the palette there
 ([#849](https://github.com/unwired-dev/product/issues/849)). Keyboard changes

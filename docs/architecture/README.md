@@ -1,14 +1,9 @@
 # Architecture index
 
-This index and every file under `docs/architecture/` are reviewer-only under the
-[implementation and review workflow](../agents/implementation-review.md).
-Implementers use the [operational documentation index](../README.md), topic
-vocabulary, observable requirements and coding conventions. The reviewer reads
-the companions and relevant decisions, fixes validated issues and returns
-operational outcomes without copying architecture into the implementer's context.
-Architecture checking runs through the resolved repository OCR rules during that
-handoff; [the coverage map](open-code-review.md) records rule ownership, source
-authority and preserved review responsibilities.
+This index routes the architecture companions under `docs/architecture/`, ADRs,
+patterns, research, qualification evidence and historical sources. The
+[operational documentation index](../README.md) routes topic vocabulary,
+observable requirements, setup, commands and coding conventions.
 
 The companions below contain extracted architecture and internal implementation
 passages. Their source files retain setup, commands, validation and observable
@@ -17,7 +12,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 
 ## Extracted companions
 
-| Implementer-facing source                                                        | Reviewer-only companion                                                  |
+| Operational source                                                               | Architecture companion                                                   |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | [README.md](../../README.md)                                                     | [repository.md](repository.md)                                           |
 | [docs/agents/effect.md](../agents/effect.md)                                     | [agents/effect.md](agents/effect.md)                                     |
@@ -75,9 +70,8 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Platform qualification and deferred native evidence](../qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](../qualification/expo-rewrite-ticket-coverage.md)
 
-The resolved OCR checklist requires the review agent to check applicable privacy,
-encryption, identity-isolation, transport and delivery guarantees in the earlier
-[ADRs](../adr/). ADR 0059 through 0075 take
+Applicable privacy, encryption, identity-isolation, transport and delivery
+guarantees in the earlier [ADRs](../adr/) still apply. ADR 0059 through 0075 take
 precedence where they explicitly replace prototype architecture or release scope.
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.
@@ -90,9 +84,9 @@ scheduled delivery are not implicit first-release requirements.
 - [External Agent access, separate from On-Device Mail Assistance](../adr/0073-separate-external-agent-access-from-on-device-assistance.md),
   a separately authorized post-launch milestone.
 
-## Existing reviewer-only sources
+## Existing architecture sources
 
-These directories remain whole reviewer-only sources; use their original filenames.
+These directories remain whole sources; use their original filenames.
 
 - [Architecture decision records](../adr/README.md): an index of every ADR, with duplicate numbers disambiguated; accepted replacement decisions and earlier privacy, identity, transport and delivery decisions.
 - [Code documentation and architecture patterns](../../.patterns/README.md).

@@ -4,7 +4,6 @@ Historical architecture companion to the [retired guide](https://github.com/unwi
 The Swift prototype and its local harness were removed in
 [#1371](https://github.com/unwired-dev/product/issues/1371). The descriptions and
 commands below record the former implementation and are no longer operational.
-Read under the [implementation and review workflow](../agents/implementation-review.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 

@@ -1,7 +1,6 @@
 # Organization: architecture notes
 
-Reviewer-only companion to [docs/product/organization.md](../../product/organization.md).
-Read under the [implementation and review workflow](../../agents/implementation-review.md).
+Architecture notes for [docs/product/organization.md](../../product/organization.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 

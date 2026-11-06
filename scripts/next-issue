@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Usage: scripts/next-issue [--limit <n>]
+# Ranks this repository's open `ready-for-agent` issues for implement-issue and
+# never writes to GitHub. It drops pull requests, issues labelled `in progress`,
+# `ready-for-human`, `ready-for-test`, `human needed` or `wontfix`, and issues an
+# open PR closes by its closing references (a `Refs` mention keeps a parent
+# eligible). The more urgent of the org's native Priority field and a
+# `priority: <option>` label ranks first, unprioritized last, then oldest, then
+# lowest number. It walks that order through each issue's native blocked_by
+# dependencies, skipping any with an open blocker, until <n> (default 5)
+# candidates remain. Prints {repo, control, candidates, skipped} as JSON on
+# stdout and a summary on stderr. When every issue reads unprioritized, the
+# control requires one of the 100 most recently updated issues to read a
+# priority. Exits 1 when a read fails, a priority label names no Priority
+# option or the control reads unset (priority unknown), and 2 on bad usage.
+set -euo pipefail
+
+limit=5
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --limit) limit=${2:?--limit needs a value}; shift ;;
+    *) sed -n '2s/^# //p' "$0" >&2; exit 2 ;;
+  esac
+  shift
+done
+[[ $limit =~ ^[1-9][0-9]*$ ]] || { echo "next-issue: --limit must be a positive whole number" >&2; exit 2; }
+
+fail() {
+  echo "next-issue: $*" >&2
+  exit 1
+}
+
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+fields=$(gh api "orgs/${repo%/*}/issue-fields")
+field=$(jq -c 'first(.[] | select(.name == "Priority")) | {id, options: [.options[] | {id, name, rank: .priority}]}' <<<"$fields")
+[[ -n $field ]] || fail "${repo%/*} has no native Priority issue field"
+
+# The most urgent of an issue's Priority field value and priority labels.
+priority='def priority($field): .number as $n | [
+    (.issue_field_values[]? | select(.issue_field_id == $field.id) | .value as $v
+      | $field.options[] | select(.id == $v) | {name, rank, source: "field"}),
+    (.labels[].name | select(test("^priority\\b"; "i")) as $label
+      | first($field.options[] | select("priority: \(.name)" | ascii_downcase == ($label | ascii_downcase)) | {name, rank, source: "label"})
+        // error("label `\($label)` on #\($n) names no Priority option"))
+  ] | min_by(.rank) // {name: null, rank: null, source: "unset"};'
+
+issues=$(gh api --paginate --slurp "repos/$repo/issues?state=open&labels=ready-for-agent&per_page=100")
+prs=$(gh pr list --repo "$repo" --state open --limit 1000 --json number,closingIssuesReferences)
+ranked=$(jq -c --argjson field "$field" --argjson prs "$prs" "$priority"'
+  [.[][] | select(.pull_request == null and any(.labels[]; .name == "ready-for-agent"))
+    | select(all(.labels[]; .name | IN("in progress", "ready-for-human", "ready-for-test", "human needed", "wontfix") | not))
+    | .html_url as $url
+    | {number, title, url, created_at, priority: priority($field),
+       blocked_by: (.issue_dependencies_summary.total_blocked_by // null),
+       open_prs: [$prs[] | select(any(.closingIssuesReferences[]; .url == $url)) | .number]}]
+  | sort_by(.priority.rank // 1e9, .created_at, .number)' <<<"$issues") || exit 1
+
+control=null
+if jq -e 'length > 0 and all(.[]; .priority.source == "unset")' <<<"$ranked" >/dev/null; then
+  recent=$(gh api "repos/$repo/issues?state=all&sort=updated&per_page=100")
+  control=$(jq -c --argjson field "$field" "$priority"'
+    first(.[] | {number, priority: priority($field)} | select(.priority.source != "unset")) // empty' <<<"$recent") || exit 1
+  [[ -n $control ]] || fail "every issue reads unprioritized, so do the 100 most recently updated; treat priority as unknown"
+fi
+
+results='' found=0
+while IFS= read -r issue && ((found < limit)); do
+  blockers='[]'
+  if jq -e '.open_prs == [] and .blocked_by != 0' <<<"$issue" >/dev/null; then
+    blockers=$(gh api --paginate --slurp "repos/$repo/issues/$(jq .number <<<"$issue")/dependencies/blocked_by?per_page=100" |
+      jq -c '[.[][] | {issue: "\(.repository_url | sub(".*/repos/"; ""))#\(.number)", state, state_reason}]')
+  fi
+  result=$(jq -c --argjson blockers "$blockers" '
+    if .open_prs != [] then {skipped: {number, reason: "open PR #\(.open_prs | map(tostring) | join(", #"))"}}
+    elif any($blockers[]; .state == "open") then
+      {skipped: {number, reason: "open blocker \([$blockers[] | select(.state == "open") | .issue] | join(", "))"}}
+    else {candidate: {number, title, url, created_at, priority: .priority.name, priority_source: .priority.source, blockers: $blockers}}
+    end' <<<"$issue")
+  results+=$result$'\n'
+  [[ $result != '{"candidate"'* ]] || found=$((found + 1))
+done < <(jq -c '.[]' <<<"$ranked")
+
+output=$(jq -cs --arg repo "$repo" --argjson control "$control" '
+  {repo: $repo, control: $control, candidates: [.[].candidate // empty], skipped: [.[].skipped // empty]}' <<<"$results")
+echo "$output"
+jq -r '(.control // empty | "control: #\(.number) reads \(.priority.name) (\(.priority.source))"),
+  (.candidates[] | "#\(.number) \(.priority // "unprioritized") (\(.priority_source)) \(.created_at[:10]) \(.title)"),
+  (.skipped[] | "skipped #\(.number): \(.reason)")' <<<"$output" >&2

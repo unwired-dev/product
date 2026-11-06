@@ -1,6 +1,5 @@
 # TestFlight signing
 
-Reviewer-only under the [implementation and review workflow](../agents/implementation-review.md).
 Setup, observable behavior and protected validation live in the
 [TestFlight operating guide](../testflight.md).
 

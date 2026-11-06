@@ -1,26 +1,18 @@
 # Domain documentation
 
-This repository has one product domain. Its vocabulary is split by reading topic
-under `docs/domain/`; those topics organize reading within this one product domain. `GLOSSARY.md` is the stable entry point and topic index, following
-[Matt Pocock's domain-modeling skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/domain-modeling/SKILL.md).
-The skill reserves `GLOSSARY-MAP.md` for multiple contexts. This repository keeps
-its topic glossaries within one product domain.
-
 ## Read for the task
 
 Start at [GLOSSARY.md](../../GLOSSARY.md), open the relevant topic glossary, and
 read the observable requirements relevant to the task. Read related topics only
 when the task crosses their concepts. Use the established terms in issues, code,
-tests and documentation. Under the
-[implementation and review workflow](implementation-review.md), only the review
-agent follows ADR links and reads the separate architecture files. The implementer leaves
-architecture interpretation and corrections to that agent.
+tests and documentation, and follow ADR links where the task touches a decision.
 
-Check [the documentation index](../README.md) and the
-[power-user launch scope](../product/power-user-launch.md) for current scope.
-Reviewers verify the applicable decisions and explicit supersessions. A glossary entry, old
-"v1" rule or historical discussion does not establish replacement launch scope,
-implementation status or passing qualification. Surface conflicts explicitly.
+A glossary entry, old "v1" rule or historical discussion does not establish
+launch scope, implementation status or passing qualification; `GLOSSARY.md` names
+the scope sources. Verify the applicable decisions and explicit supersessions.
+Surface conflicts explicitly. When changing an area, clarify its current scope
+and link its authoritative decision; do not turn an old rule into a new
+requirement merely by moving or repeating it.
 
 ## Put each kind of information in its place
 
@@ -32,11 +24,6 @@ implementation status or passing qualification. Surface conflicts explicitly.
 | Architectural choices and their rationale         | `docs/architecture/`, or `docs/adr/` when a decision warrants an ADR |
 | Open questions and implementation work            | The relevant GitHub issue or design discussion                       |
 | Superseded dialogue and historical resolutions    | `docs/archive/`, with a scope note and links to current decisions    |
-
-The behavior notes in `docs/product/` preserve rules moved from the former
-monolithic glossary. Some still describe the Swift prototype. When changing an
-area, clarify its current scope and link its authoritative decision; do not turn
-an old rule into a new requirement merely by moving or repeating it.
 
 ## Add or change a term
 
@@ -62,7 +49,3 @@ content, account for every original definition and rule exactly once; a rename,
 substantive rewrite or deletion needs an explicit reason. Preserve existing
 scope and privacy constraints rather than silently resolving a product decision
 through editorial changes. Keep old links working or update their callers.
-
-For a structural split, preserve the wording first and review semantic cleanup
-separately. The 2026-09-28 split preserves some longer legacy definitions for this
-reason; their length is not the template for new entries.

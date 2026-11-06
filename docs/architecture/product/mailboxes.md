@@ -1,7 +1,6 @@
 # Mailboxes: architecture notes
 
-Reviewer-only companion to [docs/product/mailboxes.md](../../product/mailboxes.md).
-Read under the [implementation and review workflow](../../agents/implementation-review.md).
+Architecture notes for [docs/product/mailboxes.md](../../product/mailboxes.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 
