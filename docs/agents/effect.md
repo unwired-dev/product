@@ -1,13 +1,11 @@
 # Effect conventions
 
-Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/agents/effect.md).
+Setup, coding rules, validation and observable requirements live in this file;
+the [architecture companion](../architecture/agents/effect.md) and
+[ADR 0065](../adr/0065-scope-effect-adoption.md) record the adoption scope.
 
 These conventions apply the installed Effect guide (`node_modules/effect/AGENTS.md`)
-to this repository. The review agent reads
-[ADR 0065](../adr/0065-scope-effect-adoption.md) for the architectural scope under
-the [implementation and review workflow](implementation-review.md).
-Both roles read the installed coding guide first. A fresh worktree has no `node_modules`;
+to this repository; read it first. A fresh worktree has no `node_modules`;
 run the [install](../../README.md#local-development) before reading it.
 
 ## Where Effect is required

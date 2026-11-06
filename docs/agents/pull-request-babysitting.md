@@ -13,15 +13,15 @@ requests whose title contains `[WIP]`, `[skip review]` or `Version packages`, or
 An implementation request authorizes the full delivery without further
 confirmation, unless it sets an explicit limit such as "local changes only" or
 "do not push". Then stop before the excluded stage and report the completed
-work and the stages left undone. After all required
-[implementation reviews](implementation-review.md) finish, the implementer:
+work and the stages left undone. After the
+[implementation review](implementation-review.md#review) finishes, the implementer:
 
 1. Commits the reviewed changes (preserving unrelated work) on the task branch
    created or selected before implementation, and pushes the branch.
 2. Updates the task's open same-repository PR or opens one referencing its issue.
    Target `main`, or a stack's immediate parent branch. After the parent merges,
    retarget and synchronize with `main` before automatic merge. Use the `pr`
-   skill for the body and record any decision-panel outcomes. The PR is
+   skill for the body and record any owner decisions. The PR is
    ready for review, with a draft promoted and a `[WIP]` title marker dropped,
    unless the request forbids merging: then it is a draft (convert a reused
    ready PR back), which [automatic merge](#automatic-merge) skips, and
@@ -38,31 +38,21 @@ work and the stages left undone. After all required
 For [CI-only native reproduction](native-validation.md#report-what-the-evidence-proves),
 unreviewed diagnostic commits may be pushed on a separate non-draft `[WIP]` PR.
 This exception ends with that PR closed unmerged; product fixes still pass the
-required reviews before delivery.
+review before delivery.
 
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
 threads. Fix every instance of a validated finding's defect class in the PR, and
 record that audit in the reply. A failing check that exercises files the PR
 changed blocks the PR even when it is not required. When main is red from an
-earlier merge, file or update the issue that owns it. A base merge that conflicts in reviewer-only paths follows the
-[merge conflict rule](implementation-review.md#reading-responsibilities). After
-a base sync, inspect what changed in agent guides, workflow docs and skills
+earlier merge, file or update the issue that owns it. After a base sync, inspect what changed in agent guides, workflow docs and skills
 since the previous base, and meet any new delivery requirement, such as a design
 approval, before pushing. Each pass reads the full feedback state from GitHub (review comments,
 reviews, top-level comments and unresolved review threads), not only what the
 wakeup names: the T3 Code watcher skips comments posted from the agent's own
-GitHub account, which is often the user's. Implementation edits made while babysitting follow
-[review depth and invalidation](implementation-review.md#review-depth) before
-they are pushed. OCR reuse also follows the
-[incremental checkpoint procedure](implementation-review.md#incremental-ocr-checkpoints). Each
-pass ends once it has
-handled the feedback and gate state available now.
-
-The [four-round safeguard](implementation-review.md#four-round-safeguard) applies
-to these local review sequences and reviewer fix loops. Feedback after a
-successful implementation review starts a fresh allowance, retaining earlier
-findings and rethink history.
+GitHub account, which is often the user's. A behavior change made while babysitting gets a fresh
+[review](implementation-review.md#review) before it is pushed. Each pass ends
+once it has handled the feedback and gate state available now.
 
 Babysitting as a whole ends
 when the PR is merged or closed; [automatic merge](#automatic-merge) performs

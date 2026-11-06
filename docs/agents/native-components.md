@@ -56,7 +56,7 @@ Use DESIGN.md's tokens where the component supports customization. Prefer its
 system appearance and behavior over rebuilding it to reproduce a mockup's
 dimensions or animation curve. Product requirements still govern behavior and
 Draft safety. Resolve requirement changes through the existing
-[decision authority policy](implementation-review.md#decision-panel) and reconcile the
+[decision authority policy](implementation-review.md#decisions) and reconcile the
 relevant documents. A visible design change follows the existing
 [Figma design approval](implementation-review.md#design-approval) before UI code.
 This policy does not authorize dropping required behavior to fit a component.
@@ -129,7 +129,6 @@ session catalogue; discover and vet a missing skill only for a needed capability
 - Component APIs and refactors: apply `vercel-composition-patterns` only to the components the task needs.
 - TypeScript models and contracts: `typescript-best-practices`.
 - Behavior and regression coverage: `functionality-testing`, with real native evidence where the behavior depends on the host.
-- Simplicity and minimal changes: apply `ponytail` under the root guide, subject to this policy's provided-component preference.
 - Measured performance problems: Callstack's `react-native-best-practices`; resolve it through skill discovery when needed, rather than installing it for every task.
 
 Apply guidance to the host's installed versions. Repository component selection,

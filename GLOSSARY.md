@@ -4,14 +4,12 @@ This product helps people manage email with built-in AI assistance. Users may
 separately authorize External Agents to access their mail.
 Its vocabulary belongs to one domain, organized by reading topic below.
 
-Read the topic relevant to your task and its observable requirements. Only the
-review agent follows architecture and ADR links under the
-[implementation and review workflow](docs/agents/implementation-review.md).
+Read the topic relevant to your task and its observable requirements.
 Definitions include the retired Swift prototype, accepted replacement and future
 work. A term's presence does not establish first-release scope or implementation;
 use [the documentation index](docs/README.md) and the
 [power-user launch specification](docs/product/power-user-launch.md) for current
-scope. The review agent verifies it against
+scope. Verify it against
 [ADR 0069](docs/adr/0069-expand-the-apple-launch-to-power-user-mail.md).
 
 ## Language
@@ -30,10 +28,10 @@ scope. The review agent verifies it against
 ## Relationships
 
 Behavior notes are grouped by topic in the table above. They preserve the former
-observable relationship rules, including prototype constraints. Separate reviewer-only
+observable relationship rules, including prototype constraints. Separate architecture
 companions contain architecture and links to decisions that establish or supersede
-those rules. The review agent reads those sources
-before approving a rule that mentions v1, first release, migration or
+those rules. Read those sources
+before applying or approving a rule that mentions v1, first release, migration or
 platform-specific behavior.
 
 ## Example dialogue

@@ -1,7 +1,7 @@
 # Native Mac client and mock Inbox
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/macos-client.md).
+Architecture notes live in the separate [architecture companion](architecture/macos-client.md).
 
 `apps/macos` implements [#593](https://github.com/unwired-dev/product/issues/593)
 with AppKit windows and React Native macOS views. It reads the same synthetic

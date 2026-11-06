@@ -1,7 +1,6 @@
 # Error reporting: architecture notes
 
-Reviewer-only companion to [the telemetry requirements and operations](../telemetry.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [the telemetry requirements and operations](../telemetry.md).
 This records issue #1049's implementation; native and live-vendor release
 qualification remains blocked by the checks in #1050.
 

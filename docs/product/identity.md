@@ -1,7 +1,7 @@
 # Identity and devices: behavior notes
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/product/identity.md).
+Architecture notes live in the separate [architecture companion](../architecture/product/identity.md).
 
 [Vocabulary](../domain/identity.md) · [Domain index](../../GLOSSARY.md)
 
@@ -12,8 +12,7 @@ replacement's current creation, switching and restoration support and its remain
 gaps. Profile Record Scope also describes prototype migration behavior.
 
 These observable requirements were separated from the former monolithic glossary
-and its implementation notes. The reviewer owns the separate architecture companion
-under the [implementation and review workflow](../agents/implementation-review.md).
+and its implementation notes.
 “v1” and “first release” in these notes refer to their original feature scope.
 They do not establish replacement launch requirements or proof that a feature is
 implemented.

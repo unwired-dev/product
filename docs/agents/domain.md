@@ -11,14 +11,11 @@ its topic glossaries within one product domain.
 Start at [GLOSSARY.md](../../GLOSSARY.md), open the relevant topic glossary, and
 read the observable requirements relevant to the task. Read related topics only
 when the task crosses their concepts. Use the established terms in issues, code,
-tests and documentation. Under the
-[implementation and review workflow](implementation-review.md), only the review
-agent follows ADR links and reads the separate architecture files. The implementer leaves
-architecture interpretation and corrections to that agent.
+tests and documentation, and follow ADR links where the task touches a decision.
 
 Check [the documentation index](../README.md) and the
 [power-user launch scope](../product/power-user-launch.md) for current scope.
-Reviewers verify the applicable decisions and explicit supersessions. A glossary entry, old
+Verify the applicable decisions and explicit supersessions. A glossary entry, old
 "v1" rule or historical discussion does not establish replacement launch scope,
 implementation status or passing qualification. Surface conflicts explicitly.
 

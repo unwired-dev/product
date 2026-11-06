@@ -9,12 +9,11 @@ with Gmail, IMAP/SMTP and Microsoft mail. Android and Windows remain later slice
 Google and Apple Product Sign-In replace Apple-only login.
 
 Start with [the documentation index](docs/README.md)
-for requirements, setup and validation.
-The review agent reads [the architecture index](docs/architecture/README.md)
-under the [implementation and review workflow](docs/agents/implementation-review.md).
+for requirements, setup and validation, and
+[the architecture index](docs/architecture/README.md) for design decisions.
 Follow [Expo setup](docs/expo-client.md) for mobile coding conventions and commands.
-Full platform qualification remains required before release; the reviewer tracks
-its evidence through the architecture index.
+Full platform qualification remains required before release; the architecture
+index tracks its evidence.
 
 ## Current checkout
 
@@ -44,18 +43,16 @@ For the replacement app, follow [Expo installation and launch](docs/expo-client.
 For Mac, follow [native Mac setup](docs/macos-client.md).
 
 For optional [Graft](https://trailhq.com/graft) code navigation, install the CLI once and
-initialize the local graph from the repository root:
+build the ignored `graft/` cache from the repository root:
 
 ```sh
 npm install --global @nanonets/graft
-graft init --agents agents --no-global --no-mcp
+graft build
 ```
 
-This adds Graft instructions to `AGENTS.md` and builds the ignored `graft/` cache.
-Preserve the repository's scoped [navigation policy](AGENTS.md#graft-code-navigation)
-when regenerating tool-managed instructions.
-`.worktreeinclude` includes the cache when creating worktrees. Run `graft build`
-to regenerate it when needed.
+Register `graft mcp` in your own agent configuration. Avoid `graft init` here: it
+writes tool instructions into `AGENTS.md`, which stays tool-neutral.
+`.worktreeinclude` includes the cache when creating worktrees.
 
 `.mcp.json` registers Figma's remote MCP server for Claude Code. Approve the
 project server when Claude Code prompts, then run `/mcp`, select `figma`, and

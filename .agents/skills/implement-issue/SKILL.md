@@ -10,8 +10,7 @@ Respect explicit limits such as “local changes only” or “do not push.”
 Use the current checkout, its configured GitHub remote, authenticated `gh`, and
 the project toolchain. The
 [implementation workflow](../../../docs/agents/implementation-review.md) owns
-review depth, models, prerequisites and decision authority. Read its applicable
-branches; report unavailable prerequisites without claiming a completed handoff.
+review and decision authority; report unavailable prerequisites as blockers.
 
 ## Establish the issue and scope
 
@@ -31,7 +30,7 @@ branches; report unavailable prerequisites without claiming a completed handoff.
    (`git merge-base --is-ancestor <mergeCommit> origin/main`); trace a PR merged
    into another base, such as a stack base, to the default branch. If the issue
    is closed, already implemented, or materially blocked, establish what remains
-   and follow [decision authority](../../../docs/agents/implementation-review.md#decision-panel).
+   and follow [decision authority](../../../docs/agents/implementation-review.md#decisions).
    If it, or an issue the scope grows to include such as a remainder that is
    another open issue, carries the `in progress` label, continue only when this
    conversation establishes that it is your existing claim or the user requests
@@ -39,9 +38,8 @@ branches; report unavailable prerequisites without claiming a completed handoff.
 3. Read the root and applicable nested `AGENTS.md`, the
    [documentation index](../../../docs/README.md), relevant domain vocabulary,
    and the [issue policy](../../../docs/agents/issue-tracker.md). Follow the
-   [implementation and review workflow](../../../docs/agents/implementation-review.md).
-   The implementer must not open reviewer-only architecture documents or OCR
-   rule bodies, including when an issue links to them; route those to the reviewer.
+   [implementation and review workflow](../../../docs/agents/implementation-review.md),
+   and read the architecture notes and ADRs the issue links or the change touches.
    A substantial issue (several independent deliverables or more than one
    reviewable PR), including an explicitly named issue, is implemented through
    sub-issues. Inventory its remaining criteria, open sub-issues and related
@@ -53,9 +51,8 @@ branches; report unavailable prerequisites without claiming a completed handoff.
    slice is actionable, leave one comment naming the remaining work; automatic
    selection continues to the next candidate, otherwise report the blocker.
 4. Set up the task branch as in the workflow's
-   [implementer handoff](../../../docs/agents/implementation-review.md#implementer-handoff)
-   step 1: record and classify the working-tree state, select the branch, then
-   record the starting commit. A user-requested parallel implementation uses a
+   [Implement](../../../docs/agents/implementation-review.md#implement) step 1,
+   then record the starting commit. A user-requested parallel implementation uses a
    separate branch and delivers a separate PR, preserving the existing claim
    and PR. Stacked branches are supported; when the stack base's agent
    instructions (`AGENTS.md`, `docs/agents/`, skills) differ from current
@@ -63,14 +60,14 @@ branches; report unavailable prerequisites without claiming a completed handoff.
    changed files overlap the modules this issue will change
    (`gh pr diff <number> --name-only`), place changes to minimize conflicts with
    them, and settle any dependency on their unmerged code through
-   [decision authority](../../../docs/agents/implementation-review.md#decision-panel).
+   [decision authority](../../../docs/agents/implementation-review.md#decisions).
    Preserve unrelated edits and never commit to the default branch. Before
    editing, claim the issue from the task branch with
    `scripts/issue-claim claim <number>`; add `--takeover` or `--parallel` only
    for a takeover or parallel implementation the user requested. A refused or
    failed claim blocks implementation; rerun it after a partial failure. Recheck
    the issue state, claim comments and open PRs before each long phase: a
-   decision panel, a native build, each reviewer handoff and each push. Skip the
+   native build, the review and each push. Skip the
    claim only when an explicit user limit excludes GitHub writes, and say so.
    Identify the acceptance criteria and the checks that will demonstrate them.
    For an absolute criterion (never, always, only) that rests on provider or
@@ -168,19 +165,16 @@ starting unrelated work or changing priorities, labels, or dependencies to quali
 
 ## Implement, verify, and review
 
-Before implementation, load and apply the workflow's
-[simplicity skills](../../../docs/agents/implementation-review.md#simplicity-skills).
-Follow the root guide's coding principles, skill selection and navigation rules.
-In a fresh worktree run `mise exec -- pnpm install --frozen-lockfile`. Before
+Follow the root guide's coding principles and skill selection. In a fresh worktree run `mise exec -- pnpm install --frozen-lockfile`. Before
 editing, run the [testing policy](../../../docs/agents/testing.md)'s selected checks
 through `mise exec --` on the starting revision and record existing failures. Before
-substantial work and before the first handoff, fetch the target base and
+substantial work and before the review, fetch the target base and
 integrate upstream changes as the branch's delivery allows; when widening a
 shared type, inspect consumers added upstream since the baseline.
 
 For user-visible work, follow
 [design approval](../../../docs/agents/implementation-review.md#design-approval)
-before editing and retain its state list for the handoff.
+before editing and keep its state list for the review.
 
 Complete the issue's requested behavior, update affected documentation, and add
 a changeset when required by repository policy. File or link a separate defect that
@@ -189,32 +183,27 @@ issue's own surface and record that scope in the PR and both issues;
 otherwise make it a native blocker and deliver the rest
 with a non-closing reference.
 Before naming an external interface (URL or deep-link parameter, initial prop,
-storage key, API argument), search the implementer-readable docs for an existing
-contract, reuse its name and cite the source in the handoff.
+storage key, API argument), search the docs for an existing contract, reuse
+its name and cite the source in the PR.
 
-When the issue or workflow requires a reviewer-owned decision, such as an ADR,
-before runtime code, treat it as a gate. Delegate it first, limit parallel work
-to read-only mapping and contract drafts, and write runtime code only after its
-final report. Fold its requirements into any cross-layer contract before
-spawning implementers.
+When the issue requires a decision, such as an ADR, before runtime code, settle
+it first under [decisions](../../../docs/agents/implementation-review.md#decisions).
 
 Run the relevant checks under the [testing policy](../../../docs/agents/testing.md)
-and setup guides, including their evidence requirements. Before the first
-reviewer handoff and after each reviewer's fixes, run
-`mise exec -- scripts/pre-handoff.sh` under the
-[native resource policy](../../../docs/agents/native-validation.md#own-the-resources-used-by-the-check),
-and put its verdict line in the handoff. A shared
+and setup guides, including their evidence requirements. Before the review and
+after fixing its findings, run `mise exec -- scripts/pre-handoff.sh` under the
+[native resource policy](../../../docs/agents/native-validation.md#own-the-resources-used-by-the-check)
+and give its verdict line to the reviewer. A shared
 package change needs its dependents' suites; when the full test run is too broad,
 `mise exec -- pnpm turbo run test --filter='...[origin/main]'` selects changed
-packages and their dependents. List them in the handoff. A native change
+packages and their dependents. List them for the reviewer. A native change
 follows the [native validation guide](../../../docs/agents/native-validation.md#report-what-the-evidence-proves)'s
 local journeys, captures and failure diagnosis. Resolve failures within the
 issue's scope, and identify any blocker that prevents delivery.
 
-Select the applicable [review depth](../../../docs/agents/implementation-review.md#review-depth)
-and follow the canonical
-[handoff](../../../docs/agents/implementation-review.md#implementer-handoff).
-The workflow also governs checkout ownership, follow-up coverage and unavailable reviews.
+Then get the independent [review](../../../docs/agents/implementation-review.md#review)
+and, for user-visible changes, the
+[design review](../../../docs/agents/implementation-review.md#design-review).
 
 ## Publish and hand off
 

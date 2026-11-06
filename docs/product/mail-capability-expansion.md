@@ -306,7 +306,7 @@ unchanged. Implementation details that preserve these contracts do not require
 another product interview.
 Record settled vocabulary in its owning [topic glossary](../../GLOSSARY.md),
 behavior in feature documentation, and only qualifying architectural trade-offs
-in reviewer-owned decision records. The completed documentation review covers the accepted behavior and glossary.
+in decision records. The completed documentation review covers the accepted behavior and glossary.
 Editorial status updates and the delivery index preserve that reviewed scope.
 
 ## Delivery tickets

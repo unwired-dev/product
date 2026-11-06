@@ -54,7 +54,7 @@ completion status. Publication of a plan does not prove implementation or releas
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
 - [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
-- [Implementation handoff, simplicity review, review depth and decisions](agents/implementation-review.md)
+- [Implementation and review workflow](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Native design system: tokens, type, layout and components](../DESIGN.md)
 - [Native component selection and UI rewrite tracking](agents/native-components.md)
@@ -67,9 +67,9 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Automated reviews and PR babysitting](agents/pull-request-babysitting.md)
 - [Dedicated Gmail test accounts and protected qualification](gmail-provider-test-tenant.md)
 
-The implementer uses this index to find requirements and operational guidance.
-Only the review agent opens architecture docs and decision records under the
-[implementation and review workflow](agents/implementation-review.md).
+This index routes requirements and operational guidance; the
+[architecture index](architecture/README.md) routes architecture docs and
+decision records.
 
 ## Retired Swift prototype
 
@@ -79,12 +79,12 @@ behavior; it does not describe or qualify the maintained hosts.
 
 - [Storage and Private Sync export](storage-and-product-sync-export.md)
 
-## Review handoff
+## Architecture and evidence
 
-The [reviewer-only architecture index](architecture/README.md) routes extracted
-companions, ADRs, patterns, research, qualification evidence and historical sources.
-Implementers do not open those files. The reviewer verifies applicable decisions
-and deferred release checks under the [handoff workflow](agents/implementation-review.md).
+The [architecture index](architecture/README.md) routes extracted companions,
+ADRs, patterns, research, qualification evidence and historical sources.
+Review verifies applicable decisions and deferred release checks under the
+[implementation and review workflow](agents/implementation-review.md).
 
 Update affected operational documentation in each implementation slice.
 [Cutover #627](https://github.com/unwired-dev/product/issues/627) tracks what remains of

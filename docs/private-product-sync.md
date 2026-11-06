@@ -1,7 +1,7 @@
 # Private Sync and the Recovery Key
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/private-product-sync.md).
+Architecture notes live in the separate [architecture companion](architecture/private-product-sync.md).
 
 [#599](https://github.com/unwired-dev/product/issues/599) initializes
 Private Sync for a new Product Account on iPhone, iPad and

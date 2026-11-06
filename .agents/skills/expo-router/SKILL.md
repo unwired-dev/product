@@ -7,7 +7,7 @@ license: MIT
 
 # Expo Router Navigation
 
-Navigation and routing for Expo Router apps. For native controls and presenters, use the installed [expo-ui skill](../expo-ui/SKILL.md). Follow the repository's [design guidance](../../../DESIGN.md) for styling and colors. Resolve additional media or application-motion skills through the [skill-discovery workflow](../../../AGENTS.md#work).
+Navigation and routing for Expo Router apps. For native controls and presenters, use the installed [expo-ui skill](../expo-ui/SKILL.md). Follow the repository's [design guidance](../../../DESIGN.md) for styling and colors. Resolve additional media or application-motion skills with the `find-skills` skill.
 
 ## References
 

@@ -1,7 +1,7 @@
 # Deterministic Mock Mail Sessions
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/mock-mail-sessions.md).
+Architecture notes live in the separate [architecture companion](architecture/mock-mail-sessions.md).
 
 [#595](https://github.com/unwired-dev/product/issues/595) provides test-only
 synthetic identity, mail and assistance providers and external native runners.
