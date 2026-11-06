@@ -59,15 +59,30 @@ needs a stated reason and the narrowest scope.
   key possession stay separate. Accounts are never merged by email. Missing keys
   on an initialized account recover through trusted-device approval or the
   Recovery Key, never through new keys or an implicit reset.
+- **Isolation**: provider identities, mailbox and thread state, restored
+  credentials and keys stay scoped to their owning account, connection, device
+  and deployment.
 - **Privacy and storage**: provider credentials and decryption keys stay
   device-local. The backend stores and relays only opaque ciphertext and the
   metadata its owning decision allows. Logs and diagnostics carry allow-listed
   fields only: no mail content, tokens or account identifiers.
+- **Data loss**: durable adoption comes before cleanup, and crash or
+  uncertain-write recovery comes before destructive cleanup or new keys. Synced
+  Drafts and records keep conflicts and tombstones. An encrypted-data reset or
+  device cleanup leaves provider mail untouched.
+- **Rendering and transport**: messages render sanitized and isolated; remote
+  content loads only with per-message consent over the isolated cookie- and
+  credential-free path. Connections require TLS 1.2 or later with certificate
+  and hostname checks. Notifications show generic content unless previews are
+  explicitly turned on.
 - **Delivery**: the Outbox sends only from the originating device, after the
-  Convex ownership claim and the Undo Send window. An uncertain provider
-  outcome never triggers an automatic resubmission.
-- **Assistance**: runs on device over bounded local input and returns a preview;
-  cancellation, refusal or staleness leaves mail and Drafts unchanged.
+  Convex ownership claim and the Undo Send window. Offline queueing does not
+  authorize provider submission, and an uncertain provider outcome never
+  triggers an automatic resubmission.
+- **Assistance**: runs on device over bounded local input, with no network or
+  backend dependency. Explicit actions return an ephemeral preview; summaries
+  and unaccepted outputs never sync or reach a server. Cancellation, refusal or
+  staleness leaves mail and Drafts unchanged.
 - **Untrusted input**: decoded with Schema at the boundary and fails closed.
 - **Boundaries**: shared packages stay free of React, React Native, Expo and
   native modules; packages import each other by name per

@@ -5,8 +5,7 @@ This test-only evaluation does not adopt or replace the production editor.
 
 ## Scenario selection
 
-This selection was decided by the
-[decision panel](../agents/implementation-review.md#decisions): a separate build
+This selection was decided by an advisory decision panel: a separate build
 flag usable with real accounts (option B) lost 3–0 to the scenario-bound selection
 (option A). Panelists `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra` each chose
 A because it satisfies the disposable-Draft requirement by construction and reuses
