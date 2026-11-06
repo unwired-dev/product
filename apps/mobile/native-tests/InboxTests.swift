@@ -3055,6 +3055,15 @@ final class InboxTests: XCTestCase {
     unread.tap()
     dismiss()
     XCTAssertTrue(unreadSummary.waitForExistence(timeout: 5))
+    if pad {
+      // Escape discards the same way, through SwiftUI's own popover key command. XCUITest's
+      // Escape never reaches the simulator, but UIKit delivers Command-period as Escape.
+      open()
+      unread.tap()
+      app.typeKey(".", modifierFlags: .command)
+      XCTAssertTrue(apply.waitForNonExistence(timeout: 10))
+      XCTAssertTrue(unreadSummary.waitForExistence(timeout: 5))
+    }
     open()
     if pad {
       XCUIDevice.shared.orientation = .landscapeLeft

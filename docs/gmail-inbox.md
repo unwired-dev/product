@@ -197,10 +197,10 @@ filter's one criterion, or how many apply. On iPhone the field gives way to a
 Pressing the summary opens **Filters**: the system sheet (`BottomSheet` from
 `@expo/ui`) on iPhone and in a compact-width iPad window, and in a regular-width iPad
 window a 420pt system popover (`Popover` from `@expo/ui`) on the Filter control. iOS
-presents, places and dismisses both. Swipe down to dismiss the sheet or tap outside
-to dismiss the popover. The popover stays on the control while the window changes
-size; narrowing the window to compact width closes it without applying. Both keep
-the edited choices until they close:
+presents, places and dismisses both. Swipe down to dismiss the sheet, and tap outside
+or press Escape on a hardware keyboard to dismiss the popover. The popover stays on
+the control while the window changes size; narrowing the window to compact width
+closes it without applying. Both keep the edited choices until they close:
 
 - **Include Mail From**, in **All inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.
