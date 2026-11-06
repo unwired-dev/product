@@ -88,12 +88,12 @@ export function SpamTrashFolders({
                   <Host matchContents>
                     <SwiftUIButton
                       label={label}
-                      // A Secondary push button: the quiet fill with primary text. VoiceOver
-                      // names the connection, as the iPhone row does.
+                      // A Secondary push button: the quiet fill with primary text. Its name
+                      // retains the visible action and identifies the connection.
                       modifiers={[
                         buttonStyle('bordered'),
                         tint(colors.textPrimary),
-                        accessibilityLabel(mailbox.address),
+                        accessibilityLabel(`${label} ${mailbox.address}`),
                         accessibilityHint(label),
                       ]}
                       onPress={open}

@@ -3116,6 +3116,37 @@ describe('product registration', () => {
     expect(row()).toHaveAccessibilityValue({
       text: 'Spam: Junk · Trash: Deleted Messages · chosen by you',
     });
+    // iPad's separate button retains its visible action and identifies the connection.
+    const columns = jest.replaceProperty(
+      jest.requireActual<{ settingsColumns: boolean }>('../src/settings.tsx'),
+      'settingsColumns',
+      true,
+    );
+    try {
+      await act(connections.load);
+      const change = screen.getByRole('button', {
+        name: 'Change… alex@example.invalid',
+      });
+      await act(async () => {
+        await fireEvent.press(change);
+      });
+      expect(screen.getByLabelText('Trash')).toHaveAccessibilityValue({
+        text: 'Deleted Messages',
+      });
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      });
+      imap.removeFolder('Junk');
+      await act(connections.load);
+      expect(
+        screen.getByRole('button', {
+          name: 'Choose Folders… alex@example.invalid',
+        }),
+      ).toBeVisible();
+    } finally {
+      columns.restore();
+    }
+    imap.addFolder('Junk', ['junk']);
     // Once its server marks both, the connection needs no choice and the group leaves.
     imap.addFolder('Deleted Messages', ['trash']);
     await act(connections.load);
