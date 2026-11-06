@@ -53,17 +53,19 @@ type Context = Readonly<{
 
 // A table holds rows of cells, and only where both standards and quirks mode show its cells with
 // the formatting the document gives them.
-const tableStarts = (context: Context) =>
-  context.kind === 'paragraph' &&
-  context.list === undefined &&
-  context.table === undefined &&
-  context.align === undefined &&
-  context.left !== true &&
-  context.format.marks.length === 0 &&
-  context.format.link === undefined &&
-  context.format.color === undefined &&
-  context.format.background === undefined &&
-  context.format.size === undefined;
+const tableStarts = ({ kind, list, table, align, left, format }: Context) =>
+  kind === 'paragraph' &&
+  [
+    list,
+    table,
+    align,
+    format.link,
+    format.color,
+    format.background,
+    format.size,
+  ].every((value) => value === undefined) &&
+  left !== true &&
+  format.marks.length === 0;
 const inRows = (context: Context) =>
   context.table !== undefined && context.cell === undefined;
 const tableParts =
@@ -415,19 +417,20 @@ const shownBorder = (property: string, value: string) => {
 // Tables size and space their cells themselves; a border that does not show changes nothing.
 const tableLayout =
   /^(?:width|height|min-width|max-width|min-height|max-height|table-layout|border-collapse|border-spacing)$/u;
+// Auto margins align a table.
+const tableAligns = (property: string, value: string) =>
+  property.startsWith('margin') && /\bauto\b/iu.test(value);
+const tableIgnores = (property: string, value: string) =>
+  tableLayout.test(property) ||
+  (property.startsWith('border') && !shownBorder(property, value));
 const otherProperty =
   (property: string, table: boolean): Rule =>
   (context, value) => {
-    if (
-      table &&
-      (tableLayout.test(property) ||
-        (property.startsWith('border') && !shownBorder(property, value)))
-    ) {
-      return context;
-    }
-    // Auto margins align a table.
-    if (table && property.startsWith('margin') && /\bauto\b/iu.test(value)) {
+    if (table && tableAligns(property, value)) {
       return undefined;
+    }
+    if (table && tableIgnores(property, value)) {
+      return context;
     }
     if (property.startsWith('border')) {
       return context.kind === 'quote' && shownBorder(property, value)
@@ -436,6 +439,17 @@ const otherProperty =
     }
     return ignoredProperties.test(property) ? context : undefined;
   };
+
+// Whether a merged cell in the row group starting at `group` spans past its last row.
+const crossesGroup = (
+  rows: ReadonlyArray<ReadonlyArray<{ rows?: number }>>,
+  group: number,
+) =>
+  rows
+    .slice(group)
+    .some((cells, index) =>
+      cells.some((cell) => group + index + (cell.rows ?? 1) > rows.length),
+    );
 
 // A merged cell spans up to the 1000 columns browsers allow.
 const spanRule =
@@ -984,27 +998,22 @@ export function documentFromHtml(html: string): DraftHtml {
       }
     }
   };
+  // A header shows above earlier rows, and a merged cell ends with its row group.
+  const startRowGroup = (tag: string) => {
+    if (tag === 'thead' && rows.length > 0) {
+      unsupported.add('thead');
+    }
+    if (crossesGroup(rows, group)) {
+      unsupported.add('rowspan');
+    }
+    group = rows.length;
+  };
   const startTablePart = (tag: string, inner: Context) => {
     if (tag === 'table') {
       rows = [];
       group = 0;
     } else if (tag === 'tbody' || tag === 'thead') {
-      // A header shows above earlier rows, and a merged cell ends with its row group.
-      if (tag === 'thead' && rows.length > 0) {
-        unsupported.add('thead');
-      }
-      if (
-        rows
-          .slice(group)
-          .some((cells, index) =>
-            cells.some(
-              (cell) => group + index + (cell.rows ?? 1) > rows.length,
-            ),
-          )
-      ) {
-        unsupported.add('rowspan');
-      }
-      group = rows.length;
+      startRowGroup(tag);
     } else if (tag === 'tr') {
       rows.push([]);
     } else if (tag === 'td' || tag === 'th') {
