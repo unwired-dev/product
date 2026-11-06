@@ -6,6 +6,7 @@ import type {
   DraftAssistanceInput,
   DraftAssistanceState,
   NativeAssistance,
+  TextTool,
 } from '@private-email/mail-core/assistance';
 
 import {
@@ -386,6 +387,7 @@ export function DraftAssistance({
   input,
   onApply,
   onClose,
+  onPending,
 }: {
   readonly native: NativeAssistance;
   readonly original: CapturedDraftText;
@@ -395,10 +397,17 @@ export function DraftAssistance({
   readonly input: DraftAssistanceInput | undefined;
   readonly onApply: (replacement: string) => void;
   readonly onClose: () => void;
+  // Whether its request is running or its result waits to be used, rather than why there is none.
+  readonly onPending?: ((pending: boolean) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
+  const pending =
+    input !== undefined && (!finished(state) || state.kind === 'ready');
+  useLayoutEffect(() => {
+    onPending?.(pending);
+  }, [onPending, pending]);
   const check =
     state.kind === 'ready' && isTextTool(purpose)
       ? checkDetails(original, state.text)
@@ -510,6 +519,59 @@ export function DraftAssistance({
             {retryAction}
           </>
         )}
+      </View>
+    </View>
+  );
+}
+
+// Says that a Writing tools result was dropped because the Draft changed while it was made or
+// shown. Rewrite again starts the tool over from the current text.
+export function DroppedAssistance({
+  purpose,
+  onRewrite,
+  onClose,
+}: {
+  readonly purpose: TextTool;
+  readonly onRewrite: () => void;
+  readonly onClose: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const message = t('assistance.dropped');
+  useOutcomeAnnouncement(message, false);
+  return (
+    <View
+      accessibilityLabel={t(`assistance.${purpose}Title`)}
+      style={[
+        styles.panel,
+        {
+          borderColor: colors.separator,
+          backgroundColor: colors.onDeviceSurface,
+        },
+      ]}>
+      <OnDeviceMarker
+        compact
+        label={t('assistance.droppedMarker', {
+          tool: t(`assistance.${purpose}Title`),
+        })}
+      />
+      <Text
+        selectable
+        accessibilityRole="alert"
+        style={[styles.text, { color: colors.textPrimary }]}>
+        {message}
+      </Text>
+      <View style={styles.buttons}>
+        <Button
+          label={t('assistance.rewriteAgain')}
+          accessibilityLabel={t('assistance.rewriteAgainLabel')}
+          onPress={onRewrite}
+        />
+        <Button
+          label={t('assistance.close')}
+          accessibilityLabel={t('assistance.closeLabel')}
+          onPress={onClose}
+        />
       </View>
     </View>
   );

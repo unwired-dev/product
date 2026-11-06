@@ -3640,11 +3640,18 @@ describe('composing Drafts', () => {
     await press('Try writing help again');
     expect(asked).toHaveLength(5);
 
-    // Editing the Draft while a rewrite is pending makes it stale: it is cancelled and its late
-    // result is never offered.
+    // Editing the Draft while a rewrite is pending makes it stale: it is cancelled, its late
+    // result is never offered, and the panel says so.
     await fireEvent.changeText(body(), 'lets meet saturday. thanks');
     expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
     expect(cancelled).toStrictEqual([asked[3]?.request, asked[4]?.request]);
+    const dropped =
+      'Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.';
+    expect(screen.getByText(dropped)).toBeOnTheScreen();
+    expect(screen.getByLabelText('Rewrite · On device')).toBeOnTheScreen();
+    expect(
+      jest.mocked(AccessibilityInfo.announceForAccessibility),
+    ).toHaveBeenLastCalledWith(dropped);
     asked[4]?.answer.resolve('Too late.');
     await expect(
       screen.findByRole('button', { name: 'Writing tools' }),
@@ -3653,6 +3660,37 @@ describe('composing Drafts', () => {
     expect(body()).toHaveTextContent('lets meet saturday. thanks', {
       exact: true,
     });
+    // Rewrite again starts over from the current text and selection, as the menu does; a shown
+    // result is dropped the same way.
+    await press('Rewrite your current text again');
+    expect(screen.queryByText(dropped)).toBeNull();
+    expect(parseJson(asked[5]!.input)).toStrictEqual({
+      operation: 'rewrite',
+      authoredText: 'lets meet saturda',
+    });
+    asked[5]?.answer.resolve('Let us meet on Saturday.');
+    await screen.findByText('Let us meet on Saturday.');
+    await fireEvent.changeText(body(), 'lets meet sunday. thanks');
+    expect(screen.queryByText('Let us meet on Saturday.')).toBeNull();
+    expect(screen.getByText(dropped)).toBeOnTheScreen();
+    await press('Close this notice');
+    expect(screen.queryByText(dropped)).toBeNull();
+    // A failure has no result to drop, so an edit just closes it.
+    await writingTool('Rewrite');
+    await act(async () => {
+      asked[6]?.answer.reject(new Error('failed'));
+      await asked[6]?.answer.promise.catch(() => undefined);
+    });
+    await screen.findByText(
+      'The suggestion could not be created. Your text is unchanged.',
+    );
+    await fireEvent.changeText(body(), 'lets meet monday. thanks');
+    expect(
+      screen.queryByText(
+        'The suggestion could not be created. Your text is unchanged.',
+      ),
+    ).toBeNull();
+    expect(screen.queryByText(dropped)).toBeNull();
 
     // Account replacement retires the composer and its pending assistance, even with the same mailbox.
     await writingTool('Rewrite');
@@ -3666,17 +3704,17 @@ describe('composing Drafts', () => {
     await act(() => {
       oldWritingTools({ nativeEvent: { id: 'rewrite' } });
     });
-    asked[5]?.answer.resolve('Late for the old account.');
+    asked[7]?.answer.resolve('Late for the old account.');
     await act(async () => {
-      await asked[5]?.answer.promise;
+      await asked[7]?.answer.promise;
     });
     expect(screen.queryByLabelText('Message body')).toBeNull();
     expect(screen.queryByText('Late for the old account.')).toBeNull();
-    expect(asked).toHaveLength(6);
+    expect(asked).toHaveLength(8);
     expect(cancelled).toStrictEqual([
       asked[3]?.request,
       asked[4]?.request,
-      asked[5]?.request,
+      asked[7]?.request,
     ]);
   });
 

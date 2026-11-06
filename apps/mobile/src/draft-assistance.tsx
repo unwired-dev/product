@@ -6,6 +6,7 @@ import type {
   DraftAssistanceInput,
   DraftAssistanceState,
   NativeAssistance,
+  TextTool,
 } from '@private-email/mail-core/assistance';
 
 import {
@@ -445,6 +446,7 @@ export function DraftAssistance({
   input,
   onApply,
   onClose,
+  onPending,
 }: {
   readonly native: NativeAssistance;
   readonly original: CapturedDraftText;
@@ -454,10 +456,17 @@ export function DraftAssistance({
   readonly input: DraftAssistanceInput | undefined;
   readonly onApply: (replacement: string) => void;
   readonly onClose: () => void;
+  // Whether its request is running or its result waits to be used, rather than why there is none.
+  readonly onPending?: ((pending: boolean) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
+  const pending =
+    input !== undefined && (!finished(state) || state.kind === 'ready');
+  useLayoutEffect(() => {
+    onPending?.(pending);
+  }, [onPending, pending]);
   // iPhone stacks a checked result's buttons; iPad sets them out side by side and wraps any that do
   // not fit a narrow composer.
   const stacked = !ipad;
@@ -597,6 +606,88 @@ export function DraftAssistance({
         />
       )}
       {actions}
+    </View>
+  );
+}
+
+// Says that a Writing tools result was dropped because the Draft changed while it was made or
+// shown. Rewrite again starts the tool over from the current text. iPhone gives its two buttons
+// equal halves of the card; iPad sets them out at their own width.
+export function DroppedAssistance({
+  purpose,
+  onRewrite,
+  onClose,
+}: {
+  readonly purpose: TextTool;
+  readonly onRewrite: () => void;
+  readonly onClose: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const message = t('assistance.dropped');
+  useOutcomeAnnouncement(message, false);
+  const button = (
+    label: string,
+    accessibilityLabel: string,
+    onPress: () => void,
+  ) => (
+    <SwiftUIButton
+      onPress={onPress}
+      modifiers={[
+        buttonStyle('bordered'),
+        controlSize('large'),
+        tint(colors.textPrimary),
+        spokenLabel(accessibilityLabel),
+      ]}>
+      <SwiftUIText modifiers={ipad ? [] : [frame({ maxWidth: Infinity })]}>
+        {label}
+      </SwiftUIText>
+    </SwiftUIButton>
+  );
+  const rewrite = button(
+    t('assistance.rewriteAgain'),
+    t('assistance.rewriteAgainLabel'),
+    onRewrite,
+  );
+  const close = button(
+    t('assistance.close'),
+    t('assistance.closeLabel'),
+    onClose,
+  );
+  return (
+    <View
+      accessibilityLabel={t(`assistance.${purpose}Title`)}
+      style={[
+        styles.panel,
+        {
+          borderColor: colors.separator,
+          backgroundColor: colors.onDeviceSurface,
+        },
+      ]}>
+      <OnDeviceMarker
+        label={t('assistance.droppedMarker', {
+          tool: t(`assistance.${purpose}Title`),
+        })}
+      />
+      <Text
+        selectable
+        accessibilityRole="alert"
+        style={[styles.text, { color: colors.textPrimary }]}>
+        {message}
+      </Text>
+      {ipad ? (
+        <View style={styles.buttons}>
+          <Host matchContents>{rewrite}</Host>
+          <Host matchContents>{close}</Host>
+        </View>
+      ) : (
+        <Host matchContents={{ vertical: true }}>
+          <HStack spacing={spacing.s}>
+            {rewrite}
+            {close}
+          </HStack>
+        </Host>
+      )}
     </View>
   );
 }
