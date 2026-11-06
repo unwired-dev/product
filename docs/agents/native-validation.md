@@ -339,8 +339,11 @@ The audit handler permits these known findings:
   and for which the handler permits at most one unlocated-text finding;
 - the contrast of a disabled button, which WCAG does not require, such as the
   iPad Link Editor's Apply before a link is entered;
-- unlocated text while the iPad Link Editor popover is open, the same
-  undiagnosed finding as iPad's Filters popover (#1403).
+- unlocated text while an iPad popover is open, such as the Link Editor,
+  Filters or Sync Status details: the popover hides the window behind it from
+  accessibility, and the audit reports the text it still sees there, such as
+  the Mailboxes sidebar's rows. A plain UIKit split view behind a SwiftUI
+  popover does the same (#1403).
 
 Other findings fail the journey. On iPad the composer and its Link Editor are
 audited expanded:
