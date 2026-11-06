@@ -394,6 +394,8 @@ const borderShorthand =
   /^border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/u;
 const borderLine =
   /^(?:solid|dotted|dashed|double|groove|ridge|inset|outset)$/iu;
+const hidesBorder = (part: string) =>
+  noBorder.test(part) || Number(borderLength.exec(part)?.[1]) === 0;
 const shownBorder = (property: string, value: string) => {
   if (property === 'border-radius') {
     return true;
@@ -406,10 +408,7 @@ const shownBorder = (property: string, value: string) => {
   const parts = literal.split(/[\t\n\f\r ]+/u);
   return (
     !literal.includes('(') &&
-    !parts.some(
-      (part) =>
-        noBorder.test(part) || Number(borderLength.exec(part)?.[1]) === 0,
-    ) &&
+    !parts.some(hidesBorder) &&
     (!borderShorthand.test(property) ||
       parts.some((part) => borderLine.test(part)))
   );
@@ -420,9 +419,16 @@ const tableLayout =
 // Auto margins align a table.
 const tableAligns = (property: string, value: string) =>
   property.startsWith('margin') && /\bauto\b/iu.test(value);
+// Only a border proven hidden is ignored: no style, no width or a transparent color, on every side.
+const hiddenBorder = (property: string, value: string) => {
+  const parts = value.split(/[\t\n\f\r ]+/u);
+  return borderShorthand.test(property)
+    ? parts.some(hidesBorder)
+    : property !== 'border-radius' && parts.every(hidesBorder);
+};
 const tableIgnores = (property: string, value: string) =>
   tableLayout.test(property) ||
-  (property.startsWith('border') && !shownBorder(property, value));
+  (property.startsWith('border') && hiddenBorder(property, value));
 const otherProperty =
   (property: string, table: boolean): Rule =>
   (context, value) => {
