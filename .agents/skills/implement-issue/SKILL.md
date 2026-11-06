@@ -190,8 +190,9 @@ When the issue requires a decision, such as an ADR, before runtime code, settle
 it first under [decisions](../../../docs/agents/implementation-review.md#decisions).
 
 Run the relevant checks under the [testing policy](../../../docs/agents/testing.md)
-and setup guides, including their evidence requirements. Before the review and
-after fixing its findings, run `mise exec -- scripts/pre-handoff.sh` under the
+and setup guides, including their evidence requirements. For changes that
+include code, before the review and after fixing its findings, run
+`mise exec -- scripts/pre-handoff.sh` under the
 [native resource policy](../../../docs/agents/native-validation.md#own-the-resources-used-by-the-check)
 and give its verdict line to the reviewer. A shared
 package change needs its dependents' suites; when the full test run is too broad,

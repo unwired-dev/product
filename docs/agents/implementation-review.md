@@ -44,7 +44,8 @@ User-visible changes also pass the [design review](#design-review).
 ## Review checklist
 
 Report a defect only when the change introduces or worsens it and the code you
-read shows it is reachable. Defects in privacy, identity isolation, encryption,
+read shows it is reachable, or, for documentation, when the code, a link or a
+documented requirement shows the text is wrong. Defects in privacy, identity isolation, encryption,
 data loss, Draft safety or duplicate delivery block the PR. Anything else
 blocks only when it breaks a documented requirement or an item below.
 
