@@ -123,6 +123,16 @@ separately.
   invitation carries no rule, so the card does not say how the series repeats. The
   `RECURRENCE-ID` must be the only one, without a `RANGE`, the same timed or all-day
   type as the start and in a readable time zone, with no `RRULE`, `RDATE` or `EXDATE`.
+- An update that names one meeting with its `RECURRENCE-ID` but also carries a
+  readable weekly series' `RRULE`
+  ([#1875](https://github.com/unwired-dev/product/issues/1875)) doesn't say which
+  meeting it changes. It shows the meeting under **Invitation from {organizer}**
+  with **When** as for the series but no series line and no **Invited** row, then
+  **Unwired can’t tell which meeting this is** and **This update doesn’t identify
+  one meeting in the series, so you can’t respond to it or add it here. Ask
+  {organizer} to send it again.** It offers no response, so it shows the same way
+  for a cancellation and whether or not it names the opened mailbox. A `RANGE` or
+  an unreadable rule still shows **Unwired can’t read this invitation**.
 - Other recurring meetings, a range of a series' meetings (`RANGE`), series
   with `RDATE` or `EXDATE`, all-day series, floating or unknown time zones,
   a timed meeting whose `DURATION` counts days, and damaged calendar text show
