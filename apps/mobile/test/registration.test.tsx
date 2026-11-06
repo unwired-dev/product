@@ -2989,7 +2989,7 @@ describe('product registration', () => {
   /* oxlint-enable vitest/max-expects */
 
   it('chooses and changes Spam and Trash folders for an IMAP connection from Settings › Email Accounts, asking again for a removed folder and leaving once its server marks both', async () => {
-    /* oxlint-disable vitest/max-expects -- One journey proves the needed row, saving, Change…, a removed folder and leaving. */
+    /* oxlint-disable vitest/max-expects -- One journey proves the needed row, saved values, removed folders and server-role eligibility. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Kept IMAP message' });
@@ -3077,6 +3077,12 @@ describe('product registration', () => {
       await fireEvent.press(row());
     });
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(screen.getByLabelText('Spam')).toHaveAccessibilityValue({
+      text: 'Bulk Mail',
+    });
+    expect(screen.getByLabelText('Trash')).toHaveAccessibilityValue({
+      text: 'Deleted Messages',
+    });
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
     });
@@ -3087,8 +3093,30 @@ describe('product registration', () => {
       text: 'Spam not chosen · not in All Mail',
     });
     expect(screen.getByHintText('Choose Folders…')).toBe(row());
-    // Once its server marks both, the connection needs no choice and the group leaves.
+    // A readable All folder prevents a choice; an unselectable one does not.
+    imap.addFolder('Everything', ['all']);
+    await act(connections.load);
+    expect(
+      screen.queryByRole('header', { name: 'Spam and Trash Folders' }),
+    ).toBeNull();
+    imap.addFolder('Everything', ['all'], false);
+    await act(connections.load);
+    expect(row()).toHaveAccessibilityValue({
+      text: 'Spam not chosen · not in All Mail',
+    });
+    // Several server-marked folders cannot be repaired by choosing just one of them.
     imap.addFolder('Junk', ['junk']);
+    imap.addFolder('Old Junk', ['junk']);
+    await act(connections.load);
+    expect(
+      screen.queryByRole('header', { name: 'Spam and Trash Folders' }),
+    ).toBeNull();
+    imap.removeFolder('Old Junk');
+    await act(connections.load);
+    expect(row()).toHaveAccessibilityValue({
+      text: 'Spam: Junk · Trash: Deleted Messages · chosen by you',
+    });
+    // Once its server marks both, the connection needs no choice and the group leaves.
     imap.addFolder('Deleted Messages', ['trash']);
     await act(connections.load);
     expect(
