@@ -28,12 +28,8 @@ import type { InboxMailbox } from './private-storage.ts';
 import { MenuButton, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
-import {
-  useAllMailboxes,
-  useMailboxes,
-  useProfile,
-  useReloadMailboxes,
-} from './mailbox.tsx';
+import { useAllMailboxes } from './mailbox-list.ts';
+import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette, useProfilePalette } from './theme.ts';

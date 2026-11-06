@@ -259,12 +259,13 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [NSApp addWindowsItem:window title:window.title filename:NO];
 }
 
-// Choose Folders… in an Inbox window's notice opens an IMAP connection's Spam and Trash choice as
-// a sheet on that window, in a React root of its own. React Native macOS 0.81.9's Modal is
-// iOS-only; remove these sheet methods when React Native macOS presents a Modal as a sheet.
+// Choose Folders… in an Inbox window's notice, or in Settings › Email Accounts, opens an IMAP
+// connection's Spam and Trash choice as a sheet on that window, in a React root of its own. React
+// Native macOS 0.81.9's Modal is iOS-only; remove these sheet methods when React Native macOS
+// presents a Modal as a sheet.
 - (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile
 {
-  NSWindow *window = nil;
+  NSWindow *window = [self.settingsWindow.window.identifier isEqualToString:identifier] ? self.settingsWindow.window : nil;
   for (NSWindowController *controller in self.inboxWindows) {
     if ([controller.window.identifier isEqualToString:identifier]) window = controller.window;
   }
